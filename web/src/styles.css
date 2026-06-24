@@ -573,9 +573,25 @@ button.team-avatar {
 }
 
 .card-assign-menu {
-  min-width: 150px;
-  max-height: 260px;
+  max-height: 280px;
   overflow-y: auto;
+}
+
+.card-assign-cols {
+  display: flex;
+  align-items: stretch;
+}
+
+.card-assign-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 130px;
+}
+
+.card-assign-col + .card-assign-col {
+  border-left: 1px solid var(--line-soft);
+  margin-left: 3px;
+  padding-left: 3px;
 }
 
 .card-assign-head {

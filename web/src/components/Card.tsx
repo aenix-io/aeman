@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
 import { initials, teamColor } from "../avatar";
 import { addDays, todayIso } from "../date";
+import { Dropdown } from "./Dropdown";
 
 interface CardProps {
   card: CardModel;
@@ -78,26 +79,6 @@ export function Card({
   // While dragging the handle, show the snapped drag value; otherwise the card's.
   const shown = dragValue ?? value;
   const filled = Math.round(shown / 10);
-
-  // Close the stage menu on any outside click.
-  useEffect(() => {
-    if (!menuOpen && !startMenuOpen && !assignOpen) {
-      return;
-    }
-    const onDocClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-      if (startRef.current && !startRef.current.contains(e.target as Node)) {
-        setStartMenuOpen(false);
-      }
-      if (assignRef.current && !assignRef.current.contains(e.target as Node)) {
-        setAssignOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [menuOpen, startMenuOpen, assignOpen]);
 
   // Progress is changed only by dragging the handle, which snaps to 10% steps.
   const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -251,33 +232,36 @@ export function Card({
           >
             ⚑
           </button>
-          {menuOpen && (
-            <div className="card-stage-menu" onClick={(e) => e.stopPropagation()}>
-              {STAGE_ORDER.map((stage) => (
-                <button
-                  key={stage}
-                  type="button"
-                  className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
-                  onClick={(e) =>
-                    stage === "locked" ? requestLock(e) : pickStage(e, stage)
-                  }
-                >
-                  <span
-                    className="card-stage-dot"
-                    style={{ background: STAGES[stage].color }}
-                  />
-                  {STAGES[stage].label}
-                </button>
-              ))}
+          <Dropdown
+            open={menuOpen}
+            anchorRef={menuRef}
+            onClose={() => setMenuOpen(false)}
+            className="card-stage-menu"
+          >
+            {STAGE_ORDER.map((stage) => (
               <button
+                key={stage}
                 type="button"
-                className="card-stage-item card-stage-clear"
-                onClick={(e) => pickStage(e, null)}
+                className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
+                onClick={(e) =>
+                  stage === "locked" ? requestLock(e) : pickStage(e, stage)
+                }
               >
-                Clear
+                <span
+                  className="card-stage-dot"
+                  style={{ background: STAGES[stage].color }}
+                />
+                {STAGES[stage].label}
               </button>
-            </div>
-          )}
+            ))}
+            <button
+              type="button"
+              className="card-stage-item card-stage-clear"
+              onClick={(e) => pickStage(e, null)}
+            >
+              Clear
+            </button>
+          </Dropdown>
         </div>
         {onMoveStart && (
           <div className="card-stage" ref={startRef}>
@@ -293,41 +277,40 @@ export function Card({
             >
               »
             </button>
-            {startMenuOpen && (
-              <div className="card-stage-menu" onClick={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  className="card-stage-item"
-                  onClick={(e) => moveStartBy(e, 1)}
-                >
-                  +1 day
-                </button>
-                <button
-                  type="button"
-                  className="card-stage-item"
-                  onClick={(e) => moveStartBy(e, 7)}
-                >
-                  +1 week
-                </button>
-                <button
-                  type="button"
-                  className="card-stage-item"
-                  onClick={openCustom}
-                >
-                  Custom…
-                </button>
-                <input
-                  ref={customDateRef}
-                  type="date"
-                  className="card-date-hidden"
-                  value={card.startDate ?? ""}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => moveStartTo(e.target.value)}
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
-              </div>
-            )}
+            <Dropdown
+              open={startMenuOpen}
+              anchorRef={startRef}
+              onClose={() => setStartMenuOpen(false)}
+              className="card-stage-menu"
+            >
+              <button
+                type="button"
+                className="card-stage-item"
+                onClick={(e) => moveStartBy(e, 1)}
+              >
+                +1 day
+              </button>
+              <button
+                type="button"
+                className="card-stage-item"
+                onClick={(e) => moveStartBy(e, 7)}
+              >
+                +1 week
+              </button>
+              <button type="button" className="card-stage-item" onClick={openCustom}>
+                Custom…
+              </button>
+              <input
+                ref={customDateRef}
+                type="date"
+                className="card-date-hidden"
+                value={card.startDate ?? ""}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => moveStartTo(e.target.value)}
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+            </Dropdown>
           </div>
         )}
         <button
@@ -373,36 +356,15 @@ export function Card({
               +
             </button>
           )}
-          {assignOpen && (
-            <div
-              className="card-stage-menu card-assign-menu"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {onSetTeam && (
-                <>
-                  <div className="card-assign-head">Team</div>
-                  {(teams ?? []).map((t) => (
-                    <button
-                      key={`t-${t}`}
-                      type="button"
-                      className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
-                      onClick={() => pickAssignTeam(t)}
-                    >
-                      <span className="team-dot" style={{ background: teamColor(t) }} />
-                      {t}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="card-stage-item card-stage-clear"
-                    onClick={() => pickAssignTeam(null)}
-                  >
-                    No team
-                  </button>
-                </>
-              )}
+          <Dropdown
+            open={assignOpen}
+            anchorRef={assignRef}
+            onClose={() => setAssignOpen(false)}
+            className="card-stage-menu card-assign-menu"
+          >
+            <div className="card-assign-cols">
               {onSetAssignee && (
-                <>
+                <div className="card-assign-col">
                   <div className="card-assign-head">Person</div>
                   {(people ?? []).map((p) => (
                     <button
@@ -438,10 +400,33 @@ export function Card({
                       }
                     }}
                   />
-                </>
+                </div>
+              )}
+              {onSetTeam && (
+                <div className="card-assign-col">
+                  <div className="card-assign-head">Team</div>
+                  {(teams ?? []).map((t) => (
+                    <button
+                      key={`t-${t}`}
+                      type="button"
+                      className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
+                      onClick={() => pickAssignTeam(t)}
+                    >
+                      <span className="team-dot" style={{ background: teamColor(t) }} />
+                      {t}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="card-stage-item card-stage-clear"
+                    onClick={() => pickAssignTeam(null)}
+                  >
+                    No team
+                  </button>
+                </div>
               )}
             </div>
-          )}
+          </Dropdown>
         </div>
       )}
 
