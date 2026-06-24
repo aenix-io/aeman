@@ -10,6 +10,7 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, localDateIso, addDays } from "../date";
+import { currentSprintByTeam, sprintForNewCard } from "../sprint";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { NotesPanel, type DayNote } from "./NotesPanel";
@@ -66,33 +67,21 @@ export function MeBoard({
     [board.cards, me],
   );
 
-  // The current sprint is per team: the latest finish ≤ selectedDate for each
-  // team (cards with no team share one "no team" sprint).
-  const currentSprint = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of mine) {
-      if (!c.day || c.day > selectedDate) {
-        continue;
-      }
-      const key = c.team ?? "";
-      const cur = m.get(key);
-      if (!cur || c.day > cur) {
-        m.set(key, c.day);
-      }
-    }
-    return m;
-  }, [mine, selectedDate]);
+  // The current sprint is per team: the latest sprintStart ≤ selectedDate.
+  const currentSprint = useMemo(
+    () => currentSprintByTeam(mine, selectedDate),
+    [mine, selectedDate],
+  );
 
-  // Show a card if it belongs to its team's current sprint and has started.
+  // Show a card if it belongs to its team's current sprint.
   const myCards = useMemo(
     () =>
       mine.filter(
         (c) =>
-          c.day != null &&
-          (!c.startDate || c.startDate <= selectedDate) &&
-          currentSprint.get(c.team ?? "") === c.day,
+          c.sprintStart != null &&
+          currentSprint.get(c.team ?? "") === c.sprintStart,
       ),
-    [mine, currentSprint, selectedDate],
+    [mine, currentSprint],
   );
 
   const byZone = useMemo(() => {
@@ -244,6 +233,7 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
+    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
     const optimistic: CardModel = {
       itemId: tempId,
       title,
@@ -252,6 +242,7 @@ export function MeBoard({
       zone,
       day: selectedDate,
       startDate: selectedDate,
+      sprintStart,
       team: team ?? undefined,
       description: "",
       notes: [],
@@ -263,6 +254,7 @@ export function MeBoard({
         zone,
         day: selectedDate,
         start: selectedDate,
+        sprintStart,
         assigneeLogin: me || null,
         team: team ?? null,
       })

@@ -9,6 +9,7 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, addDays } from "../date";
+import { sprintForNewCard } from "../sprint";
 import { initials, teamColor } from "../avatar";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
@@ -100,40 +101,18 @@ export function TeamBoard({
   const passesFilter = (card: CardModel): boolean =>
     card.team ? selected.has(card.team) : allSelected;
 
-  // Cards passing the team filter (any day) — the scope for sprint detection.
+  // Cards passing the team filter (the scope before applying the sprint).
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [board.cards, selected, allSelected],
   );
 
-  // Current sprint per team: the latest finish ≤ selectedDate for each team
-  // (cards with no team share one "no team" sprint).
-  const currentSprint = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of inFilter) {
-      if (!c.day || c.day > selectedDate) {
-        continue;
-      }
-      const key = c.team ?? "";
-      const cur = m.get(key);
-      if (!cur || c.day > cur) {
-        m.set(key, c.day);
-      }
-    }
-    return m;
-  }, [inFilter, selectedDate]);
-
-  // Show a card if it belongs to its team's current sprint and has started.
+  // Team is strict by the selected day: only cards whose sprint started on that
+  // exact day. An empty board on today is the cue for the lead to Start sprint.
   const filteredCards = useMemo(
-    () =>
-      inFilter.filter(
-        (c) =>
-          c.day != null &&
-          (!c.startDate || c.startDate <= selectedDate) &&
-          currentSprint.get(c.team ?? "") === c.day,
-      ),
-    [inFilter, currentSprint, selectedDate],
+    () => inFilter.filter((c) => c.sprintStart === selectedDate),
+    [inFilter, selectedDate],
   );
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
@@ -368,6 +347,7 @@ export function TeamBoard({
     team?: string | null,
   ) => {
     const tempId = `tmp-${new Date().toISOString()}`;
+    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
     const optimistic: CardModel = {
       itemId: tempId,
       title,
@@ -376,6 +356,7 @@ export function TeamBoard({
       zone,
       day: selectedDate,
       startDate: selectedDate,
+      sprintStart,
       team: team ?? undefined,
       description: "",
       notes: [],
@@ -387,6 +368,7 @@ export function TeamBoard({
         zone,
         day: selectedDate,
         start: selectedDate,
+        sprintStart,
         assigneeLogin: engineer || null,
         team: team ?? null,
       })
@@ -424,42 +406,29 @@ export function TeamBoard({
     const carry = board.cards.filter(
       (c) =>
         c.team === team &&
-        c.day != null &&
-        c.day < selectedDate &&
-        c.stage !== "done",
+        c.stage !== "done" &&
+        (c.sprintStart == null || c.sprintStart < selectedDate),
     );
     if (carry.length === 0) {
-      onError(`No unfinished cards from earlier days for "${team}".`);
+      onError(`No unfinished cards from an earlier sprint for "${team}".`);
       return;
     }
     if (
       !window.confirm(
-        `Start a new sprint for "${team}"? ${carry.length} unfinished card(s) from earlier days will move to ${selectedDate}.`,
+        `Start a new sprint for "${team}"? ${carry.length} unfinished card(s) will move to ${selectedDate}.`,
       )
     ) {
       return;
     }
     for (const card of carry) {
-      const prevDay = card.day;
-      // Pin the start where the card is now so it stays put while the finish
-      // moves to the new sprint; cards that already have a start keep it.
-      const pinStart = card.startDate ? undefined : prevDay;
-      const patch: Partial<CardModel> = { day: selectedDate };
-      if (pinStart) {
-        patch.startDate = pinStart;
-      }
-      patchCard(card.itemId, patch);
-      void (async () => {
-        try {
-          if (pinStart) {
-            await provider.setStart(board, card, pinStart);
-          }
-          await provider.setDay(board, card, selectedDate);
-        } catch (err: unknown) {
-          patchCard(card.itemId, { day: prevDay, startDate: card.startDate });
+      const prev = card.sprintStart;
+      patchCard(card.itemId, { sprintStart: selectedDate });
+      void provider
+        .setSprintStart(board, card, selectedDate)
+        .catch((err: unknown) => {
+          patchCard(card.itemId, { sprintStart: prev });
           onError(errMessage(err));
-        }
-      })();
+        });
     }
   };
 
