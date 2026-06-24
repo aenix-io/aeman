@@ -59,6 +59,8 @@ export interface Card {
   progress?: number;
   /** Explicit status (locked/review/done) driving the progress-bar colour. */
   stage?: StageKey;
+  /** Team label the card belongs to (a free-text field, used for filtering). */
+  team?: string;
   /** ISO date (yyyy-mm-dd) the card is planned for (Me day view). */
   day?: string;
   sprintTitle?: string;
@@ -74,6 +76,7 @@ export interface NewCardInput {
   zone?: ZoneKey;
   day?: string | null;
   assigneeLogin?: string | null;
+  team?: string | null;
 }
 
 export interface Board {
@@ -94,6 +97,7 @@ export interface FieldRoles {
   sprint?: ProjectField;
   status?: ProjectField;
   stage?: ProjectField;
+  team?: ProjectField;
 }
 
 export interface Provider {
@@ -106,6 +110,7 @@ export interface Provider {
   setDay(board: Board, card: Card, day: string | null): Promise<void>;
   setAssignee(board: Board, card: Card, login: string | null): Promise<void>;
   setStage(board: Board, card: Card, stage: StageKey | null): Promise<void>;
+  setTeam(board: Board, card: Card, team: string | null): Promise<void>;
   renameCard(board: Board, card: Card, title: string): Promise<void>;
   setDescription(board: Board, card: Card, description: string): Promise<void>;
   createCard(board: Board, input: NewCardInput): Promise<Card>;

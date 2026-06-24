@@ -455,6 +455,14 @@ button {
   gap: 6px;
 }
 
+.modal-title-click {
+  cursor: pointer;
+}
+
+.modal-title-click:hover {
+  color: var(--accent);
+}
+
 /* team selector chips in the toolbar */
 .team-select {
   align-items: center;

@@ -117,6 +117,13 @@ export const SET_DATE = `mutation($project: ID!, $item: ID!, $field: ID!, $value
   }) { projectV2Item { id } }
 }`;
 
+export const SET_TEXT = `mutation($project: ID!, $item: ID!, $field: ID!, $value: String!) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $project, itemId: $item, fieldId: $field,
+    value: { text: $value }
+  }) { projectV2Item { id } }
+}`;
+
 export const CLEAR_FIELD = `mutation($project: ID!, $item: ID!, $field: ID!) {
   clearProjectV2ItemFieldValue(input: {
     projectId: $project, itemId: $item, fieldId: $field

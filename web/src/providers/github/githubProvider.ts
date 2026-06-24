@@ -27,6 +27,7 @@ import {
   SET_DATE,
   SET_NUMBER,
   SET_SINGLE_SELECT,
+  SET_TEXT,
   UPDATE_DRAFT_ASSIGNEES,
   UPDATE_DRAFT_BODY,
   UPDATE_DRAFT_TITLE,
@@ -222,6 +223,8 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
       card.sprintTitle = value.title;
     } else if (roles.status && fieldID === roles.status.id && value.name) {
       card.status = value.name;
+    } else if (roles.team && fieldID === roles.team.id && value.text) {
+      card.team = value.text;
     }
   }
   return card;
@@ -407,6 +410,20 @@ export const githubProvider: Provider = {
     }
   },
 
+  async setTeam(board: Board, card: Card, team: string | null): Promise<void> {
+    const field = requireRole(board, "team", "Team");
+    if (!team) {
+      await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
+      return;
+    }
+    await graphql(SET_TEXT, {
+      project: board.id,
+      item: card.itemId,
+      field: field.id,
+      value: team,
+    });
+  },
+
   async renameCard(_board: Board, card: Card, title: string): Promise<void> {
     if (!card.contentId) {
       throw new Error("Card has no underlying content to rename");
@@ -468,6 +485,14 @@ export const githubProvider: Provider = {
         value: input.day,
       });
     }
+    if (input.team && roles.team) {
+      await graphql(SET_TEXT, {
+        project: board.id,
+        item: item.id,
+        field: roles.team.id,
+        value: input.team,
+      });
+    }
 
     return {
       itemId: item.id,
@@ -478,6 +503,7 @@ export const githubProvider: Provider = {
       zone: zoneOptionId ? input.zone : undefined,
       zoneOptionId,
       day: input.day ?? undefined,
+      team: input.team ?? undefined,
       description: "",
       notes: [],
     };
