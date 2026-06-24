@@ -237,17 +237,29 @@ button {
 .me-left {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: auto;
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+}
+
+/* The colour bands form one continuous block with rounded outer corners. */
+.me-zones {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  overflow: hidden;
+  width: 516px;
+  flex: none;
 }
 
 /* ---- colour zone areas (no labels, just colour) ---- */
 .zone-area {
   border-left: 3px solid #ccc;
-  border-radius: 5px;
+  border-radius: 0;
   padding: 5px 6px;
   min-height: 40px;
 }
@@ -257,19 +269,50 @@ button {
   outline-offset: -2px;
 }
 
+/* ---- dnd-kit drag styles ---- */
+/* The sortable wrapper is layout-neutral; the card inside keeps its own size. */
+.sortable-card {
+  touch-action: manipulation;
+}
+
+/* While a card is being dragged, its in-place slot becomes a dashed translucent
+   gap of card height so neighbouring cards visibly push apart toward it. */
+.sortable-card-placeholder .card {
+  background: transparent;
+  border: 1px dashed rgba(27, 31, 36, 0.35);
+  box-shadow: none;
+}
+
+.sortable-card-placeholder .card > * {
+  visibility: hidden;
+}
+
+/* The lifted card following the pointer (rendered in a DragOverlay portal). */
+.dnd-overlay {
+  cursor: grabbing;
+}
+
+.dnd-overlay .card {
+  box-shadow: 0 8px 20px rgba(27, 31, 36, 0.28);
+  transform: scale(1.02);
+  cursor: grabbing;
+}
+
 .zone-cards {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-/* ---- compact card ---- */
+/* ---- compact card (fixed 500 × 37) ---- */
 .card {
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
+  width: 500px;
+  height: 37px;
+  flex: none;
   padding: 3px 8px 6px;
   background: var(--bg);
   border: 1px solid #d6dbe1;
@@ -316,12 +359,100 @@ button {
   background: var(--danger);
 }
 
-.card-glyph {
-  color: var(--faint);
+/* Open: a round corner button over the top-right (mirror of the old delete). */
+.card-open {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: var(--faint);
+  color: #fff;
   font-size: 11px;
-  width: 12px;
+  line-height: 14px;
   text-align: center;
-  flex: none;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 2;
+}
+
+.card:hover .card-open {
+  opacity: 1;
+}
+
+.card-open:hover {
+  background: var(--accent);
+}
+
+.card-action-delete:hover {
+  color: var(--danger);
+  background: rgba(207, 34, 46, 0.1);
+}
+
+/* lock-with-note popup inside the status menu */
+.card-lock-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px;
+  width: 200px;
+}
+
+.card-lock-textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  resize: vertical;
+}
+
+.card-lock-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.card-lock-actions .btn {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* day prev/next arrows next to the date input */
+.day-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.day-arrow {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  width: 22px;
+  height: 24px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.day-arrow:hover {
+  background: var(--bg-soft);
+  color: var(--fg);
+}
+
+/* team column header carries the team avatar */
+.team-col-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .card-title {
@@ -371,17 +502,164 @@ button {
   position: absolute;
   left: 6px;
   right: 6px;
-  bottom: 2px;
+  bottom: 4px;
   height: 3px;
+  display: flex;
+  gap: 1px;
   border-radius: 2px;
-  background: var(--line-soft);
-  cursor: pointer;
-  overflow: hidden;
+  overflow: visible;
 }
 
-.card-bar-fill {
+.card-seg {
+  flex: 1 1 0;
   height: 100%;
-  border-radius: 2px;
+  padding: 0;
+  border: none;
+  background: var(--line-soft);
+  cursor: default;
+}
+
+/* Draggable progress handle: shown on hover, snaps between the 10 segments. */
+.card-bar-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 2px rgba(27, 31, 36, 0.3);
+  cursor: ew-resize;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 3;
+  touch-action: none;
+}
+
+.card:hover .card-bar-handle,
+.card-bar-handle-dragging {
+  opacity: 1;
+}
+
+.card-bar-handle-dragging {
+  cursor: grabbing;
+}
+
+.card-seg:first-child {
+  border-top-left-radius: 2px;
+  border-bottom-left-radius: 2px;
+}
+
+.card-seg:last-child {
+  border-top-right-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+
+.card-seg-filled {
+  background: var(--accent);
+}
+
+/* ---- card hover actions (rename / status / open) ---- */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.card:hover .card-actions,
+.card .card-stage-menu {
+  opacity: 1;
+}
+
+.card-action {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.card-action:hover {
+  background: rgba(27, 31, 36, 0.08);
+  color: var(--fg);
+}
+
+.card-stage {
+  position: relative;
+  display: inline-flex;
+}
+
+.card-stage-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 2px;
+  min-width: 110px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(27, 31, 36, 0.18);
+  padding: 3px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.card-stage-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--fg);
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.card-stage-item:hover {
+  background: var(--bg-soft);
+}
+
+.card-stage-item-active {
+  font-weight: 600;
+}
+
+.card-stage-clear {
+  color: var(--muted);
+  border-top: 1px solid var(--line-soft);
+  margin-top: 1px;
+  border-radius: 0 0 4px 4px;
+}
+
+.card-stage-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.card-title-input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
 }
 
 /* ---- add card ---- */
@@ -534,8 +812,8 @@ button {
 }
 
 .team-col {
-  flex: 0 0 220px;
-  width: 220px;
+  flex: 0 0 516px;
+  width: 516px;
   display: flex;
   flex-direction: column;
 }
@@ -567,8 +845,118 @@ button {
 .team-col-zones {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   margin-top: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+/* ---- card detail modal ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 31, 36, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(27, 31, 36, 0.28);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.modal-title-edit {
+  opacity: 0.7;
+}
+
+.modal-title-input {
+  flex: 1;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 4px;
+  border-radius: 4px;
+  flex: none;
+}
+
+.modal-close:hover {
+  background: var(--bg-soft);
+  color: var(--fg);
+}
+
+.modal-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.modal-textarea {
+  width: 100%;
+  min-height: 180px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line-soft);
 }
 
 /* ---- responsive ---- */

@@ -1,10 +1,20 @@
-import { useMemo, useState } from "react";
-import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/types";
+import { Fragment, useMemo, useState, type Ref } from "react";
+import type {
+  Board,
+  Card as CardModel,
+  Note,
+  Provider,
+  StageKey,
+  ZoneKey,
+} from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso } from "../date";
+import { todayIso, addDays } from "../date";
+import { initials } from "../avatar";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
+import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface TeamBoardProps {
   board: Board;
@@ -13,11 +23,22 @@ interface TeamBoardProps {
   patchCard: (itemId: string, patch: Partial<CardModel>) => void;
   addCard: (card: CardModel) => void;
   removeCard: (itemId: string) => void;
+  reorderCards: (orderedItemIds: string[]) => void;
   reload: () => void;
   onError: (message: string) => void;
+  onOpen: (card: CardModel) => void;
+}
+
+/** Per-group metadata for the Team board: the destination engineer + zone. */
+interface TeamMeta {
+  engineer: string;
+  zone: ZoneKey;
 }
 
 const UNASSIGNED = "";
+
+const errMessage = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
 
 /** TeamBoard is the whole team as an engineers × zones grid for one day. */
 export function TeamBoard({
@@ -27,12 +48,13 @@ export function TeamBoard({
   patchCard,
   addCard,
   removeCard,
+  reorderCards,
   reload,
   onError,
+  onOpen,
 }: TeamBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
@@ -67,9 +89,160 @@ export function TeamBoard({
         : c.assignees.includes(engineer);
     });
 
+  const cellKey = (engineer: string, zone: ZoneKey) =>
+    `${engineer || "__unassigned__"}::${zone}`;
+
+  // One sortable group per grid cell, in a stable engineer→zone order so the
+  // derived global card order is coherent across drops.
+  const groups = useMemo<BoardGroup<TeamMeta>[]>(() => {
+    const out: BoardGroup<TeamMeta>[] = [];
+    for (const engineer of engineers) {
+      for (const zone of ZONE_ORDER) {
+        out.push({
+          key: cellKey(engineer, zone),
+          meta: { engineer, zone },
+          cards: cellCards(engineer, zone),
+        });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.cards, engineers, selectedDate]);
+
+  const handleDrop = ({
+    card,
+    fromMeta,
+    toMeta,
+    groups: g,
+  }: DropResult<TeamMeta>) => {
+    const zoneChanged = fromMeta.zone !== toMeta.zone;
+    const engineerChanged = fromMeta.engineer !== toMeta.engineer;
+
+    let optionId = card.zoneOptionId;
+    if (zoneChanged) {
+      const resolved = optionIdForZone(roles.zone, toMeta.zone);
+      if (!resolved) {
+        onError(`Project has no Zone option for ${toMeta.zone}`);
+        return;
+      }
+      optionId = resolved;
+    }
+
+    // 1) Optimistic local state first.
+    if (zoneChanged || engineerChanged) {
+      const patch: Partial<CardModel> = {};
+      if (zoneChanged) {
+        patch.zone = toMeta.zone;
+        patch.zoneOptionId = optionId;
+      }
+      if (engineerChanged) {
+        patch.assignees = toMeta.engineer ? [toMeta.engineer] : [];
+      }
+      patchCard(card.itemId, patch);
+    }
+    const order = globalOrderFromGroups(
+      board,
+      g.map((x) => x.ids),
+    );
+    reorderCards(order);
+
+    // 2) Persist in the background; revert via reload() on any error.
+    const afterId = afterIdFor(order, card.itemId);
+    void (async () => {
+      try {
+        if (zoneChanged && optionId) {
+          await provider.setZone(board, card, optionId);
+        }
+        if (engineerChanged) {
+          await provider.setAssignee(board, card, toMeta.engineer || null);
+        }
+        await provider.moveCard(board, card, afterId);
+      } catch (err: unknown) {
+        onError(errMessage(err));
+        reload();
+      }
+    })();
+  };
+
   const handleProgress = (card: CardModel, value: number) => {
-    patchCard(card.itemId, { progress: value });
-    void provider.setProgress(board, card, value).catch(fail);
+    const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
+    const patch: Partial<CardModel> = { progress: value };
+    // Auto-link progress and "done": 100% sets done (unless review/locked is on),
+    // dropping below 100% clears done. review/locked are left untouched.
+    let stageChange: StageKey | null | undefined;
+    if (roles.stage) {
+      if (value === 100 && card.stage == null) {
+        stageChange = "done";
+      } else if (value < 100 && card.stage === "done") {
+        stageChange = null;
+      }
+    }
+    if (stageChange !== undefined) {
+      patch.stage = stageChange ?? undefined;
+    }
+    patchCard(card.itemId, patch);
+    void (async () => {
+      try {
+        await provider.setProgress(board, card, value);
+        if (stageChange !== undefined) {
+          await provider.setStage(board, card, stageChange);
+        }
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
+  const handleStage = (card: CardModel, stage: StageKey | null) => {
+    const prev: Partial<CardModel> = {
+      stage: card.stage,
+      progress: card.progress,
+    };
+    const patch: Partial<CardModel> = { stage: stage ?? undefined };
+    if (stage === "done") {
+      patch.progress = 100;
+    }
+    patchCard(card.itemId, patch);
+    void provider.setStage(board, card, stage).catch((err: unknown) => {
+      patchCard(card.itemId, prev);
+      onError(errMessage(err));
+    });
+  };
+
+  // Locking posts a note (the reason) to the card's log.
+  const handleLock = (card: CardModel, note: string) => {
+    const prevStage = card.stage;
+    const optimisticNote: Note = {
+      id: `tmp-${new Date().toISOString()}`,
+      body: note,
+      createdAt: new Date().toISOString(),
+      author: me || undefined,
+      source: card.isDraft ? "draft" : "comment",
+    };
+    patchCard(card.itemId, {
+      stage: "locked",
+      notes: [...(card.notes ?? []), optimisticNote],
+    });
+    void (async () => {
+      try {
+        await provider.setStage(board, card, "locked");
+        await provider.addNote(board, card, note);
+      } catch (err: unknown) {
+        patchCard(card.itemId, { stage: prevStage });
+        onError(errMessage(err));
+        reload();
+      }
+    })();
+  };
+
+  const handleRename = (card: CardModel, title: string) => {
+    const prev = card.title;
+    patchCard(card.itemId, { title });
+    void provider.renameCard(board, card, title).catch((err: unknown) => {
+      patchCard(card.itemId, { title: prev });
+      onError(errMessage(err));
+    });
   };
 
   const handleDelete = (card: CardModel) => {
@@ -79,61 +252,19 @@ export function TeamBoard({
       .catch(fail);
   };
 
-  const cellKey = (engineer: string, zone: ZoneKey) => `${engineer}::${zone}`;
-
-  const handleDrop = async (
-    engineer: string,
-    zone: ZoneKey,
-    e: React.DragEvent<HTMLElement>,
-  ) => {
-    e.preventDefault();
-    setDragOver(null);
-    const itemId = e.dataTransfer.getData("text/plain");
-    if (!itemId) {
-      return;
-    }
-    const card = board.cards.find((c) => c.itemId === itemId);
-    if (!card) {
-      return;
-    }
-    const zoneChanged = card.zone !== zone;
-    const isAssigned =
-      engineer === UNASSIGNED
-        ? card.assignees.length === 0
-        : card.assignees.length === 1 && card.assignees[0] === engineer;
-    const engineerChanged = !isAssigned;
-    if (!zoneChanged && !engineerChanged) {
-      return;
-    }
-
-    let optionId = card.zoneOptionId;
-    if (zoneChanged) {
-      const resolved = optionIdForZone(roles.zone, zone);
-      if (!resolved) {
-        onError(`Project has no Zone option for ${zone}`);
-        return;
-      }
-      optionId = resolved;
-    }
-
-    try {
-      if (zoneChanged && optionId) {
-        await provider.setZone(board, card, optionId);
-      }
-      if (engineerChanged) {
-        await provider.setAssignee(board, card, engineer || null);
-      }
-      patchCard(card.itemId, {
-        zone,
-        zoneOptionId: optionId,
-        assignees: engineer ? [engineer] : [],
-      });
-    } catch (err: unknown) {
-      fail(err);
-    }
-  };
-
   const handleCreate = (engineer: string, zone: ZoneKey, title: string) => {
+    const tempId = `tmp-${new Date().toISOString()}`;
+    const optimistic: CardModel = {
+      itemId: tempId,
+      title,
+      isDraft: true,
+      assignees: engineer ? [engineer] : [],
+      zone,
+      day: selectedDate,
+      description: "",
+      notes: [],
+    };
+    addCard(optimistic);
     void provider
       .createCard(board, {
         title,
@@ -141,81 +272,133 @@ export function TeamBoard({
         day: selectedDate,
         assigneeLogin: engineer || null,
       })
-      .then((card) => addCard(card))
-      .catch(fail);
+      .then((card) => {
+        removeCard(tempId);
+        addCard(card);
+      })
+      .catch((err: unknown) => {
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
   };
 
   return (
     <div className="team">
       <div className="board-toolbar">
-        <label className="field field-inline">
+        <div className="field field-inline">
           <span>Day</span>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value || todayIso())}
-          />
-        </label>
+          <div className="day-nav">
+            <button
+              type="button"
+              className="day-arrow"
+              onClick={() => setSelectedDate((d) => addDays(d, -1))}
+              aria-label="Previous day"
+              title="Previous day"
+            >
+              ‹
+            </button>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value || todayIso())}
+            />
+            <button
+              type="button"
+              className="day-arrow"
+              onClick={() => setSelectedDate((d) => addDays(d, 1))}
+              aria-label="Next day"
+              title="Next day"
+            >
+              ›
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="team-grid">
-        {engineers.map((engineer) => (
-          <section className="team-col" key={engineer || "__unassigned__"}>
-            <header className="team-col-header">
-              {engineer === UNASSIGNED ? (
-                <span className="team-col-name team-col-unassigned">Unassigned</span>
-              ) : (
-                <span
-                  className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
-                >
-                  {engineer}
-                </span>
-              )}
-            </header>
-            <div className="team-col-zones">
-              {ZONE_ORDER.map((zone) => {
-                const def = ZONES[zone];
-                const cards = cellCards(engineer, zone);
-                const key = cellKey(engineer, zone);
-                return (
-                  <div
-                    key={zone}
-                    className={`zone-area${dragOver === key ? " zone-area-dragover" : ""}`}
-                    style={{ background: def.background, borderLeftColor: def.accent }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      if (dragOver !== key) {
-                        setDragOver(key);
-                      }
-                    }}
-                    onDragLeave={() =>
-                      setDragOver((k) => (k === key ? null : k))
+        <SortableBoard<TeamMeta>
+          groups={groups}
+          onDrop={handleDrop}
+          renderCard={(card) => (
+            <Card
+              card={card}
+              selected={card.itemId === selectedCardId}
+              onSelect={(c) => setSelectedCardId(c.itemId)}
+              onProgress={handleProgress}
+              onDelete={handleDelete}
+              onStage={handleStage}
+              onRename={handleRename}
+              onOpen={onOpen}
+              onLock={handleLock}
+            />
+          )}
+          renderOverlay={(card) => (
+            <Card
+              card={card}
+              selected={false}
+              onSelect={() => {}}
+              onProgress={() => {}}
+              onDelete={() => {}}
+              onStage={() => {}}
+              onRename={() => {}}
+              onOpen={() => {}}
+              onLock={() => {}}
+            />
+          )}
+          renderGroup={(group, body, { isOver, dropRef }) => {
+            const def = ZONES[group.meta.zone];
+            return (
+              <div
+                ref={dropRef as Ref<HTMLDivElement>}
+                className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
+                style={{ background: def.background, borderLeftColor: def.accent }}
+              >
+                <div className="zone-cards">
+                  {body}
+                  <AddCard
+                    onCreate={(title) =>
+                      handleCreate(group.meta.engineer, group.meta.zone, title)
                     }
-                    onDrop={(e) => void handleDrop(engineer, zone, e)}
-                  >
-                    <div className="zone-cards">
-                      {cards.map((card) => (
-                        <Card
-                          key={card.itemId}
-                          card={card}
-                          me={me}
-                          selected={card.itemId === selectedCardId}
-                          onSelect={(c) => setSelectedCardId(c.itemId)}
-                          onProgress={handleProgress}
-                          onDelete={handleDelete}
-                        />
-                      ))}
-                      <AddCard
-                        onCreate={(title) => handleCreate(engineer, zone, title)}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        ))}
+                  />
+                </div>
+              </div>
+            );
+          }}
+          renderLayout={(nodes) =>
+            engineers.map((engineer) => (
+              <section className="team-col" key={engineer || "__unassigned__"}>
+                <header className="team-col-header">
+                  {engineer === UNASSIGNED ? (
+                    <span className="team-col-name team-col-unassigned">
+                      Unassigned
+                    </span>
+                  ) : (
+                    <>
+                      <span
+                        className={`avatar${engineer === me ? " avatar-me" : ""}`}
+                        title={engineer}
+                      >
+                        {initials(engineer)}
+                      </span>
+                      <span
+                        className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
+                      >
+                        {engineer}
+                      </span>
+                    </>
+                  )}
+                </header>
+                <div className="team-col-zones">
+                  {ZONE_ORDER.map((zone) => (
+                    <Fragment key={zone}>
+                      {nodes.get(cellKey(engineer, zone))}
+                    </Fragment>
+                  ))}
+                </div>
+              </section>
+            ))
+          }
+        />
       </div>
     </div>
   );

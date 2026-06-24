@@ -1,11 +1,20 @@
-import { useMemo, useState } from "react";
-import type { Board, Card as CardModel, Note, Provider, ZoneKey } from "../providers/types";
+import { useMemo, useState, type Ref } from "react";
+import type {
+  Board,
+  Card as CardModel,
+  Note,
+  Provider,
+  StageKey,
+  ZoneKey,
+} from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, localDateIso } from "../date";
+import { todayIso, localDateIso, addDays } from "../date";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { NotesPanel, type DayNote } from "./NotesPanel";
+import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
+import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface MeBoardProps {
   board: Board;
@@ -14,9 +23,19 @@ interface MeBoardProps {
   patchCard: (itemId: string, patch: Partial<CardModel>) => void;
   addCard: (card: CardModel) => void;
   removeCard: (itemId: string) => void;
+  reorderCards: (orderedItemIds: string[]) => void;
   reload: () => void;
   onError: (message: string) => void;
+  onOpen: (card: CardModel) => void;
 }
+
+/** Per-group metadata for the Me board: just the destination zone. */
+interface MeMeta {
+  zone: ZoneKey;
+}
+
+const errMessage = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
 
 /** MeBoard is the personal day view: my cards stacked in zone bands + notes. */
 export function MeBoard({
@@ -26,12 +45,13 @@ export function MeBoard({
   patchCard,
   addCard,
   removeCard,
+  reorderCards,
   reload,
   onError,
+  onOpen,
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<ZoneKey | null>(null);
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
@@ -80,8 +100,84 @@ export function MeBoard({
   };
 
   const handleProgress = (card: CardModel, value: number) => {
-    patchCard(card.itemId, { progress: value });
-    void provider.setProgress(board, card, value).catch(fail);
+    const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
+    const patch: Partial<CardModel> = { progress: value };
+    // Auto-link progress and "done": 100% sets done (unless review/locked is on),
+    // dropping below 100% clears done. review/locked are left untouched.
+    let stageChange: StageKey | null | undefined;
+    if (roles.stage) {
+      if (value === 100 && card.stage == null) {
+        stageChange = "done";
+      } else if (value < 100 && card.stage === "done") {
+        stageChange = null;
+      }
+    }
+    if (stageChange !== undefined) {
+      patch.stage = stageChange ?? undefined;
+    }
+    patchCard(card.itemId, patch);
+    void (async () => {
+      try {
+        await provider.setProgress(board, card, value);
+        if (stageChange !== undefined) {
+          await provider.setStage(board, card, stageChange);
+        }
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
+  const handleStage = (card: CardModel, stage: StageKey | null) => {
+    const prev: Partial<CardModel> = {
+      stage: card.stage,
+      progress: card.progress,
+    };
+    const patch: Partial<CardModel> = { stage: stage ?? undefined };
+    if (stage === "done") {
+      patch.progress = 100;
+    }
+    patchCard(card.itemId, patch);
+    void provider.setStage(board, card, stage).catch((err: unknown) => {
+      patchCard(card.itemId, prev);
+      onError(errMessage(err));
+    });
+  };
+
+  // Locking posts a note (the reason) to the card so it shows in the day's log.
+  const handleLock = (card: CardModel, note: string) => {
+    const prevStage = card.stage;
+    const optimisticNote: Note = {
+      id: `tmp-${new Date().toISOString()}`,
+      body: note,
+      createdAt: new Date().toISOString(),
+      author: me || undefined,
+      source: card.isDraft ? "draft" : "comment",
+    };
+    patchCard(card.itemId, {
+      stage: "locked",
+      notes: [...(card.notes ?? []), optimisticNote],
+    });
+    void (async () => {
+      try {
+        await provider.setStage(board, card, "locked");
+        await provider.addNote(board, card, note);
+      } catch (err: unknown) {
+        patchCard(card.itemId, { stage: prevStage });
+        onError(errMessage(err));
+        reload();
+      }
+    })();
+  };
+
+  const handleRename = (card: CardModel, title: string) => {
+    const prev = card.title;
+    patchCard(card.itemId, { title });
+    void provider.renameCard(board, card, title).catch((err: unknown) => {
+      patchCard(card.itemId, { title: prev });
+      onError(errMessage(err));
+    });
   };
 
   const handleDelete = (card: CardModel) => {
@@ -91,33 +187,79 @@ export function MeBoard({
       .catch(fail);
   };
 
-  const handleDrop = (zone: ZoneKey, e: React.DragEvent<HTMLElement>) => {
-    e.preventDefault();
-    setDragOver(null);
-    const itemId = e.dataTransfer.getData("text/plain");
-    if (!itemId) {
-      return;
+  // The 4 sortable groups: one per zone, in ZONE_ORDER (top → bottom).
+  const groups = useMemo<BoardGroup<MeMeta>[]>(
+    () =>
+      ZONE_ORDER.map((zone) => ({
+        key: zone,
+        meta: { zone },
+        cards: byZone[zone],
+      })),
+    [byZone],
+  );
+
+  const handleDrop = ({ card, fromMeta, toMeta, groups: g }: DropResult<MeMeta>) => {
+    const zoneChanged = fromMeta.zone !== toMeta.zone;
+
+    // Resolve the new zone option up front; abort the whole drop if missing.
+    let optionId = card.zoneOptionId;
+    if (zoneChanged) {
+      const resolved = optionIdForZone(roles.zone, toMeta.zone);
+      if (!resolved) {
+        onError(`Project has no Zone option for ${toMeta.zone}`);
+        return;
+      }
+      optionId = resolved;
     }
-    const card = board.cards.find((c) => c.itemId === itemId);
-    if (!card || card.zone === zone) {
-      return;
+
+    // 1) Optimistic local state first.
+    if (zoneChanged) {
+      patchCard(card.itemId, { zone: toMeta.zone, zoneOptionId: optionId });
     }
-    const optionId = optionIdForZone(roles.zone, zone);
-    if (!optionId) {
-      onError(`Project has no Zone option for ${zone}`);
-      return;
-    }
-    void provider
-      .setZone(board, card, optionId)
-      .then(() => patchCard(card.itemId, { zone, zoneOptionId: optionId }))
-      .catch(fail);
+    const order = globalOrderFromGroups(
+      board,
+      g.map((x) => x.ids),
+    );
+    reorderCards(order);
+
+    // 2) Persist in the background; revert via reload() on any error.
+    const afterId = afterIdFor(order, card.itemId);
+    void (async () => {
+      try {
+        if (zoneChanged && optionId) {
+          await provider.setZone(board, card, optionId);
+        }
+        await provider.moveCard(board, card, afterId);
+      } catch (err: unknown) {
+        onError(errMessage(err));
+        reload();
+      }
+    })();
   };
 
   const handleCreate = (zone: ZoneKey, title: string) => {
+    const tempId = `tmp-${new Date().toISOString()}`;
+    const optimistic: CardModel = {
+      itemId: tempId,
+      title,
+      isDraft: true,
+      assignees: me ? [me] : [],
+      zone,
+      day: selectedDate,
+      description: "",
+      notes: [],
+    };
+    addCard(optimistic);
     void provider
       .createCard(board, { title, zone, day: selectedDate, assigneeLogin: me || null })
-      .then((card) => addCard(card))
-      .catch(fail);
+      .then((card) => {
+        removeCard(tempId);
+        addCard(card);
+      })
+      .catch((err: unknown) => {
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
   };
 
   const handleAddNote = (text: string) => {
@@ -140,53 +282,88 @@ export function MeBoard({
   return (
     <div className="me">
       <div className="board-toolbar">
-        <label className="field field-inline">
+        <div className="field field-inline">
           <span>Day</span>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value || todayIso())}
-          />
-        </label>
+          <div className="day-nav">
+            <button
+              type="button"
+              className="day-arrow"
+              onClick={() => setSelectedDate((d) => addDays(d, -1))}
+              aria-label="Previous day"
+              title="Previous day"
+            >
+              ‹
+            </button>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value || todayIso())}
+            />
+            <button
+              type="button"
+              className="day-arrow"
+              onClick={() => setSelectedDate((d) => addDays(d, 1))}
+              aria-label="Next day"
+              title="Next day"
+            >
+              ›
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="me-panes">
         <div className="me-left">
-          {ZONE_ORDER.map((zone) => {
-            const def = ZONES[zone];
-            const cards = byZone[zone];
-            return (
-              <section
-                key={zone}
-                className={`zone-area${dragOver === zone ? " zone-area-dragover" : ""}`}
-                style={{ background: def.background, borderLeftColor: def.accent }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  if (dragOver !== zone) {
-                    setDragOver(zone);
-                  }
-                }}
-                onDragLeave={() => setDragOver((z) => (z === zone ? null : z))}
-                onDrop={(e) => handleDrop(zone, e)}
-              >
-                <div className="zone-cards">
-                  {cards.map((card) => (
-                    <Card
-                      key={card.itemId}
-                      card={card}
-                      me={me}
-                      selected={card.itemId === selectedCardId}
-                      onSelect={(c) => setSelectedCardId(c.itemId)}
-                      onProgress={handleProgress}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                  <AddCard onCreate={(title) => handleCreate(zone, title)} />
-                </div>
-              </section>
-            );
-          })}
+          <div className="me-zones">
+            <SortableBoard<MeMeta>
+              groups={groups}
+              onDrop={handleDrop}
+              renderCard={(card) => (
+                <Card
+                  card={card}
+                  selected={card.itemId === selectedCardId}
+                  onSelect={(c) => setSelectedCardId(c.itemId)}
+                  onProgress={handleProgress}
+                  onDelete={handleDelete}
+                  onStage={handleStage}
+                  onRename={handleRename}
+                  onOpen={onOpen}
+                  onLock={handleLock}
+                />
+              )}
+              renderOverlay={(card) => (
+                <Card
+                  card={card}
+                  selected={false}
+                  onSelect={() => {}}
+                  onProgress={() => {}}
+                  onDelete={() => {}}
+                  onStage={() => {}}
+                  onRename={() => {}}
+                  onOpen={() => {}}
+                  onLock={() => {}}
+                />
+              )}
+              renderGroup={(group, body, { isOver, dropRef }) => {
+                const def = ZONES[group.meta.zone];
+                return (
+                  <section
+                    key={group.key}
+                    ref={dropRef as Ref<HTMLElement>}
+                    className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
+                    style={{ background: def.background, borderLeftColor: def.accent }}
+                  >
+                    <div className="zone-cards">
+                      {body}
+                      <AddCard
+                        onCreate={(title) => handleCreate(group.meta.zone, title)}
+                      />
+                    </div>
+                  </section>
+                );
+              }}
+            />
+          </div>
         </div>
 
         <NotesPanel

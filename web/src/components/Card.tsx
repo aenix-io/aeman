@@ -1,25 +1,20 @@
-import type { Card as CardModel } from "../providers/types";
-import { ZONES } from "../zones";
+import { useEffect, useRef, useState } from "react";
+import type { Card as CardModel, StageKey } from "../providers/types";
+import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
 
 interface CardProps {
   card: CardModel;
-  me: string;
   selected: boolean;
   onSelect: (card: CardModel) => void;
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
-  draggable?: boolean;
+  onStage: (card: CardModel, stage: StageKey | null) => void;
+  onRename: (card: CardModel, title: string) => void;
+  onOpen: (card: CardModel) => void;
+  onLock: (card: CardModel, note: string) => void;
 }
 
-/** initials reduces a login to one or two uppercase characters for an avatar. */
-function initials(login: string): string {
-  const parts = login.split(/[-_.\s]+/).filter(Boolean);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  const clean = login.replace(/[^A-Za-z0-9]/g, "");
-  return (clean.slice(0, 2) || login.slice(0, 2)).toUpperCase();
-}
+const SEGMENTS = 10;
 
 /** ticket renders the monospace ticket reference for a card with a number. */
 function ticket(card: CardModel): string | null {
@@ -29,31 +24,85 @@ function ticket(card: CardModel): string | null {
   return card.repository ? `${card.repository}#${card.number}` : `#${card.number}`;
 }
 
+/** barColor is the fill colour for the progress segments, driven by stage. */
+function barColor(stage?: StageKey): string {
+  return stage ? STAGES[stage].color : DEFAULT_BAR_COLOR;
+}
+
 /** Card is a compact single-row item shared by the Me and Team boards. */
 export function Card({
   card,
-  me,
   selected,
   onSelect,
   onProgress,
   onDelete,
-  draggable = true,
+  onStage,
+  onRename,
+  onOpen,
+  onLock,
 }: CardProps) {
-  const progress = card.progress ?? 0;
+  const value = card.stage === "done" ? 100 : card.progress ?? 0;
+  const fill = barColor(card.stage);
   const ref = ticket(card);
 
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
-    e.dataTransfer.setData("text/plain", card.itemId);
-    e.dataTransfer.effectAllowed = "move";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(card.title);
+  const [dragValue, setDragValue] = useState<number | null>(null);
+  const [lockPrompt, setLockPrompt] = useState(false);
+  const [lockNote, setLockNote] = useState("");
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+
+  // While dragging the handle, show the snapped drag value; otherwise the card's.
+  const shown = dragValue ?? value;
+  const filled = Math.round(shown / 10);
+
+  // Close the stage menu on any outside click.
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    const onDocClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+        setLockPrompt(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [menuOpen]);
+
+  // Progress is changed only by dragging the handle, which snaps to 10% steps.
+  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragValue(value);
   };
 
-  const handleBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const fraction = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
-    const clamped = Math.min(1, Math.max(0, fraction));
-    const value = Math.round((clamped * 100) / 5) * 5;
-    onProgress(card, value);
+  const onHandleMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragValue === null || !barRef.current) {
+      return;
+    }
+    const rect = barRef.current.getBoundingClientRect();
+    const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
+    const snapped = Math.min(100, Math.max(0, Math.round(frac * 10) * 10));
+    if (snapped !== dragValue) {
+      setDragValue(snapped);
+    }
+  };
+
+  const onHandleUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragValue === null) {
+      return;
+    }
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const final = dragValue;
+    setDragValue(null);
+    if (final !== value) {
+      onProgress(card, final);
+    }
   };
 
   const handleDelete = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -63,51 +112,199 @@ export function Card({
     }
   };
 
+  const pickStage = (e: React.MouseEvent<HTMLButtonElement>, stage: StageKey | null) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    onStage(card, stage);
+  };
+
+  // Locking requires a note (the reason), which is posted to the card's log.
+  const openLockPrompt = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setLockNote("");
+    setLockPrompt(true);
+  };
+
+  const submitLock = () => {
+    const note = lockNote.trim();
+    if (!note) {
+      return;
+    }
+    setMenuOpen(false);
+    setLockPrompt(false);
+    setLockNote("");
+    onLock(card, note);
+  };
+
+  const cancelLock = () => {
+    setLockPrompt(false);
+    setLockNote("");
+  };
+
+  const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setDraft(card.title);
+    setEditing(true);
+  };
+
+  const commitEdit = () => {
+    const next = draft.trim();
+    if (next && next !== card.title) {
+      onRename(card, next);
+    }
+    setEditing(false);
+  };
+
   return (
     <div
       className={`card${selected ? " card-selected" : ""}`}
-      draggable={draggable}
-      onDragStart={draggable ? handleDragStart : undefined}
       onClick={() => onSelect(card)}
+      onDoubleClick={() => onOpen(card)}
       title={card.title}
     >
-      <button
-        type="button"
-        className="card-delete"
-        onClick={handleDelete}
-        aria-label="Delete card"
-      >
-        ×
-      </button>
-
-      <span className="card-glyph" aria-hidden="true">
-        {card.isDraft ? "▦" : "#"}
-      </span>
-
-      <span className="card-title">{card.title}</span>
+      {editing ? (
+        <input
+          type="text"
+          className="card-title-input"
+          autoFocus
+          value={draft}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              commitEdit();
+            } else if (e.key === "Escape") {
+              setEditing(false);
+            }
+          }}
+          onBlur={() => setEditing(false)}
+        />
+      ) : (
+        <span className="card-title">{card.title}</span>
+      )}
 
       {ref && <span className="card-ticket">{ref}</span>}
 
-      <span className="card-avatars">
-        {card.assignees.map((login) => (
-          <span
-            key={login}
-            className={`avatar${login === me ? " avatar-me" : ""}`}
-            title={login}
+      <span className="card-actions" aria-hidden={false}>
+        <button
+          type="button"
+          className="card-action"
+          onClick={startEdit}
+          aria-label="Rename card"
+          title="Rename"
+        >
+          ✎
+        </button>
+        <div className="card-stage" ref={menuRef}>
+          <button
+            type="button"
+            className="card-action"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLockPrompt(false);
+              setMenuOpen((o) => !o);
+            }}
+            aria-label="Set status"
+            title="Status"
+            style={card.stage ? { color: STAGES[card.stage].color } : undefined}
           >
-            {initials(login)}
-          </span>
-        ))}
+            ⚑
+          </button>
+          {menuOpen && (
+            <div className="card-stage-menu" onClick={(e) => e.stopPropagation()}>
+              {lockPrompt ? (
+                <div className="card-lock-prompt">
+                  <textarea
+                    className="card-lock-textarea"
+                    autoFocus
+                    rows={2}
+                    value={lockNote}
+                    placeholder="Why locked? (posted as a note)"
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setLockNote(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Escape") {
+                        cancelLock();
+                      }
+                    }}
+                  />
+                  <div className="card-lock-actions">
+                    <button type="button" className="btn" onClick={cancelLock}>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={!lockNote.trim()}
+                      onClick={submitLock}
+                    >
+                      Lock
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {STAGE_ORDER.map((stage) => (
+                    <button
+                      key={stage}
+                      type="button"
+                      className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
+                      onClick={(e) =>
+                        stage === "locked" ? openLockPrompt(e) : pickStage(e, stage)
+                      }
+                    >
+                      <span
+                        className="card-stage-dot"
+                        style={{ background: STAGES[stage].color }}
+                      />
+                      {STAGES[stage].label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="card-stage-item card-stage-clear"
+                    onClick={(e) => pickStage(e, null)}
+                  >
+                    Clear
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="card-action card-action-delete"
+          onClick={handleDelete}
+          aria-label="Delete card"
+          title="Delete"
+        >
+          ×
+        </button>
       </span>
 
-      <div
-        className="card-bar"
-        title={`${progress}% — click to set`}
-        onClick={handleBarClick}
-      >
+      <div className="card-bar" ref={barRef} title={`${shown}%`}>
+        {Array.from({ length: SEGMENTS }, (_, i) => (
+          <span
+            key={i}
+            className={`card-seg${i < filled ? " card-seg-filled" : ""}`}
+            style={i < filled ? { backgroundColor: fill } : undefined}
+          />
+        ))}
         <div
-          className="card-bar-fill"
-          style={{ width: `${progress}%`, backgroundColor: ZONES.green.accent }}
+          className={`card-bar-handle${dragValue !== null ? " card-bar-handle-dragging" : ""}`}
+          style={{ left: `${shown}%`, borderColor: fill }}
+          role="slider"
+          aria-label="Progress"
+          aria-valuenow={shown}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={onHandleDown}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleUp}
         />
       </div>
     </div>
