@@ -550,6 +550,53 @@ button {
   justify-content: center;
 }
 
+button.team-avatar {
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.team-avatar.team-avatar-empty {
+  background: var(--bg);
+  border: 1px dashed var(--line);
+  color: var(--faint);
+  font-size: 12px;
+}
+
+/* reassign-team/person popup off the card avatar */
+.card-assign {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.card-assign-menu {
+  min-width: 150px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.card-assign-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--faint);
+  padding: 5px 8px 2px;
+}
+
+.card-assign-menu .avatar {
+  width: 16px;
+  height: 16px;
+}
+
+.card-assign-input {
+  display: block;
+  margin: 4px;
+  width: calc(100% - 8px);
+}
+
 /* AddCard: a title input with an integrated team picker (one combined box) */
 .add-card-form {
   display: flex;

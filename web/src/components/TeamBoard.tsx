@@ -133,6 +133,20 @@ export function TeamBoard({
     return sel.length === 1 ? sel[0] : undefined;
   }, [selected]);
 
+  // People to offer when reassigning a card: everyone seen on the board, me first.
+  const people = useMemo(() => {
+    const set = new Set<string>();
+    for (const card of board.cards) {
+      for (const login of card.assignees) {
+        set.add(login);
+      }
+    }
+    if (me) {
+      set.add(me);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [board.cards, me]);
+
   const cellCards = (engineer: string, zone: ZoneKey): CardModel[] =>
     filteredCards.filter((c) => {
       if (c.zone !== zone) {
@@ -301,6 +315,24 @@ export function TeamBoard({
         onError(errMessage(err));
       }
     })();
+  };
+
+  const handleSetTeam = (card: CardModel, team: string | null) => {
+    const prev = card.team;
+    patchCard(card.itemId, { team: team ?? undefined });
+    void provider.setTeam(board, card, team).catch((err: unknown) => {
+      patchCard(card.itemId, { team: prev });
+      onError(errMessage(err));
+    });
+  };
+
+  const handleSetAssignee = (card: CardModel, login: string | null) => {
+    const prev = card.assignees;
+    patchCard(card.itemId, { assignees: login ? [login] : [] });
+    void provider.setAssignee(board, card, login).catch((err: unknown) => {
+      patchCard(card.itemId, { assignees: prev });
+      onError(errMessage(err));
+    });
   };
 
   const handleCreate = (
@@ -568,6 +600,10 @@ export function TeamBoard({
               onOpen={onOpen}
               onRequestLock={onRequestLock}
               onMoveStart={handleMoveStart}
+              teams={roster}
+              people={people}
+              onSetTeam={handleSetTeam}
+              onSetAssignee={handleSetAssignee}
             />
           )}
           renderOverlay={(card) => (
