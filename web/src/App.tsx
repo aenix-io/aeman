@@ -6,6 +6,7 @@ import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { CardDetail } from "./components/CardDetail";
 import { LockDialog } from "./components/LockDialog";
+import { fetchUsers, type GhUser } from "./users";
 
 type ViewMode = "me" | "team";
 
@@ -58,6 +59,7 @@ export function App() {
   const [view, setView] = useState<ViewMode>(readView);
 
   const [board, setBoard] = useState<Board | null>(null);
+  const [users, setUsers] = useState<Record<string, GhUser>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
@@ -178,6 +180,16 @@ export function App() {
       try {
         const loaded = await provider.loadBoard(ownerArg, numberArg);
         setBoard(loaded);
+        // Pull display names + avatars for everyone assigned on the board.
+        const logins = new Set<string>();
+        for (const c of loaded.cards) {
+          for (const a of c.assignees) {
+            logins.add(a);
+          }
+        }
+        void fetchUsers([...logins])
+          .then((u) => setUsers((cur) => ({ ...cur, ...u })))
+          .catch(() => {});
       } catch (err: unknown) {
         setError(errMessage(err));
       } finally {
@@ -436,6 +448,7 @@ export function App() {
             board={board}
             provider={provider}
             me={config?.login ?? ""}
+            users={users}
             roster={roster}
             selected={selected}
             allSelected={allSelected}

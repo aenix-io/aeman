@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
-import { initials, teamColor } from "../avatar";
+import { initials, teamColor, teamInitial } from "../avatar";
 import { addDays, todayIso } from "../date";
 import { Dropdown } from "./Dropdown";
 
@@ -341,7 +341,7 @@ export function Card({
                   : undefined
               }
             >
-              {initials(card.team)}
+              {teamInitial(card.team)}
             </button>
           ) : (
             <button
