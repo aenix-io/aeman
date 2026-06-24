@@ -22,6 +22,7 @@ export function AddCard({
   const [team, setTeam] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const formRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   // The team picker is shown only when a roster is supplied and no team is forced.
   const showPicker = forcedTeam === undefined && teams !== undefined;
@@ -55,6 +56,13 @@ export function AddCard({
     close();
   };
 
+  // Picking a team keeps focus in the title input so Enter still submits.
+  const pickTeam = (t: string | null) => {
+    setTeam(t);
+    setMenuOpen(false);
+    inputRef.current?.focus();
+  };
+
   if (!open) {
     return (
       <button type="button" className="add-card" onClick={() => setOpen(true)}>
@@ -69,6 +77,7 @@ export function AddCard({
         type="text"
         className="add-card-input"
         autoFocus
+        ref={inputRef}
         value={value}
         placeholder={placeholder}
         onChange={(e) => setValue(e.target.value)}
@@ -99,10 +108,7 @@ export function AddCard({
               <button
                 type="button"
                 className="add-card-team-item"
-                onClick={() => {
-                  setTeam(null);
-                  setMenuOpen(false);
-                }}
+                onClick={() => pickTeam(null)}
               >
                 no team
               </button>
@@ -111,10 +117,7 @@ export function AddCard({
                   key={t}
                   type="button"
                   className="add-card-team-item"
-                  onClick={() => {
-                    setTeam(t);
-                    setMenuOpen(false);
-                  }}
+                  onClick={() => pickTeam(t)}
                 >
                   <span className="team-dot" style={{ background: teamColor(t) }} />
                   {t}
