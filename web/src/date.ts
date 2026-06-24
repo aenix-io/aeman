@@ -31,8 +31,9 @@ export function activeOnDay(
   return from <= day && day <= to;
 }
 
-/** daysSince returns whole days between an ISO timestamp's local date and today. */
-export function daysSince(iso: string | undefined): number {
+/** daysSince returns whole days between an ISO timestamp's local date and the
+ * `asOf` day (a yyyy-mm-dd string, default today). */
+export function daysSince(iso: string | undefined, asOf?: string): number {
   if (!iso) {
     return 0;
   }
@@ -41,7 +42,7 @@ export function daysSince(iso: string | undefined): number {
     return 0;
   }
   const [py, pm, pd] = then.split("-").map(Number);
-  const [ty, tm, td] = todayIso().split("-").map(Number);
+  const [ty, tm, td] = (asOf || todayIso()).split("-").map(Number);
   const ms = Date.UTC(ty, tm - 1, td) - Date.UTC(py, pm - 1, pd);
   return Math.max(0, Math.round(ms / 86_400_000));
 }
