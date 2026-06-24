@@ -1,4 +1,5 @@
 import { graphql } from "../../api/client";
+import { optionIdForStage, stageFromName } from "../../stages";
 import { optionIdForZone, zoneFromColor } from "../../zones";
 import { fieldRoles } from "../fields";
 import type {
@@ -10,6 +11,7 @@ import type {
   Note,
   ProjectField,
   Provider,
+  StageKey,
 } from "../types";
 import {
   ADD_ASSIGNEES,
@@ -18,6 +20,7 @@ import {
   CLEAR_FIELD,
   DELETE_ITEM,
   GET_DRAFT_BODY,
+  MOVE_ITEM,
   ORG_PROJECT_QUERY,
   ORG_PROJECTS_QUERY,
   REMOVE_ASSIGNEES,
@@ -26,6 +29,9 @@ import {
   SET_SINGLE_SELECT,
   UPDATE_DRAFT_ASSIGNEES,
   UPDATE_DRAFT_BODY,
+  UPDATE_DRAFT_TITLE,
+  UPDATE_ISSUE_BODY,
+  UPDATE_ISSUE_TITLE,
   USER_ID_QUERY,
   USER_PROJECT_QUERY,
   USER_PROJECTS_QUERY,
@@ -97,38 +103,88 @@ interface ProjectsListResult {
   user?: { projectsV2: { nodes: BoardSummary[] } } | null;
 }
 
-const DRAFT_NOTE_RE = /^[-*]?\s*\[([^\]]+)\]\s?(.*)$/;
+// LOG_MARKER separates a draft card's description from its appended action log.
+const LOG_MARKER = "<!-- aeman:log -->";
+const NOTE_RE = /^[-*]?\s*\[([^\]]+)\]\s?(.*)$/;
 
-function parseNotes(content: RawContent | undefined, itemId: string): Note[] {
-  if (!content) {
-    return [];
+function parseNoteLines(text: string, itemId: string): Note[] {
+  const notes: Note[] = [];
+  text.split("\n").forEach((line, i) => {
+    const match = NOTE_RE.exec(line.trim());
+    if (match) {
+      notes.push({ id: `${itemId}:${i}`, body: match[2], createdAt: match[1], source: "draft" });
+    }
+  });
+  return notes;
+}
+
+/** parseDraftBody splits a draft body into a description and its action log. */
+function parseDraftBody(
+  body: string | undefined,
+  itemId: string,
+): { description: string; notes: Note[] } {
+  if (!body) {
+    return { description: "", notes: [] };
   }
-  if (content.comments?.nodes?.length) {
-    return content.comments.nodes.map((c) => ({
-      id: c.id,
-      body: c.body,
-      createdAt: c.createdAt,
-      author: c.author?.login,
-      source: "comment" as const,
-    }));
+  const idx = body.indexOf(LOG_MARKER);
+  if (idx >= 0) {
+    return {
+      description: body.slice(0, idx).trim(),
+      notes: parseNoteLines(body.slice(idx + LOG_MARKER.length), itemId),
+    };
   }
-  if (content.body) {
-    const notes: Note[] = [];
-    content.body.split("\n").forEach((line, i) => {
-      const match = DRAFT_NOTE_RE.exec(line.trim());
-      if (match) {
-        notes.push({ id: `${itemId}:${i}`, body: match[2], createdAt: match[1], source: "draft" });
-      }
-    });
-    return notes;
+  // Legacy bodies without a marker: treat note-shaped lines as the log.
+  const descLines: string[] = [];
+  const notes: Note[] = [];
+  body.split("\n").forEach((line, i) => {
+    const match = NOTE_RE.exec(line.trim());
+    if (match) {
+      notes.push({ id: `${itemId}:${i}`, body: match[2], createdAt: match[1], source: "draft" });
+    } else {
+      descLines.push(line);
+    }
+  });
+  return { description: descLines.join("\n").trim(), notes };
+}
+
+/** buildDraftBody serialises a description and action log back into a body. */
+function buildDraftBody(description: string, notes: Note[]): string {
+  const desc = description.trim();
+  if (notes.length === 0) {
+    return desc;
   }
-  return [];
+  const log = notes.map((n) => `- [${n.createdAt}] ${n.body}`).join("\n");
+  return `${desc ? `${desc}\n\n` : ""}${LOG_MARKER}\n${log}`;
+}
+
+function commentsToNotes(content: RawContent): Note[] {
+  return (content.comments?.nodes ?? []).map((c) => ({
+    id: c.id,
+    body: c.body,
+    createdAt: c.createdAt,
+    author: c.author?.login,
+    source: "comment" as const,
+  }));
 }
 
 function mapItem(item: RawItem, roles: FieldRoles): Card {
   const content = item.content ?? undefined;
   const isDraft =
     item.type === "DRAFT_ISSUE" || content?.__typename === "DraftIssue";
+
+  let description = "";
+  let notes: Note[] = [];
+  if (content) {
+    if (isDraft) {
+      const parsed = parseDraftBody(content.body, item.id);
+      description = parsed.description;
+      notes = parsed.notes;
+    } else {
+      description = content.body ?? "";
+      notes = commentsToNotes(content);
+    }
+  }
+
   const card: Card = {
     itemId: item.id,
     contentId: content?.id,
@@ -139,7 +195,8 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
     repository: content?.repository?.nameWithOwner,
     state: content?.state,
     assignees: content?.assignees?.nodes.map((n) => n.login) ?? [],
-    notes: parseNotes(content, item.id),
+    description,
+    notes,
   };
 
   for (const value of item.fieldValues.nodes) {
@@ -151,6 +208,8 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
       card.zoneOptionId = value.optionId;
       const option = roles.zone.options?.find((o) => o.id === value.optionId);
       card.zone = zoneFromColor(option?.color);
+    } else if (roles.stage && fieldID === roles.stage.id && value.name) {
+      card.stage = stageFromName(value.name);
     } else if (
       roles.progress &&
       fieldID === roles.progress.id &&
@@ -319,6 +378,64 @@ export const githubProvider: Provider = {
     }
   },
 
+  async setStage(board: Board, card: Card, stage: StageKey | null): Promise<void> {
+    const field = requireRole(board, "stage", "Stage");
+    if (stage === null) {
+      await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
+      return;
+    }
+    const optionId = optionIdForStage(field, stage);
+    if (!optionId) {
+      throw new Error(`Project Stage field has no "${stage}" option`);
+    }
+    await graphql(SET_SINGLE_SELECT, {
+      project: board.id,
+      item: card.itemId,
+      field: field.id,
+      option: optionId,
+    });
+    if (stage === "done") {
+      const progress = fieldRoles(board).progress;
+      if (progress) {
+        await graphql(SET_NUMBER, {
+          project: board.id,
+          item: card.itemId,
+          field: progress.id,
+          value: 100,
+        });
+      }
+    }
+  },
+
+  async renameCard(_board: Board, card: Card, title: string): Promise<void> {
+    if (!card.contentId) {
+      throw new Error("Card has no underlying content to rename");
+    }
+    if (card.isDraft) {
+      await graphql(UPDATE_DRAFT_TITLE, { draft: card.contentId, title });
+      return;
+    }
+    await graphql(UPDATE_ISSUE_TITLE, { id: card.contentId, title });
+  },
+
+  async setDescription(_board: Board, card: Card, description: string): Promise<void> {
+    if (!card.contentId) {
+      throw new Error("Card has no underlying content");
+    }
+    if (card.isDraft) {
+      const data = await graphql<{ node?: { body?: string } | null }>(GET_DRAFT_BODY, {
+        id: card.contentId,
+      });
+      const { notes } = parseDraftBody(data.node?.body, card.itemId);
+      await graphql(UPDATE_DRAFT_BODY, {
+        draft: card.contentId,
+        body: buildDraftBody(description, notes),
+      });
+      return;
+    }
+    await graphql(UPDATE_ISSUE_BODY, { id: card.contentId, body: description });
+  },
+
   async createCard(board: Board, input: NewCardInput): Promise<Card> {
     const assigneeIds = input.assigneeLogin
       ? [await resolveUserId(input.assigneeLogin)]
@@ -361,12 +478,21 @@ export const githubProvider: Provider = {
       zone: zoneOptionId ? input.zone : undefined,
       zoneOptionId,
       day: input.day ?? undefined,
+      description: "",
       notes: [],
     };
   },
 
   async deleteCard(board: Board, card: Card): Promise<void> {
     await graphql(DELETE_ITEM, { project: board.id, item: card.itemId });
+  },
+
+  async moveCard(board: Board, card: Card, afterItemId: string | null): Promise<void> {
+    await graphql(MOVE_ITEM, {
+      project: board.id,
+      item: card.itemId,
+      after: afterItemId,
+    });
   },
 
   async addNote(_board: Board, card: Card, text: string): Promise<void> {
@@ -377,11 +503,11 @@ export const githubProvider: Provider = {
       const data = await graphql<{ node?: { body?: string } | null }>(GET_DRAFT_BODY, {
         id: card.contentId,
       });
-      const body = data.node?.body ?? "";
-      const line = `- [${new Date().toISOString()}] ${text}`;
+      const { description, notes } = parseDraftBody(data.node?.body, card.itemId);
+      notes.push({ id: "tmp", body: text, createdAt: new Date().toISOString(), source: "draft" });
       await graphql(UPDATE_DRAFT_BODY, {
         draft: card.contentId,
-        body: body ? `${body}\n${line}` : line,
+        body: buildDraftBody(description, notes),
       });
       return;
     }
