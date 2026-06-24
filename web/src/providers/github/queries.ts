@@ -136,6 +136,18 @@ export const ADD_DRAFT = `mutation($project: ID!, $title: String!, $assignees: [
   }
 }`;
 
+export const CREATE_FIELD = `mutation($project: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!) {
+  createProjectV2Field(input: { projectId: $project, name: $name, dataType: $dataType }) {
+    projectV2Field { ... on ProjectV2FieldCommon { id name dataType } }
+  }
+}`;
+
+export const CREATE_SELECT_FIELD = `mutation($project: ID!, $name: String!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+  createProjectV2Field(input: { projectId: $project, name: $name, dataType: SINGLE_SELECT, singleSelectOptions: $options }) {
+    projectV2Field { ... on ProjectV2SingleSelectField { id name dataType options { id name color } } }
+  }
+}`;
+
 export const DELETE_ITEM = `mutation($project: ID!, $item: ID!) {
   deleteProjectV2Item(input: { projectId: $project, itemId: $item }) { deletedItemId }
 }`;
