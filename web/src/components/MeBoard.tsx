@@ -9,7 +9,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, localDateIso, addDays } from "../date";
+import { todayIso, localDateIso, addDays, activeOnDay } from "../date";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { NotesPanel, type DayNote } from "./NotesPanel";
@@ -63,7 +63,7 @@ export function MeBoard({
   // My cards for the selected day. When me is empty, show everyone's cards.
   const myCards = useMemo(() => {
     return board.cards.filter((c) => {
-      if (c.day !== selectedDate) {
+      if (!activeOnDay(c.startDate, c.day, selectedDate)) {
         return false;
       }
       return me ? c.assignees.includes(me) : true;
@@ -226,6 +226,7 @@ export function MeBoard({
       assignees: me ? [me] : [],
       zone,
       day: selectedDate,
+      startDate: selectedDate,
       team: team ?? undefined,
       description: "",
       notes: [],
@@ -236,6 +237,7 @@ export function MeBoard({
         title,
         zone,
         day: selectedDate,
+        start: selectedDate,
         assigneeLogin: me || null,
         team: team ?? null,
       })

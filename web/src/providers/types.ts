@@ -61,8 +61,10 @@ export interface Card {
   stage?: StageKey;
   /** Team label the card belongs to (a free-text field, used for filtering). */
   team?: string;
-  /** ISO date (yyyy-mm-dd) the card is planned for (Me day view). */
+  /** ISO date (yyyy-mm-dd) the card is planned to finish/be due on. */
   day?: string;
+  /** ISO date (yyyy-mm-dd) the card starts on (set at creation). */
+  startDate?: string;
   sprintTitle?: string;
   status?: string;
   /** Free-form card details (the body minus the appended action log). */
@@ -75,6 +77,7 @@ export interface NewCardInput {
   title: string;
   zone?: ZoneKey;
   day?: string | null;
+  start?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
 }
@@ -94,6 +97,7 @@ export interface FieldRoles {
   zone?: ProjectField;
   progress?: ProjectField;
   day?: ProjectField;
+  start?: ProjectField;
   sprint?: ProjectField;
   status?: ProjectField;
   stage?: ProjectField;
@@ -108,6 +112,7 @@ export interface Provider {
   setZone(board: Board, card: Card, optionId: string | null): Promise<void>;
   setProgress(board: Board, card: Card, progress: number): Promise<void>;
   setDay(board: Board, card: Card, day: string | null): Promise<void>;
+  setStart(board: Board, card: Card, date: string | null): Promise<void>;
   setAssignee(board: Board, card: Card, login: string | null): Promise<void>;
   setStage(board: Board, card: Card, stage: StageKey | null): Promise<void>;
   setTeam(board: Board, card: Card, team: string | null): Promise<void>;

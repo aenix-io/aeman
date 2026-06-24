@@ -8,7 +8,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays } from "../date";
+import { todayIso, addDays, activeOnDay } from "../date";
 import { initials } from "../avatar";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
@@ -87,7 +87,10 @@ export function TeamBoard({
 
   // Cards for the current day that pass the team filter.
   const filteredCards = useMemo(
-    () => board.cards.filter((c) => c.day === selectedDate && passesFilter(c)),
+    () =>
+      board.cards.filter(
+        (c) => activeOnDay(c.startDate, c.day, selectedDate) && passesFilter(c),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [board.cards, selectedDate, selected, allSelected],
   );
@@ -266,6 +269,28 @@ export function TeamBoard({
     });
   };
 
+  // Move a card's start date; if it passes the finish date, push finish too.
+  const handleMoveStart = (card: CardModel, newStart: string) => {
+    const prev: Partial<CardModel> = { startDate: card.startDate, day: card.day };
+    const patch: Partial<CardModel> = { startDate: newStart };
+    const bumpFinish = card.day != null && newStart > card.day;
+    if (bumpFinish) {
+      patch.day = newStart;
+    }
+    patchCard(card.itemId, patch);
+    void (async () => {
+      try {
+        await provider.setStart(board, card, newStart);
+        if (bumpFinish) {
+          await provider.setDay(board, card, newStart);
+        }
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
   const handleCreate = (
     engineer: string,
     zone: ZoneKey,
@@ -280,6 +305,7 @@ export function TeamBoard({
       assignees: engineer ? [engineer] : [],
       zone,
       day: selectedDate,
+      startDate: selectedDate,
       team: team ?? undefined,
       description: "",
       notes: [],
@@ -290,6 +316,7 @@ export function TeamBoard({
         title,
         zone,
         day: selectedDate,
+        start: selectedDate,
         assigneeLogin: engineer || null,
         team: team ?? null,
       })
@@ -506,6 +533,7 @@ export function TeamBoard({
               onRename={handleRename}
               onOpen={onOpen}
               onRequestLock={onRequestLock}
+              onMoveStart={handleMoveStart}
             />
           )}
           renderOverlay={(card) => (

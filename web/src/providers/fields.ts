@@ -4,7 +4,8 @@ import type { Board, FieldRoles } from "./types";
 const ALIASES: Record<keyof FieldRoles, string[]> = {
   zone: ["zone", "priority zone", "зона"],
   progress: ["progress", "readiness", "% done", "percent", "готовность"],
-  day: ["day", "date", "due date", "due", "день", "дата"],
+  day: ["day", "date", "due date", "due", "finish", "finish date", "день", "дата"],
+  start: ["start", "start date", "начало", "старт"],
   sprint: ["sprint", "iteration", "спринт", "итерация"],
   status: ["status", "статус"],
   stage: ["stage", "состояние"],

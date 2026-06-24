@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
 import { initials, teamColor } from "../avatar";
+import { addDays, todayIso } from "../date";
 
 interface CardProps {
   card: CardModel;
@@ -14,6 +15,8 @@ interface CardProps {
   onOpen: (card: CardModel) => void;
   /** Locking requires a reason, gathered in a modal lifted to App. */
   onRequestLock: (card: CardModel) => void;
+  /** Move the card's start date (Team board only); absent hides the control. */
+  onMoveStart?: (card: CardModel, newStart: string) => void;
 }
 
 const SEGMENTS = 10;
@@ -42,6 +45,7 @@ export function Card({
   onRename,
   onOpen,
   onRequestLock,
+  onMoveStart,
 }: CardProps) {
   const value = card.stage === "done" ? 100 : card.progress ?? 0;
   const fill = barColor(card.stage);
@@ -51,7 +55,9 @@ export function Card({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.title);
   const [dragValue, setDragValue] = useState<number | null>(null);
+  const [startMenuOpen, setStartMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const startRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
 
   // While dragging the handle, show the snapped drag value; otherwise the card's.
@@ -60,17 +66,20 @@ export function Card({
 
   // Close the stage menu on any outside click.
   useEffect(() => {
-    if (!menuOpen) {
+    if (!menuOpen && !startMenuOpen) {
       return;
     }
     const onDocClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
+      if (startRef.current && !startRef.current.contains(e.target as Node)) {
+        setStartMenuOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
-  }, [menuOpen]);
+  }, [menuOpen, startMenuOpen]);
 
   // Progress is changed only by dragging the handle, which snaps to 10% steps.
   const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -122,6 +131,20 @@ export function Card({
     e.stopPropagation();
     setMenuOpen(false);
     onRequestLock(card);
+  };
+
+  const moveStartBy = (e: React.MouseEvent<HTMLButtonElement>, days: number) => {
+    e.stopPropagation();
+    setStartMenuOpen(false);
+    onMoveStart?.(card, addDays(card.startDate ?? todayIso(), days));
+  };
+
+  const moveStartTo = (date: string) => {
+    if (!date) {
+      return;
+    }
+    setStartMenuOpen(false);
+    onMoveStart?.(card, date);
   };
 
   const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -221,6 +244,49 @@ export function Card({
             </div>
           )}
         </div>
+        {onMoveStart && (
+          <div className="card-stage" ref={startRef}>
+            <button
+              type="button"
+              className="card-action"
+              onClick={(e) => {
+                e.stopPropagation();
+                setStartMenuOpen((o) => !o);
+              }}
+              aria-label="Move start date"
+              title="Move start date"
+            >
+              ⏩
+            </button>
+            {startMenuOpen && (
+              <div className="card-stage-menu" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  className="card-stage-item"
+                  onClick={(e) => moveStartBy(e, 1)}
+                >
+                  +1 day
+                </button>
+                <button
+                  type="button"
+                  className="card-stage-item"
+                  onClick={(e) => moveStartBy(e, 7)}
+                >
+                  +1 week
+                </button>
+                <label className="card-stage-item card-start-custom">
+                  Custom
+                  <input
+                    type="date"
+                    value={card.startDate ?? ""}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => moveStartTo(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
         <button
           type="button"
           className="card-action card-action-delete"
