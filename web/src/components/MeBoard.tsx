@@ -160,10 +160,11 @@ export function MeBoard({
   };
 
   const handleDelete = (card: CardModel) => {
-    void provider
-      .deleteCard(board, card)
-      .then(() => removeCard(card.itemId))
-      .catch(fail);
+    removeCard(card.itemId);
+    void provider.deleteCard(board, card).catch((err: unknown) => {
+      addCard(card);
+      onError(errMessage(err));
+    });
   };
 
   // The 4 sortable groups: one per zone, in ZONE_ORDER (top → bottom).

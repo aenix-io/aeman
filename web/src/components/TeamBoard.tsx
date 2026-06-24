@@ -118,11 +118,6 @@ export function TeamBoard({
     return sel.length === 1 ? sel[0] : undefined;
   }, [selected]);
 
-  const fail = (err: unknown) => {
-    onError(err instanceof Error ? err.message : String(err));
-    reload();
-  };
-
   const cellCards = (engineer: string, zone: ZoneKey): CardModel[] =>
     filteredCards.filter((c) => {
       if (c.zone !== zone) {
@@ -264,10 +259,11 @@ export function TeamBoard({
   };
 
   const handleDelete = (card: CardModel) => {
-    void provider
-      .deleteCard(board, card)
-      .then(() => removeCard(card.itemId))
-      .catch(fail);
+    removeCard(card.itemId);
+    void provider.deleteCard(board, card).catch((err: unknown) => {
+      addCard(card);
+      onError(errMessage(err));
+    });
   };
 
   const handleCreate = (
