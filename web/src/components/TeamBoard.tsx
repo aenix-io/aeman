@@ -8,7 +8,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays } from "../date";
+import { todayIso, addDays, activeOnDay } from "../date";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
@@ -113,10 +113,14 @@ export function TeamBoard({
     [board.cards, selected, allSelected],
   );
 
-  // Team is strict by the selected day: only cards whose sprint started on that
-  // exact day. An empty board on today is the cue for the lead to Start sprint.
+  // A card shows on every day from its start through its current sprint day, so
+  // past days keep long-running cards while days after the last sprint go empty
+  // (the cue for the lead to start a new sprint).
   const filteredCards = useMemo(
-    () => inFilter.filter((c) => c.sprintStart === selectedDate),
+    () =>
+      inFilter.filter((c) =>
+        activeOnDay(c.startDate, c.sprintStart, selectedDate),
+      ),
     [inFilter, selectedDate],
   );
 
@@ -617,13 +621,8 @@ export function TeamBoard({
           <button
             type="button"
             className="btn sprint-btn"
-            disabled={selected.size === 0}
             onClick={() => setSprintMenuOpen((o) => !o)}
-            title={
-              selected.size === 0
-                ? "Select a team to start a sprint"
-                : `Move unfinished cards from earlier days into ${selectedDate}`
-            }
+            title={`Carry unfinished cards into the ${selectedDate} sprint`}
           >
             Start sprint ▾
           </button>

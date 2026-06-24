@@ -9,8 +9,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, localDateIso, addDays } from "../date";
-import { currentSprintByTeam, sprintForNewCard } from "../sprint";
+import { todayIso, localDateIso, addDays, activeOnDay } from "../date";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { NotesPanel, type DayNote } from "./NotesPanel";
@@ -61,27 +60,16 @@ export function MeBoard({
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
-  // My cards (any day); when me is empty, everyone's. Used to derive sprints.
+  // My cards (any day); when me is empty, everyone's.
   const mine = useMemo(
     () => board.cards.filter((c) => (me ? c.assignees.includes(me) : true)),
     [board.cards, me],
   );
 
-  // The current sprint is per team: the latest sprintStart ≤ selectedDate.
-  const currentSprint = useMemo(
-    () => currentSprintByTeam(mine, selectedDate),
-    [mine, selectedDate],
-  );
-
-  // Show a card if it belongs to its team's current sprint.
+  // A card is shown on every day from its start through its current sprint day.
   const myCards = useMemo(
-    () =>
-      mine.filter(
-        (c) =>
-          c.sprintStart != null &&
-          currentSprint.get(c.team ?? "") === c.sprintStart,
-      ),
-    [mine, currentSprint],
+    () => mine.filter((c) => activeOnDay(c.startDate, c.sprintStart, selectedDate)),
+    [mine, selectedDate],
   );
 
   const byZone = useMemo(() => {
@@ -233,7 +221,7 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
+    const sprintStart = selectedDate;
     const optimistic: CardModel = {
       itemId: tempId,
       title,
