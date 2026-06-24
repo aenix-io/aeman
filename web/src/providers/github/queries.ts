@@ -18,6 +18,7 @@ const PROJECT_BODY = `
     nodes {
       id
       type
+      createdAt
       content {
         __typename
         ... on DraftIssue {
