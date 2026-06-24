@@ -83,6 +83,8 @@ export function TeamBoard({
   const [editTeamValue, setEditTeamValue] = useState("");
   const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
   const sprintRef = useRef<HTMLDivElement | null>(null);
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [dragCol, setDragCol] = useState<string | null>(null);
 
   useEffect(() => {
     if (!sprintMenuOpen) {
@@ -135,6 +137,45 @@ export function TeamBoard({
     return [...people, UNASSIGNED];
   }, [filteredCards, me]);
 
+  // Apply the manual column order (people only); Unassigned always stays last and
+  // people missing from the saved order are appended in their default order.
+  const orderedEngineers = useMemo(() => {
+    const people = engineers.filter((e) => e !== UNASSIGNED);
+    const present = new Set(people);
+    const ordered = columnOrder.filter((e) => present.has(e));
+    const seen = new Set(ordered);
+    for (const e of people) {
+      if (!seen.has(e)) {
+        ordered.push(e);
+      }
+    }
+    return [...ordered, UNASSIGNED];
+  }, [engineers, columnOrder]);
+
+  const moveColumn = (from: string, to: string) => {
+    if (from === to || from === UNASSIGNED || to === UNASSIGNED) {
+      return;
+    }
+    const people = orderedEngineers.filter((e) => e !== UNASSIGNED);
+    const fromIdx = people.indexOf(from);
+    const toIdx = people.indexOf(to);
+    if (fromIdx < 0 || toIdx < 0) {
+      return;
+    }
+    people.splice(fromIdx, 1);
+    people.splice(toIdx, 0, from);
+    setColumnOrder(people);
+  };
+
+  const shuffleColumns = () => {
+    const people = orderedEngineers.filter((e) => e !== UNASSIGNED);
+    for (let i = people.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [people[i], people[j]] = [people[j], people[i]];
+    }
+    setColumnOrder(people);
+  };
+
   // If exactly one team is selected, new cards default to it (no picker needed).
   const forcedTeam = useMemo(() => {
     const sel = [...selected];
@@ -172,7 +213,7 @@ export function TeamBoard({
   // derived global card order is coherent across drops.
   const groups = useMemo<BoardGroup<TeamMeta>[]>(() => {
     const out: BoardGroup<TeamMeta>[] = [];
-    for (const engineer of engineers) {
+    for (const engineer of orderedEngineers) {
       for (const zone of ZONE_ORDER) {
         out.push({
           key: cellKey(engineer, zone),
@@ -183,7 +224,7 @@ export function TeamBoard({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredCards, engineers]);
+  }, [filteredCards, orderedEngineers]);
 
   const handleDrop = ({
     card,
@@ -561,6 +602,15 @@ export function TeamBoard({
           </div>
         </div>
 
+        <button
+          type="button"
+          className="btn shuffle-btn"
+          onClick={shuffleColumns}
+          title="Shuffle columns"
+          aria-label="Shuffle columns"
+        >
+          ⇄
+        </button>
         <div className="sprint-wrap" ref={sprintRef}>
           <button
             type="button"
@@ -658,12 +708,28 @@ export function TeamBoard({
             );
           }}
           renderLayout={(nodes) =>
-            engineers.length === 0 ? (
+            orderedEngineers.length === 0 ? (
               <p className="placeholder">No cards match the selected teams.</p>
             ) : (
-              engineers.map((engineer) => (
+              orderedEngineers.map((engineer) => (
                 <section className="team-col" key={engineer || "__unassigned__"}>
-                  <header className="team-col-header">
+                  <header
+                    className="team-col-header"
+                    draggable={engineer !== UNASSIGNED}
+                    onDragStart={() => setDragCol(engineer)}
+                    onDragOver={(e) => {
+                      if (dragCol && dragCol !== engineer) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onDrop={() => {
+                      if (dragCol) {
+                        moveColumn(dragCol, engineer);
+                      }
+                      setDragCol(null);
+                    }}
+                    onDragEnd={() => setDragCol(null)}
+                  >
                     {engineer === UNASSIGNED ? (
                       <span className="team-col-name team-col-unassigned">
                         Unassigned
@@ -675,6 +741,7 @@ export function TeamBoard({
                           src={avatarUrlFor(engineer, users[engineer])}
                           alt={engineer}
                           title={displayName(engineer, users[engineer])}
+                          draggable={false}
                         />
                         <span
                           className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
