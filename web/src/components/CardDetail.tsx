@@ -94,20 +94,18 @@ export function CardDetail({
               onBlur={commitTitle}
             />
           ) : (
-            <h2 className="modal-title">
+            <h2
+              className="modal-title modal-title-click"
+              onClick={() => {
+                setTitle(card.title);
+                setEditingTitle(true);
+              }}
+              title="Click to rename"
+            >
               {card.title}
-              <button
-                type="button"
-                className="card-action modal-title-edit"
-                onClick={() => {
-                  setTitle(card.title);
-                  setEditingTitle(true);
-                }}
-                aria-label="Rename card"
-                title="Rename"
-              >
+              <span className="modal-title-edit" aria-hidden="true">
                 ✎
-              </button>
+              </span>
             </h2>
           )}
           <button
