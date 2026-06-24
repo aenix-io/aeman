@@ -9,13 +9,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import {
-  todayIso,
-  localDateIso,
-  addDays,
-  activeOnDay,
-  latestSprintDay,
-} from "../date";
+import { todayIso, localDateIso, addDays } from "../date";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { NotesPanel, type DayNote } from "./NotesPanel";
@@ -61,27 +55,45 @@ export function MeBoard({
   onOpen,
   onRequestLock,
 }: MeBoardProps) {
-  // Land on the last started sprint (latest finish ≤ today among my cards) so
-  // cards don't vanish as the calendar moves past the sprint day.
-  const [selectedDate, setSelectedDate] = useState<string>(() =>
-    latestSprintDay(
-      board.cards.filter((c) => !me || c.assignees.includes(me)).map((c) => c.day),
-      todayIso(),
-    ),
-  );
+  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
-  // My cards for the selected day. When me is empty, show everyone's cards.
-  const myCards = useMemo(() => {
-    return board.cards.filter((c) => {
-      if (!activeOnDay(c.startDate, c.day, selectedDate)) {
-        return false;
+  // My cards (any day); when me is empty, everyone's. Used to derive sprints.
+  const mine = useMemo(
+    () => board.cards.filter((c) => (me ? c.assignees.includes(me) : true)),
+    [board.cards, me],
+  );
+
+  // The current sprint is per team: the latest finish ≤ selectedDate for each
+  // team (cards with no team share one "no team" sprint).
+  const currentSprint = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of mine) {
+      if (!c.day || c.day > selectedDate) {
+        continue;
       }
-      return me ? c.assignees.includes(me) : true;
-    });
-  }, [board.cards, me, selectedDate]);
+      const key = c.team ?? "";
+      const cur = m.get(key);
+      if (!cur || c.day > cur) {
+        m.set(key, c.day);
+      }
+    }
+    return m;
+  }, [mine, selectedDate]);
+
+  // Show a card if it belongs to its team's current sprint and has started.
+  const myCards = useMemo(
+    () =>
+      mine.filter(
+        (c) =>
+          c.day != null &&
+          (!c.startDate || c.startDate <= selectedDate) &&
+          currentSprint.get(c.team ?? "") === c.day,
+      ),
+    [mine, currentSprint, selectedDate],
+  );
 
   const byZone = useMemo(() => {
     const buckets: Record<ZoneKey, CardModel[]> = {
