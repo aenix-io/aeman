@@ -10,7 +10,7 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, localDateIso, addDays } from "../date";
-import { currentSprintByTeam } from "../sprint";
+import { currentSprintByTeam, sprintForNewCard } from "../sprint";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { NotesPanel, type DayNote } from "./NotesPanel";
@@ -247,7 +247,9 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    const sprintStart = selectedDate;
+    // Join the team's current sprint instead of starting a new one, so adding a
+    // card on a later day does not look like a new sprint and hide the rest.
+    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
     const optimistic: CardModel = {
       itemId: tempId,
       title,
@@ -255,7 +257,7 @@ export function MeBoard({
       assignees: me ? [me] : [],
       zone,
       day: selectedDate,
-      startDate: selectedDate,
+      startDate: sprintStart,
       sprintStart,
       team: team ?? undefined,
       description: "",
@@ -267,7 +269,7 @@ export function MeBoard({
         title,
         zone,
         day: selectedDate,
-        start: selectedDate,
+        start: sprintStart,
         sprintStart,
         assigneeLogin: me || null,
         team: team ?? null,
