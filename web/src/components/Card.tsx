@@ -363,6 +363,29 @@ export function Card({
             className="card-stage-menu card-assign-menu"
           >
             <div className="card-assign-cols">
+              {onSetTeam && (
+                <div className="card-assign-col">
+                  <div className="card-assign-head">Team</div>
+                  {(teams ?? []).map((t) => (
+                    <button
+                      key={`t-${t}`}
+                      type="button"
+                      className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
+                      onClick={() => pickAssignTeam(t)}
+                    >
+                      <span className="team-dot" style={{ background: teamColor(t) }} />
+                      {t}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="card-stage-item card-stage-clear"
+                    onClick={() => pickAssignTeam(null)}
+                  >
+                    No team
+                  </button>
+                </div>
+              )}
               {onSetAssignee && (
                 <div className="card-assign-col">
                   <div className="card-assign-head">Person</div>
@@ -400,29 +423,6 @@ export function Card({
                       }
                     }}
                   />
-                </div>
-              )}
-              {onSetTeam && (
-                <div className="card-assign-col">
-                  <div className="card-assign-head">Team</div>
-                  {(teams ?? []).map((t) => (
-                    <button
-                      key={`t-${t}`}
-                      type="button"
-                      className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
-                      onClick={() => pickAssignTeam(t)}
-                    >
-                      <span className="team-dot" style={{ background: teamColor(t) }} />
-                      {t}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="card-stage-item card-stage-clear"
-                    onClick={() => pickAssignTeam(null)}
-                  >
-                    No team
-                  </button>
                 </div>
               )}
             </div>
