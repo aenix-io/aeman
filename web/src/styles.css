@@ -650,8 +650,9 @@ button {
   background: var(--bg-soft);
 }
 
-.sprint-btn {
+.sprint-wrap {
   margin-left: auto;
+  position: relative;
 }
 
 .card-date-hidden {
