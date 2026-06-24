@@ -7,6 +7,9 @@ export type ProviderId = "github";
 /** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
+/** StageKey is an explicit per-card status that recolours the progress bar. */
+export type StageKey = "locked" | "review" | "done";
+
 export interface SingleSelectOption {
   id: string;
   name: string;
@@ -54,10 +57,14 @@ export interface Card {
   zone?: ZoneKey;
   /** Readiness, 0..100. */
   progress?: number;
+  /** Explicit status (locked/review/done) driving the progress-bar colour. */
+  stage?: StageKey;
   /** ISO date (yyyy-mm-dd) the card is planned for (Me day view). */
   day?: string;
   sprintTitle?: string;
   status?: string;
+  /** Free-form card details (the body minus the appended action log). */
+  description?: string;
   notes?: Note[];
 }
 
@@ -86,6 +93,7 @@ export interface FieldRoles {
   day?: ProjectField;
   sprint?: ProjectField;
   status?: ProjectField;
+  stage?: ProjectField;
 }
 
 export interface Provider {
@@ -97,7 +105,12 @@ export interface Provider {
   setProgress(board: Board, card: Card, progress: number): Promise<void>;
   setDay(board: Board, card: Card, day: string | null): Promise<void>;
   setAssignee(board: Board, card: Card, login: string | null): Promise<void>;
+  setStage(board: Board, card: Card, stage: StageKey | null): Promise<void>;
+  renameCard(board: Board, card: Card, title: string): Promise<void>;
+  setDescription(board: Board, card: Card, description: string): Promise<void>;
   createCard(board: Board, input: NewCardInput): Promise<Card>;
   deleteCard(board: Board, card: Card): Promise<void>;
+  /** Reposition card after afterItemId in the project order (null = top). */
+  moveCard(board: Board, card: Card, afterItemId: string | null): Promise<void>;
   addNote(board: Board, card: Card, text: string): Promise<void>;
 }

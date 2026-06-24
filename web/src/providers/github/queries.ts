@@ -25,13 +25,13 @@ const PROJECT_BODY = `
           assignees(first: 10) { nodes { login } }
         }
         ... on Issue {
-          id number title url state
+          id number title body url state
           repository { nameWithOwner }
           assignees(first: 10) { nodes { login } }
           comments(last: 20) { nodes { id body createdAt author { login } } }
         }
         ... on PullRequest {
-          id number title url state
+          id number title body url state
           repository { nameWithOwner }
           assignees(first: 10) { nodes { login } }
           comments(last: 20) { nodes { id body createdAt author { login } } }
@@ -133,6 +133,12 @@ export const DELETE_ITEM = `mutation($project: ID!, $item: ID!) {
   deleteProjectV2Item(input: { projectId: $project, itemId: $item }) { deletedItemId }
 }`;
 
+export const MOVE_ITEM = `mutation($project: ID!, $item: ID!, $after: ID) {
+  updateProjectV2ItemPosition(input: { projectId: $project, itemId: $item, afterId: $after }) {
+    clientMutationId
+  }
+}`;
+
 export const UPDATE_DRAFT_ASSIGNEES = `mutation($draft: ID!, $assignees: [ID!]) {
   updateProjectV2DraftIssue(input: { draftIssueId: $draft, assigneeIds: $assignees }) {
     draftIssue { id }
@@ -143,6 +149,20 @@ export const UPDATE_DRAFT_BODY = `mutation($draft: ID!, $body: String!) {
   updateProjectV2DraftIssue(input: { draftIssueId: $draft, body: $body }) {
     draftIssue { id }
   }
+}`;
+
+export const UPDATE_DRAFT_TITLE = `mutation($draft: ID!, $title: String!) {
+  updateProjectV2DraftIssue(input: { draftIssueId: $draft, title: $title }) {
+    draftIssue { id }
+  }
+}`;
+
+export const UPDATE_ISSUE_TITLE = `mutation($id: ID!, $title: String!) {
+  updateIssue(input: { id: $id, title: $title }) { issue { id } }
+}`;
+
+export const UPDATE_ISSUE_BODY = `mutation($id: ID!, $body: String!) {
+  updateIssue(input: { id: $id, body: $body }) { issue { id } }
 }`;
 
 export const ADD_COMMENT = `mutation($subject: ID!, $body: String!) {

@@ -7,6 +7,7 @@ const ALIASES: Record<keyof FieldRoles, string[]> = {
   day: ["day", "date", "due date", "due", "день", "дата"],
   sprint: ["sprint", "iteration", "спринт", "итерация"],
   status: ["status", "статус"],
+  stage: ["stage", "состояние"],
 };
 
 /** fieldRoles maps a board's fields onto well-known roles by name. */
