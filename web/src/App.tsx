@@ -2,17 +2,21 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchConfig, type AppConfig } from "./api/client";
 import { getProvider } from "./providers";
 import type { Board, Card as CardModel } from "./providers/types";
-import { FordBoard } from "./components/FordBoard";
-import { NixonBoard } from "./components/NixonBoard";
+import { MeBoard } from "./components/MeBoard";
+import { TeamBoard } from "./components/TeamBoard";
 
-type ViewMode = "ford" | "nixon";
+type ViewMode = "me" | "team";
 
 const LS_OWNER = "aeman.owner";
 const LS_PROJECT = "aeman.project";
 const LS_VIEW = "aeman.view";
 
 function readView(): ViewMode {
-  return localStorage.getItem(LS_VIEW) === "nixon" ? "nixon" : "ford";
+  const raw = localStorage.getItem(LS_VIEW);
+  if (raw === "team" || raw === "nixon") {
+    return "team";
+  }
+  return "me";
 }
 
 export function App() {
@@ -103,6 +107,16 @@ export function App() {
     });
   }, []);
 
+  const addCard = useCallback((card: CardModel) => {
+    setBoard((cur) => (cur ? { ...cur, cards: [...cur.cards, card] } : cur));
+  }, []);
+
+  const removeCard = useCallback((itemId: string) => {
+    setBoard((cur) =>
+      cur ? { ...cur, cards: cur.cards.filter((c) => c.itemId !== itemId) } : cur,
+    );
+  }, []);
+
   const onError = useCallback((message: string) => setError(message), []);
 
   const showTokenWarning =
@@ -185,20 +199,20 @@ export function App() {
           <button
             type="button"
             role="tab"
-            aria-selected={view === "ford"}
-            className={`segment${view === "ford" ? " segment-active" : ""}`}
-            onClick={() => setView("ford")}
+            aria-selected={view === "me"}
+            className={`segment${view === "me" ? " segment-active" : ""}`}
+            onClick={() => setView("me")}
           >
-            Ford
+            Me
           </button>
           <button
             type="button"
             role="tab"
-            aria-selected={view === "nixon"}
-            className={`segment${view === "nixon" ? " segment-active" : ""}`}
-            onClick={() => setView("nixon")}
+            aria-selected={view === "team"}
+            className={`segment${view === "team" ? " segment-active" : ""}`}
+            onClick={() => setView("team")}
           >
-            Nixon
+            Team
           </button>
         </div>
       </div>
@@ -207,20 +221,26 @@ export function App() {
         {!board && !loading && (
           <p className="placeholder">Enter an owner and project number, then press Load.</p>
         )}
-        {board && view === "ford" && (
-          <FordBoard
+        {board && view === "me" && (
+          <MeBoard
             board={board}
             provider={provider}
+            me={config?.login ?? ""}
             patchCard={patchCard}
+            addCard={addCard}
+            removeCard={removeCard}
             reload={reload}
             onError={onError}
           />
         )}
-        {board && view === "nixon" && (
-          <NixonBoard
+        {board && view === "team" && (
+          <TeamBoard
             board={board}
             provider={provider}
+            me={config?.login ?? ""}
             patchCard={patchCard}
+            addCard={addCard}
+            removeCard={removeCard}
             reload={reload}
             onError={onError}
           />

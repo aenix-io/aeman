@@ -1,91 +1,114 @@
-import { useEffect, useState, type ReactNode } from "react";
 import type { Card as CardModel } from "../providers/types";
 import { ZONES } from "../zones";
-import { ProgressSlider } from "./ProgressSlider";
-import { useDebouncedCallback } from "../hooks/useDebouncedCallback";
 
 interface CardProps {
   card: CardModel;
-  mode: "ford" | "nixon";
+  me: string;
+  selected: boolean;
+  onSelect: (card: CardModel) => void;
   onProgress: (card: CardModel, value: number) => void;
-  /** Extra controls rendered in the card footer (used by the Nixon board). */
-  zoneSelect?: ReactNode;
-  daySelect?: ReactNode;
+  onDelete: (card: CardModel) => void;
+  draggable?: boolean;
 }
 
-/** Card renders a single project item, shared by the Ford and Nixon boards. */
-export function Card({ card, mode, onProgress, zoneSelect, daySelect }: CardProps) {
-  const [progress, setProgress] = useState<number>(card.progress ?? 0);
+/** initials reduces a login to one or two uppercase characters for an avatar. */
+function initials(login: string): string {
+  const parts = login.split(/[-_.\s]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  const clean = login.replace(/[^A-Za-z0-9]/g, "");
+  return (clean.slice(0, 2) || login.slice(0, 2)).toUpperCase();
+}
 
-  // Keep local progress in sync when the card changes underneath us.
-  useEffect(() => {
-    setProgress(card.progress ?? 0);
-  }, [card.progress]);
+/** ticket renders the monospace ticket reference for a card with a number. */
+function ticket(card: CardModel): string | null {
+  if (card.number === undefined) {
+    return null;
+  }
+  return card.repository ? `${card.repository}#${card.number}` : `#${card.number}`;
+}
 
-  const pushProgress = useDebouncedCallback((value: number) => {
-    onProgress(card, value);
-  }, 400);
-
-  const handleProgress = (value: number) => {
-    setProgress(value);
-    pushProgress(value);
-  };
+/** Card is a compact single-row item shared by the Me and Team boards. */
+export function Card({
+  card,
+  me,
+  selected,
+  onSelect,
+  onProgress,
+  onDelete,
+  draggable = true,
+}: CardProps) {
+  const progress = card.progress ?? 0;
+  const ref = ticket(card);
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     e.dataTransfer.setData("text/plain", card.itemId);
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const handleBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fraction = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
+    const clamped = Math.min(1, Math.max(0, fraction));
+    const value = Math.round((clamped * 100) / 5) * 5;
+    onProgress(card, value);
+  };
+
+  const handleDelete = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (window.confirm(`Delete "${card.title}"?`)) {
+      onDelete(card);
+    }
+  };
+
   return (
     <div
-      className="card"
-      draggable={mode === "ford"}
-      onDragStart={mode === "ford" ? handleDragStart : undefined}
+      className={`card${selected ? " card-selected" : ""}`}
+      draggable={draggable}
+      onDragStart={draggable ? handleDragStart : undefined}
+      onClick={() => onSelect(card)}
+      title={card.title}
     >
-      <div className="card-title">
-        {card.url ? (
-          <a href={card.url} target="_blank" rel="noreferrer">
-            {card.title}
-          </a>
-        ) : (
-          card.title
-        )}
-      </div>
+      <button
+        type="button"
+        className="card-delete"
+        onClick={handleDelete}
+        aria-label="Delete card"
+      >
+        ×
+      </button>
 
-      <div className="card-progress" title={`${progress}% ready`}>
-        <div
-          className="card-progress-fill"
-          style={{
-            width: `${progress}%`,
-            backgroundColor: ZONES.green.accent,
-          }}
-        />
-      </div>
-      <div className="card-progress-label">{progress}%</div>
+      <span className="card-glyph" aria-hidden="true">
+        {card.isDraft ? "▦" : "#"}
+      </span>
 
-      <div className="card-meta">
-        {card.repository && (
-          <span className="pill">
-            {card.repository}
-            {card.number !== undefined ? ` #${card.number}` : ""}
-          </span>
-        )}
-        {card.isDraft && <span className="badge badge-draft">draft</span>}
-        {card.assignees.map((a) => (
-          <span className="chip" key={a}>
-            @{a}
+      <span className="card-title">{card.title}</span>
+
+      {ref && <span className="card-ticket">{ref}</span>}
+
+      <span className="card-avatars">
+        {card.assignees.map((login) => (
+          <span
+            key={login}
+            className={`avatar${login === me ? " avatar-me" : ""}`}
+            title={login}
+          >
+            {initials(login)}
           </span>
         ))}
-      </div>
+      </span>
 
-      <div className="card-controls">
-        <ProgressSlider value={progress} onChange={handleProgress} />
-        {(zoneSelect || daySelect) && (
-          <div className="card-controls-row">
-            {zoneSelect}
-            {daySelect}
-          </div>
-        )}
+      <div
+        className="card-bar"
+        title={`${progress}% — click to set`}
+        onClick={handleBarClick}
+      >
+        <div
+          className="card-bar-fill"
+          style={{ width: `${progress}%`, backgroundColor: ZONES.green.accent }}
+        />
       </div>
     </div>
   );

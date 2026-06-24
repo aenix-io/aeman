@@ -50,8 +50,10 @@ export const ZONES: Record<ZoneKey, ZoneDef> = {
   },
 };
 
-/** Display order of the zones, left to right. */
-export const ZONE_ORDER: ZoneKey[] = ["gray", "green", "yellow", "red"];
+// Display order of the colour areas, top to bottom: critical first, then
+// unplanned, planned and finally "if time left" at the bottom (matching the
+// Ford screenshots, where green sits at the bottom).
+export const ZONE_ORDER: ZoneKey[] = ["red", "yellow", "gray", "green"];
 
 const COLOR_TO_ZONE = new Map<string, ZoneKey>();
 for (const zone of Object.values(ZONES)) {
