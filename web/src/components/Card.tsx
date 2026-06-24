@@ -59,6 +59,7 @@ export function Card({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const startRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
+  const customDateRef = useRef<HTMLInputElement | null>(null);
 
   // While dragging the handle, show the snapped drag value; otherwise the card's.
   const shown = dragValue ?? value;
@@ -145,6 +146,12 @@ export function Card({
     }
     setStartMenuOpen(false);
     onMoveStart?.(card, date);
+  };
+
+  // Open the native date picker directly (no visible dd/mm/yyyy text field).
+  const openCustom = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    customDateRef.current?.showPicker();
   };
 
   const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -256,7 +263,7 @@ export function Card({
               aria-label="Move start date"
               title="Move start date"
             >
-              ⏩
+              »
             </button>
             {startMenuOpen && (
               <div className="card-stage-menu" onClick={(e) => e.stopPropagation()}>
@@ -274,15 +281,23 @@ export function Card({
                 >
                   +1 week
                 </button>
-                <label className="card-stage-item card-start-custom">
-                  Custom
-                  <input
-                    type="date"
-                    value={card.startDate ?? ""}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => moveStartTo(e.target.value)}
-                  />
-                </label>
+                <button
+                  type="button"
+                  className="card-stage-item"
+                  onClick={openCustom}
+                >
+                  Custom…
+                </button>
+                <input
+                  ref={customDateRef}
+                  type="date"
+                  className="card-date-hidden"
+                  value={card.startDate ?? ""}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => moveStartTo(e.target.value)}
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
               </div>
             )}
           </div>
