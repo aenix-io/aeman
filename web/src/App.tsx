@@ -117,27 +117,32 @@ export function App() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [addedTeams, board]);
 
-  // The selected filter set. A stored filter is intersected with the live roster
-  // (teams that disappeared are dropped); with no stored filter, all are selected.
+  // Filter groups are the roster teams plus a "No team" group ("") whenever some
+  // card has no team, so team-less cards have their own toggle.
+  const groups = useMemo(() => {
+    const hasNoTeam = Boolean(board?.cards.some((c) => !c.team));
+    return hasNoTeam ? [...roster, ""] : roster;
+  }, [roster, board]);
+
+  // The selected filter set, intersected with the live groups (gone groups drop
+  // out); with no stored filter, every group is selected.
   const selected = useMemo(() => {
     if (storedFilter === null) {
-      return new Set(roster);
+      return new Set(groups);
     }
-    return new Set(roster.filter((t) => storedFilter.includes(t)));
-  }, [storedFilter, roster]);
-
-  const allSelected = selected.size === roster.length;
+    return new Set(groups.filter((g) => storedFilter.includes(g)));
+  }, [storedFilter, groups]);
 
   const toggleTeam = useCallback(
     (team: string) => {
       setStoredFilter((cur) => {
-        const base = cur ?? roster;
+        const base = cur ?? groups;
         return base.includes(team)
           ? base.filter((t) => t !== team)
           : [...base, team];
       });
     },
-    [roster],
+    [groups],
   );
 
   const addTeam = useCallback((team: string) => {
@@ -465,7 +470,6 @@ export function App() {
             users={users}
             roster={roster}
             selected={selected}
-            allSelected={allSelected}
             onToggleTeam={toggleTeam}
             onAddTeam={addTeam}
             onRemoveTeam={removeTeam}

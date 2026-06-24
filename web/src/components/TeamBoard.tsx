@@ -24,10 +24,8 @@ interface TeamBoardProps {
   users: Record<string, GhUser>;
   /** Known teams (the roster), shown as filter chips. */
   roster: string[];
-  /** Currently selected teams (the filter subset). */
+  /** Currently selected filter groups (team names, or "" for the no-team group). */
   selected: Set<string>;
-  /** True when every roster team is selected. */
-  allSelected: boolean;
   onToggleTeam: (team: string) => void;
   onAddTeam: (team: string) => void;
   onRemoveTeam: (team: string) => void;
@@ -61,7 +59,6 @@ export function TeamBoard({
   users,
   roster,
   selected,
-  allSelected,
   onToggleTeam,
   onAddTeam,
   onRemoveTeam,
@@ -101,16 +98,15 @@ export function TeamBoard({
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
-  // A card passes the team filter when its team is selected. Team-less cards
-  // show only when every roster team is selected (i.e. no filter is narrowing).
+  // A card passes when its group is selected (its team, or "" for no team).
   const passesFilter = (card: CardModel): boolean =>
-    card.team ? selected.has(card.team) : allSelected;
+    selected.has(card.team ?? "");
 
   // Cards passing the team filter (the scope before applying the sprint).
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [board.cards, selected, allSelected],
+    [board.cards, selected],
   );
 
   // A card shows on every day from its start through its current sprint day, so
@@ -579,6 +575,25 @@ export function TeamBoard({
                 </span>
               );
             })}
+            {board.cards.some((c) => !c.team) && (
+              <span
+                className={`team-chip team-filter-chip${selected.has("") ? "" : " team-filter-chip-off"}`}
+              >
+                <button
+                  type="button"
+                  className="team-chip-toggle"
+                  onClick={() => onToggleTeam("")}
+                  aria-pressed={selected.has("")}
+                  title={
+                    selected.has("")
+                      ? "Click to hide cards with no team"
+                      : "Click to show cards with no team"
+                  }
+                >
+                  <span className="team-chip-name team-col-unassigned">No team</span>
+                </button>
+              </span>
+            )}
             {adding ? (
               <input
                 type="text"
