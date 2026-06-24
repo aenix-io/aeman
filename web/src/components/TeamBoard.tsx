@@ -8,7 +8,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, activeOnDay } from "../date";
+import { todayIso, addDays, activeOnDay, latestSprintDay } from "../date";
 import { initials, teamColor } from "../avatar";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
@@ -71,7 +71,14 @@ export function TeamBoard({
   onOpen,
   onRequestLock,
 }: TeamBoardProps) {
-  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  // Land on the last started sprint (latest finish ≤ today among the cards) so
+  // cards don't vanish as the calendar moves past the sprint day.
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
+    latestSprintDay(
+      board.cards.map((c) => c.day),
+      todayIso(),
+    ),
+  );
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [addValue, setAddValue] = useState("");
@@ -415,11 +422,25 @@ export function TeamBoard({
     }
     for (const card of carry) {
       const prevDay = card.day;
-      patchCard(card.itemId, { day: selectedDate });
-      void provider.setDay(board, card, selectedDate).catch((err: unknown) => {
-        patchCard(card.itemId, { day: prevDay });
-        onError(errMessage(err));
-      });
+      // Pin the start where the card is now so it stays put while the finish
+      // moves to the new sprint; cards that already have a start keep it.
+      const pinStart = card.startDate ? undefined : prevDay;
+      const patch: Partial<CardModel> = { day: selectedDate };
+      if (pinStart) {
+        patch.startDate = pinStart;
+      }
+      patchCard(card.itemId, patch);
+      void (async () => {
+        try {
+          if (pinStart) {
+            await provider.setStart(board, card, pinStart);
+          }
+          await provider.setDay(board, card, selectedDate);
+        } catch (err: unknown) {
+          patchCard(card.itemId, { day: prevDay, startDate: card.startDate });
+          onError(errMessage(err));
+        }
+      })();
     }
   };
 

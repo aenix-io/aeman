@@ -31,6 +31,22 @@ export function activeOnDay(
   return from <= day && day <= to;
 }
 
+/** latestSprintDay returns the latest of `days` that is on or before `cutoff`,
+ * falling back to `cutoff` when none qualifies. Used to land the board on the
+ * last started sprint instead of an empty "today" when no new sprint began. */
+export function latestSprintDay(
+  days: (string | undefined)[],
+  cutoff: string,
+): string {
+  let latest = "";
+  for (const d of days) {
+    if (d && d <= cutoff && d > latest) {
+      latest = d;
+    }
+  }
+  return latest || cutoff;
+}
+
 /** addDays shifts a yyyy-mm-dd date by delta days, returning yyyy-mm-dd. */
 export function addDays(iso: string, delta: number): string {
   const [y, m, d] = iso.split("-").map(Number);
