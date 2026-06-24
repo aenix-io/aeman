@@ -714,9 +714,21 @@ button.team-avatar {
   background: var(--bg-soft);
 }
 
-.sprint-wrap {
+.shuffle-btn {
   margin-left: auto;
+}
+
+.sprint-wrap {
+  margin-left: 6px;
   position: relative;
+}
+
+.team-col-header[draggable="true"] {
+  cursor: grab;
+}
+
+.team-col-header[draggable="true"]:active {
+  cursor: grabbing;
 }
 
 .card-date-hidden {
