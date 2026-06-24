@@ -17,6 +17,11 @@ interface CardProps {
   onRequestLock: (card: CardModel) => void;
   /** Move the card's start date (Team board only); absent hides the control. */
   onMoveStart?: (card: CardModel, newStart: string) => void;
+  /** Reassign the card's team / person from the avatar menu (when provided). */
+  teams?: string[];
+  people?: string[];
+  onSetTeam?: (card: CardModel, team: string | null) => void;
+  onSetAssignee?: (card: CardModel, login: string | null) => void;
 }
 
 const SEGMENTS = 10;
@@ -46,6 +51,10 @@ export function Card({
   onOpen,
   onRequestLock,
   onMoveStart,
+  teams,
+  people,
+  onSetTeam,
+  onSetAssignee,
 }: CardProps) {
   const value = card.stage === "done" ? 100 : card.progress ?? 0;
   const fill = barColor(card.stage);
@@ -56,10 +65,15 @@ export function Card({
   const [draft, setDraft] = useState(card.title);
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [startMenuOpen, setStartMenuOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [personInput, setPersonInput] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const startRef = useRef<HTMLDivElement | null>(null);
+  const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const customDateRef = useRef<HTMLInputElement | null>(null);
+
+  const canAssign = Boolean(onSetTeam || onSetAssignee);
 
   // While dragging the handle, show the snapped drag value; otherwise the card's.
   const shown = dragValue ?? value;
@@ -67,7 +81,7 @@ export function Card({
 
   // Close the stage menu on any outside click.
   useEffect(() => {
-    if (!menuOpen && !startMenuOpen) {
+    if (!menuOpen && !startMenuOpen && !assignOpen) {
       return;
     }
     const onDocClick = (e: MouseEvent) => {
@@ -77,10 +91,13 @@ export function Card({
       if (startRef.current && !startRef.current.contains(e.target as Node)) {
         setStartMenuOpen(false);
       }
+      if (assignRef.current && !assignRef.current.contains(e.target as Node)) {
+        setAssignOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
-  }, [menuOpen, startMenuOpen]);
+  }, [menuOpen, startMenuOpen, assignOpen]);
 
   // Progress is changed only by dragging the handle, which snaps to 10% steps.
   const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -152,6 +169,17 @@ export function Card({
   const openCustom = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     customDateRef.current?.showPicker();
+  };
+
+  const pickAssignTeam = (team: string | null) => {
+    setAssignOpen(false);
+    onSetTeam?.(card, team);
+  };
+
+  const pickAssignPerson = (login: string | null) => {
+    setAssignOpen(false);
+    setPersonInput("");
+    onSetAssignee?.(card, login);
   };
 
   const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -313,14 +341,108 @@ export function Card({
         </button>
       </span>
 
-      {card.team && (
-        <span
-          className="team-avatar"
-          style={{ backgroundColor: teamColor(card.team) }}
-          title={card.team}
-        >
-          {initials(card.team)}
-        </span>
+      {(card.team || canAssign) && (
+        <div className="card-assign" ref={assignRef}>
+          {card.team ? (
+            <button
+              type="button"
+              className="team-avatar"
+              style={{ backgroundColor: teamColor(card.team) }}
+              title={canAssign ? "Reassign team / person" : `Team: ${card.team}`}
+              onClick={
+                canAssign
+                  ? (e) => {
+                      e.stopPropagation();
+                      setAssignOpen((o) => !o);
+                    }
+                  : undefined
+              }
+            >
+              {initials(card.team)}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="team-avatar team-avatar-empty"
+              title="Assign team / person"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAssignOpen((o) => !o);
+              }}
+            >
+              +
+            </button>
+          )}
+          {assignOpen && (
+            <div
+              className="card-stage-menu card-assign-menu"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {onSetTeam && (
+                <>
+                  <div className="card-assign-head">Team</div>
+                  {(teams ?? []).map((t) => (
+                    <button
+                      key={`t-${t}`}
+                      type="button"
+                      className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
+                      onClick={() => pickAssignTeam(t)}
+                    >
+                      <span className="team-dot" style={{ background: teamColor(t) }} />
+                      {t}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="card-stage-item card-stage-clear"
+                    onClick={() => pickAssignTeam(null)}
+                  >
+                    No team
+                  </button>
+                </>
+              )}
+              {onSetAssignee && (
+                <>
+                  <div className="card-assign-head">Person</div>
+                  {(people ?? []).map((p) => (
+                    <button
+                      key={`p-${p}`}
+                      type="button"
+                      className={`card-stage-item${card.assignees.includes(p) ? " card-stage-item-active" : ""}`}
+                      onClick={() => pickAssignPerson(p)}
+                    >
+                      <span className="avatar">{initials(p)}</span>
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="card-stage-item card-stage-clear"
+                    onClick={() => pickAssignPerson(null)}
+                  >
+                    Unassigned
+                  </button>
+                  <input
+                    type="text"
+                    className="add-card-input card-assign-input"
+                    placeholder="login…"
+                    value={personInput}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setPersonInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter" && personInput.trim()) {
+                        pickAssignPerson(personInput.trim());
+                      } else if (e.key === "Escape") {
+                        setAssignOpen(false);
+                      }
+                    }}
+                  />
+                </>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="card-bar" ref={barRef} title={`${shown}%`}>
