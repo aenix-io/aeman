@@ -28,9 +28,21 @@ export interface BoardSummary {
   shortDescription?: string;
 }
 
+/** Note is a dated work note attached to a card (an issue comment, or a line
+ * stored in a draft issue's body when the card has no comment thread). */
+export interface Note {
+  id: string;
+  body: string;
+  createdAt: string;
+  author?: string;
+  source: "comment" | "draft";
+}
+
 /** Card is a single project item (issue, PR or draft). */
 export interface Card {
   itemId: string;
+  /** Node id of the underlying issue/PR/draft, used for comments and assignees. */
+  contentId?: string;
   title: string;
   isDraft: boolean;
   url?: string;
@@ -42,10 +54,19 @@ export interface Card {
   zone?: ZoneKey;
   /** Readiness, 0..100. */
   progress?: number;
-  /** ISO date (yyyy-mm-dd) the card is planned for (Ford day view). */
+  /** ISO date (yyyy-mm-dd) the card is planned for (Me day view). */
   day?: string;
   sprintTitle?: string;
   status?: string;
+  notes?: Note[];
+}
+
+/** NewCardInput describes a card to create on a board. */
+export interface NewCardInput {
+  title: string;
+  zone?: ZoneKey;
+  day?: string | null;
+  assigneeLogin?: string | null;
 }
 
 export interface Board {
@@ -75,4 +96,8 @@ export interface Provider {
   setZone(board: Board, card: Card, optionId: string | null): Promise<void>;
   setProgress(board: Board, card: Card, progress: number): Promise<void>;
   setDay(board: Board, card: Card, day: string | null): Promise<void>;
+  setAssignee(board: Board, card: Card, login: string | null): Promise<void>;
+  createCard(board: Board, input: NewCardInput): Promise<Card>;
+  deleteCard(board: Board, card: Card): Promise<void>;
+  addNote(board: Board, card: Card, text: string): Promise<void>;
 }
