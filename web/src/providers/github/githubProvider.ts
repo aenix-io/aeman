@@ -1,6 +1,11 @@
 import { graphql } from "../../api/client";
-import { optionIdForStage, stageFromName } from "../../stages";
-import { optionIdForZone, zoneFromColor } from "../../zones";
+import {
+  STAGES,
+  STAGE_ORDER,
+  optionIdForStage,
+  stageFromName,
+} from "../../stages";
+import { ZONES, ZONE_ORDER, optionIdForZone, zoneFromColor } from "../../zones";
 import { fieldRoles } from "../fields";
 import type {
   Board,
@@ -18,6 +23,8 @@ import {
   ADD_COMMENT,
   ADD_DRAFT,
   CLEAR_FIELD,
+  CREATE_FIELD,
+  CREATE_SELECT_FIELD,
   DELETE_ITEM,
   GET_DRAFT_BODY,
   MOVE_ITEM,
@@ -280,15 +287,87 @@ async function loadProject(owner: string, number: number): Promise<RawProject> {
   throw new Error(`Project #${number} not found for "${owner}"`);
 }
 
-function requireRole(
+// Specs for lazily-created project fields. A missing field is created the first
+// time a card/team change needs it, so aeman works on any fresh board.
+interface FieldSpec {
+  name: string;
+  dataType?: "NUMBER" | "DATE" | "TEXT";
+  options?: { name: string; color: string; description: string }[];
+}
+
+const STAGE_GH_COLOR: Record<StageKey, string> = {
+  locked: "RED",
+  review: "YELLOW",
+  done: "GREEN",
+};
+
+const FIELD_SPECS: Partial<Record<keyof FieldRoles, FieldSpec>> = {
+  zone: {
+    name: "Zone",
+    options: ZONE_ORDER.map((z) => ({
+      name: ZONES[z].title,
+      color: ZONES[z].ghColors[0],
+      description: ZONES[z].description,
+    })),
+  },
+  stage: {
+    name: "Stage",
+    options: STAGE_ORDER.map((s) => ({
+      name: STAGES[s].label,
+      color: STAGE_GH_COLOR[s],
+      description: STAGES[s].label,
+    })),
+  },
+  progress: { name: "Progress", dataType: "NUMBER" },
+  day: { name: "Day", dataType: "DATE" },
+  start: { name: "Start", dataType: "DATE" },
+  sprintStart: { name: "Sprint Start", dataType: "DATE" },
+  team: { name: "Team", dataType: "TEXT" },
+};
+
+interface CreatedField {
+  id: string;
+  name: string;
+  dataType?: string;
+  options?: { id: string; name: string; color: string }[];
+}
+
+/** ensureField returns the board field for a role, creating it on the project
+ * if it does not exist yet (and recording it on the in-memory board). */
+async function ensureField(
   board: Board,
   role: keyof FieldRoles,
   label: string,
-): ProjectField {
-  const field = fieldRoles(board)[role];
-  if (!field) {
+): Promise<ProjectField> {
+  const existing = fieldRoles(board)[role];
+  if (existing) {
+    return existing;
+  }
+  const spec = FIELD_SPECS[role];
+  if (!spec) {
     throw new Error(`Project has no "${label}" field`);
   }
+  let created: CreatedField;
+  if (spec.options) {
+    const data = await graphql<{ createProjectV2Field: { projectV2Field: CreatedField } }>(
+      CREATE_SELECT_FIELD,
+      { project: board.id, name: spec.name, options: spec.options },
+    );
+    created = data.createProjectV2Field.projectV2Field;
+  } else {
+    const data = await graphql<{ createProjectV2Field: { projectV2Field: CreatedField } }>(
+      CREATE_FIELD,
+      { project: board.id, name: spec.name, dataType: spec.dataType },
+    );
+    created = data.createProjectV2Field.projectV2Field;
+  }
+  const field: ProjectField = {
+    id: created.id,
+    name: created.name,
+    dataType: created.dataType ?? "",
+    options: created.options,
+  };
+  board.fields.push(field);
   return field;
 }
 
@@ -331,7 +410,7 @@ export const githubProvider: Provider = {
   },
 
   async setZone(board: Board, card: Card, optionId: string | null): Promise<void> {
-    const field = requireRole(board, "zone", "Zone");
+    const field = await ensureField(board, "zone", "Zone");
     if (optionId === null) {
       await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
       return;
@@ -345,7 +424,7 @@ export const githubProvider: Provider = {
   },
 
   async setProgress(board: Board, card: Card, progress: number): Promise<void> {
-    const field = requireRole(board, "progress", "Progress");
+    const field = await ensureField(board, "progress", "Progress");
     await graphql(SET_NUMBER, {
       project: board.id,
       item: card.itemId,
@@ -355,7 +434,7 @@ export const githubProvider: Provider = {
   },
 
   async setDay(board: Board, card: Card, day: string | null): Promise<void> {
-    const field = requireRole(board, "day", "Day");
+    const field = await ensureField(board, "day", "Day");
     if (day === null) {
       await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
       return;
@@ -369,7 +448,7 @@ export const githubProvider: Provider = {
   },
 
   async setStart(board: Board, card: Card, date: string | null): Promise<void> {
-    const field = requireRole(board, "start", "Start");
+    const field = await ensureField(board, "start", "Start");
     if (date === null) {
       await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
       return;
@@ -383,7 +462,7 @@ export const githubProvider: Provider = {
   },
 
   async setSprintStart(board: Board, card: Card, date: string | null): Promise<void> {
-    const field = requireRole(board, "sprintStart", "Sprint Start");
+    const field = await ensureField(board, "sprintStart", "Sprint Start");
     if (date === null) {
       await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
       return;
@@ -418,7 +497,7 @@ export const githubProvider: Provider = {
   },
 
   async setStage(board: Board, card: Card, stage: StageKey | null): Promise<void> {
-    const field = requireRole(board, "stage", "Stage");
+    const field = await ensureField(board, "stage", "Stage");
     if (stage === null) {
       await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
       return;
@@ -434,20 +513,18 @@ export const githubProvider: Provider = {
       option: optionId,
     });
     if (stage === "done") {
-      const progress = fieldRoles(board).progress;
-      if (progress) {
-        await graphql(SET_NUMBER, {
-          project: board.id,
-          item: card.itemId,
-          field: progress.id,
-          value: 100,
-        });
-      }
+      const progress = await ensureField(board, "progress", "Progress");
+      await graphql(SET_NUMBER, {
+        project: board.id,
+        item: card.itemId,
+        field: progress.id,
+        value: 100,
+      });
     }
   },
 
   async setTeam(board: Board, card: Card, team: string | null): Promise<void> {
-    const field = requireRole(board, "team", "Team");
+    const field = await ensureField(board, "team", "Team");
     if (!team) {
       await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
       return;
@@ -499,49 +576,52 @@ export const githubProvider: Provider = {
       };
     }>(ADD_DRAFT, { project: board.id, title: input.title, assignees: assigneeIds });
     const item = created.addProjectV2DraftIssue.projectItem;
-    const roles = fieldRoles(board);
-
     let zoneOptionId: string | undefined;
-    if (input.zone && roles.zone) {
-      zoneOptionId = optionIdForZone(roles.zone, input.zone);
+    if (input.zone) {
+      const zoneField = await ensureField(board, "zone", "Zone");
+      zoneOptionId = optionIdForZone(zoneField, input.zone);
       if (zoneOptionId) {
         await graphql(SET_SINGLE_SELECT, {
           project: board.id,
           item: item.id,
-          field: roles.zone.id,
+          field: zoneField.id,
           option: zoneOptionId,
         });
       }
     }
-    if (input.day && roles.day) {
+    if (input.day) {
+      const field = await ensureField(board, "day", "Day");
       await graphql(SET_DATE, {
         project: board.id,
         item: item.id,
-        field: roles.day.id,
+        field: field.id,
         value: input.day,
       });
     }
-    if (input.start && roles.start) {
+    if (input.start) {
+      const field = await ensureField(board, "start", "Start");
       await graphql(SET_DATE, {
         project: board.id,
         item: item.id,
-        field: roles.start.id,
+        field: field.id,
         value: input.start,
       });
     }
-    if (input.sprintStart && roles.sprintStart) {
+    if (input.sprintStart) {
+      const field = await ensureField(board, "sprintStart", "Sprint Start");
       await graphql(SET_DATE, {
         project: board.id,
         item: item.id,
-        field: roles.sprintStart.id,
+        field: field.id,
         value: input.sprintStart,
       });
     }
-    if (input.team && roles.team) {
+    if (input.team) {
+      const field = await ensureField(board, "team", "Team");
       await graphql(SET_TEXT, {
         project: board.id,
         item: item.id,
-        field: roles.team.id,
+        field: field.id,
         value: input.team,
       });
     }
