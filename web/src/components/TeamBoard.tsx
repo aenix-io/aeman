@@ -9,7 +9,8 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, addDays } from "../date";
-import { initials, teamColor } from "../avatar";
+import { teamColor } from "../avatar";
+import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
@@ -19,6 +20,8 @@ interface TeamBoardProps {
   board: Board;
   provider: Provider;
   me: string;
+  /** GitHub profiles (name + avatar) for assignees, keyed by login. */
+  users: Record<string, GhUser>;
   /** Known teams (the roster), shown as filter chips. */
   roster: string[];
   /** Currently selected teams (the filter subset). */
@@ -55,6 +58,7 @@ export function TeamBoard({
   board,
   provider,
   me,
+  users,
   roster,
   selected,
   allSelected,
@@ -665,16 +669,16 @@ export function TeamBoard({
                       </span>
                     ) : (
                       <>
-                        <span
-                          className={`avatar${engineer === me ? " avatar-me" : ""}`}
-                          title={engineer}
-                        >
-                          {initials(engineer)}
-                        </span>
+                        <img
+                          className={`avatar-img${engineer === me ? " avatar-me" : ""}`}
+                          src={avatarUrlFor(engineer, users[engineer])}
+                          alt={engineer}
+                          title={displayName(engineer, users[engineer])}
+                        />
                         <span
                           className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
                         >
-                          {engineer}
+                          {displayName(engineer, users[engineer])}
                         </span>
                       </>
                     )}

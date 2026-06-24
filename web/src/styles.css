@@ -771,6 +771,20 @@ button.team-avatar {
   color: #fff;
 }
 
+.avatar-img {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--line);
+}
+
+.avatar-img.avatar-me {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .card-bar {
   position: absolute;
   left: 6px;
@@ -1103,6 +1117,10 @@ button.team-avatar {
 .team-col-name {
   font-size: 12px;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .team-col-me {

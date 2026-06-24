@@ -8,6 +8,12 @@ export function initials(login: string): string {
   return (clean.slice(0, 2) || login.slice(0, 2)).toUpperCase();
 }
 
+/** teamInitial returns a single uppercase letter for a compact team badge. */
+export function teamInitial(name: string): string {
+  const clean = name.replace(/[^A-Za-z0-9]/g, "");
+  return (clean[0] ?? name[0] ?? "?").toUpperCase();
+}
+
 /** teamColor returns a deterministic colour derived from a team name. */
 export function teamColor(name: string): string {
   let hash = 0;
