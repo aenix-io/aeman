@@ -19,7 +19,7 @@ Each card carries a **readiness slider** (0–100%), a **stage** (Locked / Revie
 
 ### Sprints
 
-Sprints are open-ended and advanced by hand. A card belongs to a sprint (its **sprint start** day) and is shown on every day from its **start** date through that sprint day — so a long-running card stays visible on past days, while days after the last sprint go empty (the cue to start a new one). **Start sprint** carries a team's unfinished cards into a new sprint dated the selected day, with a *no team* option too. The current sprint is tracked per team, so an engineer on several teams sees each team's current cards at once.
+Sprints are open-ended and advanced by hand. A card belongs to a sprint (its **sprint start** day) and is shown on every day from its **start** date through that sprint day — so a long-running card stays visible on past days, while days after the last sprint go empty (the cue to start a new one). **Carry over** moves a team's unfinished cards into the selected day's sprint, with a *no team* option too. The current sprint is tracked per team, so an engineer on several teams sees each team's current cards at once.
 
 ## Architecture
 
