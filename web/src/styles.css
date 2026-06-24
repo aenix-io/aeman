@@ -742,6 +742,16 @@ button.team-avatar {
   padding: 0;
 }
 
+.card-age {
+  flex: none;
+  width: 24px;
+  text-align: right;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
 .card-title {
   flex: 1;
   min-width: 0;

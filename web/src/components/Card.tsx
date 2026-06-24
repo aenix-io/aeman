@@ -3,8 +3,17 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
-import { addDays, todayIso } from "../date";
+import { addDays, daysSince, todayIso } from "../date";
 import { Dropdown } from "./Dropdown";
+
+// ageColor fades the age badge from light grey (fresh) to maroon-red by ~10 days.
+function ageColor(days: number): string {
+  const t = Math.min(1, days / 10);
+  const from = [176, 181, 189]; // light grey
+  const to = [140, 20, 40]; // maroon-red
+  const ch = (i: number) => Math.round(from[i] + (to[i] - from[i]) * t);
+  return `rgb(${ch(0)}, ${ch(1)}, ${ch(2)})`;
+}
 
 interface CardProps {
   card: CardModel;
@@ -180,6 +189,8 @@ export function Card({
     setEditing(false);
   };
 
+  const ageDays = daysSince(card.createdAt);
+
   return (
     <div
       className={`card${selected ? " card-selected" : ""}`}
@@ -187,6 +198,15 @@ export function Card({
       onDoubleClick={() => onOpen(card)}
       title={card.title}
     >
+      {card.createdAt && (
+        <span
+          className="card-age"
+          style={{ color: ageColor(ageDays) }}
+          title={`On the board ${ageDays} day(s)`}
+        >
+          {ageDays}d
+        </span>
+      )}
       {editing ? (
         <input
           type="text"

@@ -88,6 +88,7 @@ interface RawContent {
 interface RawItem {
   id: string;
   type: string;
+  createdAt?: string;
   content?: RawContent | null;
   fieldValues: { nodes: RawFieldValue[] };
 }
@@ -203,6 +204,7 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
     repository: content?.repository?.nameWithOwner,
     state: content?.state,
     assignees: content?.assignees?.nodes.map((n) => n.login) ?? [],
+    createdAt: item.createdAt,
     description,
     notes,
   };
