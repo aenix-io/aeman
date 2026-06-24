@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type Ref } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -9,7 +9,7 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, addDays, activeOnDay } from "../date";
-import { initials } from "../avatar";
+import { initials, teamColor } from "../avatar";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
@@ -77,6 +77,21 @@ export function TeamBoard({
   const [addValue, setAddValue] = useState("");
   const [editingTeam, setEditingTeam] = useState<string | null>(null);
   const [editTeamValue, setEditTeamValue] = useState("");
+  const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
+  const sprintRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!sprintMenuOpen) {
+      return;
+    }
+    const onDocClick = (e: MouseEvent) => {
+      if (sprintRef.current && !sprintRef.current.contains(e.target as Node)) {
+        setSprintMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [sprintMenuOpen]);
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
@@ -349,24 +364,22 @@ export function TeamBoard({
 
   // Start a new sprint for the single selected team: carry its unfinished cards
   // from earlier days onto the current day. Only available when one team is on.
-  const startSprint = () => {
-    if (!forcedTeam) {
-      return;
-    }
+  const startSprint = (team: string) => {
+    setSprintMenuOpen(false);
     const carry = board.cards.filter(
       (c) =>
-        c.team === forcedTeam &&
+        c.team === team &&
         c.day != null &&
         c.day < selectedDate &&
         c.stage !== "done",
     );
     if (carry.length === 0) {
-      onError(`No unfinished cards from earlier days for "${forcedTeam}".`);
+      onError(`No unfinished cards from earlier days for "${team}".`);
       return;
     }
     if (
       !window.confirm(
-        `Start a new sprint for "${forcedTeam}"? ${carry.length} unfinished card(s) from earlier days will move to ${selectedDate}.`,
+        `Start a new sprint for "${team}"? ${carry.length} unfinished card(s) from earlier days will move to ${selectedDate}.`,
       )
     ) {
       return;
@@ -503,19 +516,43 @@ export function TeamBoard({
           </div>
         </div>
 
-        <button
-          type="button"
-          className="btn sprint-btn"
-          onClick={startSprint}
-          disabled={!forcedTeam}
-          title={
-            forcedTeam
-              ? `Move unfinished cards from earlier days into ${selectedDate} for "${forcedTeam}"`
-              : "Select exactly one team to start a sprint"
-          }
-        >
-          Start sprint
-        </button>
+        <div className="sprint-wrap" ref={sprintRef}>
+          <button
+            type="button"
+            className="btn sprint-btn"
+            disabled={selected.size === 0}
+            onClick={() => {
+              const sel = [...selected];
+              if (sel.length === 1) {
+                startSprint(sel[0]);
+              } else {
+                setSprintMenuOpen((o) => !o);
+              }
+            }}
+            title={
+              selected.size === 0
+                ? "Select a team to start a sprint"
+                : `Move unfinished cards from earlier days into ${selectedDate}`
+            }
+          >
+            Start sprint{selected.size > 1 ? " ▾" : ""}
+          </button>
+          {sprintMenuOpen && (
+            <div className="card-stage-menu sprint-menu">
+              {[...selected].map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className="card-stage-item"
+                  onClick={() => startSprint(t)}
+                >
+                  <span className="team-dot" style={{ background: teamColor(t) }} />
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="team-grid">
