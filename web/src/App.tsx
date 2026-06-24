@@ -4,6 +4,7 @@ import { getProvider } from "./providers";
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
+import { CardDetail } from "./components/CardDetail";
 
 type ViewMode = "me" | "team";
 
@@ -32,6 +33,7 @@ export function App() {
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailCard, setDetailCard] = useState<CardModel | null>(null);
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
   useEffect(() => {
@@ -115,6 +117,22 @@ export function App() {
     setBoard((cur) =>
       cur ? { ...cur, cards: cur.cards.filter((c) => c.itemId !== itemId) } : cur,
     );
+  }, []);
+
+  // Reorder board.cards to match orderedIds. Cards whose ids are not listed keep
+  // their relative order and are appended after the explicitly ordered ones.
+  const reorderCards = useCallback((orderedIds: string[]) => {
+    setBoard((cur) => {
+      if (!cur) {
+        return cur;
+      }
+      const rank = new Map(orderedIds.map((id, i) => [id, i]));
+      const ranked = cur.cards
+        .filter((c) => rank.has(c.itemId))
+        .sort((a, b) => rank.get(a.itemId)! - rank.get(b.itemId)!);
+      const rest = cur.cards.filter((c) => !rank.has(c.itemId));
+      return { ...cur, cards: [...ranked, ...rest] };
+    });
   }, []);
 
   const onError = useCallback((message: string) => setError(message), []);
@@ -229,8 +247,10 @@ export function App() {
             patchCard={patchCard}
             addCard={addCard}
             removeCard={removeCard}
+            reorderCards={reorderCards}
             reload={reload}
             onError={onError}
+            onOpen={(c) => setDetailCard(c)}
           />
         )}
         {board && view === "team" && (
@@ -241,11 +261,24 @@ export function App() {
             patchCard={patchCard}
             addCard={addCard}
             removeCard={removeCard}
+            reorderCards={reorderCards}
             reload={reload}
             onError={onError}
+            onOpen={(c) => setDetailCard(c)}
           />
         )}
       </main>
+
+      {board && detailCard && (
+        <CardDetail
+          card={board.cards.find((c) => c.itemId === detailCard.itemId) ?? detailCard}
+          board={board}
+          provider={provider}
+          onClose={() => setDetailCard(null)}
+          reload={reload}
+          patchCard={patchCard}
+        />
+      )}
     </div>
   );
 }

@@ -14,3 +14,15 @@ export function localDateIso(iso: string): string {
   const off = d.getTimezoneOffset();
   return new Date(d.getTime() - off * 60_000).toISOString().slice(0, 10);
 }
+
+/** addDays shifts a yyyy-mm-dd date by delta days, returning yyyy-mm-dd. */
+export function addDays(iso: string, delta: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) {
+    return iso;
+  }
+  const dt = new Date(y, m - 1, d + delta);
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${dt.getFullYear()}-${mm}-${dd}`;
+}
