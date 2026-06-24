@@ -654,17 +654,14 @@ button {
   margin-left: auto;
 }
 
-.card-start-custom {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.card-start-custom input {
-  font-size: 11px;
-  padding: 1px 3px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+.card-date-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
 }
 
 .card-title {
