@@ -455,6 +455,48 @@ button {
   gap: 6px;
 }
 
+/* team selector chips in the toolbar */
+.team-select {
+  align-items: center;
+}
+
+.team-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  max-width: 60vw;
+}
+
+.team-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.team-chip-name {
+  color: var(--fg);
+}
+
+.team-chip-x {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.team-chip-x:hover {
+  color: var(--danger);
+}
+
 .card-title {
   flex: 1;
   min-width: 0;
