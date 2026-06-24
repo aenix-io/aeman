@@ -1,21 +1,32 @@
 import { graphql } from "../../api/client";
-import { zoneFromColor } from "../../zones";
+import { optionIdForZone, zoneFromColor } from "../../zones";
 import { fieldRoles } from "../fields";
 import type {
   Board,
   BoardSummary,
   Card,
   FieldRoles,
+  NewCardInput,
+  Note,
   ProjectField,
   Provider,
 } from "../types";
 import {
+  ADD_ASSIGNEES,
+  ADD_COMMENT,
+  ADD_DRAFT,
   CLEAR_FIELD,
+  DELETE_ITEM,
+  GET_DRAFT_BODY,
   ORG_PROJECT_QUERY,
   ORG_PROJECTS_QUERY,
+  REMOVE_ASSIGNEES,
   SET_DATE,
   SET_NUMBER,
   SET_SINGLE_SELECT,
+  UPDATE_DRAFT_ASSIGNEES,
+  UPDATE_DRAFT_BODY,
+  USER_ID_QUERY,
   USER_PROJECT_QUERY,
   USER_PROJECTS_QUERY,
 } from "./queries";
@@ -40,14 +51,24 @@ interface RawFieldValue {
   field?: { id?: string; name?: string };
 }
 
+interface RawComment {
+  id: string;
+  body: string;
+  createdAt: string;
+  author?: { login: string } | null;
+}
+
 interface RawContent {
   __typename: string;
+  id?: string;
   number?: number;
   title?: string;
   url?: string;
   state?: string;
+  body?: string;
   repository?: { nameWithOwner: string };
   assignees?: { nodes: { login: string }[] };
+  comments?: { nodes: RawComment[] };
 }
 
 interface RawItem {
@@ -76,12 +97,41 @@ interface ProjectsListResult {
   user?: { projectsV2: { nodes: BoardSummary[] } } | null;
 }
 
+const DRAFT_NOTE_RE = /^[-*]?\s*\[([^\]]+)\]\s?(.*)$/;
+
+function parseNotes(content: RawContent | undefined, itemId: string): Note[] {
+  if (!content) {
+    return [];
+  }
+  if (content.comments?.nodes?.length) {
+    return content.comments.nodes.map((c) => ({
+      id: c.id,
+      body: c.body,
+      createdAt: c.createdAt,
+      author: c.author?.login,
+      source: "comment" as const,
+    }));
+  }
+  if (content.body) {
+    const notes: Note[] = [];
+    content.body.split("\n").forEach((line, i) => {
+      const match = DRAFT_NOTE_RE.exec(line.trim());
+      if (match) {
+        notes.push({ id: `${itemId}:${i}`, body: match[2], createdAt: match[1], source: "draft" });
+      }
+    });
+    return notes;
+  }
+  return [];
+}
+
 function mapItem(item: RawItem, roles: FieldRoles): Card {
   const content = item.content ?? undefined;
   const isDraft =
     item.type === "DRAFT_ISSUE" || content?.__typename === "DraftIssue";
   const card: Card = {
     itemId: item.id,
+    contentId: content?.id,
     title: content?.title ?? "(untitled)",
     isDraft,
     url: content?.url,
@@ -89,6 +139,7 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
     repository: content?.repository?.nameWithOwner,
     state: content?.state,
     assignees: content?.assignees?.nodes.map((n) => n.login) ?? [],
+    notes: parseNotes(content, item.id),
   };
 
   for (const value of item.fieldValues.nodes) {
@@ -171,6 +222,22 @@ function requireRole(
   return field;
 }
 
+const userIdCache = new Map<string, string>();
+
+async function resolveUserId(login: string): Promise<string> {
+  const cached = userIdCache.get(login);
+  if (cached) {
+    return cached;
+  }
+  const data = await graphql<{ user?: { id: string } | null }>(USER_ID_QUERY, { login });
+  const id = data.user?.id;
+  if (!id) {
+    throw new Error(`GitHub user "${login}" not found`);
+  }
+  userIdCache.set(login, id);
+  return id;
+}
+
 export const githubProvider: Provider = {
   id: "github",
   label: "GitHub Projects v2",
@@ -229,5 +296,95 @@ export const githubProvider: Provider = {
       field: field.id,
       value: day,
     });
+  },
+
+  async setAssignee(_board: Board, card: Card, login: string | null): Promise<void> {
+    if (!card.contentId) {
+      throw new Error("Card has no underlying issue to assign");
+    }
+    const newId = login ? await resolveUserId(login) : null;
+    if (card.isDraft) {
+      await graphql(UPDATE_DRAFT_ASSIGNEES, {
+        draft: card.contentId,
+        assignees: newId ? [newId] : [],
+      });
+      return;
+    }
+    if (card.assignees.length > 0) {
+      const ids = await Promise.all(card.assignees.map(resolveUserId));
+      await graphql(REMOVE_ASSIGNEES, { assignable: card.contentId, assignees: ids });
+    }
+    if (newId) {
+      await graphql(ADD_ASSIGNEES, { assignable: card.contentId, assignees: [newId] });
+    }
+  },
+
+  async createCard(board: Board, input: NewCardInput): Promise<Card> {
+    const assigneeIds = input.assigneeLogin
+      ? [await resolveUserId(input.assigneeLogin)]
+      : [];
+    const created = await graphql<{
+      addProjectV2DraftIssue: {
+        projectItem: { id: string; content?: { id?: string } | null };
+      };
+    }>(ADD_DRAFT, { project: board.id, title: input.title, assignees: assigneeIds });
+    const item = created.addProjectV2DraftIssue.projectItem;
+    const roles = fieldRoles(board);
+
+    let zoneOptionId: string | undefined;
+    if (input.zone && roles.zone) {
+      zoneOptionId = optionIdForZone(roles.zone, input.zone);
+      if (zoneOptionId) {
+        await graphql(SET_SINGLE_SELECT, {
+          project: board.id,
+          item: item.id,
+          field: roles.zone.id,
+          option: zoneOptionId,
+        });
+      }
+    }
+    if (input.day && roles.day) {
+      await graphql(SET_DATE, {
+        project: board.id,
+        item: item.id,
+        field: roles.day.id,
+        value: input.day,
+      });
+    }
+
+    return {
+      itemId: item.id,
+      contentId: item.content?.id,
+      title: input.title,
+      isDraft: true,
+      assignees: input.assigneeLogin ? [input.assigneeLogin] : [],
+      zone: zoneOptionId ? input.zone : undefined,
+      zoneOptionId,
+      day: input.day ?? undefined,
+      notes: [],
+    };
+  },
+
+  async deleteCard(board: Board, card: Card): Promise<void> {
+    await graphql(DELETE_ITEM, { project: board.id, item: card.itemId });
+  },
+
+  async addNote(_board: Board, card: Card, text: string): Promise<void> {
+    if (!card.contentId) {
+      throw new Error("Card has no underlying issue to note on");
+    }
+    if (card.isDraft) {
+      const data = await graphql<{ node?: { body?: string } | null }>(GET_DRAFT_BODY, {
+        id: card.contentId,
+      });
+      const body = data.node?.body ?? "";
+      const line = `- [${new Date().toISOString()}] ${text}`;
+      await graphql(UPDATE_DRAFT_BODY, {
+        draft: card.contentId,
+        body: body ? `${body}\n${line}` : line,
+      });
+      return;
+    }
+    await graphql(ADD_COMMENT, { subject: card.contentId, body: text });
   },
 };

@@ -20,16 +20,21 @@ const PROJECT_BODY = `
       type
       content {
         __typename
-        ... on DraftIssue { title }
-        ... on Issue {
-          number title url state
-          repository { nameWithOwner }
+        ... on DraftIssue {
+          id title body
           assignees(first: 10) { nodes { login } }
         }
-        ... on PullRequest {
-          number title url state
+        ... on Issue {
+          id number title url state
           repository { nameWithOwner }
           assignees(first: 10) { nodes { login } }
+          comments(last: 20) { nodes { id body createdAt author { login } } }
+        }
+        ... on PullRequest {
+          id number title url state
+          repository { nameWithOwner }
+          assignees(first: 10) { nodes { login } }
+          comments(last: 20) { nodes { id body createdAt author { login } } }
         }
       }
       fieldValues(first: 30) {
@@ -83,6 +88,14 @@ export const USER_PROJECTS_QUERY = `query($owner: String!) {
   user(login: $owner) { ${PROJECTS_LIST_BODY} }
 }`;
 
+export const USER_ID_QUERY = `query($login: String!) {
+  user(login: $login) { id }
+}`;
+
+export const GET_DRAFT_BODY = `query($id: ID!) {
+  node(id: $id) { ... on DraftIssue { body } }
+}`;
+
 export const SET_SINGLE_SELECT = `mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
   updateProjectV2ItemFieldValue(input: {
     projectId: $project, itemId: $item, fieldId: $field,
@@ -108,4 +121,44 @@ export const CLEAR_FIELD = `mutation($project: ID!, $item: ID!, $field: ID!) {
   clearProjectV2ItemFieldValue(input: {
     projectId: $project, itemId: $item, fieldId: $field
   }) { projectV2Item { id } }
+}`;
+
+export const ADD_DRAFT = `mutation($project: ID!, $title: String!, $assignees: [ID!]) {
+  addProjectV2DraftIssue(input: { projectId: $project, title: $title, assigneeIds: $assignees }) {
+    projectItem { id content { ... on DraftIssue { id } } }
+  }
+}`;
+
+export const DELETE_ITEM = `mutation($project: ID!, $item: ID!) {
+  deleteProjectV2Item(input: { projectId: $project, itemId: $item }) { deletedItemId }
+}`;
+
+export const UPDATE_DRAFT_ASSIGNEES = `mutation($draft: ID!, $assignees: [ID!]) {
+  updateProjectV2DraftIssue(input: { draftIssueId: $draft, assigneeIds: $assignees }) {
+    draftIssue { id }
+  }
+}`;
+
+export const UPDATE_DRAFT_BODY = `mutation($draft: ID!, $body: String!) {
+  updateProjectV2DraftIssue(input: { draftIssueId: $draft, body: $body }) {
+    draftIssue { id }
+  }
+}`;
+
+export const ADD_COMMENT = `mutation($subject: ID!, $body: String!) {
+  addComment(input: { subjectId: $subject, body: $body }) {
+    commentEdge { node { id createdAt body author { login } } }
+  }
+}`;
+
+export const ADD_ASSIGNEES = `mutation($assignable: ID!, $assignees: [ID!]!) {
+  addAssigneesToAssignable(input: { assignableId: $assignable, assigneeIds: $assignees }) {
+    clientMutationId
+  }
+}`;
+
+export const REMOVE_ASSIGNEES = `mutation($assignable: ID!, $assignees: [ID!]!) {
+  removeAssigneesFromAssignable(input: { assignableId: $assignable, assigneeIds: $assignees }) {
+    clientMutationId
+  }
 }`;
