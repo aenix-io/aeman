@@ -203,7 +203,8 @@ export function TeamBoard({
 
   const cellCards = (engineer: string, zone: ZoneKey): CardModel[] =>
     filteredCards.filter((c) => {
-      if (c.zone !== zone) {
+      // Cards without a zone fall into gray, matching the Me board.
+      if ((c.zone ?? "gray") !== zone) {
         return false;
       }
       return engineer === UNASSIGNED
