@@ -20,6 +20,8 @@ interface MeBoardProps {
   board: Board;
   provider: Provider;
   me: string;
+  /** Known teams to offer in the AddCard team picker. */
+  teams: string[];
   patchCard: (itemId: string, patch: Partial<CardModel>) => void;
   addCard: (card: CardModel) => void;
   removeCard: (itemId: string) => void;
@@ -27,6 +29,7 @@ interface MeBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
+  onRequestLock: (card: CardModel) => void;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -42,6 +45,7 @@ export function MeBoard({
   board,
   provider,
   me,
+  teams,
   patchCard,
   addCard,
   removeCard,
@@ -49,6 +53,7 @@ export function MeBoard({
   reload,
   onError,
   onOpen,
+  onRequestLock,
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -145,32 +150,6 @@ export function MeBoard({
     });
   };
 
-  // Locking posts a note (the reason) to the card so it shows in the day's log.
-  const handleLock = (card: CardModel, note: string) => {
-    const prevStage = card.stage;
-    const optimisticNote: Note = {
-      id: `tmp-${new Date().toISOString()}`,
-      body: note,
-      createdAt: new Date().toISOString(),
-      author: me || undefined,
-      source: card.isDraft ? "draft" : "comment",
-    };
-    patchCard(card.itemId, {
-      stage: "locked",
-      notes: [...(card.notes ?? []), optimisticNote],
-    });
-    void (async () => {
-      try {
-        await provider.setStage(board, card, "locked");
-        await provider.addNote(board, card, note);
-      } catch (err: unknown) {
-        patchCard(card.itemId, { stage: prevStage });
-        onError(errMessage(err));
-        reload();
-      }
-    })();
-  };
-
   const handleRename = (card: CardModel, title: string) => {
     const prev = card.title;
     patchCard(card.itemId, { title });
@@ -237,7 +216,7 @@ export function MeBoard({
     })();
   };
 
-  const handleCreate = (zone: ZoneKey, title: string) => {
+  const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
@@ -246,12 +225,19 @@ export function MeBoard({
       assignees: me ? [me] : [],
       zone,
       day: selectedDate,
+      team: team ?? undefined,
       description: "",
       notes: [],
     };
     addCard(optimistic);
     void provider
-      .createCard(board, { title, zone, day: selectedDate, assigneeLogin: me || null })
+      .createCard(board, {
+        title,
+        zone,
+        day: selectedDate,
+        assigneeLogin: me || null,
+        team: team ?? null,
+      })
       .then((card) => {
         removeCard(tempId);
         addCard(card);
@@ -328,7 +314,7 @@ export function MeBoard({
                   onStage={handleStage}
                   onRename={handleRename}
                   onOpen={onOpen}
-                  onLock={handleLock}
+                  onRequestLock={onRequestLock}
                 />
               )}
               renderOverlay={(card) => (
@@ -341,7 +327,7 @@ export function MeBoard({
                   onStage={() => {}}
                   onRename={() => {}}
                   onOpen={() => {}}
-                  onLock={() => {}}
+                  onRequestLock={() => {}}
                 />
               )}
               renderGroup={(group, body, { isOver, dropRef }) => {
@@ -356,7 +342,10 @@ export function MeBoard({
                     <div className="zone-cards">
                       {body}
                       <AddCard
-                        onCreate={(title) => handleCreate(group.meta.zone, title)}
+                        teams={teams}
+                        onCreate={(title, team) =>
+                          handleCreate(group.meta.zone, title, team)
+                        }
                       />
                     </div>
                   </section>

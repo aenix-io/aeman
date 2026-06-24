@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
+import { initials, teamColor } from "../avatar";
 
 interface CardProps {
   card: CardModel;
@@ -11,7 +12,8 @@ interface CardProps {
   onStage: (card: CardModel, stage: StageKey | null) => void;
   onRename: (card: CardModel, title: string) => void;
   onOpen: (card: CardModel) => void;
-  onLock: (card: CardModel, note: string) => void;
+  /** Locking requires a reason, gathered in a modal lifted to App. */
+  onRequestLock: (card: CardModel) => void;
 }
 
 const SEGMENTS = 10;
@@ -39,7 +41,7 @@ export function Card({
   onStage,
   onRename,
   onOpen,
-  onLock,
+  onRequestLock,
 }: CardProps) {
   const value = card.stage === "done" ? 100 : card.progress ?? 0;
   const fill = barColor(card.stage);
@@ -49,8 +51,6 @@ export function Card({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.title);
   const [dragValue, setDragValue] = useState<number | null>(null);
-  const [lockPrompt, setLockPrompt] = useState(false);
-  const [lockNote, setLockNote] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
 
@@ -66,7 +66,6 @@ export function Card({
     const onDocClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
-        setLockPrompt(false);
       }
     };
     document.addEventListener("mousedown", onDocClick);
@@ -118,27 +117,11 @@ export function Card({
     onStage(card, stage);
   };
 
-  // Locking requires a note (the reason), which is posted to the card's log.
-  const openLockPrompt = (e: React.MouseEvent<HTMLButtonElement>) => {
+  // Locking opens a modal (lifted to App) to gather the reason note.
+  const requestLock = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    setLockNote("");
-    setLockPrompt(true);
-  };
-
-  const submitLock = () => {
-    const note = lockNote.trim();
-    if (!note) {
-      return;
-    }
     setMenuOpen(false);
-    setLockPrompt(false);
-    setLockNote("");
-    onLock(card, note);
-  };
-
-  const cancelLock = () => {
-    setLockPrompt(false);
-    setLockNote("");
+    onRequestLock(card);
   };
 
   const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -202,7 +185,6 @@ export function Card({
             className="card-action"
             onClick={(e) => {
               e.stopPropagation();
-              setLockPrompt(false);
               setMenuOpen((o) => !o);
             }}
             aria-label="Set status"
@@ -213,64 +195,29 @@ export function Card({
           </button>
           {menuOpen && (
             <div className="card-stage-menu" onClick={(e) => e.stopPropagation()}>
-              {lockPrompt ? (
-                <div className="card-lock-prompt">
-                  <textarea
-                    className="card-lock-textarea"
-                    autoFocus
-                    rows={2}
-                    value={lockNote}
-                    placeholder="Why locked? (posted as a note)"
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => setLockNote(e.target.value)}
-                    onKeyDown={(e) => {
-                      e.stopPropagation();
-                      if (e.key === "Escape") {
-                        cancelLock();
-                      }
-                    }}
+              {STAGE_ORDER.map((stage) => (
+                <button
+                  key={stage}
+                  type="button"
+                  className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
+                  onClick={(e) =>
+                    stage === "locked" ? requestLock(e) : pickStage(e, stage)
+                  }
+                >
+                  <span
+                    className="card-stage-dot"
+                    style={{ background: STAGES[stage].color }}
                   />
-                  <div className="card-lock-actions">
-                    <button type="button" className="btn" onClick={cancelLock}>
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={!lockNote.trim()}
-                      onClick={submitLock}
-                    >
-                      Lock
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {STAGE_ORDER.map((stage) => (
-                    <button
-                      key={stage}
-                      type="button"
-                      className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
-                      onClick={(e) =>
-                        stage === "locked" ? openLockPrompt(e) : pickStage(e, stage)
-                      }
-                    >
-                      <span
-                        className="card-stage-dot"
-                        style={{ background: STAGES[stage].color }}
-                      />
-                      {STAGES[stage].label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="card-stage-item card-stage-clear"
-                    onClick={(e) => pickStage(e, null)}
-                  >
-                    Clear
-                  </button>
-                </>
-              )}
+                  {STAGES[stage].label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="card-stage-item card-stage-clear"
+                onClick={(e) => pickStage(e, null)}
+              >
+                Clear
+              </button>
             </div>
           )}
         </div>
@@ -284,6 +231,16 @@ export function Card({
           ×
         </button>
       </span>
+
+      {card.team && (
+        <span
+          className="team-avatar"
+          style={{ backgroundColor: teamColor(card.team) }}
+          title={card.team}
+        >
+          {initials(card.team)}
+        </span>
+      )}
 
       <div className="card-bar" ref={barRef} title={`${shown}%`}>
         {Array.from({ length: SEGMENTS }, (_, i) => (

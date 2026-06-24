@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchConfig, type AppConfig } from "./api/client";
 import { getProvider } from "./providers";
-import type { Board, Card as CardModel } from "./providers/types";
+import type { Board, Card as CardModel, Note } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { CardDetail } from "./components/CardDetail";
+import { LockDialog } from "./components/LockDialog";
 
 type ViewMode = "me" | "team";
 
 const LS_OWNER = "aeman.owner";
 const LS_PROJECT = "aeman.project";
 const LS_VIEW = "aeman.view";
+const LS_TEAM_ROSTER = "aeman.teamRoster";
+const LS_TEAM_FILTER = "aeman.teamFilter";
 
 function readView(): ViewMode {
   const raw = localStorage.getItem(LS_VIEW);
@@ -19,6 +22,30 @@ function readView(): ViewMode {
   }
   return "me";
 }
+
+function readStringList(key: string): string[] | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStringList(key: string, value: string[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore persistence failures
+  }
+}
+
+const errMessage = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
 
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -34,6 +61,17 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
+  const [lockCard, setLockCard] = useState<CardModel | null>(null);
+
+  // Team roster + filter, persisted in localStorage. The roster is the union of
+  // the teams found on the board and any teams the user has added by hand; the
+  // filter is the subset of the roster currently shown (defaults to everything).
+  const [addedTeams, setAddedTeams] = useState<string[]>(
+    () => readStringList(LS_TEAM_ROSTER) ?? [],
+  );
+  const [storedFilter, setStoredFilter] = useState<string[] | null>(
+    () => readStringList(LS_TEAM_FILTER),
+  );
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
   useEffect(() => {
@@ -49,7 +87,7 @@ export function App() {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(errMessage(err));
         }
       });
     return () => {
@@ -63,6 +101,76 @@ export function App() {
 
   const provider = getProvider("github");
 
+  // The roster: teams present on the board ∪ user-added, deduplicated, sorted.
+  const roster = useMemo(() => {
+    const set = new Set<string>(addedTeams);
+    if (board) {
+      for (const card of board.cards) {
+        if (card.team) {
+          set.add(card.team);
+        }
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [addedTeams, board]);
+
+  // The selected filter set. A stored filter is intersected with the live roster
+  // (teams that disappeared are dropped); with no stored filter, all are selected.
+  const selected = useMemo(() => {
+    if (storedFilter === null) {
+      return new Set(roster);
+    }
+    return new Set(roster.filter((t) => storedFilter.includes(t)));
+  }, [storedFilter, roster]);
+
+  const allSelected = selected.size === roster.length;
+
+  const toggleTeam = useCallback(
+    (team: string) => {
+      setStoredFilter((cur) => {
+        const base = cur ?? roster;
+        return base.includes(team)
+          ? base.filter((t) => t !== team)
+          : [...base, team];
+      });
+    },
+    [roster],
+  );
+
+  const addTeam = useCallback((team: string) => {
+    const t = team.trim();
+    if (!t) {
+      return;
+    }
+    setAddedTeams((cur) => {
+      if (cur.includes(t)) {
+        return cur;
+      }
+      const next = [...cur, t];
+      writeStringList(LS_TEAM_ROSTER, next);
+      return next;
+    });
+  }, []);
+
+  const removeTeam = useCallback((team: string) => {
+    setAddedTeams((cur) => {
+      const next = cur.filter((t) => t !== team);
+      writeStringList(LS_TEAM_ROSTER, next);
+      return next;
+    });
+    // Also drop it from an explicit filter so it does not linger when re-added.
+    setStoredFilter((cur) => (cur ? cur.filter((t) => t !== team) : cur));
+  }, []);
+
+  // Persist the filter whenever it changes (null means "all", we store nothing).
+  useEffect(() => {
+    if (storedFilter === null) {
+      localStorage.removeItem(LS_TEAM_FILTER);
+    } else {
+      writeStringList(LS_TEAM_FILTER, storedFilter);
+    }
+  }, [storedFilter]);
+
   const doLoad = useCallback(
     async (ownerArg: string, numberArg: number) => {
       setLoading(true);
@@ -71,7 +179,7 @@ export function App() {
         const loaded = await provider.loadBoard(ownerArg, numberArg);
         setBoard(loaded);
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errMessage(err));
       } finally {
         setLoading(false);
       }
@@ -136,6 +244,74 @@ export function App() {
   }, []);
 
   const onError = useCallback((message: string) => setError(message), []);
+
+  // Rename a team everywhere: the roster, the filter, and every card using it.
+  const renameTeam = useCallback(
+    (from: string, to: string) => {
+      const t = to.trim();
+      if (!t || t === from) {
+        return;
+      }
+      setAddedTeams((cur) => {
+        const next = [...new Set(cur.map((x) => (x === from ? t : x)))];
+        writeStringList(LS_TEAM_ROSTER, next);
+        return next;
+      });
+      setStoredFilter((cur) =>
+        cur ? [...new Set(cur.map((x) => (x === from ? t : x)))] : cur,
+      );
+      setBoard((cur) => {
+        if (!cur) {
+          return cur;
+        }
+        for (const card of cur.cards) {
+          if (card.team === from) {
+            void provider.setTeam(cur, card, t).catch((err: unknown) => {
+              patchCard(card.itemId, { team: from });
+              setError(errMessage(err));
+            });
+          }
+        }
+        return {
+          ...cur,
+          cards: cur.cards.map((c) => (c.team === from ? { ...c, team: t } : c)),
+        };
+      });
+    },
+    [patchCard, provider],
+  );
+
+  // Locking posts a note (the reason) to the card so it shows in the day's log.
+  const handleLock = useCallback(
+    (card: CardModel, note: string) => {
+      if (!board) {
+        return;
+      }
+      const prevStage = card.stage;
+      const optimisticNote: Note = {
+        id: `tmp-${new Date().toISOString()}`,
+        body: note,
+        createdAt: new Date().toISOString(),
+        author: config?.login || undefined,
+        source: card.isDraft ? "draft" : "comment",
+      };
+      patchCard(card.itemId, {
+        stage: "locked",
+        notes: [...(card.notes ?? []), optimisticNote],
+      });
+      void (async () => {
+        try {
+          await provider.setStage(board, card, "locked");
+          await provider.addNote(board, card, note);
+        } catch (err: unknown) {
+          patchCard(card.itemId, { stage: prevStage });
+          setError(errMessage(err));
+          reload();
+        }
+      })();
+    },
+    [board, config?.login, patchCard, provider, reload],
+  );
 
   const showTokenWarning =
     config !== null && !config.tokenAvailable && !tokenWarningDismissed;
@@ -244,6 +420,7 @@ export function App() {
             board={board}
             provider={provider}
             me={config?.login ?? ""}
+            teams={roster}
             patchCard={patchCard}
             addCard={addCard}
             removeCard={removeCard}
@@ -251,6 +428,7 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
+            onRequestLock={(c) => setLockCard(c)}
           />
         )}
         {board && view === "team" && (
@@ -258,6 +436,13 @@ export function App() {
             board={board}
             provider={provider}
             me={config?.login ?? ""}
+            roster={roster}
+            selected={selected}
+            allSelected={allSelected}
+            onToggleTeam={toggleTeam}
+            onAddTeam={addTeam}
+            onRemoveTeam={removeTeam}
+            onRenameTeam={renameTeam}
             patchCard={patchCard}
             addCard={addCard}
             removeCard={removeCard}
@@ -265,6 +450,7 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
+            onRequestLock={(c) => setLockCard(c)}
           />
         )}
       </main>
@@ -277,6 +463,14 @@ export function App() {
           onClose={() => setDetailCard(null)}
           reload={reload}
           patchCard={patchCard}
+        />
+      )}
+
+      {board && lockCard && (
+        <LockDialog
+          card={board.cards.find((c) => c.itemId === lockCard.itemId) ?? lockCard}
+          onClose={() => setLockCard(null)}
+          onSubmit={handleLock}
         />
       )}
     </div>

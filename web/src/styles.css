@@ -505,6 +505,155 @@ button {
   color: var(--danger);
 }
 
+/* filter chips: a toggle button + a remove × per roster team */
+.team-filter-chip {
+  cursor: pointer;
+  user-select: none;
+}
+
+.team-chip-toggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  color: inherit;
+}
+
+.team-filter-chip-off {
+  opacity: 0.45;
+}
+
+.team-filter-chip:not(.team-filter-chip-off) {
+  border-color: var(--accent);
+  background: var(--bg-soft);
+}
+
+.team-add-input {
+  width: 90px;
+  margin-top: 0;
+}
+
+/* compact circular team avatar on the right edge of a card */
+.team-avatar {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* AddCard: a title input with an integrated team picker (one combined box) */
+.add-card-form {
+  display: flex;
+  align-items: stretch;
+  margin-top: 2px;
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  position: relative;
+}
+
+.add-card-form .add-card-input {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+  border: none;
+  border-radius: 4px 0 0 4px;
+}
+
+.add-card-form .add-card-input:focus {
+  outline: none;
+}
+
+.add-card-team {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  border-left: 1px solid var(--line-soft);
+}
+
+.add-card-team-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 3px 8px;
+  white-space: nowrap;
+  max-width: 130px;
+}
+
+.add-card-team-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.add-card-team-caret {
+  font-size: 9px;
+  color: var(--faint);
+}
+
+.team-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.add-card-team-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 3px;
+  min-width: 130px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(27, 31, 36, 0.18);
+  padding: 3px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.add-card-team-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--fg);
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.add-card-team-item:hover {
+  background: var(--bg-soft);
+}
+
+.sprint-btn {
+  margin-left: auto;
+}
+
 .card-title {
   flex: 1;
   min-width: 0;
