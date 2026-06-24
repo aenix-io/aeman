@@ -618,6 +618,7 @@ export function TeamBoard({
               onMoveStart={handleMoveStart}
               teams={roster}
               people={people}
+              users={users}
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
             />
