@@ -450,8 +450,8 @@ export function TeamBoard({
     }
   };
 
-  // Start a new sprint for the single selected team: carry its unfinished cards
-  // from earlier days onto the current day. Only available when one team is on.
+  // Carry over a team's unfinished cards from earlier sprints into the selected
+  // day's sprint. `team` is null for the no-team group.
   const startSprint = (team: string | null) => {
     setSprintMenuOpen(false);
     const label = team ?? "no team";
@@ -469,7 +469,7 @@ export function TeamBoard({
     }
     if (
       !window.confirm(
-        `Start a new sprint for "${label}"? ${carry.length} unfinished card(s) will move to ${selectedDate}.`,
+        `Carry over ${carry.length} unfinished card(s) for "${label}" into ${selectedDate}?`,
       )
     ) {
       return;
@@ -624,7 +624,7 @@ export function TeamBoard({
             onClick={() => setSprintMenuOpen((o) => !o)}
             title={`Carry unfinished cards into the ${selectedDate} sprint`}
           >
-            Start sprint ▾
+            Carry over ▾
           </button>
           {sprintMenuOpen && (
             <div className="card-stage-menu sprint-menu">
