@@ -448,23 +448,24 @@ export function TeamBoard({
 
   // Start a new sprint for the single selected team: carry its unfinished cards
   // from earlier days onto the current day. Only available when one team is on.
-  const startSprint = (team: string) => {
+  const startSprint = (team: string | null) => {
     setSprintMenuOpen(false);
+    const label = team ?? "no team";
     const carry = board.cards.filter(
       (c) =>
-        c.team === team &&
+        (team === null ? c.team == null : c.team === team) &&
         c.stage !== "done" &&
         (c.sprintStart == null || c.sprintStart < selectedDate),
     );
     if (carry.length === 0) {
       onError(
-        `Nothing to carry over for "${team}" — add cards on ${selectedDate} to start the sprint.`,
+        `Nothing to carry over for "${label}" — add cards on ${selectedDate} to start the sprint.`,
       );
       return;
     }
     if (
       !window.confirm(
-        `Start a new sprint for "${team}"? ${carry.length} unfinished card(s) will move to ${selectedDate}.`,
+        `Start a new sprint for "${label}"? ${carry.length} unfinished card(s) will move to ${selectedDate}.`,
       )
     ) {
       return;
@@ -617,21 +618,14 @@ export function TeamBoard({
             type="button"
             className="btn sprint-btn"
             disabled={selected.size === 0}
-            onClick={() => {
-              const sel = [...selected];
-              if (sel.length === 1) {
-                startSprint(sel[0]);
-              } else {
-                setSprintMenuOpen((o) => !o);
-              }
-            }}
+            onClick={() => setSprintMenuOpen((o) => !o)}
             title={
               selected.size === 0
                 ? "Select a team to start a sprint"
                 : `Move unfinished cards from earlier days into ${selectedDate}`
             }
           >
-            Start sprint{selected.size > 1 ? " ▾" : ""}
+            Start sprint ▾
           </button>
           {sprintMenuOpen && (
             <div className="card-stage-menu sprint-menu">
@@ -646,6 +640,13 @@ export function TeamBoard({
                   {t}
                 </button>
               ))}
+              <button
+                type="button"
+                className="card-stage-item card-stage-clear"
+                onClick={() => startSprint(null)}
+              >
+                no team
+              </button>
             </div>
           )}
         </div>
