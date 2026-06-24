@@ -531,8 +531,9 @@ button {
   background: var(--bg-soft);
 }
 
-.team-add-input {
-  width: 90px;
+.team-chips .team-add-input {
+  width: 110px;
+  flex: none;
   margin-top: 0;
 }
 
