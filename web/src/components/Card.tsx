@@ -34,6 +34,8 @@ interface CardProps {
   users?: Record<string, GhUser>;
   onSetTeam?: (card: CardModel, team: string | null) => void;
   onSetAssignee?: (card: CardModel, login: string | null) => void;
+  /** The day the board is showing; the age badge is measured up to it. */
+  asOf?: string;
 }
 
 const SEGMENTS = 10;
@@ -68,6 +70,7 @@ export function Card({
   users,
   onSetTeam,
   onSetAssignee,
+  asOf,
 }: CardProps) {
   const value = card.stage === "done" ? 100 : card.progress ?? 0;
   const fill = barColor(card.stage);
@@ -189,7 +192,7 @@ export function Card({
     setEditing(false);
   };
 
-  const ageDays = daysSince(card.createdAt);
+  const ageDays = daysSince(card.createdAt, asOf);
 
   return (
     <div

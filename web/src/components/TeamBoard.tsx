@@ -673,6 +673,7 @@ export function TeamBoard({
               users={users}
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
+              asOf={selectedDate}
             />
           )}
           renderOverlay={(card) => (

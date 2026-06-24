@@ -353,6 +353,7 @@ export function MeBoard({
                   onRequestLock={onRequestLock}
                   teams={teams}
                   onSetTeam={handleSetTeam}
+                  asOf={selectedDate}
                 />
               )}
               renderOverlay={(card) => (
