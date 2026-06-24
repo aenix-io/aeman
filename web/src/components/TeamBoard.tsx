@@ -121,10 +121,12 @@ export function TeamBoard({
   );
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
-  // first), plus an Unassigned column when any filtered card has no assignee.
+  // first). Columns come from everyone with a card in the selected teams in ANY
+  // sprint (past or future), so a person's column stays (empty) on days they
+  // have no cards. The Unassigned column is always shown for triage.
   const engineers = useMemo(() => {
     const set = new Set<string>();
-    for (const card of filteredCards) {
+    for (const card of inFilter) {
       for (const login of card.assignees) {
         set.add(login);
       }
@@ -133,9 +135,8 @@ export function TeamBoard({
       .filter((t) => t !== me)
       .sort((a, b) => a.localeCompare(b));
     const people = me && set.has(me) ? [me, ...rest] : rest;
-    // The Unassigned column is always shown so you can add/triage cards there.
     return [...people, UNASSIGNED];
-  }, [filteredCards, me]);
+  }, [inFilter, me]);
 
   // Apply the manual column order (people only); Unassigned always stays last and
   // people missing from the saved order are appended in their default order.
