@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
-import { initials, teamColor, teamInitial } from "../avatar";
+import { teamColor, teamInitial } from "../avatar";
+import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { addDays, todayIso } from "../date";
 import { Dropdown } from "./Dropdown";
 
@@ -21,6 +22,7 @@ interface CardProps {
   /** Reassign the card's team / person from the avatar menu (when provided). */
   teams?: string[];
   people?: string[];
+  users?: Record<string, GhUser>;
   onSetTeam?: (card: CardModel, team: string | null) => void;
   onSetAssignee?: (card: CardModel, login: string | null) => void;
 }
@@ -54,6 +56,7 @@ export function Card({
   onMoveStart,
   teams,
   people,
+  users,
   onSetTeam,
   onSetAssignee,
 }: CardProps) {
@@ -396,8 +399,12 @@ export function Card({
                       className={`card-stage-item${card.assignees.includes(p) ? " card-stage-item-active" : ""}`}
                       onClick={() => pickAssignPerson(p)}
                     >
-                      <span className="avatar">{initials(p)}</span>
-                      {p}
+                      <img
+                        className="avatar-img"
+                        src={avatarUrlFor(p, users?.[p])}
+                        alt={p}
+                      />
+                      {displayName(p, users?.[p])}
                     </button>
                   ))}
                   <button

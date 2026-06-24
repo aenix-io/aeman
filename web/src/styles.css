@@ -602,7 +602,8 @@ button.team-avatar {
   padding: 5px 8px 2px;
 }
 
-.card-assign-menu .avatar {
+.card-assign-menu .avatar,
+.card-assign-menu .avatar-img {
   width: 16px;
   height: 16px;
 }

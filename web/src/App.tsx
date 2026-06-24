@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchConfig, type AppConfig } from "./api/client";
 import { getProvider } from "./providers";
 import type { Board, Card as CardModel, Note } from "./providers/types";
@@ -60,6 +60,7 @@ export function App() {
 
   const [board, setBoard] = useState<Board | null>(null);
   const [users, setUsers] = useState<Record<string, GhUser>>({});
+  const fetchedUsers = useRef<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
@@ -180,16 +181,6 @@ export function App() {
       try {
         const loaded = await provider.loadBoard(ownerArg, numberArg);
         setBoard(loaded);
-        // Pull display names + avatars for everyone assigned on the board.
-        const logins = new Set<string>();
-        for (const c of loaded.cards) {
-          for (const a of c.assignees) {
-            logins.add(a);
-          }
-        }
-        void fetchUsers([...logins])
-          .then((u) => setUsers((cur) => ({ ...cur, ...u })))
-          .catch(() => {});
       } catch (err: unknown) {
         setError(errMessage(err));
       } finally {
@@ -198,6 +189,29 @@ export function App() {
     },
     [provider],
   );
+
+  // Fetch GitHub name + avatar for any assignee not looked up yet. Watching the
+  // board also covers people newly assigned to a card during the session.
+  useEffect(() => {
+    if (!board) {
+      return;
+    }
+    const todo: string[] = [];
+    for (const c of board.cards) {
+      for (const a of c.assignees) {
+        if (a && !fetchedUsers.current.has(a)) {
+          fetchedUsers.current.add(a);
+          todo.push(a);
+        }
+      }
+    }
+    if (todo.length === 0) {
+      return;
+    }
+    void fetchUsers(todo)
+      .then((u) => setUsers((cur) => ({ ...cur, ...u })))
+      .catch(() => {});
+  }, [board]);
 
   const handleLoad = () => {
     const trimmedOwner = owner.trim();
