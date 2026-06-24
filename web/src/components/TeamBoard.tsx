@@ -8,7 +8,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, activeOnDay, latestSprintDay } from "../date";
+import { todayIso, addDays } from "../date";
 import { initials, teamColor } from "../avatar";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
@@ -71,14 +71,7 @@ export function TeamBoard({
   onOpen,
   onRequestLock,
 }: TeamBoardProps) {
-  // Land on the last started sprint (latest finish ≤ today among the cards) so
-  // cards don't vanish as the calendar moves past the sprint day.
-  const [selectedDate, setSelectedDate] = useState<string>(() =>
-    latestSprintDay(
-      board.cards.map((c) => c.day),
-      todayIso(),
-    ),
-  );
+  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [addValue, setAddValue] = useState("");
@@ -107,14 +100,40 @@ export function TeamBoard({
   const passesFilter = (card: CardModel): boolean =>
     card.team ? selected.has(card.team) : allSelected;
 
-  // Cards for the current day that pass the team filter.
+  // Cards passing the team filter (any day) — the scope for sprint detection.
+  const inFilter = useMemo(
+    () => board.cards.filter((c) => passesFilter(c)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [board.cards, selected, allSelected],
+  );
+
+  // Current sprint per team: the latest finish ≤ selectedDate for each team
+  // (cards with no team share one "no team" sprint).
+  const currentSprint = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of inFilter) {
+      if (!c.day || c.day > selectedDate) {
+        continue;
+      }
+      const key = c.team ?? "";
+      const cur = m.get(key);
+      if (!cur || c.day > cur) {
+        m.set(key, c.day);
+      }
+    }
+    return m;
+  }, [inFilter, selectedDate]);
+
+  // Show a card if it belongs to its team's current sprint and has started.
   const filteredCards = useMemo(
     () =>
-      board.cards.filter(
-        (c) => activeOnDay(c.startDate, c.day, selectedDate) && passesFilter(c),
+      inFilter.filter(
+        (c) =>
+          c.day != null &&
+          (!c.startDate || c.startDate <= selectedDate) &&
+          currentSprint.get(c.team ?? "") === c.day,
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [board.cards, selectedDate, selected, allSelected],
+    [inFilter, currentSprint, selectedDate],
   );
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me

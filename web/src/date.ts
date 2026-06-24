@@ -15,38 +15,6 @@ export function localDateIso(iso: string): string {
   return new Date(d.getTime() - off * 60_000).toISOString().slice(0, 10);
 }
 
-/** activeOnDay is true when `day` falls within a card's [start, finish] range.
- * A missing bound collapses to the other date, so a card with a single date is
- * active only on that day; a card with neither date is never on the day board. */
-export function activeOnDay(
-  start: string | undefined,
-  finish: string | undefined,
-  day: string,
-): boolean {
-  const from = start ?? finish;
-  const to = finish ?? start;
-  if (!from || !to) {
-    return false;
-  }
-  return from <= day && day <= to;
-}
-
-/** latestSprintDay returns the latest of `days` that is on or before `cutoff`,
- * falling back to `cutoff` when none qualifies. Used to land the board on the
- * last started sprint instead of an empty "today" when no new sprint began. */
-export function latestSprintDay(
-  days: (string | undefined)[],
-  cutoff: string,
-): string {
-  let latest = "";
-  for (const d of days) {
-    if (d && d <= cutoff && d > latest) {
-      latest = d;
-    }
-  }
-  return latest || cutoff;
-}
-
 /** addDays shifts a yyyy-mm-dd date by delta days, returning yyyy-mm-dd. */
 export function addDays(iso: string, delta: number): string {
   const [y, m, d] = iso.split("-").map(Number);
