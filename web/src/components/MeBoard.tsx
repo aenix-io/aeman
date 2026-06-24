@@ -9,7 +9,8 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, localDateIso, addDays, activeOnDay } from "../date";
+import { todayIso, localDateIso, addDays } from "../date";
+import { currentSprintByTeam } from "../sprint";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { NotesPanel, type DayNote } from "./NotesPanel";
@@ -66,10 +67,26 @@ export function MeBoard({
     [board.cards, me],
   );
 
-  // A card is shown on every day from its start through its current sprint day.
-  const myCards = useMemo(
-    () => mine.filter((c) => activeOnDay(c.startDate, c.sprintStart, selectedDate)),
+  // Per team, the latest sprint started on or before the selected day.
+  const currentSprint = useMemo(
+    () => currentSprintByTeam(mine, selectedDate),
     [mine, selectedDate],
+  );
+
+  // A card shows within its [start, sprint] range, and keeps showing on later
+  // days while it stays its team's current sprint — so in Me cards stay visible
+  // the next day until a new sprint is started.
+  const myCards = useMemo(
+    () =>
+      mine.filter((c) => {
+        const start = c.startDate ?? c.sprintStart;
+        const sprint = c.sprintStart;
+        if (!start || !sprint || selectedDate < start) {
+          return false;
+        }
+        return selectedDate <= sprint || currentSprint.get(c.team ?? "") === sprint;
+      }),
+    [mine, currentSprint, selectedDate],
   );
 
   const byZone = useMemo(() => {
@@ -148,6 +165,15 @@ export function MeBoard({
     patchCard(card.itemId, patch);
     void provider.setStage(board, card, stage).catch((err: unknown) => {
       patchCard(card.itemId, prev);
+      onError(errMessage(err));
+    });
+  };
+
+  const handleSetTeam = (card: CardModel, team: string | null) => {
+    const prev = card.team;
+    patchCard(card.itemId, { team: team ?? undefined });
+    void provider.setTeam(board, card, team).catch((err: unknown) => {
+      patchCard(card.itemId, { team: prev });
       onError(errMessage(err));
     });
   };
@@ -323,6 +349,8 @@ export function MeBoard({
                   onRename={handleRename}
                   onOpen={onOpen}
                   onRequestLock={onRequestLock}
+                  teams={teams}
+                  onSetTeam={handleSetTeam}
                 />
               )}
               renderOverlay={(card) => (

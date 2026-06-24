@@ -334,7 +334,13 @@ export function Card({
               type="button"
               className="team-avatar"
               style={{ backgroundColor: teamColor(card.team) }}
-              title={canAssign ? "Reassign team / person" : `Team: ${card.team}`}
+              title={
+                onSetAssignee
+                  ? "Reassign team / person"
+                  : onSetTeam
+                    ? "Reassign team"
+                    : `Team: ${card.team}`
+              }
               onClick={
                 canAssign
                   ? (e) => {
