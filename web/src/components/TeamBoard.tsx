@@ -2,7 +2,6 @@ import { Fragment, useMemo, useState, type Ref } from "react";
 import type {
   Board,
   Card as CardModel,
-  Note,
   Provider,
   StageKey,
   ZoneKey,
@@ -20,6 +19,16 @@ interface TeamBoardProps {
   board: Board;
   provider: Provider;
   me: string;
+  /** Known teams (the roster), shown as filter chips. */
+  roster: string[];
+  /** Currently selected teams (the filter subset). */
+  selected: Set<string>;
+  /** True when every roster team is selected. */
+  allSelected: boolean;
+  onToggleTeam: (team: string) => void;
+  onAddTeam: (team: string) => void;
+  onRemoveTeam: (team: string) => void;
+  onRenameTeam: (from: string, to: string) => void;
   patchCard: (itemId: string, patch: Partial<CardModel>) => void;
   addCard: (card: CardModel) => void;
   removeCard: (itemId: string) => void;
@@ -27,6 +36,7 @@ interface TeamBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
+  onRequestLock: (card: CardModel) => void;
 }
 
 /** Per-group metadata for the Team board: the destination engineer + zone. */
@@ -40,11 +50,18 @@ const UNASSIGNED = "";
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
-/** TeamBoard is the whole team as an engineers × zones grid for one day. */
+/** TeamBoard is the team as a people × zones grid for one day, filtered by team. */
 export function TeamBoard({
   board,
   provider,
   me,
+  roster,
+  selected,
+  allSelected,
+  onToggleTeam,
+  onAddTeam,
+  onRemoveTeam,
+  onRenameTeam,
   patchCard,
   addCard,
   removeCard,
@@ -52,65 +69,54 @@ export function TeamBoard({
   reload,
   onError,
   onOpen,
+  onRequestLock,
 }: TeamBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [addValue, setAddValue] = useState("");
+  const [editingTeam, setEditingTeam] = useState<string | null>(null);
+  const [editTeamValue, setEditTeamValue] = useState("");
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
-  // Teams (= assignees). The shown set defaults to every team found on the
-  // board; the toolbar lets you add or remove teams, persisted in localStorage.
-  const baseTeams = useMemo(() => {
+  // A card passes the team filter when its team is selected. Team-less cards
+  // show only when every roster team is selected (i.e. no filter is narrowing).
+  const passesFilter = (card: CardModel): boolean =>
+    card.team ? selected.has(card.team) : allSelected;
+
+  // Cards for the current day that pass the team filter.
+  const filteredCards = useMemo(
+    () => board.cards.filter((c) => c.day === selectedDate && passesFilter(c)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [board.cards, selectedDate, selected, allSelected],
+  );
+
+  // Columns are PEOPLE: the distinct assignees among the filtered cards (me
+  // first), plus an Unassigned column when any filtered card has no assignee.
+  const engineers = useMemo(() => {
     const set = new Set<string>();
-    for (const card of board.cards) {
+    let hasUnassigned = false;
+    for (const card of filteredCards) {
+      if (card.assignees.length === 0) {
+        hasUnassigned = true;
+      }
       for (const login of card.assignees) {
         set.add(login);
       }
     }
-    if (me) {
-      set.add(me);
-    }
-    return [...set];
-  }, [board.cards, me]);
+    const rest = [...set]
+      .filter((t) => t !== me)
+      .sort((a, b) => a.localeCompare(b));
+    const people = me && set.has(me) ? [me, ...rest] : rest;
+    return hasUnassigned ? [...people, UNASSIGNED] : people;
+  }, [filteredCards, me]);
 
-  const [customTeams, setCustomTeams] = useState<string[] | null>(() => {
-    try {
-      const raw = localStorage.getItem("aeman.teams");
-      return raw ? (JSON.parse(raw) as string[]) : null;
-    } catch {
-      return null;
-    }
-  });
-
-  // me first, then the rest alphabetically.
-  const teams = useMemo(() => {
-    const list = customTeams ?? baseTeams;
-    const rest = list.filter((t) => t !== me).sort((a, b) => a.localeCompare(b));
-    return me && list.includes(me) ? [me, ...rest] : rest;
-  }, [customTeams, baseTeams, me]);
-
-  const persistTeams = (next: string[]) => {
-    setCustomTeams(next);
-    try {
-      localStorage.setItem("aeman.teams", JSON.stringify(next));
-    } catch {
-      // ignore persistence failures
-    }
-  };
-
-  const addTeam = (login: string) => {
-    const t = login.trim().replace(/^@/, "");
-    if (!t || teams.includes(t)) {
-      return;
-    }
-    persistTeams([...teams, t]);
-  };
-
-  const removeTeam = (login: string) => {
-    persistTeams(teams.filter((t) => t !== login));
-  };
-
-  const engineers = useMemo(() => [...teams, UNASSIGNED], [teams]);
+  // If exactly one team is selected, new cards default to it (no picker needed).
+  const forcedTeam = useMemo(() => {
+    const sel = [...selected];
+    return sel.length === 1 ? sel[0] : undefined;
+  }, [selected]);
 
   const fail = (err: unknown) => {
     onError(err instanceof Error ? err.message : String(err));
@@ -118,8 +124,8 @@ export function TeamBoard({
   };
 
   const cellCards = (engineer: string, zone: ZoneKey): CardModel[] =>
-    board.cards.filter((c) => {
-      if (c.day !== selectedDate || c.zone !== zone) {
+    filteredCards.filter((c) => {
+      if (c.zone !== zone) {
         return false;
       }
       return engineer === UNASSIGNED
@@ -145,7 +151,7 @@ export function TeamBoard({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board.cards, engineers, selectedDate]);
+  }, [filteredCards, engineers]);
 
   const handleDrop = ({
     card,
@@ -248,32 +254,6 @@ export function TeamBoard({
     });
   };
 
-  // Locking posts a note (the reason) to the card's log.
-  const handleLock = (card: CardModel, note: string) => {
-    const prevStage = card.stage;
-    const optimisticNote: Note = {
-      id: `tmp-${new Date().toISOString()}`,
-      body: note,
-      createdAt: new Date().toISOString(),
-      author: me || undefined,
-      source: card.isDraft ? "draft" : "comment",
-    };
-    patchCard(card.itemId, {
-      stage: "locked",
-      notes: [...(card.notes ?? []), optimisticNote],
-    });
-    void (async () => {
-      try {
-        await provider.setStage(board, card, "locked");
-        await provider.addNote(board, card, note);
-      } catch (err: unknown) {
-        patchCard(card.itemId, { stage: prevStage });
-        onError(errMessage(err));
-        reload();
-      }
-    })();
-  };
-
   const handleRename = (card: CardModel, title: string) => {
     const prev = card.title;
     patchCard(card.itemId, { title });
@@ -290,7 +270,12 @@ export function TeamBoard({
       .catch(fail);
   };
 
-  const handleCreate = (engineer: string, zone: ZoneKey, title: string) => {
+  const handleCreate = (
+    engineer: string,
+    zone: ZoneKey,
+    title: string,
+    team?: string | null,
+  ) => {
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
@@ -299,6 +284,7 @@ export function TeamBoard({
       assignees: engineer ? [engineer] : [],
       zone,
       day: selectedDate,
+      team: team ?? undefined,
       description: "",
       notes: [],
     };
@@ -309,6 +295,7 @@ export function TeamBoard({
         zone,
         day: selectedDate,
         assigneeLogin: engineer || null,
+        team: team ?? null,
       })
       .then((card) => {
         removeCard(tempId);
@@ -318,6 +305,57 @@ export function TeamBoard({
         removeCard(tempId);
         onError(errMessage(err));
       });
+  };
+
+  const commitAdd = () => {
+    const t = addValue.trim();
+    if (t) {
+      onAddTeam(t);
+    }
+    setAddValue("");
+    setAdding(false);
+  };
+
+  const commitEditTeam = (from: string) => {
+    const to = editTeamValue.trim();
+    setEditingTeam(null);
+    if (to && to !== from) {
+      onRenameTeam(from, to);
+    }
+  };
+
+  // Start a new sprint for the single selected team: carry its unfinished cards
+  // from earlier days onto the current day. Only available when one team is on.
+  const startSprint = () => {
+    if (!forcedTeam) {
+      return;
+    }
+    const carry = board.cards.filter(
+      (c) =>
+        c.team === forcedTeam &&
+        c.day != null &&
+        c.day < selectedDate &&
+        c.stage !== "done",
+    );
+    if (carry.length === 0) {
+      onError(`No unfinished cards from earlier days for "${forcedTeam}".`);
+      return;
+    }
+    if (
+      !window.confirm(
+        `Start a new sprint for "${forcedTeam}"? ${carry.length} unfinished card(s) from earlier days will move to ${selectedDate}.`,
+      )
+    ) {
+      return;
+    }
+    for (const card of carry) {
+      const prevDay = card.day;
+      patchCard(card.itemId, { day: selectedDate });
+      void provider.setDay(board, card, selectedDate).catch((err: unknown) => {
+        patchCard(card.itemId, { day: prevDay });
+        onError(errMessage(err));
+      });
+    }
   };
 
   return (
@@ -355,26 +393,106 @@ export function TeamBoard({
         <div className="field field-inline team-select">
           <span>Teams</span>
           <div className="team-chips">
-            {teams.map((t) => (
-              <span className="team-chip" key={t}>
-                <span className={`avatar${t === me ? " avatar-me" : ""}`} title={t}>
-                  {initials(t)}
-                </span>
-                <span className="team-chip-name">{t}</span>
-                <button
-                  type="button"
-                  className="team-chip-x"
-                  onClick={() => removeTeam(t)}
-                  aria-label={`Remove ${t}`}
-                  title="Remove team"
+            {roster.map((t) => {
+              const on = selected.has(t);
+              if (editingTeam === t) {
+                return (
+                  <span className="team-chip team-filter-chip" key={t}>
+                    <input
+                      type="text"
+                      className="add-card-input team-add-input"
+                      autoFocus
+                      value={editTeamValue}
+                      onChange={(e) => setEditTeamValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          commitEditTeam(t);
+                        } else if (e.key === "Escape") {
+                          setEditingTeam(null);
+                        }
+                      }}
+                      onBlur={() => commitEditTeam(t)}
+                    />
+                  </span>
+                );
+              }
+              return (
+                <span
+                  className={`team-chip team-filter-chip${on ? "" : " team-filter-chip-off"}`}
+                  key={t}
                 >
-                  ×
-                </button>
-              </span>
-            ))}
-            <AddCard onCreate={addTeam} placeholder="team login…" />
+                  <button
+                    type="button"
+                    className="team-chip-toggle"
+                    onClick={() => onToggleTeam(t)}
+                    onDoubleClick={() => {
+                      setEditTeamValue(t);
+                      setEditingTeam(t);
+                    }}
+                    aria-pressed={on}
+                    title={
+                      on
+                        ? "Click to hide · double-click to rename"
+                        : "Click to show · double-click to rename"
+                    }
+                  >
+                    <span className="team-chip-name">{t}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="team-chip-x"
+                    onClick={() => onRemoveTeam(t)}
+                    aria-label={`Remove ${t}`}
+                    title="Remove team"
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+            {adding ? (
+              <input
+                type="text"
+                className="add-card-input team-add-input"
+                autoFocus
+                value={addValue}
+                placeholder="team name…"
+                onChange={(e) => setAddValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    commitAdd();
+                  } else if (e.key === "Escape") {
+                    setAddValue("");
+                    setAdding(false);
+                  }
+                }}
+                onBlur={commitAdd}
+              />
+            ) : (
+              <button
+                type="button"
+                className="add-card"
+                onClick={() => setAdding(true)}
+              >
+                + add
+              </button>
+            )}
           </div>
         </div>
+
+        <button
+          type="button"
+          className="btn sprint-btn"
+          onClick={startSprint}
+          disabled={!forcedTeam}
+          title={
+            forcedTeam
+              ? `Move unfinished cards from earlier days into ${selectedDate} for "${forcedTeam}"`
+              : "Select exactly one team to start a sprint"
+          }
+        >
+          Start sprint
+        </button>
       </div>
 
       <div className="team-grid">
@@ -391,7 +509,7 @@ export function TeamBoard({
               onStage={handleStage}
               onRename={handleRename}
               onOpen={onOpen}
-              onLock={handleLock}
+              onRequestLock={onRequestLock}
             />
           )}
           renderOverlay={(card) => (
@@ -404,7 +522,7 @@ export function TeamBoard({
               onStage={() => {}}
               onRename={() => {}}
               onOpen={() => {}}
-              onLock={() => {}}
+              onRequestLock={() => {}}
             />
           )}
           renderGroup={(group, body, { isOver, dropRef }) => {
@@ -418,8 +536,10 @@ export function TeamBoard({
                 <div className="zone-cards">
                   {body}
                   <AddCard
-                    onCreate={(title) =>
-                      handleCreate(group.meta.engineer, group.meta.zone, title)
+                    teams={forcedTeam === undefined ? roster : undefined}
+                    forcedTeam={forcedTeam}
+                    onCreate={(title, team) =>
+                      handleCreate(group.meta.engineer, group.meta.zone, title, team)
                     }
                   />
                 </div>
@@ -427,38 +547,42 @@ export function TeamBoard({
             );
           }}
           renderLayout={(nodes) =>
-            engineers.map((engineer) => (
-              <section className="team-col" key={engineer || "__unassigned__"}>
-                <header className="team-col-header">
-                  {engineer === UNASSIGNED ? (
-                    <span className="team-col-name team-col-unassigned">
-                      Unassigned
-                    </span>
-                  ) : (
-                    <>
-                      <span
-                        className={`avatar${engineer === me ? " avatar-me" : ""}`}
-                        title={engineer}
-                      >
-                        {initials(engineer)}
+            engineers.length === 0 ? (
+              <p className="placeholder">No cards match the selected teams.</p>
+            ) : (
+              engineers.map((engineer) => (
+                <section className="team-col" key={engineer || "__unassigned__"}>
+                  <header className="team-col-header">
+                    {engineer === UNASSIGNED ? (
+                      <span className="team-col-name team-col-unassigned">
+                        Unassigned
                       </span>
-                      <span
-                        className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
-                      >
-                        {engineer}
-                      </span>
-                    </>
-                  )}
-                </header>
-                <div className="team-col-zones">
-                  {ZONE_ORDER.map((zone) => (
-                    <Fragment key={zone}>
-                      {nodes.get(cellKey(engineer, zone))}
-                    </Fragment>
-                  ))}
-                </div>
-              </section>
-            ))
+                    ) : (
+                      <>
+                        <span
+                          className={`avatar${engineer === me ? " avatar-me" : ""}`}
+                          title={engineer}
+                        >
+                          {initials(engineer)}
+                        </span>
+                        <span
+                          className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
+                        >
+                          {engineer}
+                        </span>
+                      </>
+                    )}
+                  </header>
+                  <div className="team-col-zones">
+                    {ZONE_ORDER.map((zone) => (
+                      <Fragment key={zone}>
+                        {nodes.get(cellKey(engineer, zone))}
+                      </Fragment>
+                    ))}
+                  </div>
+                </section>
+              ))
+            )
           }
         />
       </div>
