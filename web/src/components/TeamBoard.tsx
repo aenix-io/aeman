@@ -114,11 +114,7 @@ export function TeamBoard({
   // first), plus an Unassigned column when any filtered card has no assignee.
   const engineers = useMemo(() => {
     const set = new Set<string>();
-    let hasUnassigned = false;
     for (const card of filteredCards) {
-      if (card.assignees.length === 0) {
-        hasUnassigned = true;
-      }
       for (const login of card.assignees) {
         set.add(login);
       }
@@ -127,7 +123,8 @@ export function TeamBoard({
       .filter((t) => t !== me)
       .sort((a, b) => a.localeCompare(b));
     const people = me && set.has(me) ? [me, ...rest] : rest;
-    return hasUnassigned ? [...people, UNASSIGNED] : people;
+    // The Unassigned column is always shown so you can add/triage cards there.
+    return [...people, UNASSIGNED];
   }, [filteredCards, me]);
 
   // If exactly one team is selected, new cards default to it (no picker needed).
