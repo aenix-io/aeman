@@ -58,8 +58,9 @@ export function TeamBoard({
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
-  // Distinct engineer logins across all cards, me first, then an Unassigned col.
-  const engineers = useMemo(() => {
+  // Teams (= assignees). The shown set defaults to every team found on the
+  // board; the toolbar lets you add or remove teams, persisted in localStorage.
+  const baseTeams = useMemo(() => {
     const set = new Set<string>();
     for (const card of board.cards) {
       for (const login of card.assignees) {
@@ -69,10 +70,47 @@ export function TeamBoard({
     if (me) {
       set.add(me);
     }
-    const rest = [...set].filter((l) => l !== me).sort((a, b) => a.localeCompare(b));
-    const ordered = me ? [me, ...rest] : rest;
-    return [...ordered, UNASSIGNED];
+    return [...set];
   }, [board.cards, me]);
+
+  const [customTeams, setCustomTeams] = useState<string[] | null>(() => {
+    try {
+      const raw = localStorage.getItem("aeman.teams");
+      return raw ? (JSON.parse(raw) as string[]) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // me first, then the rest alphabetically.
+  const teams = useMemo(() => {
+    const list = customTeams ?? baseTeams;
+    const rest = list.filter((t) => t !== me).sort((a, b) => a.localeCompare(b));
+    return me && list.includes(me) ? [me, ...rest] : rest;
+  }, [customTeams, baseTeams, me]);
+
+  const persistTeams = (next: string[]) => {
+    setCustomTeams(next);
+    try {
+      localStorage.setItem("aeman.teams", JSON.stringify(next));
+    } catch {
+      // ignore persistence failures
+    }
+  };
+
+  const addTeam = (login: string) => {
+    const t = login.trim().replace(/^@/, "");
+    if (!t || teams.includes(t)) {
+      return;
+    }
+    persistTeams([...teams, t]);
+  };
+
+  const removeTeam = (login: string) => {
+    persistTeams(teams.filter((t) => t !== login));
+  };
+
+  const engineers = useMemo(() => [...teams, UNASSIGNED], [teams]);
 
   const fail = (err: unknown) => {
     onError(err instanceof Error ? err.message : String(err));
@@ -311,6 +349,30 @@ export function TeamBoard({
             >
               ›
             </button>
+          </div>
+        </div>
+
+        <div className="field field-inline team-select">
+          <span>Teams</span>
+          <div className="team-chips">
+            {teams.map((t) => (
+              <span className="team-chip" key={t}>
+                <span className={`avatar${t === me ? " avatar-me" : ""}`} title={t}>
+                  {initials(t)}
+                </span>
+                <span className="team-chip-name">{t}</span>
+                <button
+                  type="button"
+                  className="team-chip-x"
+                  onClick={() => removeTeam(t)}
+                  aria-label={`Remove ${t}`}
+                  title="Remove team"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <AddCard onCreate={addTeam} placeholder="team login…" />
           </div>
         </div>
       </div>
