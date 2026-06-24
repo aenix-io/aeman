@@ -221,6 +221,12 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
       card.day = value.date;
     } else if (roles.start && fieldID === roles.start.id && value.date) {
       card.startDate = value.date;
+    } else if (
+      roles.sprintStart &&
+      fieldID === roles.sprintStart.id &&
+      value.date
+    ) {
+      card.sprintStart = value.date;
     } else if (roles.sprint && fieldID === roles.sprint.id && value.title) {
       card.sprintTitle = value.title;
     } else if (roles.status && fieldID === roles.status.id && value.name) {
@@ -376,6 +382,20 @@ export const githubProvider: Provider = {
     });
   },
 
+  async setSprintStart(board: Board, card: Card, date: string | null): Promise<void> {
+    const field = requireRole(board, "sprintStart", "Sprint Start");
+    if (date === null) {
+      await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
+      return;
+    }
+    await graphql(SET_DATE, {
+      project: board.id,
+      item: card.itemId,
+      field: field.id,
+      value: date,
+    });
+  },
+
   async setAssignee(_board: Board, card: Card, login: string | null): Promise<void> {
     if (!card.contentId) {
       throw new Error("Card has no underlying issue to assign");
@@ -509,6 +529,14 @@ export const githubProvider: Provider = {
         value: input.start,
       });
     }
+    if (input.sprintStart && roles.sprintStart) {
+      await graphql(SET_DATE, {
+        project: board.id,
+        item: item.id,
+        field: roles.sprintStart.id,
+        value: input.sprintStart,
+      });
+    }
     if (input.team && roles.team) {
       await graphql(SET_TEXT, {
         project: board.id,
@@ -528,6 +556,7 @@ export const githubProvider: Provider = {
       zoneOptionId,
       day: input.day ?? undefined,
       startDate: input.start ?? undefined,
+      sprintStart: input.sprintStart ?? undefined,
       team: input.team ?? undefined,
       description: "",
       notes: [],

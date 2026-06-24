@@ -6,6 +6,7 @@ const ALIASES: Record<keyof FieldRoles, string[]> = {
   progress: ["progress", "readiness", "% done", "percent", "готовность"],
   day: ["day", "date", "due date", "due", "finish", "finish date", "день", "дата"],
   start: ["start", "start date", "начало", "старт"],
+  sprintStart: ["sprint start", "sprintstart", "спринт старт"],
   sprint: ["sprint", "iteration", "спринт", "итерация"],
   status: ["status", "статус"],
   stage: ["stage", "состояние"],

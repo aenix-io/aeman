@@ -65,6 +65,9 @@ export interface Card {
   day?: string;
   /** ISO date (yyyy-mm-dd) the card starts on (set at creation). */
   startDate?: string;
+  /** ISO date (yyyy-mm-dd) the sprint this card belongs to was started.
+   * This is what the boards orient by (day/startDate are just metadata). */
+  sprintStart?: string;
   sprintTitle?: string;
   status?: string;
   /** Free-form card details (the body minus the appended action log). */
@@ -78,6 +81,7 @@ export interface NewCardInput {
   zone?: ZoneKey;
   day?: string | null;
   start?: string | null;
+  sprintStart?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
 }
@@ -98,6 +102,7 @@ export interface FieldRoles {
   progress?: ProjectField;
   day?: ProjectField;
   start?: ProjectField;
+  sprintStart?: ProjectField;
   sprint?: ProjectField;
   status?: ProjectField;
   stage?: ProjectField;
@@ -113,6 +118,7 @@ export interface Provider {
   setProgress(board: Board, card: Card, progress: number): Promise<void>;
   setDay(board: Board, card: Card, day: string | null): Promise<void>;
   setStart(board: Board, card: Card, date: string | null): Promise<void>;
+  setSprintStart(board: Board, card: Card, date: string | null): Promise<void>;
   setAssignee(board: Board, card: Card, login: string | null): Promise<void>;
   setStage(board: Board, card: Card, stage: StageKey | null): Promise<void>;
   setTeam(board: Board, card: Card, team: string | null): Promise<void>;
