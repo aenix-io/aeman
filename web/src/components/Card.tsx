@@ -198,15 +198,6 @@ export function Card({
       onDoubleClick={() => onOpen(card)}
       title={card.title}
     >
-      {card.createdAt && (
-        <span
-          className="card-age"
-          style={{ color: ageColor(ageDays) }}
-          title={`On the board ${ageDays} day(s)`}
-        >
-          {ageDays}d
-        </span>
-      )}
       {editing ? (
         <input
           type="text"
@@ -346,6 +337,16 @@ export function Card({
           ×
         </button>
       </span>
+
+      {card.createdAt && (
+        <span
+          className="card-age"
+          style={{ color: ageColor(ageDays) }}
+          title={`On the board ${ageDays} day(s)`}
+        >
+          {ageDays}d
+        </span>
+      )}
 
       {(card.team || canAssign) && (
         <div className="card-assign" ref={assignRef}>
