@@ -137,6 +137,19 @@ export function TeamBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.cards, currentWeek, teamFilter]);
 
+  // Overall completion across all plan cards (a done card counts as 100%).
+  const planProgress = useMemo(() => {
+    const all = [...weekly.wed, ...weekly.fri];
+    if (all.length === 0) {
+      return 0;
+    }
+    const sum = all.reduce(
+      (s, c) => s + (c.stage === "done" ? 100 : c.progress ?? 0),
+      0,
+    );
+    return Math.round(sum / all.length);
+  }, [weekly]);
+
   const handleCreatePlan = (
     plan: "wed" | "fri",
     title: string,
@@ -838,6 +851,15 @@ export function TeamBoard({
               {planCollapsed ? "▴" : "▾"}
             </button>
           </div>
+        </div>
+        <div
+          className="team-weekly-progress"
+          title={`${planProgress}% done across the plan`}
+        >
+          <div
+            className="team-weekly-progress-fill"
+            style={{ width: `${planProgress}%` }}
+          />
         </div>
         {!planCollapsed &&
           (["wed", "fri"] as const).map((band) => (
