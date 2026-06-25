@@ -13,6 +13,8 @@ interface TeamChipsProps {
   onRename: (from: string, to: string) => void;
   /** Show a "No team" chip (key "") — used by the Team filter. */
   noTeamChip?: boolean;
+  /** Allow removing / renaming teams (the × and double-click). */
+  canManage?: boolean;
 }
 
 /** TeamChips is a single-select row of team chips with add/remove/rename. */
@@ -25,6 +27,7 @@ export function TeamChips({
   onRemove,
   onRename,
   noTeamChip = false,
+  canManage = true,
 }: TeamChipsProps) {
   const [adding, setAdding] = useState(false);
   const [addValue, setAddValue] = useState("");
@@ -87,24 +90,32 @@ export function TeamChips({
                 type="button"
                 className="team-chip-toggle"
                 onClick={() => toggle(t)}
-                onDoubleClick={() => {
-                  setEditValue(t);
-                  setEditingTeam(t);
-                }}
+                onDoubleClick={
+                  canManage
+                    ? () => {
+                        setEditValue(t);
+                        setEditingTeam(t);
+                      }
+                    : undefined
+                }
                 aria-pressed={on}
-                title="Click to select · double-click to rename"
+                title={
+                  canManage ? "Click to select · double-click to rename" : "Click to select"
+                }
               >
                 <span className="team-chip-name">{t}</span>
               </button>
-              <button
-                type="button"
-                className="team-chip-x"
-                onClick={() => onRemove(t)}
-                aria-label={`Remove ${t}`}
-                title="Remove team"
-              >
-                ×
-              </button>
+              {canManage && (
+                <button
+                  type="button"
+                  className="team-chip-x"
+                  onClick={() => onRemove(t)}
+                  aria-label={`Remove ${t}`}
+                  title="Remove team"
+                >
+                  ×
+                </button>
+              )}
             </span>
           );
         })}
