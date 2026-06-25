@@ -355,7 +355,9 @@ export function SortableBoard<Meta>({
         groups.map((g) => nodes.get(g.key))
       )}
       {children}
-      <DragOverlay>
+      {/* No drop animation: a plan card stays in its band, so the default
+          "fly back to source" looks like the card returning after a drop. */}
+      <DragOverlay dropAnimation={null}>
         {activeCard ? (
           <div className="dnd-overlay">{renderOverlay(activeCard)}</div>
         ) : null}

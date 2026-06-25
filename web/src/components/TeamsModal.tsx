@@ -1,5 +1,20 @@
 import { useState } from "react";
 import { teamColor } from "../avatar";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface TeamsModalProps {
   teams: string[];
@@ -10,7 +25,89 @@ interface TeamsModalProps {
   onClose: () => void;
 }
 
-/** TeamsModal manages the roster: create, rename (double-click), delete, reorder. */
+interface TeamRowProps {
+  team: string;
+  editing: boolean;
+  editValue: string;
+  onEditValue: (v: string) => void;
+  onStartEdit: () => void;
+  onCommitEdit: () => void;
+  onCancelEdit: () => void;
+  onRemove: () => void;
+}
+
+/** A draggable team row inside the manage dialog. */
+function TeamRow({
+  team,
+  editing,
+  editValue,
+  onEditValue,
+  onStartEdit,
+  onCommitEdit,
+  onCancelEdit,
+  onRemove,
+}: TeamRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: team });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={`teams-manage-row${isDragging ? " teams-manage-row-dragging" : ""}`}
+    >
+      <span
+        className="teams-manage-grip"
+        {...attributes}
+        {...listeners}
+        title="Drag to reorder"
+      >
+        ⠿
+      </span>
+      <span className="team-dot" style={{ background: teamColor(team) }} />
+      {editing ? (
+        <input
+          type="text"
+          className="add-card-input teams-manage-input"
+          autoFocus
+          value={editValue}
+          onChange={(e) => onEditValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              onCommitEdit();
+            } else if (e.key === "Escape") {
+              onCancelEdit();
+            }
+          }}
+          onBlur={onCommitEdit}
+        />
+      ) : (
+        <button
+          type="button"
+          className="teams-manage-name"
+          onDoubleClick={onStartEdit}
+          title="Double-click to rename"
+        >
+          {team}
+        </button>
+      )}
+      <button
+        type="button"
+        className="teams-manage-btn teams-manage-del"
+        onClick={onRemove}
+        aria-label={`Delete ${team}`}
+        title="Delete"
+      >
+        ✕
+      </button>
+    </li>
+  );
+}
+
+/** TeamsModal manages the roster: create, rename (double-click), delete, drag to reorder. */
 export function TeamsModal({
   teams,
   onAdd,
@@ -22,6 +119,10 @@ export function TeamsModal({
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
 
   const addNew = () => {
     const t = newName.trim();
@@ -44,14 +145,17 @@ export function TeamsModal({
     }
   };
 
-  const move = (index: number, dir: -1 | 1) => {
-    const j = index + dir;
-    if (j < 0 || j >= teams.length) {
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) {
       return;
     }
-    const next = [...teams];
-    [next[index], next[j]] = [next[j], next[index]];
-    onReorder(next);
+    const from = teams.indexOf(String(active.id));
+    const to = teams.indexOf(String(over.id));
+    if (from === -1 || to === -1) {
+      return;
+    }
+    onReorder(arrayMove(teams, from, to));
   };
 
   return (
@@ -75,73 +179,32 @@ export function TeamsModal({
         </div>
 
         <div className="modal-body">
-          <ul className="teams-manage-list">
-            {teams.length === 0 && (
-              <li className="teams-manage-empty">No teams yet.</li>
-            )}
-            {teams.map((team, i) => (
-              <li className="teams-manage-row" key={team}>
-                <span className="team-dot" style={{ background: teamColor(team) }} />
-                {editing === team ? (
-                  <input
-                    type="text"
-                    className="add-card-input teams-manage-input"
-                    autoFocus
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        commitEdit(team);
-                      } else if (e.key === "Escape") {
-                        setEditing(null);
-                      }
-                    }}
-                    onBlur={() => commitEdit(team)}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    className="teams-manage-name"
-                    onDoubleClick={() => startEdit(team)}
-                    title="Double-click to rename"
-                  >
-                    {team}
-                  </button>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={onDragEnd}
+          >
+            <SortableContext items={teams} strategy={verticalListSortingStrategy}>
+              <ul className="teams-manage-list">
+                {teams.length === 0 && (
+                  <li className="teams-manage-empty">No teams yet.</li>
                 )}
-                <span className="teams-manage-actions">
-                  <button
-                    type="button"
-                    className="teams-manage-btn"
-                    onClick={() => move(i, -1)}
-                    disabled={i === 0}
-                    aria-label="Move up"
-                    title="Move up"
-                  >
-                    ▲
-                  </button>
-                  <button
-                    type="button"
-                    className="teams-manage-btn"
-                    onClick={() => move(i, 1)}
-                    disabled={i === teams.length - 1}
-                    aria-label="Move down"
-                    title="Move down"
-                  >
-                    ▼
-                  </button>
-                  <button
-                    type="button"
-                    className="teams-manage-btn teams-manage-del"
-                    onClick={() => onRemove(team)}
-                    aria-label={`Delete ${team}`}
-                    title="Delete"
-                  >
-                    ✕
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
+                {teams.map((team) => (
+                  <TeamRow
+                    key={team}
+                    team={team}
+                    editing={editing === team}
+                    editValue={editValue}
+                    onEditValue={setEditValue}
+                    onStartEdit={() => startEdit(team)}
+                    onCommitEdit={() => commitEdit(team)}
+                    onCancelEdit={() => setEditing(null)}
+                    onRemove={() => onRemove(team)}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
 
           <div className="teams-manage-add">
             <input
