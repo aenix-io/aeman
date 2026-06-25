@@ -13,6 +13,7 @@ import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
@@ -77,6 +78,8 @@ export function TeamBoard({
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
   const sprintRef = useRef<HTMLDivElement | null>(null);
+  const [carryWeekOpen, setCarryWeekOpen] = useState(false);
+  const carryWeekRef = useRef<HTMLDivElement | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [dragCol, setDragCol] = useState<string | null>(null);
   // A weekly-plan card currently being dragged into a person column.
@@ -182,22 +185,26 @@ export function TeamBoard({
 
   // Weekly carry over: move unfinished plan cards of the current week to next
   // week (its own cycle, separate from the daily Carry over).
-  const handleCarryWeek = () => {
+  const handleCarryWeek = (team: string | null) => {
+    setCarryWeekOpen(false);
+    const label = team ?? "no team";
     const nextWeek = addDays(currentWeek, 7);
     const carry = board.cards.filter(
       (c) =>
         c.plan &&
         c.week === currentWeek &&
         c.stage !== "done" &&
-        passesFilter(c),
+        // Skip not-yet-persisted optimistic cards (temporary ids).
+        !c.itemId.startsWith("tmp-") &&
+        (team === null ? c.team == null : c.team === team),
     );
     if (carry.length === 0) {
-      onError("No unfinished plan cards to carry to next week.");
+      onError(`No unfinished plan cards for "${label}" to carry to next week.`);
       return;
     }
     if (
       !window.confirm(
-        `Carry over ${carry.length} unfinished plan card(s) to the week of ${nextWeek}?`,
+        `Carry over ${carry.length} unfinished plan card(s) for "${label}" to the week of ${nextWeek}?`,
       )
     ) {
       return;
@@ -596,6 +603,7 @@ export function TeamBoard({
       (c) =>
         (team === null ? c.team == null : c.team === team) &&
         c.stage !== "done" &&
+        !c.itemId.startsWith("tmp-") &&
         (c.sprintStart == null || c.sprintStart < selectedDate),
     );
     if (carry.length === 0) {
@@ -853,14 +861,52 @@ export function TeamBoard({
           <div className="team-weekly-head">
             <span className="team-weekly-title">Weekly plan · {currentWeek}</span>
             <div className="team-weekly-actions">
-              <button
-                type="button"
-                className="btn"
-                onClick={handleCarryWeek}
-                title="Move unfinished plan cards to next week"
-              >
-                Carry over week →
-              </button>
+              <div className="sprint-wrap" ref={carryWeekRef}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    if (teamFilter === null) {
+                      setCarryWeekOpen((o) => !o);
+                    } else {
+                      handleCarryWeek(teamFilter === "" ? null : teamFilter);
+                    }
+                  }}
+                  title="Move unfinished plan cards to next week"
+                >
+                  Carry over week{teamFilter === null ? " ▾" : " →"}
+                </button>
+                {teamFilter === null && (
+                  <Dropdown
+                    open={carryWeekOpen}
+                    anchorRef={carryWeekRef}
+                    onClose={() => setCarryWeekOpen(false)}
+                    className="card-stage-menu sprint-menu"
+                  >
+                    {roster.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className="card-stage-item"
+                        onClick={() => handleCarryWeek(t)}
+                      >
+                        <span
+                          className="team-dot"
+                          style={{ background: teamColor(t) }}
+                        />
+                        {t}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="card-stage-item card-stage-clear"
+                      onClick={() => handleCarryWeek(null)}
+                    >
+                      no team
+                    </button>
+                  </Dropdown>
+                )}
+              </div>
               <button
                 type="button"
                 className="team-weekly-toggle"
