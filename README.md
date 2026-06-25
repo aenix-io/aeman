@@ -76,6 +76,21 @@ make run            # go run ./cmd/aeman serve
 
 `aeman serve` flags: `--addr` (listen address), `--owner` (default org/user), `--project` (default project number), `--open` (open browser), `--verbose`.
 
+## Self-hosted deploy (multi-user)
+
+For a shared instance where every visitor signs in with GitHub and uses their own token, set the OAuth environment variables and the binary switches from local `gh` mode to a GitHub OAuth web flow with per-user sessions:
+
+- `AEMAN_GITHUB_CLIENT_ID` / `AEMAN_GITHUB_CLIENT_SECRET` — from a GitHub OAuth App.
+- `AEMAN_BASE_URL` — the public origin; the callback is `<AEMAN_BASE_URL>/auth/callback`.
+- `AEMAN_SCOPES` — OAuth scopes (default `repo project`).
+
+A `docker-compose.yml` (aeman + a Cloudflare Tunnel) and a step-by-step guide are in [docs/deploy.md](docs/deploy.md):
+
+```sh
+cp .env.example .env   # fill in the OAuth + tunnel values
+docker compose up -d --build
+```
+
 ## License
 
 [Apache License 2.0](LICENSE).
