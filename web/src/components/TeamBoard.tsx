@@ -166,6 +166,38 @@ export function TeamBoard({
       });
   };
 
+  // Weekly carry over: move unfinished plan cards of the current week to next
+  // week (its own cycle, separate from the daily Carry over).
+  const handleCarryWeek = () => {
+    const nextWeek = addDays(currentWeek, 7);
+    const carry = board.cards.filter(
+      (c) =>
+        c.plan &&
+        c.week === currentWeek &&
+        c.stage !== "done" &&
+        passesFilter(c),
+    );
+    if (carry.length === 0) {
+      onError("No unfinished plan cards to carry to next week.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Carry over ${carry.length} unfinished plan card(s) to the week of ${nextWeek}?`,
+      )
+    ) {
+      return;
+    }
+    for (const card of carry) {
+      const prev = card.week;
+      patchCard(card.itemId, { week: nextWeek });
+      void provider.setWeek(board, card, nextWeek).catch((err: unknown) => {
+        patchCard(card.itemId, { week: prev });
+        onError(errMessage(err));
+      });
+    }
+  };
+
   // Take a plan card into work: assign it to the column's person and add it to
   // today's daily sprint, while it stays in the weekly plan (the same card).
   const takePlanCard = (card: CardModel, engineer: string) => {
@@ -761,6 +793,17 @@ export function TeamBoard({
       </div>
 
       <div className="team-weekly">
+        <div className="team-weekly-head">
+          <span className="team-weekly-title">Weekly plan · {currentWeek}</span>
+          <button
+            type="button"
+            className="btn"
+            onClick={handleCarryWeek}
+            title="Move unfinished plan cards to next week"
+          >
+            Carry over week →
+          </button>
+        </div>
         {(["wed", "fri"] as const).map((band) => (
           <div key={band} className={`team-weekly-band team-weekly-${band}`}>
             {weekly[band].map((card) => (

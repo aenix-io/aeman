@@ -1235,6 +1235,25 @@ button.card-age {
   border-top: 2px solid var(--line);
 }
 
+.team-weekly-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.team-weekly-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .team-weekly-band {
   display: flex;
   flex-direction: column;
