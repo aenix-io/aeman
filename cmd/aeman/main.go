@@ -95,6 +95,7 @@ func runServe(args []string) error {
 			ClientSecret: secret,
 			BaseURL:      baseURL,
 			Scopes:       os.Getenv("AEMAN_SCOPES"),
+			SessionFile:  os.Getenv("AEMAN_SESSION_FILE"),
 		}
 	}
 

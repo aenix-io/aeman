@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,9 @@ type OAuthConfig struct {
 	BaseURL string
 	// Scopes is a space-separated OAuth scope list (defaults to "repo project").
 	Scopes string
+	// SessionFile, when set, persists sessions to this path so they survive
+	// restarts (empty = in-memory only, lost on restart).
+	SessionFile string
 }
 
 type oauthSession struct {
@@ -40,13 +44,22 @@ type oauthSession struct {
 	created time.Time
 }
 
-// authManager runs the GitHub OAuth web flow and keeps per-user sessions in
-// memory (sessions are lost on restart, which only forces a re-login).
+// persistedSession is the on-disk form of an oauthSession.
+type persistedSession struct {
+	Token   string    `json:"token"`
+	Login   string    `json:"login"`
+	Created time.Time `json:"created"`
+}
+
+// authManager runs the GitHub OAuth web flow and keeps per-user sessions. They
+// live in memory and, when SessionFile is set, are mirrored to disk so a
+// restart doesn't force everyone to sign in again.
 type authManager struct {
 	cfg    OAuthConfig
 	secure bool
 	log    *slog.Logger
 	client *http.Client
+	path   string
 
 	mu       sync.Mutex
 	sessions map[string]oauthSession
@@ -56,12 +69,67 @@ func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 	if cfg.Scopes == "" {
 		cfg.Scopes = "repo project"
 	}
-	return &authManager{
+	a := &authManager{
 		cfg:      cfg,
 		secure:   strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://"),
 		log:      log,
 		client:   &http.Client{Timeout: 15 * time.Second},
+		path:     cfg.SessionFile,
 		sessions: map[string]oauthSession{},
+	}
+	a.load()
+	return a
+}
+
+// load restores persisted sessions (dropping expired ones). No-op without a
+// SessionFile or when the file is absent.
+func (a *authManager) load() {
+	if a.path == "" {
+		return
+	}
+	data, err := os.ReadFile(a.path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			a.log.Error("session load failed", "err", err)
+		}
+		return
+	}
+	var in map[string]persistedSession
+	if err := json.Unmarshal(data, &in); err != nil {
+		a.log.Error("session load: parse failed", "err", err)
+		return
+	}
+	now := time.Now()
+	for sid, s := range in {
+		if now.Sub(s.Created) > sessionTTL {
+			continue
+		}
+		a.sessions[sid] = oauthSession{token: s.Token, login: s.Login, created: s.Created}
+	}
+	a.log.Info("sessions restored", "count", len(a.sessions))
+}
+
+// saveLocked writes the current sessions to disk. Callers must hold a.mu.
+func (a *authManager) saveLocked() {
+	if a.path == "" {
+		return
+	}
+	out := make(map[string]persistedSession, len(a.sessions))
+	for sid, s := range a.sessions {
+		out[sid] = persistedSession{Token: s.token, Login: s.login, Created: s.created}
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		a.log.Error("session save: marshal failed", "err", err)
+		return
+	}
+	tmp := a.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		a.log.Error("session save: write failed", "err", err)
+		return
+	}
+	if err := os.Rename(tmp, a.path); err != nil {
+		a.log.Error("session save: rename failed", "err", err)
 	}
 }
 
@@ -89,6 +157,7 @@ func (a *authManager) session(r *http.Request) (oauthSession, bool) {
 	}
 	if time.Since(s.created) > sessionTTL {
 		delete(a.sessions, c.Value)
+		a.saveLocked()
 		return oauthSession{}, false
 	}
 	return s, true
@@ -149,6 +218,7 @@ func (a *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 	sid := randToken()
 	a.mu.Lock()
 	a.sessions[sid] = oauthSession{token: token, login: login, created: time.Now()}
+	a.saveLocked()
 	a.mu.Unlock()
 	a.setCookie(w, sessionCookie, sid, int(sessionTTL/time.Second))
 	a.log.Info("user signed in", "login", login)
@@ -159,6 +229,7 @@ func (a *authManager) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		a.mu.Lock()
 		delete(a.sessions, c.Value)
+		a.saveLocked()
 		a.mu.Unlock()
 	}
 	a.setCookie(w, sessionCookie, "", -1)
