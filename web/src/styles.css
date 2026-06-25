@@ -855,6 +855,27 @@ button.card-age {
   cursor: pointer;
 }
 
+.card-move-quick {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.card-move-quick-btn {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.card-move-quick-btn:hover {
+  background: var(--line-soft);
+}
+
 .card-title {
   flex: 1;
   min-width: 0;
