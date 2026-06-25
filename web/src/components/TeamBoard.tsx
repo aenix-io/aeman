@@ -81,6 +81,7 @@ export function TeamBoard({
   const [dragCol, setDragCol] = useState<string | null>(null);
   // A weekly-plan card currently being dragged into a person column.
   const [draggedPlan, setDraggedPlan] = useState<CardModel | null>(null);
+  const [planCollapsed, setPlanCollapsed] = useState(false);
 
   useEffect(() => {
     if (!sprintMenuOpen) {
@@ -456,6 +457,29 @@ export function TeamBoard({
     });
   };
 
+  // Deleting a taken plan card from the grid releases it (clears assignee + the
+  // daily sprint) instead of deleting it, so it stays in the weekly plan.
+  const handleGridDelete = (card: CardModel) => {
+    if (!card.plan) {
+      handleDelete(card);
+      return;
+    }
+    const prev: Partial<CardModel> = {
+      assignees: card.assignees,
+      sprintStart: card.sprintStart,
+    };
+    patchCard(card.itemId, { assignees: [], sprintStart: undefined });
+    void (async () => {
+      try {
+        await provider.setAssignee(board, card, null);
+        await provider.setSprintStart(board, card, null);
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
   // Move a card's start date; if it passes the finish date, push finish too.
   const handleSetTeam = (card: CardModel, team: string | null) => {
     const prev = card.team;
@@ -672,7 +696,7 @@ export function TeamBoard({
               selected={card.itemId === selectedCardId}
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
-              onDelete={handleDelete}
+              onDelete={handleGridDelete}
               onStage={handleStage}
               onRename={handleRename}
               onOpen={onOpen}
@@ -792,19 +816,31 @@ export function TeamBoard({
         />
       </div>
 
-      <div className="team-weekly">
+      <div className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}>
         <div className="team-weekly-head">
           <span className="team-weekly-title">Weekly plan · {currentWeek}</span>
-          <button
-            type="button"
-            className="btn"
-            onClick={handleCarryWeek}
-            title="Move unfinished plan cards to next week"
-          >
-            Carry over week →
-          </button>
+          <div className="team-weekly-actions">
+            <button
+              type="button"
+              className="btn"
+              onClick={handleCarryWeek}
+              title="Move unfinished plan cards to next week"
+            >
+              Carry over week →
+            </button>
+            <button
+              type="button"
+              className="team-weekly-toggle"
+              onClick={() => setPlanCollapsed((c) => !c)}
+              aria-label={planCollapsed ? "Expand weekly plan" : "Collapse weekly plan"}
+              title={planCollapsed ? "Expand" : "Collapse"}
+            >
+              {planCollapsed ? "▴" : "▾"}
+            </button>
+          </div>
         </div>
-        {(["wed", "fri"] as const).map((band) => (
+        {!planCollapsed &&
+          (["wed", "fri"] as const).map((band) => (
           <div key={band} className={`team-weekly-band team-weekly-${band}`}>
             {weekly[band].map((card) => (
               <div
