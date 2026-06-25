@@ -5,6 +5,7 @@ import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { addDays, daysSince, todayIso } from "../date";
 import { Dropdown } from "./Dropdown";
+import { RangeCalendar } from "./RangeCalendar";
 
 // ageColor fades the age badge from light grey (fresh) to maroon-red by ~10 days.
 function ageColor(days: number): string {
@@ -378,24 +379,14 @@ export function Card({
               onClose={() => setDatesOpen(false)}
               className="card-stage-menu card-dates-menu"
             >
-              <label className="card-dates-row">
-                <span>Start</span>
-                <input
-                  type="date"
-                  value={startVal}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => setStartVal(e.target.value)}
-                />
-              </label>
-              <label className="card-dates-row">
-                <span>End</span>
-                <input
-                  type="date"
-                  value={endVal}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => setEndVal(e.target.value)}
-                />
-              </label>
+              <RangeCalendar
+                start={startVal || null}
+                end={endVal || null}
+                onChange={(s, e) => {
+                  setStartVal(s ?? "");
+                  setEndVal(e ?? "");
+                }}
+              />
               <button
                 type="button"
                 className="card-dates-save"
