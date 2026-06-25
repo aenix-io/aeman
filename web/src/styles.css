@@ -1763,6 +1763,28 @@ button.card-age {
   background: var(--line-soft);
 }
 
+.teams-manage-row-dragging {
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  border-radius: 4px;
+}
+
+.teams-manage-grip {
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+  padding: 0 2px;
+  flex: none;
+}
+
+.teams-manage-grip:active {
+  cursor: grabbing;
+}
+
 .teams-manage-name {
   flex: 1;
   text-align: left;
