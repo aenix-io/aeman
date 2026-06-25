@@ -1,7 +1,6 @@
-// Command aeman is a backend-less project management UI in the spirit of
-// Flant's Nixon and Ford. It serves an embedded single-page application and
-// uses GitHub Projects v2 as its data backend, authenticating through the
-// local gh CLI.
+// Command aeman is a backend-less project management UI. It serves an embedded
+// single-page application and uses GitHub Projects v2 as its data backend,
+// authenticating through the local gh CLI or a GitHub OAuth web flow.
 package main
 
 import (
@@ -77,12 +76,29 @@ func runServe(args []string) error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
+	// Multi-user GitHub OAuth mode is enabled when client credentials are set
+	// in the environment (kept out of flags so secrets stay out of `ps`).
+	var auth *server.OAuthConfig
+	if id, secret := os.Getenv("AEMAN_GITHUB_CLIENT_ID"), os.Getenv("AEMAN_GITHUB_CLIENT_SECRET"); id != "" && secret != "" {
+		baseURL := os.Getenv("AEMAN_BASE_URL")
+		if baseURL == "" {
+			return fmt.Errorf("AEMAN_BASE_URL is required when GitHub OAuth is configured")
+		}
+		auth = &server.OAuthConfig{
+			ClientID:     id,
+			ClientSecret: secret,
+			BaseURL:      baseURL,
+			Scopes:       os.Getenv("AEMAN_SCOPES"),
+		}
+	}
+
 	srv, err := server.New(server.Options{
 		Addr:           *addr,
 		DefaultOwner:   *owner,
 		DefaultProject: *project,
 		Version:        version,
 		Logger:         logger,
+		Auth:           auth,
 	})
 	if err != nil {
 		return err
