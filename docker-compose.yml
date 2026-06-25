@@ -1,0 +1,29 @@
+services:
+  aeman:
+    build:
+      context: .
+      args:
+        VERSION: ${AEMAN_VERSION:-docker}
+    image: aeman:latest
+    restart: unless-stopped
+    environment:
+      # GitHub OAuth App credentials (enables multi-user mode).
+      AEMAN_GITHUB_CLIENT_ID: ${AEMAN_GITHUB_CLIENT_ID:?set in .env}
+      AEMAN_GITHUB_CLIENT_SECRET: ${AEMAN_GITHUB_CLIENT_SECRET:?set in .env}
+      # Public origin; the OAuth callback is <AEMAN_BASE_URL>/auth/callback.
+      AEMAN_BASE_URL: ${AEMAN_BASE_URL:?set in .env}
+      AEMAN_SCOPES: ${AEMAN_SCOPES:-repo project}
+    # No host ports: cloudflared reaches aeman over the compose network.
+    expose:
+      - "8765"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Zero Trust → Networks → Tunnels → (your tunnel) → token.
+      # Add a public hostname there routing to http://aeman:8765.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set in .env}
+    depends_on:
+      - aeman

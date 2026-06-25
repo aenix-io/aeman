@@ -21,6 +21,9 @@ web/*.tsbuildinfo
 web/dist/*
 !web/dist/.gitkeep
 
+# Local deploy secrets
+.env
+
 # Editor / OS
 .DS_Store
 *.swp
