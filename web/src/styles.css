@@ -1532,16 +1532,18 @@ button.card-age {
   align-items: stretch;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .team-weekly-band {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 6px 8px;
+  overflow-y: auto;
 }
 
 .team-weekly-wed {
@@ -1559,38 +1561,16 @@ button.card-age {
 }
 
 .plan-card {
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-}
-
-.plan-card > .card {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Drag handle for a plan card (onto a person, or to the other band). */
-.plan-card-grip {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
   cursor: grab;
-  color: var(--faint);
-  font-size: 12px;
-  line-height: 1;
-  user-select: none;
-  border-radius: 4px;
 }
 
-.plan-card-grip:hover {
-  background: var(--line-soft);
-  color: var(--muted);
-}
-
-.plan-card-grip:active {
+.plan-card:active {
   cursor: grabbing;
+}
+
+/* The lifted card is shown in the shared DragOverlay; fade the original. */
+.plan-card-dragging {
+  opacity: 0.4;
 }
 
 .team-col-droptarget {

@@ -1,4 +1,13 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type {
   Board,
   Card as CardModel,
@@ -50,6 +59,44 @@ interface TeamMeta {
 
 const UNASSIGNED = "";
 
+/** PlanDraggable makes a weekly-plan card drag with the same dnd-kit feel as the
+ *  grid cards: the whole card lifts into the shared DragOverlay (no grip). */
+function PlanDraggable({ id, children }: { id: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`plan-card${isDragging ? " plan-card-dragging" : ""}`}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** BandDroppable is a Wed/Fri band that accepts a dropped plan card (moving it to
+ *  that band) and highlights while a card hovers over it. */
+function BandDroppable({
+  band,
+  className,
+  children,
+}: {
+  band: "wed" | "fri";
+  className: string;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `band:${band}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`${className}${isOver ? " team-weekly-band-drop" : ""}`}
+    >
+      {children}
+    </div>
+  );
+}
+
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
@@ -82,8 +129,6 @@ export function TeamBoard({
   const carryWeekRef = useRef<HTMLDivElement | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [dragCol, setDragCol] = useState<string | null>(null);
-  // A weekly-plan card currently being dragged into a person column.
-  const [draggedPlan, setDraggedPlan] = useState<CardModel | null>(null);
   const [planCollapsed, setPlanCollapsed] = useState<boolean>(
     () => localStorage.getItem("aeman.planCollapsed") !== "false",
   );
@@ -175,6 +220,17 @@ export function TeamBoard({
     return { wed, fri };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.cards, currentWeek, teamFilter]);
+
+  // Plan cards keyed by their dnd id (`plan:<itemId>`) so they share the grid's
+  // DndContext: a plan card lifts like a grid card and can drop onto a person or
+  // the other band — the same card just stays in the plan.
+  const planDragCards = useMemo(() => {
+    const m = new Map<string, CardModel>();
+    for (const c of [...weekly.wed, ...weekly.fri]) {
+      m.set(`plan:${c.itemId}`, c);
+    }
+    return m;
+  }, [weekly]);
 
   // Overall completion across all plan cards (a done card counts as 100%).
   const planProgress = useMemo(() => {
@@ -432,6 +488,27 @@ export function TeamBoard({
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredCards, orderedEngineers]);
+
+  // A plan card was dropped: onto the other band → change its band; onto a grid
+  // cell (or a card in one) → take it into work for that cell's engineer.
+  const handlePlanDrop = (card: CardModel, overId: string | null) => {
+    if (!overId) {
+      return;
+    }
+    if (overId.startsWith("band:")) {
+      const band = overId.slice(5) as "wed" | "fri";
+      if (band !== card.plan) {
+        handleSetPlan(card, band);
+      }
+      return;
+    }
+    const cell =
+      groups.find((g) => g.key === overId) ??
+      groups.find((g) => g.cards.some((c) => c.itemId === overId));
+    if (cell) {
+      takePlanCard(card, cell.meta.engineer);
+    }
+  };
 
   const handleDrop = ({
     card,
@@ -790,11 +867,13 @@ export function TeamBoard({
         </div>
       </div>
 
-      <div className="team-grid">
-        <SortableBoard<TeamMeta>
-          groups={groups}
-          onDrop={handleDrop}
-          renderCard={(card) => (
+      <SortableBoard<TeamMeta>
+        scrollClassName="team-grid"
+        groups={groups}
+        onDrop={handleDrop}
+        externalCards={planDragCards}
+        onExternalDrop={handlePlanDrop}
+        renderCard={(card) => (
             <Card
               card={card}
               selected={card.itemId === selectedCardId}
@@ -853,21 +932,7 @@ export function TeamBoard({
               <p className="placeholder">No cards match the selected teams.</p>
             ) : (
               orderedEngineers.map((engineer) => (
-                <section
-                  className={`team-col${draggedPlan ? " team-col-droptarget" : ""}`}
-                  key={engineer || "__unassigned__"}
-                  onDragOver={(e) => {
-                    if (draggedPlan) {
-                      e.preventDefault();
-                    }
-                  }}
-                  onDrop={() => {
-                    if (draggedPlan) {
-                      takePlanCard(draggedPlan, engineer);
-                    }
-                    setDraggedPlan(null);
-                  }}
-                >
+                <section className="team-col" key={engineer || "__unassigned__"}>
                   <header
                     className="team-col-header"
                     draggable={engineer !== UNASSIGNED}
@@ -917,11 +982,9 @@ export function TeamBoard({
               ))
             )
           }
-        />
-      </div>
-
-      <div
-        className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}
+      >
+        <div
+          className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}
         style={
           !planCollapsed && planHeight !== null
             ? { height: planHeight, maxHeight: "none" }
@@ -1018,39 +1081,13 @@ export function TeamBoard({
         {!planCollapsed && (
           <div className="team-weekly-bands">
             {(["wed", "fri"] as const).map((band) => (
-              <div
+              <BandDroppable
                 key={band}
-                className={`team-weekly-band team-weekly-${band}${
-                  draggedPlan && draggedPlan.plan !== band
-                    ? " team-weekly-band-drop"
-                    : ""
-                }`}
-                onDragOver={(e) => {
-                  if (draggedPlan && draggedPlan.plan !== band) {
-                    e.preventDefault();
-                  }
-                }}
-                onDrop={() => {
-                  if (draggedPlan && draggedPlan.plan !== band) {
-                    handleSetPlan(draggedPlan, band);
-                  }
-                  setDraggedPlan(null);
-                }}
+                band={band}
+                className={`team-weekly-band team-weekly-${band}`}
               >
                 {weekly[band].map((card) => (
-                  <div key={card.itemId} className="plan-card">
-                    <div
-                      className="plan-card-grip"
-                      draggable
-                      onDragStart={(e) => {
-                        e.stopPropagation();
-                        setDraggedPlan(card);
-                      }}
-                      onDragEnd={() => setDraggedPlan(null)}
-                      title="Drag onto a person to take it into work, or to the other band"
-                    >
-                      ⠿
-                    </div>
+                  <PlanDraggable key={card.itemId} id={`plan:${card.itemId}`}>
                     <Card
                       card={card}
                       selected={card.itemId === selectedCardId}
@@ -1071,7 +1108,7 @@ export function TeamBoard({
                       weekMode
                       onSetWeek={handleSetWeek}
                     />
-                  </div>
+                  </PlanDraggable>
                 ))}
                 <AddCard
                   forcedTeam={forcedTeam}
@@ -1079,11 +1116,12 @@ export function TeamBoard({
                   placeholder="Plan task…"
                   onCreate={(title, team) => handleCreatePlan(band, title, team)}
                 />
-              </div>
+              </BandDroppable>
             ))}
           </div>
         )}
-      </div>
+        </div>
+      </SortableBoard>
     </div>
   );
 }
