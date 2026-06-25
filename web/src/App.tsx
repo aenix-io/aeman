@@ -424,6 +424,7 @@ export function App() {
             board={board}
             provider={provider}
             me={config?.login ?? ""}
+            users={users}
             teams={roster}
             onAddTeam={addTeam}
             onRemoveTeam={removeTeam}

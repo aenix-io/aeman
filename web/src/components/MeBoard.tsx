@@ -1,4 +1,4 @@
-import { useMemo, useState, type Ref } from "react";
+import { useMemo, useRef, useState, type Ref } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -11,8 +11,10 @@ import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, localDateIso, addDays } from "../date";
 import { currentSprintByTeam, sprintForNewCard } from "../sprint";
+import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayNote } from "./NotesPanel";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
@@ -22,6 +24,8 @@ interface MeBoardProps {
   board: Board;
   provider: Provider;
   me: string;
+  /** GitHub user details (avatars / names) for the impersonate picker. */
+  users: Record<string, GhUser>;
   /** Known teams to offer in the team selector. */
   teams: string[];
   onAddTeam: (team: string) => void;
@@ -50,6 +54,7 @@ export function MeBoard({
   board,
   provider,
   me,
+  users,
   teams,
   onAddTeam,
   onRemoveTeam,
@@ -67,13 +72,25 @@ export function MeBoard({
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   // The team applied to new cards created in Me (single-select, null = no team).
   const [createTeam, setCreateTeam] = useState<string | null>(null);
+  // Impersonate: view (and act on) the board as another person.
+  const [impersonated, setImpersonated] = useState<string | null>(null);
+  const [impOpen, setImpOpen] = useState(false);
+  const impRef = useRef<HTMLDivElement | null>(null);
+  const viewMe = impersonated ?? me;
+  const people = useMemo(
+    () =>
+      [...new Set(board.cards.flatMap((c) => c.assignees))]
+        .filter((p) => p && p !== me)
+        .sort(),
+    [board.cards, me],
+  );
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
   // My cards (any day); when me is empty, everyone's.
   const mine = useMemo(
-    () => board.cards.filter((c) => (me ? c.assignees.includes(me) : true)),
-    [board.cards, me],
+    () => board.cards.filter((c) => (viewMe ? c.assignees.includes(viewMe) : true)),
+    [board.cards, viewMe],
   );
 
   // Per team, the latest sprint started on or before the selected day.
@@ -263,7 +280,7 @@ export function MeBoard({
       itemId: tempId,
       title,
       isDraft: true,
-      assignees: me ? [me] : [],
+      assignees: viewMe ? [viewMe] : [],
       zone,
       day: selectedDate,
       startDate: sprintStart,
@@ -280,7 +297,7 @@ export function MeBoard({
         day: selectedDate,
         start: sprintStart,
         sprintStart,
-        assigneeLogin: me || null,
+        assigneeLogin: viewMe || null,
         team: team ?? null,
       })
       .then((card) => {
@@ -301,7 +318,7 @@ export function MeBoard({
       id: `tmp-${new Date().toISOString()}`,
       body: text,
       createdAt: new Date().toISOString(),
-      author: me || undefined,
+      author: viewMe || undefined,
       source: selectedCard.isDraft ? "draft" : "comment",
     };
     patchCard(selectedCard.itemId, {
@@ -369,6 +386,70 @@ export function MeBoard({
           canManage={false}
           noTeamChip
         />
+
+        <div className="field field-inline impersonate" ref={impRef}>
+          <button
+            type="button"
+            className={`btn${impersonated ? " impersonate-active" : ""}`}
+            onClick={() => setImpOpen((o) => !o)}
+            title="View the board as another person"
+          >
+            {impersonated
+              ? `👁 ${displayName(impersonated, users[impersonated])}`
+              : "View as ▾"}
+          </button>
+          {impersonated && (
+            <button
+              type="button"
+              className="impersonate-reset"
+              onClick={() => setImpersonated(null)}
+              title="Back to me"
+            >
+              ×
+            </button>
+          )}
+          <Dropdown
+            open={impOpen}
+            anchorRef={impRef}
+            onClose={() => setImpOpen(false)}
+            className="card-stage-menu"
+          >
+            {impersonated && (
+              <button
+                type="button"
+                className="card-stage-item card-stage-clear"
+                onClick={() => {
+                  setImpersonated(null);
+                  setImpOpen(false);
+                }}
+              >
+                ← Back to me
+              </button>
+            )}
+            {people.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="card-stage-item"
+                onClick={() => {
+                  setImpersonated(p);
+                  setImpOpen(false);
+                }}
+              >
+                <img
+                  className="avatar-img"
+                  src={avatarUrlFor(p, users[p])}
+                  alt=""
+                  draggable={false}
+                />
+                {displayName(p, users[p])}
+              </button>
+            ))}
+            {people.length === 0 && (
+              <div className="sprint-empty">No other people with cards</div>
+            )}
+          </Dropdown>
+        </div>
       </div>
 
       <div className="me-panes">
