@@ -35,6 +35,10 @@ type Options struct {
 	DefaultOwner string
 	// DefaultProject is the project number pre-selected in the UI (0 = none).
 	DefaultProject int
+	// LockBoard pins the UI to DefaultOwner/DefaultProject and hides the board
+	// picker. Users without access to that board (their own token can't read it)
+	// just see an access-denied screen.
+	LockBoard bool
 	// Version is reported to the frontend via /api/config.
 	Version string
 	// Logger receives structured logs; slog.Default() is used when nil.
@@ -204,6 +208,7 @@ type configResponse struct {
 	LogoutURL      string `json:"logoutUrl,omitempty"`
 	DefaultOwner   string `json:"defaultOwner,omitempty"`
 	DefaultProject int    `json:"defaultProject,omitempty"`
+	LockBoard      bool   `json:"lockBoard"`
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +216,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		Version:        s.opts.Version,
 		DefaultOwner:   s.opts.DefaultOwner,
 		DefaultProject: s.opts.DefaultProject,
+		LockBoard:      s.opts.LockBoard,
 	}
 	if s.auth != nil {
 		resp.Mode = "oauth"

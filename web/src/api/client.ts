@@ -15,6 +15,8 @@ export interface AppConfig {
   logoutUrl?: string;
   defaultOwner?: string;
   defaultProject?: number;
+  /** Pin the UI to defaultOwner/defaultProject and hide the board picker. */
+  lockBoard?: boolean;
 }
 
 export async function fetchConfig(): Promise<AppConfig> {

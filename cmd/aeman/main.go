@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -62,12 +63,17 @@ Run 'aeman serve --help' for serve flags.
 func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8765", "address to listen on")
-	owner := fs.String("owner", "", "default GitHub org/user to load projects from")
-	project := fs.Int("project", 0, "default GitHub Project number to open")
+	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "default GitHub org/user to load projects from")
+	projectDefault, _ := strconv.Atoi(os.Getenv("AEMAN_PROJECT"))
+	project := fs.Int("project", projectDefault, "default GitHub Project number to open")
+	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin the UI to --owner/--project and hide the board picker")
 	open := fs.Bool("open", true, "open the UI in a browser on start")
 	verbose := fs.Bool("verbose", false, "enable debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *lockBoard && (*owner == "" || *project <= 0) {
+		return fmt.Errorf("--lock-board requires --owner and --project (or AEMAN_OWNER/AEMAN_PROJECT)")
 	}
 
 	level := slog.LevelInfo
@@ -99,6 +105,7 @@ func runServe(args []string) error {
 		Version:        version,
 		Logger:         logger,
 		Auth:           auth,
+		LockBoard:      *lockBoard,
 	})
 	if err != nil {
 		return err
