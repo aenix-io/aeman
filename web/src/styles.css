@@ -1393,16 +1393,16 @@ button.card-age {
 /* Founders' weekly plan: a full-width band below the grid, split in two. */
 .team-weekly {
   flex: none;
+  display: flex;
+  flex-direction: column;
   max-height: 50%;
-  overflow-y: auto;
+  overflow: hidden;
   border-top: 2px solid var(--line);
 }
 
-/* Progress bar + header stay pinned while the plan bands scroll. */
+/* Fixed header (resize handle + progress + title); the bands fill below it. */
 .team-weekly-top {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: none;
   background: var(--bg);
 }
 
@@ -1472,10 +1472,13 @@ button.card-age {
   transition: width 0.2s;
 }
 
-/* The two bands sit side by side (left to right) to save vertical space. */
+/* The two bands sit side by side and fill the plan's height (scroll if taller). */
 .team-weekly-bands {
   display: flex;
   align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .team-weekly-band {
