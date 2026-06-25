@@ -8,7 +8,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, activeOnDay } from "../date";
+import { todayIso, addDays, activeOnDay, mondayOf } from "../date";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
@@ -116,6 +116,53 @@ export function TeamBoard({
       ),
     [inFilter, selectedDate],
   );
+
+  const currentWeek = useMemo(() => mondayOf(selectedDate), [selectedDate]);
+
+  // Founders' weekly-plan cards for the filtered team and current week, split
+  // into the two bands (by Wednesday / by Friday).
+  const weekly = useMemo(() => {
+    const wed: CardModel[] = [];
+    const fri: CardModel[] = [];
+    for (const c of board.cards) {
+      if (!c.plan || c.week !== currentWeek || !passesFilter(c)) {
+        continue;
+      }
+      (c.plan === "fri" ? fri : wed).push(c);
+    }
+    return { wed, fri };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.cards, currentWeek, teamFilter]);
+
+  const handleCreatePlan = (
+    plan: "wed" | "fri",
+    title: string,
+    team?: string | null,
+  ) => {
+    const tempId = `tmp-${new Date().toISOString()}`;
+    const optimistic: CardModel = {
+      itemId: tempId,
+      title,
+      isDraft: true,
+      assignees: [],
+      plan,
+      week: currentWeek,
+      team: team ?? undefined,
+      description: "",
+      notes: [],
+    };
+    addCard(optimistic);
+    void provider
+      .createCard(board, { title, plan, week: currentWeek, team: team ?? null })
+      .then((card) => {
+        removeCard(tempId);
+        addCard(card);
+      })
+      .catch((err: unknown) => {
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
+  };
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
   // first). Columns come from everyone with a card in the selected teams in ANY
@@ -663,6 +710,40 @@ export function TeamBoard({
             )
           }
         />
+      </div>
+
+      <div className="team-weekly">
+        {(["wed", "fri"] as const).map((band) => (
+          <div key={band} className={`team-weekly-band team-weekly-${band}`}>
+            {weekly[band].map((card) => (
+              <Card
+                key={card.itemId}
+                card={card}
+                selected={card.itemId === selectedCardId}
+                onSelect={(c) => setSelectedCardId(c.itemId)}
+                onProgress={handleProgress}
+                onDelete={handleDelete}
+                onStage={handleStage}
+                onRename={handleRename}
+                onOpen={onOpen}
+                onRequestLock={onRequestLock}
+                teams={roster}
+                people={people}
+                users={users}
+                onSetTeam={handleSetTeam}
+                onSetAssignee={handleSetAssignee}
+                asOf={selectedDate}
+                onSetDates={handleSetDates}
+              />
+            ))}
+            <AddCard
+              forcedTeam={forcedTeam}
+              teams={roster}
+              placeholder="Plan task…"
+              onCreate={(title, team) => handleCreatePlan(band, title, team)}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );

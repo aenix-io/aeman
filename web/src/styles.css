@@ -1227,6 +1227,30 @@ button.card-age {
   overflow: auto;
 }
 
+/* Founders' weekly plan: a full-width band below the grid, split in two. */
+.team-weekly {
+  flex: none;
+  max-height: 42%;
+  overflow-y: auto;
+  border-top: 2px solid var(--line);
+}
+
+.team-weekly-band {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.team-weekly-wed {
+  background: #eef4fb;
+}
+
+.team-weekly-fri {
+  background: #f3eefb;
+  border-top: 1px dashed var(--line);
+}
+
 .team-col {
   flex: 0 0 516px;
   width: 516px;

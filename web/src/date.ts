@@ -47,6 +47,19 @@ export function daysSince(iso: string | undefined, asOf?: string): number {
   return Math.max(0, Math.round(ms / 86_400_000));
 }
 
+/** mondayOf returns the yyyy-mm-dd Monday of the week containing `iso`. */
+export function mondayOf(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) {
+    return iso;
+  }
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${dt.getFullYear()}-${mm}-${dd}`;
+}
+
 /** addDays shifts a yyyy-mm-dd date by delta days, returning yyyy-mm-dd. */
 export function addDays(iso: string, delta: number): string {
   const [y, m, d] = iso.split("-").map(Number);
