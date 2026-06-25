@@ -79,6 +79,8 @@ export function TeamBoard({
   const sprintRef = useRef<HTMLDivElement | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [dragCol, setDragCol] = useState<string | null>(null);
+  // A weekly-plan card currently being dragged into a person column.
+  const [draggedPlan, setDraggedPlan] = useState<CardModel | null>(null);
 
   useEffect(() => {
     if (!sprintMenuOpen) {
@@ -162,6 +164,38 @@ export function TeamBoard({
         removeCard(tempId);
         onError(errMessage(err));
       });
+  };
+
+  // Take a plan card into work: assign it to the column's person and add it to
+  // today's daily sprint, while it stays in the weekly plan (the same card).
+  const takePlanCard = (card: CardModel, engineer: string) => {
+    const login = engineer === UNASSIGNED ? null : engineer;
+    const zone = card.zone ?? "gray";
+    const optionId = card.zoneOptionId ?? optionIdForZone(roles.zone, zone);
+    const prev: Partial<CardModel> = {
+      assignees: card.assignees,
+      zone: card.zone,
+      zoneOptionId: card.zoneOptionId,
+      sprintStart: card.sprintStart,
+    };
+    patchCard(card.itemId, {
+      assignees: login ? [login] : [],
+      zone,
+      zoneOptionId: optionId,
+      sprintStart: selectedDate,
+    });
+    void (async () => {
+      try {
+        await provider.setAssignee(board, card, login);
+        if (!card.zone && optionId) {
+          await provider.setZone(board, card, optionId);
+        }
+        await provider.setSprintStart(board, card, selectedDate);
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
   };
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
@@ -659,7 +693,21 @@ export function TeamBoard({
               <p className="placeholder">No cards match the selected teams.</p>
             ) : (
               orderedEngineers.map((engineer) => (
-                <section className="team-col" key={engineer || "__unassigned__"}>
+                <section
+                  className={`team-col${draggedPlan ? " team-col-droptarget" : ""}`}
+                  key={engineer || "__unassigned__"}
+                  onDragOver={(e) => {
+                    if (draggedPlan) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onDrop={() => {
+                    if (draggedPlan) {
+                      takePlanCard(draggedPlan, engineer);
+                    }
+                    setDraggedPlan(null);
+                  }}
+                >
                   <header
                     className="team-col-header"
                     draggable={engineer !== UNASSIGNED}
@@ -716,25 +764,33 @@ export function TeamBoard({
         {(["wed", "fri"] as const).map((band) => (
           <div key={band} className={`team-weekly-band team-weekly-${band}`}>
             {weekly[band].map((card) => (
-              <Card
+              <div
                 key={card.itemId}
-                card={card}
-                selected={card.itemId === selectedCardId}
-                onSelect={(c) => setSelectedCardId(c.itemId)}
-                onProgress={handleProgress}
-                onDelete={handleDelete}
-                onStage={handleStage}
-                onRename={handleRename}
-                onOpen={onOpen}
-                onRequestLock={onRequestLock}
-                teams={roster}
-                people={people}
-                users={users}
-                onSetTeam={handleSetTeam}
-                onSetAssignee={handleSetAssignee}
-                asOf={selectedDate}
-                onSetDates={handleSetDates}
-              />
+                className="plan-card"
+                draggable
+                onDragStart={() => setDraggedPlan(card)}
+                onDragEnd={() => setDraggedPlan(null)}
+                title="Drag onto a person to take it into work"
+              >
+                <Card
+                  card={card}
+                  selected={card.itemId === selectedCardId}
+                  onSelect={(c) => setSelectedCardId(c.itemId)}
+                  onProgress={handleProgress}
+                  onDelete={handleDelete}
+                  onStage={handleStage}
+                  onRename={handleRename}
+                  onOpen={onOpen}
+                  onRequestLock={onRequestLock}
+                  teams={roster}
+                  people={people}
+                  users={users}
+                  onSetTeam={handleSetTeam}
+                  onSetAssignee={handleSetAssignee}
+                  asOf={selectedDate}
+                  onSetDates={handleSetDates}
+                />
+              </div>
             ))}
             <AddCard
               forcedTeam={forcedTeam}
