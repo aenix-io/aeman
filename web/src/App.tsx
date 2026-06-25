@@ -6,6 +6,7 @@ import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { CardDetail } from "./components/CardDetail";
 import { LockDialog } from "./components/LockDialog";
+import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
 
 type ViewMode = "me" | "team";
@@ -323,7 +324,7 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <div className="brand">
-          <span className="wordmark">aeman</span>
+          <Logo className="brand-logo" />
           {config && <span className="version">v{config.version}</span>}
         </div>
         <div className="account">

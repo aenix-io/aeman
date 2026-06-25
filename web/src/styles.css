@@ -52,14 +52,14 @@ button {
 
 .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
 }
 
-.wordmark {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+.brand-logo {
+  height: 20px;
+  width: auto;
+  display: block;
 }
 
 .version {
