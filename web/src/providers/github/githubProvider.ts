@@ -236,6 +236,10 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
       value.date
     ) {
       card.sprintStart = value.date;
+    } else if (roles.plan && fieldID === roles.plan.id && value.name) {
+      card.plan = value.name.toLowerCase() === "fri" ? "fri" : "wed";
+    } else if (roles.week && fieldID === roles.week.id && value.date) {
+      card.week = value.date;
     } else if (roles.sprint && fieldID === roles.sprint.id && value.title) {
       card.sprintTitle = value.title;
     } else if (roles.status && fieldID === roles.status.id && value.name) {
@@ -324,6 +328,14 @@ const FIELD_SPECS: Partial<Record<keyof FieldRoles, FieldSpec>> = {
   day: { name: "Day", dataType: "DATE" },
   start: { name: "Start", dataType: "DATE" },
   sprintStart: { name: "Sprint Start", dataType: "DATE" },
+  plan: {
+    name: "Plan",
+    options: [
+      { name: "Wed", color: "BLUE", description: "By Wednesday" },
+      { name: "Fri", color: "PURPLE", description: "By Friday" },
+    ],
+  },
+  week: { name: "Week", dataType: "DATE" },
   team: { name: "Team", dataType: "TEXT" },
 };
 
@@ -465,6 +477,38 @@ export const githubProvider: Provider = {
 
   async setSprintStart(board: Board, card: Card, date: string | null): Promise<void> {
     const field = await ensureField(board, "sprintStart", "Sprint Start");
+    if (date === null) {
+      await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
+      return;
+    }
+    await graphql(SET_DATE, {
+      project: board.id,
+      item: card.itemId,
+      field: field.id,
+      value: date,
+    });
+  },
+
+  async setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void> {
+    const field = await ensureField(board, "plan", "Plan");
+    if (plan === null) {
+      await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
+      return;
+    }
+    const optionId = field.options?.find((o) => o.name.toLowerCase() === plan)?.id;
+    if (!optionId) {
+      throw new Error(`Plan field has no "${plan}" option`);
+    }
+    await graphql(SET_SINGLE_SELECT, {
+      project: board.id,
+      item: card.itemId,
+      field: field.id,
+      option: optionId,
+    });
+  },
+
+  async setWeek(board: Board, card: Card, date: string | null): Promise<void> {
+    const field = await ensureField(board, "week", "Week");
     if (date === null) {
       await graphql(CLEAR_FIELD, { project: board.id, item: card.itemId, field: field.id });
       return;
@@ -627,6 +671,29 @@ export const githubProvider: Provider = {
         value: input.team,
       });
     }
+    if (input.plan) {
+      const planField = await ensureField(board, "plan", "Plan");
+      const optionId = planField.options?.find(
+        (o) => o.name.toLowerCase() === input.plan,
+      )?.id;
+      if (optionId) {
+        await graphql(SET_SINGLE_SELECT, {
+          project: board.id,
+          item: item.id,
+          field: planField.id,
+          option: optionId,
+        });
+      }
+    }
+    if (input.week) {
+      const weekField = await ensureField(board, "week", "Week");
+      await graphql(SET_DATE, {
+        project: board.id,
+        item: item.id,
+        field: weekField.id,
+        value: input.week,
+      });
+    }
 
     return {
       itemId: item.id,
@@ -639,6 +706,8 @@ export const githubProvider: Provider = {
       day: input.day ?? undefined,
       startDate: input.start ?? undefined,
       sprintStart: input.sprintStart ?? undefined,
+      plan: input.plan ?? undefined,
+      week: input.week ?? undefined,
       team: input.team ?? undefined,
       description: "",
       notes: [],

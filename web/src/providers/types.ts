@@ -70,6 +70,10 @@ export interface Card {
   /** ISO date (yyyy-mm-dd) the sprint this card belongs to was started.
    * This is what the boards orient by (day/startDate are just metadata). */
   sprintStart?: string;
+  /** Weekly-plan band ("wed"/"fri"); set = this is a founders' weekly-plan card. */
+  plan?: "wed" | "fri";
+  /** ISO date (yyyy-mm-dd) of the plan week this card belongs to (weekly cycle). */
+  week?: string;
   sprintTitle?: string;
   status?: string;
   /** Free-form card details (the body minus the appended action log). */
@@ -84,6 +88,8 @@ export interface NewCardInput {
   day?: string | null;
   start?: string | null;
   sprintStart?: string | null;
+  plan?: "wed" | "fri" | null;
+  week?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
 }
@@ -105,6 +111,8 @@ export interface FieldRoles {
   day?: ProjectField;
   start?: ProjectField;
   sprintStart?: ProjectField;
+  plan?: ProjectField;
+  week?: ProjectField;
   sprint?: ProjectField;
   status?: ProjectField;
   stage?: ProjectField;
@@ -121,6 +129,8 @@ export interface Provider {
   setDay(board: Board, card: Card, day: string | null): Promise<void>;
   setStart(board: Board, card: Card, date: string | null): Promise<void>;
   setSprintStart(board: Board, card: Card, date: string | null): Promise<void>;
+  setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void>;
+  setWeek(board: Board, card: Card, date: string | null): Promise<void>;
   setAssignee(board: Board, card: Card, login: string | null): Promise<void>;
   setStage(board: Board, card: Card, stage: StageKey | null): Promise<void>;
   setTeam(board: Board, card: Card, team: string | null): Promise<void>;
