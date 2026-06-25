@@ -3,7 +3,7 @@ export function Logo({ className }: { className?: string }) {
     <svg
       className={className}
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 499.299 100.0"
+      viewBox="0 0 491.299 100.0"
       fill="currentColor"
       role="img"
       aria-label="aeman"
@@ -28,7 +28,7 @@ export function Logo({ className }: { className?: string }) {
 57 24 57 59 0 34 -1 35 -134 116 -58 36 -154 94 -213 130 -58 36 -115 65 -125
 65 -10 0 -27 -9 -38 -20z"/></g>
       </svg>
-      <rect x="110.402" y="12.0" width="388.897" height="19.0" fill="#fdecea"/><rect x="110.402" y="31.0" width="388.897" height="19.0" fill="#fdf6df"/><rect x="110.402" y="50.0" width="388.897" height="19.0" fill="#f3f4f6"/><rect x="110.402" y="69.0" width="388.897" height="19.0" fill="#eafaef"/>
+      
       <svg x="118.402" y="20.0" width="372.897" height="60.0" viewBox="0 0 665 107" preserveAspectRatio="xMidYMid meet">
         <g transform="translate(0.000000,107.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none"><path d="M381 1050 c-91 -25 -149 -58 -223 -127 -60 -58 -115 -152 -139 -238
 -21 -74 -18 -247 5 -315 38 -114 101 -201 193 -267 192 -137 468 -129 627 17
