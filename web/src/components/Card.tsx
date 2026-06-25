@@ -81,11 +81,9 @@ export function Card({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.title);
   const [dragValue, setDragValue] = useState<number | null>(null);
-  const [startMenuOpen, setStartMenuOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [personInput, setPersonInput] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const startRef = useRef<HTMLDivElement | null>(null);
   const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const [datesOpen, setDatesOpen] = useState(false);
@@ -182,7 +180,7 @@ export function Card({
       card.sprintStart && card.sprintStart >= newStart
         ? card.sprintStart
         : newStart;
-    setStartMenuOpen(false);
+    setDatesOpen(false);
     onSetDates?.(card, newStart, end);
   };
 
@@ -290,26 +288,37 @@ export function Card({
             </button>
           </Dropdown>
         </div>
-        {onSetDates && (
-          <div className="card-stage" ref={startRef}>
-            <button
-              type="button"
-              className="card-action"
-              onClick={(e) => {
-                e.stopPropagation();
-                setStartVal(card.startDate ?? "");
-                setEndVal(card.sprintStart ?? "");
-                setStartMenuOpen((o) => !o);
-              }}
-              aria-label="Set start / end dates"
-              title="Set start / end dates"
-            >
-              »
-            </button>
+        <button
+          type="button"
+          className="card-action card-action-delete"
+          onClick={handleDelete}
+          aria-label="Delete card"
+          title="Delete"
+        >
+          ×
+        </button>
+      </span>
+
+      {card.createdAt && (
+        <div
+          className="card-age-wrap"
+          ref={ageRef}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="card-age"
+            style={{ color: ageColor(ageDays) }}
+            title={onSetDates ? "Edit start / end dates" : `On the board ${ageDays} day(s)`}
+            onClick={onSetDates ? openDates : undefined}
+          >
+            {ageDays}d
+          </button>
+          {onSetDates && (
             <Dropdown
-              open={startMenuOpen}
-              anchorRef={startRef}
-              onClose={() => setStartMenuOpen(false)}
+              open={datesOpen}
+              anchorRef={ageRef}
+              onClose={() => setDatesOpen(false)}
               className="card-stage-menu card-dates-menu"
             >
               <div className="card-move-quick">
@@ -328,63 +337,6 @@ export function Card({
                   +1 week
                 </button>
               </div>
-              <RangeCalendar
-                start={startVal || null}
-                end={endVal || null}
-                onChange={(s, e) => {
-                  setStartVal(s ?? "");
-                  setEndVal(e ?? "");
-                }}
-              />
-              <button
-                type="button"
-                className="card-dates-save"
-                onClick={() => {
-                  setStartMenuOpen(false);
-                  onSetDates?.(card, startVal || null, endVal || startVal || null);
-                }}
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                className="card-dates-cancel"
-                onClick={() => setStartMenuOpen(false)}
-              >
-                Cancel
-              </button>
-            </Dropdown>
-          </div>
-        )}
-        <button
-          type="button"
-          className="card-action card-action-delete"
-          onClick={handleDelete}
-          aria-label="Delete card"
-          title="Delete"
-        >
-          ×
-        </button>
-      </span>
-
-      {card.createdAt && (
-        <div className="card-age-wrap" ref={ageRef}>
-          <button
-            type="button"
-            className="card-age"
-            style={{ color: ageColor(ageDays) }}
-            title={onSetDates ? "Edit start / end dates" : `On the board ${ageDays} day(s)`}
-            onClick={onSetDates ? openDates : undefined}
-          >
-            {ageDays}d
-          </button>
-          {onSetDates && (
-            <Dropdown
-              open={datesOpen}
-              anchorRef={ageRef}
-              onClose={() => setDatesOpen(false)}
-              className="card-stage-menu card-dates-menu"
-            >
               <RangeCalendar
                 start={startVal || null}
                 end={endVal || null}
