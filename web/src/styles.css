@@ -971,12 +971,14 @@ button.card-age {
   gap: 1px;
   flex: none;
   opacity: 0;
+  width: 0;
+  overflow: hidden;
   transition: opacity 0.1s;
 }
 
-.card:hover .card-actions,
-.card .card-stage-menu {
+.card:hover .card-actions {
   opacity: 1;
+  width: auto;
 }
 
 .card-action {
