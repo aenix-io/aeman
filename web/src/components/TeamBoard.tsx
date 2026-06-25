@@ -708,12 +708,18 @@ export function TeamBoard({
           <button
             type="button"
             className="btn sprint-btn"
-            onClick={() => setSprintMenuOpen((o) => !o)}
+            onClick={() => {
+              if (teamFilter === null) {
+                setSprintMenuOpen((o) => !o);
+              } else {
+                startSprint(teamFilter === "" ? null : teamFilter);
+              }
+            }}
             title={`Carry unfinished cards into the ${selectedDate} sprint`}
           >
-            Carry over ▾
+            Carry over{teamFilter === null ? " ▾" : " →"}
           </button>
-          {sprintMenuOpen && (
+          {teamFilter === null && sprintMenuOpen && (
             <div className="card-stage-menu sprint-menu">
               {roster.map((t) => (
                 <button
