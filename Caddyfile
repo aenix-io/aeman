@@ -1,0 +1,3 @@
+{$AEMAN_DOMAIN} {
+	reverse_proxy aeman:8765
+}

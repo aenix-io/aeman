@@ -84,7 +84,7 @@ For a shared instance where every visitor signs in with GitHub and uses their ow
 - `AEMAN_BASE_URL` — the public origin; the callback is `<AEMAN_BASE_URL>/auth/callback`.
 - `AEMAN_SCOPES` — OAuth scopes (default `repo project`).
 
-A `docker-compose.yml` (aeman + a Cloudflare Tunnel) and a step-by-step guide are in [docs/deploy.md](docs/deploy.md):
+A `docker-compose.yml` (aeman + Caddy with automatic HTTPS) and a step-by-step guide are in [docs/deploy.md](docs/deploy.md):
 
 ```sh
 cp .env.example .env   # fill in the OAuth + tunnel values
