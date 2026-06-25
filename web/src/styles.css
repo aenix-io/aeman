@@ -751,6 +751,39 @@ button.team-avatar {
   white-space: nowrap;
 }
 
+.impersonate {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn.impersonate-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.impersonate-reset {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 8px;
+}
+
+.impersonate-reset:hover {
+  color: #cf222e;
+}
+
+.card-stage-item .avatar-img {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+}
+
 .team-col-header[draggable="true"] {
   cursor: grab;
 }
