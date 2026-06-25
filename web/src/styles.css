@@ -391,9 +391,9 @@ button {
   background: #8b5cf6;
 }
 
-/* A plan card taken into work (assigned on the board) gets a green background. */
+/* A plan card taken into work (assigned on the board) gets a light-blue tint. */
 .card-plan-taken {
-  background: #e7f6ea;
+  background: #e7f1fd;
 }
 
 .card-delete {
