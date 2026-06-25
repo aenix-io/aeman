@@ -36,6 +36,8 @@ interface CardProps {
   onSetAssignee?: (card: CardModel, login: string | null) => void;
   /** The day the board is showing; the age badge is measured up to it. */
   asOf?: string;
+  /** Edit the card's start/end dates from the age badge (when provided). */
+  onSetDates?: (card: CardModel, start: string | null, end: string | null) => void;
 }
 
 const SEGMENTS = 10;
@@ -71,6 +73,7 @@ export function Card({
   onSetTeam,
   onSetAssignee,
   asOf,
+  onSetDates,
 }: CardProps) {
   const value = card.stage === "done" ? 100 : card.progress ?? 0;
   const fill = barColor(card.stage);
@@ -88,6 +91,10 @@ export function Card({
   const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const customDateRef = useRef<HTMLInputElement | null>(null);
+  const [datesOpen, setDatesOpen] = useState(false);
+  const [startVal, setStartVal] = useState("");
+  const [endVal, setEndVal] = useState("");
+  const ageRef = useRef<HTMLDivElement | null>(null);
 
   const canAssign = Boolean(onSetTeam || onSetAssignee);
 
@@ -176,6 +183,18 @@ export function Card({
     setAssignOpen(false);
     setPersonInput("");
     onSetAssignee?.(card, login);
+  };
+
+  const openDates = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setStartVal(card.startDate ?? "");
+    setEndVal(card.sprintStart ?? "");
+    setDatesOpen((o) => !o);
+  };
+
+  const saveDates = () => {
+    setDatesOpen(false);
+    onSetDates?.(card, startVal || null, endVal || null);
   };
 
   const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -342,13 +361,51 @@ export function Card({
       </span>
 
       {card.createdAt && (
-        <span
-          className="card-age"
-          style={{ color: ageColor(ageDays) }}
-          title={`On the board ${ageDays} day(s)`}
-        >
-          {ageDays}d
-        </span>
+        <div className="card-age-wrap" ref={ageRef}>
+          <button
+            type="button"
+            className="card-age"
+            style={{ color: ageColor(ageDays) }}
+            title={onSetDates ? "Edit start / end dates" : `On the board ${ageDays} day(s)`}
+            onClick={onSetDates ? openDates : undefined}
+          >
+            {ageDays}d
+          </button>
+          {onSetDates && (
+            <Dropdown
+              open={datesOpen}
+              anchorRef={ageRef}
+              onClose={() => setDatesOpen(false)}
+              className="card-stage-menu card-dates-menu"
+            >
+              <label className="card-dates-row">
+                <span>Start</span>
+                <input
+                  type="date"
+                  value={startVal}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setStartVal(e.target.value)}
+                />
+              </label>
+              <label className="card-dates-row">
+                <span>End</span>
+                <input
+                  type="date"
+                  value={endVal}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setEndVal(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="card-dates-save"
+                onClick={saveDates}
+              >
+                Save
+              </button>
+            </Dropdown>
+          )}
+        </div>
       )}
 
       {(card.team || canAssign) && (

@@ -178,6 +178,27 @@ export function MeBoard({
     });
   };
 
+  const handleSetDates = (
+    card: CardModel,
+    start: string | null,
+    end: string | null,
+  ) => {
+    const prev = { startDate: card.startDate, sprintStart: card.sprintStart };
+    patchCard(card.itemId, {
+      startDate: start ?? undefined,
+      sprintStart: end ?? undefined,
+    });
+    void (async () => {
+      try {
+        await provider.setStart(board, card, start);
+        await provider.setSprintStart(board, card, end);
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
   const handleRename = (card: CardModel, title: string) => {
     const prev = card.title;
     patchCard(card.itemId, { title });
@@ -354,6 +375,7 @@ export function MeBoard({
                   teams={teams}
                   onSetTeam={handleSetTeam}
                   asOf={selectedDate}
+                  onSetDates={handleSetDates}
                 />
               )}
               renderOverlay={(card) => (

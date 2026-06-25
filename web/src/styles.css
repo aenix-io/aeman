@@ -742,6 +742,11 @@ button.team-avatar {
   padding: 0;
 }
 
+.card-age-wrap {
+  flex: none;
+  display: inline-flex;
+}
+
 .card-age {
   flex: none;
   width: 24px;
@@ -750,6 +755,45 @@ button.team-avatar {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   user-select: none;
+}
+
+button.card-age {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.card-dates-menu {
+  min-width: 160px;
+  padding: 6px;
+  gap: 4px;
+}
+
+.card-dates-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.card-dates-row input {
+  font-size: 11px;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.card-dates-save {
+  margin-top: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .card-title {

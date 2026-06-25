@@ -386,6 +386,27 @@ export function TeamBoard({
     });
   };
 
+  const handleSetDates = (
+    card: CardModel,
+    start: string | null,
+    end: string | null,
+  ) => {
+    const prev = { startDate: card.startDate, sprintStart: card.sprintStart };
+    patchCard(card.itemId, {
+      startDate: start ?? undefined,
+      sprintStart: end ?? undefined,
+    });
+    void (async () => {
+      try {
+        await provider.setStart(board, card, start);
+        await provider.setSprintStart(board, card, end);
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
   const handleCreate = (
     engineer: string,
     zone: ZoneKey,
@@ -689,6 +710,7 @@ export function TeamBoard({
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
               asOf={selectedDate}
+              onSetDates={handleSetDates}
             />
           )}
           renderOverlay={(card) => (
