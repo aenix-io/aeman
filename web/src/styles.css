@@ -1406,6 +1406,18 @@ button.card-age {
   background: var(--bg);
 }
 
+/* Drag handle at the top edge of the expanded plan to resize its height. */
+.team-weekly-resize {
+  height: 6px;
+  margin-top: -2px;
+  cursor: ns-resize;
+  background: transparent;
+}
+
+.team-weekly-resize:hover {
+  background: var(--accent);
+}
+
 .team-weekly-head {
   display: flex;
   align-items: center;

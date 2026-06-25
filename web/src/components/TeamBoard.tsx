@@ -85,6 +85,25 @@ export function TeamBoard({
   // A weekly-plan card currently being dragged into a person column.
   const [draggedPlan, setDraggedPlan] = useState<CardModel | null>(null);
   const [planCollapsed, setPlanCollapsed] = useState(true);
+  // Custom (drag-set) height of the expanded weekly plan; null = default.
+  const [planHeight, setPlanHeight] = useState<number | null>(null);
+
+  // Drag the top edge of the weekly plan to resize its height.
+  const startPlanResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) => {
+      const h = window.innerHeight - ev.clientY;
+      setPlanHeight(Math.max(120, Math.min(window.innerHeight * 0.85, h)));
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.userSelect = "";
+    };
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
 
   useEffect(() => {
     if (!sprintMenuOpen) {
@@ -874,8 +893,22 @@ export function TeamBoard({
         />
       </div>
 
-      <div className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}>
+      <div
+        className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}
+        style={
+          !planCollapsed && planHeight !== null
+            ? { height: planHeight, maxHeight: "none" }
+            : undefined
+        }
+      >
         <div className="team-weekly-top">
+          {!planCollapsed && (
+            <div
+              className="team-weekly-resize"
+              onMouseDown={startPlanResize}
+              title="Drag to resize"
+            />
+          )}
           <div
             className="team-weekly-progress"
             title={`${planProgress}% done across the plan`}
@@ -888,7 +921,8 @@ export function TeamBoard({
           <div className="team-weekly-head">
             <span className="team-weekly-title">Weekly plan · {currentWeek}</span>
             <div className="team-weekly-actions">
-              <div className="sprint-wrap" ref={carryWeekRef}>
+              {!planCollapsed && (
+                <div className="sprint-wrap" ref={carryWeekRef}>
                 <button
                   type="button"
                   className="btn"
@@ -938,7 +972,8 @@ export function TeamBoard({
                     )}
                   </Dropdown>
                 )}
-              </div>
+                </div>
+              )}
               <button
                 type="button"
                 className="team-weekly-toggle"
