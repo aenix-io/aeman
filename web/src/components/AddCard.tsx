@@ -34,20 +34,6 @@ export function AddCard({
     setMenuOpen(false);
   };
 
-  // Close (cancel) the whole form when a click lands outside it.
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onDocDown = (e: MouseEvent) => {
-      if (formRef.current && !formRef.current.contains(e.target as Node)) {
-        close();
-      }
-    };
-    document.addEventListener("mousedown", onDocDown);
-    return () => document.removeEventListener("mousedown", onDocDown);
-  }, [open]);
-
   const submit = () => {
     const title = value.trim();
     if (title) {
@@ -55,6 +41,25 @@ export function AddCard({
     }
     close();
   };
+
+  // A live ref so the outside-click handler always sees the latest input.
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+
+  // A click outside the form saves the card (if it has a title) rather than
+  // discarding it.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onDocDown = (e: MouseEvent) => {
+      if (formRef.current && !formRef.current.contains(e.target as Node)) {
+        submitRef.current();
+      }
+    };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, [open]);
 
   // Picking a team keeps focus in the title input so Enter still submits.
   const pickTeam = (t: string | null) => {
