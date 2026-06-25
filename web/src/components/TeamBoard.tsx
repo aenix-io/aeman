@@ -24,6 +24,7 @@ import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
+import { TeamsModal } from "./TeamsModal";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
@@ -41,6 +42,7 @@ interface TeamBoardProps {
   onAddTeam: (team: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
+  onReorderTeams: (ordered: string[]) => void;
   patchCard: (itemId: string, patch: Partial<CardModel>) => void;
   addCard: (card: CardModel) => void;
   removeCard: (itemId: string) => void;
@@ -112,6 +114,7 @@ export function TeamBoard({
   onAddTeam,
   onRemoveTeam,
   onRenameTeam,
+  onReorderTeams,
   patchCard,
   addCard,
   removeCard,
@@ -129,6 +132,7 @@ export function TeamBoard({
   const carryWeekRef = useRef<HTMLDivElement | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [dragCol, setDragCol] = useState<string | null>(null);
+  const [teamsModalOpen, setTeamsModalOpen] = useState(false);
   const [planCollapsed, setPlanCollapsed] = useState<boolean>(
     () => localStorage.getItem("aeman.planCollapsed") !== "false",
   );
@@ -808,7 +812,7 @@ export function TeamBoard({
         </div>
 
         <TeamChips
-          label="Teams"
+          label="Team"
           teams={roster}
           selectedKey={teamFilter}
           onSelect={onSetFilter}
@@ -816,6 +820,8 @@ export function TeamBoard({
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
           noTeamChip={board.cards.some((c) => !c.team)}
+          canManage={false}
+          onManage={() => setTeamsModalOpen(true)}
         />
 
         <button
@@ -1122,6 +1128,16 @@ export function TeamBoard({
         )}
         </div>
       </SortableBoard>
+      {teamsModalOpen && (
+        <TeamsModal
+          teams={roster}
+          onAdd={onAddTeam}
+          onRename={onRenameTeam}
+          onRemove={onRemoveTeam}
+          onReorder={onReorderTeams}
+          onClose={() => setTeamsModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

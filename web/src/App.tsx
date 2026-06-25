@@ -107,18 +107,34 @@ export function App() {
 
   const provider = getProvider("github");
 
-  // The roster: teams present on the board ∪ user-added, deduplicated, sorted.
+  // The roster: user-arranged teams first (in their saved order), then any team
+  // present on the board that isn't in that list yet. No alphabetical sort, so a
+  // hand-picked order sticks.
   const roster = useMemo(() => {
-    const set = new Set<string>(addedTeams);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of addedTeams) {
+      if (!seen.has(t)) {
+        seen.add(t);
+        out.push(t);
+      }
+    }
     if (board) {
       for (const card of board.cards) {
-        if (card.team) {
-          set.add(card.team);
+        if (card.team && !seen.has(card.team)) {
+          seen.add(card.team);
+          out.push(card.team);
         }
       }
     }
-    return [...set].sort((a, b) => a.localeCompare(b));
+    return out;
   }, [addedTeams, board]);
+
+  // Reorder the whole roster (from the manage dialog) and persist the order.
+  const reorderTeams = useCallback((ordered: string[]) => {
+    setAddedTeams(ordered);
+    writeStringList(LS_TEAM_ROSTER, ordered);
+  }, []);
 
   const addTeam = useCallback((team: string) => {
     const t = team.trim();
@@ -516,6 +532,7 @@ export function App() {
             onAddTeam={addTeam}
             onRemoveTeam={removeTeam}
             onRenameTeam={renameTeam}
+            onReorderTeams={reorderTeams}
             patchCard={patchCard}
             addCard={addCard}
             removeCard={removeCard}
