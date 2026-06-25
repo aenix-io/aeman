@@ -355,10 +355,11 @@ export function TeamBoard({
 
   // Take a plan card into work: assign it to the column's person and add it to
   // today's daily sprint, while it stays in the weekly plan (the same card).
-  const takePlanCard = (card: CardModel, engineer: string) => {
+  const takePlanCard = (card: CardModel, engineer: string, dropZone?: ZoneKey) => {
     const login = engineer === UNASSIGNED ? null : engineer;
-    const zone = card.zone ?? "gray";
-    const optionId = card.zoneOptionId ?? optionIdForZone(roles.zone, zone);
+    const zone = dropZone ?? card.zone ?? "gray";
+    const optionId = optionIdForZone(roles.zone, zone) ?? card.zoneOptionId;
+    const zoneChanged = zone !== card.zone;
     const prev: Partial<CardModel> = {
       assignees: card.assignees,
       zone: card.zone,
@@ -374,7 +375,7 @@ export function TeamBoard({
     void (async () => {
       try {
         await provider.setAssignee(board, card, login);
-        if (!card.zone && optionId) {
+        if (zoneChanged && optionId) {
           await provider.setZone(board, card, optionId);
         }
         await provider.setSprintStart(board, card, selectedDate);
@@ -510,7 +511,7 @@ export function TeamBoard({
       groups.find((g) => g.key === overId) ??
       groups.find((g) => g.cards.some((c) => c.itemId === overId));
     if (cell) {
-      takePlanCard(card, cell.meta.engineer);
+      takePlanCard(card, cell.meta.engineer, cell.meta.zone);
     }
   };
 
