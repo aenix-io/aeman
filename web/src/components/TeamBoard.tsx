@@ -710,7 +710,6 @@ export function TeamBoard({
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
               onDelete={handleGridDelete}
-              planStripe
               onStage={handleStage}
               onRename={handleRename}
               onOpen={onOpen}

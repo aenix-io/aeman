@@ -375,7 +375,6 @@ export function MeBoard({
                   teams={teams}
                   onSetTeam={handleSetTeam}
                   asOf={selectedDate}
-                  planStripe
                 />
               )}
               renderOverlay={(card) => (
@@ -389,7 +388,6 @@ export function MeBoard({
                   onRename={() => {}}
                   onOpen={() => {}}
                   onRequestLock={() => {}}
-                  planStripe
                 />
               )}
               renderGroup={(group, body, { isOver, dropRef }) => {
