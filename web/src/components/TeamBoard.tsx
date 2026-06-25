@@ -13,6 +13,7 @@ import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { TeamChips } from "./TeamChips";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
@@ -24,9 +25,9 @@ interface TeamBoardProps {
   users: Record<string, GhUser>;
   /** Known teams (the roster), shown as filter chips. */
   roster: string[];
-  /** Currently selected filter groups (team names, or "" for the no-team group). */
-  selected: Set<string>;
-  onToggleTeam: (team: string) => void;
+  /** Single-select team filter: null = all, "" = no team, else a team name. */
+  teamFilter: string | null;
+  onSetFilter: (key: string | null) => void;
   onAddTeam: (team: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
@@ -58,8 +59,8 @@ export function TeamBoard({
   me,
   users,
   roster,
-  selected,
-  onToggleTeam,
+  teamFilter,
+  onSetFilter,
   onAddTeam,
   onRemoveTeam,
   onRenameTeam,
@@ -74,10 +75,6 @@ export function TeamBoard({
 }: TeamBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [addValue, setAddValue] = useState("");
-  const [editingTeam, setEditingTeam] = useState<string | null>(null);
-  const [editTeamValue, setEditTeamValue] = useState("");
   const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
   const sprintRef = useRef<HTMLDivElement | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -98,15 +95,15 @@ export function TeamBoard({
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
-  // A card passes when its group is selected (its team, or "" for no team).
+  // Single-select: no filter shows all; otherwise match the card's group.
   const passesFilter = (card: CardModel): boolean =>
-    selected.has(card.team ?? "");
+    teamFilter === null || (card.team ?? "") === teamFilter;
 
   // Cards passing the team filter (the scope before applying the sprint).
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [board.cards, selected],
+    [board.cards, teamFilter],
   );
 
   // A card shows on every day from its start through its current sprint day, so
@@ -177,11 +174,11 @@ export function TeamBoard({
     setColumnOrder(people);
   };
 
-  // If exactly one team is selected, new cards default to it (no picker needed).
-  const forcedTeam = useMemo(() => {
-    const sel = [...selected];
-    return sel.length === 1 ? sel[0] : undefined;
-  }, [selected]);
+  // New cards default to the filtered team; null = all (show picker), "" = no team.
+  const forcedTeam = useMemo(
+    () => (teamFilter === null ? undefined : teamFilter || null),
+    [teamFilter],
+  );
 
   // People to offer when reassigning a card: everyone seen on the board, me first.
   const people = useMemo(() => {
@@ -451,23 +448,6 @@ export function TeamBoard({
       });
   };
 
-  const commitAdd = () => {
-    const t = addValue.trim();
-    if (t) {
-      onAddTeam(t);
-    }
-    setAddValue("");
-    setAdding(false);
-  };
-
-  const commitEditTeam = (from: string) => {
-    const to = editTeamValue.trim();
-    setEditingTeam(null);
-    if (to && to !== from) {
-      onRenameTeam(from, to);
-    }
-  };
-
   // Carry over a team's unfinished cards from earlier sprints into the selected
   // day's sprint. `team` is null for the no-team group.
   const startSprint = (team: string | null) => {
@@ -536,114 +516,16 @@ export function TeamBoard({
           </div>
         </div>
 
-        <div className="field field-inline team-select">
-          <span>Teams</span>
-          <div className="team-chips">
-            {roster.map((t) => {
-              const on = selected.has(t);
-              if (editingTeam === t) {
-                return (
-                  <span className="team-chip team-filter-chip" key={t}>
-                    <input
-                      type="text"
-                      className="add-card-input team-add-input"
-                      autoFocus
-                      value={editTeamValue}
-                      onChange={(e) => setEditTeamValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          commitEditTeam(t);
-                        } else if (e.key === "Escape") {
-                          setEditingTeam(null);
-                        }
-                      }}
-                      onBlur={() => commitEditTeam(t)}
-                    />
-                  </span>
-                );
-              }
-              return (
-                <span
-                  className={`team-chip team-filter-chip${on ? "" : " team-filter-chip-off"}`}
-                  key={t}
-                >
-                  <button
-                    type="button"
-                    className="team-chip-toggle"
-                    onClick={() => onToggleTeam(t)}
-                    onDoubleClick={() => {
-                      setEditTeamValue(t);
-                      setEditingTeam(t);
-                    }}
-                    aria-pressed={on}
-                    title={
-                      on
-                        ? "Click to hide · double-click to rename"
-                        : "Click to show · double-click to rename"
-                    }
-                  >
-                    <span className="team-chip-name">{t}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="team-chip-x"
-                    onClick={() => onRemoveTeam(t)}
-                    aria-label={`Remove ${t}`}
-                    title="Remove team"
-                  >
-                    ×
-                  </button>
-                </span>
-              );
-            })}
-            {board.cards.some((c) => !c.team) && (
-              <span
-                className={`team-chip team-filter-chip${selected.has("") ? "" : " team-filter-chip-off"}`}
-              >
-                <button
-                  type="button"
-                  className="team-chip-toggle"
-                  onClick={() => onToggleTeam("")}
-                  aria-pressed={selected.has("")}
-                  title={
-                    selected.has("")
-                      ? "Click to hide cards with no team"
-                      : "Click to show cards with no team"
-                  }
-                >
-                  <span className="team-chip-name team-col-unassigned">No team</span>
-                </button>
-              </span>
-            )}
-            {adding ? (
-              <input
-                type="text"
-                className="add-card-input team-add-input"
-                autoFocus
-                value={addValue}
-                placeholder="team name…"
-                onChange={(e) => setAddValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    commitAdd();
-                  } else if (e.key === "Escape") {
-                    setAddValue("");
-                    setAdding(false);
-                  }
-                }}
-                onBlur={commitAdd}
-              />
-            ) : (
-              <button
-                type="button"
-                className="add-card"
-                onClick={() => setAdding(true)}
-              >
-                + add
-              </button>
-            )}
-          </div>
-        </div>
+        <TeamChips
+          label="Teams"
+          teams={roster}
+          selectedKey={teamFilter}
+          onSelect={onSetFilter}
+          onAdd={onAddTeam}
+          onRemove={onRemoveTeam}
+          onRename={onRenameTeam}
+          noTeamChip={board.cards.some((c) => !c.team)}
+        />
 
         <button
           type="button"
@@ -665,7 +547,7 @@ export function TeamBoard({
           </button>
           {sprintMenuOpen && (
             <div className="card-stage-menu sprint-menu">
-              {[...selected].map((t) => (
+              {roster.map((t) => (
                 <button
                   key={t}
                   type="button"

@@ -72,9 +72,11 @@ export function App() {
   const [addedTeams, setAddedTeams] = useState<string[]>(
     () => readStringList(LS_TEAM_ROSTER) ?? [],
   );
-  const [storedFilter, setStoredFilter] = useState<string[] | null>(
-    () => readStringList(LS_TEAM_FILTER),
-  );
+  // Single-select team filter: null = all, "" = no team, else a team name.
+  const [teamFilter, setTeamFilter] = useState<string | null>(() => {
+    const v = localStorage.getItem(LS_TEAM_FILTER);
+    return v && !v.startsWith("[") ? v : null;
+  });
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
   useEffect(() => {
@@ -117,34 +119,6 @@ export function App() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [addedTeams, board]);
 
-  // Filter groups are the roster teams plus a "No team" group ("") whenever some
-  // card has no team, so team-less cards have their own toggle.
-  const groups = useMemo(() => {
-    const hasNoTeam = Boolean(board?.cards.some((c) => !c.team));
-    return hasNoTeam ? [...roster, ""] : roster;
-  }, [roster, board]);
-
-  // The selected filter set, intersected with the live groups (gone groups drop
-  // out); with no stored filter, every group is selected.
-  const selected = useMemo(() => {
-    if (storedFilter === null) {
-      return new Set(groups);
-    }
-    return new Set(groups.filter((g) => storedFilter.includes(g)));
-  }, [storedFilter, groups]);
-
-  const toggleTeam = useCallback(
-    (team: string) => {
-      setStoredFilter((cur) => {
-        const base = cur ?? groups;
-        return base.includes(team)
-          ? base.filter((t) => t !== team)
-          : [...base, team];
-      });
-    },
-    [groups],
-  );
-
   const addTeam = useCallback((team: string) => {
     const t = team.trim();
     if (!t) {
@@ -166,18 +140,18 @@ export function App() {
       writeStringList(LS_TEAM_ROSTER, next);
       return next;
     });
-    // Also drop it from an explicit filter so it does not linger when re-added.
-    setStoredFilter((cur) => (cur ? cur.filter((t) => t !== team) : cur));
+    // Clear the filter if it pointed at the removed team.
+    setTeamFilter((cur) => (cur === team ? null : cur));
   }, []);
 
   // Persist the filter whenever it changes (null means "all", we store nothing).
   useEffect(() => {
-    if (storedFilter === null) {
+    if (teamFilter === null) {
       localStorage.removeItem(LS_TEAM_FILTER);
     } else {
-      writeStringList(LS_TEAM_FILTER, storedFilter);
+      localStorage.setItem(LS_TEAM_FILTER, teamFilter);
     }
-  }, [storedFilter]);
+  }, [teamFilter]);
 
   const doLoad = useCallback(
     async (ownerArg: string, numberArg: number) => {
@@ -288,9 +262,7 @@ export function App() {
         writeStringList(LS_TEAM_ROSTER, next);
         return next;
       });
-      setStoredFilter((cur) =>
-        cur ? [...new Set(cur.map((x) => (x === from ? t : x)))] : cur,
-      );
+      setTeamFilter((cur) => (cur === from ? t : cur));
       setBoard((cur) => {
         if (!cur) {
           return cur;
@@ -452,6 +424,9 @@ export function App() {
             provider={provider}
             me={config?.login ?? ""}
             teams={roster}
+            onAddTeam={addTeam}
+            onRemoveTeam={removeTeam}
+            onRenameTeam={renameTeam}
             patchCard={patchCard}
             addCard={addCard}
             removeCard={removeCard}
@@ -469,8 +444,8 @@ export function App() {
             me={config?.login ?? ""}
             users={users}
             roster={roster}
-            selected={selected}
-            onToggleTeam={toggleTeam}
+            teamFilter={teamFilter}
+            onSetFilter={setTeamFilter}
             onAddTeam={addTeam}
             onRemoveTeam={removeTeam}
             onRenameTeam={renameTeam}
