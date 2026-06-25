@@ -171,7 +171,8 @@ export function Card({
 
   const saveDates = () => {
     setDatesOpen(false);
-    onSetDates?.(card, startVal || null, endVal || null);
+    // A single picked date is a one-day range, not "clear the end".
+    onSetDates?.(card, startVal || null, endVal || startVal || null);
   };
 
   const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -311,7 +312,7 @@ export function Card({
                 className="card-dates-save"
                 onClick={() => {
                   setStartMenuOpen(false);
-                  onSetDates?.(card, startVal || null, endVal || null);
+                  onSetDates?.(card, startVal || null, endVal || startVal || null);
                 }}
               >
                 Save
