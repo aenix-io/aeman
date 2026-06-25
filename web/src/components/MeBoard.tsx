@@ -350,6 +350,7 @@ export function MeBoard({
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
+          canManage={false}
         />
       </div>
 
