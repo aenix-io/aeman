@@ -622,7 +622,10 @@ export function TeamBoard({
         (team === null ? c.team == null : c.team === team) &&
         c.stage !== "done" &&
         !c.itemId.startsWith("tmp-") &&
-        (c.sprintStart == null || c.sprintStart < selectedDate),
+        // Only cards that were actually in an earlier sprint — not date-less
+        // orphans (which have no sprintStart and aren't visible on any day).
+        c.sprintStart != null &&
+        c.sprintStart < selectedDate,
     );
     if (carry.length === 0) {
       onError(
