@@ -191,6 +191,14 @@ export const ADD_COMMENT = `mutation($subject: ID!, $body: String!) {
   }
 }`;
 
+export const UPDATE_COMMENT = `mutation($id: ID!, $body: String!) {
+  updateIssueComment(input: { id: $id, body: $body }) { clientMutationId }
+}`;
+
+export const DELETE_COMMENT = `mutation($id: ID!) {
+  deleteIssueComment(input: { id: $id }) { clientMutationId }
+}`;
+
 export const ADD_ASSIGNEES = `mutation($assignable: ID!, $assignees: [ID!]!) {
   addAssigneesToAssignable(input: { assignableId: $assignable, assigneeIds: $assignees }) {
     clientMutationId

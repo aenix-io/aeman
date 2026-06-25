@@ -310,6 +310,22 @@ export function MeBoard({
     void provider.addNote(board, selectedCard, text).catch(fail);
   };
 
+  const handleEditNote = (note: Note, card: CardModel, text: string) => {
+    patchCard(card.itemId, {
+      notes: (card.notes ?? []).map((n) =>
+        n.id === note.id ? { ...n, body: text } : n,
+      ),
+    });
+    void provider.editNote(board, card, note, text).catch(fail);
+  };
+
+  const handleDeleteNote = (note: Note, card: CardModel) => {
+    patchCard(card.itemId, {
+      notes: (card.notes ?? []).filter((n) => n.id !== note.id),
+    });
+    void provider.deleteNote(board, card, note).catch(fail);
+  };
+
   return (
     <div className="me">
       <div className="board-toolbar">
@@ -421,6 +437,8 @@ export function MeBoard({
           selectedCard={selectedCard}
           onSelectCard={(c) => setSelectedCardId(c.itemId)}
           onAddNote={handleAddNote}
+          onEditNote={handleEditNote}
+          onDeleteNote={handleDeleteNote}
         />
       </div>
     </div>

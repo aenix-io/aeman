@@ -1220,6 +1220,47 @@ button.card-age {
   white-space: nowrap;
 }
 
+.note-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+
+.note:hover .note-actions {
+  opacity: 1;
+}
+
+.note-action {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 3px;
+}
+
+.note-action:hover {
+  color: var(--fg);
+}
+
+.note-action-delete:hover {
+  color: #cf222e;
+}
+
+.note-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.note-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .note-body {
   font-size: 12.5px;
   white-space: pre-wrap;

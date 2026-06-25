@@ -21,6 +21,8 @@ import type {
 import {
   ADD_ASSIGNEES,
   ADD_COMMENT,
+  UPDATE_COMMENT,
+  DELETE_COMMENT,
   ADD_DRAFT,
   CLEAR_FIELD,
   CREATE_FIELD,
@@ -743,5 +745,43 @@ export const githubProvider: Provider = {
       return;
     }
     await graphql(ADD_COMMENT, { subject: card.contentId, body: text });
+  },
+
+  async editNote(_board: Board, card: Card, note: Note, text: string): Promise<void> {
+    if (note.source === "comment") {
+      await graphql(UPDATE_COMMENT, { id: note.id, body: text });
+      return;
+    }
+    if (!card.contentId) {
+      throw new Error("Card has no draft body to edit the note in");
+    }
+    const data = await graphql<{ node?: { body?: string } | null }>(GET_DRAFT_BODY, {
+      id: card.contentId,
+    });
+    const { description, notes } = parseDraftBody(data.node?.body, card.itemId);
+    const updated = notes.map((n) => (n.id === note.id ? { ...n, body: text } : n));
+    await graphql(UPDATE_DRAFT_BODY, {
+      draft: card.contentId,
+      body: buildDraftBody(description, updated),
+    });
+  },
+
+  async deleteNote(_board: Board, card: Card, note: Note): Promise<void> {
+    if (note.source === "comment") {
+      await graphql(DELETE_COMMENT, { id: note.id });
+      return;
+    }
+    if (!card.contentId) {
+      throw new Error("Card has no draft body to delete the note from");
+    }
+    const data = await graphql<{ node?: { body?: string } | null }>(GET_DRAFT_BODY, {
+      id: card.contentId,
+    });
+    const { description, notes } = parseDraftBody(data.node?.body, card.itemId);
+    const remaining = notes.filter((n) => n.id !== note.id);
+    await graphql(UPDATE_DRAFT_BODY, {
+      draft: card.contentId,
+      body: buildDraftBody(description, remaining),
+    });
   },
 };
