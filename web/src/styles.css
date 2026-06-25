@@ -1251,6 +1251,20 @@ button.card-age {
   border-top: 1px dashed var(--line);
 }
 
+.plan-card {
+  cursor: grab;
+}
+
+.plan-card:active {
+  cursor: grabbing;
+}
+
+.team-col-droptarget {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
 .team-col {
   flex: 0 0 516px;
   width: 516px;
