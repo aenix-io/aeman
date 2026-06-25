@@ -7,6 +7,12 @@ export interface AppConfig {
   version: string;
   login?: string;
   tokenAvailable: boolean;
+  /** Whether the visitor is signed in (always true in local gh-token mode). */
+  authenticated: boolean;
+  /** OAuth mode: URL to start the GitHub sign-in flow. */
+  authUrl?: string;
+  /** OAuth mode: URL to sign out. */
+  logoutUrl?: string;
   defaultOwner?: string;
   defaultProject?: number;
 }

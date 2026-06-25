@@ -320,6 +320,27 @@ export function App() {
   const showTokenWarning =
     config !== null && !config.tokenAvailable && !tokenWarningDismissed;
 
+  // OAuth mode: gate the whole UI behind a GitHub sign-in.
+  if (config && config.mode === "oauth" && !config.authenticated) {
+    return (
+      <div className="app">
+        <header className="app-header">
+          <div className="brand">
+            <Logo className="brand-logo" />
+            <span className="version">v{config.version}</span>
+          </div>
+        </header>
+        <div className="signin">
+          <h2>Sign in to aeman</h2>
+          <p>Connect your GitHub account to load and manage your project boards.</p>
+          <a className="btn btn-primary signin-btn" href={config.authUrl ?? "/auth/login"}>
+            Sign in with GitHub
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -332,6 +353,15 @@ export function App() {
             <span className="login">@{config.login}</span>
           ) : (
             <span className="login login-anon">not signed in</span>
+          )}
+          {config?.mode === "oauth" && config.authenticated && (
+            <a
+              className="login-logout"
+              href={config.logoutUrl ?? "/auth/logout"}
+              title="Sign out"
+            >
+              sign out
+            </a>
           )}
         </div>
       </header>
