@@ -1254,6 +1254,27 @@ button.card-age {
   color: var(--muted);
 }
 
+.team-weekly-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-weekly-toggle {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 7px;
+  color: var(--muted);
+}
+
+.team-weekly-collapsed {
+  overflow: visible;
+}
+
 .team-weekly-band {
   display: flex;
   flex-direction: column;
