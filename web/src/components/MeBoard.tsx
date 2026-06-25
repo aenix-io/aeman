@@ -131,6 +131,12 @@ export function MeBoard({
     return buckets;
   }, [myCards]);
 
+  // Card item ids in board (display) order, for grouping notes by card.
+  const noteCardOrder = useMemo(
+    () => ZONE_ORDER.flatMap((z) => byZone[z].map((c) => c.itemId)),
+    [byZone],
+  );
+
   const dayNotes = useMemo<DayNote[]>(() => {
     const out: DayNote[] = [];
     for (const card of myCards) {
@@ -518,6 +524,7 @@ export function MeBoard({
         <NotesPanel
           selectedDate={selectedDate}
           notes={dayNotes}
+          cardOrder={noteCardOrder}
           selectedCard={selectedCard}
           onSelectCard={(c) => setSelectedCardId(c.itemId)}
           onAddNote={handleAddNote}
