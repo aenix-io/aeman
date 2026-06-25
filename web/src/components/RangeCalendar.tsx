@@ -60,7 +60,11 @@ export function RangeCalendar({ start, end, onChange }: RangeCalendarProps) {
   }
 
   return (
-    <div className="rcal" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="rcal"
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
       <div className="rcal-head">
         <button
           type="button"
