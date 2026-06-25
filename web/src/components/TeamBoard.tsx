@@ -81,7 +81,7 @@ export function TeamBoard({
   const [dragCol, setDragCol] = useState<string | null>(null);
   // A weekly-plan card currently being dragged into a person column.
   const [draggedPlan, setDraggedPlan] = useState<CardModel | null>(null);
-  const [planCollapsed, setPlanCollapsed] = useState(false);
+  const [planCollapsed, setPlanCollapsed] = useState(true);
 
   useEffect(() => {
     if (!sprintMenuOpen) {
@@ -830,77 +830,87 @@ export function TeamBoard({
       </div>
 
       <div className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}>
-        <div className="team-weekly-head">
-          <span className="team-weekly-title">Weekly plan · {currentWeek}</span>
-          <div className="team-weekly-actions">
-            <button
-              type="button"
-              className="btn"
-              onClick={handleCarryWeek}
-              title="Move unfinished plan cards to next week"
-            >
-              Carry over week →
-            </button>
-            <button
-              type="button"
-              className="team-weekly-toggle"
-              onClick={() => setPlanCollapsed((c) => !c)}
-              aria-label={planCollapsed ? "Expand weekly plan" : "Collapse weekly plan"}
-              title={planCollapsed ? "Expand" : "Collapse"}
-            >
-              {planCollapsed ? "▴" : "▾"}
-            </button>
+        <div className="team-weekly-top">
+          <div
+            className="team-weekly-progress"
+            title={`${planProgress}% done across the plan`}
+          >
+            <div
+              className="team-weekly-progress-fill"
+              style={{ width: `${planProgress}%` }}
+            />
+          </div>
+          <div className="team-weekly-head">
+            <span className="team-weekly-title">Weekly plan · {currentWeek}</span>
+            <div className="team-weekly-actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={handleCarryWeek}
+                title="Move unfinished plan cards to next week"
+              >
+                Carry over week →
+              </button>
+              <button
+                type="button"
+                className="team-weekly-toggle"
+                onClick={() => setPlanCollapsed((c) => !c)}
+                aria-label={
+                  planCollapsed ? "Expand weekly plan" : "Collapse weekly plan"
+                }
+                title={planCollapsed ? "Expand" : "Collapse"}
+              >
+                {planCollapsed ? "▲" : "▼"}
+              </button>
+            </div>
           </div>
         </div>
-        <div
-          className="team-weekly-progress"
-          title={`${planProgress}% done across the plan`}
-        >
-          <div
-            className="team-weekly-progress-fill"
-            style={{ width: `${planProgress}%` }}
-          />
-        </div>
-        {!planCollapsed &&
-          (["wed", "fri"] as const).map((band) => (
-          <div key={band} className={`team-weekly-band team-weekly-${band}`}>
-            {weekly[band].map((card) => (
+        {!planCollapsed && (
+          <div className="team-weekly-bands">
+            {(["wed", "fri"] as const).map((band) => (
               <div
-                key={card.itemId}
-                className="plan-card"
-                draggable
-                onDragStart={() => setDraggedPlan(card)}
-                onDragEnd={() => setDraggedPlan(null)}
-                title="Drag onto a person to take it into work"
+                key={band}
+                className={`team-weekly-band team-weekly-${band}`}
               >
-                <Card
-                  card={card}
-                  selected={card.itemId === selectedCardId}
-                  onSelect={(c) => setSelectedCardId(c.itemId)}
-                  onProgress={handleProgress}
-                  onDelete={handleDelete}
-                  onStage={handleStage}
-                  onRename={handleRename}
-                  onOpen={onOpen}
-                  onRequestLock={onRequestLock}
+                {weekly[band].map((card) => (
+                  <div
+                    key={card.itemId}
+                    className="plan-card"
+                    draggable
+                    onDragStart={() => setDraggedPlan(card)}
+                    onDragEnd={() => setDraggedPlan(null)}
+                    title="Drag onto a person to take it into work"
+                  >
+                    <Card
+                      card={card}
+                      selected={card.itemId === selectedCardId}
+                      onSelect={(c) => setSelectedCardId(c.itemId)}
+                      onProgress={handleProgress}
+                      onDelete={handleDelete}
+                      onStage={handleStage}
+                      onRename={handleRename}
+                      onOpen={onOpen}
+                      onRequestLock={onRequestLock}
+                      teams={roster}
+                      people={people}
+                      users={users}
+                      onSetTeam={handleSetTeam}
+                      onSetAssignee={handleSetAssignee}
+                      asOf={selectedDate}
+                      onSetDates={handleSetDates}
+                    />
+                  </div>
+                ))}
+                <AddCard
+                  forcedTeam={forcedTeam}
                   teams={roster}
-                  people={people}
-                  users={users}
-                  onSetTeam={handleSetTeam}
-                  onSetAssignee={handleSetAssignee}
-                  asOf={selectedDate}
-                  onSetDates={handleSetDates}
+                  placeholder="Plan task…"
+                  onCreate={(title, team) => handleCreatePlan(band, title, team)}
                 />
               </div>
             ))}
-            <AddCard
-              forcedTeam={forcedTeam}
-              teams={roster}
-              placeholder="Plan task…"
-              onCreate={(title, team) => handleCreatePlan(band, title, team)}
-            />
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
