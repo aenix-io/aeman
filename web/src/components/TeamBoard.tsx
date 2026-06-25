@@ -344,27 +344,6 @@ export function TeamBoard({
   };
 
   // Move a card's start date; if it passes the finish date, push finish too.
-  const handleMoveStart = (card: CardModel, newStart: string) => {
-    const prev: Partial<CardModel> = { startDate: card.startDate, day: card.day };
-    const patch: Partial<CardModel> = { startDate: newStart };
-    const bumpFinish = card.day != null && newStart > card.day;
-    if (bumpFinish) {
-      patch.day = newStart;
-    }
-    patchCard(card.itemId, patch);
-    void (async () => {
-      try {
-        await provider.setStart(board, card, newStart);
-        if (bumpFinish) {
-          await provider.setDay(board, card, newStart);
-        }
-      } catch (err: unknown) {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      }
-    })();
-  };
-
   const handleSetTeam = (card: CardModel, team: string | null) => {
     const prev = card.team;
     patchCard(card.itemId, { team: team ?? undefined });
@@ -585,7 +564,6 @@ export function TeamBoard({
               onRename={handleRename}
               onOpen={onOpen}
               onRequestLock={onRequestLock}
-              onMoveStart={handleMoveStart}
               teams={roster}
               people={people}
               users={users}

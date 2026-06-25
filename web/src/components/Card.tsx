@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
-import { addDays, daysSince, todayIso } from "../date";
+import { daysSince } from "../date";
 import { Dropdown } from "./Dropdown";
 import { RangeCalendar } from "./RangeCalendar";
 
@@ -27,8 +27,6 @@ interface CardProps {
   onOpen: (card: CardModel) => void;
   /** Locking requires a reason, gathered in a modal lifted to App. */
   onRequestLock: (card: CardModel) => void;
-  /** Move the card's start date (Team board only); absent hides the control. */
-  onMoveStart?: (card: CardModel, newStart: string) => void;
   /** Reassign the card's team / person from the avatar menu (when provided). */
   teams?: string[];
   people?: string[];
@@ -67,7 +65,6 @@ export function Card({
   onRename,
   onOpen,
   onRequestLock,
-  onMoveStart,
   teams,
   people,
   users,
@@ -91,7 +88,6 @@ export function Card({
   const startRef = useRef<HTMLDivElement | null>(null);
   const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
-  const customDateRef = useRef<HTMLInputElement | null>(null);
   const [datesOpen, setDatesOpen] = useState(false);
   const [startVal, setStartVal] = useState("");
   const [endVal, setEndVal] = useState("");
@@ -153,26 +149,6 @@ export function Card({
     e.stopPropagation();
     setMenuOpen(false);
     onRequestLock(card);
-  };
-
-  const moveStartBy = (e: React.MouseEvent<HTMLButtonElement>, days: number) => {
-    e.stopPropagation();
-    setStartMenuOpen(false);
-    onMoveStart?.(card, addDays(card.startDate ?? todayIso(), days));
-  };
-
-  const moveStartTo = (date: string) => {
-    if (!date) {
-      return;
-    }
-    setStartMenuOpen(false);
-    onMoveStart?.(card, date);
-  };
-
-  // Open the native date picker directly (no visible dd/mm/yyyy text field).
-  const openCustom = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    customDateRef.current?.showPicker();
   };
 
   const pickAssignTeam = (team: string | null) => {
@@ -300,17 +276,19 @@ export function Card({
             </button>
           </Dropdown>
         </div>
-        {onMoveStart && (
+        {onSetDates && (
           <div className="card-stage" ref={startRef}>
             <button
               type="button"
               className="card-action"
               onClick={(e) => {
                 e.stopPropagation();
+                setStartVal(card.startDate ?? "");
+                setEndVal(card.sprintStart ?? "");
                 setStartMenuOpen((o) => !o);
               }}
-              aria-label="Move start date"
-              title="Move start date"
+              aria-label="Set start / end dates"
+              title="Set start / end dates"
             >
               »
             </button>
@@ -318,35 +296,33 @@ export function Card({
               open={startMenuOpen}
               anchorRef={startRef}
               onClose={() => setStartMenuOpen(false)}
-              className="card-stage-menu"
+              className="card-stage-menu card-dates-menu"
             >
-              <button
-                type="button"
-                className="card-stage-item"
-                onClick={(e) => moveStartBy(e, 1)}
-              >
-                +1 day
-              </button>
-              <button
-                type="button"
-                className="card-stage-item"
-                onClick={(e) => moveStartBy(e, 7)}
-              >
-                +1 week
-              </button>
-              <button type="button" className="card-stage-item" onClick={openCustom}>
-                Custom…
-              </button>
-              <input
-                ref={customDateRef}
-                type="date"
-                className="card-date-hidden"
-                value={card.startDate ?? ""}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => moveStartTo(e.target.value)}
-                tabIndex={-1}
-                aria-hidden="true"
+              <RangeCalendar
+                start={startVal || null}
+                end={endVal || null}
+                onChange={(s, e) => {
+                  setStartVal(s ?? "");
+                  setEndVal(e ?? "");
+                }}
               />
+              <button
+                type="button"
+                className="card-dates-save"
+                onClick={() => {
+                  setStartMenuOpen(false);
+                  onSetDates?.(card, startVal || null, endVal || null);
+                }}
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                className="card-dates-cancel"
+                onClick={() => setStartMenuOpen(false)}
+              >
+                Cancel
+              </button>
             </Dropdown>
           </div>
         )}
@@ -393,6 +369,13 @@ export function Card({
                 onClick={saveDates}
               >
                 Save
+              </button>
+              <button
+                type="button"
+                className="card-dates-cancel"
+                onClick={() => setDatesOpen(false)}
+              >
+                Cancel
               </button>
             </Dropdown>
           )}

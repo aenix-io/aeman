@@ -134,29 +134,30 @@ export function TeamChips({
             </button>
           </span>
         )}
-        {adding ? (
-          <input
-            type="text"
-            className="add-card-input team-add-input"
-            autoFocus
-            value={addValue}
-            placeholder="team name…"
-            onChange={(e) => setAddValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                commitAdd();
-              } else if (e.key === "Escape") {
-                setAddValue("");
-                setAdding(false);
-              }
-            }}
-            onBlur={commitAdd}
-          />
-        ) : (
-          <button type="button" className="add-card" onClick={() => setAdding(true)}>
-            + add
-          </button>
-        )}
+        {canManage &&
+          (adding ? (
+            <input
+              type="text"
+              className="add-card-input team-add-input"
+              autoFocus
+              value={addValue}
+              placeholder="team name…"
+              onChange={(e) => setAddValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  commitAdd();
+                } else if (e.key === "Escape") {
+                  setAddValue("");
+                  setAdding(false);
+                }
+              }}
+              onBlur={commitAdd}
+            />
+          ) : (
+            <button type="button" className="add-card" onClick={() => setAdding(true)}>
+              + add
+            </button>
+          ))}
       </div>
     </div>
   );
