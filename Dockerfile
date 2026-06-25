@@ -19,10 +19,13 @@ COPY --from=web /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION}" \
     -o /aeman ./cmd/aeman
+# A nonroot-owned /data so a session-file volume mounted here is writable.
+RUN mkdir -p /data && chown 65532:65532 /data
 
 # 3. Minimal runtime (static binary + CA certs, non-root).
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /aeman /aeman
+COPY --from=build --chown=65532:65532 /data /data
 EXPOSE 8765
 ENTRYPOINT ["/aeman"]
 CMD ["serve", "--addr=0.0.0.0:8765", "--open=false"]
