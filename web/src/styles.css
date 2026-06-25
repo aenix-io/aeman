@@ -1362,6 +1362,11 @@ button.card-age {
   border-left: 1px dashed var(--line);
 }
 
+.team-weekly-band-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
 .plan-card {
   cursor: grab;
 }
