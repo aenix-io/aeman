@@ -765,23 +765,72 @@ button.card-age {
 }
 
 .card-dates-menu {
-  min-width: 160px;
-  padding: 6px;
-  gap: 4px;
+  padding: 8px;
+  gap: 6px;
+  align-items: stretch;
 }
 
-.card-dates-row {
+.rcal {
+  width: 196px;
+}
+
+.rcal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
+  margin-bottom: 4px;
 }
 
-.card-dates-row input {
+.rcal-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rcal-nav {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 0 6px;
+  color: var(--muted);
+}
+
+.rcal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.rcal-wd {
+  text-align: center;
+  font-size: 9px;
+  color: var(--faint);
+  padding-bottom: 2px;
+}
+
+.rcal-day {
+  border: none;
+  background: none;
+  cursor: pointer;
   font-size: 11px;
-  padding: 1px 4px;
-  border: 1px solid var(--line);
+  padding: 3px 0;
+  border-radius: 4px;
+  color: var(--fg);
+}
+
+.rcal-day:hover {
+  background: var(--line-soft);
+}
+
+.rcal-in {
+  background: #dbeafe;
+  border-radius: 0;
+}
+
+.rcal-start,
+.rcal-end {
+  background: var(--accent);
+  color: #fff;
   border-radius: 4px;
 }
 
