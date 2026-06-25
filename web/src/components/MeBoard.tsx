@@ -351,6 +351,7 @@ export function MeBoard({
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
           canManage={false}
+          noTeamChip
         />
       </div>
 
@@ -401,7 +402,7 @@ export function MeBoard({
                     <div className="zone-cards">
                       {body}
                       <AddCard
-                        forcedTeam={createTeam}
+                        forcedTeam={createTeam || null}
                         onCreate={(title, team) =>
                           handleCreate(group.meta.zone, title, team)
                         }

@@ -845,6 +845,16 @@ button.card-age {
   cursor: pointer;
 }
 
+.card-dates-cancel {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .card-title {
   flex: 1;
   min-width: 0;
