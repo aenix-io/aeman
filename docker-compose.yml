@@ -17,6 +17,10 @@ services:
       AEMAN_OWNER: ${AEMAN_OWNER:-}
       AEMAN_PROJECT: ${AEMAN_PROJECT:-}
       AEMAN_LOCK_BOARD: ${AEMAN_LOCK_BOARD:-}
+      # Persist sessions so a restart doesn't sign everyone out.
+      AEMAN_SESSION_FILE: ${AEMAN_SESSION_FILE:-/data/sessions.json}
+    volumes:
+      - aeman_sessions:/data
     # Only Caddy talks to aeman, over the compose network.
     expose:
       - "8765"
@@ -38,5 +42,6 @@ services:
       - aeman
 
 volumes:
+  aeman_sessions:
   caddy_data:
   caddy_config:
