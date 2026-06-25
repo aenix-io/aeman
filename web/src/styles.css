@@ -756,6 +756,7 @@ button.team-avatar {
   display: flex;
   align-items: center;
   gap: 4px;
+  margin-left: auto;
 }
 
 .btn.impersonate-active {
