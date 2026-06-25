@@ -13,6 +13,7 @@ import { todayIso, localDateIso, addDays } from "../date";
 import { currentSprintByTeam, sprintForNewCard } from "../sprint";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayNote } from "./NotesPanel";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
@@ -21,8 +22,11 @@ interface MeBoardProps {
   board: Board;
   provider: Provider;
   me: string;
-  /** Known teams to offer in the AddCard team picker. */
+  /** Known teams to offer in the team selector. */
   teams: string[];
+  onAddTeam: (team: string) => void;
+  onRemoveTeam: (team: string) => void;
+  onRenameTeam: (from: string, to: string) => void;
   patchCard: (itemId: string, patch: Partial<CardModel>) => void;
   addCard: (card: CardModel) => void;
   removeCard: (itemId: string) => void;
@@ -47,6 +51,9 @@ export function MeBoard({
   provider,
   me,
   teams,
+  onAddTeam,
+  onRemoveTeam,
+  onRenameTeam,
   patchCard,
   addCard,
   removeCard,
@@ -58,6 +65,8 @@ export function MeBoard({
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // The team applied to new cards created in Me (single-select, null = no team).
+  const [createTeam, setCreateTeam] = useState<string | null>(null);
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
@@ -176,27 +185,6 @@ export function MeBoard({
       patchCard(card.itemId, { team: prev });
       onError(errMessage(err));
     });
-  };
-
-  const handleSetDates = (
-    card: CardModel,
-    start: string | null,
-    end: string | null,
-  ) => {
-    const prev = { startDate: card.startDate, sprintStart: card.sprintStart };
-    patchCard(card.itemId, {
-      startDate: start ?? undefined,
-      sprintStart: end ?? undefined,
-    });
-    void (async () => {
-      try {
-        await provider.setStart(board, card, start);
-        await provider.setSprintStart(board, card, end);
-      } catch (err: unknown) {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      }
-    })();
   };
 
   const handleRename = (card: CardModel, title: string) => {
@@ -353,6 +341,16 @@ export function MeBoard({
             </button>
           </div>
         </div>
+
+        <TeamChips
+          label="Team"
+          teams={teams}
+          selectedKey={createTeam}
+          onSelect={setCreateTeam}
+          onAdd={onAddTeam}
+          onRemove={onRemoveTeam}
+          onRename={onRenameTeam}
+        />
       </div>
 
       <div className="me-panes">
@@ -375,7 +373,6 @@ export function MeBoard({
                   teams={teams}
                   onSetTeam={handleSetTeam}
                   asOf={selectedDate}
-                  onSetDates={handleSetDates}
                 />
               )}
               renderOverlay={(card) => (
@@ -403,7 +400,7 @@ export function MeBoard({
                     <div className="zone-cards">
                       {body}
                       <AddCard
-                        teams={teams}
+                        forcedTeam={createTeam}
                         onCreate={(title, team) =>
                           handleCreate(group.meta.zone, title, team)
                         }
