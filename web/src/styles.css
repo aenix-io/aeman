@@ -744,6 +744,13 @@ button.team-avatar {
   position: relative;
 }
 
+.sprint-empty {
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .team-col-header[draggable="true"] {
   cursor: grab;
 }

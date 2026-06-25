@@ -153,6 +153,24 @@ export function TeamBoard({
     return Math.round(sum / all.length);
   }, [weekly]);
 
+  // Teams (and the no-team group) with unfinished plan cards this week — the
+  // only carry-over targets worth offering in the dropdown.
+  const carryable = useMemo(() => {
+    const teams = new Set<string>();
+    let noTeam = false;
+    for (const c of [...weekly.wed, ...weekly.fri]) {
+      if (c.stage === "done") {
+        continue;
+      }
+      if (c.team) {
+        teams.add(c.team);
+      } else {
+        noTeam = true;
+      }
+    }
+    return { teams: [...teams], noTeam };
+  }, [weekly]);
+
   const handleCreatePlan = (
     plan: "wed" | "fri",
     title: string,
@@ -883,7 +901,7 @@ export function TeamBoard({
                     onClose={() => setCarryWeekOpen(false)}
                     className="card-stage-menu sprint-menu"
                   >
-                    {roster.map((t) => (
+                    {carryable.teams.map((t) => (
                       <button
                         key={t}
                         type="button"
@@ -897,13 +915,18 @@ export function TeamBoard({
                         {t}
                       </button>
                     ))}
-                    <button
-                      type="button"
-                      className="card-stage-item card-stage-clear"
-                      onClick={() => handleCarryWeek(null)}
-                    >
-                      no team
-                    </button>
+                    {carryable.noTeam && (
+                      <button
+                        type="button"
+                        className="card-stage-item card-stage-clear"
+                        onClick={() => handleCarryWeek(null)}
+                      >
+                        no team
+                      </button>
+                    )}
+                    {carryable.teams.length === 0 && !carryable.noTeam && (
+                      <div className="sprint-empty">Nothing to carry</div>
+                    )}
                   </Dropdown>
                 )}
               </div>
