@@ -220,13 +220,17 @@ export function Card({
     setEditing(false);
   };
 
-  const ageDays = daysSince(card.createdAt, asOf);
+  // A plan card not yet taken into work hasn't started aging: show 0d. Once it
+  // has an assignee it ages normally; and it gets a green "taken" background.
+  const taken = Boolean(weekMode) && card.assignees.length > 0;
+  const ageDays =
+    weekMode && card.assignees.length === 0 ? 0 : daysSince(card.createdAt, asOf);
 
   return (
     <div
       className={`card${selected ? " card-selected" : ""}${
         card.plan ? ` card-plan-${card.plan}` : ""
-      }`}
+      }${taken ? " card-plan-taken" : ""}`}
       onClick={() => onSelect(card)}
       onDoubleClick={() => onOpen(card)}
       title={card.title}

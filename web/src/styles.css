@@ -391,6 +391,11 @@ button {
   background: #8b5cf6;
 }
 
+/* A plan card taken into work (assigned on the board) gets a green background. */
+.card-plan-taken {
+  background: #e7f6ea;
+}
+
 .card-delete {
   position: absolute;
   top: -7px;
