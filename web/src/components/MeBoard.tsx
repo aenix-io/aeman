@@ -28,6 +28,9 @@ interface MeBoardProps {
   users: Record<string, GhUser>;
   /** Known teams to offer in the team selector. */
   teams: string[];
+  /** Shared single-select team (also the team for new cards); null = none. */
+  teamFilter: string | null;
+  onSetFilter: (key: string | null) => void;
   onAddTeam: (team: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
@@ -56,6 +59,8 @@ export function MeBoard({
   me,
   users,
   teams,
+  teamFilter,
+  onSetFilter,
   onAddTeam,
   onRemoveTeam,
   onRenameTeam,
@@ -70,8 +75,6 @@ export function MeBoard({
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  // The team applied to new cards created in Me (single-select, null = no team).
-  const [createTeam, setCreateTeam] = useState<string | null>(null);
   // Impersonate: view (and act on) the board as another person.
   const [impersonated, setImpersonated] = useState<string | null>(null);
   const [impOpen, setImpOpen] = useState(false);
@@ -378,8 +381,8 @@ export function MeBoard({
         <TeamChips
           label="Team"
           teams={teams}
-          selectedKey={createTeam}
-          onSelect={setCreateTeam}
+          selectedKey={teamFilter}
+          onSelect={onSetFilter}
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
@@ -499,7 +502,7 @@ export function MeBoard({
                     <div className="zone-cards">
                       {body}
                       <AddCard
-                        forcedTeam={createTeam || null}
+                        forcedTeam={teamFilter || null}
                         onCreate={(title, team) =>
                           handleCreate(group.meta.zone, title, team)
                         }

@@ -489,6 +489,8 @@ export function App() {
             me={config?.login ?? ""}
             users={users}
             teams={roster}
+            teamFilter={teamFilter}
+            onSetFilter={setTeamFilter}
             onAddTeam={addTeam}
             onRemoveTeam={removeTeam}
             onRenameTeam={renameTeam}
