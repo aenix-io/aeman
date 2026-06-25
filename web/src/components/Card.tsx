@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
-import { addDays, daysSince, todayIso } from "../date";
+import { addDays, daysSince, todayIso, mondayOf } from "../date";
 import { Dropdown } from "./Dropdown";
 import { RangeCalendar } from "./RangeCalendar";
 
@@ -37,6 +37,9 @@ interface CardProps {
   asOf?: string;
   /** Edit the card's start/end dates from the age badge (when provided). */
   onSetDates?: (card: CardModel, start: string | null, end: string | null) => void;
+  /** Plan-card mode: the age-badge editor moves the plan week instead of dates. */
+  weekMode?: boolean;
+  onSetWeek?: (card: CardModel, week: string | null) => void;
 }
 
 const SEGMENTS = 10;
@@ -72,6 +75,8 @@ export function Card({
   onSetAssignee,
   asOf,
   onSetDates,
+  weekMode,
+  onSetWeek,
 }: CardProps) {
   const value = card.stage === "done" ? 100 : card.progress ?? 0;
   const fill = barColor(card.stage);
@@ -92,6 +97,7 @@ export function Card({
   const ageRef = useRef<HTMLDivElement | null>(null);
 
   const canAssign = Boolean(onSetTeam || onSetAssignee);
+  const canEditDates = weekMode ? Boolean(onSetWeek) : Boolean(onSetDates);
 
   // While dragging the handle, show the snapped drag value; otherwise the card's.
   const shown = dragValue ?? value;
@@ -162,8 +168,12 @@ export function Card({
 
   const openDates = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    setStartVal(card.startDate ?? "");
-    setEndVal(card.sprintStart ?? "");
+    if (weekMode) {
+      setStartVal(card.week ?? "");
+    } else {
+      setStartVal(card.startDate ?? "");
+      setEndVal(card.sprintStart ?? "");
+    }
     setDatesOpen((o) => !o);
   };
 
@@ -182,6 +192,18 @@ export function Card({
         : newStart;
     setDatesOpen(false);
     onSetDates?.(card, newStart, end);
+  };
+
+  // Plan cards: shift the plan week forward, or set it by picking a date.
+  const moveWeek = (days: number) => {
+    const base = card.week ?? mondayOf(asOf ?? todayIso());
+    setDatesOpen(false);
+    onSetWeek?.(card, addDays(base, days));
+  };
+
+  const saveWeek = () => {
+    setDatesOpen(false);
+    onSetWeek?.(card, startVal || null);
   };
 
   const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -309,56 +331,96 @@ export function Card({
             type="button"
             className="card-age"
             style={{ color: ageColor(ageDays) }}
-            title={onSetDates ? "Edit start / end dates" : `On the board ${ageDays} day(s)`}
-            onClick={onSetDates ? openDates : undefined}
+            title={
+              weekMode
+                ? "Move the plan week"
+                : onSetDates
+                  ? "Edit start / end dates"
+                  : `On the board ${ageDays} day(s)`
+            }
+            onClick={canEditDates ? openDates : undefined}
           >
             {ageDays}d
           </button>
-          {onSetDates && (
+          {canEditDates && (
             <Dropdown
               open={datesOpen}
               anchorRef={ageRef}
               onClose={() => setDatesOpen(false)}
               className="card-stage-menu card-dates-menu"
             >
-              <div className="card-move-quick">
-                <button
-                  type="button"
-                  className="card-move-quick-btn"
-                  onClick={() => moveStart(1)}
-                >
-                  +1 day
-                </button>
-                <button
-                  type="button"
-                  className="card-move-quick-btn"
-                  onClick={() => moveStart(7)}
-                >
-                  +1 week
-                </button>
-              </div>
-              <RangeCalendar
-                start={startVal || null}
-                end={endVal || null}
-                onChange={(s, e) => {
-                  setStartVal(s ?? "");
-                  setEndVal(e ?? "");
-                }}
-              />
-              <button
-                type="button"
-                className="card-dates-save"
-                onClick={saveDates}
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                className="card-dates-cancel"
-                onClick={() => setDatesOpen(false)}
-              >
-                Cancel
-              </button>
+              {weekMode ? (
+                <>
+                  <div className="card-move-quick">
+                    <button
+                      type="button"
+                      className="card-move-quick-btn"
+                      onClick={() => moveWeek(7)}
+                    >
+                      +1 week
+                    </button>
+                    <button
+                      type="button"
+                      className="card-move-quick-btn"
+                      onClick={() => moveWeek(14)}
+                    >
+                      +2 week
+                    </button>
+                  </div>
+                  <RangeCalendar
+                    start={startVal || null}
+                    end={null}
+                    onChange={(s) => setStartVal(s ? mondayOf(s) : "")}
+                  />
+                  <button type="button" className="card-dates-save" onClick={saveWeek}>
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="card-dates-cancel"
+                    onClick={() => setDatesOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="card-move-quick">
+                    <button
+                      type="button"
+                      className="card-move-quick-btn"
+                      onClick={() => moveStart(1)}
+                    >
+                      +1 day
+                    </button>
+                    <button
+                      type="button"
+                      className="card-move-quick-btn"
+                      onClick={() => moveStart(7)}
+                    >
+                      +1 week
+                    </button>
+                  </div>
+                  <RangeCalendar
+                    start={startVal || null}
+                    end={endVal || null}
+                    onChange={(s, e) => {
+                      setStartVal(s ?? "");
+                      setEndVal(e ?? "");
+                    }}
+                  />
+                  <button type="button" className="card-dates-save" onClick={saveDates}>
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="card-dates-cancel"
+                    onClick={() => setDatesOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
             </Dropdown>
           )}
         </div>
