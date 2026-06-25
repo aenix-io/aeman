@@ -1559,10 +1559,37 @@ button.card-age {
 }
 
 .plan-card {
-  cursor: grab;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
 }
 
-.plan-card:active {
+.plan-card > .card {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Drag handle for a plan card (onto a person, or to the other band). */
+.plan-card-grip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  cursor: grab;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+  border-radius: 4px;
+}
+
+.plan-card-grip:hover {
+  background: var(--line-soft);
+  color: var(--muted);
+}
+
+.plan-card-grip:active {
   cursor: grabbing;
 }
 

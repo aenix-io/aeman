@@ -84,9 +84,14 @@ export function TeamBoard({
   const [dragCol, setDragCol] = useState<string | null>(null);
   // A weekly-plan card currently being dragged into a person column.
   const [draggedPlan, setDraggedPlan] = useState<CardModel | null>(null);
-  const [planCollapsed, setPlanCollapsed] = useState(true);
+  const [planCollapsed, setPlanCollapsed] = useState<boolean>(
+    () => localStorage.getItem("aeman.planCollapsed") !== "false",
+  );
   // Custom (drag-set) height of the expanded weekly plan; null = default.
-  const [planHeight, setPlanHeight] = useState<number | null>(null);
+  const [planHeight, setPlanHeight] = useState<number | null>(() => {
+    const v = localStorage.getItem("aeman.planHeight");
+    return v ? Number(v) : null;
+  });
 
   // Drag the top edge of the weekly plan to resize its height.
   const startPlanResize = (e: React.MouseEvent) => {
@@ -104,6 +109,18 @@ export function TeamBoard({
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
+
+  // Remember the weekly plan's expanded/collapsed state and height in the browser.
+  useEffect(() => {
+    localStorage.setItem("aeman.planCollapsed", String(planCollapsed));
+  }, [planCollapsed]);
+  useEffect(() => {
+    if (planHeight === null) {
+      localStorage.removeItem("aeman.planHeight");
+    } else {
+      localStorage.setItem("aeman.planHeight", String(planHeight));
+    }
+  }, [planHeight]);
 
   useEffect(() => {
     if (!sprintMenuOpen) {
@@ -262,6 +279,16 @@ export function TeamBoard({
     patchCard(card.itemId, { plan });
     void provider.setPlan(board, card, plan).catch((err: unknown) => {
       patchCard(card.itemId, { plan: prev });
+      onError(errMessage(err));
+    });
+  };
+
+  // Move a single plan card to another plan week (+1/+2 weeks, or a picked one).
+  const handleSetWeek = (card: CardModel, week: string | null) => {
+    const prev = card.week ?? null;
+    patchCard(card.itemId, { week: week ?? undefined });
+    void provider.setWeek(board, card, week).catch((err: unknown) => {
+      patchCard(card.itemId, { week: prev ?? undefined });
       onError(errMessage(err));
     });
   };
@@ -1011,14 +1038,19 @@ export function TeamBoard({
                 }}
               >
                 {weekly[band].map((card) => (
-                  <div
-                    key={card.itemId}
-                    className="plan-card"
-                    draggable
-                    onDragStart={() => setDraggedPlan(card)}
-                    onDragEnd={() => setDraggedPlan(null)}
-                    title="Drag onto a person to take it into work"
-                  >
+                  <div key={card.itemId} className="plan-card">
+                    <div
+                      className="plan-card-grip"
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        setDraggedPlan(card);
+                      }}
+                      onDragEnd={() => setDraggedPlan(null)}
+                      title="Drag onto a person to take it into work, or to the other band"
+                    >
+                      ⠿
+                    </div>
                     <Card
                       card={card}
                       selected={card.itemId === selectedCardId}
@@ -1036,6 +1068,8 @@ export function TeamBoard({
                       onSetAssignee={handleSetAssignee}
                       asOf={selectedDate}
                       onSetDates={handleSetDates}
+                      weekMode
+                      onSetWeek={handleSetWeek}
                     />
                   </div>
                 ))}
