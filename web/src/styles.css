@@ -292,7 +292,7 @@ button {
   border: 1px solid var(--line-soft);
   border-radius: 5px;
   overflow: hidden;
-  width: 516px;
+  width: min(516px, 100%);
   flex: none;
 }
 
@@ -1851,5 +1851,50 @@ button.card-age {
     border-left: none;
     border-top: 1px solid var(--line);
     max-height: 40%;
+  }
+}
+
+/* Touch devices have no hover, so a card's actions must stay visible. */
+@media (hover: none) {
+  .card-actions {
+    opacity: 1;
+    width: auto;
+  }
+}
+
+/* Phones: wrap the toolbars, full-width zones, taller notes, dvh height. */
+@media (max-width: 640px) {
+  .app {
+    height: 100dvh;
+  }
+
+  .app-header,
+  .toolbar,
+  .board-toolbar {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .toolbar,
+  .board-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .team-chips {
+    flex-wrap: wrap;
+  }
+
+  .me-left {
+    padding: 6px;
+  }
+
+  .notes {
+    max-height: 46vh;
+  }
+
+  .notes-list {
+    padding: 8px 10px;
   }
 }
