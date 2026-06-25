@@ -60,6 +60,14 @@ interface SortableBoardProps<Meta> {
   renderLayout?: (nodes: Map<string, ReactNode>, groups: BoardGroup<Meta>[]) => ReactNode;
   /** Commit a drop: persist zone/engineer/position optimistically. */
   onDrop: (result: DropResult<Meta>) => void;
+  /** Children rendered inside the DndContext (e.g. a weekly drop area). */
+  children?: ReactNode;
+  /** Cards draggable from `extra`, keyed by their dnd id, for overlay + drop. */
+  externalCards?: Map<string, CardModel>;
+  /** Commit a drop of an external (extra) draggable onto an over id. */
+  onExternalDrop?: (card: CardModel, overId: string | null) => void;
+  /** Optional class wrapping the laid-out groups (e.g. a horizontal scroller). */
+  scrollClassName?: string;
 }
 
 type LocalGroups<Meta> = { key: string; meta: Meta; ids: string[] }[];
@@ -150,10 +158,16 @@ export function SortableBoard<Meta>({
   renderOverlay,
   renderLayout,
   onDrop,
+  children,
+  externalCards,
+  onExternalDrop,
+  scrollClassName,
 }: SortableBoardProps<Meta>) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
+
+  const isExternal = (id: string) => externalCards?.has(id) ?? false;
 
   // While dragging: a local override of the grouped ids that the over-handler
   // mutates so cards visibly push apart. null when idle (groups are the truth).
@@ -187,7 +201,11 @@ export function SortableBoard<Meta>({
     work.findIndex((g) => g.ids.includes(id) || g.key === id);
 
   const handleStart = (e: DragStartEvent) => {
-    setActiveId(String(e.active.id));
+    const id = String(e.active.id);
+    setActiveId(id);
+    if (isExternal(id)) {
+      return; // external draggables don't reshuffle the grid's working copy
+    }
     setLocal(
       groups.map((g) => ({
         key: g.key,
@@ -199,7 +217,7 @@ export function SortableBoard<Meta>({
 
   const handleOver = (e: DragOverEvent) => {
     const { active, over } = e;
-    if (!over) {
+    if (!over || isExternal(String(active.id))) {
       return;
     }
     const activeKey = String(active.id);
@@ -232,8 +250,16 @@ export function SortableBoard<Meta>({
   };
 
   const handleEnd = (e: DragEndEvent) => {
-    const work = local;
     const activeKey = String(e.active.id);
+    if (isExternal(activeKey)) {
+      const ext = externalCards?.get(activeKey);
+      if (ext) {
+        onExternalDrop?.(ext, e.over ? String(e.over.id) : null);
+      }
+      reset();
+      return;
+    }
+    const work = local;
     const card = cardById.get(activeKey);
     if (!work || !card) {
       reset();
@@ -282,7 +308,9 @@ export function SortableBoard<Meta>({
     reset();
   };
 
-  const activeCard = activeId ? cardById.get(activeId) ?? null : null;
+  const activeCard = activeId
+    ? cardById.get(activeId) ?? externalCards?.get(activeId) ?? null
+    : null;
 
   // Render each group as a node, keyed by group.key, so a custom layout can
   // arrange them (Team groups cells into engineer columns); default is flat.
@@ -315,9 +343,18 @@ export function SortableBoard<Meta>({
       onDragEnd={handleEnd}
       onDragCancel={reset}
     >
-      {renderLayout
-        ? renderLayout(nodes, groups)
-        : groups.map((g) => nodes.get(g.key))}
+      {scrollClassName ? (
+        <div className={scrollClassName}>
+          {renderLayout
+            ? renderLayout(nodes, groups)
+            : groups.map((g) => nodes.get(g.key))}
+        </div>
+      ) : renderLayout ? (
+        renderLayout(nodes, groups)
+      ) : (
+        groups.map((g) => nodes.get(g.key))
+      )}
+      {children}
       <DragOverlay>
         {activeCard ? (
           <div className="dnd-overlay">{renderOverlay(activeCard)}</div>
