@@ -15,6 +15,8 @@ interface TeamChipsProps {
   noTeamChip?: boolean;
   /** Allow removing / renaming teams (the × and double-click). */
   canManage?: boolean;
+  /** When set, show a "manage" link that opens the roster manager. */
+  onManage?: () => void;
 }
 
 /** TeamChips is a single-select row of team chips with add/remove/rename. */
@@ -28,6 +30,7 @@ export function TeamChips({
   onRename,
   noTeamChip = false,
   canManage = true,
+  onManage,
 }: TeamChipsProps) {
   const [adding, setAdding] = useState(false);
   const [addValue, setAddValue] = useState("");
@@ -158,6 +161,11 @@ export function TeamChips({
               + add
             </button>
           ))}
+        {onManage && (
+          <button type="button" className="add-card" onClick={onManage}>
+            manage
+          </button>
+        )}
       </div>
     </div>
   );
