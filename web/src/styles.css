@@ -1275,6 +1275,18 @@ button.card-age {
   overflow: visible;
 }
 
+.team-weekly-progress {
+  height: 3px;
+  width: 100%;
+  background: var(--line-soft);
+}
+
+.team-weekly-progress-fill {
+  height: 100%;
+  background: #3fb950;
+  transition: width 0.2s;
+}
+
 .team-weekly-band {
   display: flex;
   flex-direction: column;
