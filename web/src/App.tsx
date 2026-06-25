@@ -170,6 +170,24 @@ export function App() {
     [provider],
   );
 
+  // Locked board: auto-load the pinned project once authenticated. A user whose
+  // token can't read it just gets a load error (the access-denied placeholder).
+  const lockLoadAttempted = useRef(false);
+  useEffect(() => {
+    if (
+      config?.lockBoard &&
+      config.authenticated &&
+      config.defaultOwner &&
+      config.defaultProject &&
+      !lockLoadAttempted.current
+    ) {
+      lockLoadAttempted.current = true;
+      setOwner(config.defaultOwner);
+      setProject(String(config.defaultProject));
+      void doLoad(config.defaultOwner, config.defaultProject);
+    }
+  }, [config, doLoad]);
+
   // Fetch GitHub name + avatar for any assignee not looked up yet. Watching the
   // board also covers people newly assigned to a card during the session.
   useEffect(() => {
@@ -398,30 +416,39 @@ export function App() {
       )}
 
       <div className="toolbar">
-        <label className="field">
-          <span>Owner</span>
-          <input
-            type="text"
-            value={owner}
-            placeholder="org-or-user"
-            onChange={(e) => setOwner(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLoad()}
-          />
-        </label>
-        <label className="field">
-          <span>Project #</span>
-          <input
-            type="number"
-            min={1}
-            value={project}
-            placeholder="1"
-            onChange={(e) => setProject(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLoad()}
-          />
-        </label>
-        <button type="button" className="btn btn-primary" onClick={handleLoad} disabled={loading}>
-          {loading ? "Loading…" : "Load"}
-        </button>
+        {!config?.lockBoard && (
+          <>
+            <label className="field">
+              <span>Owner</span>
+              <input
+                type="text"
+                value={owner}
+                placeholder="org-or-user"
+                onChange={(e) => setOwner(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLoad()}
+              />
+            </label>
+            <label className="field">
+              <span>Project #</span>
+              <input
+                type="number"
+                min={1}
+                value={project}
+                placeholder="1"
+                onChange={(e) => setProject(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLoad()}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleLoad}
+              disabled={loading}
+            >
+              {loading ? "Loading…" : "Load"}
+            </button>
+          </>
+        )}
 
         <div className="segmented" role="tablist" aria-label="View">
           <button
@@ -447,7 +474,13 @@ export function App() {
 
       <main className="content">
         {!board && !loading && (
-          <p className="placeholder">Enter an owner and project number, then press Load.</p>
+          <p className="placeholder">
+            {config?.lockBoard
+              ? error
+                ? "You don't have access to this board."
+                : "Loading…"
+              : "Enter an owner and project number, then press Load."}
+          </p>
         )}
         {board && view === "me" && (
           <MeBoard
