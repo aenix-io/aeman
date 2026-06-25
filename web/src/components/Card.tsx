@@ -37,8 +37,6 @@ interface CardProps {
   asOf?: string;
   /** Edit the card's start/end dates from the age badge (when provided). */
   onSetDates?: (card: CardModel, start: string | null, end: string | null) => void;
-  /** In working views, mark a plan-linked card with a coloured left stripe. */
-  planStripe?: boolean;
 }
 
 const SEGMENTS = 10;
@@ -74,7 +72,6 @@ export function Card({
   onSetAssignee,
   asOf,
   onSetDates,
-  planStripe,
 }: CardProps) {
   const value = card.stage === "done" ? 100 : card.progress ?? 0;
   const fill = barColor(card.stage);
@@ -208,7 +205,7 @@ export function Card({
   return (
     <div
       className={`card${selected ? " card-selected" : ""}${
-        planStripe && card.plan ? ` card-plan-${card.plan}` : ""
+        card.plan ? ` card-plan-${card.plan}` : ""
       }`}
       onClick={() => onSelect(card)}
       onDoubleClick={() => onOpen(card)}
