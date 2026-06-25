@@ -39,6 +39,9 @@ type Options struct {
 	Version string
 	// Logger receives structured logs; slog.Default() is used when nil.
 	Logger *slog.Logger
+	// Auth, when non-nil, enables GitHub OAuth multi-user mode (each visitor
+	// signs in and the proxy uses their own token).
+	Auth *OAuthConfig
 }
 
 // Server is the aeman local HTTP server.
@@ -46,6 +49,7 @@ type Server struct {
 	opts    Options
 	log     *slog.Logger
 	tokens  *ghcli.TokenSource
+	auth    *authManager
 	handler http.Handler
 }
 
@@ -68,11 +72,19 @@ func New(opts Options) (*Server, error) {
 		log:    opts.Logger,
 		tokens: ghcli.NewTokenSource(),
 	}
+	if opts.Auth != nil {
+		s.auth = newAuthManager(*opts.Auth, opts.Logger)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.Handle("/api/github/", s.githubProxy())
+	if s.auth != nil {
+		mux.HandleFunc("/auth/login", s.auth.handleLogin)
+		mux.HandleFunc("/auth/callback", s.auth.handleCallback)
+		mux.HandleFunc("/auth/logout", s.auth.handleLogout)
+	}
 	mux.Handle("/", spaHandler(dist))
 	s.handler = logRequests(s.log, mux)
 	return s, nil
@@ -149,14 +161,32 @@ func (s *Server) githubProxy() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok, err := s.tokens.Token(r.Context())
+		tok, _, err := s.tokenForRequest(r)
 		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "GitHub token unavailable: "+err.Error())
+			writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 			return
 		}
 		ctx := context.WithValue(r.Context(), tokenCtxKey{}, tok)
 		proxy.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// tokenForRequest resolves the GitHub token (and login) for a request: from the
+// signed-in session in OAuth mode, or from the local gh CLI otherwise.
+func (s *Server) tokenForRequest(r *http.Request) (token, login string, err error) {
+	if s.auth != nil {
+		sess, ok := s.auth.session(r)
+		if !ok {
+			return "", "", errors.New("not signed in")
+		}
+		return sess.token, sess.login, nil
+	}
+	tok, err := s.tokens.Token(r.Context())
+	if err != nil {
+		return "", "", err
+	}
+	login, _ = ghcli.Login(r.Context())
+	return tok, login, nil
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
@@ -169,21 +199,36 @@ type configResponse struct {
 	Version        string `json:"version"`
 	Login          string `json:"login,omitempty"`
 	TokenAvailable bool   `json:"tokenAvailable"`
+	Authenticated  bool   `json:"authenticated"`
+	AuthURL        string `json:"authUrl,omitempty"`
+	LogoutURL      string `json:"logoutUrl,omitempty"`
 	DefaultOwner   string `json:"defaultOwner,omitempty"`
 	DefaultProject int    `json:"defaultProject,omitempty"`
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	resp := configResponse{
-		Mode:           "local-proxy",
 		Version:        s.opts.Version,
 		DefaultOwner:   s.opts.DefaultOwner,
 		DefaultProject: s.opts.DefaultProject,
 	}
-	if _, err := s.tokens.Token(r.Context()); err == nil {
-		resp.TokenAvailable = true
-		if login, err := ghcli.Login(r.Context()); err == nil {
-			resp.Login = login
+	if s.auth != nil {
+		resp.Mode = "oauth"
+		resp.AuthURL = "/auth/login"
+		resp.LogoutURL = "/auth/logout"
+		if sess, ok := s.auth.session(r); ok {
+			resp.Authenticated = true
+			resp.TokenAvailable = true
+			resp.Login = sess.login
+		}
+	} else {
+		resp.Mode = "local-proxy"
+		if _, err := s.tokens.Token(r.Context()); err == nil {
+			resp.Authenticated = true
+			resp.TokenAvailable = true
+			if login, err := ghcli.Login(r.Context()); err == nil {
+				resp.Login = login
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
