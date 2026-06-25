@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
-import { daysSince } from "../date";
+import { addDays, daysSince, todayIso } from "../date";
 import { Dropdown } from "./Dropdown";
 import { RangeCalendar } from "./RangeCalendar";
 
@@ -175,6 +175,17 @@ export function Card({
     onSetDates?.(card, startVal || null, endVal || startVal || null);
   };
 
+  // Quick-shift the start date by N days; push the finish along if overtaken.
+  const moveStart = (days: number) => {
+    const newStart = addDays(card.startDate ?? todayIso(), days);
+    const end =
+      card.sprintStart && card.sprintStart >= newStart
+        ? card.sprintStart
+        : newStart;
+    setStartMenuOpen(false);
+    onSetDates?.(card, newStart, end);
+  };
+
   const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     setDraft(card.title);
@@ -299,6 +310,22 @@ export function Card({
               onClose={() => setStartMenuOpen(false)}
               className="card-stage-menu card-dates-menu"
             >
+              <div className="card-move-quick">
+                <button
+                  type="button"
+                  className="card-move-quick-btn"
+                  onClick={() => moveStart(1)}
+                >
+                  +1 day
+                </button>
+                <button
+                  type="button"
+                  className="card-move-quick-btn"
+                  onClick={() => moveStart(7)}
+                >
+                  +1 week
+                </button>
+              </div>
               <RangeCalendar
                 start={startVal || null}
                 end={endVal || null}
