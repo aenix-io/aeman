@@ -4,10 +4,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
   type Ref,
 } from "react";
-import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type {
   Board,
   Card as CardModel,
@@ -54,50 +52,11 @@ interface TeamBoardProps {
 }
 
 /** Per-group metadata for the Team board: the destination engineer + zone. */
-interface TeamMeta {
-  engineer: string;
-  zone: ZoneKey;
-}
+type TeamMeta =
+  | { kind: "cell"; engineer: string; zone: ZoneKey }
+  | { kind: "band"; band: "wed" | "fri" };
 
 const UNASSIGNED = "";
-
-/** PlanDraggable makes a weekly-plan card drag with the same dnd-kit feel as the
- *  grid cards: the whole card lifts into the shared DragOverlay (no grip). */
-function PlanDraggable({ id, children }: { id: string; children: ReactNode }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`plan-card${isDragging ? " plan-card-dragging" : ""}`}
-      {...attributes}
-      {...listeners}
-    >
-      {children}
-    </div>
-  );
-}
-
-/** BandDroppable is a Wed/Fri band that accepts a dropped plan card (moving it to
- *  that band) and highlights while a card hovers over it. */
-function BandDroppable({
-  band,
-  className,
-  children,
-}: {
-  band: "wed" | "fri";
-  className: string;
-  children: ReactNode;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: `band:${band}` });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`${className}${isOver ? " team-weekly-band-drop" : ""}`}
-    >
-      {children}
-    </div>
-  );
-}
 
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
@@ -224,17 +183,6 @@ export function TeamBoard({
     return { wed, fri };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.cards, currentWeek, teamFilter]);
-
-  // Plan cards keyed by their dnd id (`plan:<itemId>`) so they share the grid's
-  // DndContext: a plan card lifts like a grid card and can drop onto a person or
-  // the other band — the same card just stays in the plan.
-  const planDragCards = useMemo(() => {
-    const m = new Map<string, CardModel>();
-    for (const c of [...weekly.wed, ...weekly.fri]) {
-      m.set(`plan:${c.itemId}`, c);
-    }
-    return m;
-  }, [weekly]);
 
   // Overall completion across all plan cards (a done card counts as 100%).
   const planProgress = useMemo(() => {
@@ -476,43 +424,48 @@ export function TeamBoard({
 
   const cellKey = (engineer: string, zone: ZoneKey) =>
     `${engineer || "__unassigned__"}::${zone}`;
+  const bandKey = (band: "wed" | "fri") => `band::${band}`;
 
-  // One sortable group per grid cell, in a stable engineer→zone order so the
-  // derived global card order is coherent across drops.
+  // Sortable groups: one per grid cell, plus the two weekly-plan bands. The bands
+  // share the same dnd engine (namespaced "plan:" ids) so a plan card can reorder
+  // in its band, move between bands, and be dragged into the grid with a live
+  // preview — the same card just stays in the plan.
   const groups = useMemo<BoardGroup<TeamMeta>[]>(() => {
     const out: BoardGroup<TeamMeta>[] = [];
     for (const engineer of orderedEngineers) {
       for (const zone of ZONE_ORDER) {
         out.push({
           key: cellKey(engineer, zone),
-          meta: { engineer, zone },
+          meta: { kind: "cell", engineer, zone },
           cards: cellCards(engineer, zone),
         });
       }
     }
+    for (const band of ["wed", "fri"] as const) {
+      out.push({
+        key: bandKey(band),
+        meta: { kind: "band", band },
+        cards: weekly[band],
+      });
+    }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredCards, orderedEngineers]);
+  }, [filteredCards, orderedEngineers, weekly]);
 
-  // A plan card was dropped: onto the other band → change its band; onto a grid
-  // cell (or a card in one) → take it into work for that cell's engineer.
-  const handlePlanDrop = (card: CardModel, overId: string | null) => {
-    if (!overId) {
-      return;
-    }
-    if (overId.startsWith("band:")) {
-      const band = overId.slice(5) as "wed" | "fri";
-      if (band !== card.plan) {
-        handleSetPlan(card, band);
-      }
-      return;
-    }
-    const cell =
-      groups.find((g) => g.key === overId) ??
-      groups.find((g) => g.cards.some((c) => c.itemId === overId));
-    if (cell) {
-      takePlanCard(card, cell.meta.engineer, cell.meta.zone);
-    }
+  // Reorder a subset of cards (a band's plan cards) within the global card order
+  // and persist the dragged card's new position.
+  const reorderPlanCards = (card: CardModel, order: string[]) => {
+    const subset = new Set(order);
+    let i = 0;
+    const next = board.cards.map((c) =>
+      subset.has(c.itemId) ? order[i++] : c.itemId,
+    );
+    reorderCards(next);
+    const afterId = afterIdFor(next, card.itemId);
+    void provider.moveCard(board, card, afterId).catch((err: unknown) => {
+      onError(errMessage(err));
+      reload();
+    });
   };
 
   const handleDrop = ({
@@ -521,6 +474,30 @@ export function TeamBoard({
     toMeta,
     groups: g,
   }: DropResult<TeamMeta>) => {
+    // Drops that involve a weekly-plan band.
+    if (fromMeta.kind === "band" || toMeta.kind === "band") {
+      if (fromMeta.kind === "band" && toMeta.kind === "cell") {
+        // Take the plan card into work, in the dropped cell's zone.
+        takePlanCard(card, toMeta.engineer, toMeta.zone);
+      } else if (fromMeta.kind === "band" && toMeta.kind === "band") {
+        if (toMeta.band !== fromMeta.band) {
+          handleSetPlan(card, toMeta.band);
+        }
+        const entry = g.find(
+          (x) => x.meta.kind === "band" && x.meta.band === toMeta.band,
+        );
+        if (entry) {
+          reorderPlanCards(
+            card,
+            entry.ids.map((id) => id.replace(/^plan:/, "")),
+          );
+        }
+      }
+      // A grid card dropped onto a band is ignored.
+      return;
+    }
+
+    // From here both ends are grid cells.
     const zoneChanged = fromMeta.zone !== toMeta.zone;
     const engineerChanged = fromMeta.engineer !== toMeta.engineer;
 
@@ -548,7 +525,7 @@ export function TeamBoard({
     }
     const order = globalOrderFromGroups(
       board,
-      g.map((x) => x.ids),
+      g.filter((x) => x.meta.kind === "cell").map((x) => x.ids),
     );
     reorderCards(order);
 
@@ -875,12 +852,34 @@ export function TeamBoard({
       </div>
 
       <SortableBoard<TeamMeta>
-        scrollClassName="team-grid"
         groups={groups}
+        idForCard={(c, g) =>
+          g.meta.kind === "band" ? `plan:${c.itemId}` : c.itemId
+        }
         onDrop={handleDrop}
-        externalCards={planDragCards}
-        onExternalDrop={handlePlanDrop}
-        renderCard={(card) => (
+        renderCard={(card, group) =>
+          group.meta.kind === "band" ? (
+            <Card
+              card={card}
+              selected={card.itemId === selectedCardId}
+              onSelect={(c) => setSelectedCardId(c.itemId)}
+              onProgress={handleProgress}
+              onDelete={handleDelete}
+              onStage={handleStage}
+              onRename={handleRename}
+              onOpen={onOpen}
+              onRequestLock={onRequestLock}
+              teams={roster}
+              people={people}
+              users={users}
+              onSetTeam={handleSetTeam}
+              onSetAssignee={handleSetAssignee}
+              asOf={selectedDate}
+              onSetDates={handleSetDates}
+              weekMode
+              onSetWeek={handleSetWeek}
+            />
+          ) : (
             <Card
               card={card}
               selected={card.itemId === selectedCardId}
@@ -899,7 +898,8 @@ export function TeamBoard({
               asOf={selectedDate}
               onSetDates={handleSetDates}
             />
-          )}
+          )
+        }
           renderOverlay={(card) => (
             <Card
               card={card}
@@ -914,7 +914,29 @@ export function TeamBoard({
             />
           )}
           renderGroup={(group, body, { isOver, dropRef }) => {
-            const def = ZONES[group.meta.zone];
+            if (group.meta.kind === "band") {
+              const band = group.meta.band;
+              return (
+                <div
+                  ref={dropRef as Ref<HTMLDivElement>}
+                  className={`team-weekly-band team-weekly-${band}${
+                    isOver ? " team-weekly-band-drop" : ""
+                  }`}
+                >
+                  {body}
+                  <AddCard
+                    forcedTeam={forcedTeam}
+                    teams={roster}
+                    placeholder="Plan task…"
+                    onCreate={(title, team) =>
+                      handleCreatePlan(band, title, team)
+                    }
+                  />
+                </div>
+              );
+            }
+            const { engineer, zone } = group.meta;
+            const def = ZONES[zone];
             return (
               <div
                 ref={dropRef as Ref<HTMLDivElement>}
@@ -927,18 +949,20 @@ export function TeamBoard({
                     teams={forcedTeam === undefined ? roster : undefined}
                     forcedTeam={forcedTeam}
                     onCreate={(title, team) =>
-                      handleCreate(group.meta.engineer, group.meta.zone, title, team)
+                      handleCreate(engineer, zone, title, team)
                     }
                   />
                 </div>
               </div>
             );
           }}
-          renderLayout={(nodes) =>
-            orderedEngineers.length === 0 ? (
-              <p className="placeholder">No cards match the selected teams.</p>
-            ) : (
-              orderedEngineers.map((engineer) => (
+          renderLayout={(nodes) => (
+            <>
+              <div className="team-grid">
+                {orderedEngineers.length === 0 ? (
+                  <p className="placeholder">No cards match the selected teams.</p>
+                ) : (
+                  orderedEngineers.map((engineer) => (
                 <section className="team-col" key={engineer || "__unassigned__"}>
                   <header
                     className="team-col-header"
@@ -986,149 +1010,124 @@ export function TeamBoard({
                     ))}
                   </div>
                 </section>
-              ))
-            )
-          }
-      >
-        <div
-          className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}
-        style={
-          !planCollapsed && planHeight !== null
-            ? { height: planHeight, maxHeight: "none" }
-            : undefined
-        }
-      >
-        <div className="team-weekly-top">
-          {!planCollapsed && (
-            <div
-              className="team-weekly-resize"
-              onMouseDown={startPlanResize}
-              title="Drag to resize"
-            />
-          )}
-          <div
-            className="team-weekly-progress"
-            title={`${planProgress}% done across the plan`}
-          >
-            <div
-              className="team-weekly-progress-fill"
-              style={{ width: `${planProgress}%` }}
-            />
-          </div>
-          <div className="team-weekly-head">
-            <span className="team-weekly-title">Weekly plan · {currentWeek}</span>
-            <div className="team-weekly-actions">
-              {!planCollapsed && (
-                <div className="sprint-wrap" ref={carryWeekRef}>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    if (teamFilter === null) {
-                      setCarryWeekOpen((o) => !o);
-                    } else {
-                      handleCarryWeek(teamFilter === "" ? null : teamFilter);
-                    }
-                  }}
-                  title="Move unfinished plan cards to next week"
-                >
-                  Carry over week{teamFilter === null ? " ▾" : " →"}
-                </button>
-                {teamFilter === null && (
-                  <Dropdown
-                    open={carryWeekOpen}
-                    anchorRef={carryWeekRef}
-                    onClose={() => setCarryWeekOpen(false)}
-                    className="card-stage-menu sprint-menu"
-                  >
-                    {carryable.teams.map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        className="card-stage-item"
-                        onClick={() => handleCarryWeek(t)}
-                      >
-                        <span
-                          className="team-dot"
-                          style={{ background: teamColor(t) }}
-                        />
-                        {t}
-                      </button>
-                    ))}
-                    {carryable.noTeam && (
-                      <button
-                        type="button"
-                        className="card-stage-item card-stage-clear"
-                        onClick={() => handleCarryWeek(null)}
-                      >
-                        no team
-                      </button>
-                    )}
-                    {carryable.teams.length === 0 && !carryable.noTeam && (
-                      <div className="sprint-empty">Nothing to carry</div>
-                    )}
-                  </Dropdown>
+                  ))
                 )}
-                </div>
-              )}
-              <button
-                type="button"
-                className="team-weekly-toggle"
-                onClick={() => setPlanCollapsed((c) => !c)}
-                aria-label={
-                  planCollapsed ? "Expand weekly plan" : "Collapse weekly plan"
+              </div>
+
+              <div
+                className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}
+                style={
+                  !planCollapsed && planHeight !== null
+                    ? { height: planHeight, maxHeight: "none" }
+                    : undefined
                 }
-                title={planCollapsed ? "Expand" : "Collapse"}
               >
-                {planCollapsed ? "▲" : "▼"}
-              </button>
-            </div>
-          </div>
-        </div>
-        {!planCollapsed && (
-          <div className="team-weekly-bands">
-            {(["wed", "fri"] as const).map((band) => (
-              <BandDroppable
-                key={band}
-                band={band}
-                className={`team-weekly-band team-weekly-${band}`}
-              >
-                {weekly[band].map((card) => (
-                  <PlanDraggable key={card.itemId} id={`plan:${card.itemId}`}>
-                    <Card
-                      card={card}
-                      selected={card.itemId === selectedCardId}
-                      onSelect={(c) => setSelectedCardId(c.itemId)}
-                      onProgress={handleProgress}
-                      onDelete={handleDelete}
-                      onStage={handleStage}
-                      onRename={handleRename}
-                      onOpen={onOpen}
-                      onRequestLock={onRequestLock}
-                      teams={roster}
-                      people={people}
-                      users={users}
-                      onSetTeam={handleSetTeam}
-                      onSetAssignee={handleSetAssignee}
-                      asOf={selectedDate}
-                      onSetDates={handleSetDates}
-                      weekMode
-                      onSetWeek={handleSetWeek}
+                <div className="team-weekly-top">
+                  {!planCollapsed && (
+                    <div
+                      className="team-weekly-resize"
+                      onMouseDown={startPlanResize}
+                      title="Drag to resize"
                     />
-                  </PlanDraggable>
-                ))}
-                <AddCard
-                  forcedTeam={forcedTeam}
-                  teams={roster}
-                  placeholder="Plan task…"
-                  onCreate={(title, team) => handleCreatePlan(band, title, team)}
-                />
-              </BandDroppable>
-            ))}
-          </div>
-        )}
-        </div>
-      </SortableBoard>
+                  )}
+                  <div
+                    className="team-weekly-progress"
+                    title={`${planProgress}% done across the plan`}
+                  >
+                    <div
+                      className="team-weekly-progress-fill"
+                      style={{ width: `${planProgress}%` }}
+                    />
+                  </div>
+                  <div className="team-weekly-head">
+                    <span className="team-weekly-title">
+                      Weekly plan · {currentWeek}
+                    </span>
+                    <div className="team-weekly-actions">
+                      {!planCollapsed && (
+                        <div className="sprint-wrap" ref={carryWeekRef}>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => {
+                              if (teamFilter === null) {
+                                setCarryWeekOpen((o) => !o);
+                              } else {
+                                handleCarryWeek(
+                                  teamFilter === "" ? null : teamFilter,
+                                );
+                              }
+                            }}
+                            title="Move unfinished plan cards to next week"
+                          >
+                            Carry over week{teamFilter === null ? " ▾" : " →"}
+                          </button>
+                          {teamFilter === null && (
+                            <Dropdown
+                              open={carryWeekOpen}
+                              anchorRef={carryWeekRef}
+                              onClose={() => setCarryWeekOpen(false)}
+                              className="card-stage-menu sprint-menu"
+                            >
+                              {carryable.teams.map((t) => (
+                                <button
+                                  key={t}
+                                  type="button"
+                                  className="card-stage-item"
+                                  onClick={() => handleCarryWeek(t)}
+                                >
+                                  <span
+                                    className="team-dot"
+                                    style={{ background: teamColor(t) }}
+                                  />
+                                  {t}
+                                </button>
+                              ))}
+                              {carryable.noTeam && (
+                                <button
+                                  type="button"
+                                  className="card-stage-item card-stage-clear"
+                                  onClick={() => handleCarryWeek(null)}
+                                >
+                                  no team
+                                </button>
+                              )}
+                              {carryable.teams.length === 0 &&
+                                !carryable.noTeam && (
+                                  <div className="sprint-empty">
+                                    Nothing to carry
+                                  </div>
+                                )}
+                            </Dropdown>
+                          )}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        className="team-weekly-toggle"
+                        onClick={() => setPlanCollapsed((c) => !c)}
+                        aria-label={
+                          planCollapsed
+                            ? "Expand weekly plan"
+                            : "Collapse weekly plan"
+                        }
+                        title={planCollapsed ? "Expand" : "Collapse"}
+                      >
+                        {planCollapsed ? "▲" : "▼"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                {!planCollapsed && (
+                  <div className="team-weekly-bands">
+                    {nodes.get(bandKey("wed"))}
+                    {nodes.get(bandKey("fri"))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        />
       {teamsModalOpen && (
         <TeamsModal
           teams={roster}

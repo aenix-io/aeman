@@ -42,6 +42,10 @@ export interface DropResult<Meta> {
 interface SortableBoardProps<Meta> {
   /** Source-of-truth groups derived from board state. */
   groups: BoardGroup<Meta>[];
+  /** The dnd id for a card within a group. Defaults to the card's itemId; a group
+   *  can namespace it (e.g. "plan:<id>") so the same card may live in two groups
+   *  at once without an id clash. */
+  idForCard?: (card: CardModel, group: BoardGroup<Meta>) => string;
   /** Renders the container shell + an inner list region for a group.
    *  dropRef MUST be attached to the element that should accept drops (so empty
    *  groups still receive the card); isOver is true while the active card hovers. */
@@ -51,7 +55,7 @@ interface SortableBoardProps<Meta> {
     state: { isOver: boolean; dropRef: Ref<HTMLElement> },
   ) => ReactNode;
   /** Renders a single card (without sortable wiring — that is added here). */
-  renderCard: (card: CardModel) => ReactNode;
+  renderCard: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
   /** Renders the lifted card inside the DragOverlay. */
   renderOverlay: (card: CardModel) => ReactNode;
   /** Optional layout wrapper. Receives every rendered group node keyed by
@@ -116,7 +120,7 @@ function DroppableGroup<Meta>({
   activeId: string | null;
   cardById: Map<string, CardModel>;
   renderGroup: SortableBoardProps<Meta>["renderGroup"];
-  renderCard: (card: CardModel) => ReactNode;
+  renderCard: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: group.key });
   const body = (
@@ -128,7 +132,7 @@ function DroppableGroup<Meta>({
         }
         return (
           <SortableCard key={id} id={id}>
-            {renderCard(c)}
+            {renderCard(c, group)}
           </SortableCard>
         );
       })}
@@ -153,6 +157,7 @@ function DroppableGroup<Meta>({
  */
 export function SortableBoard<Meta>({
   groups,
+  idForCard,
   renderGroup,
   renderCard,
   renderOverlay,
@@ -168,6 +173,8 @@ export function SortableBoard<Meta>({
   );
 
   const isExternal = (id: string) => externalCards?.has(id) ?? false;
+  const idOf = (c: CardModel, g: BoardGroup<Meta>) =>
+    idForCard ? idForCard(c, g) : c.itemId;
 
   // While dragging: a local override of the grouped ids that the over-handler
   // mutates so cards visibly push apart. null when idle (groups are the truth).
@@ -182,7 +189,7 @@ export function SortableBoard<Meta>({
     return groups.map((g) => ({
       key: g.key,
       meta: g.meta,
-      ids: g.cards.map((c) => c.itemId),
+      ids: g.cards.map((c) => idOf(c, g)),
     }));
   }, [local, groups]);
 
@@ -191,7 +198,7 @@ export function SortableBoard<Meta>({
     const m = new Map<string, CardModel>();
     for (const g of groups) {
       for (const c of g.cards) {
-        m.set(c.itemId, c);
+        m.set(idOf(c, g), c);
       }
     }
     return m;
@@ -210,7 +217,7 @@ export function SortableBoard<Meta>({
       groups.map((g) => ({
         key: g.key,
         meta: g.meta,
-        ids: g.cards.map((c) => c.itemId),
+        ids: g.cards.map((c) => idOf(c, g)),
       })),
     );
   };
@@ -291,7 +298,7 @@ export function SortableBoard<Meta>({
 
     // Find the original group (from props) to report the source meta.
     const fromGroup = groups.find((g) =>
-      g.cards.some((c) => c.itemId === activeKey),
+      g.cards.some((c) => idOf(c, g) === activeKey),
     );
     const toEntry = next.find((g) => g.ids.includes(activeKey));
     if (!fromGroup || !toEntry) {
