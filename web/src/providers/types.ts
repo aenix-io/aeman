@@ -141,4 +141,6 @@ export interface Provider {
   /** Reposition card after afterItemId in the project order (null = top). */
   moveCard(board: Board, card: Card, afterItemId: string | null): Promise<void>;
   addNote(board: Board, card: Card, text: string): Promise<void>;
+  editNote(board: Board, card: Card, note: Note, text: string): Promise<void>;
+  deleteNote(board: Board, card: Card, note: Note): Promise<void>;
 }

@@ -13,6 +13,8 @@ interface NotesPanelProps {
   selectedCard: CardModel | null;
   onSelectCard: (card: CardModel) => void;
   onAddNote: (text: string) => void;
+  onEditNote: (note: Note, card: CardModel, text: string) => void;
+  onDeleteNote: (note: Note, card: CardModel) => void;
 }
 
 /** localTime formats an ISO timestamp as a local HH:MM string. */
@@ -31,8 +33,12 @@ export function NotesPanel({
   selectedCard,
   onSelectCard,
   onAddNote,
+  onEditNote,
+  onDeleteNote,
 }: NotesPanelProps) {
   const [draft, setDraft] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
 
   const submit = () => {
     const text = draft.trim();
@@ -41,6 +47,19 @@ export function NotesPanel({
     }
     onAddNote(text);
     setDraft("");
+  };
+
+  const startEdit = (note: Note) => {
+    setEditingId(note.id);
+    setEditDraft(note.body);
+  };
+
+  const commitEdit = (note: Note, card: CardModel) => {
+    const text = editDraft.trim();
+    setEditingId(null);
+    if (text && text !== note.body) {
+      onEditNote(note, card, text);
+    }
   };
 
   return (
@@ -61,8 +80,64 @@ export function NotesPanel({
               >
                 {card.title}
               </button>
+              {editingId !== note.id && (
+                <span className="note-actions">
+                  <button
+                    type="button"
+                    className="note-action"
+                    title="Edit note"
+                    onClick={() => startEdit(note)}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className="note-action note-action-delete"
+                    title="Delete note"
+                    onClick={() => onDeleteNote(note, card)}
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
             </div>
-            <div className="note-body">{note.body}</div>
+            {editingId === note.id ? (
+              <div className="note-edit">
+                <textarea
+                  className="notes-textarea"
+                  rows={2}
+                  autoFocus
+                  value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      commitEdit(note, card);
+                    } else if (e.key === "Escape") {
+                      setEditingId(null);
+                    }
+                  }}
+                />
+                <div className="note-edit-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => commitEdit(note, card)}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setEditingId(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="note-body">{note.body}</div>
+            )}
           </div>
         ))}
       </div>
@@ -81,7 +156,7 @@ export function NotesPanel({
           className="notes-textarea"
           rows={3}
           value={draft}
-          placeholder="Write a note…"
+          placeholder="Write a note… (Enter to send, Shift+Enter for a new line)"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
