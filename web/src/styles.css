@@ -331,6 +331,26 @@ button {
   box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.35);
 }
 
+/* Plan-linked cards in working views get a coloured left stripe by band. */
+.card-plan-wed::before,
+.card-plan-fri::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 5px 0 0 5px;
+}
+
+.card-plan-wed::before {
+  background: #3b82f6;
+}
+
+.card-plan-fri::before {
+  background: #8b5cf6;
+}
+
 .card-delete {
   position: absolute;
   top: -7px;
