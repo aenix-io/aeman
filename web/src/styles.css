@@ -1240,10 +1240,64 @@ button.card-age {
 }
 
 .notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 600;
   border-bottom: 1px solid var(--line-soft);
+}
+
+.notes-group-toggle {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+.notes-group-btn {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+
+.notes-group-btn-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* "By card" grouping: a card-title sub-header above its notes. */
+.note-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.note-group-head {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-group .note {
+  margin-left: 6px;
 }
 
 .notes-list {
