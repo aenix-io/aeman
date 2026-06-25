@@ -212,6 +212,16 @@ export function TeamBoard({
     }
   };
 
+  // Move a plan card between the two bands (changes its Wed/Fri deadline).
+  const handleSetPlan = (card: CardModel, plan: "wed" | "fri") => {
+    const prev = card.plan;
+    patchCard(card.itemId, { plan });
+    void provider.setPlan(board, card, plan).catch((err: unknown) => {
+      patchCard(card.itemId, { plan: prev });
+      onError(errMessage(err));
+    });
+  };
+
   // Take a plan card into work: assign it to the column's person and add it to
   // today's daily sprint, while it stays in the weekly plan (the same card).
   const takePlanCard = (card: CardModel, engineer: string) => {
@@ -870,7 +880,22 @@ export function TeamBoard({
             {(["wed", "fri"] as const).map((band) => (
               <div
                 key={band}
-                className={`team-weekly-band team-weekly-${band}`}
+                className={`team-weekly-band team-weekly-${band}${
+                  draggedPlan && draggedPlan.plan !== band
+                    ? " team-weekly-band-drop"
+                    : ""
+                }`}
+                onDragOver={(e) => {
+                  if (draggedPlan && draggedPlan.plan !== band) {
+                    e.preventDefault();
+                  }
+                }}
+                onDrop={() => {
+                  if (draggedPlan && draggedPlan.plan !== band) {
+                    handleSetPlan(draggedPlan, band);
+                  }
+                  setDraggedPlan(null);
+                }}
               >
                 {weekly[band].map((card) => (
                   <div
