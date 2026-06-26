@@ -15,7 +15,8 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, activeOnDay, mondayOf } from "../date";
+import { todayIso, addDays, mondayOf } from "../date";
+import { currentSprintByTeam, sprintForNewCard } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
@@ -168,15 +169,28 @@ export function TeamBoard({
     [board.cards, teamFilter],
   );
 
-  // A card shows on every day from its start through its current sprint day, so
-  // past days keep long-running cards while days after the last sprint go empty
-  // (the cue for the lead to start a new sprint).
+  // Per-team current sprint: the latest sprintStart on or before the day.
+  const currentSprint = useMemo(
+    () => currentSprintByTeam(inFilter, selectedDate),
+    [inFilter, selectedDate],
+  );
+
+  // A card shows from its start through its sprint day, and a card of the team's
+  // CURRENT sprint stays visible on the selected day even past its sprintStart —
+  // so adding a card (which joins the running sprint) doesn't drop the others.
   const filteredCards = useMemo(
     () =>
-      inFilter.filter((c) =>
-        activeOnDay(c.startDate, c.sprintStart, selectedDate),
-      ),
-    [inFilter, selectedDate],
+      inFilter.filter((c) => {
+        const start = c.startDate ?? c.sprintStart;
+        const sprint = c.sprintStart;
+        if (!start || !sprint || selectedDate < start) {
+          return false;
+        }
+        return (
+          selectedDate <= sprint || currentSprint.get(c.team ?? "") === sprint
+        );
+      }),
+    [inFilter, currentSprint, selectedDate],
   );
 
   const currentWeek = useMemo(() => mondayOf(selectedDate), [selectedDate]);
@@ -693,9 +707,10 @@ export function TeamBoard({
     team?: string | null,
   ) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // On Team, a new card joins the sprint of the day being viewed: adding a
-    // card on an empty day is how a fresh sprint is started.
-    const sprintStart = selectedDate;
+    // Join the team's running sprint instead of starting a new one (an empty day
+    // still starts a fresh sprint, since sprintForNewCard falls back to today), so
+    // adding a card doesn't drop the other cards of the current sprint.
+    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
     const optimistic: CardModel = {
       itemId: tempId,
       title,
