@@ -525,8 +525,8 @@ export function MeBoard({
                   teams={teams}
                   onSetTeam={handleSetTeam}
                   asOf={selectedDate}
-                  offTeam={
-                    teamFilter !== null && (card.team ?? "") !== teamFilter
+                  dimAvatar={
+                    teamFilter === null || (card.team ?? "") !== teamFilter
                   }
                 />
               )}
