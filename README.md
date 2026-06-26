@@ -74,7 +74,7 @@ make frontend       # build the SPA once into web/dist
 make run            # go run ./cmd/aeman serve
 ```
 
-`aeman serve` flags: `--addr` (listen address), `--owner` (default org/user), `--project` (default project number), `--lock-board` (pin the board and ignore client-supplied owner/project), `--open` (open browser), `--verbose`. The same defaults can be set via `AEMAN_ADDR`, `AEMAN_OWNER`, `AEMAN_PROJECT` and `AEMAN_LOCK_BOARD`.
+`aeman serve` flags: `--addr` (listen address), `--owner` (default org/user), `--project` (default project number), `--lock-board` (pin the board and ignore client-supplied owner/project), `--open` (open browser), `--verbose`. The owner/project/lock-board defaults can also be set via `AEMAN_OWNER`, `AEMAN_PROJECT` and `AEMAN_LOCK_BOARD`.
 
 ## API and MCP server
 
