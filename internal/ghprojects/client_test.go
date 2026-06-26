@@ -306,27 +306,79 @@ func TestLoadBoardNotFound(t *testing.T) {
 }
 
 // TestLoadBoardOrgMissingProject covers a confirmed organization owner whose
-// project number does not exist: the org query returns a non-nil organization
-// with a nil projectV2. The client must return ErrBoardNotFound directly,
-// without falling through to the user-project query (which would error on an
-// org login and surface as a 502 instead of a clean 404).
+// project number does not exist. It reproduces the REAL GitHub response shape:
+// data with organization present but projectV2 null, AND a non-empty errors
+// array carrying a NOT_FOUND type. The client must map this to ErrBoardNotFound
+// without falling through to the user-project query (which would error on an org
+// login and surface as a 502 instead of a clean 404).
 func TestLoadBoardOrgMissingProject(t *testing.T) {
-	client, fake := newClientWithFake(t, func(query string, _ map[string]any) string {
-		if strings.Contains(query, "organization(login:") {
-			return `{"organization":{"projectV2":null}}`
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query string `json:"query"`
 		}
-		return `{"user":null}`
-	})
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		queries = append(queries, body.Query)
+		// Exactly what api.github.com returns for a missing project on an org.
+		_, _ = w.Write([]byte(`{"data":{"organization":{"projectV2":null}},` +
+			`"errors":[{"type":"NOT_FOUND","path":["organization","projectV2"],` +
+			`"message":"Could not resolve to a ProjectV2 with the number 999999."}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New("test-token", WithEndpoint(srv.URL))
 	_, err := client.LoadBoard(context.Background(), "aenix-org", 999999)
 	if !errors.Is(err, ErrBoardNotFound) {
 		t.Fatalf("err = %v, want ErrBoardNotFound", err)
 	}
-	if len(fake.reqs) != 1 {
-		t.Fatalf("issued %d requests, want only the org query", len(fake.reqs))
+	if len(queries) != 1 {
+		t.Fatalf("issued %d queries, want only the org query", len(queries))
 	}
-	for _, r := range fake.reqs {
-		if strings.Contains(r.query, "user(login:") {
-			t.Fatalf("user query should not run for a confirmed org owner: %q", r.query)
+	if strings.Contains(queries[0], "user(login:") {
+		t.Fatalf("user query should not run for a confirmed org owner: %q", queries[0])
+	}
+}
+
+// TestLoadBoardMissingOwnerNotFound covers an owner that is neither an org nor a
+// user: both queries return null data with a NOT_FOUND error, which must map to
+// ErrBoardNotFound (a clean 404), not a 502.
+func TestLoadBoardMissingOwnerNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query string `json:"query"`
 		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		field := "organization"
+		if strings.Contains(body.Query, "user(login:") {
+			field = "user"
+		}
+		_, _ = w.Write([]byte(`{"data":{"` + field + `":null},` +
+			`"errors":[{"type":"NOT_FOUND","path":["` + field + `"],` +
+			`"message":"Could not resolve to a ` + field + `."}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New("test-token", WithEndpoint(srv.URL))
+	_, err := client.LoadBoard(context.Background(), "nobody-xyz", 1)
+	if !errors.Is(err, ErrBoardNotFound) {
+		t.Fatalf("err = %v, want ErrBoardNotFound", err)
+	}
+}
+
+// TestLoadBoardSurfacesNonNotFoundError ensures a genuine upstream failure (e.g.
+// rate limiting) is not masked as a 404.
+func TestLoadBoardSurfacesNonNotFoundError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":null,"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New("test-token", WithEndpoint(srv.URL))
+	_, err := client.LoadBoard(context.Background(), "acme", 7)
+	if err == nil || errors.Is(err, ErrBoardNotFound) {
+		t.Fatalf("err = %v, want a non-not-found error", err)
+	}
+	if !strings.Contains(err.Error(), "rate limit") {
+		t.Fatalf("err = %v, want it to surface the rate-limit message", err)
 	}
 }
