@@ -297,11 +297,15 @@ button {
 }
 
 /* ---- colour zone areas with a rotated label on the left spine ---- */
+/* A flex row [spine | cards]: the spine's vertical text sets a natural height,
+   so the zone never shrinks below its label. */
 .zone-area {
-  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
   border-left: 3px solid #ccc;
   border-radius: 0;
-  padding: 5px 6px 5px 22px;
+  padding: 5px 6px;
   min-height: 40px;
 }
 
@@ -310,19 +314,14 @@ button {
   outline-offset: -2px;
 }
 
-/* The zone's name set vertically in the left gutter (rotated 270°, reading
-   bottom-to-top) like a book spine. */
+/* The zone's name set vertically on the left (rotated 270°, reading bottom-to-
+   top) like a book spine. As a flex item its vertical text length is the zone's
+   natural height, so the area never becomes shorter than the label. */
 .zone-spine {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: none;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
+  text-align: center;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -362,6 +361,8 @@ button {
 }
 
 .zone-cards {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
