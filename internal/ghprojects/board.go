@@ -142,10 +142,14 @@ func (c *Client) LoadBoard(ctx context.Context, owner string, number int) (*Boar
 func (c *Client) loadProject(ctx context.Context, owner string, number int) (*rawProject, error) {
 	vars := map[string]any{"owner": owner, "number": number}
 	var orgData projectResult
-	if err := c.graphql(ctx, orgProjectQuery, vars, &orgData); err == nil {
-		if orgData.Organization != nil && orgData.Organization.ProjectV2 != nil {
+	if err := c.graphql(ctx, orgProjectQuery, vars, &orgData); err == nil && orgData.Organization != nil {
+		// Owner is a confirmed organization: the project either exists or it
+		// does not. Don't fall through to the user query (which would error on
+		// an org login and surface as a 502 instead of a clean not-found).
+		if orgData.Organization.ProjectV2 != nil {
 			return orgData.Organization.ProjectV2, nil
 		}
+		return nil, fmt.Errorf("%w: project #%d for %q", ErrBoardNotFound, number, owner)
 	}
 	var userData projectResult
 	if err := c.graphql(ctx, userProjectQuery, vars, &userData); err != nil {
