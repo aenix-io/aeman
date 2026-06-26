@@ -283,7 +283,9 @@ export function MeBoard({
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
     // Join the team's current sprint instead of starting a new one, so adding a
-    // card on a later day does not look like a new sprint and hide the rest.
+    // card on a later day does not look like a new sprint and hide the rest. The
+    // start date is the day it was created, so a card added during a running
+    // sprint does not appear retroactively on the sprint's earlier days.
     const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
     const optimistic: CardModel = {
       itemId: tempId,
@@ -292,9 +294,10 @@ export function MeBoard({
       assignees: viewMe ? [viewMe] : [],
       zone,
       day: selectedDate,
-      startDate: sprintStart,
+      startDate: selectedDate,
       sprintStart,
       team: team ?? undefined,
+      createdAt: new Date().toISOString(),
       description: "",
       notes: [],
     };
