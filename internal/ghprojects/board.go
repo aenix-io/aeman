@@ -139,24 +139,47 @@ func (c *Client) LoadBoard(ctx context.Context, owner string, number int) (*Boar
 }
 
 // loadProject fetches the raw project, trying the org query first then user.
+//
+// GitHub answers a missing project on an existing org with a non-null
+// organization, a null projectV2 and a NOT_FOUND error, so the decoded data
+// (not the error alone) tells us whether the owner resolved. A confirmed
+// organization with no such project maps straight to ErrBoardNotFound rather
+// than falling through to the user query (which would error on an org login and
+// surface as a 502).
 func (c *Client) loadProject(ctx context.Context, owner string, number int) (*rawProject, error) {
 	vars := map[string]any{"owner": owner, "number": number}
+
 	var orgData projectResult
-	if err := c.graphql(ctx, orgProjectQuery, vars, &orgData); err == nil && orgData.Organization != nil {
-		// Owner is a confirmed organization: the project either exists or it
-		// does not. Don't fall through to the user query (which would error on
-		// an org login and surface as a 502 instead of a clean not-found).
+	orgErr := c.graphql(ctx, orgProjectQuery, vars, &orgData)
+	if orgData.Organization != nil {
 		if orgData.Organization.ProjectV2 != nil {
 			return orgData.Organization.ProjectV2, nil
 		}
 		return nil, fmt.Errorf("%w: project #%d for %q", ErrBoardNotFound, number, owner)
 	}
+
+	// Owner is not an organization (or the org itself was not found); try the
+	// user query.
 	var userData projectResult
-	if err := c.graphql(ctx, userProjectQuery, vars, &userData); err != nil {
-		return nil, err
+	userErr := c.graphql(ctx, userProjectQuery, vars, &userData)
+	if userData.User != nil {
+		if userData.User.ProjectV2 != nil {
+			return userData.User.ProjectV2, nil
+		}
+		return nil, fmt.Errorf("%w: project #%d for %q", ErrBoardNotFound, number, owner)
 	}
-	if userData.User != nil && userData.User.ProjectV2 != nil {
-		return userData.User.ProjectV2, nil
+
+	// Neither an org nor a user project resolved. Treat pure NOT_FOUND results
+	// as a clean not-found, but surface any other upstream error (rate limit,
+	// network, auth) so it is not masked as a 404.
+	if isNotFoundErr(orgErr) || isNotFoundErr(userErr) {
+		return nil, fmt.Errorf("%w: project #%d for %q", ErrBoardNotFound, number, owner)
+	}
+	if userErr != nil {
+		return nil, userErr
+	}
+	if orgErr != nil {
+		return nil, orgErr
 	}
 	return nil, fmt.Errorf("%w: project #%d for %q", ErrBoardNotFound, number, owner)
 }

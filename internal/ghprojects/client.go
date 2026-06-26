@@ -72,13 +72,37 @@ func New(token string, opts ...Option) *Client {
 	return c
 }
 
-// graphQLError wraps one or more errors returned in a GraphQL response.
+// graphQLError wraps one or more errors returned in a GraphQL response. A
+// GraphQL response can carry both partial data and errors at once (e.g. a
+// NOT_FOUND on a nested field), so callers may still inspect the decoded data.
 type graphQLError struct {
 	messages []string
+	types    []string
 }
 
 func (e *graphQLError) Error() string {
 	return "github graphql: " + strings.Join(e.messages, "; ")
+}
+
+// isNotFound reports whether every error is a NOT_FOUND, i.e. the request
+// failed only because a requested resource does not exist.
+func (e *graphQLError) isNotFound() bool {
+	if len(e.types) == 0 {
+		return false
+	}
+	for _, t := range e.types {
+		if t != "NOT_FOUND" {
+			return false
+		}
+	}
+	return true
+}
+
+// isNotFoundErr reports whether err is a GraphQL error made up solely of
+// NOT_FOUND entries.
+func isNotFoundErr(err error) bool {
+	var ge *graphQLError
+	return errors.As(err, &ge) && ge.isNotFound()
 }
 
 // graphql executes a GraphQL document and decodes the data field into out.
@@ -116,26 +140,33 @@ func (c *Client) graphql(ctx context.Context, query string, vars map[string]any,
 		Data   json.RawMessage `json:"data"`
 		Errors []struct {
 			Message string `json:"message"`
+			Type    string `json:"type"`
 		} `json:"errors"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return fmt.Errorf("decode github graphql response (HTTP %d): %w", resp.StatusCode, err)
 	}
+
+	// Decode whatever data resolved before reporting errors: GitHub returns
+	// partial data alongside errors (e.g. organization present but projectV2
+	// null on a missing project), and callers rely on it to tell a missing
+	// resource from a hard failure.
+	if out != nil && len(envelope.Data) > 0 {
+		if err := json.Unmarshal(envelope.Data, out); err != nil && len(envelope.Errors) == 0 {
+			return fmt.Errorf("decode github graphql data: %w", err)
+		}
+	}
 	if len(envelope.Errors) > 0 {
 		msgs := make([]string, len(envelope.Errors))
+		types := make([]string, len(envelope.Errors))
 		for i, e := range envelope.Errors {
 			msgs[i] = e.Message
+			types[i] = e.Type
 		}
-		return &graphQLError{messages: msgs}
+		return &graphQLError{messages: msgs, types: types}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("github graphql: HTTP %d", resp.StatusCode)
-	}
-	if out == nil {
-		return nil
-	}
-	if err := json.Unmarshal(envelope.Data, out); err != nil {
-		return fmt.Errorf("decode github graphql data: %w", err)
 	}
 	return nil
 }
