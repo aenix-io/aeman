@@ -81,7 +81,13 @@ export function Card({
   onSetWeek,
   offTeam,
 }: CardProps) {
-  const value = card.stage === "done" ? 100 : card.progress ?? 0;
+  const rawValue = card.stage === "done" ? 100 : card.progress ?? 0;
+  // Locked / on-review cards show at least one segment, so the stage colour is
+  // visible even before any progress has been set.
+  const value =
+    rawValue === 0 && (card.stage === "locked" || card.stage === "review")
+      ? 10
+      : rawValue;
   const fill = barColor(card.stage);
   const ref = ticket(card);
 

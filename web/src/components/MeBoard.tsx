@@ -144,6 +144,21 @@ export function MeBoard({
     return Math.round(sum / myCards.length);
   }, [myCards]);
 
+  // Closed/total counts for the day — overall and per zone — for the status bar.
+  const dayStats = useMemo(() => {
+    const stat = (cards: CardModel[]) => ({
+      done: cards.filter((c) => c.stage === "done").length,
+      total: cards.length,
+    });
+    return {
+      total: stat(myCards),
+      red: stat(byZone.red),
+      yellow: stat(byZone.yellow),
+      gray: stat(byZone.gray),
+      green: stat(byZone.green),
+    };
+  }, [myCards, byZone]);
+
   // Card item ids in board (display) order, for grouping notes by card.
   const noteCardOrder = useMemo(
     () => ZONE_ORDER.flatMap((z) => byZone[z].map((c) => c.itemId)),
@@ -572,6 +587,23 @@ export function MeBoard({
           className="me-day-progress-fill"
           style={{ width: `${dayProgress}%` }}
         />
+      </div>
+      <div className="me-day-stats">
+        <span className="me-day-stat">
+          total: {dayStats.total.done}/{dayStats.total.total}
+        </span>
+        <span className="me-day-stat">
+          urgent: {dayStats.red.done}/{dayStats.red.total}
+        </span>
+        <span className="me-day-stat">
+          unplanned: {dayStats.yellow.done}/{dayStats.yellow.total}
+        </span>
+        <span className="me-day-stat">
+          planned: {dayStats.gray.done}/{dayStats.gray.total}
+        </span>
+        <span className="me-day-stat">
+          nice to have: {dayStats.green.done}/{dayStats.green.total}
+        </span>
       </div>
     </div>
   );
