@@ -711,6 +711,9 @@ export const githubProvider: Provider = {
       plan: input.plan ?? undefined,
       week: input.week ?? undefined,
       team: input.team ?? undefined,
+      // The item was just created; without this the age badge (and its date
+      // editor) would not render until the next full board reload.
+      createdAt: new Date().toISOString(),
       description: "",
       notes: [],
     };

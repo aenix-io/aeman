@@ -89,7 +89,14 @@ export function TeamBoard({
   const sprintRef = useRef<HTMLDivElement | null>(null);
   const [carryWeekOpen, setCarryWeekOpen] = useState(false);
   const carryWeekRef = useRef<HTMLDivElement | null>(null);
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => {
+    try {
+      const v = localStorage.getItem("aeman.columnOrder");
+      return v ? (JSON.parse(v) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [teamsModalOpen, setTeamsModalOpen] = useState(false);
   const [planCollapsed, setPlanCollapsed] = useState<boolean>(
@@ -129,6 +136,11 @@ export function TeamBoard({
       localStorage.setItem("aeman.planHeight", String(planHeight));
     }
   }, [planHeight]);
+
+  // Remember the hand-picked order of the people columns in the browser.
+  useEffect(() => {
+    localStorage.setItem("aeman.columnOrder", JSON.stringify(columnOrder));
+  }, [columnOrder]);
 
   useEffect(() => {
     if (!sprintMenuOpen) {
@@ -229,6 +241,7 @@ export function TeamBoard({
       plan,
       week: currentWeek,
       team: team ?? undefined,
+      createdAt: new Date().toISOString(),
       description: "",
       notes: [],
     };
@@ -693,6 +706,7 @@ export function TeamBoard({
       startDate: selectedDate,
       sprintStart,
       team: team ?? undefined,
+      createdAt: new Date().toISOString(),
       description: "",
       notes: [],
     };
