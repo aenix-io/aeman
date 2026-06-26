@@ -1520,13 +1520,15 @@ button.card-age {
   overflow: visible;
 }
 
-.team-weekly-progress {
+.team-weekly-progress,
+.me-day-progress {
   height: 3px;
   width: 100%;
   background: var(--line-soft);
 }
 
-.team-weekly-progress-fill {
+.team-weekly-progress-fill,
+.me-day-progress-fill {
   height: 100%;
   background: #3fb950;
   transition: width 0.2s;
