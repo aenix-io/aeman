@@ -37,7 +37,8 @@ type Options struct {
 	DefaultProject int
 	// LockBoard pins the UI to DefaultOwner/DefaultProject and hides the board
 	// picker. Users without access to that board (their own token can't read it)
-	// just see an access-denied screen.
+	// just see an access-denied screen. The /api/v1 API honours it too, ignoring
+	// client-supplied owner/project.
 	LockBoard bool
 	// Version is reported to the frontend via /api/config.
 	Version string
@@ -50,11 +51,19 @@ type Options struct {
 
 // Server is the aeman local HTTP server.
 type Server struct {
-	opts    Options
-	log     *slog.Logger
-	tokens  *ghcli.TokenSource
-	auth    *authManager
-	handler http.Handler
+	opts       Options
+	log        *slog.Logger
+	tokens     *ghcli.TokenSource
+	auth       *authManager
+	httpClient *http.Client
+	handler    http.Handler
+
+	// apiTokens resolves the token (and login) for an /api/v1 request. It
+	// defaults to tokenForRequest — the same resolution the /api/github proxy
+	// uses — and is overridden in tests.
+	apiTokens func(*http.Request) (token, login string, err error)
+	// graphqlEndpoint overrides the GitHub GraphQL endpoint (used in tests).
+	graphqlEndpoint string
 }
 
 // New builds a Server from the given options.
@@ -72,10 +81,12 @@ func New(opts Options) (*Server, error) {
 	}
 
 	s := &Server{
-		opts:   opts,
-		log:    opts.Logger,
-		tokens: ghcli.NewTokenSource(),
+		opts:       opts,
+		log:        opts.Logger,
+		tokens:     ghcli.NewTokenSource(),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
+	s.apiTokens = s.tokenForRequest
 	if opts.Auth != nil {
 		s.auth = newAuthManager(*opts.Auth, opts.Logger)
 	}
@@ -89,6 +100,7 @@ func New(opts Options) (*Server, error) {
 		mux.HandleFunc("/auth/callback", s.auth.handleCallback)
 		mux.HandleFunc("/auth/logout", s.auth.handleLogout)
 	}
+	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
 	s.handler = logRequests(s.log, mux)
 	return s, nil
