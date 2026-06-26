@@ -328,6 +328,26 @@ export function TeamBoard({
     });
   };
 
+  // Take a grid card into the weekly plan: mark it for the dropped band and the
+  // current week, while it stays assigned on the board (the same card). It then
+  // shows the weekly stripe in the grid and the "taken" tint in the plan.
+  const takeIntoPlan = (card: CardModel, band: "wed" | "fri") => {
+    const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
+    const weekChanged = card.week !== currentWeek;
+    patchCard(card.itemId, { plan: band, week: currentWeek });
+    void (async () => {
+      try {
+        await provider.setPlan(board, card, band);
+        if (weekChanged) {
+          await provider.setWeek(board, card, currentWeek);
+        }
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
   // Take a plan card into work: assign it to the column's person and add it to
   // today's daily sprint, while it stays in the weekly plan (the same card).
   const takePlanCard = (card: CardModel, engineer: string, dropZone?: ZoneKey) => {
@@ -519,8 +539,10 @@ export function TeamBoard({
             entry.ids.map((id) => id.replace(/^plan:/, "")),
           );
         }
+      } else if (fromMeta.kind === "cell" && toMeta.kind === "band") {
+        // Take a grid card into the weekly plan; it stays on the board.
+        takeIntoPlan(card, toMeta.band);
       }
-      // A grid card dropped onto a band is ignored.
       return;
     }
 
@@ -653,6 +675,27 @@ export function TeamBoard({
       try {
         await provider.setAssignee(board, card, null);
         await provider.setSprintStart(board, card, null);
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
+  // Remove a card from the weekly plan. If it was taken into work (assigned) it
+  // stays on the board — only the weekly marker (Plan + Week) is cleared;
+  // otherwise it is a pure plan card and gets deleted.
+  const removeFromPlan = (card: CardModel) => {
+    if (card.assignees.length === 0) {
+      handleDelete(card);
+      return;
+    }
+    const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
+    patchCard(card.itemId, { plan: undefined, week: undefined });
+    void (async () => {
+      try {
+        await provider.setPlan(board, card, null);
+        await provider.setWeek(board, card, null);
       } catch (err: unknown) {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
@@ -906,7 +949,7 @@ export function TeamBoard({
               selected={card.itemId === selectedCardId}
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
-              onDelete={handleDelete}
+              onDelete={removeFromPlan}
               onStage={handleStage}
               onRename={handleRename}
               onOpen={onOpen}
