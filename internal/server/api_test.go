@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -11,13 +10,9 @@ import (
 	"testing"
 )
 
-// staticToken is a token source that never touches gh.
-type staticToken struct{ tok string }
-
-func (s staticToken) Token(context.Context) (string, error) { return s.tok, nil }
-
 // fakeGraphQL spins up a stub GitHub GraphQL endpoint and returns an aeman
-// Server wired to it, plus a slice capturing the requests it received.
+// Server wired to it, plus a slice capturing the requests it received. The API
+// token is stubbed via the apiTokens seam so tests never touch gh or OAuth.
 func fakeGraphQL(t *testing.T, opts Options, respond func(query string, vars map[string]any) string) (*Server, *[]map[string]any) {
 	t.Helper()
 	var reqs []map[string]any
@@ -37,14 +32,12 @@ func fakeGraphQL(t *testing.T, opts Options, respond func(query string, vars map
 	t.Cleanup(gh.Close)
 
 	opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	opts.GraphQLEndpoint = gh.URL
-	if opts.Tokens == nil {
-		opts.Tokens = staticToken{tok: "test-token"}
-	}
 	srv, err := New(opts)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	srv.graphqlEndpoint = gh.URL
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "test-token", "tester", nil }
 	return srv, &reqs
 }
 
