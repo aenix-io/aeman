@@ -185,6 +185,44 @@ func TestAPIUpdateUnknownCardReturns404(t *testing.T) {
 	}
 }
 
+func TestAPIMoveCard(t *testing.T) {
+	srv, reqs := fakeGraphQL(t, Options{}, apiRespond)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/I_DRAFT/move?owner=acme&project=7", `{"afterId":"I_OTHER"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	sawMove := false
+	for _, r := range *reqs {
+		q, _ := r["query"].(string)
+		vars, _ := r["vars"].(map[string]any)
+		if strings.Contains(q, "updateProjectV2ItemPosition") && vars["item"] == "I_DRAFT" && vars["after"] == "I_OTHER" {
+			sawMove = true
+		}
+	}
+	if !sawMove {
+		t.Fatal("expected an updateProjectV2ItemPosition mutation with item=I_DRAFT after=I_OTHER")
+	}
+}
+
+func TestAPIMoveCardToTop(t *testing.T) {
+	srv, reqs := fakeGraphQL(t, Options{}, apiRespond)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/I_DRAFT/move?owner=acme&project=7", `{"afterId":null}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	sawMove := false
+	for _, r := range *reqs {
+		q, _ := r["query"].(string)
+		vars, _ := r["vars"].(map[string]any)
+		if strings.Contains(q, "updateProjectV2ItemPosition") && vars["item"] == "I_DRAFT" && vars["after"] == nil {
+			sawMove = true
+		}
+	}
+	if !sawMove {
+		t.Fatal("expected a move mutation with a nil after (move to top)")
+	}
+}
+
 func TestAPIAddNoteRequiresText(t *testing.T) {
 	srv, _ := fakeGraphQL(t, Options{}, apiRespond)
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards/I_DRAFT/notes?owner=acme&project=7", `{}`)

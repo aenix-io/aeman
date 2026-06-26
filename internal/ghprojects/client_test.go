@@ -3,6 +3,7 @@ package ghprojects
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -301,5 +302,31 @@ func TestLoadBoardNotFound(t *testing.T) {
 	_, err := client.LoadBoard(context.Background(), "ghost", 99)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("err = %v, want not found", err)
+	}
+}
+
+// TestLoadBoardOrgMissingProject covers a confirmed organization owner whose
+// project number does not exist: the org query returns a non-nil organization
+// with a nil projectV2. The client must return ErrBoardNotFound directly,
+// without falling through to the user-project query (which would error on an
+// org login and surface as a 502 instead of a clean 404).
+func TestLoadBoardOrgMissingProject(t *testing.T) {
+	client, fake := newClientWithFake(t, func(query string, _ map[string]any) string {
+		if strings.Contains(query, "organization(login:") {
+			return `{"organization":{"projectV2":null}}`
+		}
+		return `{"user":null}`
+	})
+	_, err := client.LoadBoard(context.Background(), "aenix-org", 999999)
+	if !errors.Is(err, ErrBoardNotFound) {
+		t.Fatalf("err = %v, want ErrBoardNotFound", err)
+	}
+	if len(fake.reqs) != 1 {
+		t.Fatalf("issued %d requests, want only the org query", len(fake.reqs))
+	}
+	for _, r := range fake.reqs {
+		if strings.Contains(r.query, "user(login:") {
+			t.Fatalf("user query should not run for a confirmed org owner: %q", r.query)
+		}
 	}
 }
