@@ -662,12 +662,25 @@ export function TeamBoard({
 
   // Move a card's start date; if it passes the finish date, push finish too.
   const handleSetTeam = (card: CardModel, team: string | null) => {
-    const prev = card.team;
-    patchCard(card.itemId, { team: team ?? undefined });
+    const prevTeam = card.team;
+    const prevSprint = card.sprintStart;
+    // Join the new team's running sprint, so a card moved between teams stays
+    // visible instead of dropping off when its old sprint predates the new
+    // team's current one (mirrors how a freshly created card joins a sprint).
+    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
+    patchCard(card.itemId, { team: team ?? undefined, sprintStart });
     void provider.setTeam(board, card, team).catch((err: unknown) => {
-      patchCard(card.itemId, { team: prev });
+      patchCard(card.itemId, { team: prevTeam });
       onError(errMessage(err));
     });
+    if (sprintStart !== prevSprint) {
+      void provider
+        .setSprintStart(board, card, sprintStart)
+        .catch((err: unknown) => {
+          patchCard(card.itemId, { sprintStart: prevSprint });
+          onError(errMessage(err));
+        });
+    }
   };
 
   const handleSetAssignee = (card: CardModel, login: string | null) => {
