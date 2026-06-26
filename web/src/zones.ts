@@ -3,6 +3,8 @@ import type { ProjectField, ZoneKey } from "./providers/types";
 export interface ZoneDef {
   key: ZoneKey;
   title: string;
+  /** Short uppercase label shown rotated on the zone's left spine. */
+  spine: string;
   description: string;
   accent: string;
   background: string;
@@ -19,6 +21,7 @@ export const ZONES: Record<ZoneKey, ZoneDef> = {
   gray: {
     key: "gray",
     title: "Planned",
+    spine: "PLANNED",
     description: "Regular, planned work",
     accent: "#8b949e",
     background: "#f3f4f6",
@@ -27,6 +30,7 @@ export const ZONES: Record<ZoneKey, ZoneDef> = {
   green: {
     key: "green",
     title: "If time left",
+    spine: "NICE TO HAVE",
     description: "Start only when every other zone is clear",
     accent: "#3fb950",
     background: "#eafaef",
@@ -35,6 +39,7 @@ export const ZONES: Record<ZoneKey, ZoneDef> = {
   yellow: {
     key: "yellow",
     title: "Unplanned",
+    spine: "UNPLANNED",
     description: "Popped up unplanned during the day",
     accent: "#d4a72c",
     background: "#fdf6df",
@@ -43,6 +48,7 @@ export const ZONES: Record<ZoneKey, ZoneDef> = {
   red: {
     key: "red",
     title: "Critical today",
+    spine: "URGENT",
     description: "Must be resolved before the end of the day",
     accent: "#f85149",
     background: "#fdecea",

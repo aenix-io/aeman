@@ -296,17 +296,40 @@ button {
   flex: none;
 }
 
-/* ---- colour zone areas (no labels, just colour) ---- */
+/* ---- colour zone areas with a rotated label on the left spine ---- */
 .zone-area {
+  position: relative;
   border-left: 3px solid #ccc;
   border-radius: 0;
-  padding: 5px 6px;
+  padding: 5px 6px 5px 22px;
   min-height: 40px;
 }
 
 .zone-area-dragover {
   outline: 2px dashed rgba(0, 0, 0, 0.28);
   outline-offset: -2px;
+}
+
+/* The zone's name set vertically in the left gutter (rotated 270°, reading
+   bottom-to-top) like a book spine. */
+.zone-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.9;
 }
 
 /* ---- dnd-kit drag styles ---- */
