@@ -433,7 +433,7 @@ button {
 /* A plan card taken into work (assigned on the board) gets a light-blue tint. */
 .card-plan-taken,
 .card-off-team {
-  background: rgba(9, 105, 218, 0.12);
+  background: #ffffff75;
 }
 
 .card-delete {
