@@ -131,6 +131,19 @@ export function MeBoard({
     return buckets;
   }, [myCards]);
 
+  // Overall completion across the day's cards (a done card counts as 100%) — the
+  // thin bar under the zones, mirroring the weekly plan's progress strip.
+  const dayProgress = useMemo(() => {
+    if (myCards.length === 0) {
+      return 0;
+    }
+    const sum = myCards.reduce(
+      (s, c) => s + (c.stage === "done" ? 100 : c.progress ?? 0),
+      0,
+    );
+    return Math.round(sum / myCards.length);
+  }, [myCards]);
+
   // Card item ids in board (display) order, for grouping notes by card.
   const noteCardOrder = useMemo(
     () => ZONE_ORDER.flatMap((z) => byZone[z].map((c) => c.itemId)),
@@ -521,6 +534,15 @@ export function MeBoard({
                 );
               }}
             />
+            <div
+              className="me-day-progress"
+              title={`${dayProgress}% done today`}
+            >
+              <div
+                className="me-day-progress-fill"
+                style={{ width: `${dayProgress}%` }}
+              />
+            </div>
           </div>
         </div>
 
