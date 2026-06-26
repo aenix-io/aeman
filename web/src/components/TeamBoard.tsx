@@ -920,7 +920,7 @@ export function TeamBoard({
               onSetDates={handleSetDates}
               weekMode
               onSetWeek={handleSetWeek}
-              dimAvatar={teamFilter === null || (card.team ?? "") !== teamFilter}
+              dimAvatar
             />
           ) : (
             <Card
@@ -940,7 +940,7 @@ export function TeamBoard({
               onSetAssignee={handleSetAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
-              dimAvatar={teamFilter === null || (card.team ?? "") !== teamFilter}
+              dimAvatar
             />
           )
         }
