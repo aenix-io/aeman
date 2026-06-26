@@ -431,9 +431,14 @@ button {
 }
 
 /* A plan card taken into work (assigned on the board) gets a light-blue tint. */
-.card-plan-taken,
-.card-off-team {
-  background: #ffffff75;
+.card-plan-taken {
+  background: #f4f4f4;
+}
+
+/* Team avatars are dimmed to 50% by default; only cards of the currently
+   selected team chip (in Me and Team) stay at full opacity. */
+.card-dim-avatar .team-avatar {
+  opacity: 0.5;
 }
 
 .card-delete {
