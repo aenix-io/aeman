@@ -40,6 +40,8 @@ interface CardProps {
   /** Plan-card mode: the age-badge editor moves the plan week instead of dates. */
   weekMode?: boolean;
   onSetWeek?: (card: CardModel, week: string | null) => void;
+  /** Tint a card that doesn't belong to the selected team (Me chip highlight). */
+  offTeam?: boolean;
 }
 
 const SEGMENTS = 10;
@@ -77,6 +79,7 @@ export function Card({
   onSetDates,
   weekMode,
   onSetWeek,
+  offTeam,
 }: CardProps) {
   const value = card.stage === "done" ? 100 : card.progress ?? 0;
   const fill = barColor(card.stage);
@@ -230,7 +233,7 @@ export function Card({
     <div
       className={`card${selected ? " card-selected" : ""}${
         card.plan ? ` card-plan-${card.plan}` : ""
-      }${taken ? " card-plan-taken" : ""}`}
+      }${taken ? " card-plan-taken" : ""}${offTeam ? " card-off-team" : ""}`}
       onClick={() => onSelect(card)}
       onDoubleClick={() => onOpen(card)}
       title={card.title}

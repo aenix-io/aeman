@@ -417,7 +417,8 @@ button {
 }
 
 /* A plan card taken into work (assigned on the board) gets a light-blue tint. */
-.card-plan-taken {
+.card-plan-taken,
+.card-off-team {
   background: #e7f1fd;
 }
 
