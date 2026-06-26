@@ -296,6 +296,20 @@ button {
   flex: none;
 }
 
+/* Day status bar (under the progress strip): closed/total per zone, like the
+   weekly plan's head. */
+.me-day-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 4px 10px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 /* ---- colour zone areas with a rotated label on the left spine ---- */
 /* A flex row [spine | cards]: the spine's vertical text sets a natural height,
    so the zone never shrinks below its label. */
@@ -419,7 +433,7 @@ button {
 /* A plan card taken into work (assigned on the board) gets a light-blue tint. */
 .card-plan-taken,
 .card-off-team {
-  background: #e7f1fd;
+  background: rgba(9, 105, 218, 0.12);
 }
 
 .card-delete {
