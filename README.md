@@ -74,7 +74,15 @@ make frontend       # build the SPA once into web/dist
 make run            # go run ./cmd/aeman serve
 ```
 
-`aeman serve` flags: `--addr` (listen address), `--owner` (default org/user), `--project` (default project number), `--open` (open browser), `--verbose`.
+`aeman serve` flags: `--addr` (listen address), `--owner` (default org/user), `--project` (default project number), `--lock-board` (pin the board and ignore client-supplied owner/project), `--open` (open browser), `--verbose`. The same defaults can be set via `AEMAN_ADDR`, `AEMAN_OWNER`, `AEMAN_PROJECT` and `AEMAN_LOCK_BOARD`.
+
+## API and MCP server
+
+The same binary exposes a Go-native GitHub Projects v2 client two ways: a JSON HTTP API under `/api/v1` and an MCP server for AI agents (`aeman mcp`, stdio transport). Both reuse aeman's token resolution (local `gh` token, or `GITHUB_TOKEN` for the MCP server) and share the same field mapping. See [docs/api.md](docs/api.md) for endpoints, the card model, the MCP tool set and client configuration.
+
+```sh
+aeman mcp --owner acme --project 7   # start the MCP server on stdio
+```
 
 ## Self-hosted deploy (multi-user)
 
