@@ -865,13 +865,9 @@ export function TeamBoard({
         onError(errMessage(err));
       });
 
-    // Put the original on the review stage.
-    const prevStage = card.stage;
-    patchCard(card.itemId, { stage: "review" });
-    void provider.setStage(board, card, "review").catch((err: unknown) => {
-      patchCard(card.itemId, { stage: prevStage });
-      onError(errMessage(err));
-    });
+    // Put the original on review. handleStage also drops a 100% card to 90%,
+    // since review/locked can't sit at full.
+    handleStage(card, "review");
   };
 
   const handleSetDates = (
