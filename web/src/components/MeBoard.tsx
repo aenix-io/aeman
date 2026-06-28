@@ -186,6 +186,26 @@ export function MeBoard({
     reload();
   };
 
+  // Drive an original card's review stage from its review card's progress:
+  // at 100% the original leaves review; below 100% it (re)enters review.
+  const syncOriginalReview = (original: CardModel, reviewProgress: number) => {
+    let next: StageKey | null | undefined;
+    if (reviewProgress === 100 && original.stage === "review") {
+      next = null;
+    } else if (reviewProgress < 100 && original.stage !== "review") {
+      next = "review";
+    }
+    if (next === undefined) {
+      return;
+    }
+    const prevStage = original.stage;
+    patchCard(original.itemId, { stage: next ?? undefined });
+    void provider.setStage(board, original, next).catch((err: unknown) => {
+      patchCard(original.itemId, { stage: prevStage });
+      onError(errMessage(err));
+    });
+  };
+
   const handleProgress = (card: CardModel, value: number) => {
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
@@ -214,6 +234,14 @@ export function MeBoard({
         onError(errMessage(err));
       }
     })();
+
+    // When this is a review card, its progress drives the original's review stage.
+    if (card.reviewOf) {
+      const original = board.cards.find((c) => c.itemId === card.reviewOf);
+      if (original) {
+        syncOriginalReview(original, value);
+      }
+    }
   };
 
   const handleStage = (card: CardModel, stage: StageKey | null) => {
@@ -225,11 +253,23 @@ export function MeBoard({
     if (stage === "done") {
       patch.progress = 100;
     }
+    // review/locked cards can never sit at 100%: knock a full card down to 90%.
+    const dropTo90 =
+      (stage === "review" || stage === "locked") && card.progress === 100;
+    if (dropTo90) {
+      patch.progress = 90;
+    }
     patchCard(card.itemId, patch);
     void provider.setStage(board, card, stage).catch((err: unknown) => {
       patchCard(card.itemId, prev);
       onError(errMessage(err));
     });
+    if (dropTo90) {
+      void provider.setProgress(board, card, 90).catch((err: unknown) => {
+        patchCard(card.itemId, { progress: prev.progress });
+        onError(errMessage(err));
+      });
+    }
   };
 
   const handleSetTeam = (card: CardModel, team: string | null) => {
@@ -264,9 +304,108 @@ export function MeBoard({
   };
 
   const handleDelete = (card: CardModel) => {
+    // If a review card links back to this one, delete both (with one confirm).
+    const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
+    if (linkedReview) {
+      if (
+        !window.confirm(
+          `Delete this card and its linked review card «${linkedReview.title}»?`,
+        )
+      ) {
+        return;
+      }
+      removeCard(linkedReview.itemId);
+      void provider.deleteCard(board, linkedReview).catch((err: unknown) => {
+        addCard(linkedReview);
+        onError(errMessage(err));
+      });
+    }
     removeCard(card.itemId);
     void provider.deleteCard(board, card).catch((err: unknown) => {
       addCard(card);
+      onError(errMessage(err));
+    });
+  };
+
+  // Item ids of cards that already have a linked review card (delete cascades).
+  const reviewedItemIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of board.cards) {
+      if (c.reviewOf) {
+        s.add(c.reviewOf);
+      }
+    }
+    return s;
+  }, [board.cards]);
+
+  // Reviewer suggestions: people on the same team as the card, minus its own
+  // assignee(s). The picker also accepts a free-text login.
+  const reviewersFor = (card: CardModel): string[] => {
+    const set = new Set<string>();
+    for (const c of board.cards) {
+      if ((c.team ?? "") !== (card.team ?? "")) {
+        continue;
+      }
+      for (const login of c.assignees) {
+        set.add(login);
+      }
+    }
+    for (const a of card.assignees) {
+      set.delete(a);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  };
+
+  // Send a card to review: create a linked review card for the reviewer (in the
+  // yellow/unplanned zone on the Me board) and put the original on review.
+  const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
+    const team = card.team ?? null;
+    const zone: ZoneKey = "yellow";
+    const sprintStart = sprintForNewCard(board.cards, team, selectedDate);
+    const title = `review: ${card.title}`;
+    const tempId = `tmp-${new Date().toISOString()}`;
+    const optimistic: CardModel = {
+      itemId: tempId,
+      title,
+      isDraft: true,
+      assignees: [reviewerLogin],
+      zone,
+      zoneOptionId: optionIdForZone(roles.zone, zone),
+      day: selectedDate,
+      startDate: selectedDate,
+      sprintStart,
+      team: team ?? undefined,
+      reviewOf: card.itemId,
+      createdAt: new Date().toISOString(),
+      description: "",
+      notes: [],
+    };
+    addCard(optimistic);
+    void provider
+      .createCard(board, {
+        title,
+        zone,
+        day: selectedDate,
+        start: selectedDate,
+        sprintStart,
+        assigneeLogin: reviewerLogin,
+        team,
+        reviewOf: card.itemId,
+      })
+      .then((created) => {
+        removeCard(tempId);
+        addCard(created);
+      })
+      .catch((err: unknown) => {
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
+
+    // Put the original on the review stage.
+    const prevStage = card.stage;
+    patchCard(card.itemId, { stage: "review" });
+    void provider.setStage(board, card, "review").catch((err: unknown) => {
+      patchCard(card.itemId, { stage: prevStage });
       onError(errMessage(err));
     });
   };
@@ -523,7 +662,11 @@ export function MeBoard({
                   onOpen={onOpen}
                   onRequestLock={onRequestLock}
                   teams={teams}
+                  users={users}
                   onSetTeam={handleSetTeam}
+                  onSendToReview={handleSendToReview}
+                  reviewerCandidates={reviewersFor(card)}
+                  hasLinkedReview={reviewedItemIds.has(card.itemId)}
                   asOf={selectedDate}
                   dimAvatar={
                     teamFilter === null || (card.team ?? "") !== teamFilter
