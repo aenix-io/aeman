@@ -410,9 +410,11 @@ button {
   box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.35);
 }
 
-/* Plan-linked cards in working views get a coloured left stripe by band. */
+/* Plan-linked cards in working views get a coloured left stripe by band; review
+   cards (linked back to an original) get a yellow stripe the same way. */
 .card-plan-wed::before,
-.card-plan-fri::before {
+.card-plan-fri::before,
+.card-review::before {
   content: "";
   position: absolute;
   left: 0;
@@ -428,6 +430,10 @@ button {
 
 .card-plan-fri::before {
   background: #8b5cf6;
+}
+
+.card-review::before {
+  background: #d4a72c;
 }
 
 /* A plan card taken into work (assigned on the board) gets a light-blue tint. */
@@ -1230,6 +1236,13 @@ button.card-age {
   border-top: 1px solid var(--line-soft);
   margin-top: 1px;
   border-radius: 0 0 4px 4px;
+}
+
+/* "Send to review" sits apart from the stage options, with its amber accent. */
+.card-stage-send-review {
+  color: #b8860b;
+  border-top: 1px solid var(--line-soft);
+  margin-top: 1px;
 }
 
 .card-stage-dot {
