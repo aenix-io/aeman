@@ -13,6 +13,7 @@ const ALIASES: Record<keyof FieldRoles, string[]> = {
   status: ["status", "статус"],
   stage: ["stage", "состояние"],
   team: ["team", "команда"],
+  reviewOf: ["review of", "reviewof"],
 };
 
 /** fieldRoles maps a board's fields onto well-known roles by name. */
