@@ -62,6 +62,11 @@ type createCardInput struct {
 	Status   string   `json:"status,omitempty" jsonschema:"status/stage single-select option name"`
 	Team     string   `json:"team,omitempty" jsonschema:"team field value"`
 	Progress *float64 `json:"progress,omitempty" jsonschema:"readiness percentage 0..100"`
+	// StartNewSprint controls sprint membership for a team card: omit for auto
+	// (join the team's running sprint, else start a new one today), true to force
+	// a new sprint today, false to force-join the current sprint. When engaged,
+	// startDate = sprintStart and day defaults to today.
+	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
 }
 
 func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, ghprojects.Card, error) {
@@ -70,13 +75,14 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		return nil, ghprojects.Card{}, err
 	}
 	card, err := client.CreateCard(ctx, board, ghprojects.CreateCardInput{
-		Title:    in.Title,
-		Zone:     ghprojects.ZoneKey(in.Zone),
-		Assignee: in.Assignee,
-		Day:      in.Day,
-		Status:   in.Status,
-		Team:     in.Team,
-		Progress: in.Progress,
+		Title:          in.Title,
+		Zone:           ghprojects.ZoneKey(in.Zone),
+		Assignee:       in.Assignee,
+		Day:            in.Day,
+		Status:         in.Status,
+		Team:           in.Team,
+		Progress:       in.Progress,
+		StartNewSprint: in.StartNewSprint,
 	})
 	if err != nil {
 		return nil, ghprojects.Card{}, err
