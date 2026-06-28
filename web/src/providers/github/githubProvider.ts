@@ -248,6 +248,8 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
       card.status = value.name;
     } else if (roles.team && fieldID === roles.team.id && value.text) {
       card.team = value.text;
+    } else if (roles.reviewOf && fieldID === roles.reviewOf.id && value.text) {
+      card.reviewOf = value.text;
     }
   }
   return card;
@@ -339,6 +341,7 @@ const FIELD_SPECS: Partial<Record<keyof FieldRoles, FieldSpec>> = {
   },
   week: { name: "Week", dataType: "DATE" },
   team: { name: "Team", dataType: "TEXT" },
+  reviewOf: { name: "Review Of", dataType: "TEXT" },
 };
 
 interface CreatedField {
@@ -673,6 +676,15 @@ export const githubProvider: Provider = {
         value: input.team,
       });
     }
+    if (input.reviewOf) {
+      const field = await ensureField(board, "reviewOf", "Review Of");
+      await graphql(SET_TEXT, {
+        project: board.id,
+        item: item.id,
+        field: field.id,
+        value: input.reviewOf,
+      });
+    }
     if (input.plan) {
       const planField = await ensureField(board, "plan", "Plan");
       const optionId = planField.options?.find(
@@ -711,6 +723,7 @@ export const githubProvider: Provider = {
       plan: input.plan ?? undefined,
       week: input.week ?? undefined,
       team: input.team ?? undefined,
+      reviewOf: input.reviewOf ?? undefined,
       // The item was just created; without this the age badge (and its date
       // editor) would not render until the next full board reload.
       createdAt: new Date().toISOString(),
