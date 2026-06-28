@@ -49,6 +49,26 @@ func (c *Client) CreateCard(ctx context.Context, board *Board, in CreateCardInpu
 	if strings.TrimSpace(in.Title) == "" {
 		return nil, fmt.Errorf("title is required")
 	}
+
+	// Sprint-aware date assignment, mirroring the Team board's create rule. It
+	// engages when the caller sets startNewSprint, or when the card has a team
+	// (so a teamless create with no flag keeps the legacy behaviour). Start date
+	// always equals the sprint start; day defaults to today. Fields the board
+	// lacks are skipped, so this never fails a create on a leaner board.
+	if in.StartNewSprint != nil || in.Team != "" {
+		today := time.Now().Format("2006-01-02")
+		sprintStart := board.sprintStartForNew(in.Team, in.StartNewSprint, today)
+		roles := board.roles()
+		if roles.SprintStart != nil {
+			in.SprintStart = sprintStart
+		}
+		if roles.Start != nil {
+			in.Start = sprintStart
+		}
+		if in.Day == "" && roles.Day != nil {
+			in.Day = today
+		}
+	}
 	var assigneeIDs []string
 	if in.Assignee != "" {
 		id, err := c.resolveUserID(ctx, in.Assignee)
@@ -81,6 +101,12 @@ func (c *Client) CreateCard(ctx context.Context, board *Board, in CreateCardInpu
 	}
 	if in.Day != "" {
 		update.Day = &in.Day
+	}
+	if in.Start != "" {
+		update.Start = &in.Start
+	}
+	if in.SprintStart != "" {
+		update.SprintStart = &in.SprintStart
 	}
 	if in.Status != "" {
 		update.Status = &in.Status
@@ -134,6 +160,16 @@ func (c *Client) applyUpdate(
 	}
 	if in.Day != nil {
 		if err := c.setDateRole(ctx, board, itemID, board.roles().Day, "day", *in.Day); err != nil {
+			return err
+		}
+	}
+	if in.Start != nil {
+		if err := c.setDateRole(ctx, board, itemID, board.roles().Start, "start", *in.Start); err != nil {
+			return err
+		}
+	}
+	if in.SprintStart != nil {
+		if err := c.setDateRole(ctx, board, itemID, board.roles().SprintStart, "sprintStart", *in.SprintStart); err != nil {
 			return err
 		}
 	}
