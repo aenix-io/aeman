@@ -1,6 +1,7 @@
 // Command aeman is a backend-less project management UI. It serves an embedded
 // single-page application and uses GitHub Projects v2 as its data backend,
-// authenticating through the local gh CLI or a GitHub OAuth web flow.
+// authenticating through the local gh CLI or a GitHub OAuth web flow. It also
+// exposes a native JSON API and an MCP server.
 package main
 
 import (
@@ -13,9 +14,12 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/aenix-org/aeman/internal/ghcli"
+	"github.com/aenix-org/aeman/internal/mcpserver"
 	"github.com/aenix-org/aeman/internal/server"
 )
 
@@ -37,6 +41,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "serve":
 		return runServe(args[1:])
+	case "mcp":
+		return runMCP(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println("aeman", version)
 		return nil
@@ -53,10 +59,11 @@ func usage() {
 
 Usage:
   aeman serve [flags]   Start the local server and open the UI
+  aeman mcp [flags]     Start the MCP server on stdio
   aeman version         Print the version
   aeman help            Show this help
 
-Run 'aeman serve --help' for serve flags.
+Run 'aeman serve --help' or 'aeman mcp --help' for flags.
 `)
 }
 
@@ -76,11 +83,7 @@ func runServe(args []string) error {
 		return fmt.Errorf("--lock-board requires --owner and --project (or AEMAN_OWNER/AEMAN_PROJECT)")
 	}
 
-	level := slog.LevelInfo
-	if *verbose {
-		level = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	logger := newLogger(*verbose)
 
 	// Multi-user GitHub OAuth mode is enabled when client credentials are set
 	// in the environment (kept out of flags so secrets stay out of `ps`).
@@ -120,6 +123,63 @@ func runServe(args []string) error {
 	}
 
 	return srv.Run(ctx)
+}
+
+func runMCP(args []string) error {
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "default GitHub org/user")
+	projectDefault, _ := strconv.Atoi(os.Getenv("AEMAN_PROJECT"))
+	project := fs.Int("project", projectDefault, "default GitHub Project number")
+	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin owner/project, ignoring per-tool overrides")
+	verbose := fs.Bool("verbose", false, "enable debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	logger := newLogger(*verbose)
+
+	srv := mcpserver.New(mcpserver.Config{
+		Owner:        *owner,
+		Project:      *project,
+		Lock:         *lockBoard,
+		Version:      version,
+		ResolveToken: resolveGitHubToken,
+	})
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	logger.Info("aeman MCP server ready on stdio", "owner", *owner, "project", *project, "locked", *lockBoard)
+	return mcpserver.Serve(ctx, srv)
+}
+
+// resolveGitHubToken returns a token from GITHUB_TOKEN/GH_TOKEN, falling back to
+// the local gh CLI (mirroring aeman's local run mode).
+func resolveGitHubToken(ctx context.Context) (string, error) {
+	for _, env := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
+		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+			return v, nil
+		}
+	}
+	out, err := ghcli.Run(ctx, "auth", "token")
+	if err != nil {
+		return "", err
+	}
+	tok := strings.TrimSpace(out)
+	if tok == "" {
+		return "", fmt.Errorf("no GitHub token; set GITHUB_TOKEN or run `gh auth login`")
+	}
+	return tok, nil
+}
+
+// newLogger builds a stderr logger. The MCP server speaks JSON-RPC on stdout, so
+// logs must never go there.
+func newLogger(verbose bool) *slog.Logger {
+	level := slog.LevelInfo
+	if verbose {
+		level = slog.LevelDebug
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 }
 
 // openBrowser tries to open url in the default browser. Failure is non-fatal.
