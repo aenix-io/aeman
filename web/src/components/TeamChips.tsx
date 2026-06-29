@@ -4,10 +4,11 @@ interface TeamChipsProps {
   label: string;
   /** Roster of teams to show as chips. */
   teams: string[];
-  /** The selected group key, or null for none. "" is the no-team group. */
-  selectedKey: string | null;
-  /** Select a group, or null to clear. */
-  onSelect: (key: string | null) => void;
+  /** The selected group keys, or null for all (no filter). "" is the no-team
+   *  group. Multi-select: Shift-click adds/removes a chip. */
+  selectedKeys: string[] | null;
+  /** Set the selection, or null to clear (show all). */
+  onSelect: (keys: string[] | null) => void;
   onAdd: (name: string) => void;
   onRemove: (team: string) => void;
   onRename: (from: string, to: string) => void;
@@ -23,7 +24,7 @@ interface TeamChipsProps {
 export function TeamChips({
   label,
   teams,
-  selectedKey,
+  selectedKeys,
   onSelect,
   onAdd,
   onRemove,
@@ -54,15 +55,28 @@ export function TeamChips({
     }
   };
 
-  // Single-select: clicking the active chip clears the selection.
-  const toggle = (key: string) => onSelect(selectedKey === key ? null : key);
+  // Plain click selects just this chip (clearing it if it was the only one);
+  // Shift-click adds/removes the chip in a multi-select.
+  const handleClick = (key: string, shift: boolean) => {
+    if (shift) {
+      const base = selectedKeys ?? [];
+      const next = base.includes(key)
+        ? base.filter((k) => k !== key)
+        : [...base, key];
+      onSelect(next.length ? next : null);
+      return;
+    }
+    onSelect(
+      selectedKeys?.length === 1 && selectedKeys[0] === key ? null : [key],
+    );
+  };
 
   return (
     <div className="field field-inline team-select">
       <span>{label}</span>
       <div className="team-chips">
         {teams.map((t) => {
-          const on = selectedKey === t;
+          const on = selectedKeys?.includes(t) ?? false;
           if (editingTeam === t) {
             return (
               <span className="team-chip team-filter-chip" key={t}>
@@ -92,7 +106,7 @@ export function TeamChips({
               <button
                 type="button"
                 className="team-chip-toggle"
-                onClick={() => toggle(t)}
+                onClick={(e) => handleClick(t, e.shiftKey)}
                 onDoubleClick={
                   canManage
                     ? () => {
@@ -103,7 +117,9 @@ export function TeamChips({
                 }
                 aria-pressed={on}
                 title={
-                  canManage ? "Click to select · double-click to rename" : "Click to select"
+                  canManage
+                    ? "Click to select · Shift-click to add · double-click to rename"
+                    : "Click to select · Shift-click to add"
                 }
               >
                 <span className="team-chip-name">{t}</span>
@@ -124,13 +140,13 @@ export function TeamChips({
         })}
         {noTeamChip && (
           <span
-            className={`team-chip team-filter-chip${selectedKey === "" ? "" : " team-filter-chip-off"}`}
+            className={`team-chip team-filter-chip${(selectedKeys?.includes("") ?? false) ? "" : " team-filter-chip-off"}`}
           >
             <button
               type="button"
               className="team-chip-toggle"
-              onClick={() => toggle("")}
-              aria-pressed={selectedKey === ""}
+              onClick={(e) => handleClick("", e.shiftKey)}
+              aria-pressed={selectedKeys?.includes("") ?? false}
               title="Cards with no team"
             >
               <span className="team-chip-name team-col-unassigned">No team</span>

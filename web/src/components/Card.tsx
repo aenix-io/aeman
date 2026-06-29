@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
-import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
+import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { addDays, daysSince, todayIso, mondayOf } from "../date";
@@ -23,6 +23,9 @@ interface CardProps {
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
   onStage: (card: CardModel, stage: StageKey | null) => void;
+  /** Pick the implicit "In Progress" status: clears the stage and clamps the
+   *  card's progress into [10, 90]. */
+  onInProgress: (card: CardModel) => void;
   onRename: (card: CardModel, title: string) => void;
   onOpen: (card: CardModel) => void;
   /** Locking requires a reason, gathered in a modal lifted to App. */
@@ -33,14 +36,15 @@ interface CardProps {
   users?: Record<string, GhUser>;
   onSetTeam?: (card: CardModel, team: string | null) => void;
   onSetAssignee?: (card: CardModel, login: string | null) => void;
-  /** Send the card to review: creates a linked review card for the chosen
-   *  reviewer and puts this card on the review stage (hidden on review cards). */
-  onSendToReview?: (card: CardModel, reviewerLogin: string) => void;
-  /** Reviewer suggestions for the "send to review" picker (same-team people). */
-  reviewerCandidates?: string[];
   /** This card has a linked review card; deleting it cascades (the board owns
    *  the combined confirmation, so the card skips its own delete prompt). */
   hasLinkedReview?: boolean;
+  /** Assignees of the linked counterpart card — the reviewer(s) on an original
+   *  under review, the implementer(s) on a review card. */
+  counterpartAssignees?: string[];
+  /** Manage the linked review card from the counterpart menu: a login reassigns
+   *  the review card, null deletes it. Only when this card has a linked review. */
+  onSetReviewAssignee?: (card: CardModel, login: string | null) => void;
   /** The day the board is showing; the age badge is measured up to it. */
   asOf?: string;
   /** Edit the card's start/end dates from the age badge (when provided). */
@@ -76,6 +80,7 @@ export function Card({
   onProgress,
   onDelete,
   onStage,
+  onInProgress,
   onRename,
   onOpen,
   onRequestLock,
@@ -84,9 +89,9 @@ export function Card({
   users,
   onSetTeam,
   onSetAssignee,
-  onSendToReview,
-  reviewerCandidates,
   hasLinkedReview,
+  counterpartAssignees,
+  onSetReviewAssignee,
   asOf,
   onSetDates,
   weekMode,
@@ -109,7 +114,6 @@ export function Card({
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [personInput, setPersonInput] = useState("");
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewerInput, setReviewerInput] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const assignRef = useRef<HTMLDivElement | null>(null);
@@ -140,7 +144,10 @@ export function Card({
     }
     const rect = barRef.current.getBoundingClientRect();
     const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
-    const snapped = Math.min(100, Math.max(0, Math.round(frac * 10) * 10));
+    // review/locked keep at least one filled segment; other cards can reach 0%
+    // (which clears the status).
+    const min = card.stage === "review" || card.stage === "locked" ? 10 : 0;
+    const snapped = Math.min(100, Math.max(min, Math.round(frac * 10) * 10));
     if (snapped !== dragValue) {
       setDragValue(snapped);
     }
@@ -177,6 +184,12 @@ export function Card({
     onStage(card, stage);
   };
 
+  const pickInProgress = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    onInProgress(card);
+  };
+
   // Locking opens a modal (lifted to App) to gather the reason note.
   const requestLock = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -193,19 +206,6 @@ export function Card({
     setAssignOpen(false);
     setPersonInput("");
     onSetAssignee?.(card, login);
-  };
-
-  // Open the reviewer picker from the stage menu's "Send to review" item.
-  const openSendToReview = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    setMenuOpen(false);
-    setReviewOpen(true);
-  };
-
-  const pickReviewer = (login: string) => {
-    setReviewOpen(false);
-    setReviewerInput("");
-    onSendToReview?.(card, login);
   };
 
   const openDates = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -298,7 +298,9 @@ export function Card({
           onBlur={() => setEditing(false)}
         />
       ) : (
-        <span className="card-title">{card.title}</span>
+        <span className="card-title" title={card.title}>
+          {card.title}
+        </span>
       )}
 
       {ref && <span className="card-ticket">{ref}</span>}
@@ -333,6 +335,17 @@ export function Card({
             onClose={() => setMenuOpen(false)}
             className="card-stage-menu"
           >
+            <button
+              type="button"
+              className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
+              onClick={pickInProgress}
+            >
+              <span
+                className="card-stage-dot"
+                style={{ background: DEFAULT_BAR_COLOR }}
+              />
+              In Progress
+            </button>
             {STAGE_ORDER.map((stage) =>
               // A review card cannot be put on the "review" stage itself.
               stage === "review" && card.reviewOf ? null : (
@@ -352,61 +365,6 @@ export function Card({
                 </button>
               ),
             )}
-            <button
-              type="button"
-              className="card-stage-item card-stage-clear"
-              onClick={(e) => pickStage(e, null)}
-            >
-              Clear
-            </button>
-            {onSendToReview && !card.reviewOf && (
-              <button
-                type="button"
-                className="card-stage-item card-stage-send-review"
-                onClick={openSendToReview}
-              >
-                Send to review…
-              </button>
-            )}
-          </Dropdown>
-          <Dropdown
-            open={reviewOpen}
-            anchorRef={menuRef}
-            onClose={() => setReviewOpen(false)}
-            className="card-stage-menu card-review-menu"
-          >
-            <div className="card-assign-head">Reviewer</div>
-            {(reviewerCandidates ?? []).map((p) => (
-              <button
-                key={`rev-${p}`}
-                type="button"
-                className="card-stage-item"
-                onClick={() => pickReviewer(p)}
-              >
-                <img
-                  className="avatar-img"
-                  src={avatarUrlFor(p, users?.[p])}
-                  alt={p}
-                />
-                {displayName(p, users?.[p])}
-              </button>
-            ))}
-            <input
-              type="text"
-              className="add-card-input card-assign-input"
-              placeholder="reviewer login…"
-              value={reviewerInput}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setReviewerInput(e.target.value)}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Enter" && reviewerInput.trim()) {
-                  pickReviewer(reviewerInput.trim());
-                } else if (e.key === "Escape") {
-                  setReviewOpen(false);
-                }
-              }}
-            />
           </Dropdown>
         </div>
         <button
@@ -525,7 +483,7 @@ export function Card({
         </div>
       )}
 
-      {(card.team || canAssign) && (
+      {(card.team || canAssign || (counterpartAssignees?.length ?? 0) > 0) && (
         <div className="card-assign" ref={assignRef}>
           {card.team ? (
             <button
@@ -563,12 +521,49 @@ export function Card({
               +
             </button>
           )}
+          {counterpartAssignees && counterpartAssignees.length > 0 && (
+            <button
+              type="button"
+              className="card-counterpart-avatar-btn"
+              title={`${card.reviewOf ? "In implementation" : "On review"}: ${counterpartAssignees
+                .map((p) => displayName(p, users?.[p]))
+                .join(", ")}`}
+              onClick={
+                canAssign
+                  ? (e) => {
+                      e.stopPropagation();
+                      setAssignOpen((o) => !o);
+                    }
+                  : undefined
+              }
+            >
+              <img
+                className="card-counterpart-avatar"
+                src={avatarUrlFor(
+                  counterpartAssignees[0],
+                  users?.[counterpartAssignees[0]],
+                )}
+                alt={displayName(
+                  counterpartAssignees[0],
+                  users?.[counterpartAssignees[0]],
+                )}
+              />
+            </button>
+          )}
           <Dropdown
             open={assignOpen}
             anchorRef={assignRef}
             onClose={() => setAssignOpen(false)}
             className="card-stage-menu card-assign-menu"
           >
+            {counterpartAssignees && counterpartAssignees.length > 0 && (
+              <div className="card-counterpart-head">
+                {card.reviewOf ? "In implementation" : "On review"}:{" "}
+                {counterpartAssignees
+                  .map((p) => displayName(p, users?.[p]))
+                  .join(", ")}
+              </div>
+            )}
             <div className="card-assign-cols">
               {onSetTeam && (
                 <div className="card-assign-col">
@@ -629,6 +624,57 @@ export function Card({
                       e.stopPropagation();
                       if (e.key === "Enter" && personInput.trim()) {
                         pickAssignPerson(personInput.trim());
+                      } else if (e.key === "Escape") {
+                        setAssignOpen(false);
+                      }
+                    }}
+                  />
+                </div>
+              )}
+              {card.stage === "review" && onSetReviewAssignee && (
+                <div className="card-assign-col">
+                  <div className="card-assign-head">Reviewer</div>
+                  {(people ?? []).map((p) => (
+                    <button
+                      key={`r-${p}`}
+                      type="button"
+                      className={`card-stage-item${(counterpartAssignees ?? []).includes(p) ? " card-stage-item-active" : ""}`}
+                      onClick={() => {
+                        onSetReviewAssignee(card, p);
+                        setAssignOpen(false);
+                      }}
+                    >
+                      <img
+                        className="avatar-img"
+                        src={avatarUrlFor(p, users?.[p])}
+                        alt={p}
+                      />
+                      {displayName(p, users?.[p])}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="card-stage-item card-stage-clear"
+                    onClick={() => {
+                      onSetReviewAssignee(card, null);
+                      setAssignOpen(false);
+                    }}
+                  >
+                    Remove reviewer
+                  </button>
+                  <input
+                    type="text"
+                    className="add-card-input card-assign-input"
+                    placeholder="reviewer login…"
+                    value={reviewerInput}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setReviewerInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter" && reviewerInput.trim()) {
+                        onSetReviewAssignee(card, reviewerInput.trim());
+                        setReviewerInput("");
+                        setAssignOpen(false);
                       } else if (e.key === "Escape") {
                         setAssignOpen(false);
                       }

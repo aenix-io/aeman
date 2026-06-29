@@ -1090,6 +1090,37 @@ button.card-age {
   outline-offset: -1px;
 }
 
+/* Linked review counterpart: a small avatar of the counterpart card's assignee
+   (reviewer on an original, implementer on a review card) half-overlapping the
+   team circle from above; clicking it opens the same team/person assign menu. */
+.card-counterpart-avatar-btn {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+  z-index: 1;
+}
+.card-counterpart-avatar {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--bg);
+  background: var(--line);
+}
+.card-counterpart-head {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--faint);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
 .card-bar {
   position: absolute;
   left: 6px;

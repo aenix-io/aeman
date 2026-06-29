@@ -73,10 +73,19 @@ export function App() {
   const [addedTeams, setAddedTeams] = useState<string[]>(
     () => readStringList(LS_TEAM_ROSTER) ?? [],
   );
-  // Single-select team filter: null = all, "" = no team, else a team name.
-  const [teamFilter, setTeamFilter] = useState<string | null>(() => {
+  // Team filter: null = all, else the selected groups ("" = no-team). Multi-select
+  // — Shift-click a chip to add/remove it.
+  const [teamFilter, setTeamFilter] = useState<string[] | null>(() => {
     const v = localStorage.getItem(LS_TEAM_FILTER);
-    return v && !v.startsWith("[") ? v : null;
+    if (!v) {
+      return null;
+    }
+    try {
+      const arr: unknown = JSON.parse(v);
+      return Array.isArray(arr) && arr.length ? (arr as string[]) : null;
+    } catch {
+      return [v]; // legacy single-value filter
+    }
   });
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
@@ -157,8 +166,14 @@ export function App() {
       writeStringList(LS_TEAM_ROSTER, next);
       return next;
     });
-    // Clear the filter if it pointed at the removed team.
-    setTeamFilter((cur) => (cur === team ? null : cur));
+    // Drop the removed team from the filter (clearing it if it becomes empty).
+    setTeamFilter((cur) => {
+      if (cur === null) {
+        return cur;
+      }
+      const next = cur.filter((k) => k !== team);
+      return next.length ? next : null;
+    });
   }, []);
 
   // Persist the filter whenever it changes (null means "all", we store nothing).
@@ -166,7 +181,7 @@ export function App() {
     if (teamFilter === null) {
       localStorage.removeItem(LS_TEAM_FILTER);
     } else {
-      localStorage.setItem(LS_TEAM_FILTER, teamFilter);
+      localStorage.setItem(LS_TEAM_FILTER, JSON.stringify(teamFilter));
     }
   }, [teamFilter]);
 
@@ -297,7 +312,9 @@ export function App() {
         writeStringList(LS_TEAM_ROSTER, next);
         return next;
       });
-      setTeamFilter((cur) => (cur === from ? t : cur));
+      setTeamFilter((cur) =>
+        cur === null ? cur : cur.map((k) => (k === from ? t : k)),
+      );
       setBoard((cur) => {
         if (!cur) {
           return cur;
