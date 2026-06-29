@@ -1,6 +1,21 @@
-import type { Card } from "./providers/types";
+import type { Board, Card } from "./providers/types";
 
 const teamKey = (team: string | null | undefined): string => team ?? "";
+
+/** currentSprint returns a team's current sprint start from its state card
+ * (null when the team has no sprint yet). team = null is the no-team group. */
+export function currentSprint(board: Board, team: string | null): string | null {
+  return board.sprintStates[team ?? ""]?.current ?? null;
+}
+
+/** previousSprint returns a team's previous sprint start from its state card
+ * (null when the team has no prior sprint). team = null is the no-team group. */
+export function previousSprint(
+  board: Board,
+  team: string | null,
+): string | null {
+  return board.sprintStates[team ?? ""]?.previous ?? null;
+}
 
 /** currentSprintByTeam maps each team key (team name, or "" for no team) to its
  * current sprint date: the latest sprintStart on or before `asOf`. */
