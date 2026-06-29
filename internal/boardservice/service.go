@@ -57,6 +57,23 @@ func (s *Service) loadCard(ctx context.Context, owner string, project int, itemI
 	return b, card, nil
 }
 
+// --- Snapshot --------------------------------------------------------------
+
+// Board returns the full board snapshot: identity, fields, the visible cards and
+// the per-team sprint pointers. The API/MCP board endpoint builds its meta
+// response (fields + sprint states) from it.
+func (s *Service) Board(ctx context.Context, owner string, project int) (board.Board, error) {
+	return s.backend.LoadBoard(ctx, owner, project)
+}
+
+// Card loads the board and returns a single card by item id (ErrCardNotFound
+// when absent). The API/MCP layer uses it to return the card resulting from an
+// action, mirroring the way the UI re-renders the card it just changed.
+func (s *Service) Card(ctx context.Context, owner string, project int, itemID string) (board.Card, error) {
+	_, card, err := s.loadCard(ctx, owner, project, itemID)
+	return card, err
+}
+
 // --- Views -----------------------------------------------------------------
 
 // TeamView returns the Team board's grid cards for a team on a day (day = "" is
