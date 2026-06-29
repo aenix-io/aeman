@@ -36,8 +36,8 @@ interface TeamBoardProps {
   /** Known teams (the roster), shown as filter chips. */
   roster: string[];
   /** Single-select team filter: null = all, "" = no team, else a team name. */
-  teamFilter: string | null;
-  onSetFilter: (key: string | null) => void;
+  teamFilter: string[] | null;
+  onSetFilter: (keys: string[] | null) => void;
   onAddTeam: (team: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
@@ -183,7 +183,7 @@ export function TeamBoard({
 
   // Single-select: no filter shows all; otherwise match the card's group.
   const passesFilter = (card: CardModel): boolean =>
-    teamFilter === null || (card.team ?? "") === teamFilter;
+    teamFilter === null || teamFilter.includes(card.team ?? "");
 
   // Cards passing the team filter (the scope before applying the sprint).
   const inFilter = useMemo(
@@ -217,9 +217,9 @@ export function TeamBoard({
   } | null>(() => {
     let cur: string | null;
     let prev: string | null;
-    if (teamFilter !== null) {
-      cur = currentSprint(board, teamFilter);
-      prev = previousSprint(board, teamFilter);
+    if (teamFilter?.length === 1) {
+      cur = currentSprint(board, teamFilter[0]);
+      prev = previousSprint(board, teamFilter[0]);
     } else {
       cur = null;
       prev = null;
@@ -496,7 +496,7 @@ export function TeamBoard({
 
   // New cards default to the filtered team; null = all (show picker), "" = no team.
   const forcedTeam = useMemo(
-    () => (teamFilter === null ? undefined : teamFilter || null),
+    () => (teamFilter?.length === 1 ? teamFilter[0] || null : undefined),
     [teamFilter],
   );
 
@@ -672,7 +672,12 @@ export function TeamBoard({
     });
   };
 
-  const handleProgress = (card: CardModel, value: number) => {
+  const handleProgress = (card: CardModel, raw: number) => {
+    // review/locked cards never drop below the one-segment minimum (10%).
+    const value =
+      (card.stage === "review" || card.stage === "locked") && raw < 10
+        ? 10
+        : raw;
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
     // Auto-link progress and "done": 100% sets done (unless review/locked is on),
@@ -735,6 +740,41 @@ export function TeamBoard({
         patchCard(card.itemId, { progress: prev.progress });
         onError(errMessage(err));
       });
+    }
+  };
+
+  // "In Progress" is the implicit status (no stage, progress in [10, 90]).
+  // Picking it clears any stage and clamps progress into that band: under 10
+  // becomes 10, a done/full card drops to 90, otherwise the value is kept.
+  const handleInProgress = (card: CardModel) => {
+    const cur = card.progress ?? 0;
+    let value = cur;
+    if (cur < 10) {
+      value = 10;
+    } else if (card.stage === "done" || cur >= 100) {
+      value = 90;
+    }
+    const prev: Partial<CardModel> = { stage: card.stage, progress: card.progress };
+    patchCard(card.itemId, { stage: undefined, progress: value });
+    void (async () => {
+      try {
+        await provider.setStage(board, card, null);
+        if (value !== cur) {
+          await provider.setProgress(board, card, value);
+        }
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+
+    // A review card's progress drives its original's review stage; keep that
+    // in sync when In Progress changes it (e.g. a done review card reopens it).
+    if (card.reviewOf && value !== cur) {
+      const original = board.cards.find((c) => c.itemId === card.reviewOf);
+      if (original) {
+        syncOriginalReview(original, value);
+      }
     }
   };
 
@@ -910,20 +950,40 @@ export function TeamBoard({
 
   // Reviewer suggestions: people on the same team as the card, minus its own
   // assignee(s). The picker also accepts a free-text login.
-  const reviewersFor = (card: CardModel): string[] => {
-    const set = new Set<string>();
-    for (const c of board.cards) {
-      if ((c.team ?? "") !== (card.team ?? "")) {
-        continue;
+  // Assignees of a card's linked review counterpart: an original's reviewer(s),
+  // or a review card's implementer(s).
+  const counterpartAssigneesFor = (card: CardModel): string[] => {
+    const linked = card.reviewOf
+      ? board.cards.find((c) => c.itemId === card.reviewOf)
+      : board.cards.find((c) => c.reviewOf === card.itemId);
+    return linked?.assignees ?? [];
+  };
+
+  // Reassign the linked review card to another person, or (login = null) delete
+  // it — driven from the counterpart avatar's menu.
+  const handleSetReviewAssignee = (card: CardModel, login: string | null) => {
+    const reviewCard = board.cards.find((c) => c.reviewOf === card.itemId);
+    if (login === null) {
+      if (reviewCard) {
+        removeCard(reviewCard.itemId);
+        void provider.deleteCard(board, reviewCard).catch((err: unknown) => {
+          addCard(reviewCard);
+          onError(errMessage(err));
+        });
       }
-      for (const login of c.assignees) {
-        set.add(login);
-      }
+      return;
     }
-    for (const a of card.assignees) {
-      set.delete(a);
+    if (!reviewCard) {
+      // No review yet — assigning a reviewer sends the card to review.
+      handleSendToReview(card, login);
+      return;
     }
-    return [...set].sort((a, b) => a.localeCompare(b));
+    const prev = reviewCard.assignees;
+    patchCard(reviewCard.itemId, { assignees: [login] });
+    void provider.setAssignee(board, reviewCard, login).catch((err: unknown) => {
+      patchCard(reviewCard.itemId, { assignees: prev });
+      onError(errMessage(err));
+    });
   };
 
   // Send a card to review: create a linked review card for the reviewer (in the
@@ -1144,7 +1204,7 @@ export function TeamBoard({
         <TeamChips
           label="Team"
           teams={roster}
-          selectedKey={teamFilter}
+          selectedKeys={teamFilter}
           onSelect={onSetFilter}
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
@@ -1184,17 +1244,17 @@ export function TeamBoard({
             type="button"
             className="btn sprint-btn"
             onClick={() => {
-              if (teamFilter === null) {
-                setSprintMenuOpen((o) => !o);
+              if (teamFilter?.length === 1) {
+                void startSprint(teamFilter[0] === "" ? null : teamFilter[0]);
               } else {
-                void startSprint(teamFilter === "" ? null : teamFilter);
+                setSprintMenuOpen((o) => !o);
               }
             }}
             title={`Start a new sprint (today) for the selected team`}
           >
-            Carry over{teamFilter === null ? " ▾" : " →"}
+            Carry over{teamFilter?.length === 1 ? " →" : " ▾"}
           </button>
-          {teamFilter === null && sprintMenuOpen && (
+          {teamFilter?.length !== 1 && sprintMenuOpen && (
             <div className="card-stage-menu sprint-menu">
               {roster.map((t) => (
                 <button
@@ -1234,6 +1294,7 @@ export function TeamBoard({
               onProgress={handleProgress}
               onDelete={removeFromPlan}
               onStage={handleStage}
+              onInProgress={handleInProgress}
               onRename={handleRename}
               onOpen={onOpen}
               onRequestLock={onRequestLock}
@@ -1242,9 +1303,9 @@ export function TeamBoard({
               users={users}
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
-              onSendToReview={handleSendToReview}
-              reviewerCandidates={reviewersFor(card)}
               hasLinkedReview={reviewedItemIds.has(card.itemId)}
+              counterpartAssignees={counterpartAssigneesFor(card)}
+              onSetReviewAssignee={handleSetReviewAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
               weekMode
@@ -1259,6 +1320,7 @@ export function TeamBoard({
               onProgress={handleProgress}
               onDelete={handleGridDelete}
               onStage={handleStage}
+              onInProgress={handleInProgress}
               onRename={handleRename}
               onOpen={onOpen}
               onRequestLock={onRequestLock}
@@ -1267,9 +1329,9 @@ export function TeamBoard({
               users={users}
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
-              onSendToReview={handleSendToReview}
-              reviewerCandidates={reviewersFor(card)}
               hasLinkedReview={reviewedItemIds.has(card.itemId)}
+              counterpartAssignees={counterpartAssigneesFor(card)}
+              onSetReviewAssignee={handleSetReviewAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
               dimAvatar
@@ -1284,6 +1346,7 @@ export function TeamBoard({
               onProgress={() => {}}
               onDelete={() => {}}
               onStage={() => {}}
+              onInProgress={() => {}}
               onRename={() => {}}
               onOpen={() => {}}
               onRequestLock={() => {}}
@@ -1426,19 +1489,19 @@ export function TeamBoard({
                             type="button"
                             className="btn"
                             onClick={() => {
-                              if (teamFilter === null) {
-                                setCarryWeekOpen((o) => !o);
-                              } else {
+                              if (teamFilter?.length === 1) {
                                 handleCarryWeek(
-                                  teamFilter === "" ? null : teamFilter,
+                                  teamFilter[0] === "" ? null : teamFilter[0],
                                 );
+                              } else {
+                                setCarryWeekOpen((o) => !o);
                               }
                             }}
                             title="Move unfinished plan cards to next week"
                           >
-                            Carry over week{teamFilter === null ? " ▾" : " →"}
+                            Carry over week{teamFilter?.length === 1 ? " →" : " ▾"}
                           </button>
-                          {teamFilter === null && (
+                          {teamFilter?.length !== 1 && (
                             <Dropdown
                               open={carryWeekOpen}
                               anchorRef={carryWeekRef}
