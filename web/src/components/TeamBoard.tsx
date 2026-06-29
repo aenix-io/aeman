@@ -284,36 +284,39 @@ export function TeamBoard({
       });
   };
 
-  // Weekly carry over: move unfinished plan cards of the current week to next
-  // week (its own cycle, separate from the daily Carry over).
+  // Weekly carry over: pull a team's unfinished plan cards from earlier weeks
+  // into the current (selected) week — the weekly analogue of the daily sprint
+  // carry over, so a new week's empty plan can absorb last week's leftovers.
   const handleCarryWeek = (team: string | null) => {
     setCarryWeekOpen(false);
     const label = team ?? "no team";
-    const nextWeek = addDays(currentWeek, 7);
     const carry = board.cards.filter(
       (c) =>
         c.plan &&
-        c.week === currentWeek &&
+        c.week != null &&
+        c.week < currentWeek &&
         c.stage !== "done" &&
         // Skip not-yet-persisted optimistic cards (temporary ids).
         !c.itemId.startsWith("tmp-") &&
         (team === null ? c.team == null : c.team === team),
     );
     if (carry.length === 0) {
-      onError(`No unfinished plan cards for "${label}" to carry to next week.`);
+      onError(
+        `No unfinished plan cards from earlier weeks for "${label}" to carry into the week of ${currentWeek}.`,
+      );
       return;
     }
     if (
       !window.confirm(
-        `Carry over ${carry.length} unfinished plan card(s) for "${label}" to the week of ${nextWeek}?`,
+        `Carry over ${carry.length} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?`,
       )
     ) {
       return;
     }
     for (const card of carry) {
       const prev = card.week;
-      patchCard(card.itemId, { week: nextWeek });
-      void provider.setWeek(board, card, nextWeek).catch((err: unknown) => {
+      patchCard(card.itemId, { week: currentWeek });
+      void provider.setWeek(board, card, currentWeek).catch((err: unknown) => {
         patchCard(card.itemId, { week: prev });
         onError(errMessage(err));
       });
