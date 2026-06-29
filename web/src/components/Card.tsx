@@ -139,7 +139,10 @@ export function Card({
     }
     const rect = barRef.current.getBoundingClientRect();
     const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
-    const snapped = Math.min(100, Math.max(0, Math.round(frac * 10) * 10));
+    // review/locked keep at least one filled segment; other cards can reach 0%
+    // (which clears the status).
+    const min = card.stage === "review" || card.stage === "locked" ? 10 : 0;
+    const snapped = Math.min(100, Math.max(min, Math.round(frac * 10) * 10));
     if (snapped !== dragValue) {
       setDragValue(snapped);
     }
