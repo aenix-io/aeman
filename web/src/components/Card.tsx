@@ -33,11 +33,6 @@ interface CardProps {
   users?: Record<string, GhUser>;
   onSetTeam?: (card: CardModel, team: string | null) => void;
   onSetAssignee?: (card: CardModel, login: string | null) => void;
-  /** Send the card to review: creates a linked review card for the chosen
-   *  reviewer and puts this card on the review stage (hidden on review cards). */
-  onSendToReview?: (card: CardModel, reviewerLogin: string) => void;
-  /** Reviewer suggestions for the "send to review" picker (same-team people). */
-  reviewerCandidates?: string[];
   /** This card has a linked review card; deleting it cascades (the board owns
    *  the combined confirmation, so the card skips its own delete prompt). */
   hasLinkedReview?: boolean;
@@ -90,8 +85,6 @@ export function Card({
   users,
   onSetTeam,
   onSetAssignee,
-  onSendToReview,
-  reviewerCandidates,
   hasLinkedReview,
   counterpartAssignees,
   onSetReviewAssignee,
@@ -117,8 +110,6 @@ export function Card({
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [personInput, setPersonInput] = useState("");
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewerInput, setReviewerInput] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -201,19 +192,6 @@ export function Card({
     setAssignOpen(false);
     setPersonInput("");
     onSetAssignee?.(card, login);
-  };
-
-  // Open the reviewer picker from the stage menu's "Send to review" item.
-  const openSendToReview = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    setMenuOpen(false);
-    setReviewOpen(true);
-  };
-
-  const pickReviewer = (login: string) => {
-    setReviewOpen(false);
-    setReviewerInput("");
-    onSendToReview?.(card, login);
   };
 
   const openDates = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -369,54 +347,6 @@ export function Card({
             >
               Clear
             </button>
-            {onSendToReview && !card.reviewOf && (
-              <button
-                type="button"
-                className="card-stage-item card-stage-send-review"
-                onClick={openSendToReview}
-              >
-                Send to review…
-              </button>
-            )}
-          </Dropdown>
-          <Dropdown
-            open={reviewOpen}
-            anchorRef={menuRef}
-            onClose={() => setReviewOpen(false)}
-            className="card-stage-menu card-review-menu"
-          >
-            <div className="card-assign-head">Reviewer</div>
-            {(reviewerCandidates ?? []).map((p) => (
-              <button
-                key={`rev-${p}`}
-                type="button"
-                className="card-stage-item"
-                onClick={() => pickReviewer(p)}
-              >
-                <img
-                  className="avatar-img"
-                  src={avatarUrlFor(p, users?.[p])}
-                  alt={p}
-                />
-                {displayName(p, users?.[p])}
-              </button>
-            ))}
-            <input
-              type="text"
-              className="add-card-input card-assign-input"
-              placeholder="reviewer login…"
-              value={reviewerInput}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setReviewerInput(e.target.value)}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Enter" && reviewerInput.trim()) {
-                  pickReviewer(reviewerInput.trim());
-                } else if (e.key === "Escape") {
-                  setReviewOpen(false);
-                }
-              }}
-            />
           </Dropdown>
         </div>
         <button
@@ -683,7 +613,7 @@ export function Card({
                   />
                 </div>
               )}
-              {hasLinkedReview && onSetReviewAssignee && (
+              {!card.reviewOf && onSetReviewAssignee && (
                 <div className="card-assign-col">
                   <div className="card-assign-head">Reviewer</div>
                   {(people ?? []).map((p) => (

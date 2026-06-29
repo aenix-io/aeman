@@ -350,15 +350,19 @@ export function MeBoard({
   // it — driven from the counterpart avatar's menu.
   const handleSetReviewAssignee = (card: CardModel, login: string | null) => {
     const reviewCard = board.cards.find((c) => c.reviewOf === card.itemId);
-    if (!reviewCard) {
+    if (login === null) {
+      if (reviewCard) {
+        removeCard(reviewCard.itemId);
+        void provider.deleteCard(board, reviewCard).catch((err: unknown) => {
+          addCard(reviewCard);
+          onError(errMessage(err));
+        });
+      }
       return;
     }
-    if (login === null) {
-      removeCard(reviewCard.itemId);
-      void provider.deleteCard(board, reviewCard).catch((err: unknown) => {
-        addCard(reviewCard);
-        onError(errMessage(err));
-      });
+    if (!reviewCard) {
+      // No review yet — assigning a reviewer sends the card to review.
+      handleSendToReview(card, login);
       return;
     }
     const prev = reviewCard.assignees;
@@ -367,22 +371,6 @@ export function MeBoard({
       patchCard(reviewCard.itemId, { assignees: prev });
       onError(errMessage(err));
     });
-  };
-
-  const reviewersFor = (card: CardModel): string[] => {
-    const set = new Set<string>();
-    for (const c of board.cards) {
-      if ((c.team ?? "") !== (card.team ?? "")) {
-        continue;
-      }
-      for (const login of c.assignees) {
-        set.add(login);
-      }
-    }
-    for (const a of card.assignees) {
-      set.delete(a);
-    }
-    return [...set].sort((a, b) => a.localeCompare(b));
   };
 
   // Send a card to review: create a linked review card for the reviewer (in the
@@ -688,8 +676,6 @@ export function MeBoard({
                   teams={teams}
                   users={users}
                   onSetTeam={handleSetTeam}
-                  onSendToReview={handleSendToReview}
-                  reviewerCandidates={reviewersFor(card)}
                   hasLinkedReview={reviewedItemIds.has(card.itemId)}
                   counterpartAssignees={counterpartAssigneesFor(card)}
                   onSetReviewAssignee={handleSetReviewAssignee}
