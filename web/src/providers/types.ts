@@ -99,6 +99,14 @@ export interface NewCardInput {
   reviewOf?: string | null;
 }
 
+/** SprintState is a team's explicit sprint pointer, stored on a hidden
+ * "sprint-state" card: its current and previous sprint start dates. */
+export interface SprintState {
+  current: string | null;
+  previous: string | null;
+  itemId: string;
+}
+
 export interface Board {
   id: string;
   number: number;
@@ -107,6 +115,8 @@ export interface Board {
   owner: string;
   fields: ProjectField[];
   cards: Card[];
+  /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
+  sprintStates: Record<string, SprintState>;
 }
 
 /** FieldRoles resolves well-known fields by their (case-insensitive) name. */
@@ -135,6 +145,14 @@ export interface Provider {
   setDay(board: Board, card: Card, day: string | null): Promise<void>;
   setStart(board: Board, card: Card, date: string | null): Promise<void>;
   setSprintStart(board: Board, card: Card, date: string | null): Promise<void>;
+  /** Set a team's sprint pointer (current/previous start dates), creating the
+   * hidden state card if the team has none yet. team = null is the no-team group. */
+  setSprintState(
+    board: Board,
+    team: string | null,
+    current: string | null,
+    previous: string | null,
+  ): Promise<void>;
   setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void>;
   setWeek(board: Board, card: Card, date: string | null): Promise<void>;
   setAssignee(board: Board, card: Card, login: string | null): Promise<void>;

@@ -16,6 +16,7 @@ import type {
   Note,
   ProjectField,
   Provider,
+  SprintState,
   StageKey,
 } from "../types";
 import {
@@ -116,6 +117,10 @@ interface ProjectsListResult {
   organization?: { projectsV2: { nodes: BoardSummary[] } } | null;
   user?: { projectsV2: { nodes: BoardSummary[] } } | null;
 }
+
+// SPRINT_STATE_TITLE marks the hidden per-team draft card that stores the team's
+// sprint pointer (current/previous start dates). It never shows on a board view.
+const SPRINT_STATE_TITLE = "aeman:sprint-state";
 
 // LOG_MARKER separates a draft card's description from its appended action log.
 const LOG_MARKER = "<!-- aeman:log -->";
@@ -258,6 +263,36 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
   return card;
 }
 
+/** parseSprintState reads a sprint-state card into its team key and pointer:
+ * Team text = the team ("" = no-team group), Sprint Start = current sprint,
+ * Start = previous sprint. */
+function parseSprintState(
+  item: RawItem,
+  roles: FieldRoles,
+): { team: string; state: SprintState } {
+  let team = "";
+  let current: string | null = null;
+  let previous: string | null = null;
+  for (const value of item.fieldValues.nodes) {
+    const fieldID = value.field?.id;
+    if (!fieldID) {
+      continue;
+    }
+    if (roles.team && fieldID === roles.team.id && value.text) {
+      team = value.text;
+    } else if (
+      roles.sprintStart &&
+      fieldID === roles.sprintStart.id &&
+      value.date
+    ) {
+      current = value.date;
+    } else if (roles.start && fieldID === roles.start.id && value.date) {
+      previous = value.date;
+    }
+  }
+  return { team, state: { current, previous, itemId: item.id } };
+}
+
 function mapProject(owner: string, raw: RawProject): Board {
   const fields: ProjectField[] = raw.fields.nodes
     .filter((f): f is RawField & { id: string; name: string } =>
@@ -278,9 +313,23 @@ function mapProject(owner: string, raw: RawProject): Board {
     owner,
     fields,
     cards: [],
+    sprintStates: {},
   };
   const roles = fieldRoles(board);
-  board.cards = raw.items.nodes.map((item) => mapItem(item, roles));
+  // Split the hidden sprint-state cards out of the normal cards: they carry the
+  // per-team sprint pointers and must never render on a board view.
+  const cards: Card[] = [];
+  const sprintStates: Record<string, SprintState> = {};
+  for (const item of raw.items.nodes) {
+    if (item.content?.title === SPRINT_STATE_TITLE) {
+      const { team, state } = parseSprintState(item, roles);
+      sprintStates[team] = state;
+    } else {
+      cards.push(mapItem(item, roles));
+    }
+  }
+  board.cards = cards;
+  board.sprintStates = sprintStates;
   return board;
 }
 
@@ -527,6 +576,67 @@ export const githubProvider: Provider = {
       field: field.id,
       value: date,
     });
+  },
+
+  async setSprintState(
+    board: Board,
+    team: string | null,
+    current: string | null,
+    previous: string | null,
+  ): Promise<void> {
+    // Reuse the team's existing hidden state card, or create one (a draft titled
+    // SPRINT_STATE_TITLE, no assignees) tagged with the team name.
+    let itemId = board.sprintStates[team ?? ""]?.itemId;
+    if (!itemId) {
+      const created = await graphql<{
+        addProjectV2DraftIssue: { projectItem: { id: string } };
+      }>(ADD_DRAFT, {
+        project: board.id,
+        title: SPRINT_STATE_TITLE,
+        assignees: [],
+      });
+      itemId = created.addProjectV2DraftIssue.projectItem.id;
+      if (team !== null) {
+        const teamField = await ensureField(board, "team", "Team");
+        await graphql(SET_TEXT, {
+          project: board.id,
+          item: itemId,
+          field: teamField.id,
+          value: team,
+        });
+      }
+    }
+    // Sprint Start = the current sprint; Start = the previous sprint.
+    const sprintField = await ensureField(board, "sprintStart", "Sprint Start");
+    if (current === null) {
+      await graphql(CLEAR_FIELD, {
+        project: board.id,
+        item: itemId,
+        field: sprintField.id,
+      });
+    } else {
+      await graphql(SET_DATE, {
+        project: board.id,
+        item: itemId,
+        field: sprintField.id,
+        value: current,
+      });
+    }
+    const startField = await ensureField(board, "start", "Start");
+    if (previous === null) {
+      await graphql(CLEAR_FIELD, {
+        project: board.id,
+        item: itemId,
+        field: startField.id,
+      });
+    } else {
+      await graphql(SET_DATE, {
+        project: board.id,
+        item: itemId,
+        field: startField.id,
+        value: previous,
+      });
+    }
   },
 
   async setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void> {
