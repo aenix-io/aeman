@@ -302,7 +302,9 @@ export function Card({
           onBlur={() => setEditing(false)}
         />
       ) : (
-        <span className="card-title">{card.title}</span>
+        <span className="card-title" title={card.title}>
+          {card.title}
+        </span>
       )}
 
       {ref && <span className="card-ticket">{ref}</span>}
