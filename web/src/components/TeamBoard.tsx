@@ -919,6 +919,29 @@ export function TeamBoard({
     return linked?.assignees ?? [];
   };
 
+  // Reassign the linked review card to another person, or (login = null) delete
+  // it — driven from the counterpart avatar's menu.
+  const handleSetReviewAssignee = (card: CardModel, login: string | null) => {
+    const reviewCard = board.cards.find((c) => c.reviewOf === card.itemId);
+    if (!reviewCard) {
+      return;
+    }
+    if (login === null) {
+      removeCard(reviewCard.itemId);
+      void provider.deleteCard(board, reviewCard).catch((err: unknown) => {
+        addCard(reviewCard);
+        onError(errMessage(err));
+      });
+      return;
+    }
+    const prev = reviewCard.assignees;
+    patchCard(reviewCard.itemId, { assignees: [login] });
+    void provider.setAssignee(board, reviewCard, login).catch((err: unknown) => {
+      patchCard(reviewCard.itemId, { assignees: prev });
+      onError(errMessage(err));
+    });
+  };
+
   const reviewersFor = (card: CardModel): string[] => {
     const set = new Set<string>();
     for (const c of board.cards) {
@@ -1255,6 +1278,7 @@ export function TeamBoard({
               reviewerCandidates={reviewersFor(card)}
               hasLinkedReview={reviewedItemIds.has(card.itemId)}
               counterpartAssignees={counterpartAssigneesFor(card)}
+              onSetReviewAssignee={handleSetReviewAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
               weekMode
@@ -1281,6 +1305,7 @@ export function TeamBoard({
               reviewerCandidates={reviewersFor(card)}
               hasLinkedReview={reviewedItemIds.has(card.itemId)}
               counterpartAssignees={counterpartAssigneesFor(card)}
+              onSetReviewAssignee={handleSetReviewAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
               dimAvatar

@@ -44,6 +44,9 @@ interface CardProps {
   /** Assignees of the linked counterpart card — the reviewer(s) on an original
    *  under review, the implementer(s) on a review card. */
   counterpartAssignees?: string[];
+  /** Manage the linked review card from the counterpart menu: a login reassigns
+   *  the review card, null deletes it. Only when this card has a linked review. */
+  onSetReviewAssignee?: (card: CardModel, login: string | null) => void;
   /** The day the board is showing; the age badge is measured up to it. */
   asOf?: string;
   /** Edit the card's start/end dates from the age badge (when provided). */
@@ -91,6 +94,7 @@ export function Card({
   reviewerCandidates,
   hasLinkedReview,
   counterpartAssignees,
+  onSetReviewAssignee,
   asOf,
   onSetDates,
   weekMode,
@@ -677,6 +681,39 @@ export function Card({
                       }
                     }}
                   />
+                </div>
+              )}
+              {hasLinkedReview && onSetReviewAssignee && (
+                <div className="card-assign-col">
+                  <div className="card-assign-head">Reviewer</div>
+                  {(people ?? []).map((p) => (
+                    <button
+                      key={`r-${p}`}
+                      type="button"
+                      className={`card-stage-item${(counterpartAssignees ?? []).includes(p) ? " card-stage-item-active" : ""}`}
+                      onClick={() => {
+                        onSetReviewAssignee(card, p);
+                        setAssignOpen(false);
+                      }}
+                    >
+                      <img
+                        className="avatar-img"
+                        src={avatarUrlFor(p, users?.[p])}
+                        alt={p}
+                      />
+                      {displayName(p, users?.[p])}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="card-stage-item card-stage-clear"
+                    onClick={() => {
+                      onSetReviewAssignee(card, null);
+                      setAssignOpen(false);
+                    }}
+                  >
+                    Remove reviewer
+                  </button>
                 </div>
               )}
             </div>
