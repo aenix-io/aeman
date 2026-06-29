@@ -910,6 +910,15 @@ export function TeamBoard({
 
   // Reviewer suggestions: people on the same team as the card, minus its own
   // assignee(s). The picker also accepts a free-text login.
+  // Assignees of a card's linked review counterpart: an original's reviewer(s),
+  // or a review card's implementer(s).
+  const counterpartAssigneesFor = (card: CardModel): string[] => {
+    const linked = card.reviewOf
+      ? board.cards.find((c) => c.itemId === card.reviewOf)
+      : board.cards.find((c) => c.reviewOf === card.itemId);
+    return linked?.assignees ?? [];
+  };
+
   const reviewersFor = (card: CardModel): string[] => {
     const set = new Set<string>();
     for (const c of board.cards) {
@@ -1245,6 +1254,7 @@ export function TeamBoard({
               onSendToReview={handleSendToReview}
               reviewerCandidates={reviewersFor(card)}
               hasLinkedReview={reviewedItemIds.has(card.itemId)}
+              counterpartAssignees={counterpartAssigneesFor(card)}
               asOf={selectedDate}
               onSetDates={handleSetDates}
               weekMode
@@ -1270,6 +1280,7 @@ export function TeamBoard({
               onSendToReview={handleSendToReview}
               reviewerCandidates={reviewersFor(card)}
               hasLinkedReview={reviewedItemIds.has(card.itemId)}
+              counterpartAssignees={counterpartAssigneesFor(card)}
               asOf={selectedDate}
               onSetDates={handleSetDates}
               dimAvatar
