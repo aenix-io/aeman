@@ -613,7 +613,7 @@ export function Card({
                   />
                 </div>
               )}
-              {!card.reviewOf && onSetReviewAssignee && (
+              {card.stage === "review" && onSetReviewAssignee && (
                 <div className="card-assign-col">
                   <div className="card-assign-head">Reviewer</div>
                   {(people ?? []).map((p) => (
