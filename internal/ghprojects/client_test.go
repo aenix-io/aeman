@@ -93,7 +93,7 @@ func defaultRespond(query string, _ map[string]any) string {
 
 func TestLoadBoardMapsCards(t *testing.T) {
 	client, _ := newClientWithFake(t, defaultRespond)
-	board, err := client.LoadBoard(context.Background(), "acme", 7)
+	board, err := client.LoadProjectBoard(context.Background(), "acme", 7)
 	if err != nil {
 		t.Fatalf("LoadBoard: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestLoadBoardMapsCards(t *testing.T) {
 
 func TestUpdateCardSetsZoneProgressDay(t *testing.T) {
 	client, fake := newClientWithFake(t, defaultRespond)
-	board, err := client.LoadBoard(context.Background(), "acme", 7)
+	board, err := client.LoadProjectBoard(context.Background(), "acme", 7)
 	if err != nil {
 		t.Fatalf("LoadBoard: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestUpdateCardSetsZoneProgressDay(t *testing.T) {
 
 func TestUpdateCardClearsDayWithEmptyString(t *testing.T) {
 	client, fake := newClientWithFake(t, defaultRespond)
-	board, _ := client.LoadBoard(context.Background(), "acme", 7)
+	board, _ := client.LoadProjectBoard(context.Background(), "acme", 7)
 	empty := ""
 	if err := client.UpdateCard(context.Background(), board, "I_DRAFT", UpdateCardInput{Day: &empty}); err != nil {
 		t.Fatalf("UpdateCard: %v", err)
@@ -190,7 +190,7 @@ func TestUpdateCardClearsDayWithEmptyString(t *testing.T) {
 
 func TestUpdateCardUnknownItem(t *testing.T) {
 	client, _ := newClientWithFake(t, defaultRespond)
-	board, _ := client.LoadBoard(context.Background(), "acme", 7)
+	board, _ := client.LoadProjectBoard(context.Background(), "acme", 7)
 	title := "x"
 	err := client.UpdateCard(context.Background(), board, "NOPE", UpdateCardInput{Title: &title})
 	if err == nil || !strings.Contains(err.Error(), "card not found") {
@@ -200,8 +200,8 @@ func TestUpdateCardUnknownItem(t *testing.T) {
 
 func TestCreateCardAppliesZone(t *testing.T) {
 	client, fake := newClientWithFake(t, defaultRespond)
-	board, _ := client.LoadBoard(context.Background(), "acme", 7)
-	card, err := client.CreateCard(context.Background(), board, CreateCardInput{
+	board, _ := client.LoadProjectBoard(context.Background(), "acme", 7)
+	card, err := client.CreateProjectCard(context.Background(), board, CreateCardInput{
 		Title:    "New work",
 		Zone:     ZoneRed,
 		Assignee: "octocat",
@@ -233,8 +233,8 @@ func TestCreateCardAppliesZone(t *testing.T) {
 
 func TestAddNoteOnIssueAddsComment(t *testing.T) {
 	client, fake := newClientWithFake(t, defaultRespond)
-	board, _ := client.LoadBoard(context.Background(), "acme", 7)
-	if err := client.AddNote(context.Background(), board, "I_ISSUE", "ship it"); err != nil {
+	board, _ := client.LoadProjectBoard(context.Background(), "acme", 7)
+	if err := client.AddProjectNote(context.Background(), board, "I_ISSUE", "ship it"); err != nil {
 		t.Fatalf("AddNote: %v", err)
 	}
 	commented := false
@@ -250,8 +250,8 @@ func TestAddNoteOnIssueAddsComment(t *testing.T) {
 
 func TestAddNoteOnDraftAppendsBody(t *testing.T) {
 	client, fake := newClientWithFake(t, defaultRespond)
-	board, _ := client.LoadBoard(context.Background(), "acme", 7)
-	if err := client.AddNote(context.Background(), board, "I_DRAFT", "draft note"); err != nil {
+	board, _ := client.LoadProjectBoard(context.Background(), "acme", 7)
+	if err := client.AddProjectNote(context.Background(), board, "I_DRAFT", "draft note"); err != nil {
 		t.Fatalf("AddNote: %v", err)
 	}
 	updated := false
@@ -269,12 +269,12 @@ func TestAddNoteOnDraftAppendsBody(t *testing.T) {
 
 func TestMoveAndDeleteCard(t *testing.T) {
 	client, fake := newClientWithFake(t, defaultRespond)
-	board, _ := client.LoadBoard(context.Background(), "acme", 7)
+	board, _ := client.LoadProjectBoard(context.Background(), "acme", 7)
 	after := "I_ISSUE"
-	if err := client.MoveCard(context.Background(), board, "I_DRAFT", &after); err != nil {
+	if err := client.MoveProjectCard(context.Background(), board, "I_DRAFT", &after); err != nil {
 		t.Fatalf("MoveCard: %v", err)
 	}
-	if err := client.DeleteCard(context.Background(), board, "I_DRAFT"); err != nil {
+	if err := client.DeleteProjectCard(context.Background(), board, "I_DRAFT"); err != nil {
 		t.Fatalf("DeleteCard: %v", err)
 	}
 	var moved, deleted bool
@@ -299,7 +299,7 @@ func TestLoadBoardNotFound(t *testing.T) {
 		}
 		return `{"user":null}`
 	})
-	_, err := client.LoadBoard(context.Background(), "ghost", 99)
+	_, err := client.LoadProjectBoard(context.Background(), "ghost", 99)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("err = %v, want not found", err)
 	}
@@ -327,7 +327,7 @@ func TestLoadBoardOrgMissingProject(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := New("test-token", WithEndpoint(srv.URL))
-	_, err := client.LoadBoard(context.Background(), "aenix-org", 999999)
+	_, err := client.LoadProjectBoard(context.Background(), "aenix-org", 999999)
 	if !errors.Is(err, ErrBoardNotFound) {
 		t.Fatalf("err = %v, want ErrBoardNotFound", err)
 	}
@@ -359,7 +359,7 @@ func TestLoadBoardMissingOwnerNotFound(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := New("test-token", WithEndpoint(srv.URL))
-	_, err := client.LoadBoard(context.Background(), "nobody-xyz", 1)
+	_, err := client.LoadProjectBoard(context.Background(), "nobody-xyz", 1)
 	if !errors.Is(err, ErrBoardNotFound) {
 		t.Fatalf("err = %v, want ErrBoardNotFound", err)
 	}
@@ -374,7 +374,7 @@ func TestLoadBoardSurfacesNonNotFoundError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := New("test-token", WithEndpoint(srv.URL))
-	_, err := client.LoadBoard(context.Background(), "acme", 7)
+	_, err := client.LoadProjectBoard(context.Background(), "acme", 7)
 	if err == nil || errors.Is(err, ErrBoardNotFound) {
 		t.Fatalf("err = %v, want a non-not-found error", err)
 	}

@@ -74,7 +74,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if err != nil {
 		return nil, ghprojects.Card{}, err
 	}
-	card, err := client.CreateCard(ctx, board, ghprojects.CreateCardInput{
+	card, err := client.CreateProjectCard(ctx, board, ghprojects.CreateCardInput{
 		Title:          in.Title,
 		Zone:           ghprojects.ZoneKey(in.Zone),
 		Assignee:       in.Assignee,
@@ -148,7 +148,7 @@ func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCa
 	if in.AfterID != "" {
 		after = &in.AfterID
 	}
-	if err := client.MoveCard(ctx, board, in.ItemID, after); err != nil {
+	if err := client.MoveProjectCard(ctx, board, in.ItemID, after); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "ok", ItemID: in.ItemID}, nil
@@ -165,7 +165,7 @@ func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in item
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := client.DeleteCard(ctx, board, in.ItemID); err != nil {
+	if err := client.DeleteProjectCard(ctx, board, in.ItemID); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "ok", ItemID: in.ItemID}, nil
@@ -183,7 +183,7 @@ func (h *server) addNote(ctx context.Context, _ *mcp.CallToolRequest, in addNote
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := client.AddNote(ctx, board, in.ItemID, in.Text); err != nil {
+	if err := client.AddProjectNote(ctx, board, in.ItemID, in.Text); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "ok", ItemID: in.ItemID}, nil

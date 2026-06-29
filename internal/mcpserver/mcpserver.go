@@ -121,7 +121,7 @@ func (h *server) board(ctx context.Context, owner string, project int) (*ghproje
 	if err != nil {
 		return nil, nil, err
 	}
-	board, err := client.LoadBoard(ctx, o, p)
+	board, err := client.LoadProjectBoard(ctx, o, p)
 	if err != nil {
 		return nil, nil, err
 	}
