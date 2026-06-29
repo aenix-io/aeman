@@ -10,7 +10,7 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, localDateIso, addDays } from "../date";
-import { currentSprintByTeam, sprintForNewCard } from "../sprint";
+import { currentSprint } from "../sprint";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
@@ -96,15 +96,10 @@ export function MeBoard({
     [board.cards, viewMe],
   );
 
-  // Per team, the latest sprint started on or before the selected day.
-  const currentSprint = useMemo(
-    () => currentSprintByTeam(mine, selectedDate),
-    [mine, selectedDate],
-  );
-
   // A card shows within its [start, sprint] range, and keeps showing on later
-  // days while it stays its team's current sprint — so in Me cards stay visible
-  // the next day until a new sprint is started.
+  // days while it is still its team's current sprint (per the explicit state) —
+  // so in Me cards stay visible until a new sprint is started (even by someone
+  // else, or by an unassigned card advancing the team's pointer).
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
@@ -113,9 +108,11 @@ export function MeBoard({
         if (!start || !sprint || selectedDate < start) {
           return false;
         }
-        return selectedDate <= sprint || currentSprint.get(c.team ?? "") === sprint;
+        return (
+          selectedDate <= sprint || currentSprint(board, c.team ?? null) === sprint
+        );
       }),
-    [mine, currentSprint, selectedDate],
+    [mine, board, selectedDate],
   );
 
   const byZone = useMemo(() => {
@@ -275,10 +272,10 @@ export function MeBoard({
   const handleSetTeam = (card: CardModel, team: string | null) => {
     const prevTeam = card.team;
     const prevSprint = card.sprintStart;
-    // Join the new team's running sprint, so a card moved between teams stays
-    // visible instead of dropping off when its old sprint predates the new
-    // team's current one (mirrors how a freshly created card joins a sprint).
-    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
+    // Join the new team's current sprint (its explicit state), so a card moved
+    // between teams stays visible instead of dropping off when its old sprint
+    // predates the new team's current one. Fall back to the selected day.
+    const sprintStart = currentSprint(board, team) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
     void provider.setTeam(board, card, team).catch((err: unknown) => {
       patchCard(card.itemId, { team: prevTeam });
@@ -361,7 +358,7 @@ export function MeBoard({
   const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
     const team = card.team ?? null;
     const zone: ZoneKey = "yellow";
-    const sprintStart = sprintForNewCard(board.cards, team, selectedDate);
+    const sprintStart = currentSprint(board, team) ?? selectedDate;
     const title = `review: ${card.title}`;
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
@@ -458,11 +455,10 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // Join the team's current sprint instead of starting a new one, so adding a
-    // card on a later day does not look like a new sprint and hide the rest. The
-    // start date is the day it was created, so a card added during a running
-    // sprint does not appear retroactively on the sprint's earlier days.
-    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
+    // Join the team's current sprint (its explicit state) instead of starting a
+    // new one, so adding a card on a later day does not look like a new sprint
+    // and hide the rest. Fall back to the selected day when the team has none.
+    const sprintStart = currentSprint(board, team ?? null) ?? selectedDate;
     const optimistic: CardModel = {
       itemId: tempId,
       title,
