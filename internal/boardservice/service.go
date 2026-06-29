@@ -1,0 +1,545 @@
+package boardservice
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/aenix-org/aeman/internal/board"
+)
+
+// ErrCardNotFound is returned when an item id is not on the loaded board.
+var ErrCardNotFound = errors.New("card not found")
+
+// Service performs aeman's board actions. It is stateless: every method loads
+// the board through the backend, computes the change with internal/board logic,
+// then applies it through the backend setters.
+type Service struct {
+	backend Backend
+}
+
+// New builds a Service over a backend.
+func New(backend Backend) *Service {
+	return &Service{backend: backend}
+}
+
+// findCard returns the card with the given item id, or ok = false.
+func findCard(b board.Board, itemID string) (board.Card, bool) {
+	for _, c := range b.Cards {
+		if c.ItemID == itemID {
+			return c, true
+		}
+	}
+	return board.Card{}, false
+}
+
+// findReviewCard returns the review card linked to an original (its ReviewOf is
+// the original's item id), or ok = false.
+func findReviewCard(b board.Board, originalItemID string) (board.Card, bool) {
+	for _, c := range b.Cards {
+		if c.ReviewOf == originalItemID {
+			return c, true
+		}
+	}
+	return board.Card{}, false
+}
+
+// loadCard loads the board and resolves a card by item id.
+func (s *Service) loadCard(ctx context.Context, owner string, project int, itemID string) (board.Board, board.Card, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return board.Board{}, board.Card{}, err
+	}
+	card, ok := findCard(b, itemID)
+	if !ok {
+		return b, board.Card{}, fmt.Errorf("%w: %s", ErrCardNotFound, itemID)
+	}
+	return b, card, nil
+}
+
+// --- Views -----------------------------------------------------------------
+
+// TeamView returns the Team board's grid cards for a team on a day (day = "" is
+// today). It mirrors filteredCards/passesFilter in TeamBoard.tsx via board.TeamGrid.
+func (s *Service) TeamView(ctx context.Context, owner string, project int, team, day string) ([]board.Card, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return nil, err
+	}
+	if day == "" {
+		day = board.TodayIso()
+	}
+	return board.TeamGrid(b, team, day), nil
+}
+
+// MeView returns the personal day board for a user on a day (user = "" is
+// everyone, day = "" is today). It mirrors myCards in MeBoard.tsx via board.MeView.
+func (s *Service) MeView(ctx context.Context, owner string, project int, user, day string) ([]board.Card, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return nil, err
+	}
+	if day == "" {
+		day = board.TodayIso()
+	}
+	return board.MeView(b, user, day), nil
+}
+
+// WeeklyPlan returns a team's weekly-plan cards for a week (week = "" is the
+// Monday of the current week), split into the Wed/Fri bands. It mirrors the
+// `weekly` memo in TeamBoard.tsx via board.WeeklyPlan.
+func (s *Service) WeeklyPlan(ctx context.Context, owner string, project int, team, week string) (board.WeeklyBands, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return board.WeeklyBands{}, err
+	}
+	if week == "" {
+		week = board.MondayOf(board.TodayIso())
+	}
+	return board.WeeklyPlan(b, team, week), nil
+}
+
+// --- Create / sprints ------------------------------------------------------
+
+// CreateCardArgs are the inputs to CreateCard. Day defaults to today.
+// StartNewSprint forces the sprint choice: nil = auto (join the team's current
+// sprint, or start one when the team has none), true = always start a new sprint
+// today, false = always join the current sprint (start one only if there is none).
+type CreateCardArgs struct {
+	Team           string
+	Zone           board.ZoneKey
+	Title          string
+	Assignee       string
+	Day            string
+	StartNewSprint *bool
+}
+
+// CreateCard creates a card that joins (or starts) its team's sprint. It mirrors
+// handleCreate in TeamBoard.tsx: a team with no current sprint starts its first
+// one off this card (recorded on the team's sprint-state card), otherwise the
+// card joins the current sprint. Start and Sprint Start both equal the sprint;
+// Day is the create day.
+func (s *Service) CreateCard(ctx context.Context, owner string, project int, args CreateCardArgs) (board.Card, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return board.Card{}, err
+	}
+	day := args.Day
+	if day == "" {
+		day = board.TodayIso()
+	}
+	cur := board.CurrentSprint(b, args.Team)
+	sprint := cur
+	startNew := false
+	switch {
+	case args.StartNewSprint != nil && *args.StartNewSprint:
+		startNew = true
+	case args.StartNewSprint != nil && !*args.StartNewSprint:
+		startNew = cur == ""
+	default:
+		startNew = cur == ""
+	}
+	if startNew {
+		sprint = day
+		// Record the new sprint on the team's state card (previous = the old
+		// current, which is "" when the team had no sprint yet — matching the
+		// frontend's setSprintState(team, day, null)).
+		if err := s.backend.SetSprintState(ctx, b, args.Team, day, cur); err != nil {
+			return board.Card{}, err
+		}
+	}
+	return s.backend.CreateCard(ctx, b, board.CreateInput{
+		Title:       args.Title,
+		Zone:        args.Zone,
+		Day:         day,
+		Start:       sprint,
+		SprintStart: sprint,
+		Assignee:    args.Assignee,
+		Team:        args.Team,
+	})
+}
+
+// CarryOver advances a team's sprint to today (the old current becomes previous)
+// and pulls its unfinished cards forward. It mirrors startSprint in TeamBoard.tsx:
+// idempotent (a no-op when the sprint is already today's), and it always advances
+// even with nothing to carry. team = "" is the no-team group.
+func (s *Service) CarryOver(ctx context.Context, owner string, project int, team string) error {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	old := board.CurrentSprint(b, team)
+	today := board.TodayIso()
+	if old == today {
+		// Already on today's sprint: re-advancing would overwrite previous.
+		return nil
+	}
+	if err := s.backend.SetSprintState(ctx, b, team, today, old); err != nil {
+		return err
+	}
+	for _, c := range b.Cards {
+		if c.Team != team || c.SprintStart != old || c.Stage == board.StageDone {
+			continue
+		}
+		if err := s.backend.SetSprintStart(ctx, b, c, today); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CarryWeek pulls a team's unfinished plan cards from earlier weeks into the
+// target week (week = "" is the current week's Monday), returning the cards it
+// moved. It mirrors handleCarryWeek in TeamBoard.tsx (nothing to carry yields an
+// empty result, not an error). team = "" is the no-team group.
+func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team, week string) ([]board.Card, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return nil, err
+	}
+	if week == "" {
+		week = board.MondayOf(board.TodayIso())
+	}
+	var carried []board.Card
+	for _, c := range b.Cards {
+		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week {
+			continue
+		}
+		if c.Stage == board.StageDone || c.Team != team {
+			continue
+		}
+		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
+			return carried, err
+		}
+		c.Week = week
+		carried = append(carried, c)
+	}
+	return carried, nil
+}
+
+// --- Stage / progress ------------------------------------------------------
+
+// SetStage moves a card to a stage (stage = "" clears it). It mirrors handleStage
+// in TeamBoard.tsx: board.ApplyStage computes the resulting (stage, progress) and
+// both are persisted (done fills 100%, review/locked knock a full card to 90%).
+func (s *Service) SetStage(ctx context.Context, owner string, project int, itemID string, stage board.StageKey) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.applyStage(ctx, b, card, stage)
+}
+
+// applyStage persists a stage change and any coupled progress change.
+func (s *Service) applyStage(ctx context.Context, b board.Board, card board.Card, stage board.StageKey) error {
+	newStage, newProgress := board.ApplyStage(stage, card.Progress)
+	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
+		return err
+	}
+	if newProgress != card.Progress {
+		if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetProgress sets a card's progress. It mirrors handleProgress in TeamBoard.tsx:
+// board.ApplyProgress clamps the value and runs the done auto-link, both are
+// persisted, and a review card's progress drives its original's review stage.
+func (s *Service) SetProgress(ctx context.Context, owner string, project int, itemID string, raw int) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	newStage, newProgress := board.ApplyProgress(card.Stage, raw)
+	if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
+		return err
+	}
+	if newStage != card.Stage {
+		if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
+			return err
+		}
+	}
+	return s.syncReviewLink(ctx, b, card, newProgress)
+}
+
+// SetInProgress moves a card to the implicit "In Progress" status (no stage,
+// progress nudged into [10, 90]). It mirrors handleInProgress in TeamBoard.tsx
+// via board.ApplyInProgress, keeping a review card's review-link in sync.
+func (s *Service) SetInProgress(ctx context.Context, owner string, project int, itemID string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	newStage, newProgress := board.ApplyInProgress(card.Stage, card.Progress)
+	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
+		return err
+	}
+	if newProgress == card.Progress {
+		return nil
+	}
+	if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
+		return err
+	}
+	return s.syncReviewLink(ctx, b, card, newProgress)
+}
+
+// syncReviewLink, when card is a review card, drives its original's review stage
+// from the review card's progress. It mirrors syncOriginalReview.
+func (s *Service) syncReviewLink(ctx context.Context, b board.Board, card board.Card, reviewProgress int) error {
+	if card.ReviewOf == "" {
+		return nil
+	}
+	original, ok := findCard(b, card.ReviewOf)
+	if !ok {
+		return nil
+	}
+	var next board.StageKey
+	switch {
+	case reviewProgress == 100 && original.Stage == board.StageReview:
+		next = board.StageNone
+	case reviewProgress < 100 && original.Stage != board.StageReview:
+		next = board.StageReview
+	default:
+		return nil
+	}
+	return s.backend.SetStage(ctx, b, original, next)
+}
+
+// --- Review linkage --------------------------------------------------------
+
+// SendToReview creates a linked review card for a reviewer (in the original's
+// zone/team) and puts the original on the review stage, returning the review
+// card. day = "" is today. It mirrors handleSendToReview in TeamBoard.tsx.
+func (s *Service) SendToReview(ctx context.Context, owner string, project int, itemID, reviewer, day string) (board.Card, error) {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return board.Card{}, err
+	}
+	return s.sendToReview(ctx, b, card, reviewer, day)
+}
+
+// sendToReview is the create-review-card half of SendToReview over a loaded board.
+func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Card, reviewer, day string) (board.Card, error) {
+	if day == "" {
+		day = board.TodayIso()
+	}
+	zone := card.Zone
+	if zone == "" {
+		zone = board.ZoneGray
+	}
+	sprintStart := board.CurrentSprint(b, card.Team)
+	if sprintStart == "" {
+		sprintStart = day
+	}
+	created, err := s.backend.CreateCard(ctx, b, board.CreateInput{
+		Title:       "review: " + card.Title,
+		Zone:        zone,
+		Day:         day,
+		Start:       day,
+		SprintStart: sprintStart,
+		Assignee:    reviewer,
+		Team:        card.Team,
+		ReviewOf:    card.ItemID,
+	})
+	if err != nil {
+		return board.Card{}, err
+	}
+	// Put the original on review (ApplyStage also drops a 100% card to 90%).
+	if err := s.applyStage(ctx, b, card, board.StageReview); err != nil {
+		return created, err
+	}
+	return created, nil
+}
+
+// ReassignReviewer points a card's linked review card at another reviewer, or
+// sends the card to review when it has none yet (day = "" is today). It mirrors
+// handleSetReviewAssignee (non-null login) in TeamBoard.tsx.
+func (s *Service) ReassignReviewer(ctx context.Context, owner string, project int, itemID, reviewer, day string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	reviewCard, ok := findReviewCard(b, card.ItemID)
+	if !ok {
+		_, err := s.sendToReview(ctx, b, card, reviewer, day)
+		return err
+	}
+	return s.backend.SetAssignee(ctx, b, reviewCard, reviewer)
+}
+
+// RemoveReviewer deletes a card's linked review card (a no-op when there is
+// none). It mirrors handleSetReviewAssignee(null) in TeamBoard.tsx.
+func (s *Service) RemoveReviewer(ctx context.Context, owner string, project int, itemID string) error {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	reviewCard, ok := findReviewCard(b, itemID)
+	if !ok {
+		return nil
+	}
+	return s.backend.DeleteCard(ctx, b, reviewCard)
+}
+
+// --- Card field actions ----------------------------------------------------
+
+// SetAssignee replaces a card's assignee (login = "" unassigns). It mirrors
+// handleSetAssignee in TeamBoard.tsx.
+func (s *Service) SetAssignee(ctx context.Context, owner string, project int, itemID, login string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetAssignee(ctx, b, card, login)
+}
+
+// SetTeam moves a card to a team and joins that team's current sprint (team = ""
+// is the no-team group, day = "" is today). It mirrors handleSetTeam in
+// TeamBoard.tsx.
+func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID, team, day string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	if day == "" {
+		day = board.TodayIso()
+	}
+	sprintStart := board.CurrentSprint(b, team)
+	if sprintStart == "" {
+		sprintStart = day
+	}
+	if err := s.backend.SetTeam(ctx, b, card, team); err != nil {
+		return err
+	}
+	if sprintStart != card.SprintStart {
+		return s.backend.SetSprintStart(ctx, b, card, sprintStart)
+	}
+	return nil
+}
+
+// Rename changes a card's title. It mirrors handleRename in TeamBoard.tsx.
+func (s *Service) Rename(ctx context.Context, owner string, project int, itemID, title string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.RenameCard(ctx, b, card, title)
+}
+
+// AddNote appends a work note to a card.
+func (s *Service) AddNote(ctx context.Context, owner string, project int, itemID, text string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.AddNote(ctx, b, card, text)
+}
+
+// MoveCard reorders a card to sit after afterID ("" = top of the board). It
+// mirrors the moveCard calls behind drag-and-drop in TeamBoard.tsx.
+func (s *Service) MoveCard(ctx context.Context, owner string, project int, itemID, afterID string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.MoveCard(ctx, b, card, afterID)
+}
+
+// DeleteCard deletes a card, cascading to its linked review card. It mirrors
+// handleDelete in TeamBoard.tsx (deleting a reviewed card removes both).
+func (s *Service) DeleteCard(ctx context.Context, owner string, project int, itemID string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.deleteWithCascade(ctx, b, card)
+}
+
+// deleteWithCascade deletes a card and any review card linked to it.
+func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card board.Card) error {
+	if reviewCard, ok := findReviewCard(b, card.ItemID); ok {
+		if err := s.backend.DeleteCard(ctx, b, reviewCard); err != nil {
+			return err
+		}
+	}
+	return s.backend.DeleteCard(ctx, b, card)
+}
+
+// --- Weekly plan -----------------------------------------------------------
+
+// TakeIntoPlan takes a weekly-plan card into work: it assigns the card to an
+// engineer (engineer = "" unassigns), sets its zone (zone = "" keeps the card's
+// own zone, defaulting to gray) and joins the card's team's current sprint
+// (day = "" is today). It mirrors takePlanCard in TeamBoard.tsx.
+func (s *Service) TakeIntoPlan(ctx context.Context, owner string, project int, itemID, engineer string, zone board.ZoneKey, day string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	if day == "" {
+		day = board.TodayIso()
+	}
+	if zone == "" {
+		zone = card.Zone
+		if zone == "" {
+			zone = board.ZoneGray
+		}
+	}
+	sprintStart := board.CurrentSprint(b, card.Team)
+	if sprintStart == "" {
+		sprintStart = day
+	}
+	if err := s.backend.SetAssignee(ctx, b, card, engineer); err != nil {
+		return err
+	}
+	if zone != card.Zone {
+		if err := s.backend.SetZone(ctx, b, card, zone); err != nil {
+			return err
+		}
+	}
+	return s.backend.SetSprintStart(ctx, b, card, sprintStart)
+}
+
+// ReleaseFromPlan removes a card from the weekly plan. It mirrors removeFromPlan
+// in TeamBoard.tsx: a taken-into-work card (it has an assignee) just loses its
+// Plan + Week markers; a pure plan card is demoted to its previous plan week, or
+// deleted (cascading to a linked review card) when there is none.
+func (s *Service) ReleaseFromPlan(ctx context.Context, owner string, project int, itemID string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	if len(card.Assignees) == 0 {
+		if prevWeek := previousWeekFor(b, card); prevWeek != "" {
+			return s.backend.SetWeek(ctx, b, card, prevWeek)
+		}
+		return s.deleteWithCascade(ctx, b, card)
+	}
+	if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
+		return err
+	}
+	return s.backend.SetWeek(ctx, b, card, "")
+}
+
+// previousWeekFor returns the latest plan week before a card's week among the
+// same team's cards, or "". It mirrors previousWeekFor in TeamBoard.tsx.
+func previousWeekFor(b board.Board, card board.Card) string {
+	if card.Week == "" {
+		return ""
+	}
+	prev := ""
+	for _, c := range b.Cards {
+		if c.ItemID == card.ItemID || c.Team != card.Team {
+			continue
+		}
+		if c.Week == "" || c.Week >= card.Week {
+			continue
+		}
+		if prev == "" || c.Week > prev {
+			prev = c.Week
+		}
+	}
+	return prev
+}
