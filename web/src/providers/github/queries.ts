@@ -14,7 +14,8 @@ const PROJECT_BODY = `
       ... on ProjectV2SingleSelectField { id name dataType options { id name color } }
     }
   }
-  items(first: 100) {
+  items(first: 100, after: $after) {
+    pageInfo { hasNextPage endCursor }
     nodes {
       id
       type
@@ -67,11 +68,11 @@ const PROJECT_BODY = `
   }
 `;
 
-export const ORG_PROJECT_QUERY = `query($owner: String!, $number: Int!) {
+export const ORG_PROJECT_QUERY = `query($owner: String!, $number: Int!, $after: String) {
   organization(login: $owner) { projectV2(number: $number) { ${PROJECT_BODY} } }
 }`;
 
-export const USER_PROJECT_QUERY = `query($owner: String!, $number: Int!) {
+export const USER_PROJECT_QUERY = `query($owner: String!, $number: Int!, $after: String) {
   user(login: $owner) { projectV2(number: $number) { ${PROJECT_BODY} } }
 }`;
 

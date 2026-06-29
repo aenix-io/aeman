@@ -1,22 +1,25 @@
 # syntax=docker/dockerfile:1
 
-# 1. Build the SPA into web/dist.
-FROM node:20-alpine AS web
+# 1. Build the SPA into web/dist (arch-independent output; build on the host arch).
+FROM --platform=$BUILDPLATFORM node:20-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-# 2. Build the self-contained Go binary (embeds web/dist via go:embed).
-FROM golang:1.26-alpine AS build
+# 2. Build the self-contained Go binary (embeds web/dist via go:embed). Built on
+#    the host arch and cross-compiled to the target arch (fast, no emulation).
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 ARG VERSION=docker
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /src/web/dist ./web/dist
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION}" \
     -o /aeman ./cmd/aeman
 # A nonroot-owned /data so a session-file volume mounted here is writable.
