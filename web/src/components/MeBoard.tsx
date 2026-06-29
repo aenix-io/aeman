@@ -80,13 +80,29 @@ export function MeBoard({
   const [impOpen, setImpOpen] = useState(false);
   const impRef = useRef<HTMLDivElement | null>(null);
   const viewMe = impersonated ?? me;
-  const people = useMemo(
+  // Other people with cards — offered in the "View as" impersonate picker.
+  const others = useMemo(
     () =>
       [...new Set(board.cards.flatMap((c) => c.assignees))]
         .filter((p) => p && p !== me)
         .sort(),
     [board.cards, me],
   );
+
+  // People to offer when picking a reviewer: everyone seen on the board, plus
+  // me — the same roster the Team board's assign menu uses.
+  const people = useMemo(() => {
+    const set = new Set<string>();
+    for (const card of board.cards) {
+      for (const login of card.assignees) {
+        set.add(login);
+      }
+    }
+    if (me) {
+      set.add(me);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [board.cards, me]);
 
   const roles = useMemo(() => fieldRoles(board), [board]);
 
@@ -271,6 +287,41 @@ export function MeBoard({
         patchCard(card.itemId, { progress: prev.progress });
         onError(errMessage(err));
       });
+    }
+  };
+
+  // "In Progress" is the implicit status (no stage, progress in [10, 90]).
+  // Picking it clears any stage and clamps progress into that band: under 10
+  // becomes 10, a done/full card drops to 90, otherwise the value is kept.
+  const handleInProgress = (card: CardModel) => {
+    const cur = card.progress ?? 0;
+    let value = cur;
+    if (cur < 10) {
+      value = 10;
+    } else if (card.stage === "done" || cur >= 100) {
+      value = 90;
+    }
+    const prev: Partial<CardModel> = { stage: card.stage, progress: card.progress };
+    patchCard(card.itemId, { stage: undefined, progress: value });
+    void (async () => {
+      try {
+        await provider.setStage(board, card, null);
+        if (value !== cur) {
+          await provider.setProgress(board, card, value);
+        }
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+
+    // A review card's progress drives its original's review stage; keep that
+    // in sync when In Progress changes it (e.g. a done review card reopens it).
+    if (card.reviewOf && value !== cur) {
+      const original = board.cards.find((c) => c.itemId === card.reviewOf);
+      if (original) {
+        syncOriginalReview(original, value);
+      }
     }
   };
 
@@ -635,7 +686,7 @@ export function MeBoard({
                 ← Back to me
               </button>
             )}
-            {people.map((p) => (
+            {others.map((p) => (
               <button
                 key={p}
                 type="button"
@@ -654,7 +705,7 @@ export function MeBoard({
                 {displayName(p, users[p])}
               </button>
             ))}
-            {people.length === 0 && (
+            {others.length === 0 && (
               <div className="sprint-empty">No other people with cards</div>
             )}
           </Dropdown>
@@ -675,10 +726,12 @@ export function MeBoard({
                   onProgress={handleProgress}
                   onDelete={handleDelete}
                   onStage={handleStage}
+                  onInProgress={handleInProgress}
                   onRename={handleRename}
                   onOpen={onOpen}
                   onRequestLock={onRequestLock}
                   teams={teams}
+                  people={people}
                   users={users}
                   onSetTeam={handleSetTeam}
                   hasLinkedReview={reviewedItemIds.has(card.itemId)}
@@ -698,6 +751,7 @@ export function MeBoard({
                   onProgress={() => {}}
                   onDelete={() => {}}
                   onStage={() => {}}
+                  onInProgress={() => {}}
                   onRename={() => {}}
                   onOpen={() => {}}
                   onRequestLock={() => {}}
