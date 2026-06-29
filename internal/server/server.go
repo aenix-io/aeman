@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aenix-org/aeman/internal/boardservice"
 	"github.com/aenix-org/aeman/internal/ghcli"
 	"github.com/aenix-org/aeman/web"
 )
@@ -64,6 +65,11 @@ type Server struct {
 	apiTokens func(*http.Request) (token, login string, err error)
 	// graphqlEndpoint overrides the GitHub GraphQL endpoint (used in tests).
 	graphqlEndpoint string
+	// newService builds the board service for an /api/v1 request. It defaults to
+	// boardservice.New over the per-request ghprojects client (apiClient resolves
+	// the OAuth-session or gh-CLI token) and is overridden in tests with a fake
+	// Backend.
+	newService func(*http.Request) (*boardservice.Service, error)
 }
 
 // New builds a Server from the given options.
@@ -87,6 +93,7 @@ func New(opts Options) (*Server, error) {
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 	s.apiTokens = s.tokenForRequest
+	s.newService = s.defaultService
 	if opts.Auth != nil {
 		s.auth = newAuthManager(*opts.Auth, opts.Logger)
 	}
