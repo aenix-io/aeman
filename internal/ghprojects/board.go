@@ -129,8 +129,10 @@ func (c *Client) ListBoards(ctx context.Context, owner string) ([]BoardSummary, 
 	return nil, nil
 }
 
-// LoadBoard loads a project board fully, mapping fields and cards.
-func (c *Client) LoadBoard(ctx context.Context, owner string, number int) (*Board, error) {
+// LoadProjectBoard loads a project board fully into the rich ghprojects.Board
+// (with notes, URLs and content ids). The domain-typed loader used by the board
+// service is the LoadBoard method in load.go.
+func (c *Client) LoadProjectBoard(ctx context.Context, owner string, number int) (*Board, error) {
 	raw, err := c.loadProject(ctx, owner, number)
 	if err != nil {
 		return nil, err

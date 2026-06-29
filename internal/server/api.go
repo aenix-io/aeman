@@ -75,7 +75,7 @@ func (s *Server) loadBoard(w http.ResponseWriter, r *http.Request) (*ghprojects.
 		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 		return nil, nil, false
 	}
-	board, err := client.LoadBoard(r.Context(), owner, project)
+	board, err := client.LoadProjectBoard(r.Context(), owner, project)
 	if err != nil {
 		s.apiError(w, err)
 		return nil, nil, false
@@ -125,7 +125,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	card, err := client.CreateCard(r.Context(), board, in)
+	card, err := client.CreateProjectCard(r.Context(), board, in)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -160,7 +160,7 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := client.MoveCard(r.Context(), board, r.PathValue("id"), in.AfterID); err != nil {
+	if err := client.MoveProjectCard(r.Context(), board, r.PathValue("id"), in.AfterID); err != nil {
 		s.apiError(w, err)
 		return
 	}
@@ -172,7 +172,7 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := client.DeleteCard(r.Context(), board, r.PathValue("id")); err != nil {
+	if err := client.DeleteProjectCard(r.Context(), board, r.PathValue("id")); err != nil {
 		s.apiError(w, err)
 		return
 	}
@@ -194,7 +194,7 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := client.AddNote(r.Context(), board, r.PathValue("id"), in.Text); err != nil {
+	if err := client.AddProjectNote(r.Context(), board, r.PathValue("id"), in.Text); err != nil {
 		s.apiError(w, err)
 		return
 	}

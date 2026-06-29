@@ -43,9 +43,10 @@ func (c *Client) resolveUserID(ctx context.Context, login string) (string, error
 	return data.User.ID, nil
 }
 
-// CreateCard creates a draft-issue card on the board and applies the optional
-// fields, returning the loaded card.
-func (c *Client) CreateCard(ctx context.Context, board *Board, in CreateCardInput) (*Card, error) {
+// CreateProjectCard creates a draft-issue card on the board and applies the
+// optional fields, returning the loaded rich card. The domain-typed create used
+// by the board service is the CreateCard method in setters.go.
+func (c *Client) CreateProjectCard(ctx context.Context, board *Board, in CreateCardInput) (*Card, error) {
 	if strings.TrimSpace(in.Title) == "" {
 		return nil, fmt.Errorf("title is required")
 	}
@@ -119,7 +120,7 @@ func (c *Client) CreateCard(ctx context.Context, board *Board, in CreateCardInpu
 		return nil, err
 	}
 
-	reloaded, err := c.LoadBoard(ctx, board.Owner, board.Number)
+	reloaded, err := c.LoadProjectBoard(ctx, board.Owner, board.Number)
 	if err == nil {
 		if card := reloaded.cardByItemID(itemID); card != nil {
 			return card, nil
@@ -360,9 +361,10 @@ func (c *Client) setAssignee(ctx context.Context, isDraft bool, contentID string
 	return nil
 }
 
-// MoveCard reorders itemID to sit after afterID; a nil afterID moves it to the
-// top of the board.
-func (c *Client) MoveCard(ctx context.Context, board *Board, itemID string, afterID *string) error {
+// MoveProjectCard reorders itemID to sit after afterID; a nil afterID moves it
+// to the top of the board. The domain-typed move is the MoveCard method in
+// setters.go.
+func (c *Client) MoveProjectCard(ctx context.Context, board *Board, itemID string, afterID *string) error {
 	if board.cardByItemID(itemID) == nil {
 		return fmt.Errorf("%w: %s", ErrCardNotFound, itemID)
 	}
@@ -373,14 +375,16 @@ func (c *Client) MoveCard(ctx context.Context, board *Board, itemID string, afte
 	return c.graphql(ctx, moveItemMutation, vars, nil)
 }
 
-// DeleteCard removes the item from the board.
-func (c *Client) DeleteCard(ctx context.Context, board *Board, itemID string) error {
+// DeleteProjectCard removes the item from the board. The domain-typed delete is
+// the DeleteCard method in setters.go.
+func (c *Client) DeleteProjectCard(ctx context.Context, board *Board, itemID string) error {
 	return c.graphql(ctx, deleteItemMutation, map[string]any{"project": board.ID, "item": itemID}, nil)
 }
 
-// AddNote appends a note to the card: an issue comment, or a dated line in the
-// draft body when the card is a draft.
-func (c *Client) AddNote(ctx context.Context, board *Board, itemID, text string) error {
+// AddProjectNote appends a note to the card: an issue comment, or a dated line
+// in the draft body when the card is a draft. The domain-typed note is the
+// AddNote method in setters.go.
+func (c *Client) AddProjectNote(ctx context.Context, board *Board, itemID, text string) error {
 	card := board.cardByItemID(itemID)
 	if card == nil {
 		return fmt.Errorf("%w: %s", ErrCardNotFound, itemID)
