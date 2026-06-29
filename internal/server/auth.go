@@ -54,6 +54,11 @@ type persistedSession struct {
 // authManager runs the GitHub OAuth web flow and keeps per-user sessions. They
 // live in memory and, when SessionFile is set, are mirrored to disk so a
 // restart doesn't force everyone to sign in again.
+//
+// It also plays the OAuth 2.0 authorization-server role for the MCP endpoint
+// (RFC 7591 dynamic client registration, the PKCE authorization-code grant and
+// token issuance). MCP access tokens ARE session ids, so an issued token is a
+// live session and the same TTL/persistence applies.
 type authManager struct {
 	cfg    OAuthConfig
 	secure bool
@@ -61,8 +66,43 @@ type authManager struct {
 	client *http.Client
 	path   string
 
+	// GitHub endpoints. They default to the real GitHub URLs and are overridden
+	// in tests to point at a stub server.
+	authorizeURL string
+	tokenURL     string
+	apiBase      string
+
 	mu       sync.Mutex
 	sessions map[string]oauthSession
+	// clients holds dynamically-registered MCP OAuth clients (RFC 7591).
+	clients map[string]oauthClient
+	// pendingAuth tracks in-flight MCP authorizations, keyed by the GitHub
+	// state we generate, so the callback can resume the right client flow.
+	pendingAuth map[string]pendingAuth
+	// authCodes holds issued single-use MCP authorization codes (5-min TTL).
+	authCodes map[string]authCode
+}
+
+// oauthClient is a dynamically-registered MCP OAuth client.
+type oauthClient struct {
+	redirectURIs []string
+}
+
+// pendingAuth is an in-flight MCP authorization, keyed by the GitHub state.
+type pendingAuth struct {
+	clientID      string
+	redirectURI   string
+	codeChallenge string
+	clientState   string
+}
+
+// authCode is an issued MCP authorization code (single-use, short-lived).
+type authCode struct {
+	sid           string
+	codeChallenge string
+	redirectURI   string
+	clientID      string
+	expiry        time.Time
 }
 
 func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
@@ -70,12 +110,18 @@ func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 		cfg.Scopes = "repo project"
 	}
 	a := &authManager{
-		cfg:      cfg,
-		secure:   strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://"),
-		log:      log,
-		client:   &http.Client{Timeout: 15 * time.Second},
-		path:     cfg.SessionFile,
-		sessions: map[string]oauthSession{},
+		cfg:          cfg,
+		secure:       strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://"),
+		log:          log,
+		client:       &http.Client{Timeout: 15 * time.Second},
+		path:         cfg.SessionFile,
+		authorizeURL: githubAuthorizeURL,
+		tokenURL:     githubTokenURL,
+		apiBase:      githubAPIBase,
+		sessions:     map[string]oauthSession{},
+		clients:      map[string]oauthClient{},
+		pendingAuth:  map[string]pendingAuth{},
+		authCodes:    map[string]authCode{},
 	}
 	a.load()
 	return a
@@ -185,10 +231,24 @@ func (a *authManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 	q.Set("redirect_uri", a.redirectURI())
 	q.Set("scope", a.cfg.Scopes)
 	q.Set("state", state)
-	http.Redirect(w, r, githubAuthorizeURL+"?"+q.Encode(), http.StatusFound)
+	http.Redirect(w, r, a.authorizeURL+"?"+q.Encode(), http.StatusFound)
 }
 
 func (a *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
+	// An MCP authorization keyed by the GitHub state takes the OAuth-server
+	// branch; everything else is the cookie-session web flow below, unchanged.
+	state := r.URL.Query().Get("state")
+	a.mu.Lock()
+	p, isMCP := a.pendingAuth[state]
+	if isMCP {
+		delete(a.pendingAuth, state)
+	}
+	a.mu.Unlock()
+	if isMCP {
+		a.handleMCPCallback(w, r, p)
+		return
+	}
+
 	sc, err := r.Cookie(stateCookie)
 	if err != nil || sc.Value == "" || sc.Value != r.URL.Query().Get("state") {
 		writeJSONError(w, http.StatusBadRequest, "invalid OAuth state")
@@ -243,7 +303,7 @@ func (a *authManager) exchange(ctx context.Context, code string) (string, error)
 	form.Set("code", code)
 	form.Set("redirect_uri", a.redirectURI())
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, githubTokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -271,7 +331,7 @@ func (a *authManager) exchange(ctx context.Context, code string) (string, error)
 }
 
 func (a *authManager) fetchLogin(ctx context.Context, token string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIBase+"/user", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.apiBase+"/user", nil)
 	if err != nil {
 		return "", err
 	}
