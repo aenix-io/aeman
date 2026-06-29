@@ -1,0 +1,125 @@
+// Package board holds aeman's pure board logic, ported from the web frontend:
+// date helpers, the stage model, per-team sprint pointers, the three board views
+// (Team grid, Me, Weekly plan) and the status/progress transition rules. Every
+// function works on an in-memory Board snapshot with no network access, so the
+// HTTP API and the MCP server can later expose the same views and actions.
+package board
+
+// SprintStateTitle marks the hidden per-team card that stores a team's sprint
+// pointer (current/previous start dates). It mirrors SPRINT_STATE_TITLE in
+// web/src/providers/github/githubProvider.ts; such cards never render on a board.
+const SprintStateTitle = "aeman:sprint-state"
+
+// ZoneKey is the colour zone a card belongs to, in the Ford sense. It mirrors
+// the ZoneKey union in web/src/providers/types.ts ("" means no zone).
+type ZoneKey string
+
+// The four Ford zones, mirroring web/src/zones.ts. ZoneNone ("") is no zone.
+const (
+	ZoneNone   ZoneKey = ""
+	ZoneGray   ZoneKey = "gray"
+	ZoneGreen  ZoneKey = "green"
+	ZoneYellow ZoneKey = "yellow"
+	ZoneRed    ZoneKey = "red"
+)
+
+// PlanBand is a card's weekly-plan band. It mirrors the `plan?: "wed" | "fri"`
+// field in web/src/providers/types.ts; PlanNone ("") means the card is not a
+// weekly-plan card.
+type PlanBand string
+
+// The weekly-plan bands. PlanNone ("") means the card is not in the weekly plan.
+const (
+	PlanNone PlanBand = ""
+	PlanWed  PlanBand = "wed"
+	PlanFri  PlanBand = "fri"
+)
+
+// SingleSelectOption is one choice of a single-select project field. It mirrors
+// the SingleSelectOption interface in web/src/providers/types.ts.
+type SingleSelectOption struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+// ProjectField is a column/field defined on a project board. It mirrors the
+// ProjectField interface in web/src/providers/types.ts.
+type ProjectField struct {
+	ID       string               `json:"id"`
+	Name     string               `json:"name"`
+	DataType string               `json:"dataType"`
+	Options  []SingleSelectOption `json:"options,omitempty"`
+}
+
+// Card is a single project item with the well-known field values the boards
+// orient by. It mirrors the Card interface in web/src/providers/types.ts (kept
+// distinct from ghprojects.Card, which has no typed Stage/Plan/Week/ReviewOf and
+// stores them only in a generic map).
+type Card struct {
+	ItemID    string   `json:"itemId"`
+	Title     string   `json:"title"`
+	Assignees []string `json:"assignees"`
+	// Team is the card's team label ("" = the no-team group).
+	Team string  `json:"team,omitempty"`
+	Zone ZoneKey `json:"zone,omitempty"`
+	// Progress is the readiness percentage (0..100); 0 also stands for unset,
+	// matching the frontend's `progress ?? 0`.
+	Progress int      `json:"progress"`
+	Stage    StageKey `json:"stage,omitempty"`
+	// StartDate is the day the card starts on; SprintStart is the start day of the
+	// sprint it belongs to (what the day boards orient by).
+	StartDate   string `json:"startDate,omitempty"`
+	SprintStart string `json:"sprintStart,omitempty"`
+	// Plan/Week place the card in the founders' weekly plan (Week is a Monday).
+	Plan PlanBand `json:"plan,omitempty"`
+	Week string   `json:"week,omitempty"`
+	// ReviewOf, on a review card, is the itemId of the original card it reviews.
+	ReviewOf  string `json:"reviewOf,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// SprintState is a team's explicit sprint pointer, read from its hidden
+// sprint-state card: the current and previous sprint start dates (and the card's
+// item id). It mirrors the SprintState interface in web/src/providers/types.ts;
+// "" means the team has no such sprint yet.
+type SprintState struct {
+	Current  string `json:"current"`
+	Previous string `json:"previous"`
+	ItemID   string `json:"itemId"`
+}
+
+// Board is an in-memory snapshot of a project board: its fields, the visible
+// cards (sprint-state cards excluded) and the per-team sprint pointers. It
+// mirrors the Board interface in web/src/providers/types.ts.
+type Board struct {
+	Fields []ProjectField `json:"fields"`
+	Cards  []Card         `json:"cards"`
+	// SprintStates maps each team key ("" = the no-team group) to its pointer.
+	SprintStates map[string]SprintState `json:"sprintStates"`
+}
+
+// NewBoard builds a Board snapshot from a board's fields and full card list,
+// splitting the hidden sprint-state cards out of Cards into SprintStates (keyed
+// by team, "" = the no-team group). It mirrors mapProject's split: a sprint-state
+// card's Team is its key, its SprintStart is the team's current sprint and its
+// StartDate (the "Start" field) is the previous sprint.
+func NewBoard(fields []ProjectField, cards []Card) Board {
+	b := Board{
+		Fields:       fields,
+		Cards:        make([]Card, 0, len(cards)),
+		SprintStates: map[string]SprintState{},
+	}
+	for _, c := range cards {
+		if c.Title == SprintStateTitle {
+			b.SprintStates[c.Team] = SprintState{
+				Current:  c.SprintStart,
+				Previous: c.StartDate,
+				ItemID:   c.ItemID,
+			}
+			continue
+		}
+		b.Cards = append(b.Cards, c)
+	}
+	return b
+}
