@@ -57,7 +57,13 @@ type ProjectField struct {
 // distinct from ghprojects.Card, which has no typed Stage/Plan/Week/ReviewOf and
 // stores them only in a generic map).
 type Card struct {
-	ItemID    string   `json:"itemId"`
+	ItemID string `json:"itemId"`
+	// ContentID is the node id of the underlying issue/PR/draft and IsDraft marks
+	// a draft-issue card. They mirror the contentId/isDraft fields on the frontend
+	// Card; a backend needs them to rename, reassign or note on the card (the pure
+	// views never read them).
+	ContentID string   `json:"contentId,omitempty"`
+	IsDraft   bool     `json:"isDraft,omitempty"`
 	Title     string   `json:"title"`
 	Assignees []string `json:"assignees"`
 	// Team is the card's team label ("" = the no-team group).
@@ -79,6 +85,23 @@ type Card struct {
 	CreatedAt string `json:"createdAt,omitempty"`
 }
 
+// CreateInput is the payload for creating a card on a board: the fields a create
+// can set. It mirrors NewCardInput in web/src/providers/types.ts. It lives in the
+// board package (not boardservice) so a backend can implement the create method
+// without importing boardservice. An empty field is left unset.
+type CreateInput struct {
+	Title       string   `json:"title"`
+	Zone        ZoneKey  `json:"zone,omitempty"`
+	Day         string   `json:"day,omitempty"`
+	Start       string   `json:"start,omitempty"`
+	SprintStart string   `json:"sprintStart,omitempty"`
+	Assignee    string   `json:"assignee,omitempty"`
+	Team        string   `json:"team,omitempty"`
+	ReviewOf    string   `json:"reviewOf,omitempty"`
+	Plan        PlanBand `json:"plan,omitempty"`
+	Week        string   `json:"week,omitempty"`
+}
+
 // SprintState is a team's explicit sprint pointer, read from its hidden
 // sprint-state card: the current and previous sprint start dates (and the card's
 // item id). It mirrors the SprintState interface in web/src/providers/types.ts;
@@ -93,6 +116,12 @@ type SprintState struct {
 // cards (sprint-state cards excluded) and the per-team sprint pointers. It
 // mirrors the Board interface in web/src/providers/types.ts.
 type Board struct {
+	// ID/Number/Owner identify the project this snapshot came from, so a backend
+	// can apply mutations against it. They mirror the id/number/owner fields on the
+	// frontend Board and are empty on hand-built snapshots that never get persisted.
+	ID     string         `json:"id,omitempty"`
+	Number int            `json:"number,omitempty"`
+	Owner  string         `json:"owner,omitempty"`
 	Fields []ProjectField `json:"fields"`
 	Cards  []Card         `json:"cards"`
 	// SprintStates maps each team key ("" = the no-team group) to its pointer.
