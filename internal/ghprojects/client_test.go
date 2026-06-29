@@ -382,3 +382,53 @@ func TestLoadBoardSurfacesNonNotFoundError(t *testing.T) {
 		t.Fatalf("err = %v, want it to surface the rate-limit message", err)
 	}
 }
+
+// TestLoadBoardPaginatesItems covers the items() pagination: a board larger than
+// one GraphQL page must be loaded in full, following pageInfo.endCursor, so the
+// newest cards do not silently fall off the load.
+func TestLoadBoardPaginatesItems(t *testing.T) {
+	page1 := `{"organization":{"projectV2":{
+	  "id":"PVT_1","number":7,"title":"Board","url":"u",
+	  "fields":{"nodes":[]},
+	  "items":{"pageInfo":{"hasNextPage":true,"endCursor":"CURSOR1"},"nodes":[
+	    {"id":"I_P1","type":"DRAFT_ISSUE","content":{"__typename":"DraftIssue","id":"D1","title":"one","assignees":{"nodes":[]}},"fieldValues":{"nodes":[]}}
+	  ]}
+	}}}`
+	page2 := `{"organization":{"projectV2":{
+	  "id":"PVT_1","number":7,"title":"Board","url":"u",
+	  "fields":{"nodes":[]},
+	  "items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+	    {"id":"I_P2","type":"DRAFT_ISSUE","content":{"__typename":"DraftIssue","id":"D2","title":"two","assignees":{"nodes":[]}},"fieldValues":{"nodes":[]}}
+	  ]}
+	}}}`
+	client, fake := newClientWithFake(t, func(query string, vars map[string]any) string {
+		if strings.Contains(query, "organization(login:") && strings.Contains(query, "projectV2(number:") {
+			if vars["after"] == "CURSOR1" {
+				return page2
+			}
+			return page1
+		}
+		return "{}"
+	})
+
+	board, err := client.LoadProjectBoard(context.Background(), "acme", 7)
+	if err != nil {
+		t.Fatalf("LoadProjectBoard: %v", err)
+	}
+	if len(board.Cards) != 2 {
+		t.Fatalf("want 2 cards across 2 pages, got %d", len(board.Cards))
+	}
+	if board.cardByItemID("I_P1") == nil || board.cardByItemID("I_P2") == nil {
+		t.Fatalf("missing a paged card: %+v", board.Cards)
+	}
+
+	projectQueries := 0
+	for _, r := range fake.reqs {
+		if strings.Contains(r.query, "projectV2(number:") {
+			projectQueries++
+		}
+	}
+	if projectQueries != 2 {
+		t.Fatalf("want 2 project page queries (first + one follow-up), got %d", projectQueries)
+	}
+}

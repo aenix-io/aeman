@@ -16,7 +16,8 @@ const projectBody = `
       ... on ProjectV2SingleSelectField { id name dataType options { id name color } }
     }
   }
-  items(first: 100) {
+  items(first: 100, after: $after) {
+    pageInfo { hasNextPage endCursor }
     nodes {
       id
       type
@@ -69,11 +70,11 @@ const projectBody = `
   }
 `
 
-const orgProjectQuery = `query($owner: String!, $number: Int!) {
+const orgProjectQuery = `query($owner: String!, $number: Int!, $after: String) {
   organization(login: $owner) { projectV2(number: $number) { ` + projectBody + ` } }
 }`
 
-const userProjectQuery = `query($owner: String!, $number: Int!) {
+const userProjectQuery = `query($owner: String!, $number: Int!, $after: String) {
   user(login: $owner) { projectV2(number: $number) { ` + projectBody + ` } }
 }`
 
