@@ -15,8 +15,8 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, mondayOf } from "../date";
-import { currentSprintByTeam, sprintForNewCard } from "../sprint";
+import { todayIso, addDays, activeOnDay, mondayOf } from "../date";
+import { currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
@@ -156,6 +156,29 @@ export function TeamBoard({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [sprintMenuOpen]);
 
+  // A tab left open past midnight keeps a stale "today", so the weekly plan and
+  // newly-planned cards (week = mondayOf(selectedDate)) would land on the old
+  // week and vanish from the real current week. When the tab regains focus,
+  // catch the selected day up to the real today — unless the user navigated to a
+  // specific other day. (The grid create already reads the live date directly.)
+  const lastToday = useRef(todayIso());
+  useEffect(() => {
+    const sync = () => {
+      const now = todayIso();
+      if (now === lastToday.current) {
+        return;
+      }
+      setSelectedDate((d) => (d === lastToday.current ? now : d));
+      lastToday.current = now;
+    };
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, []);
+
   const roles = useMemo(() => fieldRoles(board), [board]);
 
   // Single-select: no filter shows all; otherwise match the card's group.
@@ -169,29 +192,56 @@ export function TeamBoard({
     [board.cards, teamFilter],
   );
 
-  // Per-team current sprint: the latest sprintStart on or before the day.
-  const currentSprint = useMemo(
-    () => currentSprintByTeam(inFilter, selectedDate),
+  // A card shows on every day of its [startDate, sprintStart] span. A fresh card
+  // (start === sprintStart) shows on its one sprint day; a card carried into a
+  // later sprint (sprintStart advanced past startDate) shows in BOTH its original
+  // sprint and the new one — carry over extends the task's span, not moves it.
+  const filteredCards = useMemo(
+    () =>
+      inFilter.filter((c) =>
+        activeOnDay(c.startDate, c.sprintStart, selectedDate),
+      ),
     [inFilter, selectedDate],
   );
 
-  // A card shows from its start through its sprint day, and a card of the team's
-  // CURRENT sprint stays visible on the selected day even past its sprintStart —
-  // so adding a card (which joins the running sprint) doesn't drop the others.
-  const filteredCards = useMemo(
-    () =>
-      inFilter.filter((c) => {
-        const start = c.startDate ?? c.sprintStart;
-        const sprint = c.sprintStart;
-        if (!start || !sprint || selectedDate < start) {
-          return false;
+  // The sprint-jump button. Standing on the current sprint, it offers the
+  // previous one ("« Last sprint"). Standing anywhere else, it returns to the
+  // current sprint, the arrow pointing the way ("Current sprint »" when it is
+  // ahead in time, "« Current sprint" when it is behind). Uses the filtered
+  // team's sprint, or the latest across teams when unfiltered. Null = nowhere to
+  // jump.
+  const sprintJump = useMemo<{
+    target: string;
+    label: string;
+    dir: "back" | "fwd";
+  } | null>(() => {
+    let cur: string | null;
+    let prev: string | null;
+    if (teamFilter !== null) {
+      cur = currentSprint(board, teamFilter);
+      prev = previousSprint(board, teamFilter);
+    } else {
+      cur = null;
+      prev = null;
+      for (const s of Object.values(board.sprintStates)) {
+        if (s.current && (cur === null || s.current > cur)) {
+          cur = s.current;
         }
-        return (
-          selectedDate <= sprint || currentSprint.get(c.team ?? "") === sprint
-        );
-      }),
-    [inFilter, currentSprint, selectedDate],
-  );
+        if (s.previous && (prev === null || s.previous > prev)) {
+          prev = s.previous;
+        }
+      }
+    }
+    if (cur === null) {
+      return null;
+    }
+    if (selectedDate === cur) {
+      return prev ? { target: prev, label: "Last sprint", dir: "back" } : null;
+    }
+    return selectedDate < cur
+      ? { target: cur, label: "Current sprint", dir: "fwd" }
+      : { target: cur, label: "Current sprint", dir: "back" };
+  }, [board, teamFilter, selectedDate]);
 
   const currentWeek = useMemo(() => mondayOf(selectedDate), [selectedDate]);
 
@@ -272,36 +322,39 @@ export function TeamBoard({
       });
   };
 
-  // Weekly carry over: move unfinished plan cards of the current week to next
-  // week (its own cycle, separate from the daily Carry over).
+  // Weekly carry over: pull a team's unfinished plan cards from earlier weeks
+  // into the current (selected) week — the weekly analogue of the daily sprint
+  // carry over, so a new week's empty plan can absorb last week's leftovers.
   const handleCarryWeek = (team: string | null) => {
     setCarryWeekOpen(false);
     const label = team ?? "no team";
-    const nextWeek = addDays(currentWeek, 7);
     const carry = board.cards.filter(
       (c) =>
         c.plan &&
-        c.week === currentWeek &&
+        c.week != null &&
+        c.week < currentWeek &&
         c.stage !== "done" &&
         // Skip not-yet-persisted optimistic cards (temporary ids).
         !c.itemId.startsWith("tmp-") &&
         (team === null ? c.team == null : c.team === team),
     );
     if (carry.length === 0) {
-      onError(`No unfinished plan cards for "${label}" to carry to next week.`);
+      onError(
+        `No unfinished plan cards from earlier weeks for "${label}" to carry into the week of ${currentWeek}.`,
+      );
       return;
     }
     if (
       !window.confirm(
-        `Carry over ${carry.length} unfinished plan card(s) for "${label}" to the week of ${nextWeek}?`,
+        `Carry over ${carry.length} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?`,
       )
     ) {
       return;
     }
     for (const card of carry) {
       const prev = card.week;
-      patchCard(card.itemId, { week: nextWeek });
-      void provider.setWeek(board, card, nextWeek).catch((err: unknown) => {
+      patchCard(card.itemId, { week: currentWeek });
+      void provider.setWeek(board, card, currentWeek).catch((err: unknown) => {
         patchCard(card.itemId, { week: prev });
         onError(errMessage(err));
       });
@@ -355,6 +408,9 @@ export function TeamBoard({
     const zone = dropZone ?? card.zone ?? "gray";
     const optionId = optionIdForZone(roles.zone, zone) ?? card.zoneOptionId;
     const zoneChanged = zone !== card.zone;
+    // Join the card's team's current sprint (its explicit state), falling back to
+    // the selected day when the team has none yet.
+    const sprintStart = currentSprint(board, card.team ?? null) ?? selectedDate;
     const prev: Partial<CardModel> = {
       assignees: card.assignees,
       zone: card.zone,
@@ -365,7 +421,7 @@ export function TeamBoard({
       assignees: login ? [login] : [],
       zone,
       zoneOptionId: optionId,
-      sprintStart: selectedDate,
+      sprintStart,
     });
     void (async () => {
       try {
@@ -373,7 +429,7 @@ export function TeamBoard({
         if (zoneChanged && optionId) {
           await provider.setZone(board, card, optionId);
         }
-        await provider.setSprintStart(board, card, selectedDate);
+        await provider.setSprintStart(board, card, sprintStart);
       } catch (err: unknown) {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
@@ -596,6 +652,26 @@ export function TeamBoard({
     })();
   };
 
+  // Drive an original card's review stage from its review card's progress:
+  // at 100% the original leaves review; below 100% it (re)enters review.
+  const syncOriginalReview = (original: CardModel, reviewProgress: number) => {
+    let next: StageKey | null | undefined;
+    if (reviewProgress === 100 && original.stage === "review") {
+      next = null;
+    } else if (reviewProgress < 100 && original.stage !== "review") {
+      next = "review";
+    }
+    if (next === undefined) {
+      return;
+    }
+    const prevStage = original.stage;
+    patchCard(original.itemId, { stage: next ?? undefined });
+    void provider.setStage(board, original, next).catch((err: unknown) => {
+      patchCard(original.itemId, { stage: prevStage });
+      onError(errMessage(err));
+    });
+  };
+
   const handleProgress = (card: CardModel, value: number) => {
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
@@ -624,6 +700,14 @@ export function TeamBoard({
         onError(errMessage(err));
       }
     })();
+
+    // When this is a review card, its progress drives the original's review stage.
+    if (card.reviewOf) {
+      const original = board.cards.find((c) => c.itemId === card.reviewOf);
+      if (original) {
+        syncOriginalReview(original, value);
+      }
+    }
   };
 
   const handleStage = (card: CardModel, stage: StageKey | null) => {
@@ -635,11 +719,23 @@ export function TeamBoard({
     if (stage === "done") {
       patch.progress = 100;
     }
+    // review/locked cards can never sit at 100%: knock a full card down to 90%.
+    const dropTo90 =
+      (stage === "review" || stage === "locked") && card.progress === 100;
+    if (dropTo90) {
+      patch.progress = 90;
+    }
     patchCard(card.itemId, patch);
     void provider.setStage(board, card, stage).catch((err: unknown) => {
       patchCard(card.itemId, prev);
       onError(errMessage(err));
     });
+    if (dropTo90) {
+      void provider.setProgress(board, card, 90).catch((err: unknown) => {
+        patchCard(card.itemId, { progress: prev.progress });
+        onError(errMessage(err));
+      });
+    }
   };
 
   const handleRename = (card: CardModel, title: string) => {
@@ -652,6 +748,22 @@ export function TeamBoard({
   };
 
   const handleDelete = (card: CardModel) => {
+    // If a review card links back to this one, delete both (with one confirm).
+    const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
+    if (linkedReview) {
+      if (
+        !window.confirm(
+          `Delete this card and its linked review card «${linkedReview.title}»?`,
+        )
+      ) {
+        return;
+      }
+      removeCard(linkedReview.itemId);
+      void provider.deleteCard(board, linkedReview).catch((err: unknown) => {
+        addCard(linkedReview);
+        onError(errMessage(err));
+      });
+    }
     removeCard(card.itemId);
     void provider.deleteCard(board, card).catch((err: unknown) => {
       addCard(card);
@@ -659,10 +771,50 @@ export function TeamBoard({
     });
   };
 
+  // The team's explicit previous sprint — where deleting a grid card demotes it
+  // (back to last sprint) instead of removing it.
+  const previousSprintFor = (card: CardModel): string | null =>
+    previousSprint(board, card.team ?? null);
+
+  const previousWeekFor = (card: CardModel): string | null => {
+    const team = card.team ?? "";
+    const cur = card.week;
+    if (!cur) return null;
+    let prev: string | null = null;
+    for (const c of board.cards) {
+      if (c.itemId === card.itemId || (c.team ?? "") !== team) continue;
+      if (!c.week || c.week >= cur) continue;
+      if (prev === null || c.week > prev) prev = c.week;
+    }
+    return prev;
+  };
+
   // Deleting a taken plan card from the grid releases it (clears assignee + the
-  // daily sprint) instead of deleting it, so it stays in the weekly plan.
+  // daily sprint) instead of deleting it, so it stays in the weekly plan. A plain
+  // grid card is demoted to its previous sprint (if any) rather than deleted.
   const handleGridDelete = (card: CardModel) => {
     if (!card.plan) {
+      const prevSprint = previousSprintFor(card);
+      if (prevSprint) {
+        const prev: Partial<CardModel> = {
+          startDate: card.startDate,
+          sprintStart: card.sprintStart,
+        };
+        patchCard(card.itemId, {
+          startDate: prevSprint,
+          sprintStart: prevSprint,
+        });
+        void (async () => {
+          try {
+            await provider.setStart(board, card, prevSprint);
+            await provider.setSprintStart(board, card, prevSprint);
+          } catch (err: unknown) {
+            patchCard(card.itemId, prev);
+            onError(errMessage(err));
+          }
+        })();
+        return;
+      }
       handleDelete(card);
       return;
     }
@@ -683,10 +835,20 @@ export function TeamBoard({
   };
 
   // Remove a card from the weekly plan. If it was taken into work (assigned) it
-  // stays on the board — only the weekly marker (Plan + Week) is cleared;
-  // otherwise it is a pure plan card and gets deleted.
+  // stays on the board — only the weekly marker (Plan + Week) is cleared. A pure
+  // plan card is demoted to its previous week (if any) instead of being deleted.
   const removeFromPlan = (card: CardModel) => {
     if (card.assignees.length === 0) {
+      const prevWeek = previousWeekFor(card);
+      if (prevWeek) {
+        const prev: Partial<CardModel> = { week: card.week };
+        patchCard(card.itemId, { week: prevWeek });
+        void provider.setWeek(board, card, prevWeek).catch((err: unknown) => {
+          patchCard(card.itemId, prev);
+          onError(errMessage(err));
+        });
+        return;
+      }
       handleDelete(card);
       return;
     }
@@ -707,10 +869,10 @@ export function TeamBoard({
   const handleSetTeam = (card: CardModel, team: string | null) => {
     const prevTeam = card.team;
     const prevSprint = card.sprintStart;
-    // Join the new team's running sprint, so a card moved between teams stays
-    // visible instead of dropping off when its old sprint predates the new
-    // team's current one (mirrors how a freshly created card joins a sprint).
-    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
+    // Join the new team's current sprint (its explicit state), so a card moved
+    // between teams stays visible instead of dropping off when its old sprint
+    // predates the new team's current one. Fall back to the selected day.
+    const sprintStart = currentSprint(board, team) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
     void provider.setTeam(board, card, team).catch((err: unknown) => {
       patchCard(card.itemId, { team: prevTeam });
@@ -735,6 +897,85 @@ export function TeamBoard({
     });
   };
 
+  // Item ids of cards that already have a linked review card (delete cascades).
+  const reviewedItemIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of board.cards) {
+      if (c.reviewOf) {
+        s.add(c.reviewOf);
+      }
+    }
+    return s;
+  }, [board.cards]);
+
+  // Reviewer suggestions: people on the same team as the card, minus its own
+  // assignee(s). The picker also accepts a free-text login.
+  const reviewersFor = (card: CardModel): string[] => {
+    const set = new Set<string>();
+    for (const c of board.cards) {
+      if ((c.team ?? "") !== (card.team ?? "")) {
+        continue;
+      }
+      for (const login of c.assignees) {
+        set.add(login);
+      }
+    }
+    for (const a of card.assignees) {
+      set.delete(a);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  };
+
+  // Send a card to review: create a linked review card for the reviewer (in the
+  // original's zone on the Team board) and put the original on the review stage.
+  const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
+    const team = card.team ?? null;
+    const zone: ZoneKey = card.zone ?? "gray";
+    const sprintStart = currentSprint(board, team) ?? selectedDate;
+    const title = `review: ${card.title}`;
+    const tempId = `tmp-${new Date().toISOString()}`;
+    const optimistic: CardModel = {
+      itemId: tempId,
+      title,
+      isDraft: true,
+      assignees: [reviewerLogin],
+      zone,
+      zoneOptionId: optionIdForZone(roles.zone, zone) ?? card.zoneOptionId,
+      day: selectedDate,
+      startDate: selectedDate,
+      sprintStart,
+      team: team ?? undefined,
+      reviewOf: card.itemId,
+      createdAt: new Date().toISOString(),
+      description: "",
+      notes: [],
+    };
+    addCard(optimistic);
+    void provider
+      .createCard(board, {
+        title,
+        zone,
+        day: selectedDate,
+        start: selectedDate,
+        sprintStart,
+        assigneeLogin: reviewerLogin,
+        team,
+        reviewOf: card.itemId,
+      })
+      .then((created) => {
+        removeCard(tempId);
+        addCard(created);
+      })
+      .catch((err: unknown) => {
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
+
+    // Put the original on review. handleStage also drops a 100% card to 90%,
+    // since review/locked can't sit at full.
+    handleStage(card, "review");
+  };
+
   const handleSetDates = (
     card: CardModel,
     start: string | null,
@@ -756,25 +997,26 @@ export function TeamBoard({
     })();
   };
 
-  const handleCreate = (
+  // Optimistically create a Team grid card with explicit sprint dates and push
+  // it to the provider.
+  const createTeamCard = (
     engineer: string,
     zone: ZoneKey,
     title: string,
-    team?: string | null,
+    team: string | null,
+    startDate: string,
+    sprintStart: string,
+    day: string,
   ) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // Join the team's running sprint instead of starting a new one (an empty day
-    // still starts a fresh sprint, since sprintForNewCard falls back to today), so
-    // adding a card doesn't drop the other cards of the current sprint.
-    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
     const optimistic: CardModel = {
       itemId: tempId,
       title,
       isDraft: true,
       assignees: engineer ? [engineer] : [],
       zone,
-      day: selectedDate,
-      startDate: selectedDate,
+      day,
+      startDate,
       sprintStart,
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
@@ -786,11 +1028,11 @@ export function TeamBoard({
       .createCard(board, {
         title,
         zone,
-        day: selectedDate,
-        start: selectedDate,
+        day,
+        start: startDate,
         sprintStart,
         assigneeLogin: engineer || null,
-        team: team ?? null,
+        team,
       })
       .then((card) => {
         removeCard(tempId);
@@ -802,44 +1044,69 @@ export function TeamBoard({
       });
   };
 
-  // Carry over a team's unfinished cards from earlier sprints into the selected
-  // day's sprint. `team` is null for the no-team group.
-  const startSprint = (team: string | null) => {
+  // Creating a Team card joins the team's current sprint (from its explicit
+  // state). A team with no sprint yet starts its first one off this card. Start
+  // date is the sprint's start day, so the card shows only on that day and the
+  // day after stays empty (the cue to carry over).
+  const handleCreate = (
+    engineer: string,
+    zone: ZoneKey,
+    title: string,
+    team?: string | null,
+  ) => {
+    const teamKey = team ?? null;
+    let sprint = currentSprint(board, teamKey);
+    if (sprint === null) {
+      // First sprint for this team: record it on the state card, then reload to
+      // pick up the advance (later cards then join it).
+      sprint = selectedDate;
+      void provider
+        .setSprintState(board, teamKey, selectedDate, null)
+        .then(() => reload())
+        .catch((err: unknown) => onError(errMessage(err)));
+    }
+    createTeamCard(engineer, zone, title, teamKey, sprint, sprint, todayIso());
+  };
+
+  // Carry over: advance the team's sprint to today (the prior current becomes the
+  // previous) and pull its unfinished cards forward. Always advances, even with
+  // nothing to carry. `team` is null for the no-team group.
+  const startSprint = async (team: string | null) => {
     setSprintMenuOpen(false);
     const label = team ?? "no team";
+    const old = currentSprint(board, team);
+    const today = todayIso();
+    // Idempotent: if the sprint is already today's, do not re-advance — that would
+    // overwrite the previous sprint, making previous = current = today.
+    if (old === today) {
+      onError(`«${label}» is already on today's sprint.`);
+      return;
+    }
     const carry = board.cards.filter(
       (c) =>
         (team === null ? c.team == null : c.team === team) &&
+        c.sprintStart === old &&
         c.stage !== "done" &&
-        !c.itemId.startsWith("tmp-") &&
-        // Only cards that were actually in an earlier sprint — not date-less
-        // orphans (which have no sprintStart and aren't visible on any day).
-        c.sprintStart != null &&
-        c.sprintStart < selectedDate,
+        !c.itemId.startsWith("tmp-"),
     );
-    if (carry.length === 0) {
-      onError(
-        `Nothing to carry over for "${label}" — add cards on ${selectedDate} to start the sprint.`,
-      );
-      return;
-    }
     if (
       !window.confirm(
-        `Carry over ${carry.length} unfinished card(s) for "${label}" into ${selectedDate}?`,
+        `Start a new sprint for «${label}» (${today})? ${carry.length} unfinished card(s) carried over.`,
       )
     ) {
       return;
     }
-    for (const card of carry) {
-      const prev = card.sprintStart;
-      patchCard(card.itemId, { sprintStart: selectedDate });
-      void provider
-        .setSprintStart(board, card, selectedDate)
-        .catch((err: unknown) => {
-          patchCard(card.itemId, { sprintStart: prev });
-          onError(errMessage(err));
-        });
+    try {
+      await provider.setSprintState(board, team, today, old);
+      for (const card of carry) {
+        patchCard(card.itemId, { sprintStart: today });
+        await provider.setSprintStart(board, card, today);
+      }
+    } catch (err: unknown) {
+      onError(errMessage(err));
     }
+    // Re-read the advanced state (and reconcile the carried cards).
+    reload();
   };
 
   return (
@@ -896,6 +1163,22 @@ export function TeamBoard({
         >
           ⇄
         </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            if (sprintJump) {
+              setSelectedDate(sprintJump.target);
+            }
+          }}
+          disabled={!sprintJump}
+          title="Jump to a sprint's day"
+          aria-label="Jump to sprint"
+        >
+          {sprintJump?.dir === "fwd"
+            ? `${sprintJump.label} »`
+            : `« ${sprintJump?.label ?? "Last sprint"}`}
+        </button>
         <div className="sprint-wrap" ref={sprintRef}>
           <button
             type="button"
@@ -904,10 +1187,10 @@ export function TeamBoard({
               if (teamFilter === null) {
                 setSprintMenuOpen((o) => !o);
               } else {
-                startSprint(teamFilter === "" ? null : teamFilter);
+                void startSprint(teamFilter === "" ? null : teamFilter);
               }
             }}
-            title={`Carry unfinished cards into the ${selectedDate} sprint`}
+            title={`Start a new sprint (today) for the selected team`}
           >
             Carry over{teamFilter === null ? " ▾" : " →"}
           </button>
@@ -918,7 +1201,7 @@ export function TeamBoard({
                   key={t}
                   type="button"
                   className="card-stage-item"
-                  onClick={() => startSprint(t)}
+                  onClick={() => void startSprint(t)}
                 >
                   <span className="team-dot" style={{ background: teamColor(t) }} />
                   {t}
@@ -927,7 +1210,7 @@ export function TeamBoard({
               <button
                 type="button"
                 className="card-stage-item card-stage-clear"
-                onClick={() => startSprint(null)}
+                onClick={() => void startSprint(null)}
               >
                 no team
               </button>
@@ -959,6 +1242,9 @@ export function TeamBoard({
               users={users}
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
+              onSendToReview={handleSendToReview}
+              reviewerCandidates={reviewersFor(card)}
+              hasLinkedReview={reviewedItemIds.has(card.itemId)}
               asOf={selectedDate}
               onSetDates={handleSetDates}
               weekMode
@@ -981,6 +1267,9 @@ export function TeamBoard({
               users={users}
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
+              onSendToReview={handleSendToReview}
+              reviewerCandidates={reviewersFor(card)}
+              hasLinkedReview={reviewedItemIds.has(card.itemId)}
               asOf={selectedDate}
               onSetDates={handleSetDates}
               dimAvatar

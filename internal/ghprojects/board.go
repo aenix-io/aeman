@@ -275,6 +275,10 @@ func applyRole(card *Card, v *rawFieldValue, roles FieldRoles) {
 		card.Progress = v.Number
 	case roles.Day != nil && id == roles.Day.ID && v.Date != "":
 		card.Day = v.Date
+	case roles.Start != nil && id == roles.Start.ID && v.Date != "":
+		card.StartDate = v.Date
+	case roles.SprintStart != nil && id == roles.SprintStart.ID && v.Date != "":
+		card.SprintStart = v.Date
 	case roles.Sprint != nil && id == roles.Sprint.ID && v.Title != "":
 		card.SprintTitle = v.Title
 	case roles.Status != nil && id == roles.Status.ID && v.Name != "":

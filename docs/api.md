@@ -51,6 +51,8 @@ A card maps a project item onto the well-known fields aeman understands (resolve
   "zoneOptionId": "...",
   "progress": 40,
   "day": "2026-06-26",
+  "startDate": "2026-06-24",
+  "sprintStart": "2026-06-24",
   "sprintTitle": "Sprint 3",
   "status": "In progress",
   "team": "Platform",
@@ -64,11 +66,21 @@ A card maps a project item onto the well-known fields aeman understands (resolve
 
 ### Create / update inputs
 
-`CreateCardInput`: `{ "title" (required), "zone", "assignee", "day", "status", "team", "progress", "fields" }`.
+`CreateCardInput`: `{ "title" (required), "zone", "assignee", "day", "start", "sprintStart", "status", "team", "progress", "fields", "startNewSprint" }`.
 
-`UpdateCardInput` is a partial patch — only the keys you send are changed: `{ "title", "zone", "progress", "day", "assignee", "status", "team", "fields" }`. For `zone`, `day`, `assignee`, `status` and `team`, an empty string clears the value. `fields` is an object keyed by board field name; aeman dispatches on each field's data type (single-select by option name, plus date/number/text).
+`UpdateCardInput` is a partial patch — only the keys you send are changed: `{ "title", "zone", "progress", "day", "start", "sprintStart", "assignee", "status", "team", "fields" }`. For `zone`, `day`, `start`, `sprintStart`, `assignee`, `status` and `team`, an empty string clears the value. `fields` is an object keyed by board field name; aeman dispatches on each field's data type (single-select by option name, plus date/number/text).
 
-Field roles are matched by name: zone (`zone`, `priority zone`, `зона`), progress (`progress`, `readiness`, `% done`, …), day (`day`, `date`, `due date`, …), sprint (`sprint`, `iteration`, …), status (`status`, `stage`, …), team (`team`, `group`, …).
+#### Sprint membership on create (`startNewSprint`)
+
+A card belongs to a sprint, identified by its `sprintStart` date (the day the sprint began). On create, aeman can place the card in the right sprint automatically. This logic engages when the card has a `team`, or when `startNewSprint` is set explicitly; a teamless create with the flag omitted keeps the legacy behaviour (no sprint dates are touched).
+
+- omitted (auto): join the team's **current sprint** (the latest `sprintStart` on or before today) if it is still running — i.e. at least one card of that sprint is not `done` — otherwise start a new sprint today.
+- `true`: force a new sprint (`sprintStart` = today).
+- `false`: force-join the team's current sprint (`sprintStart` = its start day; today if the team has none).
+
+When it engages, aeman sets `start` = `sprintStart` and defaults `day` to today (an explicit `day` is respected). Fields the board does not define are skipped, so the create never fails on a leaner board.
+
+Field roles are matched by name: zone (`zone`, `priority zone`, `зона`), progress (`progress`, `readiness`, `% done`, …), day (`day`, `date`, `due date`, …), start (`start`, `start date`, …), sprint start (`sprint start`, `sprintstart`, …), sprint (`sprint`, `iteration`, …), status (`status`, `stage`, …), team (`team`, `group`, …).
 
 ### Examples
 
@@ -98,7 +110,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards/PVTI_xxx/notes?owner=acme&proje
 | --- | --- |
 | `get_board` | Board identity and field metadata. |
 | `list_cards` | All cards on the board. |
-| `create_card` | Create a draft-issue card (title required; optional zone/assignee/day/status/team/progress). |
+| `create_card` | Create a draft-issue card (title required; optional zone/assignee/day/status/team/progress/startNewSprint). |
 | `update_card` | Partial update by `itemId` (title/zone/progress/day/assignee/status/team). |
 | `move_card` | Reorder by `itemId`, optional `afterId`. |
 | `delete_card` | Delete by `itemId`. |

@@ -16,6 +16,7 @@ import type {
   Note,
   ProjectField,
   Provider,
+  SprintState,
   StageKey,
 } from "../types";
 import {
@@ -101,7 +102,10 @@ interface RawProject {
   title: string;
   url: string;
   fields: { nodes: RawField[] };
-  items: { nodes: RawItem[] };
+  items: {
+    nodes: RawItem[];
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  };
 }
 
 interface ProjectResult {
@@ -113,6 +117,10 @@ interface ProjectsListResult {
   organization?: { projectsV2: { nodes: BoardSummary[] } } | null;
   user?: { projectsV2: { nodes: BoardSummary[] } } | null;
 }
+
+// SPRINT_STATE_TITLE marks the hidden per-team draft card that stores the team's
+// sprint pointer (current/previous start dates). It never shows on a board view.
+const SPRINT_STATE_TITLE = "aeman:sprint-state";
 
 // LOG_MARKER separates a draft card's description from its appended action log.
 const LOG_MARKER = "<!-- aeman:log -->";
@@ -248,9 +256,41 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
       card.status = value.name;
     } else if (roles.team && fieldID === roles.team.id && value.text) {
       card.team = value.text;
+    } else if (roles.reviewOf && fieldID === roles.reviewOf.id && value.text) {
+      card.reviewOf = value.text;
     }
   }
   return card;
+}
+
+/** parseSprintState reads a sprint-state card into its team key and pointer:
+ * Team text = the team ("" = no-team group), Sprint Start = current sprint,
+ * Start = previous sprint. */
+function parseSprintState(
+  item: RawItem,
+  roles: FieldRoles,
+): { team: string; state: SprintState } {
+  let team = "";
+  let current: string | null = null;
+  let previous: string | null = null;
+  for (const value of item.fieldValues.nodes) {
+    const fieldID = value.field?.id;
+    if (!fieldID) {
+      continue;
+    }
+    if (roles.team && fieldID === roles.team.id && value.text) {
+      team = value.text;
+    } else if (
+      roles.sprintStart &&
+      fieldID === roles.sprintStart.id &&
+      value.date
+    ) {
+      current = value.date;
+    } else if (roles.start && fieldID === roles.start.id && value.date) {
+      previous = value.date;
+    }
+  }
+  return { team, state: { current, previous, itemId: item.id } };
 }
 
 function mapProject(owner: string, raw: RawProject): Board {
@@ -273,26 +313,72 @@ function mapProject(owner: string, raw: RawProject): Board {
     owner,
     fields,
     cards: [],
+    sprintStates: {},
   };
   const roles = fieldRoles(board);
-  board.cards = raw.items.nodes.map((item) => mapItem(item, roles));
+  // Split the hidden sprint-state cards out of the normal cards: they carry the
+  // per-team sprint pointers and must never render on a board view.
+  const cards: Card[] = [];
+  const sprintStates: Record<string, SprintState> = {};
+  for (const item of raw.items.nodes) {
+    if (item.content?.title === SPRINT_STATE_TITLE) {
+      const { team, state } = parseSprintState(item, roles);
+      sprintStates[team] = state;
+    } else {
+      cards.push(mapItem(item, roles));
+    }
+  }
+  board.cards = cards;
+  board.sprintStates = sprintStates;
   return board;
 }
 
 async function loadProject(owner: string, number: number): Promise<RawProject> {
+  // Resolve org-vs-user once, then page through every item. A board can hold more
+  // than the 100-item GraphQL page size, and without paging the newest cards fall
+  // off the load and "disappear" after a refresh.
+  let first: RawProject | undefined;
+  let isOrg = true;
   try {
-    const data = await graphql<ProjectResult>(ORG_PROJECT_QUERY, { owner, number });
-    if (data.organization?.projectV2) {
-      return data.organization.projectV2;
-    }
+    const data = await graphql<ProjectResult>(ORG_PROJECT_QUERY, {
+      owner,
+      number,
+      after: null,
+    });
+    first = data.organization?.projectV2 ?? undefined;
   } catch {
     // Owner is likely a user, not an org; fall through to the user query.
   }
-  const data = await graphql<ProjectResult>(USER_PROJECT_QUERY, { owner, number });
-  if (data.user?.projectV2) {
-    return data.user.projectV2;
+  if (!first) {
+    isOrg = false;
+    const data = await graphql<ProjectResult>(USER_PROJECT_QUERY, {
+      owner,
+      number,
+      after: null,
+    });
+    first = data.user?.projectV2 ?? undefined;
   }
-  throw new Error(`Project #${number} not found for "${owner}"`);
+  if (!first) {
+    throw new Error(`Project #${number} not found for "${owner}"`);
+  }
+
+  const nodes = [...first.items.nodes];
+  let pageInfo = first.items.pageInfo;
+  const query = isOrg ? ORG_PROJECT_QUERY : USER_PROJECT_QUERY;
+  while (pageInfo?.hasNextPage && pageInfo.endCursor) {
+    const data = await graphql<ProjectResult>(query, {
+      owner,
+      number,
+      after: pageInfo.endCursor,
+    });
+    const page = isOrg ? data.organization?.projectV2 : data.user?.projectV2;
+    if (!page) {
+      break;
+    }
+    nodes.push(...page.items.nodes);
+    pageInfo = page.items.pageInfo;
+  }
+  return { ...first, items: { ...first.items, nodes } };
 }
 
 // Specs for lazily-created project fields. A missing field is created the first
@@ -339,6 +425,7 @@ const FIELD_SPECS: Partial<Record<keyof FieldRoles, FieldSpec>> = {
   },
   week: { name: "Week", dataType: "DATE" },
   team: { name: "Team", dataType: "TEXT" },
+  reviewOf: { name: "Review Of", dataType: "TEXT" },
 };
 
 interface CreatedField {
@@ -489,6 +576,67 @@ export const githubProvider: Provider = {
       field: field.id,
       value: date,
     });
+  },
+
+  async setSprintState(
+    board: Board,
+    team: string | null,
+    current: string | null,
+    previous: string | null,
+  ): Promise<void> {
+    // Reuse the team's existing hidden state card, or create one (a draft titled
+    // SPRINT_STATE_TITLE, no assignees) tagged with the team name.
+    let itemId = board.sprintStates[team ?? ""]?.itemId;
+    if (!itemId) {
+      const created = await graphql<{
+        addProjectV2DraftIssue: { projectItem: { id: string } };
+      }>(ADD_DRAFT, {
+        project: board.id,
+        title: SPRINT_STATE_TITLE,
+        assignees: [],
+      });
+      itemId = created.addProjectV2DraftIssue.projectItem.id;
+      if (team !== null) {
+        const teamField = await ensureField(board, "team", "Team");
+        await graphql(SET_TEXT, {
+          project: board.id,
+          item: itemId,
+          field: teamField.id,
+          value: team,
+        });
+      }
+    }
+    // Sprint Start = the current sprint; Start = the previous sprint.
+    const sprintField = await ensureField(board, "sprintStart", "Sprint Start");
+    if (current === null) {
+      await graphql(CLEAR_FIELD, {
+        project: board.id,
+        item: itemId,
+        field: sprintField.id,
+      });
+    } else {
+      await graphql(SET_DATE, {
+        project: board.id,
+        item: itemId,
+        field: sprintField.id,
+        value: current,
+      });
+    }
+    const startField = await ensureField(board, "start", "Start");
+    if (previous === null) {
+      await graphql(CLEAR_FIELD, {
+        project: board.id,
+        item: itemId,
+        field: startField.id,
+      });
+    } else {
+      await graphql(SET_DATE, {
+        project: board.id,
+        item: itemId,
+        field: startField.id,
+        value: previous,
+      });
+    }
   },
 
   async setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void> {
@@ -673,6 +821,15 @@ export const githubProvider: Provider = {
         value: input.team,
       });
     }
+    if (input.reviewOf) {
+      const field = await ensureField(board, "reviewOf", "Review Of");
+      await graphql(SET_TEXT, {
+        project: board.id,
+        item: item.id,
+        field: field.id,
+        value: input.reviewOf,
+      });
+    }
     if (input.plan) {
       const planField = await ensureField(board, "plan", "Plan");
       const optionId = planField.options?.find(
@@ -711,6 +868,7 @@ export const githubProvider: Provider = {
       plan: input.plan ?? undefined,
       week: input.week ?? undefined,
       team: input.team ?? undefined,
+      reviewOf: input.reviewOf ?? undefined,
       // The item was just created; without this the age badge (and its date
       // editor) would not render until the next full board reload.
       createdAt: new Date().toISOString(),

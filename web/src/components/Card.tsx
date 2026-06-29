@@ -33,6 +33,14 @@ interface CardProps {
   users?: Record<string, GhUser>;
   onSetTeam?: (card: CardModel, team: string | null) => void;
   onSetAssignee?: (card: CardModel, login: string | null) => void;
+  /** Send the card to review: creates a linked review card for the chosen
+   *  reviewer and puts this card on the review stage (hidden on review cards). */
+  onSendToReview?: (card: CardModel, reviewerLogin: string) => void;
+  /** Reviewer suggestions for the "send to review" picker (same-team people). */
+  reviewerCandidates?: string[];
+  /** This card has a linked review card; deleting it cascades (the board owns
+   *  the combined confirmation, so the card skips its own delete prompt). */
+  hasLinkedReview?: boolean;
   /** The day the board is showing; the age badge is measured up to it. */
   asOf?: string;
   /** Edit the card's start/end dates from the age badge (when provided). */
@@ -76,6 +84,9 @@ export function Card({
   users,
   onSetTeam,
   onSetAssignee,
+  onSendToReview,
+  reviewerCandidates,
+  hasLinkedReview,
   asOf,
   onSetDates,
   weekMode,
@@ -98,6 +109,8 @@ export function Card({
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [personInput, setPersonInput] = useState("");
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewerInput, setReviewerInput] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -147,6 +160,12 @@ export function Card({
 
   const handleDelete = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
+    // Cards with a linked review card delegate the (combined) confirmation to
+    // the board, which deletes both the original and its review card.
+    if (hasLinkedReview) {
+      onDelete(card);
+      return;
+    }
     if (window.confirm(`Delete "${card.title}"?`)) {
       onDelete(card);
     }
@@ -174,6 +193,19 @@ export function Card({
     setAssignOpen(false);
     setPersonInput("");
     onSetAssignee?.(card, login);
+  };
+
+  // Open the reviewer picker from the stage menu's "Send to review" item.
+  const openSendToReview = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    setReviewOpen(true);
+  };
+
+  const pickReviewer = (login: string) => {
+    setReviewOpen(false);
+    setReviewerInput("");
+    onSendToReview?.(card, login);
   };
 
   const openDates = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -240,7 +272,9 @@ export function Card({
     <div
       className={`card${selected ? " card-selected" : ""}${
         card.plan ? ` card-plan-${card.plan}` : ""
-      }${taken ? " card-plan-taken" : ""}${dimAvatar ? " card-dim-avatar" : ""}`}
+      }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
+        dimAvatar ? " card-dim-avatar" : ""
+      }`}
       onClick={() => onSelect(card)}
       onDoubleClick={() => onOpen(card)}
       title={card.title}
@@ -299,22 +333,25 @@ export function Card({
             onClose={() => setMenuOpen(false)}
             className="card-stage-menu"
           >
-            {STAGE_ORDER.map((stage) => (
-              <button
-                key={stage}
-                type="button"
-                className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
-                onClick={(e) =>
-                  stage === "locked" ? requestLock(e) : pickStage(e, stage)
-                }
-              >
-                <span
-                  className="card-stage-dot"
-                  style={{ background: STAGES[stage].color }}
-                />
-                {STAGES[stage].label}
-              </button>
-            ))}
+            {STAGE_ORDER.map((stage) =>
+              // A review card cannot be put on the "review" stage itself.
+              stage === "review" && card.reviewOf ? null : (
+                <button
+                  key={stage}
+                  type="button"
+                  className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
+                  onClick={(e) =>
+                    stage === "locked" ? requestLock(e) : pickStage(e, stage)
+                  }
+                >
+                  <span
+                    className="card-stage-dot"
+                    style={{ background: STAGES[stage].color }}
+                  />
+                  {STAGES[stage].label}
+                </button>
+              ),
+            )}
             <button
               type="button"
               className="card-stage-item card-stage-clear"
@@ -322,6 +359,54 @@ export function Card({
             >
               Clear
             </button>
+            {onSendToReview && !card.reviewOf && (
+              <button
+                type="button"
+                className="card-stage-item card-stage-send-review"
+                onClick={openSendToReview}
+              >
+                Send to review…
+              </button>
+            )}
+          </Dropdown>
+          <Dropdown
+            open={reviewOpen}
+            anchorRef={menuRef}
+            onClose={() => setReviewOpen(false)}
+            className="card-stage-menu card-review-menu"
+          >
+            <div className="card-assign-head">Reviewer</div>
+            {(reviewerCandidates ?? []).map((p) => (
+              <button
+                key={`rev-${p}`}
+                type="button"
+                className="card-stage-item"
+                onClick={() => pickReviewer(p)}
+              >
+                <img
+                  className="avatar-img"
+                  src={avatarUrlFor(p, users?.[p])}
+                  alt={p}
+                />
+                {displayName(p, users?.[p])}
+              </button>
+            ))}
+            <input
+              type="text"
+              className="add-card-input card-assign-input"
+              placeholder="reviewer login…"
+              value={reviewerInput}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setReviewerInput(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter" && reviewerInput.trim()) {
+                  pickReviewer(reviewerInput.trim());
+                } else if (e.key === "Escape") {
+                  setReviewOpen(false);
+                }
+              }}
+            />
           </Dropdown>
         </div>
         <button
