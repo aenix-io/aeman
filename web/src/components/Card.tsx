@@ -96,11 +96,11 @@ export function Card({
   dimAvatar,
 }: CardProps) {
   const rawValue = card.stage === "done" ? 100 : card.progress ?? 0;
-  // Locked / on-review cards show at least one segment, so the stage colour is
-  // visible even before any progress has been set.
+  // Locked / on-review cards are clamped to a 10–90% band, so they always show
+  // the stage colour and never read as complete.
   const value =
-    rawValue === 0 && (card.stage === "locked" || card.stage === "review")
-      ? 10
+    card.stage === "locked" || card.stage === "review"
+      ? Math.min(90, Math.max(10, rawValue))
       : rawValue;
   const fill = barColor(card.stage);
   const ref = ticket(card);
@@ -141,10 +141,11 @@ export function Card({
     }
     const rect = barRef.current.getBoundingClientRect();
     const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
-    // review/locked keep at least one filled segment; other cards can reach 0%
-    // (which clears the status).
-    const min = card.stage === "review" || card.stage === "locked" ? 10 : 0;
-    const snapped = Math.min(100, Math.max(min, Math.round(frac * 10) * 10));
+    // review/locked are clamped to 10–90%; other cards span 0–100% (0% clears).
+    const locked = card.stage === "review" || card.stage === "locked";
+    const min = locked ? 10 : 0;
+    const max = locked ? 90 : 100;
+    const snapped = Math.min(max, Math.max(min, Math.round(frac * 10) * 10));
     if (snapped !== dragValue) {
       setDragValue(snapped);
     }
