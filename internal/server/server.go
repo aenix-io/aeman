@@ -106,6 +106,10 @@ func New(opts Options) (*Server, error) {
 		mux.HandleFunc("/auth/login", s.auth.handleLogin)
 		mux.HandleFunc("/auth/callback", s.auth.handleCallback)
 		mux.HandleFunc("/auth/logout", s.auth.handleLogout)
+		// The OAuth authorization-server endpoints and the MCP transport are only
+		// reachable in OAuth mode, where sessions double as MCP access tokens.
+		s.registerOAuthServer(mux)
+		s.registerMCP(mux)
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
