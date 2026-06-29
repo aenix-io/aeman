@@ -41,6 +41,9 @@ interface CardProps {
   /** This card has a linked review card; deleting it cascades (the board owns
    *  the combined confirmation, so the card skips its own delete prompt). */
   hasLinkedReview?: boolean;
+  /** Assignees of the linked counterpart card — the reviewer(s) on an original
+   *  under review, the implementer(s) on a review card. */
+  counterpartAssignees?: string[];
   /** The day the board is showing; the age badge is measured up to it. */
   asOf?: string;
   /** Edit the card's start/end dates from the age badge (when provided). */
@@ -87,6 +90,7 @@ export function Card({
   onSendToReview,
   reviewerCandidates,
   hasLinkedReview,
+  counterpartAssignees,
   asOf,
   onSetDates,
   weekMode,
@@ -523,6 +527,27 @@ export function Card({
             </Dropdown>
           )}
         </div>
+      )}
+
+      {counterpartAssignees && counterpartAssignees.length > 0 && (
+        <span
+          className={`card-counterpart card-counterpart-${card.reviewOf ? "impl" : "review"}`}
+          title={`${card.reviewOf ? "In implementation" : "On review"}: ${counterpartAssignees
+            .map((p) => displayName(p, users?.[p]))
+            .join(", ")}`}
+        >
+          <span className="card-counterpart-icon" aria-hidden>
+            {card.reviewOf ? "🛠" : "🔍"}
+          </span>
+          {counterpartAssignees.slice(0, 3).map((p) => (
+            <img
+              key={p}
+              className="avatar-img card-counterpart-avatar"
+              src={avatarUrlFor(p, users?.[p])}
+              alt={displayName(p, users?.[p])}
+            />
+          ))}
+        </span>
       )}
 
       {(card.team || canAssign) && (

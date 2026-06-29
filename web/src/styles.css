@@ -1090,6 +1090,32 @@ button.card-age {
   outline-offset: -1px;
 }
 
+/* Linked review counterpart: the reviewer on an original, the implementer on a
+   review card. */
+.card-counterpart {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  margin-right: 4px;
+  padding: 1px 3px;
+  border-radius: 11px;
+}
+.card-counterpart-review {
+  background: #d4a72c22;
+}
+.card-counterpart-impl {
+  background: #3b82f622;
+}
+.card-counterpart-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+.card-counterpart-avatar {
+  width: 16px;
+  height: 16px;
+}
+
 .card-bar {
   position: absolute;
   left: 6px;
