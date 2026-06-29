@@ -29,8 +29,8 @@ interface MeBoardProps {
   /** Known teams to offer in the team selector. */
   teams: string[];
   /** Shared single-select team (also the team for new cards); null = none. */
-  teamFilter: string | null;
-  onSetFilter: (key: string | null) => void;
+  teamFilter: string[] | null;
+  onSetFilter: (keys: string[] | null) => void;
   onAddTeam: (team: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
@@ -571,7 +571,7 @@ export function MeBoard({
         <TeamChips
           label="Team"
           teams={teams}
-          selectedKey={teamFilter}
+          selectedKeys={teamFilter}
           onSelect={onSetFilter}
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
@@ -671,7 +671,7 @@ export function MeBoard({
                   counterpartAssignees={counterpartAssigneesFor(card)}
                   asOf={selectedDate}
                   dimAvatar={
-                    teamFilter === null || (card.team ?? "") !== teamFilter
+                    teamFilter === null || !teamFilter.includes(card.team ?? "")
                   }
                 />
               )}
@@ -703,7 +703,9 @@ export function MeBoard({
                     <div className="zone-cards">
                       {body}
                       <AddCard
-                        forcedTeam={teamFilter || null}
+                        forcedTeam={
+                          teamFilter?.length === 1 ? teamFilter[0] || null : null
+                        }
                         onCreate={(title, team) =>
                           handleCreate(group.meta.zone, title, team)
                         }

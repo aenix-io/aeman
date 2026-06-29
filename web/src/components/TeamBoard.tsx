@@ -36,8 +36,8 @@ interface TeamBoardProps {
   /** Known teams (the roster), shown as filter chips. */
   roster: string[];
   /** Single-select team filter: null = all, "" = no team, else a team name. */
-  teamFilter: string | null;
-  onSetFilter: (key: string | null) => void;
+  teamFilter: string[] | null;
+  onSetFilter: (keys: string[] | null) => void;
   onAddTeam: (team: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
@@ -183,7 +183,7 @@ export function TeamBoard({
 
   // Single-select: no filter shows all; otherwise match the card's group.
   const passesFilter = (card: CardModel): boolean =>
-    teamFilter === null || (card.team ?? "") === teamFilter;
+    teamFilter === null || teamFilter.includes(card.team ?? "");
 
   // Cards passing the team filter (the scope before applying the sprint).
   const inFilter = useMemo(
@@ -217,9 +217,9 @@ export function TeamBoard({
   } | null>(() => {
     let cur: string | null;
     let prev: string | null;
-    if (teamFilter !== null) {
-      cur = currentSprint(board, teamFilter);
-      prev = previousSprint(board, teamFilter);
+    if (teamFilter?.length === 1) {
+      cur = currentSprint(board, teamFilter[0]);
+      prev = previousSprint(board, teamFilter[0]);
     } else {
       cur = null;
       prev = null;
@@ -496,7 +496,7 @@ export function TeamBoard({
 
   // New cards default to the filtered team; null = all (show picker), "" = no team.
   const forcedTeam = useMemo(
-    () => (teamFilter === null ? undefined : teamFilter || null),
+    () => (teamFilter?.length === 1 ? teamFilter[0] || null : undefined),
     [teamFilter],
   );
 
@@ -1153,7 +1153,7 @@ export function TeamBoard({
         <TeamChips
           label="Team"
           teams={roster}
-          selectedKey={teamFilter}
+          selectedKeys={teamFilter}
           onSelect={onSetFilter}
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
@@ -1193,17 +1193,17 @@ export function TeamBoard({
             type="button"
             className="btn sprint-btn"
             onClick={() => {
-              if (teamFilter === null) {
-                setSprintMenuOpen((o) => !o);
+              if (teamFilter?.length === 1) {
+                void startSprint(teamFilter[0] === "" ? null : teamFilter[0]);
               } else {
-                void startSprint(teamFilter === "" ? null : teamFilter);
+                setSprintMenuOpen((o) => !o);
               }
             }}
             title={`Start a new sprint (today) for the selected team`}
           >
-            Carry over{teamFilter === null ? " ▾" : " →"}
+            Carry over{teamFilter?.length === 1 ? " →" : " ▾"}
           </button>
-          {teamFilter === null && sprintMenuOpen && (
+          {teamFilter?.length !== 1 && sprintMenuOpen && (
             <div className="card-stage-menu sprint-menu">
               {roster.map((t) => (
                 <button
@@ -1437,19 +1437,19 @@ export function TeamBoard({
                             type="button"
                             className="btn"
                             onClick={() => {
-                              if (teamFilter === null) {
-                                setCarryWeekOpen((o) => !o);
-                              } else {
+                              if (teamFilter?.length === 1) {
                                 handleCarryWeek(
-                                  teamFilter === "" ? null : teamFilter,
+                                  teamFilter[0] === "" ? null : teamFilter[0],
                                 );
+                              } else {
+                                setCarryWeekOpen((o) => !o);
                               }
                             }}
                             title="Move unfinished plan cards to next week"
                           >
-                            Carry over week{teamFilter === null ? " ▾" : " →"}
+                            Carry over week{teamFilter?.length === 1 ? " →" : " ▾"}
                           </button>
-                          {teamFilter === null && (
+                          {teamFilter?.length !== 1 && (
                             <Dropdown
                               open={carryWeekOpen}
                               anchorRef={carryWeekRef}
