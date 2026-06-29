@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchConfig, type AppConfig } from "./api/client";
 import { getProvider } from "./providers";
-import type { Board, Card as CardModel, Note } from "./providers/types";
+import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { CardDetail } from "./components/CardDetail";
-import { LockDialog } from "./components/LockDialog";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
 
@@ -65,7 +64,6 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
-  const [lockCard, setLockCard] = useState<CardModel | null>(null);
 
   // Team roster + filter, persisted in localStorage. The roster is the union of
   // the teams found on the board and any teams the user has added by hand; the
@@ -336,38 +334,6 @@ export function App() {
     [patchCard, provider],
   );
 
-  // Locking posts a note (the reason) to the card so it shows in the day's log.
-  const handleLock = useCallback(
-    (card: CardModel, note: string) => {
-      if (!board) {
-        return;
-      }
-      const prevStage = card.stage;
-      const optimisticNote: Note = {
-        id: `tmp-${new Date().toISOString()}`,
-        body: note,
-        createdAt: new Date().toISOString(),
-        author: config?.login || undefined,
-        source: card.isDraft ? "draft" : "comment",
-      };
-      patchCard(card.itemId, {
-        stage: "locked",
-        notes: [...(card.notes ?? []), optimisticNote],
-      });
-      void (async () => {
-        try {
-          await provider.setStage(board, card, "locked");
-          await provider.addNote(board, card, note);
-        } catch (err: unknown) {
-          patchCard(card.itemId, { stage: prevStage });
-          setError(errMessage(err));
-          reload();
-        }
-      })();
-    },
-    [board, config?.login, patchCard, provider, reload],
-  );
-
   const showTokenWarning =
     config !== null && !config.tokenAvailable && !tokenWarningDismissed;
 
@@ -534,7 +500,6 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
-            onRequestLock={(c) => setLockCard(c)}
           />
         )}
         {board && view === "team" && (
@@ -557,7 +522,6 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
-            onRequestLock={(c) => setLockCard(c)}
           />
         )}
       </main>
@@ -573,13 +537,6 @@ export function App() {
         />
       )}
 
-      {board && lockCard && (
-        <LockDialog
-          card={board.cards.find((c) => c.itemId === lockCard.itemId) ?? lockCard}
-          onClose={() => setLockCard(null)}
-          onSubmit={handleLock}
-        />
-      )}
     </div>
   );
 }

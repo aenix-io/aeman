@@ -49,7 +49,6 @@ interface TeamBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
-  onRequestLock: (card: CardModel) => void;
 }
 
 /** Per-group metadata for the Team board: the destination engineer + zone. */
@@ -82,7 +81,6 @@ export function TeamBoard({
   reload,
   onError,
   onOpen,
-  onRequestLock,
 }: TeamBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -673,10 +671,10 @@ export function TeamBoard({
   };
 
   const handleProgress = (card: CardModel, raw: number) => {
-    // review/locked cards never drop below the one-segment minimum (10%).
+    // review/locked cards are clamped to a 10–90% band (never 0% or 100%).
     const value =
-      (card.stage === "review" || card.stage === "locked") && raw < 10
-        ? 10
+      card.stage === "review" || card.stage === "locked"
+        ? Math.min(90, Math.max(10, raw))
         : raw;
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
@@ -1297,7 +1295,6 @@ export function TeamBoard({
               onInProgress={handleInProgress}
               onRename={handleRename}
               onOpen={onOpen}
-              onRequestLock={onRequestLock}
               teams={roster}
               people={people}
               users={users}
@@ -1323,7 +1320,6 @@ export function TeamBoard({
               onInProgress={handleInProgress}
               onRename={handleRename}
               onOpen={onOpen}
-              onRequestLock={onRequestLock}
               teams={roster}
               people={people}
               users={users}
@@ -1349,7 +1345,6 @@ export function TeamBoard({
               onInProgress={() => {}}
               onRename={() => {}}
               onOpen={() => {}}
-              onRequestLock={() => {}}
             />
           )}
           renderGroup={(group, body, { isOver, dropRef }) => {
