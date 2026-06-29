@@ -101,7 +101,10 @@ interface RawProject {
   title: string;
   url: string;
   fields: { nodes: RawField[] };
-  items: { nodes: RawItem[] };
+  items: {
+    nodes: RawItem[];
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  };
 }
 
 interface ProjectResult {
@@ -282,19 +285,51 @@ function mapProject(owner: string, raw: RawProject): Board {
 }
 
 async function loadProject(owner: string, number: number): Promise<RawProject> {
+  // Resolve org-vs-user once, then page through every item. A board can hold more
+  // than the 100-item GraphQL page size, and without paging the newest cards fall
+  // off the load and "disappear" after a refresh.
+  let first: RawProject | undefined;
+  let isOrg = true;
   try {
-    const data = await graphql<ProjectResult>(ORG_PROJECT_QUERY, { owner, number });
-    if (data.organization?.projectV2) {
-      return data.organization.projectV2;
-    }
+    const data = await graphql<ProjectResult>(ORG_PROJECT_QUERY, {
+      owner,
+      number,
+      after: null,
+    });
+    first = data.organization?.projectV2 ?? undefined;
   } catch {
     // Owner is likely a user, not an org; fall through to the user query.
   }
-  const data = await graphql<ProjectResult>(USER_PROJECT_QUERY, { owner, number });
-  if (data.user?.projectV2) {
-    return data.user.projectV2;
+  if (!first) {
+    isOrg = false;
+    const data = await graphql<ProjectResult>(USER_PROJECT_QUERY, {
+      owner,
+      number,
+      after: null,
+    });
+    first = data.user?.projectV2 ?? undefined;
   }
-  throw new Error(`Project #${number} not found for "${owner}"`);
+  if (!first) {
+    throw new Error(`Project #${number} not found for "${owner}"`);
+  }
+
+  const nodes = [...first.items.nodes];
+  let pageInfo = first.items.pageInfo;
+  const query = isOrg ? ORG_PROJECT_QUERY : USER_PROJECT_QUERY;
+  while (pageInfo?.hasNextPage && pageInfo.endCursor) {
+    const data = await graphql<ProjectResult>(query, {
+      owner,
+      number,
+      after: pageInfo.endCursor,
+    });
+    const page = isOrg ? data.organization?.projectV2 : data.user?.projectV2;
+    if (!page) {
+      break;
+    }
+    nodes.push(...page.items.nodes);
+    pageInfo = page.items.pageInfo;
+  }
+  return { ...first, items: { ...first.items, nodes } };
 }
 
 // Specs for lazily-created project fields. A missing field is created the first
