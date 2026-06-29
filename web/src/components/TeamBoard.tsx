@@ -168,6 +168,29 @@ export function TeamBoard({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [sprintMenuOpen]);
 
+  // A tab left open past midnight keeps a stale "today", so the weekly plan and
+  // newly-planned cards (week = mondayOf(selectedDate)) would land on the old
+  // week and vanish from the real current week. When the tab regains focus,
+  // catch the selected day up to the real today — unless the user navigated to a
+  // specific other day. (The grid create already reads the live date directly.)
+  const lastToday = useRef(todayIso());
+  useEffect(() => {
+    const sync = () => {
+      const now = todayIso();
+      if (now === lastToday.current) {
+        return;
+      }
+      setSelectedDate((d) => (d === lastToday.current ? now : d));
+      lastToday.current = now;
+    };
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, []);
+
   const roles = useMemo(() => fieldRoles(board), [board]);
 
   // Single-select: no filter shows all; otherwise match the card's group.
