@@ -15,7 +15,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, mondayOf } from "../date";
+import { todayIso, addDays, activeOnDay, mondayOf } from "../date";
 import { currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
@@ -192,29 +192,56 @@ export function TeamBoard({
     [board.cards, teamFilter],
   );
 
-  // The grid shows the sprint of the selected day: cards whose sprintStart is
-  // exactly that day. The day after the sprint goes empty, which is the cue for
-  // the lead to carry the cards over (start the next sprint).
+  // A card shows on every day of its [startDate, sprintStart] span. A fresh card
+  // (start === sprintStart) shows on its one sprint day; a card carried into a
+  // later sprint (sprintStart advanced past startDate) shows in BOTH its original
+  // sprint and the new one — carry over extends the task's span, not moves it.
   const filteredCards = useMemo(
-    () => inFilter.filter((c) => c.sprintStart === selectedDate),
+    () =>
+      inFilter.filter((c) =>
+        activeOnDay(c.startDate, c.sprintStart, selectedDate),
+      ),
     [inFilter, selectedDate],
   );
 
-  // The previous sprint to jump to for the "Last sprint" button: the filtered
-  // team's previous sprint, or the latest previous across teams when unfiltered.
-  // Null when there is no previous sprint to go back to.
-  const lastSprintStart = useMemo(() => {
+  // The sprint-jump button. Standing on the current sprint, it offers the
+  // previous one ("« Last sprint"). Standing anywhere else, it returns to the
+  // current sprint, the arrow pointing the way ("Current sprint »" when it is
+  // ahead in time, "« Current sprint" when it is behind). Uses the filtered
+  // team's sprint, or the latest across teams when unfiltered. Null = nowhere to
+  // jump.
+  const sprintJump = useMemo<{
+    target: string;
+    label: string;
+    dir: "back" | "fwd";
+  } | null>(() => {
+    let cur: string | null;
+    let prev: string | null;
     if (teamFilter !== null) {
-      return previousSprint(board, teamFilter);
-    }
-    let latest: string | null = null;
-    for (const s of Object.values(board.sprintStates)) {
-      if (s.previous && (latest === null || s.previous > latest)) {
-        latest = s.previous;
+      cur = currentSprint(board, teamFilter);
+      prev = previousSprint(board, teamFilter);
+    } else {
+      cur = null;
+      prev = null;
+      for (const s of Object.values(board.sprintStates)) {
+        if (s.current && (cur === null || s.current > cur)) {
+          cur = s.current;
+        }
+        if (s.previous && (prev === null || s.previous > prev)) {
+          prev = s.previous;
+        }
       }
     }
-    return latest;
-  }, [board, teamFilter]);
+    if (cur === null) {
+      return null;
+    }
+    if (selectedDate === cur) {
+      return prev ? { target: prev, label: "Last sprint", dir: "back" } : null;
+    }
+    return selectedDate < cur
+      ? { target: cur, label: "Current sprint", dir: "fwd" }
+      : { target: cur, label: "Current sprint", dir: "back" };
+  }, [board, teamFilter, selectedDate]);
 
   const currentWeek = useMemo(() => mondayOf(selectedDate), [selectedDate]);
 
@@ -1049,6 +1076,12 @@ export function TeamBoard({
     const label = team ?? "no team";
     const old = currentSprint(board, team);
     const today = todayIso();
+    // Idempotent: if the sprint is already today's, do not re-advance — that would
+    // overwrite the previous sprint, making previous = current = today.
+    if (old === today) {
+      onError(`«${label}» is already on today's sprint.`);
+      return;
+    }
     const carry = board.cards.filter(
       (c) =>
         (team === null ? c.team == null : c.team === team) &&
@@ -1134,15 +1167,17 @@ export function TeamBoard({
           type="button"
           className="btn"
           onClick={() => {
-            if (lastSprintStart) {
-              setSelectedDate(lastSprintStart);
+            if (sprintJump) {
+              setSelectedDate(sprintJump.target);
             }
           }}
-          disabled={!lastSprintStart}
-          title="Go to the previous sprint's start day"
-          aria-label="Go to last sprint"
+          disabled={!sprintJump}
+          title="Jump to a sprint's day"
+          aria-label="Jump to sprint"
         >
-          ⏮ Last sprint
+          {sprintJump?.dir === "fwd"
+            ? `${sprintJump.label} »`
+            : `« ${sprintJump?.label ?? "Last sprint"}`}
         </button>
         <div className="sprint-wrap" ref={sprintRef}>
           <button
