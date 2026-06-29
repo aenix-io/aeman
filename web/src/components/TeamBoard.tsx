@@ -672,7 +672,12 @@ export function TeamBoard({
     });
   };
 
-  const handleProgress = (card: CardModel, value: number) => {
+  const handleProgress = (card: CardModel, raw: number) => {
+    // review/locked cards never drop below the one-segment minimum (10%).
+    const value =
+      (card.stage === "review" || card.stage === "locked") && raw < 10
+        ? 10
+        : raw;
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
     // Auto-link progress and "done": 100% sets done (unless review/locked is on),
