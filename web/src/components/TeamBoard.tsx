@@ -15,8 +15,8 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, activeOnDay, mondayOf } from "../date";
-import { currentSprintByTeam, sprintForNewCard } from "../sprint";
+import { todayIso, addDays, mondayOf } from "../date";
+import { currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
@@ -59,17 +59,6 @@ type TeamMeta =
 
 const UNASSIGNED = "";
 
-/** A Team grid create awaiting the start-new-sprint vs join-current choice. */
-interface PendingCreate {
-  engineer: string;
-  zone: ZoneKey;
-  title: string;
-  /** Target team (null = the no-team group). */
-  team: string | null;
-  /** The team's current sprint start (max sprintStart ≤ today), "" if none. */
-  cur: string;
-}
-
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
@@ -99,7 +88,6 @@ export function TeamBoard({
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
   const sprintRef = useRef<HTMLDivElement | null>(null);
-  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null);
   const [carryWeekOpen, setCarryWeekOpen] = useState(false);
   const carryWeekRef = useRef<HTMLDivElement | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
@@ -204,29 +192,29 @@ export function TeamBoard({
     [board.cards, teamFilter],
   );
 
-  // A card shows on every day of its [startDate, sprintStart] range — i.e. on its
-  // sprint day. The day after the sprint day goes empty, which is the cue for the
-  // lead to carry the cards over (or start a new sprint).
+  // The grid shows the sprint of the selected day: cards whose sprintStart is
+  // exactly that day. The day after the sprint goes empty, which is the cue for
+  // the lead to carry the cards over (start the next sprint).
   const filteredCards = useMemo(
-    () =>
-      inFilter.filter((c) =>
-        activeOnDay(c.startDate, c.sprintStart, selectedDate),
-      ),
+    () => inFilter.filter((c) => c.sprintStart === selectedDate),
     [inFilter, selectedDate],
   );
 
-  // Latest sprint start on or before today among the visible (team-filtered)
-  // cards — where "Go to current sprint" jumps. Null when there is no sprint.
-  const currentSprintStart = useMemo(() => {
-    const today = todayIso();
-    let latest = "";
-    for (const c of inFilter) {
-      if (c.sprintStart && c.sprintStart <= today && c.sprintStart > latest) {
-        latest = c.sprintStart;
+  // The previous sprint to jump to for the "Last sprint" button: the filtered
+  // team's previous sprint, or the latest previous across teams when unfiltered.
+  // Null when there is no previous sprint to go back to.
+  const lastSprintStart = useMemo(() => {
+    if (teamFilter !== null) {
+      return previousSprint(board, teamFilter);
+    }
+    let latest: string | null = null;
+    for (const s of Object.values(board.sprintStates)) {
+      if (s.previous && (latest === null || s.previous > latest)) {
+        latest = s.previous;
       }
     }
-    return latest || null;
-  }, [inFilter]);
+    return latest;
+  }, [board, teamFilter]);
 
   const currentWeek = useMemo(() => mondayOf(selectedDate), [selectedDate]);
 
@@ -393,6 +381,9 @@ export function TeamBoard({
     const zone = dropZone ?? card.zone ?? "gray";
     const optionId = optionIdForZone(roles.zone, zone) ?? card.zoneOptionId;
     const zoneChanged = zone !== card.zone;
+    // Join the card's team's current sprint (its explicit state), falling back to
+    // the selected day when the team has none yet.
+    const sprintStart = currentSprint(board, card.team ?? null) ?? selectedDate;
     const prev: Partial<CardModel> = {
       assignees: card.assignees,
       zone: card.zone,
@@ -403,7 +394,7 @@ export function TeamBoard({
       assignees: login ? [login] : [],
       zone,
       zoneOptionId: optionId,
-      sprintStart: selectedDate,
+      sprintStart,
     });
     void (async () => {
       try {
@@ -411,7 +402,7 @@ export function TeamBoard({
         if (zoneChanged && optionId) {
           await provider.setZone(board, card, optionId);
         }
-        await provider.setSprintStart(board, card, selectedDate);
+        await provider.setSprintStart(board, card, sprintStart);
       } catch (err: unknown) {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
@@ -753,20 +744,10 @@ export function TeamBoard({
     });
   };
 
-  // The latest sprint/week on the board for the card's team strictly before the
-  // card's current one — where deleting demotes the card instead of removing it.
-  const previousSprintFor = (card: CardModel): string | null => {
-    const team = card.team ?? "";
-    const cur = card.sprintStart;
-    if (!cur) return null;
-    let prev: string | null = null;
-    for (const c of board.cards) {
-      if (c.itemId === card.itemId || (c.team ?? "") !== team) continue;
-      if (!c.sprintStart || c.sprintStart >= cur) continue;
-      if (prev === null || c.sprintStart > prev) prev = c.sprintStart;
-    }
-    return prev;
-  };
+  // The team's explicit previous sprint — where deleting a grid card demotes it
+  // (back to last sprint) instead of removing it.
+  const previousSprintFor = (card: CardModel): string | null =>
+    previousSprint(board, card.team ?? null);
 
   const previousWeekFor = (card: CardModel): string | null => {
     const team = card.team ?? "";
@@ -861,10 +842,10 @@ export function TeamBoard({
   const handleSetTeam = (card: CardModel, team: string | null) => {
     const prevTeam = card.team;
     const prevSprint = card.sprintStart;
-    // Join the new team's running sprint, so a card moved between teams stays
-    // visible instead of dropping off when its old sprint predates the new
-    // team's current one (mirrors how a freshly created card joins a sprint).
-    const sprintStart = sprintForNewCard(board.cards, team ?? null, selectedDate);
+    // Join the new team's current sprint (its explicit state), so a card moved
+    // between teams stays visible instead of dropping off when its old sprint
+    // predates the new team's current one. Fall back to the selected day.
+    const sprintStart = currentSprint(board, team) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
     void provider.setTeam(board, card, team).catch((err: unknown) => {
       patchCard(card.itemId, { team: prevTeam });
@@ -923,7 +904,7 @@ export function TeamBoard({
   const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
     const team = card.team ?? null;
     const zone: ZoneKey = card.zone ?? "gray";
-    const sprintStart = sprintForNewCard(board.cards, team, selectedDate);
+    const sprintStart = currentSprint(board, team) ?? selectedDate;
     const title = `review: ${card.title}`;
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
@@ -990,8 +971,7 @@ export function TeamBoard({
   };
 
   // Optimistically create a Team grid card with explicit sprint dates and push
-  // it to the provider. Shared by the silent-join and start-new-sprint paths;
-  // only startDate/sprintStart/day differ between them.
+  // it to the provider.
   const createTeamCard = (
     engineer: string,
     zone: ZoneKey,
@@ -1037,10 +1017,10 @@ export function TeamBoard({
       });
   };
 
-  // Creating a Team card joins the team's running sprint; when that sprint is all
-  // done (or the team has none) it asks whether to start a new sprint. Start date
-  // is always the sprint's start day, so the card shows only on that day and the
-  // day after stays empty.
+  // Creating a Team card joins the team's current sprint (from its explicit
+  // state). A team with no sprint yet starts its first one off this card. Start
+  // date is the sprint's start day, so the card shows only on that day and the
+  // day after stays empty (the cue to carry over).
   const handleCreate = (
     engineer: string,
     zone: ZoneKey,
@@ -1048,66 +1028,52 @@ export function TeamBoard({
     team?: string | null,
   ) => {
     const teamKey = team ?? null;
-    const today = todayIso();
-    // The team's current sprint: max sprintStart ≤ today; "" if it has none.
-    const cur = currentSprintByTeam(board.cards, today).get(team ?? "") ?? "";
-    const running =
-      cur !== "" &&
-      board.cards.some(
-        (c) =>
-          (c.team ?? "") === (team ?? "") &&
-          c.sprintStart === cur &&
-          c.stage !== "done",
-      );
-    if (running) {
-      // Join the running sprint silently: start date = the sprint's start day,
-      // day = today.
-      createTeamCard(engineer, zone, title, teamKey, cur, cur, today);
-      return;
+    let sprint = currentSprint(board, teamKey);
+    if (sprint === null) {
+      // First sprint for this team: record it on the state card, then reload to
+      // pick up the advance (later cards then join it).
+      sprint = selectedDate;
+      void provider
+        .setSprintState(board, teamKey, selectedDate, null)
+        .then(() => reload())
+        .catch((err: unknown) => onError(errMessage(err)));
     }
-    // The current sprint is all done (or the team has none) — starting this card
-    // would start a NEW sprint, so confirm first.
-    setPendingCreate({ engineer, zone, title, team: teamKey, cur });
+    createTeamCard(engineer, zone, title, teamKey, sprint, sprint, todayIso());
   };
 
-  // Carry over a team's unfinished cards from earlier sprints into the selected
-  // day's sprint. `team` is null for the no-team group.
-  const startSprint = (team: string | null) => {
+  // Carry over: advance the team's sprint to today (the prior current becomes the
+  // previous) and pull its unfinished cards forward. Always advances, even with
+  // nothing to carry. `team` is null for the no-team group.
+  const startSprint = async (team: string | null) => {
     setSprintMenuOpen(false);
     const label = team ?? "no team";
+    const old = currentSprint(board, team);
+    const today = todayIso();
     const carry = board.cards.filter(
       (c) =>
         (team === null ? c.team == null : c.team === team) &&
+        c.sprintStart === old &&
         c.stage !== "done" &&
-        !c.itemId.startsWith("tmp-") &&
-        // Only cards that were actually in an earlier sprint — not date-less
-        // orphans (which have no sprintStart and aren't visible on any day).
-        c.sprintStart != null &&
-        c.sprintStart < selectedDate,
+        !c.itemId.startsWith("tmp-"),
     );
-    if (carry.length === 0) {
-      onError(
-        `Nothing to carry over for "${label}" — add cards on ${selectedDate} to start the sprint.`,
-      );
-      return;
-    }
     if (
       !window.confirm(
-        `Carry over ${carry.length} unfinished card(s) for "${label}" into ${selectedDate}?`,
+        `Start a new sprint for «${label}» (${today})? ${carry.length} unfinished card(s) carried over.`,
       )
     ) {
       return;
     }
-    for (const card of carry) {
-      const prev = card.sprintStart;
-      patchCard(card.itemId, { sprintStart: selectedDate });
-      void provider
-        .setSprintStart(board, card, selectedDate)
-        .catch((err: unknown) => {
-          patchCard(card.itemId, { sprintStart: prev });
-          onError(errMessage(err));
-        });
+    try {
+      await provider.setSprintState(board, team, today, old);
+      for (const card of carry) {
+        patchCard(card.itemId, { sprintStart: today });
+        await provider.setSprintStart(board, card, today);
+      }
+    } catch (err: unknown) {
+      onError(errMessage(err));
     }
+    // Re-read the advanced state (and reconcile the carried cards).
+    reload();
   };
 
   return (
@@ -1168,15 +1134,15 @@ export function TeamBoard({
           type="button"
           className="btn"
           onClick={() => {
-            if (currentSprintStart) {
-              setSelectedDate(currentSprintStart);
+            if (lastSprintStart) {
+              setSelectedDate(lastSprintStart);
             }
           }}
-          disabled={!currentSprintStart}
-          title="Go to the current sprint's start day"
-          aria-label="Go to current sprint"
+          disabled={!lastSprintStart}
+          title="Go to the previous sprint's start day"
+          aria-label="Go to last sprint"
         >
-          ⏮ Current sprint
+          ⏮ Last sprint
         </button>
         <div className="sprint-wrap" ref={sprintRef}>
           <button
@@ -1186,10 +1152,10 @@ export function TeamBoard({
               if (teamFilter === null) {
                 setSprintMenuOpen((o) => !o);
               } else {
-                startSprint(teamFilter === "" ? null : teamFilter);
+                void startSprint(teamFilter === "" ? null : teamFilter);
               }
             }}
-            title={`Carry unfinished cards into the ${selectedDate} sprint`}
+            title={`Start a new sprint (today) for the selected team`}
           >
             Carry over{teamFilter === null ? " ▾" : " →"}
           </button>
@@ -1200,7 +1166,7 @@ export function TeamBoard({
                   key={t}
                   type="button"
                   className="card-stage-item"
-                  onClick={() => startSprint(t)}
+                  onClick={() => void startSprint(t)}
                 >
                   <span className="team-dot" style={{ background: teamColor(t) }} />
                   {t}
@@ -1209,7 +1175,7 @@ export function TeamBoard({
               <button
                 type="button"
                 className="card-stage-item card-stage-clear"
-                onClick={() => startSprint(null)}
+                onClick={() => void startSprint(null)}
               >
                 no team
               </button>
@@ -1512,84 +1478,6 @@ export function TeamBoard({
           onReorder={onReorderTeams}
           onClose={() => setTeamsModalOpen(false)}
         />
-      )}
-      {pendingCreate && (
-        <div className="modal-backdrop" onClick={() => setPendingCreate(null)}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h2 className="modal-title">Start a new sprint?</h2>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setPendingCreate(null)}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <p>
-                All cards of the current sprint are done (or there is no sprint).
-                This card will start a new sprint for «
-                {pendingCreate.team ?? "no team"}».
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setPendingCreate(null)}
-              >
-                Cancel
-              </button>
-              {pendingCreate.cur !== "" && (
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    const pc = pendingCreate;
-                    setPendingCreate(null);
-                    createTeamCard(
-                      pc.engineer,
-                      pc.zone,
-                      pc.title,
-                      pc.team,
-                      pc.cur,
-                      pc.cur,
-                      selectedDate,
-                    );
-                  }}
-                >
-                  Add to current sprint
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => {
-                  const pc = pendingCreate;
-                  setPendingCreate(null);
-                  createTeamCard(
-                    pc.engineer,
-                    pc.zone,
-                    pc.title,
-                    pc.team,
-                    selectedDate,
-                    selectedDate,
-                    selectedDate,
-                  );
-                }}
-              >
-                Start new sprint
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
