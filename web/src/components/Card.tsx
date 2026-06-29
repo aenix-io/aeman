@@ -531,28 +531,7 @@ export function Card({
         </div>
       )}
 
-      {counterpartAssignees && counterpartAssignees.length > 0 && (
-        <span
-          className={`card-counterpart card-counterpart-${card.reviewOf ? "impl" : "review"}`}
-          title={`${card.reviewOf ? "In implementation" : "On review"}: ${counterpartAssignees
-            .map((p) => displayName(p, users?.[p]))
-            .join(", ")}`}
-        >
-          <span className="card-counterpart-icon" aria-hidden>
-            {card.reviewOf ? "🛠" : "🔍"}
-          </span>
-          {counterpartAssignees.slice(0, 3).map((p) => (
-            <img
-              key={p}
-              className="avatar-img card-counterpart-avatar"
-              src={avatarUrlFor(p, users?.[p])}
-              alt={displayName(p, users?.[p])}
-            />
-          ))}
-        </span>
-      )}
-
-      {(card.team || canAssign) && (
+      {(card.team || canAssign || (counterpartAssignees?.length ?? 0) > 0) && (
         <div className="card-assign" ref={assignRef}>
           {card.team ? (
             <button
@@ -590,12 +569,49 @@ export function Card({
               +
             </button>
           )}
+          {counterpartAssignees && counterpartAssignees.length > 0 && (
+            <button
+              type="button"
+              className="card-counterpart-avatar-btn"
+              title={`${card.reviewOf ? "In implementation" : "On review"}: ${counterpartAssignees
+                .map((p) => displayName(p, users?.[p]))
+                .join(", ")}`}
+              onClick={
+                canAssign
+                  ? (e) => {
+                      e.stopPropagation();
+                      setAssignOpen((o) => !o);
+                    }
+                  : undefined
+              }
+            >
+              <img
+                className="card-counterpart-avatar"
+                src={avatarUrlFor(
+                  counterpartAssignees[0],
+                  users?.[counterpartAssignees[0]],
+                )}
+                alt={displayName(
+                  counterpartAssignees[0],
+                  users?.[counterpartAssignees[0]],
+                )}
+              />
+            </button>
+          )}
           <Dropdown
             open={assignOpen}
             anchorRef={assignRef}
             onClose={() => setAssignOpen(false)}
             className="card-stage-menu card-assign-menu"
           >
+            {counterpartAssignees && counterpartAssignees.length > 0 && (
+              <div className="card-counterpart-head">
+                {card.reviewOf ? "In implementation" : "On review"}:{" "}
+                {counterpartAssignees
+                  .map((p) => displayName(p, users?.[p]))
+                  .join(", ")}
+              </div>
+            )}
             <div className="card-assign-cols">
               {onSetTeam && (
                 <div className="card-assign-col">
