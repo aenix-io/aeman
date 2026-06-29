@@ -114,6 +114,7 @@ export function Card({
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [personInput, setPersonInput] = useState("");
+  const [reviewerInput, setReviewerInput] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -661,6 +662,24 @@ export function Card({
                   >
                     Remove reviewer
                   </button>
+                  <input
+                    type="text"
+                    className="add-card-input card-assign-input"
+                    placeholder="reviewer login…"
+                    value={reviewerInput}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setReviewerInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter" && reviewerInput.trim()) {
+                        onSetReviewAssignee(card, reviewerInput.trim());
+                        setReviewerInput("");
+                        setAssignOpen(false);
+                      } else if (e.key === "Escape") {
+                        setAssignOpen(false);
+                      }
+                    }}
+                  />
                 </div>
               )}
             </div>
