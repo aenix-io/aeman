@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
-import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR } from "../stages";
+import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { addDays, daysSince, todayIso, mondayOf } from "../date";
@@ -23,6 +23,9 @@ interface CardProps {
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
   onStage: (card: CardModel, stage: StageKey | null) => void;
+  /** Pick the implicit "In Progress" status: clears the stage and clamps the
+   *  card's progress into [10, 90]. */
+  onInProgress: (card: CardModel) => void;
   onRename: (card: CardModel, title: string) => void;
   onOpen: (card: CardModel) => void;
   /** Locking requires a reason, gathered in a modal lifted to App. */
@@ -77,6 +80,7 @@ export function Card({
   onProgress,
   onDelete,
   onStage,
+  onInProgress,
   onRename,
   onOpen,
   onRequestLock,
@@ -177,6 +181,12 @@ export function Card({
     e.stopPropagation();
     setMenuOpen(false);
     onStage(card, stage);
+  };
+
+  const pickInProgress = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    onInProgress(card);
   };
 
   // Locking opens a modal (lifted to App) to gather the reason note.
@@ -324,6 +334,17 @@ export function Card({
             onClose={() => setMenuOpen(false)}
             className="card-stage-menu"
           >
+            <button
+              type="button"
+              className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
+              onClick={pickInProgress}
+            >
+              <span
+                className="card-stage-dot"
+                style={{ background: DEFAULT_BAR_COLOR }}
+              />
+              In Progress
+            </button>
             {STAGE_ORDER.map((stage) =>
               // A review card cannot be put on the "review" stage itself.
               stage === "review" && card.reviewOf ? null : (
@@ -343,13 +364,6 @@ export function Card({
                 </button>
               ),
             )}
-            <button
-              type="button"
-              className="card-stage-item card-stage-clear"
-              onClick={(e) => pickStage(e, null)}
-            >
-              Clear
-            </button>
           </Dropdown>
         </div>
         <button

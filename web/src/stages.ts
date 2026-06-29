@@ -20,6 +20,17 @@ export const STAGE_ORDER: StageKey[] = ["locked", "review", "done"];
 /** Progress bar colour for a stage; the default (no stage) bar is green. */
 export const DEFAULT_BAR_COLOR = "#3fb950";
 
+/** isInProgress reports the implicit "In Progress" status: a card with no stored
+ *  stage whose progress sits in [10, 90] inclusive. It is deliberately NOT a
+ *  StageKey — there is no stored option for it. */
+export function isInProgress(card: {
+  stage?: StageKey;
+  progress?: number;
+}): boolean {
+  const p = card.progress ?? 0;
+  return !card.stage && p >= 10 && p <= 90;
+}
+
 /** stageFromName maps a Stage single-select option name onto a StageKey. */
 export function stageFromName(name?: string): StageKey | undefined {
   switch (name?.trim().toLowerCase()) {
