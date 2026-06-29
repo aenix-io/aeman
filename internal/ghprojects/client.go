@@ -43,6 +43,10 @@ type Client struct {
 	httpClient Doer
 	userAgent  string
 	userCache  userIDCache
+	// fieldCache memoises fields the domain setters lazily create, keyed by
+	// project id + role, so two setters in one board operation never create the
+	// same field twice (see ensureDomainField).
+	fieldCache domainFieldCache
 }
 
 // Option customises a Client.
