@@ -49,7 +49,6 @@ interface TeamBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
-  onRequestLock: (card: CardModel) => void;
 }
 
 /** Per-group metadata for the Team board: the destination engineer + zone. */
@@ -82,7 +81,6 @@ export function TeamBoard({
   reload,
   onError,
   onOpen,
-  onRequestLock,
 }: TeamBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -1297,7 +1295,6 @@ export function TeamBoard({
               onInProgress={handleInProgress}
               onRename={handleRename}
               onOpen={onOpen}
-              onRequestLock={onRequestLock}
               teams={roster}
               people={people}
               users={users}
@@ -1323,7 +1320,6 @@ export function TeamBoard({
               onInProgress={handleInProgress}
               onRename={handleRename}
               onOpen={onOpen}
-              onRequestLock={onRequestLock}
               teams={roster}
               people={people}
               users={users}
@@ -1349,7 +1345,6 @@ export function TeamBoard({
               onInProgress={() => {}}
               onRename={() => {}}
               onOpen={() => {}}
-              onRequestLock={() => {}}
             />
           )}
           renderGroup={(group, body, { isOver, dropRef }) => {

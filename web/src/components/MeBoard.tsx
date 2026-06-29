@@ -41,7 +41,6 @@ interface MeBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
-  onRequestLock: (card: CardModel) => void;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -71,7 +70,6 @@ export function MeBoard({
   reload,
   onError,
   onOpen,
-  onRequestLock,
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -729,7 +727,6 @@ export function MeBoard({
                   onInProgress={handleInProgress}
                   onRename={handleRename}
                   onOpen={onOpen}
-                  onRequestLock={onRequestLock}
                   teams={teams}
                   people={people}
                   users={users}
@@ -754,7 +751,6 @@ export function MeBoard({
                   onInProgress={() => {}}
                   onRename={() => {}}
                   onOpen={() => {}}
-                  onRequestLock={() => {}}
                 />
               )}
               renderGroup={(group, body, { isOver, dropRef }) => {
@@ -773,8 +769,11 @@ export function MeBoard({
                       {body}
                       <AddCard
                         forcedTeam={
-                          teamFilter?.length === 1 ? teamFilter[0] || null : null
+                          teamFilter?.length === 1
+                            ? teamFilter[0] || null
+                            : undefined
                         }
+                        teams={teams}
                         onCreate={(title, team) =>
                           handleCreate(group.meta.zone, title, team)
                         }

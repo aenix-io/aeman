@@ -28,8 +28,6 @@ interface CardProps {
   onInProgress: (card: CardModel) => void;
   onRename: (card: CardModel, title: string) => void;
   onOpen: (card: CardModel) => void;
-  /** Locking requires a reason, gathered in a modal lifted to App. */
-  onRequestLock: (card: CardModel) => void;
   /** Reassign the card's team / person from the avatar menu (when provided). */
   teams?: string[];
   people?: string[];
@@ -83,7 +81,6 @@ export function Card({
   onInProgress,
   onRename,
   onOpen,
-  onRequestLock,
   teams,
   people,
   users,
@@ -188,13 +185,6 @@ export function Card({
     e.stopPropagation();
     setMenuOpen(false);
     onInProgress(card);
-  };
-
-  // Locking opens a modal (lifted to App) to gather the reason note.
-  const requestLock = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    setMenuOpen(false);
-    onRequestLock(card);
   };
 
   const pickAssignTeam = (team: string | null) => {
@@ -353,9 +343,7 @@ export function Card({
                   key={stage}
                   type="button"
                   className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
-                  onClick={(e) =>
-                    stage === "locked" ? requestLock(e) : pickStage(e, stage)
-                  }
+                  onClick={(e) => pickStage(e, stage)}
                 >
                   <span
                     className="card-stage-dot"
