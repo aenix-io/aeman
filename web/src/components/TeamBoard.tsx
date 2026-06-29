@@ -730,10 +730,60 @@ export function TeamBoard({
     });
   };
 
+  // The latest sprint/week on the board for the card's team strictly before the
+  // card's current one — where deleting demotes the card instead of removing it.
+  const previousSprintFor = (card: CardModel): string | null => {
+    const team = card.team ?? "";
+    const cur = card.sprintStart;
+    if (!cur) return null;
+    let prev: string | null = null;
+    for (const c of board.cards) {
+      if (c.itemId === card.itemId || (c.team ?? "") !== team) continue;
+      if (!c.sprintStart || c.sprintStart >= cur) continue;
+      if (prev === null || c.sprintStart > prev) prev = c.sprintStart;
+    }
+    return prev;
+  };
+
+  const previousWeekFor = (card: CardModel): string | null => {
+    const team = card.team ?? "";
+    const cur = card.week;
+    if (!cur) return null;
+    let prev: string | null = null;
+    for (const c of board.cards) {
+      if (c.itemId === card.itemId || (c.team ?? "") !== team) continue;
+      if (!c.week || c.week >= cur) continue;
+      if (prev === null || c.week > prev) prev = c.week;
+    }
+    return prev;
+  };
+
   // Deleting a taken plan card from the grid releases it (clears assignee + the
-  // daily sprint) instead of deleting it, so it stays in the weekly plan.
+  // daily sprint) instead of deleting it, so it stays in the weekly plan. A plain
+  // grid card is demoted to its previous sprint (if any) rather than deleted.
   const handleGridDelete = (card: CardModel) => {
     if (!card.plan) {
+      const prevSprint = previousSprintFor(card);
+      if (prevSprint) {
+        const prev: Partial<CardModel> = {
+          startDate: card.startDate,
+          sprintStart: card.sprintStart,
+        };
+        patchCard(card.itemId, {
+          startDate: prevSprint,
+          sprintStart: prevSprint,
+        });
+        void (async () => {
+          try {
+            await provider.setStart(board, card, prevSprint);
+            await provider.setSprintStart(board, card, prevSprint);
+          } catch (err: unknown) {
+            patchCard(card.itemId, prev);
+            onError(errMessage(err));
+          }
+        })();
+        return;
+      }
       handleDelete(card);
       return;
     }
@@ -754,10 +804,20 @@ export function TeamBoard({
   };
 
   // Remove a card from the weekly plan. If it was taken into work (assigned) it
-  // stays on the board — only the weekly marker (Plan + Week) is cleared;
-  // otherwise it is a pure plan card and gets deleted.
+  // stays on the board — only the weekly marker (Plan + Week) is cleared. A pure
+  // plan card is demoted to its previous week (if any) instead of being deleted.
   const removeFromPlan = (card: CardModel) => {
     if (card.assignees.length === 0) {
+      const prevWeek = previousWeekFor(card);
+      if (prevWeek) {
+        const prev: Partial<CardModel> = { week: card.week };
+        patchCard(card.itemId, { week: prevWeek });
+        void provider.setWeek(board, card, prevWeek).catch((err: unknown) => {
+          patchCard(card.itemId, prev);
+          onError(errMessage(err));
+        });
+        return;
+      }
       handleDelete(card);
       return;
     }
