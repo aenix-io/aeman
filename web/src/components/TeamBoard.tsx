@@ -190,11 +190,18 @@ export function TeamBoard({
     [board.cards, teamFilter],
   );
 
-  // A card lives on exactly one day — its sprintStart — so it shows on the Team
-  // grid only on that day. Carry Over moves the day forward; send-to-next-day
-  // shifts it too. (startDate is just the card's origin and no longer filters.)
+  // The Team grid places a card on its effective day: its sprint (sprintStart)
+  // once materialized, but its scheduled day (startDate) while that is still in the
+  // future. So a materialized card sits on its sprint's start date (including ones
+  // created on later days), and a deferred card shows on its own future day,
+  // rejoining the sprint day once today catches up.
   const filteredCards = useMemo(
-    () => inFilter.filter((c) => c.sprintStart === selectedDate),
+    () =>
+      inFilter.filter((c) => {
+        const eff =
+          c.startDate && c.startDate > todayIso() ? c.startDate : c.sprintStart;
+        return eff === selectedDate;
+      }),
     [inFilter, selectedDate],
   );
 
@@ -1098,10 +1105,10 @@ export function TeamBoard({
       });
   };
 
-  // Creating a Team card puts it on the viewed day: startDate (origin) and
-  // sprintStart (its day) both equal selectedDate, so it shows only on that day.
-  // A team with no sprint yet records its first one on the state card, anchoring
-  // the Me view's lower bound.
+  // Creating a Team card joins the team's current sprint (sprintStart) and is
+  // scheduled for the viewed day (startDate = selectedDate). A team with no sprint
+  // yet records its first one on the state card and the card joins it, so the Me
+  // view has a sprint anchor.
   const handleCreate = (
     engineer: string,
     zone: ZoneKey,
@@ -1109,9 +1116,11 @@ export function TeamBoard({
     team?: string | null,
   ) => {
     const teamKey = team ?? null;
-    if (currentSprint(board, teamKey) === null) {
+    const cur = currentSprint(board, teamKey);
+    const sprint = cur ?? selectedDate;
+    if (cur === null) {
       // First sprint for this team: record it on the state card, then reload to
-      // pick it up as the Me lower-bound anchor.
+      // pick it up as the Me sprint anchor.
       void provider
         .setSprintState(board, teamKey, selectedDate, null)
         .then(() => reload())
@@ -1123,7 +1132,7 @@ export function TeamBoard({
       title,
       teamKey,
       selectedDate,
-      selectedDate,
+      sprint,
       todayIso(),
     );
   };

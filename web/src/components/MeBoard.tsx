@@ -10,7 +10,7 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, localDateIso, addDays } from "../date";
-import { currentSprint } from "../sprint";
+import { activeSprint, currentSprint } from "../sprint";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
@@ -113,23 +113,22 @@ export function MeBoard({
     [board.cards, viewMe],
   );
 
-  // A card lives on exactly one day — its sprintStart. In Me it shows while that
-  // day sits at or after its team's current sprint and at or before the viewed
-  // day: the lower bound drops done/old cards from past sprints, the upper bound
-  // hides future-dated cards until their day arrives. A card with no team sprint
-  // or no sprintStart never shows.
+  // In Me a card shows when it belongs to the sprint that was active on the viewed
+  // day (activeSprint) and its scheduled day has arrived (startDate empty or on or
+  // before the viewed day). Today shows the current sprint; rolling back into the
+  // previous sprint's days shows that sprint's cards. A team with no active sprint
+  // on the day, or a card deferred to the future, never shows.
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
         if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
           return false;
         }
-        const cur = currentSprint(board, c.team ?? null);
-        return Boolean(
-          cur &&
-            c.sprintStart &&
-            cur <= c.sprintStart &&
-            c.sprintStart <= selectedDate,
+        const as = activeSprint(board, c.team ?? null, selectedDate);
+        return (
+          as !== "" &&
+          c.sprintStart === as &&
+          (!c.startDate || c.startDate <= selectedDate)
         );
       }),
     [mine, board, selectedDate, teamFocus, teamFilter],
@@ -535,8 +534,10 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // A card lives on exactly one day: startDate (origin) and sprintStart (its
-    // day) both equal the viewed day.
+    // The card is scheduled for the viewed day (startDate = selectedDate) and joins
+    // the team's current sprint (sprintStart), falling back to the viewed day when
+    // the team has no sprint yet.
+    const sprintStart = currentSprint(board, team ?? null) ?? selectedDate;
     const optimistic: CardModel = {
       itemId: tempId,
       title,
@@ -545,7 +546,7 @@ export function MeBoard({
       zone,
       day: selectedDate,
       startDate: selectedDate,
-      sprintStart: selectedDate,
+      sprintStart,
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
       description: "",
@@ -558,7 +559,7 @@ export function MeBoard({
         zone,
         day: selectedDate,
         start: selectedDate,
-        sprintStart: selectedDate,
+        sprintStart,
         assigneeLogin: viewMe || null,
         team: team ?? null,
       })
