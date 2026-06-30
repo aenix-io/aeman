@@ -243,10 +243,10 @@ func TestCreateCardStartsNewSprintForTeamWithNone(t *testing.T) {
 	}
 }
 
-func TestCreateCardWithExistingSprintStaysOnDay(t *testing.T) {
+func TestCreateCardOnTheSprintsOwnDay(t *testing.T) {
 	f := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
-	// With an existing sprint, creating on a day puts the card on that day
-	// (Start == SprintStart) and leaves the sprint pointer untouched.
+	// Creating on the sprint's own day: Start (scheduled day) and SprintStart (the
+	// sprint) coincide, and the team's sprint pointer is left untouched.
 	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", Day: "2026-06-20"}); err != nil {
 		t.Fatal(err)
 	}
@@ -258,18 +258,18 @@ func TestCreateCardWithExistingSprintStaysOnDay(t *testing.T) {
 	}
 }
 
-func TestCreateCardOnALaterDayUsesThatDay(t *testing.T) {
+func TestCreateCardJoinsCurrentSprintOnLaterDay(t *testing.T) {
 	f := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
-	// A card lives on exactly one day: creating on a later day puts both Start and
-	// SprintStart on that day; the team's sprint pointer is left alone.
+	// Creating on a later day joins the running sprint: Start is the scheduled day
+	// while SprintStart stays the team's current sprint; the pointer is left alone.
 	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", Day: "2026-06-30"}); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("SetSprintState") != 0 {
 		t.Fatalf("creating with an existing sprint should not touch it; log=%v", f.log)
 	}
-	if f.creates[0].Start != "2026-06-30" || f.creates[0].SprintStart != "2026-06-30" {
-		t.Fatalf("want Start == SprintStart == 2026-06-30; got %+v", f.creates[0])
+	if f.creates[0].Start != "2026-06-30" || f.creates[0].SprintStart != "2026-06-20" {
+		t.Fatalf("want Start 2026-06-30 / SprintStart 2026-06-20; got %+v", f.creates[0])
 	}
 }
 
