@@ -63,3 +63,33 @@ func TestCurrentAndPreviousSprint(t *testing.T) {
 		}
 	}
 }
+
+func TestActiveSprint(t *testing.T) {
+	b := NewBoard(nil, []Card{
+		// Team A: current 06-26, previous 06-20 (both tracked).
+		{ItemID: "ss-a", Title: SprintStateTitle, Team: "A", SprintStart: "2026-06-26", StartDate: "2026-06-20"},
+		// Team B: only a current sprint, no previous.
+		{ItemID: "ss-b", Title: SprintStateTitle, Team: "B", SprintStart: "2026-06-26", StartDate: ""},
+	})
+	cases := []struct {
+		name      string
+		team, day string
+		want      string
+	}{
+		{"day after current returns current", "A", "2026-06-27", "2026-06-26"},
+		{"day equal current returns current", "A", "2026-06-26", "2026-06-26"},
+		{"day in [previous,current) returns previous", "A", "2026-06-22", "2026-06-20"},
+		{"day equal previous returns previous", "A", "2026-06-20", "2026-06-20"},
+		{"day before previous returns empty", "A", "2026-06-19", ""},
+		{"only-current team before current returns empty", "B", "2026-06-22", ""},
+		{"only-current team at current returns current", "B", "2026-06-26", "2026-06-26"},
+		{"team with no state (empty pointers) returns empty", "missing", "2026-06-30", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ActiveSprint(b, c.team, c.day); got != c.want {
+				t.Errorf("ActiveSprint(%q,%q) = %q, want %q", c.team, c.day, got, c.want)
+			}
+		})
+	}
+}
