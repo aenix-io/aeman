@@ -535,11 +535,9 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // Join the team's current sprint (its explicit state); but creating on a day
-    // past it keeps the card on the viewed day instead of back-dating it. Fall
-    // back to the selected day when the team has none.
-    const cur = currentSprint(board, team ?? null) ?? selectedDate;
-    const sprintStart = selectedDate > cur ? selectedDate : cur;
+    // sprintStart = the team's current sprint (so Carry Over carries the card);
+    // startDate (below) = the viewed day, so it sits on the day it was created.
+    const sprintStart = currentSprint(board, team ?? null) ?? selectedDate;
     const optimistic: CardModel = {
       itemId: tempId,
       title,
@@ -560,7 +558,7 @@ export function MeBoard({
         title,
         zone,
         day: selectedDate,
-        start: sprintStart,
+        start: selectedDate,
         sprintStart,
         assigneeLogin: viewMe || null,
         team: team ?? null,

@@ -164,16 +164,14 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		if err := s.backend.SetSprintState(ctx, b, args.Team, day, cur); err != nil {
 			return board.Card{}, err
 		}
-	} else if day > sprint {
-		// Creating on a day past the current sprint keeps the card on that day
-		// instead of back-dating it into the (earlier) current sprint.
-		sprint = day
 	}
+	// Start = the viewed day (where the card sits); SprintStart = the current
+	// sprint (so Carry Over carries it). They differ when creating on a later day.
 	return s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
 		Zone:        args.Zone,
 		Day:         day,
-		Start:       sprint,
+		Start:       day,
 		SprintStart: sprint,
 		Assignee:    args.Assignee,
 		Team:        args.Team,
@@ -199,7 +197,10 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		return err
 	}
 	for _, c := range b.Cards {
-		if c.Team != team || c.SprintStart != old || c.Stage == board.StageDone {
+		// Carry every unfinished card whose sprint is before the new day — not
+		// just the previous sprint — so cards added on an in-between day (or made
+		// directly on the backend) are picked up too. Future-dated cards stay.
+		if c.Team != team || c.SprintStart == "" || c.SprintStart >= today || c.Stage == board.StageDone {
 			continue
 		}
 		if err := s.backend.SetSprintStart(ctx, b, c, today); err != nil {

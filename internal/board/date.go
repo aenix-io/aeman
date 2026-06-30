@@ -31,12 +31,14 @@ func ActiveOnDay(start, finish, day string) bool {
 	if from == "" {
 		from = finish
 	}
-	to := finish
-	if to == "" {
-		to = start
-	}
-	if from == "" || to == "" {
+	if from == "" {
 		return false
+	}
+	// The span runs from `start` to the later of start/finish, so a card whose
+	// start day is past its sprint (added on a later day) still shows on its day.
+	to := from
+	if finish > from {
+		to = finish
 	}
 	return from <= day && day <= to
 }

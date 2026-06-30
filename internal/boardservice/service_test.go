@@ -259,16 +259,17 @@ func TestCreateCardJoinsRunningSprint(t *testing.T) {
 
 func TestCreateCardPastSprintStaysOnDay(t *testing.T) {
 	f := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
-	// Creating on a day past the current sprint keeps the card on that day and
-	// does not advance the team's sprint pointer.
+	// Creating on a day past the current sprint keeps the card on that day
+	// (Start) but joins the current sprint (SprintStart), so Carry Over carries
+	// it later; the team's sprint pointer is not advanced.
 	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", Day: "2026-06-30"}); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("SetSprintState") != 0 {
 		t.Fatalf("creating past the sprint should not advance it; log=%v", f.log)
 	}
-	if f.creates[0].SprintStart != "2026-06-30" || f.creates[0].Start != "2026-06-30" {
-		t.Fatalf("card should stay on the viewed day; create input = %+v", f.creates[0])
+	if f.creates[0].Start != "2026-06-30" || f.creates[0].SprintStart != "2026-06-20" {
+		t.Fatalf("want Start=day 2026-06-30, SprintStart=sprint 2026-06-20; got %+v", f.creates[0])
 	}
 }
 
@@ -296,6 +297,7 @@ func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
 		{ItemID: "c2", Team: "alpha", SprintStart: old, Stage: board.StageDone},
 		{ItemID: "c3", Team: "alpha", SprintStart: "2026-02-01"},
 		{ItemID: "c4", Team: "beta", SprintStart: old},
+		{ItemID: "c5", Team: "alpha", SprintStart: "2027-01-01"},
 	}, map[string]board.SprintState{"alpha": {Current: old}})
 	today := board.TodayIso()
 	if err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha"); err != nil {
@@ -304,11 +306,18 @@ func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
 	if !f.saw(fmt.Sprintf("SetSprintState alpha cur=%s prev=%s", today, old)) {
 		t.Fatalf("expected advance; log=%v", f.log)
 	}
-	if f.count("SetSprintStart") != 1 || !f.saw(fmt.Sprintf("SetSprintStart c1 %s", today)) {
-		t.Fatalf("only the unfinished c1 should carry; log=%v", f.log)
+	// c1 (previous sprint) and the in-between c3 both carry; c2 is done, c4 is
+	// another team, and c5 is future-dated — none of those move.
+	if f.count("SetSprintStart") != 2 ||
+		!f.saw(fmt.Sprintf("SetSprintStart c1 %s", today)) ||
+		!f.saw(fmt.Sprintf("SetSprintStart c3 %s", today)) {
+		t.Fatalf("c1 and the in-between c3 should carry; log=%v", f.log)
 	}
-	if f.get("c1").SprintStart != today {
-		t.Fatalf("c1 not carried: %+v", f.get("c1"))
+	if f.get("c1").SprintStart != today || f.get("c3").SprintStart != today {
+		t.Fatalf("c1/c3 not carried: %+v %+v", f.get("c1"), f.get("c3"))
+	}
+	if f.get("c5").SprintStart != "2027-01-01" {
+		t.Fatalf("future-dated c5 should not carry: %+v", f.get("c5"))
 	}
 }
 
