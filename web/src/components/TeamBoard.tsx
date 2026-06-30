@@ -1122,12 +1122,10 @@ export function TeamBoard({
         .setSprintState(board, teamKey, selectedDate, null)
         .then(() => reload())
         .catch((err: unknown) => onError(errMessage(err)));
-    } else if (selectedDate > sprint) {
-      // Creating on a day past the current sprint keeps the card on that day
-      // instead of back-dating it into the (earlier) current sprint.
-      sprint = selectedDate;
     }
-    createTeamCard(engineer, zone, title, teamKey, sprint, sprint, todayIso());
+    // startDate = the viewed day (where the card sits); sprintStart = the current
+    // sprint (so Carry Over carries it). They differ when adding on a later day.
+    createTeamCard(engineer, zone, title, teamKey, selectedDate, sprint, todayIso());
   };
 
   // Carry over: advance the team's sprint to today (the prior current becomes the
@@ -1147,7 +1145,8 @@ export function TeamBoard({
     const carry = board.cards.filter(
       (c) =>
         (team === null ? c.team == null : c.team === team) &&
-        c.sprintStart === old &&
+        c.sprintStart &&
+        c.sprintStart < today &&
         c.stage !== "done" &&
         !c.itemId.startsWith("tmp-"),
     );

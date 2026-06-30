@@ -23,7 +23,11 @@ func TestActiveOnDay(t *testing.T) {
 		{"range, on finish", "2026-06-10", "2026-06-20", "2026-06-20", true},
 		{"range, before", "2026-06-10", "2026-06-20", "2026-06-09", false},
 		{"range, after", "2026-06-10", "2026-06-20", "2026-06-21", false},
-		{"inverted bounds never active", "2026-06-20", "2026-06-10", "2026-06-15", false},
+		// start later than finish (a card added on a day past its sprint): the
+		// span collapses to its start day rather than vanishing.
+		{"start past finish, off its day", "2026-06-20", "2026-06-10", "2026-06-15", false},
+		{"start past finish, on its day", "2026-06-20", "2026-06-10", "2026-06-20", true},
+		{"start past finish, after its day", "2026-06-20", "2026-06-10", "2026-06-21", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
