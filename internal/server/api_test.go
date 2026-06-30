@@ -215,6 +215,35 @@ func TestAPILockBoardIgnoresQuery(t *testing.T) {
 	}
 }
 
+func TestAPIIndex(t *testing.T) {
+	srv := apiServer(t, Options{Version: "test-1.2.3"}, boardservicetest.New(nil, nil))
+	// The catalog is public metadata: it must not resolve a token or board.
+	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+		t.Fatal("index must not build a board service")
+		return nil, nil
+	}
+	rec := do(t, srv, http.MethodGet, "/api/v1", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var idx apiIndex
+	if err := json.Unmarshal(rec.Body.Bytes(), &idx); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if idx.Name != "aeman" {
+		t.Fatalf("name = %q, want aeman", idx.Name)
+	}
+	if idx.Version != "test-1.2.3" {
+		t.Fatalf("version = %q, want test-1.2.3", idx.Version)
+	}
+	if idx.MCP != "/mcp" {
+		t.Fatalf("mcp = %q, want /mcp", idx.MCP)
+	}
+	if len(idx.Endpoints) == 0 {
+		t.Fatal("endpoints is empty")
+	}
+}
+
 func TestAPIInvalidJSON(t *testing.T) {
 	fake := boardservicetest.New(nil, nil)
 	srv := apiServer(t, Options{}, fake)
