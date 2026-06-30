@@ -216,15 +216,13 @@ export function Card({
     onSetDates?.(card, startVal || null, endVal || startVal || null);
   };
 
-  // Quick-shift the start date by N days; push the finish along if overtaken.
+  // Send the card to another day: shift its scheduled day (startDate) by N days,
+  // leaving its sprint (sprintStart) untouched, so the card disappears from
+  // Me/Team until its new startDate arrives. +1 = next day, +7 = next week.
   const moveStart = (days: number) => {
-    const newStart = addDays(card.startDate ?? todayIso(), days);
-    const end =
-      card.sprintStart && card.sprintStart >= newStart
-        ? card.sprintStart
-        : newStart;
+    const newStart = addDays(card.startDate ?? asOf ?? todayIso(), days);
     setDatesOpen(false);
-    onSetDates?.(card, newStart, end);
+    onSetDates?.(card, newStart, card.sprintStart ?? null);
   };
 
   // Plan cards: shift the plan week forward, or set it by picking a date.

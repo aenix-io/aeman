@@ -15,19 +15,21 @@ export function localDateIso(iso: string): string {
   return new Date(d.getTime() - off * 60_000).toISOString().slice(0, 10);
 }
 
-/** activeOnDay is true when `day` falls within a card's [start, finish] range.
- * A missing bound collapses to the other date, so a card with a single date is
- * active only on that day; a card with neither date is never on the day board. */
+/** activeOnDay is true when `day` falls within a card's visible span. The span
+ * runs from `start` (the card's day) to the later of start/finish, so a card
+ * whose start day is past its sprint (added on a later day) still shows on its
+ * day, while a carried card shows from its origin through the current sprint. A
+ * card with neither date is never on the day board. */
 export function activeOnDay(
   start: string | undefined,
   finish: string | undefined,
   day: string,
 ): boolean {
-  const from = start ?? finish;
-  const to = finish ?? start;
-  if (!from || !to) {
+  const from = start || finish;
+  if (!from) {
     return false;
   }
+  const to = finish && finish > from ? finish : from;
   return from <= day && day <= to;
 }
 

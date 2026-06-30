@@ -18,6 +18,8 @@ interface TeamChipsProps {
   canManage?: boolean;
   /** When set, show a "manage" link that opens the roster manager. */
   onManage?: () => void;
+  /** Optional eye toggle (Me board): focus the board on the selected teams. */
+  filterToggle?: { on: boolean; onToggle: () => void };
 }
 
 /** TeamChips is a single-select row of team chips with add/remove/rename. */
@@ -32,6 +34,7 @@ export function TeamChips({
   noTeamChip = false,
   canManage = true,
   onManage,
+  filterToggle,
 }: TeamChipsProps) {
   const [adding, setAdding] = useState(false);
   const [addValue, setAddValue] = useState("");
@@ -152,6 +155,34 @@ export function TeamChips({
               <span className="team-chip-name team-col-unassigned">No team</span>
             </button>
           </span>
+        )}
+        {filterToggle && (
+          <button
+            type="button"
+            className={`team-eye${filterToggle.on ? " team-eye-on" : ""}`}
+            onClick={filterToggle.onToggle}
+            aria-pressed={filterToggle.on}
+            title={
+              filterToggle.on
+                ? "Showing only the selected teams — click to show all"
+                : "Show only the selected teams"
+            }
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
         )}
         {canManage &&
           (adding ? (

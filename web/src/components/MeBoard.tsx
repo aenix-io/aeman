@@ -10,13 +10,14 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, localDateIso, addDays } from "../date";
-import { currentSprint } from "../sprint";
+import { activeSprint, currentSprint } from "../sprint";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayNote } from "./NotesPanel";
+import { ConnectDialog } from "./ConnectDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
@@ -73,9 +74,14 @@ export function MeBoard({
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // Eye toggle by the team chips: when on, show only the selected teams' cards.
+  // Deliberately not persisted — resets to off (show all) on reload.
+  const [teamFocus, setTeamFocus] = useState(false);
   // Impersonate: view (and act on) the board as another person.
   const [impersonated, setImpersonated] = useState<string | null>(null);
   const [impOpen, setImpOpen] = useState(false);
+  // MCP / API connect dialog.
+  const [connectOpen, setConnectOpen] = useState(false);
   const impRef = useRef<HTMLDivElement | null>(null);
   const viewMe = impersonated ?? me;
   // Other people with cards — offered in the "View as" impersonate picker.
@@ -110,23 +116,25 @@ export function MeBoard({
     [board.cards, viewMe],
   );
 
-  // A card shows within its [start, sprint] range, and keeps showing on later
-  // days while it is still its team's current sprint (per the explicit state) —
-  // so in Me cards stay visible until a new sprint is started (even by someone
-  // else, or by an unassigned card advancing the team's pointer).
+  // In Me a card shows when it belongs to the sprint that was active on the viewed
+  // day (activeSprint) and its scheduled day has arrived (startDate empty or on or
+  // before the viewed day). Today shows the current sprint; rolling back into the
+  // previous sprint's days shows that sprint's cards. A team with no active sprint
+  // on the day, or a card deferred to the future, never shows.
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
-        const start = c.startDate ?? c.sprintStart;
-        const sprint = c.sprintStart;
-        if (!start || !sprint || selectedDate < start) {
+        if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
           return false;
         }
+        const as = activeSprint(board, c.team ?? null, selectedDate);
         return (
-          selectedDate <= sprint || currentSprint(board, c.team ?? null) === sprint
+          as !== "" &&
+          c.sprintStart === as &&
+          (!c.startDate || c.startDate <= selectedDate)
         );
       }),
-    [mine, board, selectedDate],
+    [mine, board, selectedDate, teamFocus, teamFilter],
   );
 
   const byZone = useMemo(() => {
@@ -529,9 +537,9 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // Join the team's current sprint (its explicit state) instead of starting a
-    // new one, so adding a card on a later day does not look like a new sprint
-    // and hide the rest. Fall back to the selected day when the team has none.
+    // The card is scheduled for the viewed day (startDate = selectedDate) and joins
+    // the team's current sprint (sprintStart), falling back to the viewed day when
+    // the team has no sprint yet.
     const sprintStart = currentSprint(board, team ?? null) ?? selectedDate;
     const optimistic: CardModel = {
       itemId: tempId,
@@ -553,7 +561,7 @@ export function MeBoard({
         title,
         zone,
         day: selectedDate,
-        start: sprintStart,
+        start: selectedDate,
         sprintStart,
         assigneeLogin: viewMe || null,
         team: team ?? null,
@@ -643,6 +651,7 @@ export function MeBoard({
           onRename={onRenameTeam}
           canManage={false}
           noTeamChip
+          filterToggle={{ on: teamFocus, onToggle: () => setTeamFocus((v) => !v) }}
         />
 
         <div className="field field-inline impersonate" ref={impRef}>
@@ -819,7 +828,15 @@ export function MeBoard({
         <span className="me-day-stat">
           nice to have: {dayStats.green.done}/{dayStats.green.total}
         </span>
+        <button
+          type="button"
+          className="connect-link"
+          onClick={() => setConnectOpen(true)}
+        >
+          MCP / API
+        </button>
       </div>
+      {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} />}
     </div>
   );
 }

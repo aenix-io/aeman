@@ -85,8 +85,15 @@ type rawProject struct {
 		Nodes []rawField `json:"nodes"`
 	} `json:"fields"`
 	Items struct {
-		Nodes []rawItem `json:"nodes"`
+		PageInfo rawPageInfo `json:"pageInfo"`
+		Nodes    []rawItem   `json:"nodes"`
 	} `json:"items"`
+}
+
+// rawPageInfo is the items() connection cursor used to page a large board.
+type rawPageInfo struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
 }
 
 type projectResult struct {
@@ -129,8 +136,10 @@ func (c *Client) ListBoards(ctx context.Context, owner string) ([]BoardSummary, 
 	return nil, nil
 }
 
-// LoadBoard loads a project board fully, mapping fields and cards.
-func (c *Client) LoadBoard(ctx context.Context, owner string, number int) (*Board, error) {
+// LoadProjectBoard loads a project board fully into the rich ghprojects.Board
+// (with notes, URLs and content ids). The domain-typed loader used by the board
+// service is the LoadBoard method in load.go.
+func (c *Client) LoadProjectBoard(ctx context.Context, owner string, number int) (*Board, error) {
 	raw, err := c.loadProject(ctx, owner, number)
 	if err != nil {
 		return nil, err
@@ -147,13 +156,13 @@ func (c *Client) LoadBoard(ctx context.Context, owner string, number int) (*Boar
 // than falling through to the user query (which would error on an org login and
 // surface as a 502).
 func (c *Client) loadProject(ctx context.Context, owner string, number int) (*rawProject, error) {
-	vars := map[string]any{"owner": owner, "number": number}
+	vars := map[string]any{"owner": owner, "number": number, "after": nil}
 
 	var orgData projectResult
 	orgErr := c.graphql(ctx, orgProjectQuery, vars, &orgData)
 	if orgData.Organization != nil {
 		if orgData.Organization.ProjectV2 != nil {
-			return orgData.Organization.ProjectV2, nil
+			return c.pageProject(ctx, true, owner, number, orgData.Organization.ProjectV2)
 		}
 		return nil, fmt.Errorf("%w: project #%d for %q", ErrBoardNotFound, number, owner)
 	}
@@ -164,7 +173,7 @@ func (c *Client) loadProject(ctx context.Context, owner string, number int) (*ra
 	userErr := c.graphql(ctx, userProjectQuery, vars, &userData)
 	if userData.User != nil {
 		if userData.User.ProjectV2 != nil {
-			return userData.User.ProjectV2, nil
+			return c.pageProject(ctx, false, owner, number, userData.User.ProjectV2)
 		}
 		return nil, fmt.Errorf("%w: project #%d for %q", ErrBoardNotFound, number, owner)
 	}
@@ -182,6 +191,38 @@ func (c *Client) loadProject(ctx context.Context, owner string, number int) (*ra
 		return nil, orgErr
 	}
 	return nil, fmt.Errorf("%w: project #%d for %q", ErrBoardNotFound, number, owner)
+}
+
+// pageProject collects every remaining items() page for an already-resolved
+// project, appending them onto the first page's nodes. It mirrors the paging
+// loop in web/src/providers/github/githubProvider.ts: a board can hold more than
+// the 100-item GraphQL page size, and without paging the newest cards silently
+// fall off the load and "disappear" after a refresh.
+func (c *Client) pageProject(ctx context.Context, isOrg bool, owner string, number int, first *rawProject) (*rawProject, error) {
+	query := userProjectQuery
+	if isOrg {
+		query = orgProjectQuery
+	}
+	for first.Items.PageInfo.HasNextPage && first.Items.PageInfo.EndCursor != "" {
+		vars := map[string]any{"owner": owner, "number": number, "after": first.Items.PageInfo.EndCursor}
+		var data projectResult
+		if err := c.graphql(ctx, query, vars, &data); err != nil {
+			return nil, err
+		}
+		var next *rawProject
+		switch {
+		case isOrg && data.Organization != nil:
+			next = data.Organization.ProjectV2
+		case !isOrg && data.User != nil:
+			next = data.User.ProjectV2
+		}
+		if next == nil {
+			break
+		}
+		first.Items.Nodes = append(first.Items.Nodes, next.Items.Nodes...)
+		first.Items.PageInfo = next.Items.PageInfo
+	}
+	return first, nil
 }
 
 func mapProject(owner string, raw *rawProject) *Board {
