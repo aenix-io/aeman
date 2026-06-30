@@ -4,16 +4,24 @@ import "slices"
 
 // TeamGrid returns the cards shown on the Team board's people×zones grid for a
 // single team on a given day: cards matching the team filter ("" = the no-team
-// group) whose day — their sprintStart — is the viewed day. A card lives on
-// exactly one day; Carry Over moves that day forward, it does not widen a span.
-// It mirrors filteredCards/passesFilter in TeamBoard.tsx.
+// group) whose effective day is the viewed day. A card's effective day is its
+// sprint (sprintStart) once it has materialized, but its scheduled day (startDate)
+// while that is still in the future — so a materialized card sits on its sprint's
+// start date (including ones created on later days), and a deferred card shows on
+// its own future day instead, rejoining the sprint day once today catches up. It
+// mirrors filteredCards in TeamBoard.tsx.
 func TeamGrid(b Board, team, day string) []Card {
+	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
 		if c.Team != team {
 			continue
 		}
-		if c.SprintStart == day {
+		eff := c.SprintStart
+		if c.StartDate != "" && c.StartDate > today {
+			eff = c.StartDate
+		}
+		if eff == day {
 			out = append(out, c)
 		}
 	}
@@ -21,22 +29,20 @@ func TeamGrid(b Board, team, day string) []Card {
 }
 
 // MeView returns the cards on the personal day board for a user on a given day:
-// the user's cards (user = "" means everyone) whose day (sprintStart) sits at or
-// after their team's current sprint and at or before the viewed day. The lower
-// bound drops done/old cards from past sprints; the upper bound hides
-// future-dated cards until their day arrives. A card with no team sprint or no
-// sprintStart never shows. It mirrors mine/myCards in MeBoard.tsx.
+// the user's cards (user = "" means everyone) that belong to the sprint that was
+// active on the viewed day (activeSprint) and whose scheduled day has arrived
+// (startDate empty or on or before the viewed day). Today shows the current
+// sprint; rolling back into the previous sprint's days shows that sprint's cards.
+// A card whose team had no active sprint on the day, or that is deferred to the
+// future, never shows. It mirrors myCards in MeBoard.tsx.
 func MeView(b Board, user, day string) []Card {
 	out := []Card{}
 	for _, c := range b.Cards {
 		if user != "" && !slices.Contains(c.Assignees, user) {
 			continue
 		}
-		cur := CurrentSprint(b, c.Team)
-		if cur == "" || c.SprintStart == "" {
-			continue
-		}
-		if cur <= c.SprintStart && c.SprintStart <= day {
+		as := ActiveSprint(b, c.Team, day)
+		if as != "" && c.SprintStart == as && (c.StartDate == "" || c.StartDate <= day) {
 			out = append(out, c)
 		}
 	}
