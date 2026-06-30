@@ -15,9 +15,10 @@ func ids(cards []Card) []string {
 
 func gridBoard() Board {
 	return NewBoard(nil, []Card{
-		// Team A: a fresh card (one sprint day) and one carried into a later sprint.
+		// Team A: a card on its day and one moved (carried) to a later day. The
+		// origin (StartDate) is left behind; only the day (SprintStart) places it.
 		{ItemID: "A1", Team: "A", StartDate: "2026-06-22", SprintStart: "2026-06-22"},
-		{ItemID: "Acarry", Team: "A", StartDate: "2026-06-15", SprintStart: "2026-06-22"},
+		{ItemID: "Amoved", Team: "A", StartDate: "2026-06-20", SprintStart: "2026-06-26"},
 		{ItemID: "B1", Team: "B", StartDate: "2026-06-22", SprintStart: "2026-06-22"},
 		{ItemID: "N1", Team: "", StartDate: "2026-06-20", SprintStart: "2026-06-20"},
 	})
@@ -30,10 +31,10 @@ func TestTeamGrid(t *testing.T) {
 		team, day string
 		want      []string
 	}{
-		{"new sprint day shows both A cards", "A", "2026-06-22", []string{"A1", "Acarry"}},
-		{"original sprint day shows only the carried card", "A", "2026-06-15", []string{"Acarry"}},
-		{"a mid span day shows the carried card", "A", "2026-06-18", []string{"Acarry"}},
-		{"day past the span is empty", "A", "2026-06-23", []string{}},
+		{"a card shows on its day", "A", "2026-06-22", []string{"A1"}},
+		{"the moved card shows only on its new day", "A", "2026-06-26", []string{"Amoved"}},
+		{"the moved card's origin day no longer shows it", "A", "2026-06-20", []string{}},
+		{"a day with no card is empty", "A", "2026-06-23", []string{}},
 		{"other team is isolated", "B", "2026-06-22", []string{"B1"}},
 		{"no-team group", "", "2026-06-20", []string{"N1"}},
 	}
@@ -48,17 +49,18 @@ func TestTeamGrid(t *testing.T) {
 
 func meBoard() Board {
 	return NewBoard(nil, []Card{
-		// Sprint pointers: A's current sprint is 06-22; B has moved on to 06-25.
-		{ItemID: "ss-a", Title: SprintStateTitle, Team: "A", SprintStart: "2026-06-22"},
-		{ItemID: "ss-b", Title: SprintStateTitle, Team: "B", SprintStart: "2026-06-25"},
-		// u's current-sprint card for team A.
-		{ItemID: "u1", Assignees: []string{"u"}, Team: "A", StartDate: "2026-06-22", SprintStart: "2026-06-22"},
-		// u's card on a sprint team B has already left behind (no longer current).
-		{ItemID: "u2", Assignees: []string{"u"}, Team: "B", StartDate: "2026-06-10", SprintStart: "2026-06-12"},
+		// Team A's current sprint is 06-26 (previously 06-20).
+		{ItemID: "ss-a", Title: SprintStateTitle, Team: "A", SprintStart: "2026-06-26", StartDate: "2026-06-20"},
+		// u's card in the current sprint (a carried card: sprintStart == current).
+		{ItemID: "u1", Assignees: []string{"u"}, Team: "A", StartDate: "2026-06-26", SprintStart: "2026-06-26"},
+		// u's future-dated card: hidden until its day (06-28) arrives.
+		{ItemID: "ufuture", Assignees: []string{"u"}, Team: "A", StartDate: "2026-06-28", SprintStart: "2026-06-28"},
+		// u's done/old card from a past sprint (sprintStart < current) — never shows.
+		{ItemID: "uold", Assignees: []string{"u"}, Team: "A", StartDate: "2026-06-20", SprintStart: "2026-06-20"},
 		// Assigned to u but never placed in a sprint — must never show.
 		{ItemID: "u3", Assignees: []string{"u"}, Team: "A"},
-		// Someone else's card.
-		{ItemID: "u4", Assignees: []string{"v"}, Team: "A", StartDate: "2026-06-22", SprintStart: "2026-06-22"},
+		// Someone else's current-sprint card.
+		{ItemID: "u4", Assignees: []string{"v"}, Team: "A", StartDate: "2026-06-26", SprintStart: "2026-06-26"},
 	})
 }
 
@@ -69,11 +71,11 @@ func TestMeView(t *testing.T) {
 		user, day string
 		want      []string
 	}{
-		{"on the sprint day", "u", "2026-06-22", []string{"u1"}},
-		{"carried: stays while still the team's current sprint", "u", "2026-06-23", []string{"u1"}},
-		{"a non-current carried sprint only shows within its range", "u", "2026-06-12", []string{"u2"}},
-		{"before start and past a non-current sprint is empty", "u", "2026-06-21", []string{}},
-		{"empty user sees everyone with a sprint", "", "2026-06-22", []string{"u1", "u4"}},
+		{"current-sprint card shows on its day", "u", "2026-06-26", []string{"u1"}},
+		{"current-sprint card still shows on a later day", "u", "2026-06-27", []string{"u1"}},
+		{"future-dated card appears once its day arrives", "u", "2026-06-28", []string{"u1", "ufuture"}},
+		{"before the current sprint nothing shows", "u", "2026-06-25", []string{}},
+		{"empty user sees everyone in the current sprint", "", "2026-06-26", []string{"u1", "u4"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
