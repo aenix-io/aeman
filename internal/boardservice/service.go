@@ -119,9 +119,9 @@ func (s *Service) WeeklyPlan(ctx context.Context, owner string, project int, tea
 // --- Create / sprints ------------------------------------------------------
 
 // CreateCardArgs are the inputs to CreateCard. Day defaults to today.
-// StartNewSprint forces the sprint choice: nil = auto (join the team's current
-// sprint, or start one when the team has none), true = always start a new sprint
-// today, false = always join the current sprint (start one only if there is none).
+// StartNewSprint forces the team's sprint pointer: nil = auto (record the day as
+// the team's first sprint only when it has none), true = always (re)start the
+// pointer on the day, false = same as auto (start one only when there is none).
 type CreateCardArgs struct {
 	Team           string
 	Zone           board.ZoneKey
@@ -131,11 +131,11 @@ type CreateCardArgs struct {
 	StartNewSprint *bool
 }
 
-// CreateCard creates a card that joins (or starts) its team's sprint. It mirrors
-// handleCreate in TeamBoard.tsx: a team with no current sprint starts its first
-// one off this card (recorded on the team's sprint-state card), otherwise the
-// card joins the current sprint. Start and Sprint Start both equal the sprint;
-// Day is the create day.
+// CreateCard creates a card on a single day: its Start (origin) and SprintStart
+// (the day it lives on) both equal the viewed day. A team with no sprint yet
+// records its first one off this card on its sprint-state card, so the Me view's
+// lower bound has an anchor; force-new (re)starts the pointer on the day. It
+// mirrors handleCreate in TeamBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, owner string, project int, args CreateCardArgs) (board.Card, error) {
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
@@ -146,18 +146,11 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		day = board.TodayIso()
 	}
 	cur := board.CurrentSprint(b, args.Team)
-	sprint := cur
-	startNew := false
-	switch {
-	case args.StartNewSprint != nil && *args.StartNewSprint:
-		startNew = true
-	case args.StartNewSprint != nil && !*args.StartNewSprint:
-		startNew = cur == ""
-	default:
-		startNew = cur == ""
+	startNew := cur == ""
+	if args.StartNewSprint != nil {
+		startNew = *args.StartNewSprint || cur == ""
 	}
 	if startNew {
-		sprint = day
 		// Record the new sprint on the team's state card (previous = the old
 		// current, which is "" when the team had no sprint yet — matching the
 		// frontend's setSprintState(team, day, null)).
@@ -165,14 +158,14 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 			return board.Card{}, err
 		}
 	}
-	// Start = the viewed day (where the card sits); SprintStart = the current
-	// sprint (so Carry Over carries it). They differ when creating on a later day.
+	// A card lives on exactly one day: Start (origin) and SprintStart (its day)
+	// both equal the viewed day.
 	return s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
 		Zone:        args.Zone,
 		Day:         day,
 		Start:       day,
-		SprintStart: sprint,
+		SprintStart: day,
 		Assignee:    args.Assignee,
 		Team:        args.Team,
 	})
