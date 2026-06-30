@@ -1166,6 +1166,8 @@ export function TeamBoard({
     } catch (err: unknown) {
       onError(errMessage(err));
     }
+    // Land on the day the sprint was started on, so the new sprint is in view.
+    setSelectedDate(today);
     // Re-read the advanced state (and reconcile the carried cards).
     reload();
   };
