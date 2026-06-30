@@ -885,6 +885,10 @@ button.team-avatar {
 
 .shuffle-btn {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
 }
 
 .sprint-wrap {
@@ -1172,21 +1176,6 @@ button.card-age {
   white-space: nowrap;
 }
 
-/* Status indicator shown before the day counter: a two-arrow cycle for a review
-   with no reviewer, a warning sign for locked. Hidden on hover, where the card's
-   actions take its place. */
-.card-status-badge {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-}
-
-.card:hover .card-status-badge {
-  display: none;
-}
-
 .card-bar {
   position: absolute;
   left: 6px;
@@ -1255,15 +1244,6 @@ button.card-age {
   align-items: center;
   gap: 1px;
   flex: none;
-  opacity: 0;
-  width: 0;
-  overflow: hidden;
-  transition: opacity 0.1s;
-}
-
-.card:hover .card-actions {
-  opacity: 1;
-  width: auto;
 }
 
 .card-action {
@@ -1277,6 +1257,9 @@ button.card-age {
   line-height: 1;
   cursor: pointer;
   border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .card-action:hover {
@@ -1286,6 +1269,24 @@ button.card-age {
 
 .card-stage {
   position: relative;
+  display: inline-flex;
+  /* The status button sits last in the actions group, right before the day
+     counter; a small negative margin pulls its icon to the tight gap the
+     review/locked indicators read at (the 18px hit area is otherwise looser). */
+  margin-right: -3px;
+}
+
+/* Rename, delete, and the status flag (only on cards without a review/locked
+   state) appear on hover. Touch devices have no hover, so they stay hidden there
+   and such cards are managed from the popup. The review/locked indicators carry
+   no .card-hoveronly, so they always show. */
+.card-action.card-hoveronly,
+.card-stage.card-hoveronly {
+  display: none;
+}
+
+.card:hover .card-action.card-hoveronly,
+.card:hover .card-stage.card-hoveronly {
   display: inline-flex;
 }
 
@@ -1414,6 +1415,41 @@ button.card-age {
   display: flex;
   gap: 2px;
   flex: none;
+}
+
+.notes-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The notes fold to just their header on narrow screens (where they stack under
+   the board), like the Team weekly plan. The toggle is hidden on wide screens,
+   where notes stay open as a side pane. */
+.notes-toggle {
+  display: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  color: var(--muted);
+  flex: none;
+}
+
+.notes-collapsed .notes-list,
+.notes-collapsed .notes-composer,
+.notes-collapsed .notes-group-toggle {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .notes-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
 }
 
 .notes-group-btn {
@@ -2082,14 +2118,6 @@ button.card-age {
     border-left: none;
     border-top: 1px solid var(--line);
     max-height: 40%;
-  }
-}
-
-/* Touch devices have no hover, so a card's actions must stay visible. */
-@media (hover: none) {
-  .card-actions {
-    opacity: 1;
-    width: auto;
   }
 }
 
