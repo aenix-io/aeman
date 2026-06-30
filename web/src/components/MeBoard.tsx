@@ -17,6 +17,7 @@ import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayNote } from "./NotesPanel";
+import { ConnectDialog } from "./ConnectDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
@@ -79,6 +80,8 @@ export function MeBoard({
   // Impersonate: view (and act on) the board as another person.
   const [impersonated, setImpersonated] = useState<string | null>(null);
   const [impOpen, setImpOpen] = useState(false);
+  // MCP / API connect dialog.
+  const [connectOpen, setConnectOpen] = useState(false);
   const impRef = useRef<HTMLDivElement | null>(null);
   const viewMe = impersonated ?? me;
   // Other people with cards — offered in the "View as" impersonate picker.
@@ -825,7 +828,15 @@ export function MeBoard({
         <span className="me-day-stat">
           nice to have: {dayStats.green.done}/{dayStats.green.total}
         </span>
+        <button
+          type="button"
+          className="connect-link"
+          onClick={() => setConnectOpen(true)}
+        >
+          MCP / API
+        </button>
       </div>
+      {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} />}
     </div>
   );
 }
