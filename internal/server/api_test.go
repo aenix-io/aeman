@@ -80,9 +80,11 @@ func TestAPITeamView(t *testing.T) {
 
 func TestAPIMeView(t *testing.T) {
 	today := board.TodayIso()
+	// Me shows a card while its day (sprintStart) sits between the team's current
+	// sprint and the viewed day, so the no-team group needs a sprint anchor.
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
-	}, nil)
+	}, map[string]board.SprintState{"": {Current: today}})
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodGet, "/api/v1/me?owner=acme&project=1&user=bob", "")
 	if rec.Code != http.StatusOK {
