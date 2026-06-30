@@ -22,6 +22,7 @@ var errMissingBoard = errors.New("owner and project are required (set ?owner=&pr
 //
 // Routes:
 //
+//	GET    /api/v1                             public route catalog (no auth)
 //	GET    /api/v1/board                       board meta + per-team sprint states
 //	GET    /api/v1/team?team=&day=             Team grid view (day defaults to today)
 //	GET    /api/v1/me?user=&day=               personal day view
@@ -44,6 +45,7 @@ var errMissingBoard = errors.New("owner and project are required (set ?owner=&pr
 //	POST   /api/v1/cards/{id}/review/remove    delete the linked review card
 //	DELETE /api/v1/cards/{id}                  delete a card (cascades to its review)
 func (s *Server) registerAPI(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1", s.handleAPIIndex)
 	mux.HandleFunc("GET /api/v1/board", s.handleGetBoard)
 	mux.HandleFunc("GET /api/v1/team", s.handleTeamView)
 	mux.HandleFunc("GET /api/v1/me", s.handleMeView)
@@ -65,6 +67,55 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{id}/review", s.handleSendToReview)
 	mux.HandleFunc("POST /api/v1/cards/{id}/review/reassign", s.handleReassignReviewer)
 	mux.HandleFunc("POST /api/v1/cards/{id}/review/remove", s.handleRemoveReviewer)
+}
+
+// apiEndpoint describes one route in the GET /api/v1 catalog.
+type apiEndpoint struct {
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Description string `json:"description"`
+}
+
+// apiIndex is the public GET /api/v1 catalog: identity, the MCP mount point and
+// the full route list. It carries no board data, so it needs no authentication.
+type apiIndex struct {
+	Name      string        `json:"name"`
+	Version   string        `json:"version"`
+	MCP       string        `json:"mcp"`
+	Endpoints []apiEndpoint `json:"endpoints"`
+}
+
+// handleAPIIndex serves the public API catalog. It mirrors the routes wired in
+// registerAPI so a client can discover them without a token.
+func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, apiIndex{
+		Name:    "aeman",
+		Version: s.opts.Version,
+		MCP:     "/mcp",
+		Endpoints: []apiEndpoint{
+			{"GET", "/api/v1/board", "Board identity, fields and per-team sprint states"},
+			{"GET", "/api/v1/team?team=&day=", "Team grid view (day defaults to today)"},
+			{"GET", "/api/v1/me?user=&day=", "Personal day view"},
+			{"GET", "/api/v1/weekly?team=&week=", "Weekly plan, split into wed/fri bands"},
+			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint)"},
+			{"POST", "/api/v1/carry-over", "Advance a team's sprint, carry unfinished cards"},
+			{"POST", "/api/v1/carry-week", "Pull unfinished plan cards into the week"},
+			{"DELETE", "/api/v1/cards/{id}", "Delete a card (cascades to its review)"},
+			{"POST", "/api/v1/cards/{id}/stage", "Set the stage (locked/review/done/empty)"},
+			{"POST", "/api/v1/cards/{id}/in-progress", "Move to the implicit In Progress status"},
+			{"POST", "/api/v1/cards/{id}/progress", "Set the readiness percentage"},
+			{"POST", "/api/v1/cards/{id}/assignee", "Set or clear the assignee"},
+			{"POST", "/api/v1/cards/{id}/team", "Move to a team (joins its sprint)"},
+			{"POST", "/api/v1/cards/{id}/take-plan", "Take a plan card into work"},
+			{"POST", "/api/v1/cards/{id}/release-plan", "Release a card from the weekly plan"},
+			{"POST", "/api/v1/cards/{id}/move", "Reorder a card after another"},
+			{"POST", "/api/v1/cards/{id}/note", "Append a work note"},
+			{"POST", "/api/v1/cards/{id}/rename", "Rename a card"},
+			{"POST", "/api/v1/cards/{id}/review", "Send to review (creates a review card)"},
+			{"POST", "/api/v1/cards/{id}/review/reassign", "Point the review at another reviewer"},
+			{"POST", "/api/v1/cards/{id}/review/remove", "Delete the linked review card"},
+		},
+	})
 }
 
 // boardRef resolves the target board from query parameters, honouring the
