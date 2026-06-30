@@ -131,11 +131,13 @@ type CreateCardArgs struct {
 	StartNewSprint *bool
 }
 
-// CreateCard creates a card on a single day: its Start (origin) and SprintStart
-// (the day it lives on) both equal the viewed day. A team with no sprint yet
-// records its first one off this card on its sprint-state card, so the Me view's
-// lower bound has an anchor; force-new (re)starts the pointer on the day. It
-// mirrors handleCreate in TeamBoard.tsx.
+// CreateCard creates a card with two dates: StartDate (its scheduled day) is the
+// requested day (today by default), and SprintStart (the sprint it joins) is the
+// team's current sprint — so a card created on a later day of the sprint keeps the
+// sprint's start. A team with no sprint yet records its first one off this card on
+// its sprint-state card, anchoring the Me view; force-new (re)starts the pointer on
+// the day and the card joins that fresh sprint. It mirrors handleCreate in
+// TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, owner string, project int, args CreateCardArgs) (board.Card, error) {
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
@@ -146,26 +148,27 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		day = board.TodayIso()
 	}
 	cur := board.CurrentSprint(b, args.Team)
+	sprint := cur
 	startNew := cur == ""
 	if args.StartNewSprint != nil {
 		startNew = *args.StartNewSprint || cur == ""
 	}
 	if startNew {
-		// Record the new sprint on the team's state card (previous = the old
-		// current, which is "" when the team had no sprint yet — matching the
+		// Record the new sprint on the day and have the card join it (previous = the
+		// old current, which is "" when the team had no sprint yet — matching the
 		// frontend's setSprintState(team, day, null)).
+		sprint = day
 		if err := s.backend.SetSprintState(ctx, b, args.Team, day, cur); err != nil {
 			return board.Card{}, err
 		}
 	}
-	// A card lives on exactly one day: Start (origin) and SprintStart (its day)
-	// both equal the viewed day.
+	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	return s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
 		Zone:        args.Zone,
 		Day:         day,
 		Start:       day,
-		SprintStart: day,
+		SprintStart: sprint,
 		Assignee:    args.Assignee,
 		Team:        args.Team,
 	})
