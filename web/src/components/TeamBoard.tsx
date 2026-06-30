@@ -495,6 +495,14 @@ export function TeamBoard({
     setColumnOrder(people);
   };
 
+  // The Shuffle button flips to "Ordered" once the columns differ from the
+  // default order (you first, then the rest); clicking "Ordered" restores it.
+  const isDefaultOrder = useMemo(() => {
+    const def = engineers.filter((e) => e !== UNASSIGNED);
+    const cur = orderedEngineers.filter((e) => e !== UNASSIGNED);
+    return cur.length === def.length && cur.every((e, i) => e === def[i]);
+  }, [engineers, orderedEngineers]);
+
   // New cards default to the filtered team; null = all (show picker), "" = no team.
   const forcedTeam = useMemo(
     () => (teamFilter?.length === 1 ? teamFilter[0] || null : undefined),
@@ -1229,11 +1237,52 @@ export function TeamBoard({
         <button
           type="button"
           className="btn shuffle-btn"
-          onClick={shuffleColumns}
-          title="Shuffle columns"
-          aria-label="Shuffle columns"
+          onClick={isDefaultOrder ? shuffleColumns : () => setColumnOrder([])}
+          title={
+            isDefaultOrder
+              ? "Shuffle columns"
+              : "Restore default order (you first)"
+          }
+          aria-label={
+            isDefaultOrder ? "Shuffle columns" : "Restore default order"
+          }
         >
-          ⇄
+          {isDefaultOrder ? (
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22" />
+              <path d="m18 2 4 4-4 4" />
+              <path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2" />
+              <path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8" />
+              <path d="m18 14 4 4-4 4" />
+            </svg>
+          ) : (
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 8h16" />
+              <path d="m18 4 4 4-4 4" />
+              <path d="M2 16h16" />
+              <path d="m18 12 4 4-4 4" />
+            </svg>
+          )}
         </button>
         <button
           type="button"
