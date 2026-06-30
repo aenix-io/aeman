@@ -19,6 +19,9 @@ interface NotesPanelProps {
   onAddNote: (text: string) => void;
   onEditNote: (note: Note, card: CardModel, text: string) => void;
   onDeleteNote: (note: Note, card: CardModel) => void;
+  /** Fold to just the header bar (used on narrow screens). */
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 /** localTime formats an ISO timestamp as a local HH:MM string. */
@@ -40,6 +43,8 @@ export function NotesPanel({
   onAddNote,
   onEditNote,
   onDeleteNote,
+  collapsed,
+  onToggleCollapse,
 }: NotesPanelProps) {
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -161,29 +166,40 @@ export function NotesPanel({
   );
 
   return (
-    <aside className="notes">
+    <aside className={`notes${collapsed ? " notes-collapsed" : ""}`}>
       <header className="notes-header">
         <span>Notes — {selectedDate}</span>
-        <div className="notes-group-toggle" role="tablist" aria-label="Group notes">
+        <div className="notes-header-right">
+          <div className="notes-group-toggle" role="tablist" aria-label="Group notes">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={group === "time"}
+              className={`notes-group-btn${group === "time" ? " notes-group-btn-on" : ""}`}
+              onClick={() => setGroup("time")}
+              title="Group by timeline"
+            >
+              Time
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={group === "card"}
+              className={`notes-group-btn${group === "card" ? " notes-group-btn-on" : ""}`}
+              onClick={() => setGroup("card")}
+              title="Group by card"
+            >
+              Card
+            </button>
+          </div>
           <button
             type="button"
-            role="tab"
-            aria-selected={group === "time"}
-            className={`notes-group-btn${group === "time" ? " notes-group-btn-on" : ""}`}
-            onClick={() => setGroup("time")}
-            title="Group by timeline"
+            className="notes-toggle"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? "Expand notes" : "Collapse notes"}
+            title={collapsed ? "Expand" : "Collapse"}
           >
-            Time
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={group === "card"}
-            className={`notes-group-btn${group === "card" ? " notes-group-btn-on" : ""}`}
-            onClick={() => setGroup("card")}
-            title="Group by card"
-          >
-            Card
+            {collapsed ? "▲" : "▼"}
           </button>
         </div>
       </header>

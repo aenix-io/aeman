@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -82,6 +82,18 @@ export function MeBoard({
   const [impOpen, setImpOpen] = useState(false);
   // MCP / API connect dialog.
   const [connectOpen, setConnectOpen] = useState(false);
+
+  // Notes fold to a header bar on narrow screens (like the Team weekly plan) and
+  // stay open as a side pane on wide ones; the breakpoint matches .me-panes.
+  const [notesCollapsed, setNotesCollapsed] = useState(
+    () => window.matchMedia("(max-width: 820px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 820px)");
+    const onChange = (e: MediaQueryListEvent) => setNotesCollapsed(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
   const impRef = useRef<HTMLDivElement | null>(null);
   const viewMe = impersonated ?? me;
   // Other people with cards — offered in the "View as" impersonate picker.
@@ -804,6 +816,8 @@ export function MeBoard({
           onAddNote={handleAddNote}
           onEditNote={handleEditNote}
           onDeleteNote={handleDeleteNote}
+          collapsed={notesCollapsed}
+          onToggleCollapse={() => setNotesCollapsed((c) => !c)}
         />
       </div>
       <div className="me-day-progress" title={`${dayProgress}% done today`}>
