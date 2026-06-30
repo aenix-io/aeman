@@ -529,10 +529,11 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // Join the team's current sprint (its explicit state) instead of starting a
-    // new one, so adding a card on a later day does not look like a new sprint
-    // and hide the rest. Fall back to the selected day when the team has none.
-    const sprintStart = currentSprint(board, team ?? null) ?? selectedDate;
+    // Join the team's current sprint (its explicit state); but creating on a day
+    // past it keeps the card on the viewed day instead of back-dating it. Fall
+    // back to the selected day when the team has none.
+    const cur = currentSprint(board, team ?? null) ?? selectedDate;
+    const sprintStart = selectedDate > cur ? selectedDate : cur;
     const optimistic: CardModel = {
       itemId: tempId,
       title,

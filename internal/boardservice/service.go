@@ -164,6 +164,10 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		if err := s.backend.SetSprintState(ctx, b, args.Team, day, cur); err != nil {
 			return board.Card{}, err
 		}
+	} else if day > sprint {
+		// Creating on a day past the current sprint keeps the card on that day
+		// instead of back-dating it into the (earlier) current sprint.
+		sprint = day
 	}
 	return s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
