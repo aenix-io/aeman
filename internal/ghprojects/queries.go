@@ -16,7 +16,8 @@ const projectBody = `
       ... on ProjectV2SingleSelectField { id name dataType options { id name color } }
     }
   }
-  items(first: 100) {
+  items(first: 100, after: $after) {
+    pageInfo { hasNextPage endCursor }
     nodes {
       id
       type
@@ -69,11 +70,11 @@ const projectBody = `
   }
 `
 
-const orgProjectQuery = `query($owner: String!, $number: Int!) {
+const orgProjectQuery = `query($owner: String!, $number: Int!, $after: String) {
   organization(login: $owner) { projectV2(number: $number) { ` + projectBody + ` } }
 }`
 
-const userProjectQuery = `query($owner: String!, $number: Int!) {
+const userProjectQuery = `query($owner: String!, $number: Int!, $after: String) {
   user(login: $owner) { projectV2(number: $number) { ` + projectBody + ` } }
 }`
 
@@ -136,6 +137,18 @@ const clearFieldMutation = `mutation($project: ID!, $item: ID!, $field: ID!) {
 const addDraftMutation = `mutation($project: ID!, $title: String!, $assignees: [ID!]) {
   addProjectV2DraftIssue(input: { projectId: $project, title: $title, assigneeIds: $assignees }) {
     projectItem { id content { ... on DraftIssue { id } } }
+  }
+}`
+
+const createFieldMutation = `mutation($project: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!) {
+  createProjectV2Field(input: { projectId: $project, name: $name, dataType: $dataType }) {
+    projectV2Field { ... on ProjectV2FieldCommon { id name dataType } }
+  }
+}`
+
+const createSelectFieldMutation = `mutation($project: ID!, $name: String!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+  createProjectV2Field(input: { projectId: $project, name: $name, dataType: SINGLE_SELECT, singleSelectOptions: $options }) {
+    projectV2Field { ... on ProjectV2SingleSelectField { id name dataType options { id name color } } }
   }
 }`
 
