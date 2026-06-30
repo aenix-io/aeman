@@ -1122,6 +1122,10 @@ export function TeamBoard({
         .setSprintState(board, teamKey, selectedDate, null)
         .then(() => reload())
         .catch((err: unknown) => onError(errMessage(err)));
+    } else if (selectedDate > sprint) {
+      // Creating on a day past the current sprint keeps the card on that day
+      // instead of back-dating it into the (earlier) current sprint.
+      sprint = selectedDate;
     }
     createTeamCard(engineer, zone, title, teamKey, sprint, sprint, todayIso());
   };

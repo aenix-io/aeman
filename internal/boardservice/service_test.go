@@ -245,7 +245,8 @@ func TestCreateCardStartsNewSprintForTeamWithNone(t *testing.T) {
 
 func TestCreateCardJoinsRunningSprint(t *testing.T) {
 	f := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
-	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task"}); err != nil {
+	// Creating on a day within the current sprint joins it.
+	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", Day: "2026-06-20"}); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("SetSprintState") != 0 {
@@ -253,6 +254,21 @@ func TestCreateCardJoinsRunningSprint(t *testing.T) {
 	}
 	if f.creates[0].SprintStart != "2026-06-20" || f.creates[0].Start != "2026-06-20" {
 		t.Fatalf("create input = %+v", f.creates[0])
+	}
+}
+
+func TestCreateCardPastSprintStaysOnDay(t *testing.T) {
+	f := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
+	// Creating on a day past the current sprint keeps the card on that day and
+	// does not advance the team's sprint pointer.
+	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", Day: "2026-06-30"}); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetSprintState") != 0 {
+		t.Fatalf("creating past the sprint should not advance it; log=%v", f.log)
+	}
+	if f.creates[0].SprintStart != "2026-06-30" || f.creates[0].Start != "2026-06-30" {
+		t.Fatalf("card should stay on the viewed day; create input = %+v", f.creates[0])
 	}
 }
 
