@@ -73,6 +73,9 @@ export function MeBoard({
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // Eye toggle by the team chips: when on, show only the selected teams' cards.
+  // Deliberately not persisted — resets to off (show all) on reload.
+  const [teamFocus, setTeamFocus] = useState(false);
   // Impersonate: view (and act on) the board as another person.
   const [impersonated, setImpersonated] = useState<string | null>(null);
   const [impOpen, setImpOpen] = useState(false);
@@ -122,11 +125,14 @@ export function MeBoard({
         if (!start || !sprint || selectedDate < start) {
           return false;
         }
+        if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
+          return false;
+        }
         return (
           selectedDate <= sprint || currentSprint(board, c.team ?? null) === sprint
         );
       }),
-    [mine, board, selectedDate],
+    [mine, board, selectedDate, teamFocus, teamFilter],
   );
 
   const byZone = useMemo(() => {
@@ -644,6 +650,7 @@ export function MeBoard({
           onRename={onRenameTeam}
           canManage={false}
           noTeamChip
+          filterToggle={{ on: teamFocus, onToggle: () => setTeamFocus((v) => !v) }}
         />
 
         <div className="field field-inline impersonate" ref={impRef}>

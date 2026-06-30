@@ -647,6 +647,29 @@ button {
   background: var(--bg-soft);
 }
 
+/* eye toggle by the team chips (Me board): focus on the selected teams */
+.team-eye {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: 10px;
+  line-height: 0;
+}
+
+.team-eye:hover {
+  color: var(--fg);
+}
+
+.team-eye-on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-soft);
+}
+
 .team-chips .team-add-input {
   width: 110px;
   flex: none;
