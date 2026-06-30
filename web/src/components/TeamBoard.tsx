@@ -15,7 +15,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, activeOnDay, mondayOf } from "../date";
+import { todayIso, addDays, mondayOf } from "../date";
 import { currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
@@ -190,15 +190,11 @@ export function TeamBoard({
     [board.cards, teamFilter],
   );
 
-  // A card shows on every day of its [startDate, sprintStart] span. A fresh card
-  // (start === sprintStart) shows on its one sprint day; a card carried into a
-  // later sprint (sprintStart advanced past startDate) shows in BOTH its original
-  // sprint and the new one — carry over extends the task's span, not moves it.
+  // A card lives on exactly one day — its sprintStart — so it shows on the Team
+  // grid only on that day. Carry Over moves the day forward; send-to-next-day
+  // shifts it too. (startDate is just the card's origin and no longer filters.)
   const filteredCards = useMemo(
-    () =>
-      inFilter.filter((c) =>
-        activeOnDay(c.startDate, c.sprintStart, selectedDate),
-      ),
+    () => inFilter.filter((c) => c.sprintStart === selectedDate),
     [inFilter, selectedDate],
   );
 
@@ -1102,10 +1098,10 @@ export function TeamBoard({
       });
   };
 
-  // Creating a Team card joins the team's current sprint (from its explicit
-  // state). A team with no sprint yet starts its first one off this card. Start
-  // date is the sprint's start day, so the card shows only on that day and the
-  // day after stays empty (the cue to carry over).
+  // Creating a Team card puts it on the viewed day: startDate (origin) and
+  // sprintStart (its day) both equal selectedDate, so it shows only on that day.
+  // A team with no sprint yet records its first one on the state card, anchoring
+  // the Me view's lower bound.
   const handleCreate = (
     engineer: string,
     zone: ZoneKey,
@@ -1113,19 +1109,23 @@ export function TeamBoard({
     team?: string | null,
   ) => {
     const teamKey = team ?? null;
-    let sprint = currentSprint(board, teamKey);
-    if (sprint === null) {
+    if (currentSprint(board, teamKey) === null) {
       // First sprint for this team: record it on the state card, then reload to
-      // pick up the advance (later cards then join it).
-      sprint = selectedDate;
+      // pick it up as the Me lower-bound anchor.
       void provider
         .setSprintState(board, teamKey, selectedDate, null)
         .then(() => reload())
         .catch((err: unknown) => onError(errMessage(err)));
     }
-    // startDate = the viewed day (where the card sits); sprintStart = the current
-    // sprint (so Carry Over carries it). They differ when adding on a later day.
-    createTeamCard(engineer, zone, title, teamKey, selectedDate, sprint, todayIso());
+    createTeamCard(
+      engineer,
+      zone,
+      title,
+      teamKey,
+      selectedDate,
+      selectedDate,
+      todayIso(),
+    );
   };
 
   // Carry over: advance the team's sprint to today (the prior current becomes the

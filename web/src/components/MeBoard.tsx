@@ -113,23 +113,23 @@ export function MeBoard({
     [board.cards, viewMe],
   );
 
-  // A card shows within its [start, sprint] range, and keeps showing on later
-  // days while it is still its team's current sprint (per the explicit state) —
-  // so in Me cards stay visible until a new sprint is started (even by someone
-  // else, or by an unassigned card advancing the team's pointer).
+  // A card lives on exactly one day — its sprintStart. In Me it shows while that
+  // day sits at or after its team's current sprint and at or before the viewed
+  // day: the lower bound drops done/old cards from past sprints, the upper bound
+  // hides future-dated cards until their day arrives. A card with no team sprint
+  // or no sprintStart never shows.
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
-        const start = c.startDate ?? c.sprintStart;
-        const sprint = c.sprintStart;
-        if (!start || !sprint || selectedDate < start) {
-          return false;
-        }
         if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
           return false;
         }
-        return (
-          selectedDate <= sprint || currentSprint(board, c.team ?? null) === sprint
+        const cur = currentSprint(board, c.team ?? null);
+        return Boolean(
+          cur &&
+            c.sprintStart &&
+            cur <= c.sprintStart &&
+            c.sprintStart <= selectedDate,
         );
       }),
     [mine, board, selectedDate, teamFocus, teamFilter],
@@ -535,9 +535,8 @@ export function MeBoard({
 
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // sprintStart = the team's current sprint (so Carry Over carries the card);
-    // startDate (below) = the viewed day, so it sits on the day it was created.
-    const sprintStart = currentSprint(board, team ?? null) ?? selectedDate;
+    // A card lives on exactly one day: startDate (origin) and sprintStart (its
+    // day) both equal the viewed day.
     const optimistic: CardModel = {
       itemId: tempId,
       title,
@@ -546,7 +545,7 @@ export function MeBoard({
       zone,
       day: selectedDate,
       startDate: selectedDate,
-      sprintStart,
+      sprintStart: selectedDate,
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
       description: "",
@@ -559,7 +558,7 @@ export function MeBoard({
         zone,
         day: selectedDate,
         start: selectedDate,
-        sprintStart,
+        sprintStart: selectedDate,
         assigneeLogin: viewMe || null,
         team: team ?? null,
       })
