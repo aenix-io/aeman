@@ -15,10 +15,11 @@ Code that implements these rules:
 A card carries **two independent dates**:
 
 - **Sprint Start** (`sprintStart`) — the **sprint** the card belongs to (the
-  sprint's start date). Carry Over moves this; the Team board groups by it.
+  sprint's start date). Carry Over moves this; the Team board groups a materialized
+  card by it.
 - **Start** (`startDate`) — the card's **scheduled day**: the day it starts
-  showing and "materializes" into its sprint. Set to the day the card was created
-  (the viewed day); send-to-next-day moves it forward.
+  showing and "materializes" into its sprint. Set to the viewed day (`selectedDate`)
+  the card was created on; send-to-next-day moves it forward.
 
 Also:
 - **Day** (`day`, date) — set on create, not used by any filter.
@@ -46,17 +47,21 @@ its sprint, or deferred with send-to-next-day.
 ### Create
 - `sprintStart = currentSprint(team)` — the card joins the team's **current
   sprint** (which may be an earlier day than today).
-- `startDate = today` (the viewed day) — its scheduled day is now.
-- First sprint: if the team has none yet, creating records today as its first
-  sprint on the sprint-state card.
+- `startDate = selectedDate` (the viewed day) — its scheduled day is the day in
+  view.
+- First sprint: if the team has none yet, creating records the viewed day as its
+  first sprint on the sprint-state card.
 
-### Team view — a sprint's day (`selectedDate`)
-- A card shows on **its sprint's day** and only once it has materialized:
-  `sprintStart === selectedDate` **AND** `startDate <= today`.
-- The team lead navigates to a sprint's start date to see **all** that sprint's
-  cards, including ones created on later days of the sprint.
-- A card **deferred to the future** (`startDate > today`) is hidden until its day
-  arrives — it is not yet within the sprint's realized dates.
+### Team view — a card's effective day (`selectedDate`)
+- A card shows on its **effective day**: its sprint (`sprintStart`) once it has
+  materialized (`startDate <= today`), but its scheduled day (`startDate`) while
+  that is still in the future. Show iff `effectiveDay === selectedDate`.
+- A **materialized** card therefore sits on its sprint's start date, so the team
+  lead navigates there to see **all** that sprint's cards, including ones created
+  on later days of the sprint.
+- A card **deferred to the future** (`startDate > today`) shows on its own future
+  day instead of the sprint day, and rejoins the sprint day once today catches up
+  to its `startDate`.
 
 ### Me view — a personal day (`selectedDate`)
 - A card (assigned to the viewer) shows when its scheduled day has arrived and it
@@ -88,7 +93,7 @@ its sprint, or deferred with send-to-next-day.
    one-field "single-day" model is dropped.)
 2. **Me by the active sprint on the viewed day** (current, or previous when
    scrolled back), gated by `startDate <= selectedDate`.
-3. **Team by `sprintStart === selectedDate` and `startDate <= today`** — strictly
-   the sprint's day, hiding future-deferred cards.
+3. **Team by a card's effective day** — `sprintStart` once materialized, else the
+   future `startDate`; a deferred card shows on its own day, not the sprint day.
 4. **Send-to-next-day moves `startDate`** (not the sprint).
 5. The existing telemetry card is left as-is (the owner will move it).
