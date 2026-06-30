@@ -284,7 +284,7 @@ button {
   align-items: flex-start;
 }
 
-/* The colour bands form one continuous block with rounded outer corners. */
+/* The colour bands form one rounded block; zones are split by a dashed line. */
 .me-zones {
   display: flex;
   flex-direction: column;
@@ -344,6 +344,11 @@ button {
   outline-offset: -2px;
 }
 
+/* A light dashed separator between stacked zones, like the weekly plan. */
+.zone-area + .zone-area {
+  border-top: 1px dashed var(--line);
+}
+
 /* The zone's name set vertically on the left (rotated 270°, reading bottom-to-
    top) like a book spine. As a flex item its vertical text length is the zone's
    natural height, so the area never becomes shorter than the label. */
@@ -396,6 +401,14 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding-top: 4px;
+}
+
+/* Keep "+ add" at the bottom of the zone when there is free space (e.g. an
+   empty zone made tall by its spine label), without a gap when cards fill it. */
+.zone-cards > .add-card,
+.zone-cards > .add-card-form {
+  margin-top: auto;
 }
 
 /* ---- compact card (fixed 500 × 37) ---- */
@@ -945,7 +958,6 @@ button.team-avatar {
 
 .card-age {
   flex: none;
-  width: 24px;
   text-align: right;
   font-size: 10px;
   font-weight: 700;
@@ -1158,6 +1170,21 @@ button.card-age {
   color: var(--faint);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
+}
+
+/* Status indicator shown before the day counter: a two-arrow cycle for a review
+   with no reviewer, a warning sign for locked. Hidden on hover, where the card's
+   actions take its place. */
+.card-status-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.card:hover .card-status-badge {
+  display: none;
 }
 
 .card-bar {

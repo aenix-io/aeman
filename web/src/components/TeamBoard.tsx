@@ -1391,6 +1391,9 @@ export function TeamBoard({
                 className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
                 style={{ background: def.background, borderLeftColor: def.accent }}
               >
+                <span className="zone-spine" style={{ color: def.accent }}>
+                  {def.spine}
+                </span>
                 <div className="zone-cards">
                   {body}
                   <AddCard
