@@ -1211,15 +1211,12 @@ export function TeamBoard({
     ) {
       return;
     }
-    // Optimistically move the cards, then advance the sprint state and persist
-    // every card's Sprint Start together — one batched request set instead of a
-    // round-trip per card, which was slow for a full sprint.
+    // Optimistically move the cards, then run the whole carry-over as one
+    // provider call (the API backend advances the pointer and re-dates the
+    // unfinished cards concurrently, streaming a watch event per card).
     carry.forEach((card) => patchCard(card.itemId, { sprintStart: today }));
     try {
-      await Promise.all([
-        provider.setSprintState(board, team, today, old),
-        provider.setSprintStartMany(board, carry, today),
-      ]);
+      await provider.carryOver(board, team);
     } catch (err: unknown) {
       onError(errMessage(err));
     }

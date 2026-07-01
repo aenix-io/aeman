@@ -1,4 +1,5 @@
 import { graphql } from "../../api/client";
+import { todayIso } from "../../date";
 import {
   STAGES,
   STAGE_ORDER,
@@ -708,6 +709,28 @@ export const githubProvider: Provider = {
         value: previous,
       });
     }
+  },
+
+  async carryOver(board: Board, team: string | null): Promise<void> {
+    // Client-side reference implementation: advance the pointer, then batch the
+    // unfinished cards' Sprint Start writes. It mirrors boardservice.CarryOver.
+    const key = team ?? "";
+    const today = todayIso();
+    const old = board.sprintStates[key]?.current ?? null;
+    if (old === today) {
+      return;
+    }
+    const carry = board.cards.filter(
+      (c) =>
+        (c.team ?? "") === key &&
+        c.sprintStart !== undefined &&
+        c.sprintStart !== "" &&
+        c.sprintStart < today &&
+        c.stage !== "done" &&
+        !c.itemId.startsWith("tmp-"),
+    );
+    await githubProvider.setSprintState(board, team, today, old);
+    await githubProvider.setSprintStartMany(board, carry, today);
   },
 
   async setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void> {
