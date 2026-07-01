@@ -33,6 +33,9 @@ func gridBoard() Board {
 		{ItemID: "Adeferred", Team: "A", StartDate: "2026-06-25", SprintStart: "2999-12-30"},
 		{ItemID: "B1", Team: "B", StartDate: "2000-01-01", SprintStart: "2026-06-22"},
 		{ItemID: "N1", Team: "", StartDate: "2000-01-01", SprintStart: "2026-06-20"},
+		// Team A's sprint pointers: current = 06-26, previous = 06-22. Cards also
+		// show on pointer days their sprint passed through (carried / deferred).
+		{ItemID: "Astate", Team: "A", Title: SprintStateTitle, SprintStart: "2026-06-26", StartDate: "2026-06-22"},
 	})
 }
 
@@ -43,9 +46,9 @@ func TestTeamGrid(t *testing.T) {
 		team, day string
 		want      []string
 	}{
-		{"materialized card shows on its sprint day; deferred one is not", "A", "2026-06-22", []string{"A1", "Alater"}},
+		{"a sprint day shows its cards plus the ones that passed through it", "A", "2026-06-22", []string{"A1", "Aother", "Alater", "Adeferred"}},
 		{"deferred card shows on its own future day", "A", "2999-12-31", []string{"Afuture"}},
-		{"another sprint day shows its own card", "A", "2026-06-26", []string{"Aother"}},
+		{"the current sprint day keeps a deferred card that passed through", "A", "2026-06-26", []string{"Aother", "Adeferred"}},
 		{"a later-created card also shows on its scheduled day", "A", "2026-06-24", []string{"Alater"}},
 		{"a deferred card keeps its history day", "A", "2026-06-25", []string{"Adeferred"}},
 		{"a deferred card is hidden between today and its new sprint day", "A", "2998-01-01", []string{}},

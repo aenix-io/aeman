@@ -224,23 +224,19 @@ export function TeamBoard({
         if (c.startDate && c.startDate === selectedDate) {
           return true;
         }
-        // A carried-over card also shows on the previous sprint's start day —
-        // its origin — so scrolling back shows that sprint in full.
-        const prev = previousSprint(board, c.team ?? null);
-        if (
-          !prev ||
-          selectedDate !== prev ||
-          !c.sprintStart ||
-          c.sprintStart <= prev
-        ) {
+        // A card also shows on a sprint day it passed through — a sprint-pointer
+        // day S (current or previous) with origin <= S < sprintStart — so
+        // carried-over and deferred cards keep their sprint history.
+        const ss = c.sprintStart;
+        if (!ss) {
           return false;
         }
-        const origin = activeSprint(
-          board,
-          c.team ?? null,
-          c.startDate ?? c.sprintStart,
-        );
-        return origin <= prev;
+        const teamKey = c.team ?? null;
+        const origin = activeSprint(board, teamKey, c.startDate ?? ss);
+        return [
+          currentSprint(board, teamKey),
+          previousSprint(board, teamKey),
+        ].some((s) => !!s && selectedDate === s && s < ss && origin <= s);
       }),
     [inFilter, selectedDate, board],
   );
