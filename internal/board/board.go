@@ -35,6 +35,18 @@ const (
 	PlanFri  PlanBand = "fri"
 )
 
+// Note is a dated work note attached to a card: an issue/PR comment, or a line
+// stored in a draft issue's body when the card has no comment thread. It mirrors
+// the Note interface in web/src/providers/types.ts.
+type Note struct {
+	ID        string `json:"id"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"createdAt"`
+	Author    string `json:"author,omitempty"`
+	// Source is "comment" or "draft".
+	Source string `json:"source"`
+}
+
 // SingleSelectOption is one choice of a single-select project field. It mirrors
 // the SingleSelectOption interface in web/src/providers/types.ts.
 type SingleSelectOption struct {
@@ -62,27 +74,49 @@ type Card struct {
 	// a draft-issue card. They mirror the contentId/isDraft fields on the frontend
 	// Card; a backend needs them to rename, reassign or note on the card (the pure
 	// views never read them).
-	ContentID string   `json:"contentId,omitempty"`
-	IsDraft   bool     `json:"isDraft,omitempty"`
-	Title     string   `json:"title"`
-	Assignees []string `json:"assignees"`
+	ContentID string `json:"contentId,omitempty"`
+	IsDraft   bool   `json:"isDraft,omitempty"`
+	Title     string `json:"title"`
+	// URL/Number/Repository/State describe the underlying issue or PR (empty on a
+	// draft card). Author is the card's creator (draft-issue creator or issue
+	// author). They mirror the url/number/repository/state/author fields on the
+	// frontend Card.
+	URL        string   `json:"url,omitempty"`
+	Number     int      `json:"number,omitempty"`
+	Repository string   `json:"repository,omitempty"`
+	State      string   `json:"state,omitempty"`
+	Assignees  []string `json:"assignees"`
+	Author     string   `json:"author,omitempty"`
 	// Team is the card's team label ("" = the no-team group).
 	Team string  `json:"team,omitempty"`
 	Zone ZoneKey `json:"zone,omitempty"`
+	// ZoneOptionID is the raw single-select option id backing Zone, so a backend
+	// can round-trip the value. It mirrors zoneOptionId on the frontend Card.
+	ZoneOptionID string `json:"zoneOptionId,omitempty"`
 	// Progress is the readiness percentage (0..100); 0 also stands for unset,
 	// matching the frontend's `progress ?? 0`.
 	Progress int      `json:"progress"`
 	Stage    StageKey `json:"stage,omitempty"`
+	// Day is the ISO date (yyyy-mm-dd) the card is planned to finish/be due on.
+	Day string `json:"day,omitempty"`
 	// StartDate is the day the card starts on; SprintStart is the start day of the
 	// sprint it belongs to (what the day boards orient by).
 	StartDate   string `json:"startDate,omitempty"`
 	SprintStart string `json:"sprintStart,omitempty"`
+	// SprintTitle/Status are the board's Sprint (iteration) title and Status
+	// single-select value, kept for the frontend (distinct from Stage).
+	SprintTitle string `json:"sprintTitle,omitempty"`
+	Status      string `json:"status,omitempty"`
 	// Plan/Week place the card in the founders' weekly plan (Week is a Monday).
 	Plan PlanBand `json:"plan,omitempty"`
 	Week string   `json:"week,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf  string `json:"reviewOf,omitempty"`
 	CreatedAt string `json:"createdAt,omitempty"`
+	// Description is the card's free-form details (a draft body minus its appended
+	// action log, or an issue/PR body). Notes are the card's dated work notes.
+	Description string `json:"description,omitempty"`
+	Notes       []Note `json:"notes,omitempty"`
 }
 
 // CreateInput is the payload for creating a card on a board: the fields a create
@@ -119,8 +153,11 @@ type Board struct {
 	// ID/Number/Owner identify the project this snapshot came from, so a backend
 	// can apply mutations against it. They mirror the id/number/owner fields on the
 	// frontend Board and are empty on hand-built snapshots that never get persisted.
-	ID     string         `json:"id,omitempty"`
-	Number int            `json:"number,omitempty"`
+	ID     string `json:"id,omitempty"`
+	Number int    `json:"number,omitempty"`
+	// Title/URL identify the project for display, mirroring the frontend Board.
+	Title  string         `json:"title,omitempty"`
+	URL    string         `json:"url,omitempty"`
 	Owner  string         `json:"owner,omitempty"`
 	Fields []ProjectField `json:"fields"`
 	Cards  []Card         `json:"cards"`

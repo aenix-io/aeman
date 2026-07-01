@@ -2,6 +2,7 @@ package ghprojects
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/aenix-org/aeman/internal/board"
@@ -70,14 +71,16 @@ func mapDomainBoard(owner string, raw *rawProject) board.Board {
 	b := board.NewBoard(fields, cards)
 	b.ID = raw.ID
 	b.Number = raw.Number
+	b.Title = raw.Title
+	b.URL = raw.URL
 	b.Owner = owner
 	return b
 }
 
 // mapDomainItem maps one raw item onto a domain board.Card, reading the typed
-// roles aeman orients by. It mirrors githubProvider.mapItem (minus the
-// description/notes the pure card does not carry). The Day field has no place on
-// board.Card and is intentionally dropped.
+// roles aeman orients by plus the frontend-facing content fields (url, number,
+// repository, state, author, description and notes). It mirrors
+// githubProvider.mapItem.
 func mapDomainItem(item *rawItem, roles domainFieldRoles) board.Card {
 	content := item.Content
 	isDraft := item.Type == "DRAFT_ISSUE" || (content != nil && content.Typename == "DraftIssue")
@@ -93,16 +96,102 @@ func mapDomainItem(item *rawItem, roles domainFieldRoles) board.Card {
 		if content.Title != "" {
 			card.Title = content.Title
 		}
+		card.URL = content.URL
+		card.Number = content.Number
+		card.State = content.State
+		if content.Repository != nil {
+			card.Repository = content.Repository.NameWithOwner
+		}
+		if isDraft {
+			if content.Creator != nil {
+				card.Author = content.Creator.Login
+			}
+		} else if content.Author != nil {
+			card.Author = content.Author.Login
+		}
 		if content.Assignees != nil {
 			for _, a := range content.Assignees.Nodes {
 				card.Assignees = append(card.Assignees, a.Login)
 			}
+		}
+		if isDraft {
+			card.Description, card.Notes = domainParseDraftBody(content.Body, item.ID)
+		} else {
+			card.Description = content.Body
+			card.Notes = domainCommentNotes(content)
 		}
 	}
 	for i := range item.FieldValues.Nodes {
 		applyDomainRole(&card, &item.FieldValues.Nodes[i], roles)
 	}
 	return card
+}
+
+// domainLogMarker separates a draft card's description from its appended action
+// log. It mirrors LOG_MARKER in web/src/providers/github/githubProvider.ts.
+const domainLogMarker = "<!-- aeman:log -->"
+
+// domainParseDraftBody splits a draft body into a description and its action log,
+// mirroring parseDraftBody in the frontend githubProvider: with a log marker the
+// description is the text before it; a legacy body without a marker keeps its
+// note-shaped lines as the log and the rest as the description.
+func domainParseDraftBody(body, itemID string) (string, []board.Note) {
+	if body == "" {
+		return "", nil
+	}
+	if idx := strings.Index(body, domainLogMarker); idx >= 0 {
+		return strings.TrimSpace(body[:idx]), domainParseNoteLines(body[idx+len(domainLogMarker):], itemID)
+	}
+	// Legacy bodies without a marker: treat note-shaped lines as the log.
+	var descLines []string
+	var notes []board.Note
+	for i, line := range strings.Split(body, "\n") {
+		if m := draftNoteRe.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			notes = append(notes, board.Note{
+				ID:        fmt.Sprintf("%s:%d", itemID, i),
+				Body:      m[2],
+				CreatedAt: m[1],
+				Source:    "draft",
+			})
+		} else {
+			descLines = append(descLines, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(descLines, "\n")), notes
+}
+
+// domainParseNoteLines extracts "[timestamp] text" draft-log lines from text,
+// mirroring parseNoteLines in the frontend githubProvider.
+func domainParseNoteLines(text, itemID string) []board.Note {
+	var notes []board.Note
+	for i, line := range strings.Split(text, "\n") {
+		if m := draftNoteRe.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			notes = append(notes, board.Note{
+				ID:        fmt.Sprintf("%s:%d", itemID, i),
+				Body:      m[2],
+				CreatedAt: m[1],
+				Source:    "draft",
+			})
+		}
+	}
+	return notes
+}
+
+// domainCommentNotes maps an issue/PR's comment thread onto domain notes,
+// mirroring commentsToNotes in the frontend githubProvider.
+func domainCommentNotes(content *rawContent) []board.Note {
+	if content.Comments == nil {
+		return nil
+	}
+	notes := make([]board.Note, 0, len(content.Comments.Nodes))
+	for _, cm := range content.Comments.Nodes {
+		n := board.Note{ID: cm.ID, Body: cm.Body, CreatedAt: cm.CreatedAt, Source: "comment"}
+		if cm.Author != nil {
+			n.Author = cm.Author.Login
+		}
+		notes = append(notes, n)
+	}
+	return notes
 }
 
 // applyDomainRole records a single raw field value under the matching typed role,
@@ -114,6 +203,7 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 	id := v.Field.ID
 	switch {
 	case roles.Zone != nil && id == roles.Zone.ID && v.OptionID != "":
+		card.ZoneOptionID = v.OptionID
 		for _, o := range roles.Zone.Options {
 			if o.ID == v.OptionID {
 				card.Zone = board.ZoneKey(zoneFromColor(o.Color))
@@ -123,10 +213,20 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		card.Stage = board.StageFromName(v.Name)
 	case roles.Progress != nil && id == roles.Progress.ID && v.Number != nil:
 		card.Progress = int(*v.Number)
+	case roles.Day != nil && id == roles.Day.ID && v.Date != "":
+		card.Day = v.Date
 	case roles.Start != nil && id == roles.Start.ID && v.Date != "":
 		card.StartDate = v.Date
 	case roles.SprintStart != nil && id == roles.SprintStart.ID && v.Date != "":
 		card.SprintStart = v.Date
+	case roles.Sprint != nil && id == roles.Sprint.ID && (v.Title != "" || v.Name != ""):
+		if v.Title != "" {
+			card.SprintTitle = v.Title
+		} else {
+			card.SprintTitle = v.Name
+		}
+	case roles.Status != nil && id == roles.Status.ID && v.Name != "":
+		card.Status = v.Name
 	case roles.Plan != nil && id == roles.Plan.ID && v.Name != "":
 		if strings.EqualFold(v.Name, "fri") {
 			card.Plan = board.PlanFri
@@ -151,6 +251,8 @@ type domainFieldRoles struct {
 	Day         *board.ProjectField
 	Start       *board.ProjectField
 	SprintStart *board.ProjectField
+	Sprint      *board.ProjectField
+	Status      *board.ProjectField
 	Plan        *board.ProjectField
 	Week        *board.ProjectField
 	Stage       *board.ProjectField
@@ -167,6 +269,8 @@ var domainRoleAliases = map[string][]string{
 	"day":         {"day", "date", "due date", "due", "finish", "finish date", "день", "дата"},
 	"start":       {"start", "start date", "начало", "старт"},
 	"sprintStart": {"sprint start", "sprintstart", "спринт старт"},
+	"sprint":      {"sprint", "спринт"},
+	"status":      {"status", "статус"},
 	"plan":        {"plan", "план"},
 	"week":        {"week", "неделя"},
 	"stage":       {"stage", "состояние"},
@@ -191,6 +295,10 @@ func domainRoles(fields []board.ProjectField) domainFieldRoles {
 			r.Start = f
 		case r.SprintStart == nil && domainMatchesAlias("sprintStart", name):
 			r.SprintStart = f
+		case r.Sprint == nil && domainMatchesAlias("sprint", name):
+			r.Sprint = f
+		case r.Status == nil && domainMatchesAlias("status", name):
+			r.Status = f
 		case r.Plan == nil && domainMatchesAlias("plan", name):
 			r.Plan = f
 		case r.Week == nil && domainMatchesAlias("week", name):
@@ -219,6 +327,10 @@ func (r domainFieldRoles) get(role string) *board.ProjectField {
 		return r.Start
 	case "sprintStart":
 		return r.SprintStart
+	case "sprint":
+		return r.Sprint
+	case "status":
+		return r.Status
 	case "plan":
 		return r.Plan
 	case "week":

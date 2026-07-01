@@ -32,13 +32,21 @@ type rawComment struct {
 }
 
 type rawContent struct {
-	Typename   string `json:"__typename"`
-	ID         string `json:"id"`
-	Number     int    `json:"number"`
-	Title      string `json:"title"`
-	URL        string `json:"url"`
-	State      string `json:"state"`
-	Body       string `json:"body"`
+	Typename string `json:"__typename"`
+	ID       string `json:"id"`
+	Number   int    `json:"number"`
+	Title    string `json:"title"`
+	URL      string `json:"url"`
+	State    string `json:"state"`
+	Body     string `json:"body"`
+	// Creator is a draft issue's author; Author is an issue/PR's author. They feed
+	// the card's Author (draft → creator, issue/PR → author).
+	Creator *struct {
+		Login string `json:"login"`
+	} `json:"creator"`
+	Author *struct {
+		Login string `json:"login"`
+	} `json:"author"`
 	Repository *struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
