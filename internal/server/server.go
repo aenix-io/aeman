@@ -58,6 +58,11 @@ type Server struct {
 	auth       *authManager
 	httpClient *http.Client
 	handler    http.Handler
+	// events fans "board changed" signals out to connected SSE clients.
+	events *sseHub
+	// store is the in-memory board cache and watch hub the /api/v1 watch and
+	// snapshot read from; it also keeps API/MCP mutations fast.
+	store *boardStore
 
 	// apiTokens resolves the token (and login) for an /api/v1 request. It
 	// defaults to tokenForRequest — the same resolution the /api/github proxy
@@ -94,6 +99,8 @@ func New(opts Options) (*Server, error) {
 	}
 	s.apiTokens = s.tokenForRequest
 	s.newService = s.defaultService
+	s.events = newSSEHub()
+	s.store = newBoardStore()
 	if opts.Auth != nil {
 		s.auth = newAuthManager(*opts.Auth, opts.Logger)
 	}
@@ -101,6 +108,7 @@ func New(opts Options) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.Handle("/api/github/", s.githubProxy())
 	if s.auth != nil {
 		mux.HandleFunc("/auth/login", s.auth.handleLogin)
@@ -193,8 +201,15 @@ func (s *Server) githubProxy() http.Handler {
 			writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 			return
 		}
+		// A mutation that reaches GitHub means the board changed; tell open
+		// clients which cards to re-fetch (empty list = reload everything).
+		isMut, payload := mutationSignal(r)
 		ctx := context.WithValue(r.Context(), tokenCtxKey{}, tok)
-		proxy.ServeHTTP(w, r.WithContext(ctx))
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		proxy.ServeHTTP(sw, r.WithContext(ctx))
+		if isMut && sw.status < 400 {
+			s.events.broadcast(payload)
+		}
 	})
 }
 
