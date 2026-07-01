@@ -17,11 +17,29 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
+		future := c.StartDate != "" && c.StartDate > today
 		eff := c.SprintStart
-		if c.StartDate != "" && c.StartDate > today {
+		if future {
 			eff = c.StartDate
 		}
 		if eff == day {
+			out = append(out, c)
+			continue
+		}
+		// A carried-over card also shows on the previous sprint's start day —
+		// its origin — so scrolling back shows that sprint in full.
+		if future {
+			continue
+		}
+		prev := PreviousSprint(b, team)
+		if prev == "" || day != prev || c.SprintStart == "" || c.SprintStart <= prev {
+			continue
+		}
+		start := c.StartDate
+		if start == "" {
+			start = c.SprintStart
+		}
+		if ActiveSprint(b, team, start) <= prev {
 			out = append(out, c)
 		}
 	}
@@ -42,7 +60,10 @@ func MeView(b Board, user, day string) []Card {
 			continue
 		}
 		as := ActiveSprint(b, c.Team, day)
-		if as != "" && c.SprintStart == as && (c.StartDate == "" || c.StartDate <= day) {
+		// A card shows on every day of the sprints it spans — from the one it
+		// started in up to the sprint it now belongs to — so a carried-over card
+		// still appears on the previous sprint's days it came from.
+		if as != "" && as <= c.SprintStart && (c.StartDate == "" || c.StartDate <= day) {
 			out = append(out, c)
 		}
 	}

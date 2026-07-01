@@ -8,6 +8,9 @@ interface AddCardProps {
   teams?: string[];
   /** When set, skip the picker and always create with this team. */
   forcedTeam?: string | null;
+  /** Offer the "no team" option; when false, the picker defaults to the first
+   *  team instead of "no team". */
+  allowNoTeam?: boolean;
 }
 
 /** AddCard expands into a title input with an integrated team picker. */
@@ -16,10 +19,15 @@ export function AddCard({
   placeholder = "Add a card…",
   teams,
   forcedTeam,
+  allowNoTeam = true,
 }: AddCardProps) {
+  // With "no team" disabled the picker starts on the first team, so a filtered
+  // create lands on a real team by default instead of "no team".
+  const defaultTeam =
+    allowNoTeam || !teams || teams.length === 0 ? null : teams[0];
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  const [team, setTeam] = useState<string | null>(null);
+  const [team, setTeam] = useState<string | null>(defaultTeam);
   const [menuOpen, setMenuOpen] = useState(false);
   const formRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -30,7 +38,7 @@ export function AddCard({
   const close = () => {
     setOpen(false);
     setValue("");
-    setTeam(null);
+    setTeam(defaultTeam);
     setMenuOpen(false);
   };
 
@@ -70,7 +78,14 @@ export function AddCard({
 
   if (!open) {
     return (
-      <button type="button" className="add-card" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="add-card"
+        onClick={() => {
+          setTeam(defaultTeam);
+          setOpen(true);
+        }}
+      >
         + add
       </button>
     );
@@ -110,13 +125,15 @@ export function AddCard({
           </button>
           {menuOpen && (
             <div className="add-card-team-menu">
-              <button
-                type="button"
-                className="add-card-team-item"
-                onClick={() => pickTeam(null)}
-              >
-                no team
-              </button>
+              {allowNoTeam && (
+                <button
+                  type="button"
+                  className="add-card-team-item"
+                  onClick={() => pickTeam(null)}
+                >
+                  no team
+                </button>
+              )}
               {(teams ?? []).map((t) => (
                 <button
                   key={t}

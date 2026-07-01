@@ -16,7 +16,7 @@ import type {
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
 import { todayIso, addDays, mondayOf } from "../date";
-import { currentSprint, previousSprint } from "../sprint";
+import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
@@ -200,9 +200,32 @@ export function TeamBoard({
       inFilter.filter((c) => {
         const eff =
           c.startDate && c.startDate > todayIso() ? c.startDate : c.sprintStart;
-        return eff === selectedDate;
+        if (eff === selectedDate) {
+          return true;
+        }
+        // A future-deferred card only lives on its own day.
+        if (c.startDate && c.startDate > todayIso()) {
+          return false;
+        }
+        // A carried-over card also shows on the previous sprint's start day —
+        // its origin — so scrolling back shows that sprint in full.
+        const prev = previousSprint(board, c.team ?? null);
+        if (
+          !prev ||
+          selectedDate !== prev ||
+          !c.sprintStart ||
+          c.sprintStart <= prev
+        ) {
+          return false;
+        }
+        const origin = activeSprint(
+          board,
+          c.team ?? null,
+          c.startDate ?? c.sprintStart,
+        );
+        return origin <= prev;
       }),
-    [inFilter, selectedDate],
+    [inFilter, selectedDate, board],
   );
 
   // The sprint-jump button. Standing on the current sprint, it offers the
@@ -508,6 +531,20 @@ export function TeamBoard({
     () => (teamFilter?.length === 1 ? teamFilter[0] || null : undefined),
     [teamFilter],
   );
+
+  // When several teams are filtered, the create picker and the Carry Over menu
+  // offer just those (a single filtered team is forced above; no filter → all).
+  const pickerTeams = useMemo(
+    () =>
+      teamFilter && teamFilter.length > 0
+        ? roster.filter((t) => teamFilter.includes(t))
+        : roster,
+    [teamFilter, roster],
+  );
+
+  // "No team" is offered like any other team: only when it is explicitly
+  // filtered in (or nothing is filtered at all).
+  const pickerNoTeam = teamFilter === null || teamFilter.includes("");
 
   // People to offer when reassigning a card: everyone seen on the board, me first.
   const people = useMemo(() => {
@@ -1317,7 +1354,7 @@ export function TeamBoard({
           </button>
           {teamFilter?.length !== 1 && sprintMenuOpen && (
             <div className="card-stage-menu sprint-menu">
-              {roster.map((t) => (
+              {pickerTeams.map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -1328,13 +1365,15 @@ export function TeamBoard({
                   {t}
                 </button>
               ))}
-              <button
-                type="button"
-                className="card-stage-item card-stage-clear"
-                onClick={() => void startSprint(null)}
-              >
-                no team
-              </button>
+              {pickerNoTeam && (
+                <button
+                  type="button"
+                  className="card-stage-item card-stage-clear"
+                  onClick={() => void startSprint(null)}
+                >
+                  no team
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1423,7 +1462,8 @@ export function TeamBoard({
                   {body}
                   <AddCard
                     forcedTeam={forcedTeam}
-                    teams={roster}
+                    teams={pickerTeams}
+                    allowNoTeam={pickerNoTeam}
                     placeholder="Plan task…"
                     onCreate={(title, team) =>
                       handleCreatePlan(band, title, team)
@@ -1446,8 +1486,9 @@ export function TeamBoard({
                 <div className="zone-cards">
                   {body}
                   <AddCard
-                    teams={forcedTeam === undefined ? roster : undefined}
+                    teams={forcedTeam === undefined ? pickerTeams : undefined}
                     forcedTeam={forcedTeam}
+                    allowNoTeam={pickerNoTeam}
                     onCreate={(title, team) =>
                       handleCreate(engineer, zone, title, team)
                     }
@@ -1583,7 +1624,7 @@ export function TeamBoard({
                                   {t}
                                 </button>
                               ))}
-                              {carryable.noTeam && (
+                              {pickerNoTeam && (
                                 <button
                                   type="button"
                                   className="card-stage-item card-stage-clear"
@@ -1593,7 +1634,7 @@ export function TeamBoard({
                                 </button>
                               )}
                               {carryable.teams.length === 0 &&
-                                !carryable.noTeam && (
+                                !pickerNoTeam && (
                                   <div className="sprint-empty">
                                     Nothing to carry
                                   </div>
