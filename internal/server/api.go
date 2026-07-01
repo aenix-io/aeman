@@ -54,11 +54,18 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
 	mux.HandleFunc("POST /api/v1/cards", s.handleCreateCard)
 	mux.HandleFunc("POST /api/v1/carry-over", s.handleCarryOver)
+	mux.HandleFunc("POST /api/v1/sprint-state", s.handleSetSprintState)
 	mux.HandleFunc("POST /api/v1/carry-week", s.handleCarryWeek)
 	mux.HandleFunc("DELETE /api/v1/cards/{id}", s.handleDeleteCard)
 	mux.HandleFunc("POST /api/v1/cards/{id}/stage", s.handleSetStage)
 	mux.HandleFunc("POST /api/v1/cards/{id}/in-progress", s.handleSetInProgress)
 	mux.HandleFunc("POST /api/v1/cards/{id}/progress", s.handleSetProgress)
+	mux.HandleFunc("POST /api/v1/cards/{id}/zone", s.handleSetZone)
+	mux.HandleFunc("POST /api/v1/cards/{id}/day", s.handleSetDay)
+	mux.HandleFunc("POST /api/v1/cards/{id}/start", s.handleSetStart)
+	mux.HandleFunc("POST /api/v1/cards/{id}/sprint-start", s.handleSetSprintStart)
+	mux.HandleFunc("POST /api/v1/cards/{id}/plan", s.handleSetPlan)
+	mux.HandleFunc("POST /api/v1/cards/{id}/week", s.handleSetWeek)
 	mux.HandleFunc("POST /api/v1/cards/{id}/assignee", s.handleSetAssignee)
 	mux.HandleFunc("POST /api/v1/cards/{id}/team", s.handleSetTeam)
 	mux.HandleFunc("POST /api/v1/cards/{id}/take-plan", s.handleTakePlan)
@@ -392,6 +399,140 @@ func (s *Server) handleSetProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetZone(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Zone board.ZoneKey `json:"zone"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetZone(r.Context(), owner, project, id, in.Zone); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetDay(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Day string `json:"day"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetDay(r.Context(), owner, project, id, in.Day); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetStart(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Start string `json:"start"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetStart(r.Context(), owner, project, id, in.Start); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetSprintStart(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		SprintStart string `json:"sprintStart"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetSprintStart(r.Context(), owner, project, id, in.SprintStart); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetPlan(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Plan board.PlanBand `json:"plan"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetPlan(r.Context(), owner, project, id, in.Plan); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetWeek(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Week string `json:"week"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetWeek(r.Context(), owner, project, id, in.Week); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetSprintState(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Team     string `json:"team"`
+		Current  string `json:"current"`
+		Previous string `json:"previous"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.SetSprintState(r.Context(), owner, project, in.Team, in.Current, in.Previous); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 }
 
 func (s *Server) handleSetAssignee(w http.ResponseWriter, r *http.Request) {
