@@ -1191,8 +1191,10 @@ export function TeamBoard({
     const old = currentSprint(board, team);
     const today = todayIso();
     // Idempotent: if the sprint is already today's, do not re-advance — that would
-    // overwrite the previous sprint, making previous = current = today.
+    // overwrite the previous sprint, making previous = current = today. Still land
+    // on today, so pressing Carry over always brings the current sprint into view.
     if (old === today) {
+      setSelectedDate(today);
       onError(`«${label}» is already on today's sprint.`);
       return;
     }
@@ -1211,17 +1213,17 @@ export function TeamBoard({
     ) {
       return;
     }
-    // Optimistically move the cards, then run the whole carry-over as one
-    // provider call (the API backend advances the pointer and re-dates the
-    // unfinished cards concurrently, streaming a watch event per card).
+    // Land on today and move the cards optimistically before the network call,
+    // so the jump to the new sprint never depends on the request's outcome.
+    setSelectedDate(today);
     carry.forEach((card) => patchCard(card.itemId, { sprintStart: today }));
     try {
+      // One provider call: the API backend advances the pointer and re-dates the
+      // unfinished cards concurrently, streaming a watch event per card.
       await provider.carryOver(board, team);
     } catch (err: unknown) {
       onError(errMessage(err));
     }
-    // Land on the day the sprint was started on, so the new sprint is in view.
-    setSelectedDate(today);
     // Re-read the advanced state (and reconcile the carried cards).
     reload();
   };
