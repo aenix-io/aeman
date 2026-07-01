@@ -22,6 +22,11 @@ type Backend interface {
 	// fields, with the hidden per-team sprint-state cards split into SprintStates).
 	LoadBoard(ctx context.Context, owner string, project int) (board.Board, error)
 
+	// LoadCards fetches specific cards by item id (a fast partial read the
+	// live-update path uses instead of reloading the whole board). Deleted ids are
+	// omitted from the result.
+	LoadCards(ctx context.Context, b board.Board, ids []string) ([]board.Card, error)
+
 	// CreateCard creates a card on the board and returns it.
 	CreateCard(ctx context.Context, b board.Board, in board.CreateInput) (board.Card, error)
 	// DeleteCard removes a card from the board.
