@@ -53,6 +53,8 @@ export interface Card {
   repository?: string;
   state?: string;
   assignees: string[];
+  /** GitHub login of the card's creator (draft-issue creator or issue author). */
+  author?: string;
   /** ISO timestamp the item was added to the project (its age on the board). */
   createdAt?: string;
   zoneOptionId?: string;
