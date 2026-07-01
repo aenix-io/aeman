@@ -897,7 +897,11 @@ export function TeamBoard({
   // grid card is demoted to its previous sprint (if any) rather than deleted.
   const handleGridDelete = (card: CardModel) => {
     if (!card.plan) {
-      const prevSprint = previousSprintFor(card);
+      // A card created today never lived in a previous sprint — delete it for
+      // real instead of demoting it there.
+      const createdToday =
+        !!card.createdAt && localDateIso(card.createdAt) === todayIso();
+      const prevSprint = createdToday ? null : previousSprintFor(card);
       if (prevSprint) {
         const prev: Partial<CardModel> = {
           startDate: card.startDate,
