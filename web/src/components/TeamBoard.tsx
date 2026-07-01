@@ -15,7 +15,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, mondayOf } from "../date";
+import { todayIso, addDays, localDateIso, mondayOf } from "../date";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
@@ -1132,15 +1132,38 @@ export function TeamBoard({
     })();
   };
 
-  // Defer moves only the scheduled day (startDate); the card keeps its sprint,
-  // so its past sprint day still shows it while it hides until the new day.
+  // Defer moves the scheduled day (startDate); a card with history keeps its
+  // sprint, so its past sprint day still shows it while it hides until the new
+  // day. A card created today has no history yet, so it relocates fully —
+  // sprint (and a stale end date) move along with it.
   const handleDefer = (card: CardModel, newStart: string) => {
-    const prev = { startDate: card.startDate };
-    patchCard(card.itemId, { startDate: newStart });
-    void provider.setStart(board, card, newStart).catch((err: unknown) => {
-      patchCard(card.itemId, prev);
-      onError(errMessage(err));
+    const full =
+      !!card.createdAt && localDateIso(card.createdAt) === todayIso();
+    const newDay =
+      full && card.day && card.day < newStart ? newStart : card.day;
+    const prev = {
+      startDate: card.startDate,
+      sprintStart: card.sprintStart,
+      day: card.day,
+    };
+    patchCard(card.itemId, {
+      startDate: newStart,
+      ...(full ? { sprintStart: newStart, day: newDay } : {}),
     });
+    void (async () => {
+      try {
+        await provider.setStart(board, card, newStart);
+        if (full) {
+          await provider.setSprintStart(board, card, newStart);
+          if (newDay !== card.day) {
+            await provider.setDay(board, card, newDay ?? null);
+          }
+        }
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
   };
 
   // Optimistically create a Team grid card with explicit sprint dates and push
