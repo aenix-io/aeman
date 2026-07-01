@@ -16,6 +16,11 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
+		// A deferred card (its sprint pushed past today) hides from today until
+		// its new sprint day; its history (past days) and its future slot stay.
+		if c.SprintStart != "" && c.SprintStart > today && day >= today && day < c.SprintStart {
+			continue
+		}
 		future := c.StartDate != "" && c.StartDate > today
 		eff := c.SprintStart
 		if future {
@@ -60,9 +65,15 @@ func TeamGrid(b Board, team, day string) []Card {
 // A card whose team had no active sprint on the day, or that is deferred to the
 // future, never shows. It mirrors myCards in MeBoard.tsx.
 func MeView(b Board, user, day string) []Card {
+	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
 		if user != "" && !slices.Contains(c.Assignees, user) {
+			continue
+		}
+		// A deferred card (its sprint pushed past today) hides from today until
+		// its new sprint day; past days and days from that one on still show it.
+		if c.SprintStart != "" && c.SprintStart > today && day >= today && day < c.SprintStart {
 			continue
 		}
 		as := ActiveSprint(b, c.Team, day)

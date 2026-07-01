@@ -216,13 +216,16 @@ export function Card({
     onSetDates?.(card, startVal || null, endVal || startVal || null);
   };
 
-  // Send the card to another day: shift its scheduled day (startDate) by N days,
-  // leaving its sprint (sprintStart) untouched, so the card disappears from
-  // Me/Team until its new startDate arrives. +1 = next day, +7 = next week.
+  // Defer the card: push the sprint it belongs to (sprintStart) N days ahead of
+  // today — or ahead of its already-deferred slot — keeping startDate as the day
+  // it actually started. The boards hide it from today until the new sprint day,
+  // so deferring an old card always counts from today, not from its creation.
   const moveStart = (days: number) => {
-    const newStart = addDays(card.startDate ?? asOf ?? todayIso(), days);
+    const today = todayIso();
+    const base =
+      card.sprintStart && card.sprintStart > today ? card.sprintStart : today;
     setDatesOpen(false);
-    onSetDates?.(card, newStart, card.sprintStart ?? null);
+    onSetDates?.(card, card.startDate ?? null, addDays(base, days));
   };
 
   // Plan cards: shift the plan week forward, or set it by picking a date.

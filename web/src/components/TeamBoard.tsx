@@ -198,13 +198,24 @@ export function TeamBoard({
   const filteredCards = useMemo(
     () =>
       inFilter.filter((c) => {
+        const today = todayIso();
+        // A deferred card (its sprint pushed past today) hides from today until
+        // its new sprint day; its history (past days) and its future slot stay.
+        if (
+          c.sprintStart &&
+          c.sprintStart > today &&
+          selectedDate >= today &&
+          selectedDate < c.sprintStart
+        ) {
+          return false;
+        }
         const eff =
-          c.startDate && c.startDate > todayIso() ? c.startDate : c.sprintStart;
+          c.startDate && c.startDate > today ? c.startDate : c.sprintStart;
         if (eff === selectedDate) {
           return true;
         }
         // A future-deferred card only lives on its own day.
-        if (c.startDate && c.startDate > todayIso()) {
+        if (c.startDate && c.startDate > today) {
           return false;
         }
         // A materialized card also shows on its scheduled day, so a card created
