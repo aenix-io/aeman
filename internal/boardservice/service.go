@@ -303,6 +303,73 @@ func (s *Service) SetInProgress(ctx context.Context, owner string, project int, 
 	return s.syncReviewLink(ctx, b, card, newProgress)
 }
 
+// SetZone sets a card's colour zone (zone = "" clears it).
+func (s *Service) SetZone(ctx context.Context, owner string, project int, itemID string, zone board.ZoneKey) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetZone(ctx, b, card, zone)
+}
+
+// SetDay sets a card's scheduled day (day = "" clears it).
+func (s *Service) SetDay(ctx context.Context, owner string, project int, itemID, day string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetDay(ctx, b, card, day)
+}
+
+// SetStart sets a card's start date (date = "" clears it).
+func (s *Service) SetStart(ctx context.Context, owner string, project int, itemID, date string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetStart(ctx, b, card, date)
+}
+
+// SetSprintStart sets the start day of the sprint a card belongs to (date = ""
+// clears it).
+func (s *Service) SetSprintStart(ctx context.Context, owner string, project int, itemID, date string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetSprintStart(ctx, b, card, date)
+}
+
+// SetPlan sets a card's weekly-plan band (plan = "" clears it).
+func (s *Service) SetPlan(ctx context.Context, owner string, project int, itemID string, plan board.PlanBand) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetPlan(ctx, b, card, plan)
+}
+
+// SetWeek sets a card's plan week, a Monday (week = "" clears it).
+func (s *Service) SetWeek(ctx context.Context, owner string, project int, itemID, week string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetWeek(ctx, b, card, week)
+}
+
+// SetSprintState sets a team's sprint pointer directly (current/previous sprint
+// start dates; "" clears them). team = "" is the no-team group. It backs the
+// frontend's client-side Carry Over, which advances the pointer then re-dates the
+// unfinished cards.
+func (s *Service) SetSprintState(ctx context.Context, owner string, project int, team, current, previous string) error {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetSprintState(ctx, b, team, current, previous)
+}
+
 // syncReviewLink, when card is a review card, drives its original's review stage
 // from the review card's progress. It mirrors syncOriginalReview.
 func (s *Service) syncReviewLink(ctx context.Context, b board.Board, card board.Card, reviewProgress int) error {
