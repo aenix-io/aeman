@@ -24,21 +24,33 @@ var errMissingBoard = errors.New("owner and project are required (set ?owner=&pr
 //
 //	GET    /api/v1                             public route catalog (no auth)
 //	GET    /api/v1/board                       board meta + per-team sprint states
+//	GET    /api/v1/snapshot                    full board snapshot (the watch LIST)
+//	GET    /api/v1/watch                       WebSocket stream of board change events
 //	GET    /api/v1/team?team=&day=             Team grid view (day defaults to today)
 //	GET    /api/v1/me?user=&day=               personal day view
 //	GET    /api/v1/weekly?team=&week=          weekly plan, split into wed/fri bands
 //	POST   /api/v1/cards                       create a card (joins/starts a sprint)
 //	POST   /api/v1/carry-over                  advance a team's sprint, carry unfinished
 //	POST   /api/v1/carry-week                  pull unfinished plan cards into the week
+//	POST   /api/v1/sprint-state                set a team's sprint pointer directly
 //	POST   /api/v1/cards/{id}/stage            set the stage (locked/review/done/"")
 //	POST   /api/v1/cards/{id}/in-progress      move to the implicit In Progress status
 //	POST   /api/v1/cards/{id}/progress         set the readiness percentage
+//	POST   /api/v1/cards/{id}/zone             set the colour zone
+//	POST   /api/v1/cards/{id}/day              set the due day
+//	POST   /api/v1/cards/{id}/start            set the scheduled start date
+//	POST   /api/v1/cards/{id}/sprint-start     set the sprint the card belongs to
+//	POST   /api/v1/cards/{id}/plan             set the weekly-plan band
+//	POST   /api/v1/cards/{id}/week             set the plan week
 //	POST   /api/v1/cards/{id}/assignee         set/clear the assignee
 //	POST   /api/v1/cards/{id}/team             move to a team (joins its sprint)
 //	POST   /api/v1/cards/{id}/take-plan        take a plan card into work
 //	POST   /api/v1/cards/{id}/release-plan     release a card from the weekly plan
 //	POST   /api/v1/cards/{id}/move             reorder a card after another
 //	POST   /api/v1/cards/{id}/note             append a work note
+//	PATCH  /api/v1/cards/{id}/notes/{noteId}   edit a work note
+//	DELETE /api/v1/cards/{id}/notes/{noteId}   delete a work note
+//	POST   /api/v1/cards/{id}/description      set the free-form description
 //	POST   /api/v1/cards/{id}/rename           rename a card
 //	POST   /api/v1/cards/{id}/review           send to review (creates a review card)
 //	POST   /api/v1/cards/{id}/review/reassign  point the review at another reviewer
@@ -50,19 +62,31 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/team", s.handleTeamView)
 	mux.HandleFunc("GET /api/v1/me", s.handleMeView)
 	mux.HandleFunc("GET /api/v1/weekly", s.handleWeeklyView)
+	mux.HandleFunc("GET /api/v1/snapshot", s.handleSnapshot)
+	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
 	mux.HandleFunc("POST /api/v1/cards", s.handleCreateCard)
 	mux.HandleFunc("POST /api/v1/carry-over", s.handleCarryOver)
+	mux.HandleFunc("POST /api/v1/sprint-state", s.handleSetSprintState)
 	mux.HandleFunc("POST /api/v1/carry-week", s.handleCarryWeek)
 	mux.HandleFunc("DELETE /api/v1/cards/{id}", s.handleDeleteCard)
 	mux.HandleFunc("POST /api/v1/cards/{id}/stage", s.handleSetStage)
 	mux.HandleFunc("POST /api/v1/cards/{id}/in-progress", s.handleSetInProgress)
 	mux.HandleFunc("POST /api/v1/cards/{id}/progress", s.handleSetProgress)
+	mux.HandleFunc("POST /api/v1/cards/{id}/zone", s.handleSetZone)
+	mux.HandleFunc("POST /api/v1/cards/{id}/day", s.handleSetDay)
+	mux.HandleFunc("POST /api/v1/cards/{id}/start", s.handleSetStart)
+	mux.HandleFunc("POST /api/v1/cards/{id}/sprint-start", s.handleSetSprintStart)
+	mux.HandleFunc("POST /api/v1/cards/{id}/plan", s.handleSetPlan)
+	mux.HandleFunc("POST /api/v1/cards/{id}/week", s.handleSetWeek)
 	mux.HandleFunc("POST /api/v1/cards/{id}/assignee", s.handleSetAssignee)
 	mux.HandleFunc("POST /api/v1/cards/{id}/team", s.handleSetTeam)
 	mux.HandleFunc("POST /api/v1/cards/{id}/take-plan", s.handleTakePlan)
 	mux.HandleFunc("POST /api/v1/cards/{id}/release-plan", s.handleReleasePlan)
 	mux.HandleFunc("POST /api/v1/cards/{id}/move", s.handleMoveCard)
 	mux.HandleFunc("POST /api/v1/cards/{id}/note", s.handleAddNote)
+	mux.HandleFunc("PATCH /api/v1/cards/{id}/notes/{noteId}", s.handleEditNote)
+	mux.HandleFunc("DELETE /api/v1/cards/{id}/notes/{noteId}", s.handleDeleteNote)
+	mux.HandleFunc("POST /api/v1/cards/{id}/description", s.handleSetDescription)
 	mux.HandleFunc("POST /api/v1/cards/{id}/rename", s.handleRename)
 	mux.HandleFunc("POST /api/v1/cards/{id}/review", s.handleSendToReview)
 	mux.HandleFunc("POST /api/v1/cards/{id}/review/reassign", s.handleReassignReviewer)
@@ -94,22 +118,34 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
 			{"GET", "/api/v1/board", "Board identity, fields and per-team sprint states"},
+			{"GET", "/api/v1/snapshot", "Full board snapshot: fields, cards and sprint states"},
+			{"GET", "/api/v1/watch", "WebSocket stream of board change events (LIST via /snapshot)"},
 			{"GET", "/api/v1/team?team=&day=", "Team grid view (day defaults to today)"},
 			{"GET", "/api/v1/me?user=&day=", "Personal day view"},
 			{"GET", "/api/v1/weekly?team=&week=", "Weekly plan, split into wed/fri bands"},
 			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint)"},
 			{"POST", "/api/v1/carry-over", "Advance a team's sprint, carry unfinished cards"},
 			{"POST", "/api/v1/carry-week", "Pull unfinished plan cards into the week"},
+			{"POST", "/api/v1/sprint-state", "Set a team's sprint pointer directly"},
 			{"DELETE", "/api/v1/cards/{id}", "Delete a card (cascades to its review)"},
 			{"POST", "/api/v1/cards/{id}/stage", "Set the stage (locked/review/done/empty)"},
 			{"POST", "/api/v1/cards/{id}/in-progress", "Move to the implicit In Progress status"},
 			{"POST", "/api/v1/cards/{id}/progress", "Set the readiness percentage"},
+			{"POST", "/api/v1/cards/{id}/zone", "Set the colour zone"},
+			{"POST", "/api/v1/cards/{id}/day", "Set the due day"},
+			{"POST", "/api/v1/cards/{id}/start", "Set the scheduled start date"},
+			{"POST", "/api/v1/cards/{id}/sprint-start", "Set the sprint the card belongs to"},
+			{"POST", "/api/v1/cards/{id}/plan", "Set the weekly-plan band (wed/fri/empty)"},
+			{"POST", "/api/v1/cards/{id}/week", "Set the plan week (a Monday)"},
 			{"POST", "/api/v1/cards/{id}/assignee", "Set or clear the assignee"},
 			{"POST", "/api/v1/cards/{id}/team", "Move to a team (joins its sprint)"},
 			{"POST", "/api/v1/cards/{id}/take-plan", "Take a plan card into work"},
 			{"POST", "/api/v1/cards/{id}/release-plan", "Release a card from the weekly plan"},
 			{"POST", "/api/v1/cards/{id}/move", "Reorder a card after another"},
 			{"POST", "/api/v1/cards/{id}/note", "Append a work note"},
+			{"PATCH", "/api/v1/cards/{id}/notes/{noteId}", "Edit a work note"},
+			{"DELETE", "/api/v1/cards/{id}/notes/{noteId}", "Delete a work note"},
+			{"POST", "/api/v1/cards/{id}/description", "Set the free-form description"},
 			{"POST", "/api/v1/cards/{id}/rename", "Rename a card"},
 			{"POST", "/api/v1/cards/{id}/review", "Send to review (creates a review card)"},
 			{"POST", "/api/v1/cards/{id}/review/reassign", "Point the review at another reviewer"},
@@ -162,7 +198,7 @@ func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) 
 	if err != nil {
 		return nil, err
 	}
-	return boardservice.New(client), nil
+	return boardservice.New(&storeBackend{inner: client, store: s.store}), nil
 }
 
 // service resolves the board reference and builds the per-request board service.
@@ -272,6 +308,11 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		Title          string `json:"title"`
 		Assignee       string `json:"assignee"`
 		Day            string `json:"day"`
+		Start          string `json:"start"`
+		SprintStart    string `json:"sprintStart"`
+		Plan           string `json:"plan"`
+		Week           string `json:"week"`
+		ReviewOf       string `json:"reviewOf"`
 		StartNewSprint *bool  `json:"startNewSprint"`
 	}
 	if !decodeJSON(w, r, &in) {
@@ -291,6 +332,11 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		Title:          in.Title,
 		Assignee:       in.Assignee,
 		Day:            in.Day,
+		Start:          in.Start,
+		SprintStart:    in.SprintStart,
+		Plan:           board.PlanBand(in.Plan),
+		Week:           in.Week,
+		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
 	})
 	if err != nil {
@@ -390,6 +436,191 @@ func (s *Server) handleSetProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetZone(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Zone board.ZoneKey `json:"zone"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetZone(r.Context(), owner, project, id, in.Zone); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetDay(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Day string `json:"day"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetDay(r.Context(), owner, project, id, in.Day); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetStart(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Start string `json:"start"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetStart(r.Context(), owner, project, id, in.Start); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetSprintStart(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		SprintStart string `json:"sprintStart"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetSprintStart(r.Context(), owner, project, id, in.SprintStart); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetPlan(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Plan board.PlanBand `json:"plan"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetPlan(r.Context(), owner, project, id, in.Plan); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetWeek(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Week string `json:"week"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetWeek(r.Context(), owner, project, id, in.Week); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetDescription(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Description string `json:"description"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetDescription(r.Context(), owner, project, id, in.Description); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleEditNote(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Text string `json:"text"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.EditNote(r.Context(), owner, project, id, r.PathValue("noteId"), in.Text); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.DeleteNote(r.Context(), owner, project, id, r.PathValue("noteId")); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetSprintState(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Team     string `json:"team"`
+		Current  string `json:"current"`
+		Previous string `json:"previous"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.SetSprintState(r.Context(), owner, project, in.Team, in.Current, in.Previous); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 }
 
 func (s *Server) handleSetAssignee(w http.ResponseWriter, r *http.Request) {
@@ -627,6 +858,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 func (s *Server) apiError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, boardservice.ErrCardNotFound),
+		errors.Is(err, boardservice.ErrNoteNotFound),
 		errors.Is(err, ghprojects.ErrBoardNotFound),
 		errors.Is(err, ghprojects.ErrCardNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())

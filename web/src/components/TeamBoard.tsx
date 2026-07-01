@@ -15,7 +15,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
 import { fieldRoles } from "../providers/fields";
-import { todayIso, addDays, mondayOf } from "../date";
+import { todayIso, addDays, localDateIso, mondayOf } from "../date";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
@@ -60,6 +60,11 @@ const UNASSIGNED = "";
 
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
+
+// isGone reports a "card not found" failure: the card no longer exists on the
+// server, so an optimistic removal must NOT be rolled back (re-adding it would
+// resurrect a phantom copy).
+const isGone = (err: unknown) => errMessage(err).includes("card not found");
 
 /** TeamBoard is the team as a people × zones grid for one day, filtered by team. */
 export function TeamBoard({
@@ -198,32 +203,49 @@ export function TeamBoard({
   const filteredCards = useMemo(
     () =>
       inFilter.filter((c) => {
-        const eff =
-          c.startDate && c.startDate > todayIso() ? c.startDate : c.sprintStart;
-        if (eff === selectedDate) {
+        const today = todayIso();
+        // A card with an end date spans a range: it shows on every day from its
+        // start through its end (the calendar sets start…end).
+        const inRange =
+          !!c.startDate &&
+          !!c.day &&
+          c.day >= c.startDate &&
+          selectedDate >= c.startDate &&
+          selectedDate <= c.day;
+        // A deferred / future-scheduled card (startDate past today) lives on its
+        // own day (or range), and its past sprint day keeps it as history; it is
+        // hidden everywhere else until that day arrives.
+        if (c.startDate && c.startDate > today) {
+          return (
+            selectedDate === c.startDate ||
+            inRange ||
+            (!!c.sprintStart &&
+              selectedDate === c.sprintStart &&
+              c.sprintStart < today)
+          );
+        }
+        if (c.sprintStart === selectedDate) {
           return true;
         }
-        // A future-deferred card only lives on its own day.
-        if (c.startDate && c.startDate > todayIso()) {
+        // A materialized card also shows on its scheduled day (and through its
+        // range when it has an end date), so a card created on a later day of
+        // its sprint appears both on the sprint's start day and on its own days.
+        if (inRange || (c.startDate && c.startDate === selectedDate)) {
+          return true;
+        }
+        // A card also shows on a sprint day it passed through — a sprint-pointer
+        // day S (current or previous) with origin <= S < sprintStart — so
+        // carried-over and deferred cards keep their sprint history.
+        const ss = c.sprintStart;
+        if (!ss) {
           return false;
         }
-        // A carried-over card also shows on the previous sprint's start day —
-        // its origin — so scrolling back shows that sprint in full.
-        const prev = previousSprint(board, c.team ?? null);
-        if (
-          !prev ||
-          selectedDate !== prev ||
-          !c.sprintStart ||
-          c.sprintStart <= prev
-        ) {
-          return false;
-        }
-        const origin = activeSprint(
-          board,
-          c.team ?? null,
-          c.startDate ?? c.sprintStart,
-        );
-        return origin <= prev;
+        const teamKey = c.team ?? null;
+        const origin = activeSprint(board, teamKey, c.startDate ?? ss);
+        return [
+          currentSprint(board, teamKey),
+          previousSprint(board, teamKey),
+        ].some((s) => !!s && selectedDate === s && s < ss && origin <= s);
       }),
     [inFilter, selectedDate, board],
   );
@@ -834,6 +856,12 @@ export function TeamBoard({
   };
 
   const handleDelete = (card: CardModel) => {
+    // A just-created optimistic card has no server twin yet: drop it locally
+    // (deleting it via the API would 404 and resurrect a phantom copy).
+    if (card.itemId.startsWith("tmp-")) {
+      removeCard(card.itemId);
+      return;
+    }
     // If a review card links back to this one, delete both (with one confirm).
     const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
     if (linkedReview) {
@@ -846,12 +874,18 @@ export function TeamBoard({
       }
       removeCard(linkedReview.itemId);
       void provider.deleteCard(board, linkedReview).catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
         addCard(linkedReview);
         onError(errMessage(err));
       });
     }
     removeCard(card.itemId);
     void provider.deleteCard(board, card).catch((err: unknown) => {
+      if (isGone(err)) {
+        return;
+      }
       addCard(card);
       onError(errMessage(err));
     });
@@ -880,7 +914,11 @@ export function TeamBoard({
   // grid card is demoted to its previous sprint (if any) rather than deleted.
   const handleGridDelete = (card: CardModel) => {
     if (!card.plan) {
-      const prevSprint = previousSprintFor(card);
+      // A card created today never lived in a previous sprint — delete it for
+      // real instead of demoting it there.
+      const createdToday =
+        !!card.createdAt && localDateIso(card.createdAt) === todayIso();
+      const prevSprint = createdToday ? null : previousSprintFor(card);
       if (prevSprint) {
         const prev: Partial<CardModel> = {
           startDate: card.startDate,
@@ -1082,20 +1120,66 @@ export function TeamBoard({
     handleStage(card, "review");
   };
 
+  // The calendar relocates the card for real: its start…end range, and the
+  // sprint that was active on the start day (so a date inside the current
+  // sprint joins it instead of standing alone on the picked day).
   const handleSetDates = (
     card: CardModel,
     start: string | null,
     end: string | null,
   ) => {
-    const prev = { startDate: card.startDate, sprintStart: card.sprintStart };
+    const sprint = start
+      ? activeSprint(board, card.team ?? null, start) || start
+      : start;
+    const prev = {
+      startDate: card.startDate,
+      sprintStart: card.sprintStart,
+      day: card.day,
+    };
     patchCard(card.itemId, {
       startDate: start ?? undefined,
-      sprintStart: end ?? undefined,
+      sprintStart: sprint ?? undefined,
+      day: end ?? undefined,
     });
     void (async () => {
       try {
         await provider.setStart(board, card, start);
-        await provider.setSprintStart(board, card, end);
+        await provider.setSprintStart(board, card, sprint);
+        await provider.setDay(board, card, end);
+      } catch (err: unknown) {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      }
+    })();
+  };
+
+  // Defer moves the scheduled day (startDate); a card with history keeps its
+  // sprint, so its past sprint day still shows it while it hides until the new
+  // day. A card created today has no history yet, so it relocates fully —
+  // sprint (and a stale end date) move along with it.
+  const handleDefer = (card: CardModel, newStart: string) => {
+    const full =
+      !!card.createdAt && localDateIso(card.createdAt) === todayIso();
+    const newDay =
+      full && card.day && card.day < newStart ? newStart : card.day;
+    const prev = {
+      startDate: card.startDate,
+      sprintStart: card.sprintStart,
+      day: card.day,
+    };
+    patchCard(card.itemId, {
+      startDate: newStart,
+      ...(full ? { sprintStart: newStart, day: newDay } : {}),
+    });
+    void (async () => {
+      try {
+        await provider.setStart(board, card, newStart);
+        if (full) {
+          await provider.setSprintStart(board, card, newStart);
+          if (newDay !== card.day) {
+            await provider.setDay(board, card, newDay ?? null);
+          }
+        }
       } catch (err: unknown) {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
@@ -1191,8 +1275,10 @@ export function TeamBoard({
     const old = currentSprint(board, team);
     const today = todayIso();
     // Idempotent: if the sprint is already today's, do not re-advance — that would
-    // overwrite the previous sprint, making previous = current = today.
+    // overwrite the previous sprint, making previous = current = today. Still land
+    // on today, so pressing Carry over always brings the current sprint into view.
     if (old === today) {
+      setSelectedDate(today);
       onError(`«${label}» is already on today's sprint.`);
       return;
     }
@@ -1211,17 +1297,17 @@ export function TeamBoard({
     ) {
       return;
     }
+    // Land on today and move the cards optimistically before the network call,
+    // so the jump to the new sprint never depends on the request's outcome.
+    setSelectedDate(today);
+    carry.forEach((card) => patchCard(card.itemId, { sprintStart: today }));
     try {
-      await provider.setSprintState(board, team, today, old);
-      for (const card of carry) {
-        patchCard(card.itemId, { sprintStart: today });
-        await provider.setSprintStart(board, card, today);
-      }
+      // One provider call: the API backend advances the pointer and re-dates the
+      // unfinished cards concurrently, streaming a watch event per card.
+      await provider.carryOver(board, team);
     } catch (err: unknown) {
       onError(errMessage(err));
     }
-    // Land on the day the sprint was started on, so the new sprint is in view.
-    setSelectedDate(today);
     // Re-read the advanced state (and reconcile the carried cards).
     reload();
   };
@@ -1407,6 +1493,7 @@ export function TeamBoard({
               onSetReviewAssignee={handleSetReviewAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
+              onDefer={handleDefer}
               weekMode
               onSetWeek={handleSetWeek}
               dimAvatar
@@ -1432,6 +1519,7 @@ export function TeamBoard({
               onSetReviewAssignee={handleSetReviewAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
+              onDefer={handleDefer}
               dimAvatar
             />
           )

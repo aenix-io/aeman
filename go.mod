@@ -2,7 +2,10 @@ module github.com/aenix-org/aeman
 
 go 1.26
 
-require github.com/modelcontextprotocol/go-sdk v1.6.1
+require (
+	github.com/coder/websocket v1.8.15
+	github.com/modelcontextprotocol/go-sdk v1.6.1
+)
 
 require (
 	github.com/google/jsonschema-go v0.4.3 // indirect

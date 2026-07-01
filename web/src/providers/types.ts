@@ -142,11 +142,24 @@ export interface Provider {
   label: string;
   listBoards(owner: string): Promise<BoardSummary[]>;
   loadBoard(owner: string, number: number): Promise<Board>;
+  /** Re-fetch a specific set of cards by item id. Live updates use this to
+   *  refresh just the cards a mutation changed. needsFullReload signals a sprint
+   *  pointer moved and the whole board should be reloaded instead. */
+  loadCards(
+    board: Board,
+    ids: string[],
+  ): Promise<{ cards: Card[]; needsFullReload: boolean }>;
   setZone(board: Board, card: Card, optionId: string | null): Promise<void>;
   setProgress(board: Board, card: Card, progress: number): Promise<void>;
   setDay(board: Board, card: Card, day: string | null): Promise<void>;
   setStart(board: Board, card: Card, date: string | null): Promise<void>;
   setSprintStart(board: Board, card: Card, date: string | null): Promise<void>;
+  /** Set Sprint Start on many cards in a few batched requests. */
+  setSprintStartMany(board: Board, cards: Card[], date: string): Promise<void>;
+  /** Advance a team's sprint to today and carry its unfinished cards forward
+   *  (a no-op when the sprint is already today's). team = null is the no-team
+   *  group. */
+  carryOver(board: Board, team: string | null): Promise<void>;
   /** Set a team's sprint pointer (current/previous start dates), creating the
    * hidden state card if the team has none yet. team = null is the no-team group. */
   setSprintState(

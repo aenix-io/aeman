@@ -52,6 +52,11 @@ interface MeMeta {
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
+// isGone reports a "card not found" failure: the card no longer exists on the
+// server, so an optimistic removal must NOT be rolled back (re-adding it would
+// resurrect a phantom copy).
+const isGone = (err: unknown) => errMessage(err).includes("card not found");
+
 /** MeBoard is the personal day view: my cards stacked in zone bands + notes. */
 export function MeBoard({
   board,
@@ -138,6 +143,23 @@ export function MeBoard({
       mine.filter((c) => {
         if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
           return false;
+        }
+        const today = todayIso();
+        // A deferred / future-scheduled card (startDate past today) is hidden
+        // until that day, then shows from it on (Carry Over re-syncs its sprint).
+        if (c.startDate && c.startDate > today) {
+          return selectedDate >= c.startDate;
+        }
+        // A card with an end date spans a range: it shows on every day from its
+        // start through its end regardless of sprint boundaries.
+        if (
+          c.startDate &&
+          c.day &&
+          c.day >= c.startDate &&
+          selectedDate >= c.startDate &&
+          selectedDate <= c.day
+        ) {
+          return true;
         }
         const as = activeSprint(board, c.team ?? null, selectedDate);
         const ss = c.sprintStart;
@@ -380,6 +402,12 @@ export function MeBoard({
   };
 
   const handleDelete = (card: CardModel) => {
+    // A just-created optimistic card has no server twin yet: drop it locally
+    // (deleting it via the API would 404 and resurrect a phantom copy).
+    if (card.itemId.startsWith("tmp-")) {
+      removeCard(card.itemId);
+      return;
+    }
     // If a review card links back to this one, delete both (with one confirm).
     const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
     if (linkedReview) {
@@ -392,12 +420,18 @@ export function MeBoard({
       }
       removeCard(linkedReview.itemId);
       void provider.deleteCard(board, linkedReview).catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
         addCard(linkedReview);
         onError(errMessage(err));
       });
     }
     removeCard(card.itemId);
     void provider.deleteCard(board, card).catch((err: unknown) => {
+      if (isGone(err)) {
+        return;
+      }
       addCard(card);
       onError(errMessage(err));
     });
