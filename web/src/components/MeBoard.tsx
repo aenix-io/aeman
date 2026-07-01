@@ -140,9 +140,14 @@ export function MeBoard({
           return false;
         }
         const as = activeSprint(board, c.team ?? null, selectedDate);
+        const ss = c.sprintStart;
+        // A card shows on every day of the sprints it spans — from the one it
+        // started in up to the sprint it now belongs to — so a carried-over card
+        // still appears on the previous sprint's days it came from.
         return (
           as !== "" &&
-          c.sprintStart === as &&
+          ss !== undefined &&
+          as <= ss &&
           (!c.startDate || c.startDate <= selectedDate)
         );
       }),
