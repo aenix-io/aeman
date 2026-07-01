@@ -172,23 +172,27 @@ export const apiProvider: Provider = {
   },
 
   async setDescription(
-    _board: Board,
-    _card: Card,
-    _description: string,
+    board: Board,
+    card: Card,
+    description: string,
   ): Promise<void> {
-    // TODO: no REST endpoint for setting a card's description yet.
-    throw new Error("setDescription is not supported by the API provider yet");
+    await api<Card>(board, "POST", `/cards/${card.itemId}/description`, {
+      description,
+    });
   },
 
   async createCard(board: Board, input: NewCardInput): Promise<Card> {
-    // The create endpoint only accepts these keys, and its decoder rejects
-    // unknown fields, so the other NewCardInput fields are intentionally omitted.
     return api<Card>(board, "POST", "/cards", {
       title: input.title,
       zone: input.zone ?? "",
       day: input.day ?? "",
+      start: input.start ?? "",
+      sprintStart: input.sprintStart ?? "",
+      plan: input.plan ?? "",
+      week: input.week ?? "",
       team: input.team ?? "",
       assignee: input.assigneeLogin ?? "",
+      reviewOf: input.reviewOf ?? "",
     });
   },
 
@@ -207,17 +211,30 @@ export const apiProvider: Provider = {
   },
 
   async editNote(
-    _board: Board,
-    _card: Card,
-    _note: Note,
-    _text: string,
+    board: Board,
+    card: Card,
+    note: Note,
+    text: string,
   ): Promise<void> {
-    // TODO: no REST endpoint for editing a note yet.
-    throw new Error("editNote is not supported by the API provider yet");
+    await api<Card>(
+      board,
+      "PATCH",
+      `/cards/${card.itemId}/notes/${encodeURIComponent(note.id)}`,
+      { text },
+    );
   },
 
-  async deleteNote(_board: Board, _card: Card, _note: Note): Promise<void> {
-    // TODO: no REST endpoint for deleting a note yet.
-    throw new Error("deleteNote is not supported by the API provider yet");
+  async deleteNote(board: Board, card: Card, note: Note): Promise<void> {
+    await api<Card>(
+      board,
+      "DELETE",
+      `/cards/${card.itemId}/notes/${encodeURIComponent(note.id)}`,
+    );
+  },
+
+  async carryOver(board: Board, team: string | null): Promise<void> {
+    // One server-side call: the backend advances the sprint pointer and carries
+    // the unfinished cards concurrently, emitting watch events per card.
+    await api(board, "POST", "/carry-over", { team: team ?? "" });
   },
 };
