@@ -35,11 +35,25 @@ const boardFreshFor = 30 * time.Second
 
 // boardEntry is the cached board plus its watcher set for one owner/project.
 type boardEntry struct {
-	mu       sync.Mutex
+	mu sync.Mutex
+	// loadMu serializes full backend loads so concurrent cache misses (e.g. a
+	// burst of parallel mutations right after an invalidation) share one upstream
+	// fetch instead of stampeding GitHub.
+	loadMu   sync.Mutex
 	board    board.Board
 	loadedAt time.Time
 	loaded   bool
 	watchers map[chan changeEvent]struct{}
+}
+
+// fresh returns the cached board while it is loaded and within its TTL.
+func (e *boardEntry) fresh() (board.Board, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.loaded && time.Since(e.loadedAt) < boardFreshFor {
+		return e.board, true
+	}
+	return board.Board{}, false
 }
 
 // notify fans an event out to every watcher. The caller holds e.mu; sends are
@@ -130,17 +144,19 @@ type storeBackend struct {
 var _ boardservice.Backend = (*storeBackend)(nil)
 
 // LoadBoard serves the cached board while it is fresh, otherwise reloads it from
-// the backend and caches it. External edits surface on the next reload.
+// the backend and caches it (single-flight: concurrent misses share one fetch).
+// External edits surface on the next reload.
 func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
 	e := b.store.entry(storeKey(owner, project))
-	e.mu.Lock()
-	if e.loaded && time.Since(e.loadedAt) < boardFreshFor {
-		cached := e.board
-		e.mu.Unlock()
-		return cached, nil
+	if bd, ok := e.fresh(); ok {
+		return bd, nil
 	}
-	e.mu.Unlock()
-
+	e.loadMu.Lock()
+	defer e.loadMu.Unlock()
+	// A concurrent loader may have refreshed the cache while we waited.
+	if bd, ok := e.fresh(); ok {
+		return bd, nil
+	}
 	bd, err := b.inner.LoadBoard(ctx, owner, project)
 	if err != nil {
 		return board.Board{}, err
@@ -210,6 +226,30 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 
 func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.Card, text string) error {
 	if err := b.inner.AddNote(ctx, bd, card, text); err != nil {
+		return err
+	}
+	b.touched(ctx, bd, card.ItemID)
+	return nil
+}
+
+func (b *storeBackend) EditNote(ctx context.Context, bd board.Board, card board.Card, note board.Note, text string) error {
+	if err := b.inner.EditNote(ctx, bd, card, note, text); err != nil {
+		return err
+	}
+	b.touched(ctx, bd, card.ItemID)
+	return nil
+}
+
+func (b *storeBackend) DeleteNote(ctx context.Context, bd board.Board, card board.Card, note board.Note) error {
+	if err := b.inner.DeleteNote(ctx, bd, card, note); err != nil {
+		return err
+	}
+	b.touched(ctx, bd, card.ItemID)
+	return nil
+}
+
+func (b *storeBackend) SetDescription(ctx context.Context, bd board.Board, card board.Card, description string) error {
+	if err := b.inner.SetDescription(ctx, bd, card, description); err != nil {
 		return err
 	}
 	b.touched(ctx, bd, card.ItemID)

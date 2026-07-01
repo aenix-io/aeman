@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/aenix-org/aeman/internal/boardservice"
 	"github.com/aenix-org/aeman/internal/mcpserver"
 )
 
@@ -41,6 +42,11 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 		Endpoint:     s.graphqlEndpoint,
 		HTTPClient:   s.httpClient,
 		ResolveToken: resolveTokenFromContext,
+		// Route MCP writes through the shared board store, so agent edits update
+		// the cache and reach the UI's watch stream like every other write.
+		WrapBackend: func(b boardservice.Backend) boardservice.Backend {
+			return &storeBackend{inner: b, store: s.store}
+		},
 	})
 	srv.AddReceivingMiddleware(injectGitHubToken)
 	return srv
