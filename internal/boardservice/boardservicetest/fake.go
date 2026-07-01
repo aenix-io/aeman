@@ -136,6 +136,43 @@ func (f *Backend) AddNote(_ context.Context, _ board.Board, card board.Card, tex
 	return nil
 }
 
+// EditNote rewrites the note's body on the seeded card.
+func (f *Backend) EditNote(_ context.Context, _ board.Board, card board.Card, note board.Note, text string) error {
+	f.rec("EditNote %s %s %s", card.ItemID, note.ID, text)
+	if c := f.Card(card.ItemID); c != nil {
+		for i := range c.Notes {
+			if c.Notes[i].ID == note.ID {
+				c.Notes[i].Body = text
+			}
+		}
+	}
+	return nil
+}
+
+// DeleteNote drops the note from the seeded card.
+func (f *Backend) DeleteNote(_ context.Context, _ board.Board, card board.Card, note board.Note) error {
+	f.rec("DeleteNote %s %s", card.ItemID, note.ID)
+	if c := f.Card(card.ItemID); c != nil {
+		out := c.Notes[:0]
+		for _, n := range c.Notes {
+			if n.ID != note.ID {
+				out = append(out, n)
+			}
+		}
+		c.Notes = out
+	}
+	return nil
+}
+
+// SetDescription replaces the seeded card's description.
+func (f *Backend) SetDescription(_ context.Context, _ board.Board, card board.Card, description string) error {
+	f.rec("SetDescription %s %s", card.ItemID, description)
+	if c := f.Card(card.ItemID); c != nil {
+		c.Description = description
+	}
+	return nil
+}
+
 // RenameCard changes a card's title.
 func (f *Backend) RenameCard(_ context.Context, _ board.Board, card board.Card, title string) error {
 	f.rec("RenameCard %s", card.ItemID)

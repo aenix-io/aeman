@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/aenix-org/aeman/internal/board"
 )
 
 // ErrCardNotFound is returned when an item id is not on the loaded board.
 var ErrCardNotFound = errors.New("card not found")
+
+// ErrNoteNotFound is returned when a note id is not on the loaded card.
+var ErrNoteNotFound = errors.New("note not found")
 
 // Service performs aeman's board actions. It is stateless: every method loads
 // the board through the backend, computes the change with internal/board logic,
@@ -123,11 +127,21 @@ func (s *Service) WeeklyPlan(ctx context.Context, owner string, project int, tea
 // the team's first sprint only when it has none), true = always (re)start the
 // pointer on the day, false = same as auto (start one only when there is none).
 type CreateCardArgs struct {
-	Team           string
-	Zone           board.ZoneKey
-	Title          string
-	Assignee       string
-	Day            string
+	Team     string
+	Zone     board.ZoneKey
+	Title    string
+	Assignee string
+	Day      string
+	// Start and SprintStart override the scheduled day and the sprint the card
+	// joins (defaults: the day, and the team's current sprint).
+	Start       string
+	SprintStart string
+	// Plan/Week create a weekly-plan card instead of a day card: no dates are
+	// set and no sprint is joined or started (Week defaults to this Monday).
+	Plan board.PlanBand
+	Week string
+	// ReviewOf marks the new card as the review of the given item.
+	ReviewOf       string
 	StartNewSprint *bool
 }
 
@@ -143,34 +157,60 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	if err != nil {
 		return board.Card{}, err
 	}
+	// A weekly-plan card lives in the plan bands, not on the day boards: it gets
+	// no dates and joins no sprint. It mirrors handleCreatePlan in TeamBoard.tsx.
+	if args.Plan != board.PlanNone {
+		week := args.Week
+		if week == "" {
+			week = board.MondayOf(board.TodayIso())
+		}
+		return s.backend.CreateCard(ctx, b, board.CreateInput{
+			Title:    args.Title,
+			Zone:     args.Zone,
+			Plan:     args.Plan,
+			Week:     week,
+			Assignee: args.Assignee,
+			Team:     args.Team,
+			ReviewOf: args.ReviewOf,
+		})
+	}
 	day := args.Day
 	if day == "" {
 		day = board.TodayIso()
 	}
+	start := args.Start
+	if start == "" {
+		start = day
+	}
 	cur := board.CurrentSprint(b, args.Team)
-	sprint := cur
 	startNew := cur == ""
 	if args.StartNewSprint != nil {
 		startNew = *args.StartNewSprint || cur == ""
 	}
+	sprint := args.SprintStart
 	if startNew {
-		// Record the new sprint on the day and have the card join it (previous = the
-		// old current, which is "" when the team had no sprint yet — matching the
+		// Record the new sprint and have the card join it (previous = the old
+		// current, which is "" when the team had no sprint yet — matching the
 		// frontend's setSprintState(team, day, null)).
-		sprint = day
-		if err := s.backend.SetSprintState(ctx, b, args.Team, day, cur); err != nil {
+		if sprint == "" {
+			sprint = day
+		}
+		if err := s.backend.SetSprintState(ctx, b, args.Team, sprint, cur); err != nil {
 			return board.Card{}, err
 		}
+	} else if sprint == "" {
+		sprint = cur
 	}
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	return s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
 		Zone:        args.Zone,
 		Day:         day,
-		Start:       day,
+		Start:       start,
 		SprintStart: sprint,
 		Assignee:    args.Assignee,
 		Team:        args.Team,
+		ReviewOf:    args.ReviewOf,
 	})
 }
 
@@ -192,18 +232,39 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	if err := s.backend.SetSprintState(ctx, b, team, today, old); err != nil {
 		return err
 	}
+	// Carry every unfinished card whose sprint is before the new day — not just
+	// the previous sprint — so cards added on an in-between day (or made directly
+	// on the backend) are picked up too. Future-dated cards stay.
+	var carry []board.Card
 	for _, c := range b.Cards {
-		// Carry every unfinished card whose sprint is before the new day — not
-		// just the previous sprint — so cards added on an in-between day (or made
-		// directly on the backend) are picked up too. Future-dated cards stay.
 		if c.Team != team || c.SprintStart == "" || c.SprintStart >= today || c.Stage == board.StageDone {
 			continue
 		}
-		if err := s.backend.SetSprintStart(ctx, b, c, today); err != nil {
-			return err
-		}
+		carry = append(carry, c)
 	}
-	return nil
+	// The per-card writes are independent; run them concurrently (bounded) so a
+	// full sprint carries in a few round-trips' time instead of one per card.
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	for _, c := range carry {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(c board.Card) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := s.backend.SetSprintStart(ctx, b, c, today); err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+			}
+		}(c)
+	}
+	wg.Wait()
+	return firstErr
 }
 
 // CarryWeek pulls a team's unfinished plan cards from earlier weeks into the
@@ -511,6 +572,54 @@ func (s *Service) Rename(ctx context.Context, owner string, project int, itemID,
 		return err
 	}
 	return s.backend.RenameCard(ctx, b, card, title)
+}
+
+// SetDescription replaces a card's free-form description (the body text above
+// the note log).
+func (s *Service) SetDescription(ctx context.Context, owner string, project int, itemID, description string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetDescription(ctx, b, card, description)
+}
+
+// findNote resolves a note on a card by its id.
+func findNote(card board.Card, noteID string) (board.Note, bool) {
+	for _, n := range card.Notes {
+		if n.ID == noteID {
+			return n, true
+		}
+	}
+	return board.Note{}, false
+}
+
+// EditNote rewrites one of a card's work notes (ErrNoteNotFound when the note id
+// is not on the card).
+func (s *Service) EditNote(ctx context.Context, owner string, project int, itemID, noteID, text string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	note, ok := findNote(card, noteID)
+	if !ok {
+		return fmt.Errorf("%w: %s on %s", ErrNoteNotFound, noteID, itemID)
+	}
+	return s.backend.EditNote(ctx, b, card, note, text)
+}
+
+// DeleteNote removes one of a card's work notes (ErrNoteNotFound when the note
+// id is not on the card).
+func (s *Service) DeleteNote(ctx context.Context, owner string, project int, itemID, noteID string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	note, ok := findNote(card, noteID)
+	if !ok {
+		return fmt.Errorf("%w: %s on %s", ErrNoteNotFound, noteID, itemID)
+	}
+	return s.backend.DeleteNote(ctx, b, card, note)
 }
 
 // AddNote appends a work note to a card.

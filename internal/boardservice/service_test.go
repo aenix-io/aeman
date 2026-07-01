@@ -125,6 +125,21 @@ func (f *fakeBackend) AddNote(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
+func (f *fakeBackend) EditNote(_ context.Context, _ board.Board, card board.Card, note board.Note, text string) error {
+	f.rec("EditNote %s %s %s", card.ItemID, note.ID, text)
+	return nil
+}
+
+func (f *fakeBackend) DeleteNote(_ context.Context, _ board.Board, card board.Card, note board.Note) error {
+	f.rec("DeleteNote %s %s", card.ItemID, note.ID)
+	return nil
+}
+
+func (f *fakeBackend) SetDescription(_ context.Context, _ board.Board, card board.Card, description string) error {
+	f.rec("SetDescription %s %s", card.ItemID, description)
+	return nil
+}
+
 func (f *fakeBackend) RenameCard(_ context.Context, _ board.Board, card board.Card, title string) error {
 	f.rec("RenameCard %s", card.ItemID)
 	if c := f.get(card.ItemID); c != nil {
