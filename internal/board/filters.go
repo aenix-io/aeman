@@ -40,18 +40,22 @@ func TeamGrid(b Board, team, day string) []Card {
 			out = append(out, c)
 			continue
 		}
-		// A carried-over card also shows on the previous sprint's start day —
-		// its origin — so scrolling back shows that sprint in full.
-		prev := PreviousSprint(b, team)
-		if prev == "" || day != prev || c.SprintStart == "" || c.SprintStart <= prev {
+		// A card also shows on a sprint day it passed through — a sprint-pointer
+		// day S (current or previous) with origin <= S < sprintStart — so
+		// carried-over and deferred cards keep their sprint history.
+		if c.SprintStart == "" {
 			continue
 		}
 		start := c.StartDate
 		if start == "" {
 			start = c.SprintStart
 		}
-		if ActiveSprint(b, team, start) <= prev {
-			out = append(out, c)
+		origin := ActiveSprint(b, team, start)
+		for _, s := range []string{CurrentSprint(b, team), PreviousSprint(b, team)} {
+			if s != "" && day == s && s < c.SprintStart && origin <= s {
+				out = append(out, c)
+				break
+			}
 		}
 	}
 	return out

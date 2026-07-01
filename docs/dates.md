@@ -58,10 +58,10 @@ past today while `startDate` keeps the day it actually started).
   (`sprintStart`) **and** on its own scheduled day (`startDate`) — so a card
   created on a later day of the sprint appears both on the sprint day (where the
   team lead sees the whole sprint at once) and on the day it was actually created.
-- It **also** shows on the **previous** sprint's start day when it was carried
-  over from there (`sprintStart > previousSprint` and its origin sprint,
-  `activeSprint(team, startDate)`, is on or before it) — so navigating back to the
-  previous sprint shows it complete, carried-over cards included.
+- It **also** shows on every **sprint day it passed through**: a sprint-pointer
+  day `S` (the team's current or previous sprint) with
+  `activeSprint(team, startDate) <= S < sprintStart` — so navigating back shows
+  each sprint complete, carried-over and deferred cards included.
 - A card **created for a future day** (`startDate > today`) shows on its own
   future day only, and rejoins the sprint day once today catches up.
 - A **deferred** card (`sprintStart > today`, pushed forward with "+1 day" /
