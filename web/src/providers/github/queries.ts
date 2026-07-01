@@ -2,6 +2,62 @@
 // organization or a user, so most reads come in org/user pairs that share the
 // same selection body.
 
+// A single project item's selection body, shared by the full board load and the
+// targeted nodes(ids:) re-fetch that live updates use to pull just the cards
+// that changed.
+const ITEM_NODE = `
+  id
+  type
+  createdAt
+  content {
+    __typename
+    ... on DraftIssue {
+      id title body
+      creator { login }
+      assignees(first: 10) { nodes { login } }
+    }
+    ... on Issue {
+      id number title body url state
+      author { login }
+      repository { nameWithOwner }
+      assignees(first: 10) { nodes { login } }
+      comments(last: 20) { nodes { id body createdAt author { login } } }
+    }
+    ... on PullRequest {
+      id number title body url state
+      author { login }
+      repository { nameWithOwner }
+      assignees(first: 10) { nodes { login } }
+      comments(last: 20) { nodes { id body createdAt author { login } } }
+    }
+  }
+  fieldValues(first: 30) {
+    nodes {
+      __typename
+      ... on ProjectV2ItemFieldSingleSelectValue {
+        optionId name
+        field { ... on ProjectV2FieldCommon { id name } }
+      }
+      ... on ProjectV2ItemFieldNumberValue {
+        number
+        field { ... on ProjectV2FieldCommon { id name } }
+      }
+      ... on ProjectV2ItemFieldDateValue {
+        date
+        field { ... on ProjectV2FieldCommon { id name } }
+      }
+      ... on ProjectV2ItemFieldTextValue {
+        text
+        field { ... on ProjectV2FieldCommon { id name } }
+      }
+      ... on ProjectV2ItemFieldIterationValue {
+        title
+        field { ... on ProjectV2FieldCommon { id name } }
+      }
+    }
+  }
+`;
+
 const PROJECT_BODY = `
   id
   number
@@ -16,60 +72,18 @@ const PROJECT_BODY = `
   }
   items(first: 100, after: $after) {
     pageInfo { hasNextPage endCursor }
-    nodes {
-      id
-      type
-      createdAt
-      content {
-        __typename
-        ... on DraftIssue {
-          id title body
-          creator { login }
-          assignees(first: 10) { nodes { login } }
-        }
-        ... on Issue {
-          id number title body url state
-          author { login }
-          repository { nameWithOwner }
-          assignees(first: 10) { nodes { login } }
-          comments(last: 20) { nodes { id body createdAt author { login } } }
-        }
-        ... on PullRequest {
-          id number title body url state
-          author { login }
-          repository { nameWithOwner }
-          assignees(first: 10) { nodes { login } }
-          comments(last: 20) { nodes { id body createdAt author { login } } }
-        }
-      }
-      fieldValues(first: 30) {
-        nodes {
-          __typename
-          ... on ProjectV2ItemFieldSingleSelectValue {
-            optionId name
-            field { ... on ProjectV2FieldCommon { id name } }
-          }
-          ... on ProjectV2ItemFieldNumberValue {
-            number
-            field { ... on ProjectV2FieldCommon { id name } }
-          }
-          ... on ProjectV2ItemFieldDateValue {
-            date
-            field { ... on ProjectV2FieldCommon { id name } }
-          }
-          ... on ProjectV2ItemFieldTextValue {
-            text
-            field { ... on ProjectV2FieldCommon { id name } }
-          }
-          ... on ProjectV2ItemFieldIterationValue {
-            title
-            field { ... on ProjectV2FieldCommon { id name } }
-          }
-        }
-      }
-    }
+    nodes { ${ITEM_NODE} }
   }
 `;
+
+// Fetch a specific set of project items by node id. Live updates use this to
+// re-fetch only the cards a mutation touched instead of the whole board.
+export const CARDS_BY_ID_QUERY = `query($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    __typename
+    ... on ProjectV2Item { ${ITEM_NODE} }
+  }
+}`;
 
 export const ORG_PROJECT_QUERY = `query($owner: String!, $number: Int!, $after: String) {
   organization(login: $owner) { projectV2(number: $number) { ${PROJECT_BODY} } }

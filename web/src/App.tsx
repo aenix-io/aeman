@@ -258,6 +258,83 @@ export function App() {
     }
   }, [board, doLoad]);
 
+  // Live updates: the server pushes board change events over a WebSocket
+  // (Kubernetes-watch style). We LIST via loadBoard, then apply the ADDED /
+  // MODIFIED / DELETED events to the cached board directly, and re-LIST on RELOAD
+  // or after a reconnect to reconcile anything missed. A ref keeps the socket
+  // from being rebuilt on every board change.
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  const boardLoaded = board !== null;
+  const watchOwner = board?.owner;
+  const watchProject = board?.number;
+  useEffect(() => {
+    if (!boardLoaded || !watchOwner || watchProject == null) {
+      return;
+    }
+    let socket: WebSocket | null = null;
+    let closed = false;
+    let retry: number | undefined;
+    const applyCard = (card: CardModel, remove: boolean) => {
+      setBoard((b) => {
+        if (!b) {
+          return b;
+        }
+        if (remove) {
+          return {
+            ...b,
+            cards: b.cards.filter((c) => c.itemId !== card.itemId),
+          };
+        }
+        const exists = b.cards.some((c) => c.itemId === card.itemId);
+        return {
+          ...b,
+          cards: exists
+            ? b.cards.map((c) => (c.itemId === card.itemId ? card : c))
+            : [...b.cards, card],
+        };
+      });
+    };
+    const connect = () => {
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
+        watchOwner,
+      )}&project=${watchProject}`;
+      socket = new WebSocket(url);
+      socket.addEventListener("message", (e) => {
+        let ev: { type?: string; card?: CardModel };
+        try {
+          ev = JSON.parse(e.data as string) as { type?: string; card?: CardModel };
+        } catch {
+          return;
+        }
+        if (ev.type === "RELOAD") {
+          reloadRef.current();
+          return;
+        }
+        if (!ev.card) {
+          return;
+        }
+        applyCard(ev.card, ev.type === "DELETED");
+      });
+      socket.addEventListener("close", () => {
+        if (closed) {
+          return;
+        }
+        retry = window.setTimeout(() => {
+          reloadRef.current();
+          connect();
+        }, 3000);
+      });
+    };
+    connect();
+    return () => {
+      closed = true;
+      window.clearTimeout(retry);
+      socket?.close();
+    };
+  }, [boardLoaded, watchOwner, watchProject]);
+
   const patchCard = useCallback((itemId: string, patch: Partial<CardModel>) => {
     setBoard((cur) => {
       if (!cur) {
