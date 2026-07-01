@@ -207,6 +207,12 @@ export function TeamBoard({
         if (c.startDate && c.startDate > todayIso()) {
           return false;
         }
+        // A materialized card also shows on its scheduled day, so a card created
+        // on a later day of its sprint appears both on the sprint's start day and
+        // on the day it was actually created.
+        if (c.startDate && c.startDate === selectedDate) {
+          return true;
+        }
         // A carried-over card also shows on the previous sprint's start day —
         // its origin — so scrolling back shows that sprint in full.
         const prev = previousSprint(board, c.team ?? null);

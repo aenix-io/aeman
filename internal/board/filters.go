@@ -4,12 +4,11 @@ import "slices"
 
 // TeamGrid returns the cards shown on the Team board's people×zones grid for a
 // single team on a given day: cards matching the team filter ("" = the no-team
-// group) whose effective day is the viewed day. A card's effective day is its
-// sprint (sprintStart) once it has materialized, but its scheduled day (startDate)
-// while that is still in the future — so a materialized card sits on its sprint's
-// start date (including ones created on later days), and a deferred card shows on
-// its own future day instead, rejoining the sprint day once today catches up. It
-// mirrors filteredCards in TeamBoard.tsx.
+// group) shown on the viewed day. A materialized card (startDate <= today) shows
+// on its sprint's start day AND on its own scheduled day, so a card created on a
+// later day of the sprint appears on both; a deferred card (future startDate)
+// shows on its own future day only, rejoining the sprint day once today catches
+// up. It mirrors filteredCards in TeamBoard.tsx.
 func TeamGrid(b Board, team, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
@@ -26,11 +25,18 @@ func TeamGrid(b Board, team, day string) []Card {
 			out = append(out, c)
 			continue
 		}
-		// A carried-over card also shows on the previous sprint's start day —
-		// its origin — so scrolling back shows that sprint in full.
 		if future {
 			continue
 		}
+		// A materialized card also shows on its scheduled day, so a card created
+		// on a later day of its sprint appears both on the sprint's start day and
+		// on the day it was actually created.
+		if c.StartDate != "" && c.StartDate == day {
+			out = append(out, c)
+			continue
+		}
+		// A carried-over card also shows on the previous sprint's start day —
+		// its origin — so scrolling back shows that sprint in full.
 		prev := PreviousSprint(b, team)
 		if prev == "" || day != prev || c.SprintStart == "" || c.SprintStart <= prev {
 			continue
