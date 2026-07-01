@@ -588,6 +588,11 @@ export function Card({
             onClose={() => setAssignOpen(false)}
             className="card-stage-menu card-assign-menu"
           >
+            {card.author && (
+              <div className="card-counterpart-head">
+                Created by: {displayName(card.author, users?.[card.author])}
+              </div>
+            )}
             {counterpartAssignees && counterpartAssignees.length > 0 && (
               <div className="card-counterpart-head">
                 {card.reviewOf ? "In implementation" : "On review"}:{" "}
