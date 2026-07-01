@@ -347,8 +347,22 @@ export function App() {
     });
   }, []);
 
+  // addCard upserts by item id: the watch stream may deliver a created card
+  // before (or after) the creator's own response lands, so both paths must
+  // converge on a single copy instead of appending twice.
   const addCard = useCallback((card: CardModel) => {
-    setBoard((cur) => (cur ? { ...cur, cards: [...cur.cards, card] } : cur));
+    setBoard((cur) => {
+      if (!cur) {
+        return cur;
+      }
+      const exists = cur.cards.some((c) => c.itemId === card.itemId);
+      return {
+        ...cur,
+        cards: exists
+          ? cur.cards.map((c) => (c.itemId === card.itemId ? card : c))
+          : [...cur.cards, card],
+      };
+    });
   }, []);
 
   const removeCard = useCallback((itemId: string) => {
