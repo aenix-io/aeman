@@ -120,12 +120,61 @@ func (c *Client) ensureDomainField(ctx context.Context, b board.Board, role stri
 	if !ok {
 		return board.ProjectField{}, fmt.Errorf("%w: %s", ErrFieldNotFound, role)
 	}
+	// The snapshot's fields may be stale — a cached board loaded before the
+	// field was created (by another request or client). Re-check the live
+	// project first; creating blindly would fail with "Name has already been
+	// taken".
+	if fields, err := c.projectFields(ctx, b.ID); err == nil {
+		if f := domainRoles(fields).get(role); f != nil {
+			c.fieldCache.store(key, *f)
+			return *f, nil
+		}
+	}
 	field, err := c.createDomainField(ctx, b.ID, spec)
 	if err != nil {
+		// A concurrent create may have won the race between our check and the
+		// create; resolve to the now-existing field instead of failing.
+		if strings.Contains(err.Error(), "already been taken") {
+			if fields, ferr := c.projectFields(ctx, b.ID); ferr == nil {
+				if f := domainRoles(fields).get(role); f != nil {
+					c.fieldCache.store(key, *f)
+					return *f, nil
+				}
+			}
+		}
 		return board.ProjectField{}, err
 	}
 	c.fieldCache.store(key, field)
 	return field, nil
+}
+
+// projectFields fetches the project's current fields, mapped to domain fields.
+func (c *Client) projectFields(ctx context.Context, projectID string) ([]board.ProjectField, error) {
+	var data struct {
+		Node *struct {
+			Fields struct {
+				Nodes []rawField `json:"nodes"`
+			} `json:"fields"`
+		} `json:"node"`
+	}
+	if err := c.graphql(ctx, projectFieldsQuery, map[string]any{"id": projectID}, &data); err != nil {
+		return nil, err
+	}
+	if data.Node == nil {
+		return nil, nil
+	}
+	fields := make([]board.ProjectField, 0, len(data.Node.Fields.Nodes))
+	for _, f := range data.Node.Fields.Nodes {
+		if f.ID == "" || f.Name == "" {
+			continue
+		}
+		field := board.ProjectField{ID: f.ID, Name: f.Name, DataType: f.DataType}
+		for _, o := range f.Options {
+			field.Options = append(field.Options, board.SingleSelectOption{ID: o.ID, Name: o.Name, Color: o.Color})
+		}
+		fields = append(fields, field)
+	}
+	return fields, nil
 }
 
 // createDomainField creates a project field from its spec.
