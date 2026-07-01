@@ -23,7 +23,10 @@ A card carries **two independent dates**:
   counting from today. The card's age badge uses `createdAt`, not this field.
 
 Also:
-- **Day** (`day`, date) — set on create, not used by any filter.
+- **Day** (`day`, date) — the card's **end** date. With a start it bounds a
+  visible **range**: the card shows on every day of `[startDate, day]` in both
+  views. Set on create to the same day as `startDate` (a one-day range); the
+  calendar's end field edits it.
 - **Week** (`week`, date) — weekly-plan only (Monday of the plan week).
 - Hidden per-team **`aeman:sprint-state`** card: `Sprint Start` = the team's
   **current** sprint date, `Start` = its **previous** sprint date. Read via
@@ -103,9 +106,12 @@ today while the card stays in its sprint).
   in the past), but the future `startDate` keeps hiding it until its day comes.
 
 ### Calendar (explicit dates)
-- The date picker on a card moves its **real dates**: `startDate = start`,
-  `sprintStart = start` and `day = end` — a genuine relocation to that day, with
-  no history kept (unlike defer).
+- The date picker on a card moves its **real dates**: `startDate = start` and
+  `day = end` — a genuine relocation (no history kept, unlike defer). The card
+  then shows on **every day of the range** `[start, end]`.
+- `sprintStart` becomes the sprint that was **active on the start day**
+  (`activeSprint(team, start)`) — a start inside the current sprint joins it —
+  falling back to the start day itself when no tracked sprint covers it.
 
 ## Resolved open questions
 

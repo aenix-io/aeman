@@ -16,11 +16,15 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
+		// A card with an end date spans a range: it shows on every day from its
+		// start through its end (the calendar sets start…end).
+		inRange := c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
+			day >= c.StartDate && day <= c.Day
 		// A deferred / future-scheduled card (startDate past today) lives on its
-		// own future day, and its past sprint day keeps it as history; it is
+		// own day (or range), and its past sprint day keeps it as history; it is
 		// hidden everywhere else until that day arrives.
 		if c.StartDate != "" && c.StartDate > today {
-			if day == c.StartDate || (c.SprintStart != "" && day == c.SprintStart && c.SprintStart < today) {
+			if day == c.StartDate || inRange || (c.SprintStart != "" && day == c.SprintStart && c.SprintStart < today) {
 				out = append(out, c)
 			}
 			continue
@@ -29,10 +33,10 @@ func TeamGrid(b Board, team, day string) []Card {
 			out = append(out, c)
 			continue
 		}
-		// A materialized card also shows on its scheduled day, so a card created
-		// on a later day of its sprint appears both on the sprint's start day and
-		// on the day it was actually created.
-		if c.StartDate != "" && c.StartDate == day {
+		// A materialized card also shows on its scheduled day (and through its
+		// range when it has an end date), so a card created on a later day of its
+		// sprint appears both on the sprint's start day and on its own days.
+		if inRange || (c.StartDate != "" && c.StartDate == day) {
 			out = append(out, c)
 			continue
 		}
@@ -77,6 +81,13 @@ func MeView(b Board, user, day string) []Card {
 			if day >= c.StartDate {
 				out = append(out, c)
 			}
+			continue
+		}
+		// A card with an end date spans a range: it shows on every day from its
+		// start through its end regardless of sprint boundaries.
+		if c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
+			day >= c.StartDate && day <= c.Day {
+			out = append(out, c)
 			continue
 		}
 		as := ActiveSprint(b, c.Team, day)

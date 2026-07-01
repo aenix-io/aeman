@@ -199,12 +199,21 @@ export function TeamBoard({
     () =>
       inFilter.filter((c) => {
         const today = todayIso();
+        // A card with an end date spans a range: it shows on every day from its
+        // start through its end (the calendar sets start…end).
+        const inRange =
+          !!c.startDate &&
+          !!c.day &&
+          c.day >= c.startDate &&
+          selectedDate >= c.startDate &&
+          selectedDate <= c.day;
         // A deferred / future-scheduled card (startDate past today) lives on its
-        // own future day, and its past sprint day keeps it as history; it is
+        // own day (or range), and its past sprint day keeps it as history; it is
         // hidden everywhere else until that day arrives.
         if (c.startDate && c.startDate > today) {
           return (
             selectedDate === c.startDate ||
+            inRange ||
             (!!c.sprintStart &&
               selectedDate === c.sprintStart &&
               c.sprintStart < today)
@@ -213,10 +222,10 @@ export function TeamBoard({
         if (c.sprintStart === selectedDate) {
           return true;
         }
-        // A materialized card also shows on its scheduled day, so a card created
-        // on a later day of its sprint appears both on the sprint's start day and
-        // on the day it was actually created.
-        if (c.startDate && c.startDate === selectedDate) {
+        // A materialized card also shows on its scheduled day (and through its
+        // range when it has an end date), so a card created on a later day of
+        // its sprint appears both on the sprint's start day and on its own days.
+        if (inRange || (c.startDate && c.startDate === selectedDate)) {
           return true;
         }
         // A card also shows on a sprint day it passed through — a sprint-pointer
@@ -1090,13 +1099,17 @@ export function TeamBoard({
     handleStage(card, "review");
   };
 
-  // The calendar relocates the card for real: its start date (which is also the
-  // sprint it belongs to from now on) and its end (due) date.
+  // The calendar relocates the card for real: its start…end range, and the
+  // sprint that was active on the start day (so a date inside the current
+  // sprint joins it instead of standing alone on the picked day).
   const handleSetDates = (
     card: CardModel,
     start: string | null,
     end: string | null,
   ) => {
+    const sprint = start
+      ? activeSprint(board, card.team ?? null, start) || start
+      : start;
     const prev = {
       startDate: card.startDate,
       sprintStart: card.sprintStart,
@@ -1104,13 +1117,13 @@ export function TeamBoard({
     };
     patchCard(card.itemId, {
       startDate: start ?? undefined,
-      sprintStart: start ?? undefined,
+      sprintStart: sprint ?? undefined,
       day: end ?? undefined,
     });
     void (async () => {
       try {
         await provider.setStart(board, card, start);
-        await provider.setSprintStart(board, card, start);
+        await provider.setSprintStart(board, card, sprint);
         await provider.setDay(board, card, end);
       } catch (err: unknown) {
         patchCard(card.itemId, prev);
