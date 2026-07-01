@@ -139,6 +139,17 @@ export function MeBoard({
         if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
           return false;
         }
+        const today = todayIso();
+        // A deferred card (its sprint pushed past today) hides from today until
+        // its new sprint day; past days and days from that one on still show it.
+        if (
+          c.sprintStart &&
+          c.sprintStart > today &&
+          selectedDate >= today &&
+          selectedDate < c.sprintStart
+        ) {
+          return false;
+        }
         const as = activeSprint(board, c.team ?? null, selectedDate);
         const ss = c.sprintStart;
         // A card shows on every day of the sprints it spans — from the one it
