@@ -117,6 +117,20 @@ const getDraftBodyQuery = `query($id: ID!) {
   node(id: $id) { ... on DraftIssue { body } }
 }`
 
+const projectFieldsQuery = `query($id: ID!) {
+  node(id: $id) {
+    ... on ProjectV2 {
+      fields(first: 50) {
+        nodes {
+          __typename
+          ... on ProjectV2FieldCommon { id name dataType }
+          ... on ProjectV2SingleSelectField { id name dataType options { id name color } }
+        }
+      }
+    }
+  }
+}`
+
 const setSingleSelectMutation = `mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
   updateProjectV2ItemFieldValue(input: {
     projectId: $project, itemId: $item, fieldId: $field,
