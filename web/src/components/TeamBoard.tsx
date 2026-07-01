@@ -1211,12 +1211,15 @@ export function TeamBoard({
     ) {
       return;
     }
+    // Optimistically move the cards, then advance the sprint state and persist
+    // every card's Sprint Start together — one batched request set instead of a
+    // round-trip per card, which was slow for a full sprint.
+    carry.forEach((card) => patchCard(card.itemId, { sprintStart: today }));
     try {
-      await provider.setSprintState(board, team, today, old);
-      for (const card of carry) {
-        patchCard(card.itemId, { sprintStart: today });
-        await provider.setSprintStart(board, card, today);
-      }
+      await Promise.all([
+        provider.setSprintState(board, team, today, old),
+        provider.setSprintStartMany(board, carry, today),
+      ]);
     } catch (err: unknown) {
       onError(errMessage(err));
     }
