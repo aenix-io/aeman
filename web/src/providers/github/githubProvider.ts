@@ -83,6 +83,9 @@ interface RawContent {
   url?: string;
   state?: string;
   body?: string;
+  /** Creator of a draft issue; issues/PRs expose the same person as `author`. */
+  creator?: { login: string } | null;
+  author?: { login: string } | null;
   repository?: { nameWithOwner: string };
   assignees?: { nodes: { login: string }[] };
   comments?: { nodes: RawComment[] };
@@ -214,6 +217,7 @@ function mapItem(item: RawItem, roles: FieldRoles): Card {
     repository: content?.repository?.nameWithOwner,
     state: content?.state,
     assignees: content?.assignees?.nodes.map((n) => n.login) ?? [],
+    author: content?.creator?.login ?? content?.author?.login,
     createdAt: item.createdAt,
     description,
     notes,
