@@ -61,6 +61,11 @@ const UNASSIGNED = "";
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
+// isGone reports a "card not found" failure: the card no longer exists on the
+// server, so an optimistic removal must NOT be rolled back (re-adding it would
+// resurrect a phantom copy).
+const isGone = (err: unknown) => errMessage(err).includes("card not found");
+
 /** TeamBoard is the team as a people × zones grid for one day, filtered by team. */
 export function TeamBoard({
   board,
@@ -851,6 +856,12 @@ export function TeamBoard({
   };
 
   const handleDelete = (card: CardModel) => {
+    // A just-created optimistic card has no server twin yet: drop it locally
+    // (deleting it via the API would 404 and resurrect a phantom copy).
+    if (card.itemId.startsWith("tmp-")) {
+      removeCard(card.itemId);
+      return;
+    }
     // If a review card links back to this one, delete both (with one confirm).
     const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
     if (linkedReview) {
@@ -863,12 +874,18 @@ export function TeamBoard({
       }
       removeCard(linkedReview.itemId);
       void provider.deleteCard(board, linkedReview).catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
         addCard(linkedReview);
         onError(errMessage(err));
       });
     }
     removeCard(card.itemId);
     void provider.deleteCard(board, card).catch((err: unknown) => {
+      if (isGone(err)) {
+        return;
+      }
       addCard(card);
       onError(errMessage(err));
     });
