@@ -100,6 +100,9 @@ today while the card stays in its sprint).
   (or from the card's already-deferred slot, so presses stack): `+N` sets
   `startDate = max(today, startDate) + N`. The card **stays in its sprint**
   (`sprintStart` untouched), so its past sprint day keeps showing it.
+- A card **created today** (0d) has no history worth keeping: deferring it
+  relocates it fully — `sprintStart` moves to the new day too (and a stale end
+  date is pulled along), so it leaves the current sprint entirely.
 - While `startDate > today` the card is hidden between today and that day in Me
   and Team; it shows on its new day, and its past sprint day keeps it in Team.
 - Carry Over still sweeps a deferred card's sprint forward (its `sprintStart` is
