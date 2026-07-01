@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchConfig, type AppConfig } from "./api/client";
+import { clientId, fetchConfig, type AppConfig } from "./api/client";
 import { getProvider } from "./providers";
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
@@ -299,7 +299,7 @@ export function App() {
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
         watchOwner,
-      )}&project=${watchProject}`;
+      )}&project=${watchProject}&client=${clientId}`;
       socket = new WebSocket(url);
       socket.addEventListener("message", (e) => {
         let ev: { type?: string; card?: CardModel };

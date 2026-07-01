@@ -4,6 +4,7 @@
 // out-of-band over a WebSocket handled elsewhere; loadCards therefore always
 // asks for a full reload rather than patching individual cards.
 
+import { clientId } from "../../api/client";
 import { fieldRoles } from "../fields";
 import type {
   Board,
@@ -31,9 +32,14 @@ async function api<T>(
   const url = `/api/v1${path}${sep}owner=${encodeURIComponent(
     board.owner,
   )}&project=${board.number}`;
-  const init: RequestInit = { method };
+  // X-Aeman-Client keys watch echo suppression: the server skips this tab's
+  // own watch connection when broadcasting the changes it makes here.
+  const init: RequestInit = { method, headers: { "X-Aeman-Client": clientId } };
   if (body !== undefined) {
-    init.headers = { "Content-Type": "application/json" };
+    init.headers = {
+      "Content-Type": "application/json",
+      "X-Aeman-Client": clientId,
+    };
     init.body = JSON.stringify(body);
   }
   const res = await fetch(url, init);
