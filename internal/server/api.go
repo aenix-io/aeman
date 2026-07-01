@@ -50,6 +50,8 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/team", s.handleTeamView)
 	mux.HandleFunc("GET /api/v1/me", s.handleMeView)
 	mux.HandleFunc("GET /api/v1/weekly", s.handleWeeklyView)
+	mux.HandleFunc("GET /api/v1/snapshot", s.handleSnapshot)
+	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
 	mux.HandleFunc("POST /api/v1/cards", s.handleCreateCard)
 	mux.HandleFunc("POST /api/v1/carry-over", s.handleCarryOver)
 	mux.HandleFunc("POST /api/v1/carry-week", s.handleCarryWeek)
@@ -162,7 +164,7 @@ func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) 
 	if err != nil {
 		return nil, err
 	}
-	return boardservice.New(client), nil
+	return boardservice.New(&storeBackend{inner: client, store: s.store}), nil
 }
 
 // service resolves the board reference and builds the per-request board service.
