@@ -140,15 +140,10 @@ export function MeBoard({
           return false;
         }
         const today = todayIso();
-        // A deferred card (its sprint pushed past today) hides from today until
-        // its new sprint day; past days and days from that one on still show it.
-        if (
-          c.sprintStart &&
-          c.sprintStart > today &&
-          selectedDate >= today &&
-          selectedDate < c.sprintStart
-        ) {
-          return false;
+        // A deferred / future-scheduled card (startDate past today) is hidden
+        // until that day, then shows from it on (Carry Over re-syncs its sprint).
+        if (c.startDate && c.startDate > today) {
+          return selectedDate >= c.startDate;
         }
         const as = activeSprint(board, c.team ?? null, selectedDate);
         const ss = c.sprintStart;

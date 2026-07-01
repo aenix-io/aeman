@@ -19,7 +19,8 @@ A card carries **two independent dates**:
   card by it.
 - **Start** (`startDate`) — the card's **scheduled day**: the day it starts
   showing and "materializes" into its sprint. Set to the viewed day (`selectedDate`)
-  the card was created on, and kept as history from then on.
+  the card was created on; defer ("+1 day" / "+1 week") pushes it forward,
+  counting from today. The card's age badge uses `createdAt`, not this field.
 
 Also:
 - **Day** (`day`, date) — set on create, not used by any filter.
@@ -29,8 +30,8 @@ Also:
   `currentSprint(team)` / `previousSprint(team)`.
 
 `startDate` and `sprintStart` differ whenever a card is created on a later day of
-its sprint, or deferred with "+1 day" / "+1 week" (which pushes `sprintStart`
-past today while `startDate` keeps the day it actually started).
+its sprint, or deferred with "+1 day" / "+1 week" (which pushes `startDate` past
+today while the card stays in its sprint).
 
 ## Concepts
 
@@ -62,12 +63,10 @@ past today while `startDate` keeps the day it actually started).
   day `S` (the team's current or previous sprint) with
   `activeSprint(team, startDate) <= S < sprintStart` — so navigating back shows
   each sprint complete, carried-over and deferred cards included.
-- A card **created for a future day** (`startDate > today`) shows on its own
-  future day only, and rejoins the sprint day once today catches up.
-- A **deferred** card (`sprintStart > today`, pushed forward with "+1 day" /
-  "+1 week") is hidden on every day from **today up to (excluding) its new
-  sprint day**; it shows on that future day, and its history — past days —
-  stays visible.
+- A **deferred / future-scheduled** card (`startDate > today`) shows on its own
+  future day, and its **past sprint day keeps it** (`sprintStart < today`) — so
+  deferring never erases where the card came from. It is hidden everywhere else
+  until its day arrives, then it materializes back into the rules above.
 
 ### Me view — a personal day (`selectedDate`)
 - A card (assigned to the viewer) shows when its scheduled day has arrived and the
@@ -78,11 +77,9 @@ past today while `startDate` keeps the day it actually started).
   previous sprint's days shows that sprint's cards — including the **carried-over**
   ones, which stay visible on the days of the sprint they came from (not only the
   cards that were completed there).
-- A card created for a future day (`startDate > selectedDate`) is not shown
-  until that day.
-- A **deferred** card (`sprintStart > today`) is hidden from today up to
-  (excluding) its new sprint day, exactly as in the Team view; days before today
-  and days from the new sprint day on still show it.
+- A **deferred / future-scheduled** card (`startDate > today`) is hidden until
+  that day, then shows from it on (the next Carry Over re-syncs its sprint like
+  any unfinished card).
 - The team-focus "eye" toggle further narrows to the selected teams (not
   persisted, off by default).
 
@@ -96,14 +93,19 @@ past today while `startDate` keeps the day it actually started).
   sprint without removing it from the previous one.
 
 ### Defer ("+1 day" / "+1 week")
-- The per-card control pushes **`sprintStart`** forward — counting from **today**
+- The per-card control pushes **`startDate`** forward — counting from **today**
   (or from the card's already-deferred slot, so presses stack): `+N` sets
-  `sprintStart = max(today, sprintStart) + N`. `startDate` is untouched, so the
-  day the card actually started is never lost.
-- While `sprintStart > today` the card is **hidden between today and that day**
-  in Me and Team; it shows on its new sprint day, and history days keep it.
-- Carry Over skips deferred cards (their sprint is not `< today`); once today
-  reaches the deferred day the card materializes there and behaves normally.
+  `startDate = max(today, startDate) + N`. The card **stays in its sprint**
+  (`sprintStart` untouched), so its past sprint day keeps showing it.
+- While `startDate > today` the card is hidden between today and that day in Me
+  and Team; it shows on its new day, and its past sprint day keeps it in Team.
+- Carry Over still sweeps a deferred card's sprint forward (its `sprintStart` is
+  in the past), but the future `startDate` keeps hiding it until its day comes.
+
+### Calendar (explicit dates)
+- The date picker on a card moves its **real dates**: `startDate = start`,
+  `sprintStart = start` and `day = end` — a genuine relocation to that day, with
+  no history kept (unlike defer).
 
 ## Resolved open questions
 
@@ -116,7 +118,7 @@ past today while `startDate` keeps the day it actually started).
    (`sprintStart`) and its own scheduled day (`startDate`); a future-deferred card
    only on its own day; plus the previous sprint's start day when the card was
    carried over from there.
-4. **Defer moves `sprintStart` from today** (not `startDate` from its old
-   value): old cards defer relative to the current day, their start history is
-   preserved, and the card hides between today and its new sprint day.
+4. **Defer moves `startDate` counting from today** and keeps the card in its
+   sprint, so the past sprint day never loses it; the **calendar** is a real
+   move (`startDate = sprintStart = start`, `day = end`).
 5. The existing telemetry card is left as-is (the owner will move it).

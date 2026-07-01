@@ -47,6 +47,8 @@ interface CardProps {
   asOf?: string;
   /** Edit the card's start/end dates from the age badge (when provided). */
   onSetDates?: (card: CardModel, start: string | null, end: string | null) => void;
+  /** Defer the card to a later scheduled day (startDate), sprint untouched. */
+  onDefer?: (card: CardModel, newStart: string) => void;
   /** Plan-card mode: the age-badge editor moves the plan week instead of dates. */
   weekMode?: boolean;
   onSetWeek?: (card: CardModel, week: string | null) => void;
@@ -91,6 +93,7 @@ export function Card({
   onSetReviewAssignee,
   asOf,
   onSetDates,
+  onDefer,
   weekMode,
   onSetWeek,
   dimAvatar,
@@ -205,27 +208,28 @@ export function Card({
       setStartVal(card.week ?? "");
     } else {
       setStartVal(card.startDate ?? "");
-      setEndVal(card.sprintStart ?? "");
+      setEndVal(card.day ?? "");
     }
     setDatesOpen((o) => !o);
   };
 
+  // The calendar moves the card's real dates: its start (which also becomes the
+  // sprint it belongs to) and its end (due) date — a real relocation.
   const saveDates = () => {
     setDatesOpen(false);
     // A single picked date is a one-day range, not "clear the end".
     onSetDates?.(card, startVal || null, endVal || startVal || null);
   };
 
-  // Defer the card: push the sprint it belongs to (sprintStart) N days ahead of
-  // today — or ahead of its already-deferred slot — keeping startDate as the day
-  // it actually started. The boards hide it from today until the new sprint day,
-  // so deferring an old card always counts from today, not from its creation.
+  // Defer the card: push its scheduled day (startDate) N days ahead of today —
+  // or ahead of its already-deferred slot — leaving its sprint untouched. The
+  // boards hide it from today until that day; its past sprint day keeps it.
   const moveStart = (days: number) => {
     const today = todayIso();
     const base =
-      card.sprintStart && card.sprintStart > today ? card.sprintStart : today;
+      card.startDate && card.startDate > today ? card.startDate : today;
     setDatesOpen(false);
-    onSetDates?.(card, card.startDate ?? null, addDays(base, days));
+    onDefer?.(card, addDays(base, days));
   };
 
   // Plan cards: shift the plan week forward, or set it by picking a date.

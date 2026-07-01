@@ -16,21 +16,17 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
-		// A deferred card (its sprint pushed past today) hides from today until
-		// its new sprint day; its history (past days) and its future slot stay.
-		if c.SprintStart != "" && c.SprintStart > today && day >= today && day < c.SprintStart {
+		// A deferred / future-scheduled card (startDate past today) lives on its
+		// own future day, and its past sprint day keeps it as history; it is
+		// hidden everywhere else until that day arrives.
+		if c.StartDate != "" && c.StartDate > today {
+			if day == c.StartDate || (c.SprintStart != "" && day == c.SprintStart && c.SprintStart < today) {
+				out = append(out, c)
+			}
 			continue
 		}
-		future := c.StartDate != "" && c.StartDate > today
-		eff := c.SprintStart
-		if future {
-			eff = c.StartDate
-		}
-		if eff == day {
+		if c.SprintStart != "" && c.SprintStart == day {
 			out = append(out, c)
-			continue
-		}
-		if future {
 			continue
 		}
 		// A materialized card also shows on its scheduled day, so a card created
@@ -75,9 +71,12 @@ func MeView(b Board, user, day string) []Card {
 		if user != "" && !slices.Contains(c.Assignees, user) {
 			continue
 		}
-		// A deferred card (its sprint pushed past today) hides from today until
-		// its new sprint day; past days and days from that one on still show it.
-		if c.SprintStart != "" && c.SprintStart > today && day >= today && day < c.SprintStart {
+		// A deferred / future-scheduled card (startDate past today) is hidden
+		// until that day, then shows from it on (Carry Over re-syncs its sprint).
+		if c.StartDate != "" && c.StartDate > today {
+			if day >= c.StartDate {
+				out = append(out, c)
+			}
 			continue
 		}
 		as := ActiveSprint(b, c.Team, day)

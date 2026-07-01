@@ -199,24 +199,19 @@ export function TeamBoard({
     () =>
       inFilter.filter((c) => {
         const today = todayIso();
-        // A deferred card (its sprint pushed past today) hides from today until
-        // its new sprint day; its history (past days) and its future slot stay.
-        if (
-          c.sprintStart &&
-          c.sprintStart > today &&
-          selectedDate >= today &&
-          selectedDate < c.sprintStart
-        ) {
-          return false;
-        }
-        const eff =
-          c.startDate && c.startDate > today ? c.startDate : c.sprintStart;
-        if (eff === selectedDate) {
-          return true;
-        }
-        // A future-deferred card only lives on its own day.
+        // A deferred / future-scheduled card (startDate past today) lives on its
+        // own future day, and its past sprint day keeps it as history; it is
+        // hidden everywhere else until that day arrives.
         if (c.startDate && c.startDate > today) {
-          return false;
+          return (
+            selectedDate === c.startDate ||
+            (!!c.sprintStart &&
+              selectedDate === c.sprintStart &&
+              c.sprintStart < today)
+          );
+        }
+        if (c.sprintStart === selectedDate) {
+          return true;
         }
         // A materialized card also shows on its scheduled day, so a card created
         // on a later day of its sprint appears both on the sprint's start day and
@@ -1095,25 +1090,44 @@ export function TeamBoard({
     handleStage(card, "review");
   };
 
+  // The calendar relocates the card for real: its start date (which is also the
+  // sprint it belongs to from now on) and its end (due) date.
   const handleSetDates = (
     card: CardModel,
     start: string | null,
     end: string | null,
   ) => {
-    const prev = { startDate: card.startDate, sprintStart: card.sprintStart };
+    const prev = {
+      startDate: card.startDate,
+      sprintStart: card.sprintStart,
+      day: card.day,
+    };
     patchCard(card.itemId, {
       startDate: start ?? undefined,
-      sprintStart: end ?? undefined,
+      sprintStart: start ?? undefined,
+      day: end ?? undefined,
     });
     void (async () => {
       try {
         await provider.setStart(board, card, start);
-        await provider.setSprintStart(board, card, end);
+        await provider.setSprintStart(board, card, start);
+        await provider.setDay(board, card, end);
       } catch (err: unknown) {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
       }
     })();
+  };
+
+  // Defer moves only the scheduled day (startDate); the card keeps its sprint,
+  // so its past sprint day still shows it while it hides until the new day.
+  const handleDefer = (card: CardModel, newStart: string) => {
+    const prev = { startDate: card.startDate };
+    patchCard(card.itemId, { startDate: newStart });
+    void provider.setStart(board, card, newStart).catch((err: unknown) => {
+      patchCard(card.itemId, prev);
+      onError(errMessage(err));
+    });
   };
 
   // Optimistically create a Team grid card with explicit sprint dates and push
@@ -1422,6 +1436,7 @@ export function TeamBoard({
               onSetReviewAssignee={handleSetReviewAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
+              onDefer={handleDefer}
               weekMode
               onSetWeek={handleSetWeek}
               dimAvatar
@@ -1447,6 +1462,7 @@ export function TeamBoard({
               onSetReviewAssignee={handleSetReviewAssignee}
               asOf={selectedDate}
               onSetDates={handleSetDates}
+              onDefer={handleDefer}
               dimAvatar
             />
           )
