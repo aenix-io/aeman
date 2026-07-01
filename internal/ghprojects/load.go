@@ -269,7 +269,7 @@ var domainRoleAliases = map[string][]string{
 	"day":         {"day", "date", "due date", "due", "finish", "finish date", "день", "дата"},
 	"start":       {"start", "start date", "начало", "старт"},
 	"sprintStart": {"sprint start", "sprintstart", "спринт старт"},
-	"sprint":      {"sprint", "спринт"},
+	"sprint":      {"sprint", "iteration", "спринт", "итерация"},
 	"status":      {"status", "статус"},
 	"plan":        {"plan", "план"},
 	"week":        {"week", "неделя"},

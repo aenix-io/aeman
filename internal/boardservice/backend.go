@@ -35,6 +35,12 @@ type Backend interface {
 	MoveCard(ctx context.Context, b board.Board, card board.Card, afterID string) error
 	// AddNote appends a work note to a card.
 	AddNote(ctx context.Context, b board.Board, card board.Card, text string) error
+	// EditNote rewrites one of a card's work notes.
+	EditNote(ctx context.Context, b board.Board, card board.Card, note board.Note, text string) error
+	// DeleteNote removes one of a card's work notes.
+	DeleteNote(ctx context.Context, b board.Board, card board.Card, note board.Note) error
+	// SetDescription replaces a card's free-form description.
+	SetDescription(ctx context.Context, b board.Board, card board.Card, description string) error
 	// RenameCard changes a card's title.
 	RenameCard(ctx context.Context, b board.Board, card board.Card, title string) error
 

@@ -201,6 +201,18 @@ const updateIssueTitleMutation = `mutation($id: ID!, $title: String!) {
   updateIssue(input: { id: $id, title: $title }) { issue { id } }
 }`
 
+const updateIssueBodyMutation = `mutation($id: ID!, $body: String!) {
+  updateIssue(input: { id: $id, body: $body }) { issue { id } }
+}`
+
+const updateCommentMutation = `mutation($id: ID!, $body: String!) {
+  updateIssueComment(input: { id: $id, body: $body }) { clientMutationId }
+}`
+
+const deleteCommentMutation = `mutation($id: ID!) {
+  deleteIssueComment(input: { id: $id }) { clientMutationId }
+}`
+
 const addCommentMutation = `mutation($subject: ID!, $body: String!) {
   addComment(input: { subjectId: $subject, body: $body }) {
     commentEdge { node { id createdAt body author { login } } }
