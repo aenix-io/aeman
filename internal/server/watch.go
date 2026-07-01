@@ -52,7 +52,9 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	// cancels ctx when the client goes away.
 	ctx := conn.CloseRead(r.Context())
 
-	events, cancel := s.store.subscribe(storeKey(owner, project))
+	// The client's self-assigned id keys echo suppression: changes made by this
+	// same client (sent as X-Aeman-Client on its REST calls) are not echoed back.
+	events, cancel := s.store.subscribe(storeKey(owner, project), r.URL.Query().Get("client"))
 	defer cancel()
 
 	ping := time.NewTicker(30 * time.Second)

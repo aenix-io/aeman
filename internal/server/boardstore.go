@@ -29,6 +29,21 @@ type changeEvent struct {
 	Card *board.Card `json:"card,omitempty"`
 }
 
+// clientIDCtxKey carries the mutating client's self-assigned id (the
+// X-Aeman-Client header) down to the store, so its own watch connection is not
+// echoed events for changes it made itself — the client already holds that
+// state optimistically, and mid-sequence echoes would make cards jump around.
+type clientIDCtxKey struct{}
+
+func withClientID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, clientIDCtxKey{}, id)
+}
+
+func clientIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(clientIDCtxKey{}).(string)
+	return id
+}
+
 // boardFreshFor bounds how long a cached board is served before a read reloads
 // it from the backend, so edits made outside aeman eventually surface.
 const boardFreshFor = 30 * time.Second
@@ -43,7 +58,9 @@ type boardEntry struct {
 	board    board.Board
 	loadedAt time.Time
 	loaded   bool
-	watchers map[chan changeEvent]struct{}
+	// watchers maps each subscription to its client id ("" = unknown), so a
+	// change is not echoed back to the client that made it.
+	watchers map[chan changeEvent]string
 }
 
 // fresh returns the cached board while it is loaded and within its TTL.
@@ -56,16 +73,53 @@ func (e *boardEntry) fresh() (board.Board, bool) {
 	return board.Board{}, false
 }
 
-// notify fans an event out to every watcher. The caller holds e.mu; sends are
+// notify fans an event out to every watcher except the originating client (it
+// already holds the change optimistically). The caller holds e.mu; sends are
 // non-blocking, so a slow watcher drops this event and reconciles on its next
-// periodic re-list.
-func (e *boardEntry) notify(ev changeEvent) {
-	for ch := range e.watchers {
+// re-list.
+func (e *boardEntry) notify(origin string, ev changeEvent) {
+	for ch, id := range e.watchers {
+		if origin != "" && id == origin {
+			continue
+		}
 		select {
 		case ch <- ev:
 		default:
 		}
 	}
+}
+
+// moveCardTo reorders the cached card to sit after afterID ("" = the top), so
+// snapshots keep serving the board in its real order after a move.
+func (e *boardEntry) moveCardTo(itemID, afterID string) {
+	idx := -1
+	for i := range e.board.Cards {
+		if e.board.Cards[i].ItemID == itemID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	card := e.board.Cards[idx]
+	rest := make([]board.Card, 0, len(e.board.Cards)-1)
+	rest = append(rest, e.board.Cards[:idx]...)
+	rest = append(rest, e.board.Cards[idx+1:]...)
+	pos := 0
+	if afterID != "" {
+		for i := range rest {
+			if rest[i].ItemID == afterID {
+				pos = i + 1
+				break
+			}
+		}
+	}
+	out := make([]board.Card, 0, len(rest)+1)
+	out = append(out, rest[:pos]...)
+	out = append(out, card)
+	out = append(out, rest[pos:]...)
+	e.board.Cards = out
 }
 
 // upsertCard replaces the cached card with the same item id, or appends it.
@@ -112,18 +166,19 @@ func (s *boardStore) entry(key string) *boardEntry {
 	defer s.mu.Unlock()
 	e, ok := s.entries[key]
 	if !ok {
-		e = &boardEntry{watchers: map[chan changeEvent]struct{}{}}
+		e = &boardEntry{watchers: map[chan changeEvent]string{}}
 		s.entries[key] = e
 	}
 	return e
 }
 
-// subscribe registers a watcher on a board and returns it with an unsubscribe.
-func (s *boardStore) subscribe(key string) (<-chan changeEvent, func()) {
+// subscribe registers a watcher on a board under the given client id ("" =
+// unknown) and returns it with an unsubscribe.
+func (s *boardStore) subscribe(key, clientID string) (<-chan changeEvent, func()) {
 	e := s.entry(key)
 	ch := make(chan changeEvent, 64)
 	e.mu.Lock()
-	e.watchers[ch] = struct{}{}
+	e.watchers[ch] = clientID
 	e.mu.Unlock()
 	return ch, func() {
 		e.mu.Lock()
@@ -185,7 +240,7 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.upsertCard(card)
-	e.notify(changeEvent{Type: changeModified, Card: &card})
+	e.notify(clientIDFrom(ctx), changeEvent{Type: changeModified, Card: &card})
 	e.mu.Unlock()
 }
 
@@ -198,7 +253,7 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	e.mu.Lock()
 	e.upsertCard(card)
 	created := card
-	e.notify(changeEvent{Type: changeAdded, Card: &created})
+	e.notify(clientIDFrom(ctx), changeEvent{Type: changeAdded, Card: &created})
 	e.mu.Unlock()
 	return card, nil
 }
@@ -211,16 +266,23 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 	e.mu.Lock()
 	e.removeCard(card.ItemID)
 	deleted := card
-	e.notify(changeEvent{Type: changeDeleted, Card: &deleted})
+	e.notify(clientIDFrom(ctx), changeEvent{Type: changeDeleted, Card: &deleted})
 	e.mu.Unlock()
 	return nil
 }
 
+// MoveCard applies the new position to the cached order (so snapshots keep the
+// board's real order) and asks other clients to re-list: per-card events carry
+// no ordering, and the originator already reordered optimistically.
 func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
 	if err := b.inner.MoveCard(ctx, bd, card, afterID); err != nil {
 		return err
 	}
-	b.touched(ctx, bd, card.ItemID)
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e.mu.Lock()
+	e.moveCardTo(card.ItemID, afterID)
+	e.notify(clientIDFrom(ctx), changeEvent{Type: changeReload})
+	e.mu.Unlock()
 	return nil
 }
 
@@ -361,7 +423,7 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.loaded = false
-	e.notify(changeEvent{Type: changeReload})
+	e.notify(clientIDFrom(ctx), changeEvent{Type: changeReload})
 	e.mu.Unlock()
 	return nil
 }

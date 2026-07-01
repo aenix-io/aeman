@@ -2,6 +2,14 @@
 // /api/github/graphql which the server proxies to the GitHub API with a token
 // from the local gh CLI.
 
+/** clientId identifies this browser tab to the server: REST mutations carry it
+ * as X-Aeman-Client and the watch subscription passes it as ?client=, so the
+ * server does not echo a tab's own changes back over its watch stream. */
+export const clientId: string =
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `c-${Math.random().toString(36).slice(2)}`;
+
 export interface AppConfig {
   mode: string;
   version: string;
