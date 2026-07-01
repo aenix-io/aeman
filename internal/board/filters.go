@@ -4,12 +4,11 @@ import "slices"
 
 // TeamGrid returns the cards shown on the Team board's people×zones grid for a
 // single team on a given day: cards matching the team filter ("" = the no-team
-// group) whose effective day is the viewed day. A card's effective day is its
-// sprint (sprintStart) once it has materialized, but its scheduled day (startDate)
-// while that is still in the future — so a materialized card sits on its sprint's
-// start date (including ones created on later days), and a deferred card shows on
-// its own future day instead, rejoining the sprint day once today catches up. It
-// mirrors filteredCards in TeamBoard.tsx.
+// group) shown on the viewed day. A materialized card (startDate <= today) shows
+// on its sprint's start day AND on its own scheduled day, so a card created on a
+// later day of the sprint appears on both; a deferred card (future startDate)
+// shows on its own future day only, rejoining the sprint day once today catches
+// up. It mirrors filteredCards in TeamBoard.tsx.
 func TeamGrid(b Board, team, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
@@ -17,30 +16,46 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
-		future := c.StartDate != "" && c.StartDate > today
-		eff := c.SprintStart
-		if future {
-			eff = c.StartDate
+		// A card with an end date spans a range: it shows on every day from its
+		// start through its end (the calendar sets start…end).
+		inRange := c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
+			day >= c.StartDate && day <= c.Day
+		// A deferred / future-scheduled card (startDate past today) lives on its
+		// own day (or range), and its past sprint day keeps it as history; it is
+		// hidden everywhere else until that day arrives.
+		if c.StartDate != "" && c.StartDate > today {
+			if day == c.StartDate || inRange || (c.SprintStart != "" && day == c.SprintStart && c.SprintStart < today) {
+				out = append(out, c)
+			}
+			continue
 		}
-		if eff == day {
+		if c.SprintStart != "" && c.SprintStart == day {
 			out = append(out, c)
 			continue
 		}
-		// A carried-over card also shows on the previous sprint's start day —
-		// its origin — so scrolling back shows that sprint in full.
-		if future {
+		// A materialized card also shows on its scheduled day (and through its
+		// range when it has an end date), so a card created on a later day of its
+		// sprint appears both on the sprint's start day and on its own days.
+		if inRange || (c.StartDate != "" && c.StartDate == day) {
+			out = append(out, c)
 			continue
 		}
-		prev := PreviousSprint(b, team)
-		if prev == "" || day != prev || c.SprintStart == "" || c.SprintStart <= prev {
+		// A card also shows on a sprint day it passed through — a sprint-pointer
+		// day S (current or previous) with origin <= S < sprintStart — so
+		// carried-over and deferred cards keep their sprint history.
+		if c.SprintStart == "" {
 			continue
 		}
 		start := c.StartDate
 		if start == "" {
 			start = c.SprintStart
 		}
-		if ActiveSprint(b, team, start) <= prev {
-			out = append(out, c)
+		origin := ActiveSprint(b, team, start)
+		for _, s := range []string{CurrentSprint(b, team), PreviousSprint(b, team)} {
+			if s != "" && day == s && s < c.SprintStart && origin <= s {
+				out = append(out, c)
+				break
+			}
 		}
 	}
 	return out
@@ -54,9 +69,25 @@ func TeamGrid(b Board, team, day string) []Card {
 // A card whose team had no active sprint on the day, or that is deferred to the
 // future, never shows. It mirrors myCards in MeBoard.tsx.
 func MeView(b Board, user, day string) []Card {
+	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
 		if user != "" && !slices.Contains(c.Assignees, user) {
+			continue
+		}
+		// A deferred / future-scheduled card (startDate past today) is hidden
+		// until that day, then shows from it on (Carry Over re-syncs its sprint).
+		if c.StartDate != "" && c.StartDate > today {
+			if day >= c.StartDate {
+				out = append(out, c)
+			}
+			continue
+		}
+		// A card with an end date spans a range: it shows on every day from its
+		// start through its end regardless of sprint boundaries.
+		if c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
+			day >= c.StartDate && day <= c.Day {
+			out = append(out, c)
 			continue
 		}
 		as := ActiveSprint(b, c.Team, day)

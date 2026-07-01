@@ -30,6 +30,10 @@ type Config struct {
 	Endpoint string
 	// HTTPClient overrides the HTTP client (used in tests).
 	HTTPClient ghprojects.Doer
+	// WrapBackend, when set, wraps the production backend — the HTTP server uses
+	// it to route MCP mutations through its shared board store, so they update
+	// the cache and reach watch clients like every other write.
+	WrapBackend func(boardservice.Backend) boardservice.Backend
 }
 
 // Serve runs an MCP server over stdio until ctx is cancelled or the client
@@ -113,7 +117,11 @@ func (h *server) defaultBackend(ctx context.Context) (boardservice.Backend, erro
 	if h.cfg.Endpoint != "" {
 		opts = append(opts, ghprojects.WithEndpoint(h.cfg.Endpoint))
 	}
-	return ghprojects.New(tok, opts...), nil
+	var backend boardservice.Backend = ghprojects.New(tok, opts...)
+	if h.cfg.WrapBackend != nil {
+		backend = h.cfg.WrapBackend(backend)
+	}
+	return backend, nil
 }
 
 // ref resolves the board reference and builds the board service for a call.

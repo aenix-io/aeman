@@ -26,8 +26,19 @@ func gridBoard() Board {
 		{ItemID: "Afuture", Team: "A", StartDate: "2999-12-31", SprintStart: "2026-06-22"},
 		// Team A: a materialized card on a different sprint day.
 		{ItemID: "Aother", Team: "A", StartDate: "2000-01-01", SprintStart: "2026-06-26"},
+		// Team A: created on a later day of the 06-22 sprint — shows on both days.
+		{ItemID: "Alater", Team: "A", StartDate: "2026-06-24", SprintStart: "2026-06-22"},
+		// Team A: deferred — its scheduled day pushed into the far future while it
+		// stays in the 06-22 sprint. Hidden between today and that day; its past
+		// sprint day and its future slot stay visible.
+		{ItemID: "Adeferred", Team: "A", StartDate: "2999-12-30", SprintStart: "2026-06-22"},
+		// Team A: a ranged card (start…end) — shows on every day of 06-27..06-29.
+		{ItemID: "Aspan", Team: "A", StartDate: "2026-06-27", Day: "2026-06-29", SprintStart: "2026-06-22"},
 		{ItemID: "B1", Team: "B", StartDate: "2000-01-01", SprintStart: "2026-06-22"},
 		{ItemID: "N1", Team: "", StartDate: "2000-01-01", SprintStart: "2026-06-20"},
+		// Team A's sprint pointers: current = 06-26, previous = 06-22. Cards also
+		// show on pointer days their sprint passed through (carried / deferred).
+		{ItemID: "Astate", Team: "A", Title: SprintStateTitle, SprintStart: "2026-06-26", StartDate: "2026-06-22"},
 	})
 }
 
@@ -38,9 +49,16 @@ func TestTeamGrid(t *testing.T) {
 		team, day string
 		want      []string
 	}{
-		{"materialized card shows on its sprint day; deferred one is not", "A", "2026-06-22", []string{"A1"}},
-		{"deferred card shows on its own future day", "A", "2999-12-31", []string{"Afuture"}},
+		{"a sprint day keeps all its cards, deferred ones included", "A", "2026-06-22", []string{"A1", "Afuture", "Aother", "Alater", "Adeferred", "Aspan"}},
+		{"future-scheduled card shows on its own future day", "A", "2999-12-31", []string{"Afuture"}},
 		{"another sprint day shows its own card", "A", "2026-06-26", []string{"Aother"}},
+		{"a later-created card also shows on its scheduled day", "A", "2026-06-24", []string{"Alater"}},
+		{"a deferred card is hidden between today and its scheduled day", "A", "2998-01-01", []string{}},
+		{"a deferred card shows on its new scheduled day", "A", "2999-12-30", []string{"Adeferred"}},
+		{"a ranged card shows on its start day", "A", "2026-06-27", []string{"Aspan"}},
+		{"a ranged card shows mid-range", "A", "2026-06-28", []string{"Aspan"}},
+		{"a ranged card shows on its end day", "A", "2026-06-29", []string{"Aspan"}},
+		{"a ranged card is gone after its end day", "A", "2026-06-30", []string{}},
 		{"a day with no card is empty", "A", "2026-06-23", []string{}},
 		{"other team is isolated", "B", "2026-06-22", []string{"B1"}},
 		{"no-team group", "", "2026-06-20", []string{"N1"}},

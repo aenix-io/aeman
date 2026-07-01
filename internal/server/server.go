@@ -58,6 +58,9 @@ type Server struct {
 	auth       *authManager
 	httpClient *http.Client
 	handler    http.Handler
+	// store is the in-memory board cache and watch hub the /api/v1 watch and
+	// snapshot read from; it also keeps API/MCP mutations fast.
+	store *boardStore
 
 	// apiTokens resolves the token (and login) for an /api/v1 request. It
 	// defaults to tokenForRequest — the same resolution the /api/github proxy
@@ -94,6 +97,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.apiTokens = s.tokenForRequest
 	s.newService = s.defaultService
+	s.store = newBoardStore()
 	if opts.Auth != nil {
 		s.auth = newAuthManager(*opts.Auth, opts.Logger)
 	}
@@ -113,7 +117,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
-	s.handler = logRequests(s.log, mux)
+	s.handler = logRequests(s.log, clientIDMiddleware(mux))
 	return s, nil
 }
 
@@ -302,5 +306,17 @@ func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		log.Debug("request", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start))
+	})
+}
+
+// clientIDMiddleware stashes the caller's self-assigned client id (the
+// X-Aeman-Client header) on the request context. The board store uses it to
+// avoid echoing a client's own changes back over its watch stream.
+func clientIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id := r.Header.Get("X-Aeman-Client"); id != "" {
+			r = r.WithContext(withClientID(r.Context(), id))
+		}
+		next.ServeHTTP(w, r)
 	})
 }

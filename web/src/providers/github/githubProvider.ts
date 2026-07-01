@@ -1,4 +1,5 @@
 import { graphql } from "../../api/client";
+import { todayIso } from "../../date";
 import {
   STAGES,
   STAGE_ORDER,
@@ -31,6 +32,7 @@ import {
   DELETE_ITEM,
   GET_DRAFT_BODY,
   MOVE_ITEM,
+  CARDS_BY_ID_QUERY,
   ORG_PROJECT_QUERY,
   ORG_PROJECTS_QUERY,
   REMOVE_ASSIGNEES,
@@ -516,6 +518,33 @@ export const githubProvider: Provider = {
     return mapProject(owner, raw);
   },
 
+  async loadCards(
+    board: Board,
+    ids: string[],
+  ): Promise<{ cards: Card[]; needsFullReload: boolean }> {
+    if (ids.length === 0) {
+      return { cards: [], needsFullReload: false };
+    }
+    const roles = fieldRoles(board);
+    const data = await graphql<{ nodes: (RawItem | null)[] }>(
+      CARDS_BY_ID_QUERY,
+      { ids },
+    );
+    const cards: Card[] = [];
+    for (const node of data.nodes) {
+      if (!node) {
+        continue; // the item was deleted
+      }
+      if (node.content?.title === SPRINT_STATE_TITLE) {
+        // A sprint pointer moved (Carry Over): the board's sprint framing may
+        // have shifted, so reconcile with a full reload instead of patching.
+        return { cards: [], needsFullReload: true };
+      }
+      cards.push(mapItem(node, roles));
+    }
+    return { cards, needsFullReload: false };
+  },
+
   async setZone(board: Board, card: Card, optionId: string | null): Promise<void> {
     const field = await ensureField(board, "zone", "Zone");
     if (optionId === null) {
@@ -582,6 +611,45 @@ export const githubProvider: Provider = {
     });
   },
 
+  async setSprintStartMany(
+    board: Board,
+    cards: Card[],
+    date: string,
+  ): Promise<void> {
+    if (cards.length === 0) {
+      return;
+    }
+    const field = await ensureField(board, "sprintStart", "Sprint Start");
+    // One request per card is far too slow for a whole sprint, so batch: each
+    // request runs up to CHUNK aliased mutations, and the chunks go in parallel.
+    const CHUNK = 25;
+    const chunks: Card[][] = [];
+    for (let i = 0; i < cards.length; i += CHUNK) {
+      chunks.push(cards.slice(i, i + CHUNK));
+    }
+    await Promise.all(
+      chunks.map((chunk) => {
+        const varDefs = chunk.map((_, i) => `$item${i}: ID!`).join(", ");
+        const body = chunk
+          .map(
+            (_, i) =>
+              `m${i}: updateProjectV2ItemFieldValue(input: { projectId: $project, itemId: $item${i}, fieldId: $field, value: { date: $value } }) { projectV2Item { id } }`,
+          )
+          .join("\n");
+        const query = `mutation($project: ID!, $field: ID!, $value: Date!, ${varDefs}) {\n${body}\n}`;
+        const variables: Record<string, unknown> = {
+          project: board.id,
+          field: field.id,
+          value: date,
+        };
+        chunk.forEach((c, i) => {
+          variables[`item${i}`] = c.itemId;
+        });
+        return graphql(query, variables);
+      }),
+    );
+  },
+
   async setSprintState(
     board: Board,
     team: string | null,
@@ -641,6 +709,28 @@ export const githubProvider: Provider = {
         value: previous,
       });
     }
+  },
+
+  async carryOver(board: Board, team: string | null): Promise<void> {
+    // Client-side reference implementation: advance the pointer, then batch the
+    // unfinished cards' Sprint Start writes. It mirrors boardservice.CarryOver.
+    const key = team ?? "";
+    const today = todayIso();
+    const old = board.sprintStates[key]?.current ?? null;
+    if (old === today) {
+      return;
+    }
+    const carry = board.cards.filter(
+      (c) =>
+        (c.team ?? "") === key &&
+        c.sprintStart !== undefined &&
+        c.sprintStart !== "" &&
+        c.sprintStart < today &&
+        c.stage !== "done" &&
+        !c.itemId.startsWith("tmp-"),
+    );
+    await githubProvider.setSprintState(board, team, today, old);
+    await githubProvider.setSprintStartMany(board, carry, today);
   },
 
   async setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void> {

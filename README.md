@@ -7,9 +7,7 @@
 
 # aeman
 
-Backend-less project management, built on top of pluggable data providers. The first provider is **GitHub Projects v2**.
-
-aeman has no database and no server-side state of its own. The UI is a single-page application that talks to a data provider through a small, extensible interface; the GitHub provider reads and writes a GitHub Project (v2). The whole thing ships as one self-contained Go binary with the compiled frontend embedded via `go:embed`.
+Day-to-day project management for teams, with **GitHub Projects v2 as the storage** — aeman has no database of its own. The whole thing ships as one self-contained Go binary: an embedded React SPA (via `go:embed`), a JSON REST API, a WebSocket **watch** stream that keeps every open board updated live, and an MCP server for AI agents — all driving the same board service, with GitHub as the single source of truth.
 
 ## Concept
 
@@ -22,11 +20,13 @@ Two complementary views — a personal day board and a team board:
   - **Red** — must be resolved before the end of the day.
 - **Team** — the team board: a people × zones grid for the selected day, filtered by team. Columns are people (with their GitHub avatar and name), rows are the same colour zones. Columns can be dragged or shuffled, and a person keeps a column even on days they have no cards.
 
-Each card carries a **readiness slider** (0–100%), a **stage** (Locked / Review / Done) that recolours the bar, an optional **team**, an age counter, and links back to its source issue. Click a card's avatar to reassign its team or person, or the day counter to edit its start/finish dates. There is intentionally no built-in time tracker.
+Each card carries a **readiness slider** (0–100%), a **stage** (Locked / Review / Done) that recolours the bar, an optional **team**, an age counter, and links back to its source issue. Click a card's avatar to reassign its team or person, or the day counter to edit its dates. There is intentionally no built-in time tracker.
+
+Every open board is **live**: edits made by teammates — or by AI agents over MCP — appear on everyone's screen in about a second, without reloading.
 
 ### Sprints
 
-Sprints are open-ended and advanced by hand. A card belongs to a sprint (its **sprint start** day) and is shown on every day from its **start** date through that sprint day — so a long-running card stays visible on past days, while days after the last sprint go empty (the cue to start a new one). **Carry over** moves a team's unfinished cards into the selected day's sprint, with a *no team* option too. The current sprint is tracked per team, so an engineer on several teams sees each team's current cards at once.
+Sprints are open-ended and advanced by hand: **Carry over** starts a team's new sprint on today and pulls its unfinished cards forward (with a *no team* group too). A card carries two dates — the sprint it belongs to (**sprint start**) and the day it actually started (**start**, kept as history) — so the Team board shows it on its sprint's day, on the day it was created, and on past sprint days it passed through. **+1 day / +1 week** defers a card counting from today, hiding it until its new day without losing that history. The current sprint is tracked per team, so an engineer on several teams sees each team's current cards at once. The full date model lives in [docs/dates.md](docs/dates.md).
 
 ### Weekly team plan
 
@@ -35,21 +35,21 @@ Below the team grid sits a weekly plan: business tasks assigned to a team for th
 ## Architecture
 
 ```
-┌────────────────────────────┐        ┌──────────────────────┐
-│  aeman binary (Go)         │        │  GitHub Projects v2  │
-│                            │        │  (data backend)      │
-│  ┌──────────────────────┐  │  gh    │                      │
-│  │ embedded SPA (React) │  │ token  │                      │
-│  │  Provider interface  │──┼────────┼─►  GraphQL / REST    │
-│  └──────────────────────┘  │ proxy  │                      │
-│  /api/github/* reverse     │        │                      │
-│  proxy + gh auth token     │        │                      │
-└────────────────────────────┘        └──────────────────────┘
+┌──────────────────────────────────────────────┐        ┌──────────────────────┐
+│  aeman binary (Go)                           │        │  GitHub Projects v2  │
+│                                              │        │  (data backend)      │
+│  embedded SPA ───► REST /api/v1 ──┐          │        │                      │
+│       ▲                           │  board   │   gh   │                      │
+│       └──── WS /api/v1/watch ◄────┤  service ┼────────┼─►  GraphQL API      │
+│                                   │  + cache │  token │                      │
+│  AI agents ───► MCP (stdio, /mcp)─┘          │        │                      │
+└──────────────────────────────────────────────┘        └──────────────────────┘
 ```
 
-- The browser never holds a token: the binary injects one from `gh auth token` and proxies `/api/github/*` to the GitHub API (also sidesteps CORS).
-- The provider interface lives in the frontend, so additional backends (GitLab, Redmine, …) can be added without touching the Go layer.
-- A future deployment mode can publish the same SPA as a static site on GitHub Pages, talking to the GitHub API directly.
+- **Kubernetes-style live sync**: a client LISTs the board once (`GET /api/v1/snapshot`) and then applies a WATCH stream of `ADDED / MODIFIED / DELETED / RELOAD` events over a WebSocket. Every write — from the UI, the REST API or an agent over MCP — goes through one board service with a shared in-memory store, reloads only the touched card, and reaches every open board in about a second (a client's own changes are not echoed back to it).
+- The store is only a cache: GitHub stays the source of truth and the only persistence.
+- The browser never holds a token: the binary resolves one server-side (local `gh auth token`, or per-user OAuth sessions in the self-hosted mode) for both the board service and the `/api/github/*` proxy used for profile lookups.
+- The frontend keeps a small provider interface (the REST provider is the default; a direct-GraphQL provider remains as a reference), so additional backends (GitLab, Redmine, …) can be added.
 
 ### Fields
 
@@ -78,7 +78,7 @@ make run            # go run ./cmd/aeman serve
 
 ## API and MCP server
 
-The same binary exposes a Go-native GitHub Projects v2 client two ways: a JSON HTTP API under `/api/v1` and an MCP server for AI agents (`aeman mcp`, stdio transport). Both reuse aeman's token resolution (local `gh` token, or `GITHUB_TOKEN` for the MCP server) and share the same field mapping. See [docs/api.md](docs/api.md) for endpoints, the card model, the MCP tool set and client configuration.
+The same binary drives the board three ways: the embedded UI, a JSON HTTP API under `/api/v1`, and an MCP server for AI agents (`aeman mcp` on stdio, or mounted at `/mcp` in the self-hosted OAuth mode). All of them call the same board service, so a change made by an agent shows up on every open board live. `GET /api/v1` returns a machine-readable catalog of every endpoint; see [docs/api.md](docs/api.md) for the endpoints, the card model, the watch protocol, the MCP tool set and client configuration.
 
 ```sh
 aeman mcp --owner acme --project 7   # start the MCP server on stdio
