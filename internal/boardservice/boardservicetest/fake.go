@@ -77,6 +77,22 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	return board.Board{ID: f.board.ID, Number: f.board.Number, Owner: f.board.Owner, Cards: cards, SprintStates: states}, nil
 }
 
+// LoadCards returns the seeded cards matching ids, mirroring a partial reload.
+func (f *Backend) LoadCards(_ context.Context, _ board.Board, ids []string) ([]board.Card, error) {
+	f.rec("LoadCards")
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	var out []board.Card
+	for i := range f.board.Cards {
+		if want[f.board.Cards[i].ItemID] {
+			out = append(out, f.board.Cards[i])
+		}
+	}
+	return out, nil
+}
+
 // CreateCard appends a new card and records the create input.
 func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateInput) (board.Card, error) {
 	f.nextID++

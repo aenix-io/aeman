@@ -71,6 +71,21 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 	return board.Board{ID: f.b.ID, Number: f.b.Number, Owner: f.b.Owner, Cards: cards, SprintStates: states}, nil
 }
 
+func (f *fakeBackend) LoadCards(_ context.Context, _ board.Board, ids []string) ([]board.Card, error) {
+	f.rec("LoadCards")
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	var out []board.Card
+	for i := range f.b.Cards {
+		if want[f.b.Cards[i].ItemID] {
+			out = append(out, f.b.Cards[i])
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.CreateInput) (board.Card, error) {
 	f.nextID++
 	card := board.Card{

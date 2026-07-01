@@ -19,6 +19,35 @@ func (c *Client) LoadBoard(ctx context.Context, owner string, project int) (boar
 	return mapDomainBoard(owner, raw), nil
 }
 
+// nodesByIDResult decodes the nodes(ids:) query: a positional list where a
+// missing/deleted id (or a non-ProjectV2Item node) comes back null.
+type nodesByIDResult struct {
+	Nodes []*rawItem `json:"nodes"`
+}
+
+// LoadCards fetches specific project items by node id and maps them to domain
+// cards, resolving roles from b's fields. Deleted ids are simply absent from the
+// result. It is the fast partial read the live-update path uses instead of
+// reloading the whole board.
+func (c *Client) LoadCards(ctx context.Context, b board.Board, ids []string) ([]board.Card, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var data nodesByIDResult
+	if err := c.graphql(ctx, cardsByIDQuery, map[string]any{"ids": ids}, &data); err != nil {
+		return nil, err
+	}
+	roles := domainRoles(b.Fields)
+	cards := make([]board.Card, 0, len(data.Nodes))
+	for _, item := range data.Nodes {
+		if item == nil || item.ID == "" {
+			continue // a deleted id, or a non-ProjectV2Item node
+		}
+		cards = append(cards, mapDomainItem(item, roles))
+	}
+	return cards, nil
+}
+
 // mapDomainBoard maps a raw project onto the domain board.Board, calling
 // board.NewBoard so the per-team sprint-state cards are split out of Cards.
 func mapDomainBoard(owner string, raw *rawProject) board.Board {
