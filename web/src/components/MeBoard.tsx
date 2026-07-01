@@ -145,6 +145,17 @@ export function MeBoard({
         if (c.startDate && c.startDate > today) {
           return selectedDate >= c.startDate;
         }
+        // A card with an end date spans a range: it shows on every day from its
+        // start through its end regardless of sprint boundaries.
+        if (
+          c.startDate &&
+          c.day &&
+          c.day >= c.startDate &&
+          selectedDate >= c.startDate &&
+          selectedDate <= c.day
+        ) {
+          return true;
+        }
         const as = activeSprint(board, c.team ?? null, selectedDate);
         const ss = c.sprintStart;
         // A card shows on every day of the sprints it spans — from the one it
