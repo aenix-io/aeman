@@ -14,16 +14,19 @@ const itemNode = `
     __typename
     ... on DraftIssue {
       id title body
+      creator { login }
       assignees(first: 10) { nodes { login } }
     }
     ... on Issue {
       id number title url state
+      author { login }
       repository { nameWithOwner }
       assignees(first: 10) { nodes { login } }
       comments(last: 20) { nodes { id body createdAt author { login } } }
     }
     ... on PullRequest {
       id number title url state
+      author { login }
       repository { nameWithOwner }
       assignees(first: 10) { nodes { login } }
       comments(last: 20) { nodes { id body createdAt author { login } } }

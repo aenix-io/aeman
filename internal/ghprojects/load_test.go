@@ -94,6 +94,9 @@ func TestMapDomainBoard(t *testing.T) {
 	if orig.Zone != board.ZoneRed {
 		t.Errorf("orig zone = %q, want red", orig.Zone)
 	}
+	if orig.ZoneOptionID != "o_red" {
+		t.Errorf("orig zoneOptionId = %q, want o_red", orig.ZoneOptionID)
+	}
 	if orig.Progress != 40 {
 		t.Errorf("orig progress = %d, want 40", orig.Progress)
 	}
@@ -113,6 +116,110 @@ func TestMapDomainBoard(t *testing.T) {
 	rev := cardOf(t, b, "I_REV")
 	if rev.ReviewOf != "I_ORIG" {
 		t.Errorf("review card ReviewOf = %q, want I_ORIG", rev.ReviewOf)
+	}
+}
+
+// contentBoardJSON exercises the frontend-facing content mapping: a draft card
+// with a creator, a zone, a Day/Sprint/Status value and a body carrying a
+// description plus a log-marked note thread, and an issue card with an author,
+// url/number/repository/state, a body description and a comment thread.
+const contentBoardJSON = `{
+  "id":"PVT_C","number":11,"title":"Content","url":"https://example/11",
+  "fields":{"nodes":[
+    {"__typename":"ProjectV2SingleSelectField","id":"F_ZONE","name":"Zone","dataType":"SINGLE_SELECT","options":[
+       {"id":"o_gray","name":"Planned","color":"GRAY"},
+       {"id":"o_red","name":"Critical","color":"RED"}]},
+    {"__typename":"ProjectV2Field","id":"F_DAY","name":"Day","dataType":"DATE"},
+    {"__typename":"ProjectV2IterationField","id":"F_SPRINT","name":"Sprint","dataType":"ITERATION"},
+    {"__typename":"ProjectV2SingleSelectField","id":"F_STATUS","name":"Status","dataType":"SINGLE_SELECT","options":[
+       {"id":"st_todo","name":"Todo","color":"GRAY"},
+       {"id":"st_prog","name":"In Progress","color":"YELLOW"}]}
+  ]},
+  "items":{"nodes":[
+    {"id":"I_DRAFT","type":"DRAFT_ISSUE","createdAt":"2026-06-20T10:00:00Z",
+     "content":{"__typename":"DraftIssue","id":"DI_DRAFT","title":"Draft card",
+        "body":"Ship the thing\n\n<!-- aeman:log -->\n- [2026-06-21T09:00:00Z] started\n- [2026-06-22T09:00:00Z] almost",
+        "creator":{"login":"dave"},"assignees":{"nodes":[{"login":"bob"}]}},
+     "fieldValues":{"nodes":[
+        {"__typename":"ProjectV2ItemFieldSingleSelectValue","optionId":"o_red","name":"Critical","field":{"id":"F_ZONE","name":"Zone"}},
+        {"__typename":"ProjectV2ItemFieldDateValue","date":"2026-06-25","field":{"id":"F_DAY","name":"Day"}},
+        {"__typename":"ProjectV2ItemFieldIterationValue","title":"Sprint 7","field":{"id":"F_SPRINT","name":"Sprint"}},
+        {"__typename":"ProjectV2ItemFieldSingleSelectValue","optionId":"st_prog","name":"In Progress","field":{"id":"F_STATUS","name":"Status"}}
+     ]}},
+    {"id":"I_ISSUE","type":"ISSUE","createdAt":"2026-06-19T10:00:00Z",
+     "content":{"__typename":"Issue","id":"ISS_1","number":42,"title":"Fix bug",
+        "url":"https://github.com/acme/repo/issues/42","state":"OPEN","author":{"login":"erin"},
+        "repository":{"nameWithOwner":"acme/repo"},"assignees":{"nodes":[{"login":"carol"}]},
+        "body":"The bug is real.",
+        "comments":{"nodes":[{"id":"C1","body":"looking into it","createdAt":"2026-06-19T11:00:00Z","author":{"login":"frank"}}]}},
+     "fieldValues":{"nodes":[]}}
+  ]}
+}`
+
+func TestMapDomainItemContent(t *testing.T) {
+	var raw rawProject
+	if err := json.Unmarshal([]byte(contentBoardJSON), &raw); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	b := mapDomainBoard("acme", &raw)
+	if b.Title != "Content" || b.URL != "https://example/11" {
+		t.Fatalf("board title/url = %q / %q", b.Title, b.URL)
+	}
+
+	draft := cardOf(t, b, "I_DRAFT")
+	if !draft.IsDraft {
+		t.Errorf("draft.IsDraft = false, want true")
+	}
+	if draft.Author != "dave" {
+		t.Errorf("draft author = %q, want dave (creator)", draft.Author)
+	}
+	if draft.Day != "2026-06-25" {
+		t.Errorf("draft day = %q, want 2026-06-25", draft.Day)
+	}
+	if draft.ZoneOptionID != "o_red" || draft.Zone != board.ZoneRed {
+		t.Errorf("draft zone/optionId = %q / %q", draft.Zone, draft.ZoneOptionID)
+	}
+	if draft.SprintTitle != "Sprint 7" {
+		t.Errorf("draft sprintTitle = %q, want Sprint 7", draft.SprintTitle)
+	}
+	if draft.Status != "In Progress" {
+		t.Errorf("draft status = %q, want In Progress", draft.Status)
+	}
+	if draft.Description != "Ship the thing" {
+		t.Errorf("draft description = %q, want %q", draft.Description, "Ship the thing")
+	}
+	if len(draft.Notes) != 2 {
+		t.Fatalf("draft notes = %+v, want 2", draft.Notes)
+	}
+	if draft.Notes[0].Body != "started" || draft.Notes[0].CreatedAt != "2026-06-21T09:00:00Z" ||
+		draft.Notes[0].Source != "draft" || draft.Notes[0].ID != "I_DRAFT:1" {
+		t.Errorf("draft note[0] = %+v", draft.Notes[0])
+	}
+	if draft.Notes[1].Body != "almost" || draft.Notes[1].ID != "I_DRAFT:2" {
+		t.Errorf("draft note[1] = %+v", draft.Notes[1])
+	}
+
+	issue := cardOf(t, b, "I_ISSUE")
+	if issue.IsDraft {
+		t.Errorf("issue.IsDraft = true, want false")
+	}
+	if issue.Author != "erin" {
+		t.Errorf("issue author = %q, want erin", issue.Author)
+	}
+	if issue.URL != "https://github.com/acme/repo/issues/42" || issue.Number != 42 ||
+		issue.Repository != "acme/repo" || issue.State != "OPEN" {
+		t.Errorf("issue url/number/repo/state = %q / %d / %q / %q",
+			issue.URL, issue.Number, issue.Repository, issue.State)
+	}
+	if issue.Description != "The bug is real." {
+		t.Errorf("issue description = %q", issue.Description)
+	}
+	if len(issue.Notes) != 1 {
+		t.Fatalf("issue notes = %+v, want 1", issue.Notes)
+	}
+	if issue.Notes[0].ID != "C1" || issue.Notes[0].Body != "looking into it" ||
+		issue.Notes[0].Author != "frank" || issue.Notes[0].Source != "comment" {
+		t.Errorf("issue note[0] = %+v", issue.Notes[0])
 	}
 }
 
