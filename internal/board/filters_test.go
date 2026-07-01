@@ -28,9 +28,10 @@ func gridBoard() Board {
 		{ItemID: "Aother", Team: "A", StartDate: "2000-01-01", SprintStart: "2026-06-26"},
 		// Team A: created on a later day of the 06-22 sprint — shows on both days.
 		{ItemID: "Alater", Team: "A", StartDate: "2026-06-24", SprintStart: "2026-06-22"},
-		// Team A: deferred — its sprint pushed into the far future. Hidden between
-		// today and that day; its history day and its future slot stay visible.
-		{ItemID: "Adeferred", Team: "A", StartDate: "2026-06-25", SprintStart: "2999-12-30"},
+		// Team A: deferred — its scheduled day pushed into the far future while it
+		// stays in the 06-22 sprint. Hidden between today and that day; its past
+		// sprint day and its future slot stay visible.
+		{ItemID: "Adeferred", Team: "A", StartDate: "2999-12-30", SprintStart: "2026-06-22"},
 		{ItemID: "B1", Team: "B", StartDate: "2000-01-01", SprintStart: "2026-06-22"},
 		{ItemID: "N1", Team: "", StartDate: "2000-01-01", SprintStart: "2026-06-20"},
 		// Team A's sprint pointers: current = 06-26, previous = 06-22. Cards also
@@ -46,13 +47,12 @@ func TestTeamGrid(t *testing.T) {
 		team, day string
 		want      []string
 	}{
-		{"a sprint day shows its cards plus the ones that passed through it", "A", "2026-06-22", []string{"A1", "Aother", "Alater", "Adeferred"}},
-		{"deferred card shows on its own future day", "A", "2999-12-31", []string{"Afuture"}},
-		{"the current sprint day keeps a deferred card that passed through", "A", "2026-06-26", []string{"Aother", "Adeferred"}},
+		{"a sprint day keeps all its cards, deferred ones included", "A", "2026-06-22", []string{"A1", "Afuture", "Aother", "Alater", "Adeferred"}},
+		{"future-scheduled card shows on its own future day", "A", "2999-12-31", []string{"Afuture"}},
+		{"another sprint day shows its own card", "A", "2026-06-26", []string{"Aother"}},
 		{"a later-created card also shows on its scheduled day", "A", "2026-06-24", []string{"Alater"}},
-		{"a deferred card keeps its history day", "A", "2026-06-25", []string{"Adeferred"}},
-		{"a deferred card is hidden between today and its new sprint day", "A", "2998-01-01", []string{}},
-		{"a deferred card shows on its new sprint day", "A", "2999-12-30", []string{"Adeferred"}},
+		{"a deferred card is hidden between today and its scheduled day", "A", "2998-01-01", []string{}},
+		{"a deferred card shows on its new scheduled day", "A", "2999-12-30", []string{"Adeferred"}},
 		{"a day with no card is empty", "A", "2026-06-23", []string{}},
 		{"other team is isolated", "B", "2026-06-22", []string{"B1"}},
 		{"no-team group", "", "2026-06-20", []string{"N1"}},
