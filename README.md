@@ -46,7 +46,7 @@ Below the team grid sits a weekly plan: business tasks assigned to a team for th
 └──────────────────────────────────────────────┘        └──────────────────────┘
 ```
 
-- **Kubernetes-style live sync**: a client LISTs the board once (`GET /api/v1/snapshot`) and then applies a WATCH stream of `ADDED / MODIFIED / DELETED / RELOAD` events over a WebSocket. Every write — from the UI, the REST API or an agent over MCP — goes through one board service with a shared in-memory store, reloads only the touched card, and reaches every open board in about a second (a client's own changes are not echoed back to it).
+- **Kubernetes-style API and live sync**: cards, sprints, notes and the board order are resources (`{kind, metadata, spec, status}`); a client LISTs them (`GET /api/v1/cards`) and then applies a WATCH stream of `ADDED / MODIFIED / DELETED` resource events over a WebSocket — optionally scoped to one view by the same selectors LIST takes. Every write — from the UI, the REST API or an agent over MCP — goes through one board service with a shared in-memory store, reloads only the touched card, and reaches every open board in about a second (a client's own changes are not echoed back to it).
 - The store is only a cache: GitHub stays the source of truth and the only persistence.
 - The browser never holds a token: the binary resolves one server-side (local `gh auth token`, or per-user OAuth sessions in the self-hosted mode) for both the board service and the `/api/github/*` proxy used for profile lookups.
 - The frontend keeps a small provider interface (the REST provider is the default; a direct-GraphQL provider remains as a reference), so additional backends (GitLab, Redmine, …) can be added.
