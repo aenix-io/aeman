@@ -840,6 +840,14 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 	if err != nil {
 		return board.Card{}, err
 	}
+	// The review card carries a copy of the original's description, so the
+	// reviewer sees the same context (and its links). A one-time copy at
+	// create — the reviewer may edit their own copy freely afterwards.
+	if card.Description != "" {
+		if setErr := s.backend.SetDescription(ctx, b, created, card.Description); setErr == nil {
+			created.Description = card.Description
+		}
+	}
 	// Put the original on review (ApplyStage also drops a 100% card to 90%).
 	if err := s.applyStage(ctx, b, card, board.StageReview); err != nil {
 		return created, err
