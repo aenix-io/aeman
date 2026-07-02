@@ -183,6 +183,18 @@ const createSelectFieldMutation = `mutation($project: ID!, $name: String!, $opti
   }
 }`
 
+const selectFieldOptionsQuery = `query($id: ID!) {
+  node(id: $id) {
+    ... on ProjectV2SingleSelectField { options { id name color description } }
+  }
+}`
+
+const updateSelectFieldOptionsMutation = `mutation($field: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+  updateProjectV2Field(input: { fieldId: $field, singleSelectOptions: $options }) {
+    projectV2Field { ... on ProjectV2SingleSelectField { id name dataType options { id name color } } }
+  }
+}`
+
 const deleteItemMutation = `mutation($project: ID!, $item: ID!) {
   deleteProjectV2Item(input: { projectId: $project, itemId: $item }) { deletedItemId }
 }`

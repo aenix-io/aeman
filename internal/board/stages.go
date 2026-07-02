@@ -10,14 +10,15 @@ type StageKey string
 // The explicit stages a card can carry, mirroring web/src/stages.ts. StageNone
 // ("") is the absence of a stage (the implicit In Progress / not-started state).
 const (
-	StageNone   StageKey = ""
-	StageLocked StageKey = "locked"
-	StageReview StageKey = "review"
-	StageDone   StageKey = "done"
+	StageNone      StageKey = ""
+	StageLocked    StageKey = "locked"
+	StageReview    StageKey = "review"
+	StageRecurrent StageKey = "recurrent"
+	StageDone      StageKey = "done"
 )
 
 // StageOrder is the canonical stage ordering, mirroring STAGE_ORDER.
-var StageOrder = []StageKey{StageLocked, StageReview, StageDone}
+var StageOrder = []StageKey{StageLocked, StageReview, StageRecurrent, StageDone}
 
 // DefaultBarColor is the progress-bar colour for a card with no stage, mirroring
 // DEFAULT_BAR_COLOR.
@@ -34,7 +35,10 @@ type StageDef struct {
 var Stages = map[StageKey]StageDef{
 	StageLocked: {Key: StageLocked, Label: "Locked", Color: "#cf222e"},
 	StageReview: {Key: StageReview, Label: "Review", Color: "#d4a72c"},
-	StageDone:   {Key: StageDone, Label: "Done", Color: "#1f883d"},
+	// Recurrent marks a repeating task: unlike review/locked its progress spans
+	// the full 0–100%, and Carry Over reseeds a finished one as a fresh copy.
+	StageRecurrent: {Key: StageRecurrent, Label: "Recurrent", Color: "#58a6ff"},
+	StageDone:      {Key: StageDone, Label: "Done", Color: "#1f883d"},
 }
 
 // StageFromName maps a Stage single-select option name onto a StageKey, mirroring
@@ -45,6 +49,8 @@ func StageFromName(name string) StageKey {
 		return StageLocked
 	case "review":
 		return StageReview
+	case "recurrent":
+		return StageRecurrent
 	case "done":
 		return StageDone
 	default:

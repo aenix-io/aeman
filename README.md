@@ -20,7 +20,7 @@ Two complementary views — a personal day board and a team board:
   - **Red** — must be resolved before the end of the day.
 - **Team** — the team board: a people × zones grid for the selected day, filtered by team. Columns are people (with their GitHub avatar and name), rows are the same colour zones. Columns can be dragged or shuffled, and a person keeps a column even on days they have no cards.
 
-Each card carries a **readiness slider** (0–100%), a **stage** (Locked / Review / Done) that recolours the bar, an optional **team**, an age counter, and links back to its source issue. Click a card's avatar to reassign its team or person, or the day counter to edit its dates. There is intentionally no built-in time tracker.
+Each card carries a **readiness slider** (0–100%), a **stage** (Locked / Review / Recurrent / Done) that recolours the bar, an optional **team**, an age counter, and links back to its source issue. Click a card's avatar to reassign its team or person, or the day counter to edit its dates. There is intentionally no built-in time tracker.
 
 Every open board is **live**: edits made by teammates — or by AI agents over MCP — appear on everyone's screen in about a second, without reloading.
 
