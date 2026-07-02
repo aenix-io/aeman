@@ -291,6 +291,126 @@ export function Card({
   const ageDays =
     weekMode && card.assignees.length === 0 ? 0 : daysSince(card.createdAt, asOf);
 
+  // The status control: an always-visible icon for review/locked/recurrent,
+  // a hover-only flag otherwise. A staged card keeps it after the links icon
+  // (the hashtag sits before the stage marker); an unstaged card renders the
+  // hover flag BEFORE the links icon, so the always-visible links icon does
+  // not jump left when the flag pops in on hover (the actions block is
+  // right-anchored, so growth to its left leaves it in place).
+  const stageVisible =
+    card.stage === "review" ||
+    card.stage === "locked" ||
+    card.stage === "recurrent";
+  const stageControl = (
+    <div
+      className={`card-stage${card.stage === "review" || card.stage === "locked" || card.stage === "recurrent" ? "" : " card-hoveronly"}`}
+      ref={menuRef}
+    >
+      <button
+        type="button"
+        className="card-action card-status-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          setMenuOpen((o) => !o);
+        }}
+        aria-label="Set status"
+        title={
+          card.stage === "review"
+            ? "On review"
+            : card.stage === "recurrent"
+              ? "Recurrent"
+              : card.stage === "locked"
+                ? "Locked"
+                : "Status"
+        }
+        style={card.stage ? { color: STAGES[card.stage].color } : undefined}
+      >
+        {card.stage === "review" ? (
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <rect x="7" y="7" width="3.6" height="10" rx="1.4" />
+            <rect x="13.4" y="7" width="3.6" height="10" rx="1.4" />
+          </svg>
+        ) : card.stage === "recurrent" ? (
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 2v6h-6" />
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M3 22v-6h6" />
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        ) : card.stage === "locked" ? (
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3 2 21h20L12 3z" />
+            <line x1="12" y1="10" x2="12" y2="15" />
+            <line x1="12" y1="18" x2="12.01" y2="18" />
+          </svg>
+        ) : (
+          "⚑"
+        )}
+      </button>
+      <Dropdown
+        open={menuOpen}
+        anchorRef={menuRef}
+        onClose={() => setMenuOpen(false)}
+        className="card-stage-menu"
+      >
+        <button
+          type="button"
+          className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
+          onClick={pickInProgress}
+        >
+          <span
+            className="card-stage-dot"
+            style={{ background: DEFAULT_BAR_COLOR }}
+          />
+          In Progress
+        </button>
+        {STAGE_ORDER.map((stage) =>
+          // A review card cannot be put on the "review" stage itself.
+          stage === "review" && card.reviewOf ? null : (
+            <button
+              key={stage}
+              type="button"
+              className={`card-stage-item${(stage === "done" ? doneish : card.stage === stage) ? " card-stage-item-active" : ""}`}
+              onClick={(e) => pickStage(e, stage)}
+            >
+              <span
+                className="card-stage-dot"
+                style={{ background: STAGES[stage].color }}
+              />
+              {STAGES[stage].label}
+            </button>
+          ),
+        )}
+      </Dropdown>
+    </div>
+  );
+
   return (
     <div
       className={`card${selected ? " card-selected" : ""}${
@@ -348,6 +468,7 @@ export function Card({
         >
           ×
         </button>
+        {!stageVisible && stageControl}
         {localLinks.length > 0 && (
           <div className="card-links" ref={linksRef}>
             <button
@@ -407,113 +528,7 @@ export function Card({
             </Dropdown>
           </div>
         )}
-        <div
-          className={`card-stage${card.stage === "review" || card.stage === "locked" || card.stage === "recurrent" ? "" : " card-hoveronly"}`}
-          ref={menuRef}
-        >
-          <button
-            type="button"
-            className="card-action card-status-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((o) => !o);
-            }}
-            aria-label="Set status"
-            title={
-              card.stage === "review"
-                ? "On review"
-                : card.stage === "recurrent"
-                  ? "Recurrent"
-                  : card.stage === "locked"
-                    ? "Locked"
-                    : "Status"
-            }
-            style={card.stage ? { color: STAGES[card.stage].color } : undefined}
-          >
-            {card.stage === "review" ? (
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <rect x="7" y="7" width="3.6" height="10" rx="1.4" />
-                <rect x="13.4" y="7" width="3.6" height="10" rx="1.4" />
-              </svg>
-            ) : card.stage === "recurrent" ? (
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M21 2v6h-6" />
-                <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-                <path d="M3 22v-6h6" />
-                <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-              </svg>
-            ) : card.stage === "locked" ? (
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 3 2 21h20L12 3z" />
-                <line x1="12" y1="10" x2="12" y2="15" />
-                <line x1="12" y1="18" x2="12.01" y2="18" />
-              </svg>
-            ) : (
-              "⚑"
-            )}
-          </button>
-          <Dropdown
-            open={menuOpen}
-            anchorRef={menuRef}
-            onClose={() => setMenuOpen(false)}
-            className="card-stage-menu"
-          >
-            <button
-              type="button"
-              className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
-              onClick={pickInProgress}
-            >
-              <span
-                className="card-stage-dot"
-                style={{ background: DEFAULT_BAR_COLOR }}
-              />
-              In Progress
-            </button>
-            {STAGE_ORDER.map((stage) =>
-              // A review card cannot be put on the "review" stage itself.
-              stage === "review" && card.reviewOf ? null : (
-                <button
-                  key={stage}
-                  type="button"
-                  className={`card-stage-item${(stage === "done" ? doneish : card.stage === stage) ? " card-stage-item-active" : ""}`}
-                  onClick={(e) => pickStage(e, stage)}
-                >
-                  <span
-                    className="card-stage-dot"
-                    style={{ background: STAGES[stage].color }}
-                  />
-                  {STAGES[stage].label}
-                </button>
-              ),
-            )}
-          </Dropdown>
-        </div>
+        {stageVisible && stageControl}
       </span>
 
       {card.createdAt && (
