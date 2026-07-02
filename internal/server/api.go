@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/aenix-org/aeman/internal/apiserver"
-	"github.com/aenix-org/aeman/internal/board"
-	"github.com/aenix-org/aeman/internal/boardservice"
-	"github.com/aenix-org/aeman/internal/ghprojects"
+	"github.com/aenix-org/aeman/pkg/apiserver"
+	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-org/aeman/pkg/boardservice"
+	"github.com/aenix-org/aeman/pkg/ghprojects"
 )
 
 // errMissingBoard is returned when neither query parameters nor server defaults
