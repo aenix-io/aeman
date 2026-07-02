@@ -384,6 +384,19 @@ func (h *server) deferCard(ctx context.Context, _ *mcp.CallToolRequest, in defer
 	return h.cardResource(ctx, svc, owner, project, in.UID)
 }
 
+// setInProgress moves a card to the implicit In Progress status: the stage is
+// cleared and the progress nudged into the [10, 90] band at the edges.
+func (h *server) setInProgress(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.SetInProgress(ctx, owner, project, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, owner, project, in.UID)
+}
+
 // sendToReviewInput sends a card to review for a reviewer.
 type sendToReviewInput struct {
 	cardRef
