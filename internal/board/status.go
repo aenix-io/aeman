@@ -50,14 +50,13 @@ func ApplyProgress(stage StageKey, raw int) (StageKey, int) {
 // never sit at full. Clearing the stage (StageNone) or any other case keeps
 // progress. It mirrors handleStage.
 func ApplyStage(stage StageKey, currentProgress int) (StageKey, int) {
-	progress := currentProgress
-	switch {
-	case stage == StageDone:
+	if stage == StageDone {
 		return StageNone, 100
-	case (stage == StageReview || stage == StageLocked) && currentProgress == 100:
-		progress = 90
 	}
-	return stage, progress
+	// Entering review/locked stores the 10-90 clamp on both edges, so the
+	// stored value matches what the band displays (a 0% card becomes 10%, a
+	// full card drops to 90%) and survives a later switch to an unclamped stage.
+	return stage, ClampProgress(stage, currentProgress)
 }
 
 // ApplyInProgress computes the (stage, progress) for moving a card to the

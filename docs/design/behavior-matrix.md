@@ -40,7 +40,7 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 | S4 | Recurrent: unclamped 0–100; excluded from plan progress | board + view | ✅ status via S3; 🆕 view test `TestWeeklyViewProgressExcludesRecurrent` |
 | S5 | In Progress: clears stage, nudges into [10,90] at the edges | board.ApplyInProgress | ✅ status_test |
 | S6 | Review card progress drives the original's review stage (100 → off review, <100 → back on) | boardservice.syncReviewLink | ✅ service_test review suite |
-| S7 | review/locked knock a full (100%) card to 90 on stage pick | board.ApplyStage | ✅ status_test |
+| S7 | review/locked store the [10, 90] clamp on stage pick (0 → 10, 100 → 90), so the stored value matches the band | board.ApplyStage | ✅ status_test |
 
 ## Actions (the frontend logic moving server-side)
 
