@@ -1,0 +1,176 @@
+package apiserver
+
+import (
+	"encoding/json"
+	"net/url"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/aenix-org/aeman/internal/board"
+)
+
+func testBoard() board.Board {
+	return board.Board{
+		ID: "B1", Number: 1, Owner: "acme", Title: "board", URL: "https://x",
+		Cards: []board.Card{
+			{ItemID: "c1", ContentID: "D1", IsDraft: true, Title: "Wire the API",
+				Team: "alpha", Zone: board.ZoneRed, Progress: 40, Stage: board.StageReview,
+				StartDate: "2026-01-10", SprintStart: "2026-01-10", Day: "2026-01-12",
+				Assignees: []string{"octocat"}, Author: "octocat",
+				CreatedAt: "2026-01-10T08:00:00Z", Description: "details",
+				Notes: []board.Note{{ID: "n1", Body: "hi", CreatedAt: "t", Author: "a", Source: "comment"}}},
+			{ItemID: "rev", Title: "review: Wire the API", Team: "alpha",
+				ReviewOf: "c1", Progress: 40, Assignees: []string{"lllamnyp"},
+				StartDate: "2026-01-10", SprintStart: "2026-01-10"},
+			{ItemID: "p1", Title: "plan it", Team: "alpha", Plan: board.PlanWed,
+				Week: "2026-01-05", Progress: 50},
+			{ItemID: "p2", Title: "recurring", Team: "alpha", Plan: board.PlanFri,
+				Week: "2026-01-05", Stage: board.StageRecurrent, Progress: 100},
+			{ItemID: "z1", Title: "done thing", Team: "alpha", Zone: board.ZoneGreen,
+				Progress: 100, StartDate: "2026-01-10", SprintStart: "2026-01-10"},
+		},
+		SprintStates: map[string]board.SprintState{
+			"alpha": {Current: "2026-01-10", Previous: "2026-01-03"},
+		},
+	}
+}
+
+// M1: the resource carries every field, zones are semantic, and the JSON keys
+// follow the metadata/spec/status shape.
+func TestCardResourceMapsEveryField(t *testing.T) {
+	b := testBoard()
+	r := CardResource(b, b.Cards[0])
+	if r.Kind != "Card" || r.Metadata.UID != "c1" || r.Metadata.ContentID != "D1" ||
+		!r.Metadata.IsDraft || r.Metadata.Author != "octocat" ||
+		r.Metadata.CreatedAt != "2026-01-10T08:00:00Z" {
+		t.Fatalf("metadata = %+v", r.Metadata)
+	}
+	if r.Spec.Title != "Wire the API" || r.Spec.Team != "alpha" ||
+		r.Spec.Zone != "urgent" || r.Spec.Progress != 40 || r.Spec.Stage != "review" ||
+		r.Spec.Description != "details" {
+		t.Fatalf("spec = %+v", r.Spec)
+	}
+	if r.Spec.Dates != (CardDates{Start: "2026-01-10", End: "2026-01-12", Sprint: "2026-01-10"}) {
+		t.Fatalf("dates = %+v", r.Spec.Dates)
+	}
+	raw, _ := json.Marshal(r)
+	for _, key := range []string{`"kind":"Card"`, `"uid":"c1"`, `"zone":"urgent"`, `"start":"2026-01-10"`} {
+		if !strings.Contains(string(raw), key) {
+			t.Fatalf("marshalled card missing %s: %s", key, raw)
+		}
+	}
+}
+
+// M1: zone names round-trip.
+func TestZoneMapping(t *testing.T) {
+	pairs := map[board.ZoneKey]string{
+		board.ZoneRed: "urgent", board.ZoneYellow: "unplanned",
+		board.ZoneGray: "planned", board.ZoneGreen: "niceToHave",
+	}
+	for z, name := range pairs {
+		if SemanticZone(z) != name || DomainZone(name) != z {
+			t.Fatalf("zone %s <-> %s does not round-trip", z, name)
+		}
+	}
+	if SemanticZone("") != "" || DomainZone("") != "" {
+		t.Fatal("empty zone must stay empty")
+	}
+}
+
+// M2: derived status.
+func TestCardStatusDerived(t *testing.T) {
+	b := testBoard()
+	// c1 is on review with an unfinished linked review card assigned to lllamnyp.
+	c1 := CardResource(b, b.Cards[0])
+	if c1.Status.Complete || c1.Status.ReviewedBy != "lllamnyp" {
+		t.Fatalf("c1 status = %+v", c1.Status)
+	}
+	// z1 is 100% with no stage: derived done.
+	z1 := CardResource(b, b.Cards[4])
+	if !z1.Status.Complete || z1.Status.InProgress {
+		t.Fatalf("z1 status = %+v", z1.Status)
+	}
+	// p1 at 50% with no stage is the implicit In Progress.
+	p1 := CardResource(b, b.Cards[2])
+	if !p1.Status.InProgress {
+		t.Fatalf("p1 status = %+v", p1.Status)
+	}
+}
+
+// V1: view selectors reproduce the domain views; field selectors compose.
+func TestListSelectors(t *testing.T) {
+	b := testBoard()
+	team := FilterCards(b, Selector{View: "team", Team: "alpha", Day: "2026-01-10"})
+	ids := func(cs []board.Card) []string {
+		out := []string{}
+		for _, c := range cs {
+			out = append(out, c.ItemID)
+		}
+		return out
+	}
+	if !reflect.DeepEqual(ids(team), []string{"c1", "rev", "z1"}) {
+		t.Fatalf("team view = %v", ids(team))
+	}
+	me := FilterCards(b, Selector{View: "me", User: "octocat", Day: "2026-01-10"})
+	if !reflect.DeepEqual(ids(me), []string{"c1"}) {
+		t.Fatalf("me view = %v", ids(me))
+	}
+	stage := "review"
+	filtered := FilterCards(b, Selector{Stage: &stage})
+	if !reflect.DeepEqual(ids(filtered), []string{"c1"}) {
+		t.Fatalf("stage selector = %v", ids(filtered))
+	}
+	zone := "niceToHave"
+	byZone := FilterCards(b, Selector{Zone: &zone})
+	if !reflect.DeepEqual(ids(byZone), []string{"z1"}) {
+		t.Fatalf("zone selector = %v", ids(byZone))
+	}
+	byAssignee := FilterCards(b, Selector{Assignee: "lllamnyp"})
+	if !reflect.DeepEqual(ids(byAssignee), []string{"rev"}) {
+		t.Fatalf("assignee selector = %v", ids(byAssignee))
+	}
+}
+
+// V2: the weekly view computes the plan progress, excluding recurrent cards.
+func TestWeeklyViewProgressExcludesRecurrent(t *testing.T) {
+	b := testBoard()
+	list := ListCards(b, Selector{View: "weekly", Team: "alpha", Week: "2026-01-05"})
+	if len(list.Items) != 2 {
+		t.Fatalf("weekly items = %d", len(list.Items))
+	}
+	if list.Weekly == nil || list.Weekly.Progress != 50 {
+		t.Fatalf("weekly summary = %+v (recurrent p2 must not count)", list.Weekly)
+	}
+}
+
+// V4 support: Matches agrees with FilterCards.
+func TestSelectorMatches(t *testing.T) {
+	b := testBoard()
+	sel := Selector{View: "team", Team: "alpha", Day: "2026-01-10"}
+	if !sel.Matches(b, b.Cards[0]) {
+		t.Fatal("c1 is in the team view")
+	}
+	if sel.Matches(b, b.Cards[2]) {
+		t.Fatal("p1 (a plan card) is not on the day grid")
+	}
+}
+
+func TestSelectorParsing(t *testing.T) {
+	q, _ := url.ParseQuery("view=team&team=alpha&day=2026-01-10&stage=review")
+	sel, err := ParseSelector(q)
+	if err != nil || sel.View != "team" || sel.Team != "alpha" || sel.Stage == nil || *sel.Stage != "review" {
+		t.Fatalf("sel = %+v err = %v", sel, err)
+	}
+	if _, err := ParseSelector(url.Values{"view": {"nope"}}); err == nil {
+		t.Fatal("unknown view must error")
+	}
+}
+
+func TestOrderingResource(t *testing.T) {
+	b := testBoard()
+	o := OrderingResource(b)
+	if o.Kind != "Ordering" || len(o.Spec.UIDs) != len(b.Cards) || o.Spec.UIDs[0] != "c1" {
+		t.Fatalf("ordering = %+v", o)
+	}
+}

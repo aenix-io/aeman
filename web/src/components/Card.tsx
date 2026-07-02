@@ -47,8 +47,9 @@ interface CardProps {
   asOf?: string;
   /** Edit the card's start/end dates from the age badge (when provided). */
   onSetDates?: (card: CardModel, start: string | null, end: string | null) => void;
-  /** Defer the card to a later scheduled day (startDate), sprint untouched. */
-  onDefer?: (card: CardModel, newStart: string) => void;
+  /** Defer the card N days ahead of today (or of its already-deferred slot);
+   *  the server computes the target day, sprint untouched. */
+  onDefer?: (card: CardModel, days: number) => void;
   /** Plan-card mode: the age-badge editor moves the plan week instead of dates. */
   weekMode?: boolean;
   onSetWeek?: (card: CardModel, week: string | null) => void;
@@ -229,11 +230,8 @@ export function Card({
   // or ahead of its already-deferred slot — leaving its sprint untouched. The
   // boards hide it from today until that day; its past sprint day keeps it.
   const moveStart = (days: number) => {
-    const today = todayIso();
-    const base =
-      card.startDate && card.startDate > today ? card.startDate : today;
     setDatesOpen(false);
-    onDefer?.(card, addDays(base, days));
+    onDefer?.(card, days);
   };
 
   // Plan cards: shift the plan week forward, or set it by picking a date.

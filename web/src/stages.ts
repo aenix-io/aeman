@@ -1,4 +1,4 @@
-import type { ProjectField, StageKey } from "./providers/types";
+import type { StageKey } from "./providers/types";
 
 export type { StageKey };
 
@@ -32,28 +32,4 @@ export function isInProgress(card: {
 }): boolean {
   const p = card.progress ?? 0;
   return !card.stage && p >= 10 && p <= 90;
-}
-
-/** stageFromName maps a Stage single-select option name onto a StageKey. */
-export function stageFromName(name?: string): StageKey | undefined {
-  switch (name?.trim().toLowerCase()) {
-    case "locked":
-      return "locked";
-    case "review":
-      return "review";
-    case "recurrent":
-      return "recurrent";
-    case "done":
-      return "done";
-    default:
-      return undefined;
-  }
-}
-
-/** optionIdForStage finds the option id in the Stage field for a stage. */
-export function optionIdForStage(
-  field: ProjectField | undefined,
-  stage: StageKey,
-): string | undefined {
-  return field?.options?.find((o) => stageFromName(o.name) === stage)?.id;
 }

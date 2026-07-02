@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aenix-org/aeman/internal/board"
 	"github.com/aenix-org/aeman/internal/ghprojects"
@@ -174,6 +175,9 @@ func (f *fakeBackend) SetZone(_ context.Context, _ board.Board, card board.Card,
 
 func (f *fakeBackend) SetDay(_ context.Context, _ board.Board, card board.Card, day string) error {
 	f.rec("SetDay %s %s", card.ItemID, day)
+	if c := f.get(card.ItemID); c != nil {
+		c.Day = day
+	}
 	return nil
 }
 
@@ -330,7 +334,7 @@ func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
 		{ItemID: "c5", Team: "alpha", SprintStart: "2027-01-01"},
 	}, map[string]board.SprintState{"alpha": {Current: old}})
 	today := board.TodayIso()
-	if err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha"); err != nil {
+	if _, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false); err != nil {
 		t.Fatal(err)
 	}
 	if !f.saw(fmt.Sprintf("SetSprintState alpha cur=%s prev=%s", today, old)) {
@@ -358,7 +362,7 @@ func TestCarryOverIdempotentWhenAlreadyToday(t *testing.T) {
 	today := board.TodayIso()
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: today}},
 		map[string]board.SprintState{"alpha": {Current: today}})
-	if err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha"); err != nil {
+	if _, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("SetSprintState") != 0 || f.count("SetSprintStart") != 0 {
@@ -370,7 +374,7 @@ func TestCarryOverWithNothingToCarryStillAdvances(t *testing.T) {
 	old := "2026-01-01"
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: old, Stage: board.StageDone}},
 		map[string]board.SprintState{"alpha": {Current: old}})
-	if err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha"); err != nil {
+	if _, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("SetSprintState") != 1 {
@@ -659,12 +663,12 @@ func TestCarryWeekMovesUnfinishedEarlierCards(t *testing.T) {
 		{ItemID: "a3", Plan: board.PlanWed, Week: week, Team: "alpha"},
 		{ItemID: "a4", Plan: board.PlanWed, Week: "2026-06-15", Team: "beta"},
 	}, nil)
-	carried, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week)
+	rep, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(carried) != 1 || carried[0].ItemID != "a1" || carried[0].Week != week {
-		t.Fatalf("carried = %+v", carried)
+	if rep.Carried != 1 || f.get("a1").Week != week {
+		t.Fatalf("rep = %+v, a1 = %+v", rep, f.get("a1"))
 	}
 	if f.get("a1").Week != week {
 		t.Fatalf("a1 not moved: %+v", f.get("a1"))
@@ -676,12 +680,12 @@ func TestCarryWeekMovesUnfinishedEarlierCards(t *testing.T) {
 
 func TestCarryWeekNothingToCarry(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "a1", Plan: board.PlanWed, Week: "2026-06-22", Team: "alpha"}}, nil)
-	carried, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", "2026-06-22")
+	rep, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", "2026-06-22", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(carried) != 0 || f.count("SetWeek") != 0 {
-		t.Fatalf("nothing to carry; carried=%v log=%v", carried, f.log)
+	if rep.Carried != 0 || f.count("SetWeek") != 0 {
+		t.Fatalf("nothing to carry; rep=%+v log=%v", rep, f.log)
 	}
 }
 
@@ -758,7 +762,7 @@ func TestCarryOverReseedsFinishedRecurrent(t *testing.T) {
 		{ItemID: "r2", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent, Progress: 40},
 	}, map[string]board.SprintState{"alpha": {Current: old}})
 	today := board.TodayIso()
-	if err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha"); err != nil {
+	if _, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false); err != nil {
 		t.Fatal(err)
 	}
 	// The unfinished recurrent r2 carries like any card; the finished r1 stays.
@@ -793,13 +797,13 @@ func TestCarryWeekReseedsFinishedRecurrent(t *testing.T) {
 		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: prev, Stage: board.StageRecurrent, Progress: 100, Title: "weekly report"},
 		{ItemID: "p2", Team: "alpha", Plan: board.PlanFri, Week: prev, Progress: 20, Title: "feature"},
 	}, nil)
-	carried, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week)
+	rep, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// p2 moves into the week; p1 stays and seeds a fresh recurrent copy.
-	if len(carried) != 1 || carried[0].ItemID != "p2" {
-		t.Fatalf("carried = %+v", carried)
+	if rep.Carried != 1 || f.get("p2").Week != week {
+		t.Fatalf("rep = %+v, p2 = %+v", rep, f.get("p2"))
 	}
 	if f.get("p1").Week != prev {
 		t.Fatalf("finished recurrent plan card should stay: %+v", f.get("p1"))
@@ -809,10 +813,337 @@ func TestCarryWeekReseedsFinishedRecurrent(t *testing.T) {
 		t.Fatalf("reseed create = %+v", f.creates)
 	}
 	// Re-running is idempotent: the copy already sits in the target week.
-	if _, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week); err != nil {
+	if _, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.creates) != 1 {
 		t.Fatalf("reseed must not duplicate; creates=%v", f.creates)
+	}
+}
+
+// --- Defer (matrix D9/D10): the frontend moveStart/handleDefer semantics -----
+
+func TestDeferMovesStartFromToday(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: "2000-01-05",
+		SprintStart: "2000-01-01", Day: "2000-01-05", CreatedAt: "2000-01-05T10:00:00Z"}}, nil)
+	if err := f2svc(f).Defer(ctx, "acme", 1, "c1", 1); err != nil {
+		t.Fatal(err)
+	}
+	want := board.AddDays(today, 1)
+	c := f.get("c1")
+	if c.StartDate != want {
+		t.Fatalf("start = %s, want %s (defer counts from today, not the old start)", c.StartDate, want)
+	}
+	// An old card keeps its history: sprint and end date untouched.
+	if c.SprintStart != "2000-01-01" || c.Day != "2000-01-05" {
+		t.Fatalf("history must stay: %+v", c)
+	}
+}
+
+func TestDeferStacksFromDeferredSlot(t *testing.T) {
+	today := board.TodayIso()
+	slot := board.AddDays(today, 2)
+	f := newFake([]board.Card{{ItemID: "c1", StartDate: slot,
+		SprintStart: "2000-01-01", CreatedAt: "2000-01-05T10:00:00Z"}}, nil)
+	if err := f2svc(f).Defer(ctx, "acme", 1, "c1", 7); err != nil {
+		t.Fatal(err)
+	}
+	if want := board.AddDays(slot, 7); f.get("c1").StartDate != want {
+		t.Fatalf("start = %s, want %s (presses stack)", f.get("c1").StartDate, want)
+	}
+}
+
+func TestDeferSameDayCardRelocatesFully(t *testing.T) {
+	today := board.TodayIso()
+	created := time.Now().Format(time.RFC3339)
+	f := newFake([]board.Card{{ItemID: "c1", StartDate: today, SprintStart: today,
+		Day: today, CreatedAt: created}}, nil)
+	if err := f2svc(f).Defer(ctx, "acme", 1, "c1", 1); err != nil {
+		t.Fatal(err)
+	}
+	want := board.AddDays(today, 1)
+	c := f.get("c1")
+	if c.StartDate != want || c.SprintStart != want {
+		t.Fatalf("a same-day card relocates fully: %+v, want %s", c, want)
+	}
+	if !f.saw("SetDay c1 " + want) {
+		t.Fatalf("stale end date should be pulled along; log=%v", f.log)
+	}
+}
+
+func TestDeferSameDayKeepsLaterEnd(t *testing.T) {
+	today := board.TodayIso()
+	created := time.Now().Format(time.RFC3339)
+	end := board.AddDays(today, 5)
+	f := newFake([]board.Card{{ItemID: "c1", StartDate: today, SprintStart: today,
+		Day: end, CreatedAt: created}}, nil)
+	if err := f2svc(f).Defer(ctx, "acme", 1, "c1", 1); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetDay") != 0 {
+		t.Fatalf("an end date past the target stays; log=%v", f.log)
+	}
+}
+
+// --- Calendar set-dates (matrix D11): handleSetDates semantics ---------------
+
+func TestSetDatesJoinsSprintActiveOnStart(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: "2026-01-05",
+		SprintStart: "2026-01-05", Day: "2026-01-05"}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).SetDates(ctx, "acme", 1, "c1", "2026-01-04", "2026-01-06"); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("c1")
+	// 01-04 falls inside the previous sprint [01-03, 01-10) — the card joins it.
+	if c.StartDate != "2026-01-04" || c.SprintStart != "2026-01-03" || c.Day != "2026-01-06" {
+		t.Fatalf("card = %+v", c)
+	}
+}
+
+func TestSetDatesInsideCurrentSprintJoinsIt(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha"}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).SetDates(ctx, "acme", 1, "c1", "2026-01-12", "2026-01-12"); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("c1"); c.SprintStart != "2026-01-10" {
+		t.Fatalf("start inside the current sprint joins it: %+v", c)
+	}
+}
+
+func TestSetDatesBeforeTrackedSprintsStandsAlone(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha"}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).SetDates(ctx, "acme", 1, "c1", "2026-01-01", "2026-01-02"); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("c1"); c.SprintStart != "2026-01-01" {
+		t.Fatalf("start before tracked sprints becomes its own day: %+v", c)
+	}
+}
+
+func TestSetDatesEmptyClears(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: "2026-01-05",
+		SprintStart: "2026-01-03", Day: "2026-01-06"}}, nil)
+	if err := f2svc(f).SetDates(ctx, "acme", 1, "c1", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("c1")
+	if c.StartDate != "" || c.SprintStart != "" {
+		t.Fatalf("empty start clears start and sprint: %+v", c)
+	}
+	if !f.saw("SetDay c1 ") {
+		t.Fatalf("empty end clears the end date; log=%v", f.log)
+	}
+}
+
+// --- Smart remove (matrix A1–A3): handleGridDelete/removeFromPlan semantics --
+
+func TestRemoveGridDemotesFromCurrentSprint(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: "2026-01-10",
+		SprintStart: "2026-01-10", Day: "2026-01-12"}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("c1")
+	if c == nil || c.StartDate != "2026-01-03" || c.SprintStart != "2026-01-03" {
+		t.Fatalf("first x demotes to the previous sprint: %+v", c)
+	}
+	if !f.saw("SetDay c1 2026-01-03") {
+		t.Fatalf("the end date is pulled back too; log=%v", f.log)
+	}
+}
+
+func TestRemoveGridDeletesOutsideCurrentSprint(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-03"}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c1") != nil {
+		t.Fatalf("a card no longer in the current sprint is deleted for real")
+	}
+}
+
+func TestRemoveGridDeletesWhenNoPreviousSprint(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-10"}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10"}})
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c1") != nil {
+		t.Fatalf("no earlier sprint to demote into: delete")
+	}
+}
+
+func TestRemoveGridReleasesPlanTakenCard(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Plan: board.PlanWed,
+		Week: "2026-01-05", SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("c1")
+	if c == nil || len(c.Assignees) != 0 || c.SprintStart != "" {
+		t.Fatalf("a taken plan card is released, not deleted: %+v", c)
+	}
+	if c.Plan != board.PlanWed || c.Week != "2026-01-05" {
+		t.Fatalf("it stays in the weekly plan: %+v", c)
+	}
+}
+
+func TestRemovePlanClearsMarkerWhenAssigned(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Plan: board.PlanFri,
+		Week: "2026-01-05", Assignees: []string{"bob"}}}, nil)
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("c1")
+	if c == nil || c.Plan != board.PlanNone || c.Week != "" {
+		t.Fatalf("removing an assigned card from the plan clears only the marker: %+v", c)
+	}
+}
+
+func TestRemovePlanDemotesToPreviousWeek(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", Plan: board.PlanWed, Week: "2026-01-12"},
+		{ItemID: "c2", Team: "alpha", Plan: board.PlanFri, Week: "2026-01-05"},
+		{ItemID: "c3", Team: "beta", Plan: board.PlanFri, Week: "2026-01-08"},
+	}, nil)
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("c1"); c == nil || c.Week != "2026-01-05" {
+		t.Fatalf("a pure plan card demotes to its team's previous week: %+v", c)
+	}
+}
+
+func TestRemovePlanDeletesWithoutEarlierWeek(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Plan: board.PlanWed, Week: "2026-01-05"}}, nil)
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c1") != nil {
+		t.Fatalf("no earlier week: the plan card is deleted")
+	}
+}
+
+// --- Leaving review cancels the linked review card (matrix A5) ---------------
+
+func TestStageOffReviewDemotesLinkedReview(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40,
+			StartDate: "2026-01-10", SprintStart: "2026-01-10", Day: "2026-01-10"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageNone); err != nil {
+		t.Fatal(err)
+	}
+	r := f.get("rev")
+	if r == nil || r.SprintStart != "2026-01-03" || r.StartDate != "2026-01-03" {
+		t.Fatalf("the linked review card demotes with the x logic: %+v", r)
+	}
+	if r.ReviewOf != "" {
+		t.Fatalf("the review link must break, or the original keeps showing On review: %+v", r)
+	}
+}
+
+func TestStageOffReviewDeletesLinkedOutsideCurrentSprint(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, SprintStart: "2026-01-03"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageLocked); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("rev") != nil {
+		t.Fatalf("a linked review card outside the current sprint is deleted")
+	}
+}
+
+func TestStageOffReviewKeepsFinishedReview(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 90},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, SprintStart: "2026-01-10"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageDone); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.get("rev"); r == nil || r.ReviewOf != "orig" {
+		t.Fatalf("a finished review card stays as a record: %+v", r)
+	}
+}
+
+func TestInProgressCancelsLinkedReview(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, SprintStart: "2026-01-03"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).SetInProgress(ctx, "acme", 1, "orig"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("rev") != nil {
+		t.Fatalf("In Progress leaves review too: the linked card cancels")
+	}
+}
+
+func TestReviewerFinishingKeepsReviewCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 90},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 90, SprintStart: "2026-01-10"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	// The reviewer completes the review card: the original leaves review via the
+	// review link, and the (now finished) review card must survive.
+	if err := f2svc(f).SetProgress(ctx, "acme", 1, "rev", 100); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("orig").Stage != board.StageNone {
+		t.Fatalf("the original leaves review: %+v", f.get("orig"))
+	}
+	if r := f.get("rev"); r == nil || r.ReviewOf != "orig" {
+		t.Fatalf("the finished review card stays: %+v", r)
+	}
+}
+
+// --- Carry dry runs (matrix D16) ---------------------------------------------
+
+func TestCarryOverDryRun(t *testing.T) {
+	old := "2026-01-01"
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", SprintStart: old},
+		{ItemID: "r1", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent, Progress: 100},
+		{ItemID: "d1", Team: "alpha", SprintStart: old, Stage: board.StageDone},
+	}, map[string]board.SprintState{"alpha": {Current: old}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Carried != 1 || rep.Reseeded != 1 {
+		t.Fatalf("report = %+v, want carried 1 (c1) reseeded 1 (r1)", rep)
+	}
+	if f.count("SetSprintState") != 0 || f.count("SetSprintStart") != 0 || f.count("CreateCard") != 0 {
+		t.Fatalf("dry run must not write; log=%v", f.log)
+	}
+}
+
+func TestCarryWeekDryRun(t *testing.T) {
+	week := board.MondayOf(board.TodayIso())
+	prev := board.AddDays(week, -7)
+	f := newFake([]board.Card{
+		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: prev, Progress: 20},
+		{ItemID: "p2", Team: "alpha", Plan: board.PlanFri, Week: prev, Stage: board.StageRecurrent, Progress: 100},
+	}, nil)
+	rep, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Carried != 1 || rep.Reseeded != 1 {
+		t.Fatalf("report = %+v", rep)
+	}
+	if f.count("SetWeek") != 0 || f.count("CreateCard") != 0 {
+		t.Fatalf("dry run must not write; log=%v", f.log)
 	}
 }

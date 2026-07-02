@@ -69,6 +69,9 @@ func TestApplyStage(t *testing.T) {
 		{"locked drops full to 90", StageLocked, 100, StageLocked, 90},
 		{"review below full kept", StageReview, 50, StageReview, 50},
 		{"locked below full kept", StageLocked, 50, StageLocked, 50},
+		{"review lifts an empty card to 10", StageReview, 0, StageReview, 10},
+		{"locked lifts an empty card to 10", StageLocked, 0, StageLocked, 10},
+		{"recurrent keeps progress unclamped", StageRecurrent, 0, StageRecurrent, 0},
 		{"clearing keeps progress", StageNone, 100, StageNone, 100},
 	}
 	for _, c := range cases {
