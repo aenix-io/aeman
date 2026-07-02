@@ -156,37 +156,40 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 // teamInput names a team for a sprint-wide action.
 type teamInput struct {
 	boardRef
-	Team string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
+	Team   string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
+	DryRun bool   `json:"dryRun,omitempty" jsonschema:"report the would-be counts without changing anything"`
 }
 
-func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in teamInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in teamInput) (*mcp.CallToolResult, boardservice.CarryReport, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, statusOutput{}, err
+		return nil, boardservice.CarryReport{}, err
 	}
-	if err := svc.CarryOver(ctx, owner, project, in.Team); err != nil {
-		return nil, statusOutput{}, err
+	rep, err := svc.CarryOver(ctx, owner, project, in.Team, in.DryRun)
+	if err != nil {
+		return nil, boardservice.CarryReport{}, err
 	}
-	return nil, statusOutput{Status: "ok"}, nil
+	return nil, rep, nil
 }
 
 // carryWeekInput names a team and target week for the weekly carry.
 type carryWeekInput struct {
 	boardRef
-	Team string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
-	Week string `json:"week,omitempty" jsonschema:"target week Monday as yyyy-mm-dd; defaults to the current week"`
+	Team   string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
+	Week   string `json:"week,omitempty" jsonschema:"target week Monday as yyyy-mm-dd; defaults to the current week"`
+	DryRun bool   `json:"dryRun,omitempty" jsonschema:"report the would-be counts without changing anything"`
 }
 
-func (h *server) carryWeek(ctx context.Context, _ *mcp.CallToolRequest, in carryWeekInput) (*mcp.CallToolResult, cardsOutput, error) {
+func (h *server) carryWeek(ctx context.Context, _ *mcp.CallToolRequest, in carryWeekInput) (*mcp.CallToolResult, boardservice.CarryReport, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, cardsOutput{}, err
+		return nil, boardservice.CarryReport{}, err
 	}
-	carried, err := svc.CarryWeek(ctx, owner, project, in.Team, in.Week)
+	rep, err := svc.CarryWeek(ctx, owner, project, in.Team, in.Week, in.DryRun)
 	if err != nil {
-		return nil, cardsOutput{}, err
+		return nil, boardservice.CarryReport{}, err
 	}
-	return nil, cardsOutput{Cards: carried}, nil
+	return nil, rep, nil
 }
 
 // setStageInput moves a card to a stage.
