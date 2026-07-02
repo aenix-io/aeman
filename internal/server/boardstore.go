@@ -77,6 +77,73 @@ type boardEntry struct {
 	// watchers is the subscription set; each carries its own scope and echo
 	// suppression id.
 	watchers map[*subscription]struct{}
+	// recentCards / recentGone guard the cache against GitHub's eventually
+	// consistent item list: a card created (or deleted) through aeman seconds
+	// ago may still be missing from (or present in) a fresh full load, and a
+	// TTL reload right after the mutation would lose (or resurrect) it. Cards
+	// touched within recentGrace are re-applied on top of every full reload.
+	recentCards map[string]time.Time
+	recentGone  map[string]time.Time
+}
+
+// recentGrace is how long a local mutation outweighs a full reload.
+const recentGrace = 90 * time.Second
+
+// markRecent records a locally created/updated card. The caller holds e.mu.
+func (e *boardEntry) markRecent(itemID string) {
+	if e.recentCards == nil {
+		e.recentCards = map[string]time.Time{}
+	}
+	e.recentCards[itemID] = time.Now()
+	delete(e.recentGone, itemID)
+}
+
+// markGone records a locally deleted card. The caller holds e.mu.
+func (e *boardEntry) markGone(itemID string) {
+	if e.recentGone == nil {
+		e.recentGone = map[string]time.Time{}
+	}
+	e.recentGone[itemID] = time.Now()
+	delete(e.recentCards, itemID)
+}
+
+// applyRecent reconciles a freshly loaded board with the local recency guards:
+// recently created cards missing from the fetch are restored from the old
+// cache, recently deleted ones still present in the fetch are dropped. The
+// caller holds e.mu; the returned board replaces the cache.
+func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
+	now := time.Now()
+	for id, ts := range e.recentGone {
+		if now.Sub(ts) > recentGrace {
+			delete(e.recentGone, id)
+		}
+	}
+	for id, ts := range e.recentCards {
+		if now.Sub(ts) > recentGrace {
+			delete(e.recentCards, id)
+		}
+	}
+	if len(e.recentGone) > 0 {
+		kept := fresh.Cards[:0]
+		for _, c := range fresh.Cards {
+			if _, gone := e.recentGone[c.ItemID]; !gone {
+				kept = append(kept, c)
+			}
+		}
+		fresh.Cards = kept
+	}
+	if len(e.recentCards) > 0 {
+		have := map[string]bool{}
+		for _, c := range fresh.Cards {
+			have[c.ItemID] = true
+		}
+		for _, old := range e.board.Cards {
+			if _, recent := e.recentCards[old.ItemID]; recent && !have[old.ItemID] {
+				fresh.Cards = append(fresh.Cards, old)
+			}
+		}
+	}
+	return fresh
 }
 
 // fresh returns the cached board while it is loaded and within its TTL.
@@ -348,6 +415,7 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		return board.Board{}, err
 	}
 	e.mu.Lock()
+	bd = e.applyRecent(bd)
 	e.board = bd
 	e.loaded = true
 	e.loadedAt = time.Now()
@@ -371,6 +439,7 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.upsertCard(card)
+	e.markRecent(card.ItemID)
 	e.cardChanged(clientIDFrom(ctx), card, "MODIFIED")
 	e.mu.Unlock()
 }
@@ -383,6 +452,7 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.upsertCard(card)
+	e.markRecent(card.ItemID)
 	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
 	e.mu.Unlock()
 	return card, nil
@@ -395,6 +465,7 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.removeCard(card.ItemID)
+	e.markGone(card.ItemID)
 	e.cardChanged(clientIDFrom(ctx), card, "DELETED")
 	e.mu.Unlock()
 	return nil

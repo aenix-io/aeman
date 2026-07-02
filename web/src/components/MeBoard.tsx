@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
+import {
+  cancelPendingCard,
+  consumePendingCancel,
+  registerPendingCard,
+} from "../api/pending";
 import type {
   Board,
   Card as CardModel,
@@ -393,6 +398,7 @@ export function MeBoard({
     // A just-created optimistic card has no server twin yet: drop it locally
     // (deleting it via the API would 404 and resurrect a phantom copy).
     if (card.itemId.startsWith("tmp-")) {
+      cancelPendingCard(card.itemId);
       removeCard(card.itemId);
       return;
     }
@@ -591,23 +597,33 @@ export function MeBoard({
       notes: [],
     };
     addCard(optimistic);
-    void provider
-      .createCard(board, {
-        title,
-        zone,
-        day: selectedDate,
-        start: selectedDate,
-        assigneeLogin: viewMe || null,
-        team: team ?? null,
-      })
+    const creating = provider.createCard(board, {
+      title,
+      zone,
+      day: selectedDate,
+      start: selectedDate,
+      assigneeLogin: viewMe || null,
+      team: team ?? null,
+    });
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
       .then((card) => {
         removeCard(tempId);
+        if (consumePendingCancel(tempId)) {
+          // Deleted while the create was in flight: drop the server twin.
+          void provider.deleteCard(board, card.itemId).catch(() => undefined);
+          return;
+        }
         addCard(card);
         if (firstSprint) {
           reload();
         }
       })
       .catch((err: unknown) => {
+        consumePendingCancel(tempId);
         removeCard(tempId);
         onError(errMessage(err));
       });

@@ -4,6 +4,7 @@
 // caller applies over its optimistic state. All board rules run server-side.
 
 import { clientId } from "../../api/client";
+import { resolveCardId } from "../../api/pending";
 import {
   resourceToCard,
   resourceToNote,
@@ -188,10 +189,12 @@ export const apiProvider: Provider = {
     uid: string,
     patch: CardPatch,
   ): Promise<Card> {
+    uid = await resolveCardId(uid);
     return cardFrom(board, "PATCH", `/cards/${uid}`, patchBody(patch));
   },
 
   async deleteCard(board: BoardAddr, uid: string): Promise<void> {
+    uid = await resolveCardId(uid);
     await api(board, "DELETE", `/cards/${uid}`);
   },
 
@@ -200,6 +203,7 @@ export const apiProvider: Provider = {
     uid: string,
     from: "grid" | "plan",
   ): Promise<void> {
+    uid = await resolveCardId(uid);
     await api(board, "POST", `/cards/${uid}/actions/remove`, { from });
   },
 
@@ -208,16 +212,18 @@ export const apiProvider: Provider = {
     uid: string,
     afterId: string | null,
   ): Promise<void> {
-    await api(board, "POST", `/cards/${uid}/actions/move`, {
-      after: afterId ?? "",
-    });
+    uid = await resolveCardId(uid);
+    const after = afterId ? await resolveCardId(afterId) : "";
+    await api(board, "POST", `/cards/${uid}/actions/move`, { after });
   },
 
   async deferCard(board: BoardAddr, uid: string, days: number): Promise<Card> {
+    uid = await resolveCardId(uid);
     return cardFrom(board, "POST", `/cards/${uid}/actions/defer`, { days });
   },
 
   async setInProgress(board: BoardAddr, uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
     return cardFrom(board, "POST", `/cards/${uid}/actions/in-progress`, {});
   },
 
@@ -227,6 +233,7 @@ export const apiProvider: Provider = {
     reviewer: string,
     day?: string,
   ): Promise<Card> {
+    uid = await resolveCardId(uid);
     return cardFrom(board, "POST", `/cards/${uid}/actions/send-to-review`, {
       reviewer,
       day: day ?? "",
@@ -234,6 +241,7 @@ export const apiProvider: Provider = {
   },
 
   async removeReviewer(board: BoardAddr, uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
     return cardFrom(board, "POST", `/cards/${uid}/actions/remove-reviewer`, {});
   },
 
@@ -244,6 +252,7 @@ export const apiProvider: Provider = {
     zone,
     day?: string,
   ): Promise<Card> {
+    uid = await resolveCardId(uid);
     return cardFrom(board, "POST", `/cards/${uid}/actions/take-into-plan`, {
       engineer,
       zone: semanticZone(zone),
@@ -252,6 +261,7 @@ export const apiProvider: Provider = {
   },
 
   async releaseFromPlan(board: BoardAddr, uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
     return cardFrom(
       board,
       "POST",
@@ -298,10 +308,12 @@ export const apiProvider: Provider = {
   },
 
   async listNotes(board: BoardAddr, uid: string): Promise<Note[]> {
+    uid = await resolveCardId(uid);
     return notesFrom(board, "GET", `/cards/${uid}/notes`);
   },
 
   async addNote(board: BoardAddr, uid: string, text: string): Promise<Note[]> {
+    uid = await resolveCardId(uid);
     return notesFrom(board, "POST", `/cards/${uid}/notes`, { text });
   },
 
@@ -311,6 +323,7 @@ export const apiProvider: Provider = {
     noteId: string,
     text: string,
   ): Promise<Note[]> {
+    uid = await resolveCardId(uid);
     return notesFrom(
       board,
       "PATCH",
@@ -324,6 +337,7 @@ export const apiProvider: Provider = {
     uid: string,
     noteId: string,
   ): Promise<Note[]> {
+    uid = await resolveCardId(uid);
     return notesFrom(
       board,
       "DELETE",
