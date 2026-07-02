@@ -914,24 +914,33 @@ export function TeamBoard({
   // grid card is demoted to its previous sprint (if any) rather than deleted.
   const handleGridDelete = (card: CardModel) => {
     if (!card.plan) {
-      // A card created today never lived in a previous sprint — delete it for
-      // real instead of demoting it there.
-      const createdToday =
-        !!card.createdAt && localDateIso(card.createdAt) === todayIso();
-      const prevSprint = createdToday ? null : previousSprintFor(card);
-      if (prevSprint) {
+      // Demote-then-delete: the first × on a card still in the team's current
+      // sprint moves it (and all its dates) back to the previous sprint; once it
+      // is no longer in the current sprint — already demoted, older, or the team
+      // has no earlier sprint — × deletes it for real.
+      const cur = currentSprint(board, card.team ?? null);
+      const prevSprint = previousSprintFor(card);
+      const inCurrent = !!card.sprintStart && !!cur && card.sprintStart === cur;
+      if (inCurrent && prevSprint && prevSprint < cur) {
         const prev: Partial<CardModel> = {
           startDate: card.startDate,
           sprintStart: card.sprintStart,
+          day: card.day,
         };
         patchCard(card.itemId, {
           startDate: prevSprint,
           sprintStart: prevSprint,
+          // Pull the end date back too, or the [start…end] range would keep the
+          // card on its old day and the demote would look like a no-op.
+          ...(card.day ? { day: prevSprint } : {}),
         });
         void (async () => {
           try {
             await provider.setStart(board, card, prevSprint);
             await provider.setSprintStart(board, card, prevSprint);
+            if (card.day && card.day !== prevSprint) {
+              await provider.setDay(board, card, prevSprint);
+            }
           } catch (err: unknown) {
             patchCard(card.itemId, prev);
             onError(errMessage(err));
