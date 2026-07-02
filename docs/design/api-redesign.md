@@ -1,12 +1,18 @@
-# aeman API v2 — Kubernetes-style board API
+# aeman API redesign — Kubernetes-style board API
 
 Status: **draft, awaiting review**. Nothing here is implemented yet.
+
+This **replaces** the existing HTTP API and MCP tool set in place — same
+`/api/v1` prefix, new shapes, no backward compatibility and no deprecation
+period (nothing external consumes the current API). The old handlers and MCP
+tools are deleted as the new ones land.
 
 ## Goals
 
 - Redesign the API from scratch, modelled on Kubernetes: cards are first-class
   objects with a full schema, collections support LIST + WATCH (WebSocket), and
-  imperative verbs are explicit *actions* on resources.
+  imperative verbs are explicit *actions* on resources. It replaces the current
+  API outright — no `/api/v2`, no compatibility layer.
 - **Every rule that lives in the frontend today moves to the backend.** The
   frontend (and any MCP agent) sends *intent*; the backend decides the outcome.
   One canonical implementation of clamps, cascades, visibility and sprint logic.
@@ -26,13 +32,19 @@ Status: **draft, awaiting review**. Nothing here is implemented yet.
 
 ## Resource model
 
-Everything lives under a board scope:
+Resources live directly under `/api/v1`. The **board is addressed by optional
+query parameters, not the path**: on the GitHub backend `?owner=&project=`,
+defaulting to the server's configured board — a locked single-board deployment
+(the normal self-hosted case) omits them entirely. Future backends address
+boards their own way (a git backend has no owner/project), so board addressing
+stays out of the resource paths and out of the object schemas:
 
 ```
-/api/v2/boards/{owner}/{project}/...
+/api/v1/board            /api/v1/cards[/{uid}]         /api/v1/cards/{uid}/notes[/{id}]
+/api/v1/sprints[/{team}] /api/v1/watch
 ```
 
-`--lock-board` pins `{owner}/{project}` as today. Four resource kinds:
+Four resource kinds:
 
 | Kind | What it is | Mutability |
 | --- | --- | --- |
@@ -112,7 +124,7 @@ draft-log parsing all happen server-side. Card objects do **not** embed notes
 
 | Verb | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/cards`, `/cards/{uid}`, `/sprints`, `/board`, `/cards/{uid}/notes` | LIST supports selectors (below) |
+| `GET` | `/api/v1/cards`, `/cards/{uid}`, `/sprints`, `/board`, `/cards/{uid}/notes` | LIST supports selectors (below) |
 | `POST` | `/cards` | create; admission fills defaults (dates, sprint join, first-sprint record) |
 | `PATCH` | `/cards/{uid}` | partial `spec` update — **admission applies every rule** |
 | `DELETE` | `/cards/{uid}` | real delete, cascades the linked review card |
@@ -160,11 +172,11 @@ visibility rules (sprint days, ranges, deferred windows, passed-through
 history) have exactly one implementation:
 
 ```
-GET /cards?view=team&team=cozystack&day=2026-07-02
-GET /cards?view=me&user=kvaps&day=2026-07-02
-GET /cards?view=weekly&team=portal&week=2026-06-29
-GET /cards                      # unfiltered: every card (MCP, debugging)
-GET /cards?stage=review&assignee=kvaps   # plain field selectors compose
+GET /api/v1/cards?view=team&team=cozystack&day=2026-07-02
+GET /api/v1/cards?view=me&user=kvaps&day=2026-07-02
+GET /api/v1/cards?view=weekly&team=portal&week=2026-06-29
+GET /api/v1/cards                      # unfiltered: every card (MCP, debugging)
+GET /api/v1/cards?stage=review&assignee=kvaps   # plain field selectors compose
 ```
 
 - LIST responses are **sorted by `status.rank`** — the client renders in order,
@@ -176,7 +188,7 @@ GET /cards?stage=review&assignee=kvaps   # plain field selectors compose
 ## Watch
 
 ```
-GET /api/v2/boards/{o}/{p}/watch?resources=cards,sprints&view=team&team=x&day=…&client=<id>
+GET /api/v1/watch?resources=cards,sprints&view=team&team=x&day=…&client=<id>
 ```
 
 WebSocket; each frame is one event:
@@ -258,7 +270,8 @@ list_notes · add_note · edit_note · delete_note
 
 `update_card` takes the same spec patch as HTTP PATCH; every admission rule
 applies identically. The MCP server keeps stdio + `/mcp` transports and the
-lock-board behaviour.
+lock-board behaviour; `owner`/`project` stay optional tool arguments on the
+GitHub backend, ignored when locked.
 
 ## Backend interface
 
@@ -278,22 +291,27 @@ type Backend interface {
 This is essentially today's `boardservice.Backend`; v2 keeps it so a git
 backend can implement the same surface later. The k8s-style service (admission,
 views, rank synthesis, watch hub) is backend-agnostic and lives in one place
-(`internal/apiserver`, evolving today's `boardservice` + `boardstore`).
+(`internal/apiserver`, evolving today's `boardservice` + `boardstore`). Board
+addressing is resolved before the service layer, so the service never sees
+owner/project — only an opaque board reference the backend understands.
 
 ## Migration plan
 
-1. **Service core**: admission chain + actions on the existing
-   store/backend; unit tests port from `boardservice` (most logic already
-   lives server-side after the recent work — this consolidates the rest).
-2. **HTTP v2** (`/api/v2/...`) + selector-scoped watch + rank synthesis.
-3. **Frontend port**: provider v2, views from LIST/watch subscriptions, delete
-   local rule code (~40 handlers shrink to intent + optimistic apply).
-4. **MCP v2**: new tool set on the same service.
-5. **Remove v1** (HTTP routes + old MCP tools) once the frontend and the aeman
-   skills are on v2.
+Replace-in-place — each phase deletes what it supersedes:
 
-Each phase ships behind the existing live-update infrastructure (store, echo
-suppression, WS hub) — no regression window for current users.
+1. **Service core**: admission chain + actions on the existing store/backend;
+   unit tests port from `boardservice` (most logic already lives server-side
+   after the recent work — this consolidates the rest).
+2. **HTTP cutover**: the new resource handlers land on `/api/v1`, the old
+   handlers are deleted in the same change; selector-scoped watch + rank
+   synthesis replace the current snapshot/watch pair.
+3. **Frontend port**: new provider, views from LIST/watch subscriptions, delete
+   local rule code (~40 handlers shrink to intent + optimistic apply).
+4. **MCP cutover**: new tool set replaces the old one (aeman skills updated in
+   the same breath).
+
+The live-update infrastructure (store, echo suppression, WS hub) carries over
+underneath.
 
 ## Open questions
 
