@@ -1476,6 +1476,15 @@ export function TeamBoard({
             ? `${sprintJump.label} »`
             : `« ${sprintJump?.label ?? "Last sprint"}`}
         </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setSelectedDate(todayIso())}
+          disabled={selectedDate === todayIso()}
+          title="Jump to today"
+        >
+          Today
+        </button>
         <div className="sprint-wrap" ref={sprintRef}>
           <button
             type="button"
