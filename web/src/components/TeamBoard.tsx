@@ -1295,11 +1295,14 @@ export function TeamBoard({
       onError(`«${label}» is already on today's sprint.`);
       return;
     }
+    // Only the closing (current) sprint's unfinished cards carry — a card that
+    // is not on today's sprint stays put, so removing it from the sprint is
+    // final. Mirrors boardservice.CarryOver.
     const carry = board.cards.filter(
       (c) =>
         (team === null ? c.team == null : c.team === team) &&
-        c.sprintStart &&
-        c.sprintStart < today &&
+        !!old &&
+        c.sprintStart === old &&
         c.stage !== "done" &&
         !(!c.stage && (c.progress ?? 0) >= 100) &&
         !c.itemId.startsWith("tmp-"),

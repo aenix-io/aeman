@@ -336,15 +336,18 @@ func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
 	if !f.saw(fmt.Sprintf("SetSprintState alpha cur=%s prev=%s", today, old)) {
 		t.Fatalf("expected advance; log=%v", f.log)
 	}
-	// c1 (previous sprint) and the in-between c3 both carry; c2 is done, c4 is
-	// another team, and c5 is future-dated — none of those move.
-	if f.count("SetSprintStart") != 2 ||
-		!f.saw(fmt.Sprintf("SetSprintStart c1 %s", today)) ||
-		!f.saw(fmt.Sprintf("SetSprintStart c3 %s", today)) {
-		t.Fatalf("c1 and the in-between c3 should carry; log=%v", f.log)
+	// Only c1 (the current sprint being closed) carries; c2 is done, c3 is not on
+	// the current sprint, c4 is another team, and c5 is future-dated — none move,
+	// so a card removed from the current sprint never boomerangs back.
+	if f.count("SetSprintStart") != 1 ||
+		!f.saw(fmt.Sprintf("SetSprintStart c1 %s", today)) {
+		t.Fatalf("only c1 should carry; log=%v", f.log)
 	}
-	if f.get("c1").SprintStart != today || f.get("c3").SprintStart != today {
-		t.Fatalf("c1/c3 not carried: %+v %+v", f.get("c1"), f.get("c3"))
+	if f.get("c1").SprintStart != today {
+		t.Fatalf("c1 not carried: %+v", f.get("c1"))
+	}
+	if f.get("c3").SprintStart != "2026-02-01" {
+		t.Fatalf("off-sprint c3 should stay: %+v", f.get("c3"))
 	}
 	if f.get("c5").SprintStart != "2027-01-01" {
 		t.Fatalf("future-dated c5 should not carry: %+v", f.get("c5"))

@@ -238,12 +238,13 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	if err := s.backend.SetSprintState(ctx, b, team, today, old); err != nil {
 		return err
 	}
-	// Carry every unfinished card whose sprint is before the new day — not just
-	// the previous sprint — so cards added on an in-between day (or made directly
-	// on the backend) are picked up too. Future-dated cards stay.
+	// Carry only the unfinished cards of the sprint being closed (sprintStart ==
+	// the old current pointer). A card that is NOT on today's sprint — demoted
+	// back to an earlier one, or simply old — stays where it is, so removing a
+	// card from the current sprint is final and it never boomerangs back.
 	var carry []board.Card
 	for _, c := range b.Cards {
-		if c.Team != team || c.SprintStart == "" || c.SprintStart >= today || board.Complete(c.Stage, c.Progress) {
+		if c.Team != team || old == "" || c.SprintStart != old || board.Complete(c.Stage, c.Progress) {
 			continue
 		}
 		carry = append(carry, c)

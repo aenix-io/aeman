@@ -720,12 +720,13 @@ export const githubProvider: Provider = {
     if (old === today) {
       return;
     }
+    // Only the closing (current) sprint's unfinished cards carry, mirroring
+    // boardservice.CarryOver.
     const carry = board.cards.filter(
       (c) =>
         (c.team ?? "") === key &&
-        c.sprintStart !== undefined &&
-        c.sprintStart !== "" &&
-        c.sprintStart < today &&
+        old !== null &&
+        c.sprintStart === old &&
         c.stage !== "done" &&
         !(!c.stage && (c.progress ?? 0) >= 100) &&
         !c.itemId.startsWith("tmp-"),
