@@ -122,8 +122,8 @@ today while the card stays in its sprint).
 - **Carry over week**: the same rule for plan cards — a finished recurrent plan
   card stays in its week and a fresh copy is created in the target week, unless
   a plan card with the same title is already there (re-running is idempotent).
-- In the weekly progress bar a recurrent card counts as its current % like any
-  card; the reseeded copy naturally resets its contribution each week.
+- Recurrent plan cards are **excluded from the weekly progress bar**: it
+  describes the week's one-off work only.
 
 ### Calendar (explicit dates)
 - The date picker on a card moves its **real dates**: `startDate = start` and
