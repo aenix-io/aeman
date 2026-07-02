@@ -1232,3 +1232,23 @@ func TestCreateCardFromURLUnresolved(t *testing.T) {
 		t.Fatal("no description for an unresolved link")
 	}
 }
+
+// Send-to-review copies the original's description onto the review card (a
+// one-time copy, so the reviewer sees the same context and links).
+func TestSendToReviewCopiesDescription(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", Title: "Work", Progress: 50,
+			Description: "context: https://github.com/acme/repo/issues/5"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	svc := New(fake)
+	review, err := svc.SendToReview(context.Background(), "acme", 1, "c1", "lllamnyp", "2026-06-21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if review.Description != "context: https://github.com/acme/repo/issues/5" {
+		t.Fatalf("review description = %q", review.Description)
+	}
+	if !fake.saw("SetDescription " + review.ItemID + " context: https://github.com/acme/repo/issues/5") {
+		t.Fatal("description copy not persisted")
+	}
+}

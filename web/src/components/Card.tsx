@@ -480,8 +480,8 @@ export function Card({
             >
               {hasGitHubRefs ? (
                 <svg
-                  width="13"
-                  height="13"
+                  width="11"
+                  height="11"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -495,7 +495,7 @@ export function Card({
                   <line x1="16" y1="3" x2="14" y2="21" />
                 </svg>
               ) : (
-                <LinkGlyph />
+                <LinkGlyph size={11} />
               )}
             </button>
             <Dropdown
@@ -872,11 +872,11 @@ export function Card({
 }
 
 /** LinkGlyph is the chain icon for plain links. */
-function LinkGlyph() {
+function LinkGlyph({ size = 13 }: { size?: number }) {
   return (
     <svg
-      width="13"
-      height="13"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
