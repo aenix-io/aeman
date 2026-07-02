@@ -66,6 +66,13 @@ const errMessage = (err: unknown) =>
 // resurrect a phantom copy).
 const isGone = (err: unknown) => errMessage(err).includes("card not found");
 
+// isComplete mirrors board.Complete: an explicit done, or 100% with no stage
+// (derived done) or on the recurrent stage (a finished recurrent card stays
+// behind — Carry Over/Week reseed a fresh copy instead of dragging it).
+const isComplete = (c: CardModel) =>
+  c.stage === "done" ||
+  ((!c.stage || c.stage === "recurrent") && (c.progress ?? 0) >= 100);
+
 /** TeamBoard is the team as a people × zones grid for one day, filtered by team. */
 export function TeamBoard({
   board,
@@ -374,18 +381,31 @@ export function TeamBoard({
   const handleCarryWeek = (team: string | null) => {
     setCarryWeekOpen(false);
     const label = team ?? "no team";
-    const carry = board.cards.filter(
+    const fromEarlier = board.cards.filter(
       (c) =>
         c.plan &&
         c.week != null &&
         c.week < currentWeek &&
-        c.stage !== "done" &&
-        !(!c.stage && (c.progress ?? 0) >= 100) &&
         // Skip not-yet-persisted optimistic cards (temporary ids).
         !c.itemId.startsWith("tmp-") &&
         (team === null ? c.team == null : c.team === team),
     );
-    if (carry.length === 0) {
+    const carry = fromEarlier.filter((c) => !isComplete(c));
+    // Finished recurrent plan cards stay behind; the backend reseeds a fresh
+    // copy into the week (skipping titles already planned there).
+    const reseed = fromEarlier.filter(
+      (c) =>
+        c.stage === "recurrent" &&
+        (c.progress ?? 0) >= 100 &&
+        !board.cards.some(
+          (t) =>
+            t.plan &&
+            t.week === currentWeek &&
+            (t.team ?? "") === (c.team ?? "") &&
+            t.title === c.title,
+        ),
+    );
+    if (carry.length === 0 && reseed.length === 0) {
       onError(
         `No unfinished plan cards from earlier weeks for "${label}" to carry into the week of ${currentWeek}.`,
       );
@@ -393,19 +413,26 @@ export function TeamBoard({
     }
     if (
       !window.confirm(
-        `Carry over ${carry.length} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?`,
+        `Carry over ${carry.length} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?` +
+          (reseed.length > 0
+            ? ` ${reseed.length} recurrent card(s) will restart at 0%.`
+            : ""),
       )
     ) {
       return;
     }
-    for (const card of carry) {
-      const prev = card.week;
-      patchCard(card.itemId, { week: currentWeek });
-      void provider.setWeek(board, card, currentWeek).catch((err: unknown) => {
-        patchCard(card.itemId, { week: prev });
+    carry.forEach((card) => patchCard(card.itemId, { week: currentWeek }));
+    void (async () => {
+      try {
+        // One server-side call: it moves the unfinished cards and reseeds the
+        // finished recurrent ones.
+        await provider.carryWeek(board, team, currentWeek);
+      } catch (err: unknown) {
         onError(errMessage(err));
-      });
-    }
+      }
+      // Pick up the reseeded copies (and reconcile the moves).
+      reload();
+    })();
   };
 
   // Move a plan card between the two bands (changes its Wed/Fri deadline).
@@ -1360,8 +1387,7 @@ export function TeamBoard({
         (team === null ? c.team == null : c.team === team) &&
         !!old &&
         c.sprintStart === old &&
-        c.stage !== "done" &&
-        !(!c.stage && (c.progress ?? 0) >= 100) &&
+        !isComplete(c) &&
         !c.itemId.startsWith("tmp-"),
     );
     if (

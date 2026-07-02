@@ -8,7 +8,7 @@ export type ProviderId = "github";
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
 /** StageKey is an explicit per-card status that recolours the progress bar. */
-export type StageKey = "locked" | "review" | "done";
+export type StageKey = "locked" | "review" | "recurrent" | "done";
 
 export interface SingleSelectOption {
   id: string;
@@ -160,6 +160,10 @@ export interface Provider {
    *  (a no-op when the sprint is already today's). team = null is the no-team
    *  group. */
   carryOver(board: Board, team: string | null): Promise<void>;
+  /** Pull a team's unfinished plan cards from earlier weeks into the target
+   *  week; a finished recurrent plan card stays and is reseeded as a fresh
+   *  copy in that week instead. */
+  carryWeek(board: Board, team: string | null, week: string): Promise<void>;
   /** Set a team's sprint pointer (current/previous start dates), creating the
    * hidden state card if the team has none yet. team = null is the no-team group. */
   setSprintState(

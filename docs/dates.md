@@ -112,6 +112,19 @@ today while the card stays in its sprint).
 - Carry Over still sweeps a deferred card's sprint forward (its `sprintStart` is
   in the past), but the future `startDate` keeps hiding it until its day comes.
 
+### Recurrent cards
+- The **recurrent** stage marks a repeating task. Unlike review/locked its
+  progress spans the full 0–100% (no clamp), and 100% counts as **complete**.
+- **Carry Over**: an unfinished recurrent card carries like any other card; a
+  **finished** one (100%) stays behind and is **reseeded** — a fresh copy is
+  created in the new sprint with the same title and description, no notes,
+  at 0%, recurrent again.
+- **Carry over week**: the same rule for plan cards — a finished recurrent plan
+  card stays in its week and a fresh copy is created in the target week, unless
+  a plan card with the same title is already there (re-running is idempotent).
+- In the weekly progress bar a recurrent card counts as its current % like any
+  card; the reseeded copy naturally resets its contribution each week.
+
 ### Calendar (explicit dates)
 - The date picker on a card moves its **real dates**: `startDate = start` and
   `day = end` — a genuine relocation (no history kept, unlike defer). The card

@@ -398,6 +398,7 @@ interface FieldSpec {
 const STAGE_GH_COLOR: Record<StageKey, string> = {
   locked: "RED",
   review: "YELLOW",
+  recurrent: "BLUE",
   done: "GREEN",
 };
 
@@ -721,18 +722,93 @@ export const githubProvider: Provider = {
       return;
     }
     // Only the closing (current) sprint's unfinished cards carry, mirroring
-    // boardservice.CarryOver.
+    // boardservice.CarryOver (recurrent at 100% counts as complete).
     const carry = board.cards.filter(
       (c) =>
         (c.team ?? "") === key &&
         old !== null &&
         c.sprintStart === old &&
         c.stage !== "done" &&
-        !(!c.stage && (c.progress ?? 0) >= 100) &&
+        !((!c.stage || c.stage === "recurrent") && (c.progress ?? 0) >= 100) &&
         !c.itemId.startsWith("tmp-"),
     );
     await githubProvider.setSprintState(board, team, today, old);
     await githubProvider.setSprintStartMany(board, carry, today);
+    // Finished recurrent cards of the closing sprint stay behind and seed the
+    // new sprint with fresh copies, mirroring boardservice.CarryOver.
+    const reseed = board.cards.filter(
+      (c) =>
+        (c.team ?? "") === key &&
+        old !== null &&
+        c.sprintStart === old &&
+        c.stage === "recurrent" &&
+        (c.progress ?? 0) >= 100 &&
+        !c.itemId.startsWith("tmp-"),
+    );
+    for (const c of reseed) {
+      const created = await githubProvider.createCard(board, {
+        title: c.title,
+        zone: c.zone,
+        day: today,
+        start: today,
+        sprintStart: today,
+        assigneeLogin: c.assignees[0] ?? null,
+        team: team,
+      });
+      await githubProvider.setStage(board, created, "recurrent");
+      if (c.description) {
+        await githubProvider.setDescription(board, created, c.description);
+      }
+    }
+  },
+
+  async carryWeek(
+    board: Board,
+    team: string | null,
+    week: string,
+  ): Promise<void> {
+    // Client-side reference implementation, mirroring boardservice.CarryWeek:
+    // move the unfinished plan cards, reseed finished recurrent ones (skipping
+    // titles already planned in the target week).
+    const key = team ?? "";
+    const inTarget = new Set(
+      board.cards
+        .filter((c) => c.plan && c.week === week && (c.team ?? "") === key)
+        .map((c) => c.title),
+    );
+    for (const c of board.cards) {
+      if (!c.plan || !c.week || c.week >= week || (c.team ?? "") !== key) {
+        continue;
+      }
+      if (c.itemId.startsWith("tmp-")) {
+        continue;
+      }
+      if (c.stage === "recurrent" && (c.progress ?? 0) >= 100) {
+        if (inTarget.has(c.title)) {
+          continue;
+        }
+        const created = await githubProvider.createCard(board, {
+          title: c.title,
+          zone: c.zone,
+          plan: c.plan,
+          week,
+          team: team,
+        });
+        await githubProvider.setStage(board, created, "recurrent");
+        if (c.description) {
+          await githubProvider.setDescription(board, created, c.description);
+        }
+        inTarget.add(c.title);
+        continue;
+      }
+      if (
+        c.stage === "done" ||
+        ((!c.stage || c.stage === "recurrent") && (c.progress ?? 0) >= 100)
+      ) {
+        continue;
+      }
+      await githubProvider.setWeek(board, c, week);
+    }
   },
 
   async setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void> {

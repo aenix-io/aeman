@@ -12,10 +12,13 @@ export interface StageDef {
 export const STAGES: Record<StageKey, StageDef> = {
   locked: { key: "locked", label: "Locked", color: "#cf222e" },
   review: { key: "review", label: "Review", color: "#d4a72c" },
+  // Recurrent marks a repeating task: unlike review/locked its progress spans
+  // the full 0–100%, and Carry Over reseeds a finished one as a fresh copy.
+  recurrent: { key: "recurrent", label: "Recurrent", color: "#58a6ff" },
   done: { key: "done", label: "Done", color: "#1f883d" },
 };
 
-export const STAGE_ORDER: StageKey[] = ["locked", "review", "done"];
+export const STAGE_ORDER: StageKey[] = ["locked", "review", "recurrent", "done"];
 
 /** Progress bar colour for a stage; the default (no stage) bar is green. */
 export const DEFAULT_BAR_COLOR = "#3fb950";
@@ -38,6 +41,8 @@ export function stageFromName(name?: string): StageKey | undefined {
       return "locked";
     case "review":
       return "review";
+    case "recurrent":
+      return "recurrent";
     case "done":
       return "done";
     default:
