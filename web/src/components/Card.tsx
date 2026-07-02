@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { addDays, daysSince, todayIso, mondayOf } from "../date";
 import { Dropdown } from "./Dropdown";
+import { extractLinks, type CardLink } from "../links";
 import { RangeCalendar } from "./RangeCalendar";
 
 // ageColor fades the age badge from light grey (fresh) to maroon-red by ~10 days.
@@ -56,6 +57,9 @@ interface CardProps {
   /** Dim the card's team avatar to 50%. Set unless this card is the selected
    *  team, so only the selected team's avatars stay at full opacity. */
   dimAvatar?: boolean;
+  /** Resolve the card's description links server-side (GitHub issue/PR refs
+   *  get their titles). The menu falls back to the local extraction. */
+  onLoadLinks?: (card: CardModel) => Promise<CardLink[]>;
 }
 
 const SEGMENTS = 10;
@@ -98,6 +102,7 @@ export function Card({
   weekMode,
   onSetWeek,
   dimAvatar,
+  onLoadLinks,
 }: CardProps) {
   // Done is derived, not stored: a card with no stage at 100% renders as done
   // (legacy cards with a stored Done option still count too).
@@ -124,6 +129,26 @@ export function Card({
   const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const [datesOpen, setDatesOpen] = useState(false);
+  const [linksOpen, setLinksOpen] = useState(false);
+  const [resolvedLinks, setResolvedLinks] = useState<CardLink[] | null>(null);
+  const linksRef = useRef<HTMLDivElement | null>(null);
+  const localLinks = useMemo(
+    () => extractLinks(card.description ?? ""),
+    [card.description],
+  );
+  const hasGitHubRefs = localLinks.some((l) => l.kind !== "link");
+  const toggleLinks = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const opening = !linksOpen;
+    setLinksOpen(opening);
+    // Resolve titles lazily on open; the local list shows meanwhile.
+    if (opening && hasGitHubRefs && onLoadLinks) {
+      void onLoadLinks(card)
+        .then((links) => setResolvedLinks(links))
+        .catch(() => undefined);
+    }
+  };
+  const shownLinks = resolvedLinks ?? localLinks;
   const [startVal, setStartVal] = useState("");
   const [endVal, setEndVal] = useState("");
   const ageRef = useRef<HTMLDivElement | null>(null);
@@ -323,6 +348,65 @@ export function Card({
         >
           ×
         </button>
+        {localLinks.length > 0 && (
+          <div className="card-links" ref={linksRef}>
+            <button
+              type="button"
+              className="card-action card-links-btn"
+              onClick={toggleLinks}
+              aria-label="Card links"
+              title={hasGitHubRefs ? "Linked issues" : "Links"}
+            >
+              {hasGitHubRefs ? (
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <line x1="4" y1="9" x2="20" y2="9" />
+                  <line x1="4" y1="15" x2="20" y2="15" />
+                  <line x1="10" y1="3" x2="8" y2="21" />
+                  <line x1="16" y1="3" x2="14" y2="21" />
+                </svg>
+              ) : (
+                <LinkGlyph />
+              )}
+            </button>
+            <Dropdown
+              open={linksOpen}
+              anchorRef={linksRef}
+              onClose={() => setLinksOpen(false)}
+              className="card-stage-menu card-links-menu"
+            >
+              {shownLinks.map((link) => (
+                <button
+                  key={link.url}
+                  type="button"
+                  className="card-stage-item card-links-item"
+                  title={link.url}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLinksOpen(false);
+                    window.open(link.url, "_blank", "noopener");
+                  }}
+                >
+                  <LinkKindIcon link={link} />
+                  <span className="card-links-text">
+                    {link.kind === "link"
+                      ? link.url
+                      : link.title ||
+                        `${link.owner}/${link.repo}#${link.number}`}
+                  </span>
+                </button>
+              ))}
+            </Dropdown>
+          </div>
+        )}
         <div
           className={`card-stage${card.stage === "review" || card.stage === "locked" || card.stage === "recurrent" ? "" : " card-hoveronly"}`}
           ref={menuRef}
@@ -770,4 +854,70 @@ export function Card({
       </div>
     </div>
   );
+}
+
+/** LinkGlyph is the chain icon for plain links. */
+function LinkGlyph() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+/** linkStateColor picks the GitHub-ish colour for an issue/PR state. */
+function linkStateColor(link: CardLink): string {
+  switch (link.state) {
+    case "closed":
+      return link.kind === "pull" ? "#cf222e" : "#8250df";
+    case "merged":
+      return "#8250df";
+    case "draft":
+      return "#6e7781";
+    default:
+      return "#1a7f37";
+  }
+}
+
+/** LinkKindIcon renders the issue / pull-request / plain-link glyph. */
+function LinkKindIcon({ link }: { link: CardLink }) {
+  if (link.kind === "issue") {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill={linkStateColor(link)}
+        aria-hidden="true"
+      >
+        <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z" />
+      </svg>
+    );
+  }
+  if (link.kind === "pull") {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill={linkStateColor(link)}
+        aria-hidden="true"
+      >
+        <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
+      </svg>
+    );
+  }
+  return <LinkGlyph />;
 }

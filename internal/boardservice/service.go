@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -158,6 +159,19 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	if err != nil {
 		return board.Card{}, err
 	}
+	// A title that is nothing but a GitHub issue/PR URL turns into that item's
+	// real title, with the link moved into the description — a one-time
+	// resolution at create, never re-synced. Resolution failures (no access,
+	// dead link) keep the URL as the title.
+	var linkDescription string
+	if ref, ok := board.ParseGitHubRef(strings.TrimSpace(args.Title)); ok {
+		if resolver, hasResolver := s.backend.(LinkResolver); hasResolver {
+			if resolved, err := resolver.ResolveIssueRef(ctx, ref); err == nil && resolved.Title != "" {
+				args.Title = resolved.Title
+				linkDescription = ref.URL
+			}
+		}
+	}
 	// A weekly-plan card lives in the plan bands, not on the day boards: it gets
 	// no dates and joins no sprint. It mirrors handleCreatePlan in TeamBoard.tsx.
 	if args.Plan != board.PlanNone {
@@ -165,7 +179,7 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		if week == "" {
 			week = board.MondayOf(board.TodayIso())
 		}
-		return s.backend.CreateCard(ctx, b, board.CreateInput{
+		card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 			Title:    args.Title,
 			Zone:     args.Zone,
 			Plan:     args.Plan,
@@ -174,6 +188,7 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 			Team:     args.Team,
 			ReviewOf: args.ReviewOf,
 		})
+		return s.withLinkDescription(ctx, b, card, err, linkDescription)
 	}
 	// Start and Day (the end/due date) default to each other so a create with
 	// only one of them yields a one-day range — a backdated create must NOT get
@@ -208,7 +223,7 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		sprint = cur
 	}
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
-	return s.backend.CreateCard(ctx, b, board.CreateInput{
+	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
 		Zone:        args.Zone,
 		Day:         day,
@@ -218,6 +233,20 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		Team:        args.Team,
 		ReviewOf:    args.ReviewOf,
 	})
+	return s.withLinkDescription(ctx, b, card, err, linkDescription)
+}
+
+// withLinkDescription moves the source URL of a create-by-URL card into its
+// description. A failure to write the description is not fatal — the card
+// exists with the right title; the link is just not filed.
+func (s *Service) withLinkDescription(ctx context.Context, b board.Board, card board.Card, err error, url string) (board.Card, error) {
+	if err != nil || url == "" {
+		return card, err
+	}
+	if setErr := s.backend.SetDescription(ctx, b, card, url); setErr == nil {
+		card.Description = url
+	}
+	return card, nil
 }
 
 // CarryReport summarizes what a carry pass did — or would do, on a dry run
@@ -528,6 +557,38 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 		return nil
 	}
 	return s.deleteWithCascade(ctx, b, c)
+}
+
+// LinkResolver resolves a GitHub issue/PR link to its live title and state.
+// Backends that can talk to GitHub implement it; the service degrades to
+// unresolved links otherwise.
+type LinkResolver interface {
+	ResolveIssueRef(ctx context.Context, link board.Link) (board.Link, error)
+}
+
+// CardLinks extracts every URL from a card's description — GitHub issue/PR
+// references first, plain links after — and resolves the references to their
+// titles when the backend can. A reference that fails to resolve is returned
+// as-is rather than dropped.
+func (s *Service) CardLinks(ctx context.Context, owner string, project int, itemID string) ([]board.Link, error) {
+	_, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return nil, err
+	}
+	links := board.ExtractLinks(card.Description)
+	resolver, ok := s.backend.(LinkResolver)
+	if !ok {
+		return links, nil
+	}
+	for i, link := range links {
+		if !link.IsGitHubRef() {
+			continue
+		}
+		if resolved, err := resolver.ResolveIssueRef(ctx, link); err == nil {
+			links[i] = resolved
+		}
+	}
+	return links, nil
 }
 
 // SetReviewOf sets or clears (reviewOf = "") the link marking a card as the

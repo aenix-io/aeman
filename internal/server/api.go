@@ -39,6 +39,7 @@ var errMissingBoard = errors.New("owner and project are required (set ?owner=&pr
 //	POST   /api/v1/cards/{uid}/actions/remove-reviewer delete the linked review card
 //	POST   /api/v1/cards/{uid}/actions/take-into-plan  take a plan card into work
 //	POST   /api/v1/cards/{uid}/actions/release-from-plan release from the weekly plan
+//	GET    /api/v1/cards/{uid}/links                  links from the description (GitHub refs resolved)
 //	GET    /api/v1/cards/{uid}/notes                  the card's work notes
 //	POST   /api/v1/cards/{uid}/notes                  append a note
 //	PATCH  /api/v1/cards/{uid}/notes/{noteId}         edit a note
@@ -65,6 +66,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-reviewer", s.handleRemoveReviewer)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/take-into-plan", s.handleTakeIntoPlan)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/release-from-plan", s.handleReleaseFromPlan)
+	mux.HandleFunc("GET /api/v1/cards/{uid}/links", s.handleListLinks)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/notes", s.handleListNotes)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/notes", s.handleAddNote)
 	mux.HandleFunc("PATCH /api/v1/cards/{uid}/notes/{noteId}", s.handleEditNote)
@@ -115,6 +117,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/cards/{uid}/actions/remove-reviewer", "Delete the linked review card"},
 			{"POST", "/api/v1/cards/{uid}/actions/take-into-plan", "Take a plan card into work ({engineer, zone, day})"},
 			{"POST", "/api/v1/cards/{uid}/actions/release-from-plan", "Release a card from the weekly plan"},
+			{"GET", "/api/v1/cards/{uid}/links", "URLs from the card's description; GitHub issue/PR refs resolved with titles, listed first"},
 			{"GET", "/api/v1/cards/{uid}/notes", "The card's work notes"},
 			{"POST", "/api/v1/cards/{uid}/notes", "Append a work note ({text})"},
 			{"PATCH", "/api/v1/cards/{uid}/notes/{noteId}", "Edit a work note ({text})"},
@@ -705,6 +708,25 @@ func (s *Server) handleReleaseFromPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Notes ----------------------------------------------------------------------
+
+// handleListLinks serves the URLs found in a card's description: GitHub
+// issue/PR references first (resolved to their titles when possible), plain
+// links after.
+func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	links, err := svc.CardLinks(r.Context(), owner, project, r.PathValue("uid"))
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	if links == nil {
+		links = []board.Link{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"kind": "LinkList", "items": links})
+}
 
 // notesResponse serves a card's notes after any note mutation, so clients
 // always converge on the server's view of the thread.

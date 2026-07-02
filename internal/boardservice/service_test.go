@@ -18,6 +18,7 @@ var _ Backend = (*ghprojects.Client)(nil)
 // fakeBackend implements Backend over an in-memory board, logging every call and
 // mutating its board so the service's views reflect the result.
 type fakeBackend struct {
+	refs    map[string]board.Link
 	b       board.Board
 	log     []string
 	creates []board.CreateInput
@@ -59,6 +60,15 @@ func (f *fakeBackend) get(itemID string) *board.Card {
 		}
 	}
 	return nil
+}
+
+func (f *fakeBackend) ResolveIssueRef(_ context.Context, link board.Link) (board.Link, error) {
+	f.rec("ResolveIssueRef %s", link.URL)
+	resolved, ok := f.refs[link.URL]
+	if !ok {
+		return link, fmt.Errorf("unresolvable ref %s", link.URL)
+	}
+	return resolved, nil
 }
 
 func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
@@ -1145,5 +1155,80 @@ func TestCarryWeekDryRun(t *testing.T) {
 	}
 	if f.count("SetWeek") != 0 || f.count("CreateCard") != 0 {
 		t.Fatalf("dry run must not write; log=%v", f.log)
+	}
+}
+
+// Links: extraction + resolution through the backend resolver (L1).
+func TestCardLinks(t *testing.T) {
+	fake := newFake([]board.Card{{
+		ItemID: "c1",
+		Description: "Docs: https://example.com/wiki\n" +
+			"Blocked by https://github.com/acme/repo/issues/5 and https://github.com/acme/repo/pull/6",
+	}}, nil)
+	fake.refs = map[string]board.Link{
+		"https://github.com/acme/repo/issues/5": {
+			URL: "https://github.com/acme/repo/issues/5", Kind: "issue",
+			Owner: "acme", Repo: "repo", Number: 5, Title: "Fix the flux capacitor", State: "open"},
+	}
+	svc := New(fake)
+	links, err := svc.CardLinks(context.Background(), "acme", 1, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(links) != 3 {
+		t.Fatalf("links = %+v", links)
+	}
+	// GitHub refs first; the resolved one carries its title, the unresolvable
+	// PR stays as-is instead of being dropped; the plain link closes the list.
+	if links[0].Title != "Fix the flux capacitor" || links[0].State != "open" {
+		t.Fatalf("resolved = %+v", links[0])
+	}
+	if links[1].Kind != "pull" || links[1].Title != "" {
+		t.Fatalf("unresolved = %+v", links[1])
+	}
+	if links[2].Kind != "link" || links[2].URL != "https://example.com/wiki" {
+		t.Fatalf("plain = %+v", links[2])
+	}
+}
+
+// Create-by-URL: a title that is nothing but a GitHub issue/PR URL becomes
+// that item's title, with the link moved into the description (L2).
+func TestCreateCardFromGitHubURL(t *testing.T) {
+	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	fake.refs = map[string]board.Link{
+		"https://github.com/acme/repo/pull/7": {
+			URL: "https://github.com/acme/repo/pull/7", Kind: "pull",
+			Owner: "acme", Repo: "repo", Number: 7, Title: "feat: warp drive", State: "open"},
+	}
+	svc := New(fake)
+	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+		Team: "alpha", Title: "  https://github.com/acme/repo/pull/7 ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Title != "feat: warp drive" {
+		t.Fatalf("title = %q", card.Title)
+	}
+	if !fake.saw("SetDescription " + card.ItemID + " https://github.com/acme/repo/pull/7") {
+		t.Fatal("description must carry the source link")
+	}
+}
+
+// Create-by-URL degrades gracefully: an unresolvable link keeps the URL title.
+func TestCreateCardFromURLUnresolved(t *testing.T) {
+	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	svc := New(fake)
+	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+		Team: "alpha", Title: "https://github.com/acme/private/issues/9",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Title != "https://github.com/acme/private/issues/9" {
+		t.Fatalf("title = %q", card.Title)
+	}
+	if fake.count("SetDescription") != 0 {
+		t.Fatal("no description for an unresolved link")
 	}
 }

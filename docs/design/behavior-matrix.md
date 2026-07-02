@@ -135,3 +135,11 @@ Defer (D9/D10) · calendar set-dates (D11) · smart remove (A1–A3) ·
 review-cancel cascade incl. the reviewOf break (A5) · first-sprint record on
 create (D8, was doubled client-side) · carry confirm counts (D16) · weekly
 plan progress (V2). Each is pinned by the 🆕 tests above.
+
+## Links (2026-07-02)
+
+| # | Rule | Lives in | Test |
+| --- | --- | --- | --- |
+| L1 | Description links: GitHub issue/PR refs first (resolved to titles via the backend resolver; unresolvable ones stay unresolved, not dropped), plain links after, deduped | board.ExtractLinks + boardservice.CardLinks | ✅ links_test, service_test TestCardLinks, server TestAPICardLinks |
+| L2 | Create-by-URL: a title that is only a GitHub issue/PR URL resolves to that item's title, the link moves into the description; unresolvable keeps the URL title | boardservice.CreateCard | ✅ TestCreateCardFromGitHubURL / FromURLUnresolved |
+| L3 | UI: hashtag icon (link icon when only plain links) before the stage icon; one menu, refs-with-titles first, plain links as-is; click opens a new tab | Card.tsx + links.ts mirror | manual |

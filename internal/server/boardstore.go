@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -612,6 +613,16 @@ func (b *storeBackend) SetReviewOf(ctx context.Context, bd board.Board, card boa
 	}
 	b.touched(ctx, bd, card.ItemID)
 	return nil
+}
+
+// ResolveIssueRef passes through to the inner backend's resolver — link
+// titles are live lookups, never cached board state.
+func (b *storeBackend) ResolveIssueRef(ctx context.Context, link board.Link) (board.Link, error) {
+	resolver, ok := b.inner.(boardservice.LinkResolver)
+	if !ok {
+		return link, fmt.Errorf("backend cannot resolve github refs")
+	}
+	return resolver.ResolveIssueRef(ctx, link)
 }
 
 // SetSprintState updates the cached pointer in place when the team's

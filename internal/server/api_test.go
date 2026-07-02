@@ -398,3 +398,52 @@ func TestAPIInvalidJSON(t *testing.T) {
 		t.Fatalf("status = %d", rec.Code)
 	}
 }
+
+func TestAPICardLinks(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{
+		ItemID:      "c1",
+		Description: "https://example.com/spec and https://github.com/acme/repo/issues/3",
+	}}, nil)
+	fake.SetRefs(map[string]board.Link{
+		"https://github.com/acme/repo/issues/3": {
+			URL: "https://github.com/acme/repo/issues/3", Kind: "issue",
+			Owner: "acme", Repo: "repo", Number: 3, Title: "Broken build", State: "closed"},
+	})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards/c1/links?owner=acme&project=1", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Kind  string       `json:"kind"`
+		Items []board.Link `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.Kind != "LinkList" || len(list.Items) != 2 {
+		t.Fatalf("links = %+v", list)
+	}
+	if list.Items[0].Title != "Broken build" || list.Items[1].Kind != "link" {
+		t.Fatalf("order/resolution wrong: %+v", list.Items)
+	}
+}
+
+func TestAPICreateCardFromGitHubURL(t *testing.T) {
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	fake.SetRefs(map[string]board.Link{
+		"https://github.com/acme/repo/pull/7": {
+			URL: "https://github.com/acme/repo/pull/7", Kind: "pull",
+			Owner: "acme", Repo: "repo", Number: 7, Title: "feat: warp drive", State: "open"},
+	})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards?owner=acme&project=1",
+		`{"title":"https://github.com/acme/repo/pull/7","team":"alpha"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	c := decodeCard(t, rec)
+	if c.Spec.Title != "feat: warp drive" || c.Spec.Description != "https://github.com/acme/repo/pull/7" {
+		t.Fatalf("card = %+v", c.Spec)
+	}
+}
