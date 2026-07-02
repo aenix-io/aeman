@@ -357,11 +357,12 @@ func (s *Server) handleCarryOver(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := svc.CarryOver(r.Context(), owner, project, in.Team); err != nil {
+	rep, err := svc.CarryOver(r.Context(), owner, project, in.Team, r.URL.Query().Get("dryRun") == "true")
+	if err != nil {
 		s.apiError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+	writeJSON(w, http.StatusOK, rep)
 }
 
 func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
@@ -376,15 +377,12 @@ func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	carried, err := svc.CarryWeek(r.Context(), owner, project, in.Team, in.Week)
+	rep, err := svc.CarryWeek(r.Context(), owner, project, in.Team, in.Week, r.URL.Query().Get("dryRun") == "true")
 	if err != nil {
 		s.apiError(w, err)
 		return
 	}
-	if carried == nil {
-		carried = []board.Card{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"carried": carried})
+	writeJSON(w, http.StatusOK, rep)
 }
 
 func (s *Server) handleSetStage(w http.ResponseWriter, r *http.Request) {
