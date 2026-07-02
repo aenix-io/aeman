@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aenix-org/aeman/internal/apiserver"
-	"github.com/aenix-org/aeman/internal/board"
-	"github.com/aenix-org/aeman/internal/boardservice"
+	"github.com/aenix-org/aeman/pkg/apiserver"
+	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-org/aeman/pkg/boardservice"
 )
 
 // watchFrame is one event on the watch stream: a typed change to a Card,
