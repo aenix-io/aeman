@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/aenix-org/aeman/internal/board"
 )
@@ -174,13 +175,18 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 			ReviewOf: args.ReviewOf,
 		})
 	}
+	// Start and Day (the end/due date) default to each other so a create with
+	// only one of them yields a one-day range — a backdated create must NOT get
+	// day = today, or the [start…day] range would stretch it onto today's board.
 	day := args.Day
-	if day == "" {
-		day = board.TodayIso()
-	}
 	start := args.Start
 	if start == "" {
+		if day == "" {
+			day = board.TodayIso()
+		}
 		start = day
+	} else if day == "" {
+		day = start
 	}
 	cur := board.CurrentSprint(b, args.Team)
 	startNew := cur == ""
@@ -237,16 +243,20 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	// on the backend) are picked up too. Future-dated cards stay.
 	var carry []board.Card
 	for _, c := range b.Cards {
-		if c.Team != team || c.SprintStart == "" || c.SprintStart >= today || c.Stage == board.StageDone {
+		if c.Team != team || c.SprintStart == "" || c.SprintStart >= today || board.Complete(c.Stage, c.Progress) {
 			continue
 		}
 		carry = append(carry, c)
 	}
-	// The per-card writes are independent; run them concurrently (bounded) so a
-	// full sprint carries in a few round-trips' time instead of one per card.
-	sem := make(chan struct{}, 8)
+	// The per-card writes are independent, but a burst of concurrent Projects v2
+	// mutations trips GitHub's secondary rate limit, so run them at a modest
+	// concurrency, retry transient failures, and — crucially — do NOT stop at the
+	// first error: a partial carry-over that silently drops a card is worse than
+	// a slow one. Only cards that still fail after retries surface as an error.
+	sem := make(chan struct{}, 3)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var failed int
 	var firstErr error
 	for _, c := range carry {
 		wg.Add(1)
@@ -254,8 +264,9 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		go func(c board.Card) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := s.backend.SetSprintStart(ctx, b, c, today); err != nil {
+			if err := s.setSprintStartRetry(ctx, b, c, today); err != nil {
 				mu.Lock()
+				failed++
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -264,7 +275,32 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		}(c)
 	}
 	wg.Wait()
-	return firstErr
+	if firstErr != nil {
+		return fmt.Errorf("carried over %d of %d cards, %d failed: %w",
+			len(carry)-failed, len(carry), failed, firstErr)
+	}
+	return nil
+}
+
+// setSprintStartRetry sets a card's Sprint Start, retrying a few times with
+// backoff. Carry Over touches many cards at once, and a transient GitHub hiccup
+// (secondary rate limit, 502, a token refreshed mid-flight) on one of them must
+// not silently leave it behind. The write is idempotent, so retrying is safe.
+func (s *Service) setSprintStartRetry(ctx context.Context, b board.Board, c board.Card, date string) error {
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * 400 * time.Millisecond):
+			}
+		}
+		if err = s.backend.SetSprintStart(ctx, b, c, date); err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 // CarryWeek pulls a team's unfinished plan cards from earlier weeks into the
@@ -284,7 +320,7 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week {
 			continue
 		}
-		if c.Stage == board.StageDone || c.Team != team {
+		if board.Complete(c.Stage, c.Progress) || c.Team != team {
 			continue
 		}
 		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
