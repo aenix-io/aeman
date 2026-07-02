@@ -262,3 +262,35 @@ func TestOrderingEvent(t *testing.T) {
 		t.Fatalf("ordering = %+v", o.Spec.UIDs)
 	}
 }
+
+// A TTL reload must not lose a card created through aeman seconds ago (the
+// GitHub item list is eventually consistent), nor resurrect one just deleted.
+func TestReloadKeepsRecentMutations(t *testing.T) {
+	store := newBoardStore()
+	e := seedEntry(store, "acme/1", watchBoard())
+
+	// c3 was just created locally; c1 just deleted.
+	e.mu.Lock()
+	c3 := board.Card{ItemID: "c3", Team: "alpha"}
+	e.upsertCard(c3)
+	e.markRecent("c3")
+	e.removeCard("c1")
+	e.markGone("c1")
+	e.mu.Unlock()
+
+	// A stale upstream fetch: still lists c1, does not know c3 yet.
+	e.mu.Lock()
+	fresh := e.applyRecent(watchBoard())
+	e.mu.Unlock()
+
+	ids := map[string]bool{}
+	for _, c := range fresh.Cards {
+		ids[c.ItemID] = true
+	}
+	if !ids["c3"] {
+		t.Fatalf("recently created card lost on reload: %v", ids)
+	}
+	if ids["c1"] {
+		t.Fatalf("recently deleted card resurrected on reload: %v", ids)
+	}
+}

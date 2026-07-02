@@ -6,6 +6,11 @@ import {
   useState,
   type Ref,
 } from "react";
+import {
+  cancelPendingCard,
+  consumePendingCancel,
+  registerPendingCard,
+} from "../api/pending";
 import type {
   Board,
   Card as CardModel,
@@ -366,13 +371,28 @@ export function TeamBoard({
       notes: [],
     };
     addCard(optimistic);
-    void provider
-      .createCard(board, { title, plan, week: currentWeek, team: team ?? null })
+    const creating = provider.createCard(board, {
+      title,
+      plan,
+      week: currentWeek,
+      team: team ?? null,
+    });
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
       .then((card) => {
         removeCard(tempId);
+        if (consumePendingCancel(tempId)) {
+          // Deleted while the create was in flight: drop the server twin.
+          void provider.deleteCard(board, card.itemId).catch(() => undefined);
+          return;
+        }
         addCard(card);
       })
       .catch((err: unknown) => {
+        consumePendingCancel(tempId);
         removeCard(tempId);
         onError(errMessage(err));
       });
@@ -866,6 +886,7 @@ export function TeamBoard({
   // mirrors those rules locally; the re-list converges the server's outcome.
   const handleGridDelete = (card: CardModel) => {
     if (card.itemId.startsWith("tmp-")) {
+      cancelPendingCard(card.itemId);
       removeCard(card.itemId);
       return;
     }
@@ -938,6 +959,7 @@ export function TeamBoard({
   // patch mirrors those rules; the re-list converges the server's outcome.
   const removeFromPlan = (card: CardModel) => {
     if (card.itemId.startsWith("tmp-")) {
+      cancelPendingCard(card.itemId);
       removeCard(card.itemId);
       return;
     }
@@ -1108,17 +1130,32 @@ export function TeamBoard({
     };
     patchCard(card.itemId, {
       stage: "review",
-      // review/locked can't sit at full: the server knocks a 100% card to 90.
-      ...(card.progress === 100 ? { progress: 90 } : {}),
+      // The 10-90 clamp is stored on the review pick (mirrors board.ApplyStage).
+      progress: Math.min(90, Math.max(10, card.progress ?? 0)),
     });
-    void provider
-      .sendToReview(board, card.itemId, reviewerLogin, selectedDate)
+    const creating = provider.sendToReview(
+      board,
+      card.itemId,
+      reviewerLogin,
+      selectedDate,
+    );
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
       .then((created) => {
         removeCard(tempId);
+        if (consumePendingCancel(tempId)) {
+          // Deleted while the create was in flight: drop the server twin.
+          void provider.deleteCard(board, created.itemId).catch(() => undefined);
+          return;
+        }
         addCard(created);
         reload();
       })
       .catch((err: unknown) => {
+        consumePendingCancel(tempId);
         removeCard(tempId);
         patchCard(card.itemId, prevOriginal);
         onError(errMessage(err));
@@ -1217,23 +1254,33 @@ export function TeamBoard({
       notes: [],
     };
     addCard(optimistic);
-    void provider
-      .createCard(board, {
-        title,
-        zone,
-        day,
-        start: startDate,
-        assigneeLogin: engineer || null,
-        team,
-      })
+    const creating = provider.createCard(board, {
+      title,
+      zone,
+      day,
+      start: startDate,
+      assigneeLogin: engineer || null,
+      team,
+    });
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
       .then((card) => {
         removeCard(tempId);
+        if (consumePendingCancel(tempId)) {
+          // Deleted while the create was in flight: drop the server twin.
+          void provider.deleteCard(board, card.itemId).catch(() => undefined);
+          return;
+        }
         addCard(card);
         if (firstSprint) {
           reload();
         }
       })
       .catch((err: unknown) => {
+        consumePendingCancel(tempId);
         removeCard(tempId);
         onError(errMessage(err));
       });
