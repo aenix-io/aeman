@@ -1,35 +1,13 @@
-// Domain model and the extensible Provider interface. A provider maps an
-// external system (GitHub Projects v2 today, GitLab/Redmine/... later) onto
-// these shared types so the UI never depends on a specific backend.
-
-export type ProviderId = "github";
+// Domain model shared by the UI components and the API provider. The flat Card
+// shape is the internal component model; the provider maps the server's
+// Kubernetes-style resources onto it at the client boundary (api/resources.ts),
+// so components never see wire shapes or semantic zone names.
 
 /** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
 /** StageKey is an explicit per-card status that recolours the progress bar. */
 export type StageKey = "locked" | "review" | "recurrent" | "done";
-
-export interface SingleSelectOption {
-  id: string;
-  name: string;
-  color: string;
-}
-
-export interface ProjectField {
-  id: string;
-  name: string;
-  dataType: string;
-  options?: SingleSelectOption[];
-}
-
-export interface BoardSummary {
-  id: string;
-  number: number;
-  title: string;
-  url: string;
-  shortDescription?: string;
-}
 
 /** Note is a dated work note attached to a card (an issue comment, or a line
  * stored in a draft issue's body when the card has no comment thread). */
@@ -51,13 +29,11 @@ export interface Card {
   url?: string;
   number?: number;
   repository?: string;
-  state?: string;
   assignees: string[];
   /** GitHub login of the card's creator (draft-issue creator or issue author). */
   author?: string;
   /** ISO timestamp the item was added to the project (its age on the board). */
   createdAt?: string;
-  zoneOptionId?: string;
   zone?: ZoneKey;
   /** Readiness, 0..100. */
   progress?: number;
@@ -79,111 +55,141 @@ export interface Card {
   plan?: "wed" | "fri";
   /** ISO date (yyyy-mm-dd) of the plan week this card belongs to (weekly cycle). */
   week?: string;
-  sprintTitle?: string;
-  status?: string;
   /** Free-form card details (the body minus the appended action log). */
   description?: string;
+  /** Work notes; undefined until loaded from the notes subresource. */
   notes?: Note[];
 }
 
-/** NewCardInput describes a card to create on a board. */
+/** NewCardInput describes a card to create on a board. The server fills the
+ * defaults (dates, sprint join, first-sprint record) and applies admission. */
 export interface NewCardInput {
   title: string;
   zone?: ZoneKey;
   day?: string | null;
   start?: string | null;
-  sprintStart?: string | null;
   plan?: "wed" | "fri" | null;
   week?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
   reviewOf?: string | null;
+  /** Force the team's sprint pointer to (re)start on the card's day. */
+  startNewSprint?: boolean;
 }
 
-/** SprintState is a team's explicit sprint pointer, stored on a hidden
- * "sprint-state" card: its current and previous sprint start dates. */
+/** SprintState is a team's explicit sprint pointer: its current and previous
+ * sprint start dates. */
 export interface SprintState {
   current: string | null;
   previous: string | null;
-  itemId: string;
 }
 
 export interface Board {
-  id: string;
+  owner: string;
   number: number;
   title: string;
   url: string;
-  owner: string;
-  fields: ProjectField[];
   cards: Card[];
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
 }
 
-/** FieldRoles resolves well-known fields by their (case-insensitive) name. */
-export interface FieldRoles {
-  zone?: ProjectField;
-  progress?: ProjectField;
-  day?: ProjectField;
-  start?: ProjectField;
-  sprintStart?: ProjectField;
-  plan?: ProjectField;
-  week?: ProjectField;
-  sprint?: ProjectField;
-  status?: ProjectField;
-  stage?: ProjectField;
-  team?: ProjectField;
-  reviewOf?: ProjectField;
+/** BoardAddr addresses a board on the server (?owner=&project=). */
+export type BoardAddr = Pick<Board, "owner" | "number">;
+
+/** CardPatch is a partial spec edit mirroring PATCH /cards/{uid}: only the
+ * present fields are sent, and an empty string clears a field. Including
+ * dates.start runs the calendar rule server-side (the sprint is recomputed
+ * from the start day); dates.end / dates.sprint alone stay granular. */
+export interface CardPatch {
+  title?: string;
+  description?: string;
+  team?: string;
+  zone?: ZoneKey | "";
+  assignees?: string[];
+  progress?: number;
+  /** "" clears the stage; "done" marks the card done (derived server-side). */
+  stage?: StageKey | "";
+  dates?: { start?: string; end?: string; sprint?: string };
+  plan?: { band?: "wed" | "fri" | ""; week?: string };
+  reviewOf?: string;
 }
 
+/** CarryReport is what a carry-over / carry-week pass did — or would do on a
+ * dry run, which feeds the confirm-dialog counts. */
+export interface CarryReport {
+  carried: number;
+  reseeded: number;
+}
+
+/** Provider is the thin intent client of the aeman API: components state
+ * intent, keep optimistic state, and reconcile from the returned resources
+ * (and the watch stream). All board rules live server-side. */
 export interface Provider {
-  id: ProviderId;
-  label: string;
-  listBoards(owner: string): Promise<BoardSummary[]>;
+  /** Compose GET /board + /cards + /sprints into the frontend Board. */
   loadBoard(owner: string, number: number): Promise<Board>;
-  /** Re-fetch a specific set of cards by item id. Live updates use this to
-   *  refresh just the cards a mutation changed. needsFullReload signals a sprint
-   *  pointer moved and the whole board should be reloaded instead. */
-  loadCards(
-    board: Board,
-    ids: string[],
-  ): Promise<{ cards: Card[]; needsFullReload: boolean }>;
-  setZone(board: Board, card: Card, optionId: string | null): Promise<void>;
-  setProgress(board: Board, card: Card, progress: number): Promise<void>;
-  setDay(board: Board, card: Card, day: string | null): Promise<void>;
-  setStart(board: Board, card: Card, date: string | null): Promise<void>;
-  setSprintStart(board: Board, card: Card, date: string | null): Promise<void>;
-  /** Set Sprint Start on many cards in a few batched requests. */
-  setSprintStartMany(board: Board, cards: Card[], date: string): Promise<void>;
-  /** Advance a team's sprint to today and carry its unfinished cards forward
-   *  (a no-op when the sprint is already today's). team = null is the no-team
-   *  group. */
-  carryOver(board: Board, team: string | null): Promise<void>;
-  /** Pull a team's unfinished plan cards from earlier weeks into the target
-   *  week; a finished recurrent plan card stays and is reseeded as a fresh
-   *  copy in that week instead. */
-  carryWeek(board: Board, team: string | null, week: string): Promise<void>;
-  /** Set a team's sprint pointer (current/previous start dates), creating the
-   * hidden state card if the team has none yet. team = null is the no-team group. */
+  createCard(board: BoardAddr, input: NewCardInput): Promise<Card>;
+  patchCard(board: BoardAddr, uid: string, patch: CardPatch): Promise<Card>;
+  /** Hard delete; the server cascades to the linked review card. */
+  deleteCard(board: BoardAddr, uid: string): Promise<void>;
+  /** The smart ×: the server demotes / releases / deletes by the board rules. */
+  removeCard(board: BoardAddr, uid: string, from: "grid" | "plan"): Promise<void>;
+  /** Reposition card after afterId in the project order (null = top). */
+  moveCard(board: BoardAddr, uid: string, afterId: string | null): Promise<void>;
+  /** Push the scheduled day N days ahead of max(today, current start). */
+  deferCard(board: BoardAddr, uid: string, days: number): Promise<Card>;
+  /** Move to the implicit In Progress status (no stage, progress in [10,90]). */
+  setInProgress(board: BoardAddr, uid: string): Promise<Card>;
+  /** Create the linked review card (or reassign an existing one). */
+  sendToReview(
+    board: BoardAddr,
+    uid: string,
+    reviewer: string,
+    day?: string,
+  ): Promise<Card>;
+  /** Delete the linked review card; returns the original. */
+  removeReviewer(board: BoardAddr, uid: string): Promise<Card>;
+  /** Take a plan card into work: assign + zone + join the sprint. */
+  takeIntoPlan(
+    board: BoardAddr,
+    uid: string,
+    engineer: string,
+    zone: ZoneKey | undefined,
+    day?: string,
+  ): Promise<Card>;
+  /** Release a card from the weekly plan (the plan-band × semantics). */
+  releaseFromPlan(board: BoardAddr, uid: string): Promise<Card>;
+  /** Advance a team's sprint to today and carry its unfinished cards forward.
+   * dryRun reports the would-be counts without writing. team = null is the
+   * no-team group. */
+  carryOver(
+    board: BoardAddr,
+    team: string | null,
+    dryRun?: boolean,
+  ): Promise<CarryReport>;
+  /** Pull a team's unfinished plan cards from earlier weeks into `week`;
+   * finished recurrent ones reseed as fresh copies. dryRun = counts only. */
+  carryWeek(
+    board: BoardAddr,
+    team: string | null,
+    week: string,
+    dryRun?: boolean,
+  ): Promise<CarryReport>;
+  /** Set a team's sprint pointer directly (current/previous start dates). */
   setSprintState(
-    board: Board,
+    board: BoardAddr,
     team: string | null,
     current: string | null,
     previous: string | null,
   ): Promise<void>;
-  setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void>;
-  setWeek(board: Board, card: Card, date: string | null): Promise<void>;
-  setAssignee(board: Board, card: Card, login: string | null): Promise<void>;
-  setStage(board: Board, card: Card, stage: StageKey | null): Promise<void>;
-  setTeam(board: Board, card: Card, team: string | null): Promise<void>;
-  renameCard(board: Board, card: Card, title: string): Promise<void>;
-  setDescription(board: Board, card: Card, description: string): Promise<void>;
-  createCard(board: Board, input: NewCardInput): Promise<Card>;
-  deleteCard(board: Board, card: Card): Promise<void>;
-  /** Reposition card after afterItemId in the project order (null = top). */
-  moveCard(board: Board, card: Card, afterItemId: string | null): Promise<void>;
-  addNote(board: Board, card: Card, text: string): Promise<void>;
-  editNote(board: Board, card: Card, note: Note, text: string): Promise<void>;
-  deleteNote(board: Board, card: Card, note: Note): Promise<void>;
+  listNotes(board: BoardAddr, uid: string): Promise<Note[]>;
+  addNote(board: BoardAddr, uid: string, text: string): Promise<Note[]>;
+  editNote(
+    board: BoardAddr,
+    uid: string,
+    noteId: string,
+    text: string,
+  ): Promise<Note[]>;
+  deleteNote(board: BoardAddr, uid: string, noteId: string): Promise<Note[]>;
 }
