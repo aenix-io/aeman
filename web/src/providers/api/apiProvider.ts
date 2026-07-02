@@ -243,4 +243,14 @@ export const apiProvider: Provider = {
     // the unfinished cards concurrently, emitting watch events per card.
     await api(board, "POST", "/carry-over", { team: team ?? "" });
   },
+
+  async carryWeek(
+    board: Board,
+    team: string | null,
+    week: string,
+  ): Promise<void> {
+    // One server-side call: the backend moves the unfinished plan cards and
+    // reseeds finished recurrent ones as fresh copies in the target week.
+    await api(board, "POST", "/carry-week", { team: team ?? "", week });
+  },
 };

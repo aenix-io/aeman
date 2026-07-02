@@ -69,7 +69,7 @@ func (h *server) mcpServer() *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "create_card", Description: "Create a card that joins (or starts) its team's sprint."}, h.createCard)
 	mcp.AddTool(s, &mcp.Tool{Name: "carry_over", Description: "Advance a team's sprint to today and carry its unfinished cards forward."}, h.carryOver)
 	mcp.AddTool(s, &mcp.Tool{Name: "carry_week", Description: "Pull a team's unfinished plan cards from earlier weeks into the target week."}, h.carryWeek)
-	mcp.AddTool(s, &mcp.Tool{Name: "set_stage", Description: "Set a card's stage: locked, review, done, or empty to clear it."}, h.setStage)
+	mcp.AddTool(s, &mcp.Tool{Name: "set_stage", Description: "Set a card's stage: locked, review, recurrent, done, or empty to clear it."}, h.setStage)
 	mcp.AddTool(s, &mcp.Tool{Name: "set_in_progress", Description: "Move a card to the implicit In Progress status (clears the stage)."}, h.setInProgress)
 	mcp.AddTool(s, &mcp.Tool{Name: "set_progress", Description: "Set a card's readiness percentage (0..100), running the done auto-link."}, h.setProgress)
 	mcp.AddTool(s, &mcp.Tool{Name: "send_to_review", Description: "Create a linked review card for a reviewer and put the card on review."}, h.sendToReview)

@@ -336,15 +336,18 @@ func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
 	if !f.saw(fmt.Sprintf("SetSprintState alpha cur=%s prev=%s", today, old)) {
 		t.Fatalf("expected advance; log=%v", f.log)
 	}
-	// c1 (previous sprint) and the in-between c3 both carry; c2 is done, c4 is
-	// another team, and c5 is future-dated — none of those move.
-	if f.count("SetSprintStart") != 2 ||
-		!f.saw(fmt.Sprintf("SetSprintStart c1 %s", today)) ||
-		!f.saw(fmt.Sprintf("SetSprintStart c3 %s", today)) {
-		t.Fatalf("c1 and the in-between c3 should carry; log=%v", f.log)
+	// Only c1 (the current sprint being closed) carries; c2 is done, c3 is not on
+	// the current sprint, c4 is another team, and c5 is future-dated — none move,
+	// so a card removed from the current sprint never boomerangs back.
+	if f.count("SetSprintStart") != 1 ||
+		!f.saw(fmt.Sprintf("SetSprintStart c1 %s", today)) {
+		t.Fatalf("only c1 should carry; log=%v", f.log)
 	}
-	if f.get("c1").SprintStart != today || f.get("c3").SprintStart != today {
-		t.Fatalf("c1/c3 not carried: %+v %+v", f.get("c1"), f.get("c3"))
+	if f.get("c1").SprintStart != today {
+		t.Fatalf("c1 not carried: %+v", f.get("c1"))
+	}
+	if f.get("c3").SprintStart != "2026-02-01" {
+		t.Fatalf("off-sprint c3 should stay: %+v", f.get("c3"))
 	}
 	if f.get("c5").SprintStart != "2027-01-01" {
 		t.Fatalf("future-dated c5 should not carry: %+v", f.get("c5"))
@@ -746,3 +749,70 @@ func TestWeeklyPlanView(t *testing.T) {
 
 // f2svc wraps a fake backend in a Service.
 func f2svc(f *fakeBackend) *Service { return New(f) }
+
+func TestCarryOverReseedsFinishedRecurrent(t *testing.T) {
+	old := "2026-01-01"
+	f := newFake([]board.Card{
+		{ItemID: "r1", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent, Progress: 100,
+			Title: "standup", Description: "daily sync", Assignees: []string{"bob"}, Zone: board.ZoneGray},
+		{ItemID: "r2", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent, Progress: 40},
+	}, map[string]board.SprintState{"alpha": {Current: old}})
+	today := board.TodayIso()
+	if err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	// The unfinished recurrent r2 carries like any card; the finished r1 stays.
+	if !f.saw(fmt.Sprintf("SetSprintStart r2 %s", today)) {
+		t.Fatalf("unfinished recurrent should carry; log=%v", f.log)
+	}
+	if f.get("r1").SprintStart != old {
+		t.Fatalf("finished recurrent should stay behind: %+v", f.get("r1"))
+	}
+	// The finished one seeds a fresh copy in the new sprint: same title and
+	// description, recurrent again, assignee kept, on today's dates.
+	if len(f.creates) != 1 {
+		t.Fatalf("expected one reseed create; creates=%v log=%v", f.creates, f.log)
+	}
+	in := f.creates[0]
+	if in.Title != "standup" || in.Team != "alpha" || in.Assignee != "bob" ||
+		in.SprintStart != today || in.Start != today || in.Day != today {
+		t.Fatalf("reseed input = %+v", in)
+	}
+	if f.count("SetStage") != 1 || !f.saw("SetStage new2 recurrent") {
+		t.Fatalf("reseed should be recurrent; log=%v", f.log)
+	}
+	if !f.saw("SetDescription new2 daily sync") {
+		t.Fatalf("reseed should copy the description; log=%v", f.log)
+	}
+}
+
+func TestCarryWeekReseedsFinishedRecurrent(t *testing.T) {
+	week := board.MondayOf(board.TodayIso())
+	prev := board.AddDays(week, -7)
+	f := newFake([]board.Card{
+		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: prev, Stage: board.StageRecurrent, Progress: 100, Title: "weekly report"},
+		{ItemID: "p2", Team: "alpha", Plan: board.PlanFri, Week: prev, Progress: 20, Title: "feature"},
+	}, nil)
+	carried, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// p2 moves into the week; p1 stays and seeds a fresh recurrent copy.
+	if len(carried) != 1 || carried[0].ItemID != "p2" {
+		t.Fatalf("carried = %+v", carried)
+	}
+	if f.get("p1").Week != prev {
+		t.Fatalf("finished recurrent plan card should stay: %+v", f.get("p1"))
+	}
+	if len(f.creates) != 1 || f.creates[0].Title != "weekly report" ||
+		f.creates[0].Week != week || f.creates[0].Plan != board.PlanWed {
+		t.Fatalf("reseed create = %+v", f.creates)
+	}
+	// Re-running is idempotent: the copy already sits in the target week.
+	if _, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.creates) != 1 {
+		t.Fatalf("reseed must not duplicate; creates=%v", f.creates)
+	}
+}

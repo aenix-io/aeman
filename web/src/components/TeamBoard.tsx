@@ -66,6 +66,13 @@ const errMessage = (err: unknown) =>
 // resurrect a phantom copy).
 const isGone = (err: unknown) => errMessage(err).includes("card not found");
 
+// isComplete mirrors board.Complete: an explicit done, or 100% with no stage
+// (derived done) or on the recurrent stage (a finished recurrent card stays
+// behind — Carry Over/Week reseed a fresh copy instead of dragging it).
+const isComplete = (c: CardModel) =>
+  c.stage === "done" ||
+  ((!c.stage || c.stage === "recurrent") && (c.progress ?? 0) >= 100);
+
 /** TeamBoard is the team as a people × zones grid for one day, filtered by team. */
 export function TeamBoard({
   board,
@@ -308,7 +315,11 @@ export function TeamBoard({
 
   // Overall completion across all plan cards (a done card counts as 100%).
   const planProgress = useMemo(() => {
-    const all = [...weekly.wed, ...weekly.fri];
+    // Recurrent plan cards are excluded: the bar describes the week's one-off
+    // work, while recurrent tasks restart every week and would skew it.
+    const all = [...weekly.wed, ...weekly.fri].filter(
+      (c) => c.stage !== "recurrent",
+    );
     if (all.length === 0) {
       return 0;
     }
@@ -374,18 +385,31 @@ export function TeamBoard({
   const handleCarryWeek = (team: string | null) => {
     setCarryWeekOpen(false);
     const label = team ?? "no team";
-    const carry = board.cards.filter(
+    const fromEarlier = board.cards.filter(
       (c) =>
         c.plan &&
         c.week != null &&
         c.week < currentWeek &&
-        c.stage !== "done" &&
-        !(!c.stage && (c.progress ?? 0) >= 100) &&
         // Skip not-yet-persisted optimistic cards (temporary ids).
         !c.itemId.startsWith("tmp-") &&
         (team === null ? c.team == null : c.team === team),
     );
-    if (carry.length === 0) {
+    const carry = fromEarlier.filter((c) => !isComplete(c));
+    // Finished recurrent plan cards stay behind; the backend reseeds a fresh
+    // copy into the week (skipping titles already planned there).
+    const reseed = fromEarlier.filter(
+      (c) =>
+        c.stage === "recurrent" &&
+        (c.progress ?? 0) >= 100 &&
+        !board.cards.some(
+          (t) =>
+            t.plan &&
+            t.week === currentWeek &&
+            (t.team ?? "") === (c.team ?? "") &&
+            t.title === c.title,
+        ),
+    );
+    if (carry.length === 0 && reseed.length === 0) {
       onError(
         `No unfinished plan cards from earlier weeks for "${label}" to carry into the week of ${currentWeek}.`,
       );
@@ -393,19 +417,26 @@ export function TeamBoard({
     }
     if (
       !window.confirm(
-        `Carry over ${carry.length} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?`,
+        `Carry over ${carry.length} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?` +
+          (reseed.length > 0
+            ? ` ${reseed.length} recurrent card(s) will restart at 0%.`
+            : ""),
       )
     ) {
       return;
     }
-    for (const card of carry) {
-      const prev = card.week;
-      patchCard(card.itemId, { week: currentWeek });
-      void provider.setWeek(board, card, currentWeek).catch((err: unknown) => {
-        patchCard(card.itemId, { week: prev });
+    carry.forEach((card) => patchCard(card.itemId, { week: currentWeek }));
+    void (async () => {
+      try {
+        // One server-side call: it moves the unfinished cards and reseeds the
+        // finished recurrent ones.
+        await provider.carryWeek(board, team, currentWeek);
+      } catch (err: unknown) {
         onError(errMessage(err));
-      });
-    }
+      }
+      // Pick up the reseeded copies (and reconcile the moves).
+      reload();
+    })();
   };
 
   // Move a plan card between the two bands (changes its Wed/Fri deadline).
@@ -780,7 +811,61 @@ export function TeamBoard({
     }
   };
 
+  // Taking a card off review cancels its linked unfinished review card,
+  // mirroring the × logic: still on the team's current sprint → demoted to the
+  // previous one; otherwise deleted. A finished review card stays as a record.
+  const cancelLinkedReview = (original: CardModel) => {
+    const review = board.cards.find(
+      (c) =>
+        c.reviewOf === original.itemId &&
+        c.stage !== "done" &&
+        !(!c.stage && (c.progress ?? 0) >= 100) &&
+        !c.itemId.startsWith("tmp-"),
+    );
+    if (!review) {
+      return;
+    }
+    const cur = currentSprint(board, review.team ?? null);
+    const prevS = previousSprint(board, review.team ?? null);
+    if (review.sprintStart && cur && review.sprintStart === cur && prevS && prevS < cur) {
+      const rollback: Partial<CardModel> = {
+        startDate: review.startDate,
+        sprintStart: review.sprintStart,
+        day: review.day,
+      };
+      patchCard(review.itemId, {
+        startDate: prevS,
+        sprintStart: prevS,
+        ...(review.day ? { day: prevS } : {}),
+      });
+      void (async () => {
+        try {
+          await provider.setStart(board, review, prevS);
+          await provider.setSprintStart(board, review, prevS);
+          if (review.day && review.day !== prevS) {
+            await provider.setDay(board, review, prevS);
+          }
+        } catch (err: unknown) {
+          patchCard(review.itemId, rollback);
+          onError(errMessage(err));
+        }
+      })();
+      return;
+    }
+    removeCard(review.itemId);
+    void provider.deleteCard(board, review).catch((err: unknown) => {
+      if (isGone(err)) {
+        return;
+      }
+      addCard(review);
+      onError(errMessage(err));
+    });
+  };
+
   const handleStage = (card: CardModel, stage: StageKey | null) => {
+    if (card.stage === "review" && stage !== "review") {
+      cancelLinkedReview(card);
+    }
     const prev: Partial<CardModel> = {
       stage: card.stage,
       progress: card.progress,
@@ -817,6 +902,9 @@ export function TeamBoard({
   // Picking it clears any stage and clamps progress into that band: under 10
   // becomes 10, a done/full card drops to 90, otherwise the value is kept.
   const handleInProgress = (card: CardModel) => {
+    if (card.stage === "review") {
+      cancelLinkedReview(card);
+    }
     const cur = card.progress ?? 0;
     let value = cur;
     if (cur < 10) {
@@ -1295,13 +1383,15 @@ export function TeamBoard({
       onError(`«${label}» is already on today's sprint.`);
       return;
     }
+    // Only the closing (current) sprint's unfinished cards carry — a card that
+    // is not on today's sprint stays put, so removing it from the sprint is
+    // final. Mirrors boardservice.CarryOver.
     const carry = board.cards.filter(
       (c) =>
         (team === null ? c.team == null : c.team === team) &&
-        c.sprintStart &&
-        c.sprintStart < today &&
-        c.stage !== "done" &&
-        !(!c.stage && (c.progress ?? 0) >= 100) &&
+        !!old &&
+        c.sprintStart === old &&
+        !isComplete(c) &&
         !c.itemId.startsWith("tmp-"),
     );
     if (

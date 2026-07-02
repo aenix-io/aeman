@@ -44,7 +44,7 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | `POST /api/v1/carry-week` | `{team, week}` | Pull unfinished plan cards from earlier weeks into the week. |
 | `POST /api/v1/sprint-state` | `{team, current, previous}` | Set a team's sprint pointer directly. |
 | `DELETE /api/v1/cards/{id}` | — | Delete a card (cascades to its linked review card). |
-| `POST /api/v1/cards/{id}/stage` | `{stage}` | Set the stage: `locked`, `review`, `done`, or `""` to clear. |
+| `POST /api/v1/cards/{id}/stage` | `{stage}` | Set the stage: `locked`, `review`, `recurrent`, `done`, or `""` to clear. |
 | `POST /api/v1/cards/{id}/in-progress` | `{}` | Move to the implicit In Progress status. |
 | `POST /api/v1/cards/{id}/progress` | `{progress}` | Set readiness (0–100), running the done auto-link. |
 | `POST /api/v1/cards/{id}/zone` | `{zone}` | Set the colour zone (`gray`/`green`/`yellow`/`red`, `""` clears). |
