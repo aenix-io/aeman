@@ -72,7 +72,7 @@ Four resource kinds:
     "title": "Wire up the API",
     "description": "Free-form details",
     "team": "platform",
-    "zone": "red",
+    "zone": "urgent",
     "assignee": "octocat",
     "progress": 40,
     "stage": "review",
@@ -83,7 +83,6 @@ Four resource kinds:
   "status": {
     "complete": false,
     "inProgress": false,
-    "rank": "0|c00010:",
     "reviewedBy": "lllamnyp"
   }
 }
@@ -95,9 +94,13 @@ Four resource kinds:
   - `complete` — done stage, or 100% with no/recurrent stage (the one rule,
     owned by the server).
   - `inProgress` — the implicit status (no stage, 10–90%).
-  - `rank` — global manual ordering key (see Ordering).
   - `reviewedBy` — the linked review card's assignee, resolved server-side (the
     UI shows "On review: X" without scanning the board).
+
+Zones use **semantic names**, not colours: `urgent`, `unplanned`, `planned`,
+`niceToHave` (today's red/yellow/gray/green). Colours are presentation; the
+GitHub backend keeps matching board options by their option colour, and the
+API vocabulary stays meaningful for a future backend with no colours at all.
 
 ### Sprint
 
@@ -179,8 +182,8 @@ GET /api/v1/cards                      # unfiltered: every card (MCP, debugging)
 GET /api/v1/cards?stage=review&assignee=kvaps   # plain field selectors compose
 ```
 
-- LIST responses are **sorted by `status.rank`** — the client renders in order,
-  grouping (zones × people) stays presentational.
+- LIST responses are **sorted by the board order** (see Ordering) — the client
+  renders in order, grouping (zones × people) stays presentational.
 - The weekly view response carries the computed band split and the plan
   progress number (recurrent excluded), so the progress bar is served, not
   computed client-side.
@@ -215,23 +218,34 @@ WebSocket; each frame is one event:
 
 ## Ordering and reordering (the open question)
 
-GitHub Projects has one global manual order; k8s has none. v2 models it as a
-**server-synthesized rank** on each card:
+GitHub Projects has one global manual order; k8s has none. Order is a property
+of the **board**, not of a card — GitHub models it exactly that way — so the
+API exposes it as a small singleton resource:
 
-- On every full board load the store assigns each card a lexicographic rank
-  from its position in GitHub's item order (`status.rank`).
-- `actions/move {after}` computes a midpoint rank between the neighbours,
-  updates the one card locally, and mirrors the move to GitHub
-  (`updateProjectV2ItemPosition`). **Exactly one MODIFIED event per move** — no
-  event storms, clients just re-sort by rank.
-- Rank space exhaustion between two adjacent ranks triggers a local rebalance
-  of the affected segment (bounded burst of MODIFIED events; rare).
-- Ranks are an in-memory synthesis — GitHub order remains the source of truth
-  and every re-list re-derives them.
+```json
+{ "kind": "Ordering", "spec": { "uids": ["PVTI_…", "PVTI_…", …] } }
+```
 
-Rejected alternative: a single `Ordering` resource holding the uid list. It
-concentrates churn in one hot object every client must re-read on any move, and
-breaks the "cards are self-contained objects" property.
+- `GET /api/v1/ordering` returns it; the watch streams it as a `MODIFIED
+  Ordering` event whenever a move happens — **one small event per move** (a few
+  KB for a few hundred cards), and clients unconditionally re-sort what they
+  hold by it, ignoring uids they don't know (filtered views).
+- `POST /cards/{uid}/actions/move {after | first}` updates GitHub
+  (`updateProjectV2ItemPosition`), the store's uid list, and broadcasts.
+- LIST responses are always served in board order, so most clients never touch
+  the Ordering object at all — it only matters for holding a live view sorted
+  between events.
+
+Why not a per-card rank (LexoRank-style, the usual alternative)? Ranks would
+have to be **synthesized** — GitHub stores no positions — which makes them
+unstable across server restarts and re-lists, needs midpoint/rebalance logic,
+and forces a future git backend to invent per-card rank storage. The uid list
+has none of those problems: it is trivially derived from any backend's native
+order (a git backend can literally store it as a file), survives restarts, and
+needs no rebalancing. At our scale (hundreds of cards, human-driven moves) the
+"hot object" concern is theoretical; if boards ever grow to thousands of cards,
+per-card ranks can be introduced later as a `status` field without breaking the
+model.
 
 ## What moves out of the frontend
 
