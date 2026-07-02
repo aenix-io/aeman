@@ -350,8 +350,8 @@ export function Card({
           >
             {card.stage === "review" ? (
               <svg
-                width="13"
-                height="13"
+                width="15"
+                height="15"
                 viewBox="0 0 24 24"
                 fill="currentColor"
                 aria-hidden="true"
