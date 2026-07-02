@@ -58,13 +58,27 @@ export function CardDetail({
 
   const handleSave = () => {
     const next = description;
+    // The description live-syncs with the linked counterpart (original <->
+    // review card) server-side; mirror it locally, since our own watch echo
+    // is suppressed. Notes stay per-card.
+    const counterpart = board.cards.find((c) =>
+      card.reviewOf ? c.itemId === card.reviewOf : c.reviewOf === card.itemId,
+    );
     // Apply immediately and close; the backend runs in the background.
     patchCard(card.itemId, { description: next });
+    if (counterpart) {
+      patchCard(counterpart.itemId, { description: next });
+    }
     onClose();
     void provider
       .patchCard(board, card.itemId, { description: next })
       .catch((err: unknown) => {
         patchCard(card.itemId, { description: card.description ?? "" });
+        if (counterpart) {
+          patchCard(counterpart.itemId, {
+            description: counterpart.description ?? "",
+          });
+        }
         if (err instanceof Error) {
           console.error(err);
         }

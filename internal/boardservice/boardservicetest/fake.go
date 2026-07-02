@@ -15,6 +15,7 @@ import (
 // Backend is an in-memory boardservice.Backend. It logs every call and mutates
 // its board so the service's views reflect the result of an action.
 type Backend struct {
+	refs    map[string]board.Link
 	board   board.Board
 	log     []string
 	creates []board.CreateInput
@@ -22,6 +23,20 @@ type Backend struct {
 }
 
 // New builds a Backend seeded with cards and per-team sprint states.
+// Refs configures ResolveIssueRef answers, keyed by link URL (ignoring any
+// fragment). URLs absent from the map fail to resolve.
+func (f *Backend) SetRefs(refs map[string]board.Link) { f.refs = refs }
+
+// ResolveIssueRef satisfies boardservice.LinkResolver from the seeded refs.
+func (f *Backend) ResolveIssueRef(_ context.Context, link board.Link) (board.Link, error) {
+	f.rec("ResolveIssueRef %s", link.URL)
+	resolved, ok := f.refs[link.URL]
+	if !ok {
+		return link, fmt.Errorf("unresolvable ref %s", link.URL)
+	}
+	return resolved, nil
+}
+
 func New(cards []board.Card, states map[string]board.SprintState) *Backend {
 	if states == nil {
 		states = map[string]board.SprintState{}

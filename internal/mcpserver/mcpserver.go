@@ -80,6 +80,7 @@ func (h *server) mcpServer() *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "release_from_plan", Description: "Release a card from the weekly plan (a pure plan card demotes to its previous week, else is deleted)."}, h.releaseFromPlan)
 	mcp.AddTool(s, &mcp.Tool{Name: "carry_over", Description: "Advance a team's sprint to today and carry its unfinished cards forward (dryRun reports the counts)."}, h.carryOver)
 	mcp.AddTool(s, &mcp.Tool{Name: "carry_week", Description: "Pull a team's unfinished plan cards from earlier weeks into the target week (dryRun reports the counts)."}, h.carryWeek)
+	mcp.AddTool(s, &mcp.Tool{Name: "list_links", Description: "List URLs from a card's description: GitHub issue/PR refs (resolved with titles) first, plain links after."}, h.listLinks)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_notes", Description: "List a card's work notes."}, h.listNotes)
 	mcp.AddTool(s, &mcp.Tool{Name: "add_note", Description: "Append a work note to a card."}, h.addNote)
 	mcp.AddTool(s, &mcp.Tool{Name: "edit_note", Description: "Rewrite one of a card's work notes."}, h.editNote)

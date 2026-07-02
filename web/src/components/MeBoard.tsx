@@ -275,6 +275,10 @@ export function MeBoard({
   // clears a legacy stored done below full, and — when this is a review card —
   // drives the original's review stage. The optimistic patch mirrors the
   // clamps; the re-list converges the linked original.
+  // Resolve a card's description links (GitHub refs get titles) for the menu.
+  const loadCardLinks = (card: CardModel) =>
+    provider.listLinks(board, card.itemId);
+
   const handleProgress = (card: CardModel, raw: number) => {
     const value =
       card.stage === "review" || card.stage === "locked"
@@ -791,6 +795,7 @@ export function MeBoard({
               renderCard={(card) => (
                 <Card
                   card={card}
+                  onLoadLinks={loadCardLinks}
                   selected={card.itemId === selectedCardId}
                   onSelect={(c) => setSelectedCardId(c.itemId)}
                   onProgress={handleProgress}
@@ -815,6 +820,7 @@ export function MeBoard({
               renderOverlay={(card) => (
                 <Card
                   card={card}
+                  onLoadLinks={loadCardLinks}
                   selected={false}
                   onSelect={() => {}}
                   onProgress={() => {}}

@@ -2158,3 +2158,44 @@ button.card-age {
     padding: 8px 10px;
   }
 }
+
+/* Links icon + menu: URLs from the card's description. GitHub issue/PR refs
+   show a hashtag and resolve to titles; plain links list as-is. */
+.card-links {
+  position: relative;
+  display: inline-flex;
+}
+
+.card-links-btn {
+  color: var(--muted);
+}
+
+.card-links-btn:hover {
+  color: var(--fg);
+}
+
+.card-links-menu {
+  min-width: 200px;
+  max-width: 340px;
+}
+
+.card-links-item {
+  max-width: 100%;
+}
+
+.card-links-item svg {
+  flex: none;
+}
+
+.card-links-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* When the hover flag precedes the links icon (cards with no visible stage),
+   its tightened -3px margin would crowd the always-visible links icon; give
+   the pair a slightly wider gap instead. */
+.card-stage + .card-links {
+  margin-left: 6px;
+}
