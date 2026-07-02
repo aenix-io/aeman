@@ -98,14 +98,18 @@ export function Card({
   onSetWeek,
   dimAvatar,
 }: CardProps) {
-  const rawValue = card.stage === "done" ? 100 : card.progress ?? 0;
+  // Done is derived, not stored: a card with no stage at 100% renders as done
+  // (legacy cards with a stored Done option still count too).
+  const doneish =
+    card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100);
+  const rawValue = doneish ? 100 : card.progress ?? 0;
   // Locked / on-review cards are clamped to a 10–90% band, so they always show
   // the stage colour and never read as complete.
   const value =
     card.stage === "locked" || card.stage === "review"
       ? Math.min(90, Math.max(10, rawValue))
       : rawValue;
-  const fill = barColor(card.stage);
+  const fill = barColor(doneish ? "done" : card.stage);
   const ref = ticket(card);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -402,7 +406,7 @@ export function Card({
                 <button
                   key={stage}
                   type="button"
-                  className={`card-stage-item${card.stage === stage ? " card-stage-item-active" : ""}`}
+                  className={`card-stage-item${(stage === "done" ? doneish : card.stage === stage) ? " card-stage-item-active" : ""}`}
                   onClick={(e) => pickStage(e, stage)}
                 >
                   <span
