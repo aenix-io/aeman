@@ -230,20 +230,6 @@ func TestOAuthRegisterRequiresRedirectURIs(t *testing.T) {
 	}
 }
 
-func TestOAuthAuthorizeUnknownClient(t *testing.T) {
-	srv, _ := newOAuthServer(t)
-	aq := url.Values{}
-	aq.Set("client_id", "does-not-exist")
-	aq.Set("redirect_uri", testRedirectURI)
-	aq.Set("response_type", "code")
-	aq.Set("code_challenge", "x")
-	aq.Set("code_challenge_method", "S256")
-	rec := do(t, srv, http.MethodGet, "/oauth/authorize?"+aq.Encode(), "")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-}
-
 func TestOAuthAuthorizeUnregisteredRedirect(t *testing.T) {
 	srv, _ := newOAuthServer(t)
 	clientID := registerClient(t, srv, testRedirectURI)
@@ -507,5 +493,46 @@ func TestSessionFileLegacyFormat(t *testing.T) {
 	}
 	if _, ok := srv.auth.sessions["sid1"]; !ok {
 		t.Fatal("legacy session not restored")
+	}
+}
+
+// An unknown client with a loopback redirect self-heals: the authorize step
+// runs in the browser, so the MCP client cannot see the error and re-register
+// on its own — the server registers it on the fly instead (safe per RFC 8252:
+// the code can only land on the initiator's own machine).
+func TestOAuthAuthorizeAutoRegistersLoopbackClient(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	aq := url.Values{}
+	aq.Set("client_id", "stale-cached-client")
+	aq.Set("redirect_uri", "http://localhost:3118/callback")
+	aq.Set("response_type", "code")
+	aq.Set("code_challenge", pkceChallenge("v"))
+	aq.Set("code_challenge_method", "S256")
+	rec := do(t, srv, http.MethodGet, "/oauth/authorize?"+aq.Encode(), "")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, body = %s (loopback client must auto-register)", rec.Code, rec.Body.String())
+	}
+	srv.auth.mu.Lock()
+	_, ok := srv.auth.clients["stale-cached-client"]
+	srv.auth.mu.Unlock()
+	if !ok {
+		t.Fatal("client not persisted in the registry")
+	}
+}
+
+// A non-loopback redirect for an unknown client keeps the hard error: blindly
+// registering a remote redirect target would hand authorization codes to
+// whoever crafted the link.
+func TestOAuthAuthorizeUnknownClientRemoteRedirect(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	aq := url.Values{}
+	aq.Set("client_id", "stale-cached-client")
+	aq.Set("redirect_uri", "https://evil.example/callback")
+	aq.Set("response_type", "code")
+	aq.Set("code_challenge", pkceChallenge("v"))
+	aq.Set("code_challenge_method", "S256")
+	rec := do(t, srv, http.MethodGet, "/oauth/authorize?"+aq.Encode(), "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
