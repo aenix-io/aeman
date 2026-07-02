@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, type AppConfig } from "./api/client";
-import { getProvider } from "./providers";
+import { apiProvider } from "./providers/api/apiProvider";
+import {
+  resourceToCard,
+  sprintStateFrom,
+  type CardResource,
+  type OrderingResource,
+  type SprintResource,
+  type WatchFrame,
+} from "./api/resources";
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
@@ -112,7 +120,7 @@ export function App() {
     localStorage.setItem(LS_VIEW, view);
   }, [view]);
 
-  const provider = getProvider("github");
+  const provider = apiProvider;
 
   // The roster: user-arranged teams first (in their saved order), then any team
   // present on the board that isn't in that list yet. No alphabetical sort, so a
@@ -258,83 +266,6 @@ export function App() {
     }
   }, [board, doLoad]);
 
-  // Live updates: the server pushes board change events over a WebSocket
-  // (Kubernetes-watch style). We LIST via loadBoard, then apply the ADDED /
-  // MODIFIED / DELETED events to the cached board directly, and re-LIST on RELOAD
-  // or after a reconnect to reconcile anything missed. A ref keeps the socket
-  // from being rebuilt on every board change.
-  const reloadRef = useRef(reload);
-  reloadRef.current = reload;
-  const boardLoaded = board !== null;
-  const watchOwner = board?.owner;
-  const watchProject = board?.number;
-  useEffect(() => {
-    if (!boardLoaded || !watchOwner || watchProject == null) {
-      return;
-    }
-    let socket: WebSocket | null = null;
-    let closed = false;
-    let retry: number | undefined;
-    const applyCard = (card: CardModel, remove: boolean) => {
-      setBoard((b) => {
-        if (!b) {
-          return b;
-        }
-        if (remove) {
-          return {
-            ...b,
-            cards: b.cards.filter((c) => c.itemId !== card.itemId),
-          };
-        }
-        const exists = b.cards.some((c) => c.itemId === card.itemId);
-        return {
-          ...b,
-          cards: exists
-            ? b.cards.map((c) => (c.itemId === card.itemId ? card : c))
-            : [...b.cards, card],
-        };
-      });
-    };
-    const connect = () => {
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
-        watchOwner,
-      )}&project=${watchProject}&client=${clientId}`;
-      socket = new WebSocket(url);
-      socket.addEventListener("message", (e) => {
-        let ev: { type?: string; card?: CardModel };
-        try {
-          ev = JSON.parse(e.data as string) as { type?: string; card?: CardModel };
-        } catch {
-          return;
-        }
-        if (ev.type === "RELOAD") {
-          reloadRef.current();
-          return;
-        }
-        if (!ev.card) {
-          return;
-        }
-        applyCard(ev.card, ev.type === "DELETED");
-      });
-      socket.addEventListener("close", () => {
-        if (closed) {
-          return;
-        }
-        retry = window.setTimeout(() => {
-          reloadRef.current();
-          connect();
-        }, 3000);
-      });
-    };
-    connect();
-    return () => {
-      closed = true;
-      window.clearTimeout(retry);
-      socket?.close();
-    };
-  }, [boardLoaded, watchOwner, watchProject]);
-
   const patchCard = useCallback((itemId: string, patch: Partial<CardModel>) => {
     setBoard((cur) => {
       if (!cur) {
@@ -349,7 +280,9 @@ export function App() {
 
   // addCard upserts by item id: the watch stream may deliver a created card
   // before (or after) the creator's own response lands, so both paths must
-  // converge on a single copy instead of appending twice.
+  // converge on a single copy instead of appending twice. Locally-loaded notes
+  // survive the upsert — Card resources never carry notes (they live in the
+  // notes subresource).
   const addCard = useCallback((card: CardModel) => {
     setBoard((cur) => {
       if (!cur) {
@@ -359,7 +292,11 @@ export function App() {
       return {
         ...cur,
         cards: exists
-          ? cur.cards.map((c) => (c.itemId === card.itemId ? card : c))
+          ? cur.cards.map((c) =>
+              c.itemId === card.itemId
+                ? { ...card, notes: card.notes ?? c.notes }
+                : c,
+            )
           : [...cur.cards, card],
       };
     });
@@ -387,6 +324,113 @@ export function App() {
     });
   }, []);
 
+  // Live updates: the server pushes resource events over an unscoped WebSocket
+  // watch (Kubernetes style). We LIST via loadBoard, then mirror the ADDED /
+  // MODIFIED / DELETED frames: Card frames upsert/remove by uid, Sprint frames
+  // update the team's pointer, Ordering frames re-sort the local cards. On a
+  // socket drop we re-LIST after reconnecting to reconcile anything missed.
+  // Refs keep the socket from being rebuilt on every board change.
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  const boardRef = useRef(board);
+  boardRef.current = board;
+  const boardLoaded = board !== null;
+  const watchOwner = board?.owner;
+  const watchProject = board?.number;
+  useEffect(() => {
+    if (!boardLoaded || !watchOwner || watchProject == null) {
+      return;
+    }
+    let socket: WebSocket | null = null;
+    let closed = false;
+    let retry: number | undefined;
+    const applyFrame = (frame: WatchFrame) => {
+      if (!frame.object) {
+        return;
+      }
+      if (frame.kind === "Card") {
+        const card = resourceToCard(frame.object as CardResource);
+        if (frame.type === "DELETED") {
+          removeCard(card.itemId);
+          return;
+        }
+        // Note edits arrive as plain card changes, and the resource carries no
+        // notes: refetch them when this card's notes were already loaded.
+        const existing = boardRef.current?.cards.find(
+          (c) => c.itemId === card.itemId,
+        );
+        addCard(card);
+        if (existing?.notes !== undefined) {
+          void provider
+            .listNotes({ owner: watchOwner, number: watchProject }, card.itemId)
+            .then((notes) => patchCard(card.itemId, { notes }))
+            .catch(() => {});
+        }
+        return;
+      }
+      if (frame.kind === "Sprint") {
+        const sprint = frame.object as SprintResource;
+        setBoard((cur) =>
+          cur
+            ? {
+                ...cur,
+                sprintStates: {
+                  ...cur.sprintStates,
+                  [sprint.metadata.team ?? ""]: sprintStateFrom(sprint),
+                },
+              }
+            : cur,
+        );
+        return;
+      }
+      if (frame.kind === "Ordering") {
+        reorderCards((frame.object as OrderingResource).spec.uids);
+      }
+    };
+    const connect = () => {
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      // No selector params: an unscoped watch streams every Card/Sprint/Ordering
+      // change; ?client= keeps our own mutations from echoing back.
+      const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
+        watchOwner,
+      )}&project=${watchProject}&client=${clientId}`;
+      socket = new WebSocket(url);
+      socket.addEventListener("message", (e) => {
+        let frame: WatchFrame;
+        try {
+          frame = JSON.parse(e.data as string) as WatchFrame;
+        } catch {
+          return;
+        }
+        applyFrame(frame);
+      });
+      socket.addEventListener("close", () => {
+        if (closed) {
+          return;
+        }
+        retry = window.setTimeout(() => {
+          reloadRef.current();
+          connect();
+        }, 3000);
+      });
+    };
+    connect();
+    return () => {
+      closed = true;
+      window.clearTimeout(retry);
+      socket?.close();
+    };
+  }, [
+    boardLoaded,
+    watchOwner,
+    watchProject,
+    provider,
+    addCard,
+    removeCard,
+    patchCard,
+    reorderCards,
+  ]);
+
   const onError = useCallback((message: string) => setError(message), []);
 
   // Rename a team everywhere: the roster, the filter, and every card using it.
@@ -410,10 +454,12 @@ export function App() {
         }
         for (const card of cur.cards) {
           if (card.team === from) {
-            void provider.setTeam(cur, card, t).catch((err: unknown) => {
-              patchCard(card.itemId, { team: from });
-              setError(errMessage(err));
-            });
+            void provider
+              .patchCard(cur, card.itemId, { team: t })
+              .catch((err: unknown) => {
+                patchCard(card.itemId, { team: from });
+                setError(errMessage(err));
+              });
           }
         }
         return {

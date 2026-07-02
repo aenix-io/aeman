@@ -2,9 +2,11 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/aenix-org/aeman/internal/apiserver"
 	"github.com/aenix-org/aeman/internal/board"
 	"github.com/aenix-org/aeman/internal/boardservice"
 )
@@ -15,369 +17,508 @@ type boardRef struct {
 	Project int    `json:"project,omitempty" jsonschema:"GitHub Project number; defaults to the server configuration"`
 }
 
-// itemInput identifies a single card on a board.
-type itemInput struct {
+// cardRef identifies a single card on a board.
+type cardRef struct {
 	boardRef
-	ItemID string `json:"itemId" jsonschema:"project item id of the card (required)"`
-}
-
-// boardMetaOutput is the get_board result: board identity, fields and sprint
-// pointers (no cards).
-type boardMetaOutput struct {
-	ID           string                       `json:"id"`
-	Number       int                          `json:"number"`
-	Owner        string                       `json:"owner"`
-	Fields       []board.ProjectField         `json:"fields"`
-	SprintStates map[string]board.SprintState `json:"sprintStates"`
-}
-
-// cardsOutput is a list of cards returned by a view or a carry action.
-type cardsOutput struct {
-	Cards []board.Card `json:"cards"`
+	UID string `json:"uid" jsonschema:"card uid (required)"`
 }
 
 // statusOutput acknowledges an action that leaves no single card to echo.
 type statusOutput struct {
 	Status string `json:"status"`
-	ItemID string `json:"itemId,omitempty"`
+	UID    string `json:"uid,omitempty"`
 }
 
-// cardResult reloads and returns the card resulting from an action.
-func (h *server) cardResult(ctx context.Context, svc *boardservice.Service, owner string, project int, id string) (*mcp.CallToolResult, board.Card, error) {
-	card, err := svc.Card(ctx, owner, project, id)
-	if err != nil {
-		return nil, board.Card{}, err
+// noteListOutput is the list_notes result: a card's notes as Note resources.
+type noteListOutput struct {
+	Kind  string           `json:"kind"`
+	Items []apiserver.Note `json:"items"`
+}
+
+// findCard resolves a card on a loaded board by uid.
+func findCard(b board.Board, uid string) (board.Card, bool) {
+	for _, c := range b.Cards {
+		if c.ItemID == uid {
+			return c, true
+		}
 	}
-	return nil, card, nil
+	return board.Card{}, false
 }
 
-func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardRef) (*mcp.CallToolResult, boardMetaOutput, error) {
+// domainZone maps a semantic zone name (urgent, unplanned, planned,
+// niceToHave) onto the domain key; "" passes through as "no zone".
+func domainZone(name string) (board.ZoneKey, error) {
+	if name == "" {
+		return "", nil
+	}
+	z := apiserver.DomainZone(name)
+	if z == "" {
+		return "", fmt.Errorf("unknown zone %q (use urgent, unplanned, planned or niceToHave)", name)
+	}
+	return z, nil
+}
+
+// loadCard loads the board and resolves a card by uid.
+func (h *server) loadCard(ctx context.Context, svc *boardservice.Service, owner string, project int, uid string) (board.Board, board.Card, error) {
+	b, err := svc.Board(ctx, owner, project)
+	if err != nil {
+		return board.Board{}, board.Card{}, err
+	}
+	card, ok := findCard(b, uid)
+	if !ok {
+		return b, board.Card{}, fmt.Errorf("%w: %s", boardservice.ErrCardNotFound, uid)
+	}
+	return b, card, nil
+}
+
+// cardResource reloads the board and returns a card as its API resource — the
+// standard mutation result, mirroring the way the UI re-renders what changed.
+func (h *server) cardResource(ctx context.Context, svc *boardservice.Service, owner string, project int, uid string) (*mcp.CallToolResult, apiserver.Card, error) {
+	b, card, err := h.loadCard(ctx, svc, owner, project, uid)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return nil, apiserver.CardResource(b, card), nil
+}
+
+// --- Board / read ------------------------------------------------------------
+
+func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardRef) (*mcp.CallToolResult, apiserver.BoardInfo, error) {
 	svc, owner, project, err := h.ref(ctx, in)
 	if err != nil {
-		return nil, boardMetaOutput{}, err
+		return nil, apiserver.BoardInfo{}, err
 	}
 	b, err := svc.Board(ctx, owner, project)
 	if err != nil {
-		return nil, boardMetaOutput{}, err
+		return nil, apiserver.BoardInfo{}, err
 	}
-	return nil, boardMetaOutput{ID: b.ID, Number: b.Number, Owner: b.Owner, Fields: b.Fields, SprintStates: b.SprintStates}, nil
+	return nil, apiserver.BoardResource(b), nil
 }
 
-// teamViewInput selects a team and day for the Team grid view.
-type teamViewInput struct {
+// listCardsInput is a card LIST selector: an optional view plus plain field
+// filters, mirroring GET /api/v1/cards.
+type listCardsInput struct {
 	boardRef
-	Team string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
-	Day  string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
+	View     string `json:"view,omitempty" jsonschema:"view to scope to: team, me or weekly; empty lists every card"`
+	Team     string `json:"team,omitempty" jsonschema:"team key for the team/weekly views; empty is the no-team group"`
+	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
+	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
+	Week     string `json:"week,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd for the weekly view; defaults to the current week"`
+	Stage    string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent or done"`
+	Zone     string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
+	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
 }
 
-func (h *server) teamView(ctx context.Context, _ *mcp.CallToolRequest, in teamViewInput) (*mcp.CallToolResult, cardsOutput, error) {
+func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listCardsInput) (*mcp.CallToolResult, apiserver.CardList, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, cardsOutput{}, err
+		return nil, apiserver.CardList{}, err
 	}
-	cards, err := svc.TeamView(ctx, owner, project, in.Team, in.Day)
+	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User, Week: in.Week, Assignee: in.Assignee}
+	switch sel.View {
+	case "", "team", "me", "weekly":
+	default:
+		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use team, me or weekly)", sel.View)
+	}
+	// MCP inputs cannot distinguish absent from empty, so an empty stage/zone
+	// means "not filtering" (unlike the HTTP query, where ?stage= filters).
+	if in.Stage != "" {
+		sel.Stage = &in.Stage
+	}
+	if in.Zone != "" {
+		if _, err := domainZone(in.Zone); err != nil {
+			return nil, apiserver.CardList{}, err
+		}
+		sel.Zone = &in.Zone
+	}
+	b, err := svc.Board(ctx, owner, project)
 	if err != nil {
-		return nil, cardsOutput{}, err
+		return nil, apiserver.CardList{}, err
 	}
-	return nil, cardsOutput{Cards: cards}, nil
+	return nil, apiserver.ListCards(b, sel), nil
 }
 
-// meViewInput selects a user and day for the personal day view.
-type meViewInput struct {
-	boardRef
-	User string `json:"user,omitempty" jsonschema:"GitHub login; empty is everyone"`
-	Day  string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
-}
-
-func (h *server) meView(ctx context.Context, _ *mcp.CallToolRequest, in meViewInput) (*mcp.CallToolResult, cardsOutput, error) {
+func (h *server) getCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, cardsOutput{}, err
+		return nil, apiserver.Card{}, err
 	}
-	cards, err := svc.MeView(ctx, owner, project, in.User, in.Day)
-	if err != nil {
-		return nil, cardsOutput{}, err
-	}
-	return nil, cardsOutput{Cards: cards}, nil
+	return h.cardResource(ctx, svc, owner, project, in.UID)
 }
 
-// weeklyPlanInput selects a team and week for the weekly plan.
-type weeklyPlanInput struct {
-	boardRef
-	Team string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
-	Week string `json:"week,omitempty" jsonschema:"week Monday as yyyy-mm-dd; defaults to the current week"`
-}
+// --- Create / update / delete ------------------------------------------------
 
-func (h *server) weeklyPlan(ctx context.Context, _ *mcp.CallToolRequest, in weeklyPlanInput) (*mcp.CallToolResult, board.WeeklyBands, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, board.WeeklyBands{}, err
-	}
-	bands, err := svc.WeeklyPlan(ctx, owner, project, in.Team, in.Week)
-	if err != nil {
-		return nil, board.WeeklyBands{}, err
-	}
-	return nil, bands, nil
-}
-
-// createCardInput describes a card to create.
+// createCardInput describes a card to create, mirroring POST /api/v1/cards.
 type createCardInput struct {
 	boardRef
-	Team     string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group"`
-	Zone     string `json:"zone,omitempty" jsonschema:"Ford zone: gray, green, yellow or red"`
 	Title    string `json:"title" jsonschema:"card title (required)"`
+	Team     string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group"`
+	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"GitHub login to assign"`
-	Day      string `json:"day,omitempty" jsonschema:"create day as yyyy-mm-dd; defaults to today"`
+	Start    string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today"`
+	End      string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
+	Sprint   string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
+	Plan     string `json:"plan,omitempty" jsonschema:"weekly-plan band, wed or fri: creates a plan card with no dates instead of a day card"`
+	Week     string `json:"week,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd; defaults to the current week (plan cards only)"`
+	ReviewOf string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
 	// running sprint, else start one today), true to force a new sprint today,
 	// false to force-join the current sprint.
 	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
 }
 
-func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, board.Card, error) {
+func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, board.Card{}, err
+		return nil, apiserver.Card{}, err
+	}
+	zone, err := domainZone(in.Zone)
+	if err != nil {
+		return nil, apiserver.Card{}, err
 	}
 	card, err := svc.CreateCard(ctx, owner, project, boardservice.CreateCardArgs{
 		Team:           in.Team,
-		Zone:           board.ZoneKey(in.Zone),
+		Zone:           zone,
 		Title:          in.Title,
 		Assignee:       in.Assignee,
-		Day:            in.Day,
+		Day:            in.End,
+		Start:          in.Start,
+		SprintStart:    in.Sprint,
+		Plan:           board.PlanBand(in.Plan),
+		Week:           in.Week,
+		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
 	})
 	if err != nil {
-		return nil, board.Card{}, err
+		return nil, apiserver.Card{}, err
 	}
-	return nil, card, nil
+	return h.cardResource(ctx, svc, owner, project, card.ItemID)
 }
 
-// teamInput names a team for a sprint-wide action.
-type teamInput struct {
-	boardRef
-	Team string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
+// updateCardInput is a card patch, mirroring PATCH /api/v1/cards/{uid}: only
+// the provided fields change; an explicit empty string clears a field.
+type updateCardInput struct {
+	cardRef
+	Title       *string `json:"title,omitempty" jsonschema:"new title"`
+	Description *string `json:"description,omitempty" jsonschema:"new description; empty clears it"`
+	Team        *string `json:"team,omitempty" jsonschema:"team to move to (joins its current sprint); empty is the no-team group"`
+	Zone        *string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave; empty clears it"`
+	Assignee    *string `json:"assignee,omitempty" jsonschema:"GitHub login; empty unassigns"`
+	Progress    *int    `json:"progress,omitempty" jsonschema:"readiness percentage 0..100"`
+	Stage       *string `json:"stage,omitempty" jsonschema:"locked, review, recurrent or done; empty clears it"`
+	Start       *string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd, calendar semantics: the card rejoins the sprint active on it; empty clears the dates"`
+	End         *string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
+	Sprint      *string `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
+	PlanBand    *string `json:"planBand,omitempty" jsonschema:"weekly-plan band, wed or fri; empty clears it"`
+	PlanWeek    *string `json:"planWeek,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd; empty clears it"`
+	ReviewOf    *string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
 }
 
-func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in teamInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) updateCard(ctx context.Context, _ *mcp.CallToolRequest, in updateCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	_, card, err := h.loadCard(ctx, svc, owner, project, in.UID)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := h.applyCardPatch(ctx, svc, owner, project, card, in); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, owner, project, in.UID)
+}
+
+// applyCardPatch runs the provided spec edits through the service methods, in
+// a fixed order: plain fields first, then plan, then dates (an explicit sprint
+// wins over the one the calendar derives from start).
+func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, owner string, project int, card board.Card, in updateCardInput) error {
+	if in.Title != nil {
+		if err := svc.Rename(ctx, owner, project, in.UID, *in.Title); err != nil {
+			return err
+		}
+	}
+	if in.Description != nil {
+		if err := svc.SetDescription(ctx, owner, project, in.UID, *in.Description); err != nil {
+			return err
+		}
+	}
+	if in.Team != nil {
+		if err := svc.SetTeam(ctx, owner, project, in.UID, *in.Team, ""); err != nil {
+			return err
+		}
+	}
+	if in.Zone != nil {
+		zone, err := domainZone(*in.Zone)
+		if err != nil {
+			return err
+		}
+		if err := svc.SetZone(ctx, owner, project, in.UID, zone); err != nil {
+			return err
+		}
+	}
+	if in.Assignee != nil {
+		if err := svc.SetAssignee(ctx, owner, project, in.UID, *in.Assignee); err != nil {
+			return err
+		}
+	}
+	if in.Progress != nil {
+		if err := svc.SetProgress(ctx, owner, project, in.UID, *in.Progress); err != nil {
+			return err
+		}
+	}
+	if in.Stage != nil {
+		if err := svc.SetStage(ctx, owner, project, in.UID, board.StageKey(*in.Stage)); err != nil {
+			return err
+		}
+	}
+	if in.ReviewOf != nil {
+		if err := svc.SetReviewOf(ctx, owner, project, in.UID, *in.ReviewOf); err != nil {
+			return err
+		}
+	}
+	if in.PlanBand != nil {
+		if err := svc.SetPlan(ctx, owner, project, in.UID, board.PlanBand(*in.PlanBand)); err != nil {
+			return err
+		}
+	}
+	if in.PlanWeek != nil {
+		if err := svc.SetWeek(ctx, owner, project, in.UID, *in.PlanWeek); err != nil {
+			return err
+		}
+	}
+	return h.applyDatePatch(ctx, svc, owner, project, card, in)
+}
+
+// applyDatePatch applies the date part of a card patch: a start relocates the
+// card with the calendar semantics (end kept unless also provided), an end
+// alone moves the due day, and an explicit sprint overrides the membership.
+func (h *server) applyDatePatch(ctx context.Context, svc *boardservice.Service, owner string, project int, card board.Card, in updateCardInput) error {
+	switch {
+	case in.Start != nil:
+		end := card.Day
+		if in.End != nil {
+			end = *in.End
+		}
+		if err := svc.SetDates(ctx, owner, project, in.UID, *in.Start, end); err != nil {
+			return err
+		}
+	case in.End != nil:
+		if err := svc.SetDay(ctx, owner, project, in.UID, *in.End); err != nil {
+			return err
+		}
+	}
+	if in.Sprint != nil {
+		return svc.SetSprintStart(ctx, owner, project, in.UID, *in.Sprint)
+	}
+	return nil
+}
+
+func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, statusOutput, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.CarryOver(ctx, owner, project, in.Team); err != nil {
+	if err := svc.DeleteCard(ctx, owner, project, in.UID); err != nil {
 		return nil, statusOutput{}, err
 	}
-	return nil, statusOutput{Status: "ok"}, nil
+	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
+}
+
+// removeCardInput is the smart ×: the backend decides between demote, release
+// and real delete based on where the card sits.
+type removeCardInput struct {
+	cardRef
+	From string `json:"from,omitempty" jsonschema:"where the remove was pressed: grid (default) or plan"`
+}
+
+func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in removeCardInput) (*mcp.CallToolResult, statusOutput, error) {
+	switch in.From {
+	case "", "grid", "plan":
+	default:
+		return nil, statusOutput{}, fmt.Errorf("unknown from %q (use grid or plan)", in.From)
+	}
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.Remove(ctx, owner, project, in.UID, in.From); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
+}
+
+// --- Card actions --------------------------------------------------------------
+
+// moveCardInput reorders a card on the board.
+type moveCardInput struct {
+	cardRef
+	After string `json:"after,omitempty" jsonschema:"uid to position after; empty moves the card to the top"`
+}
+
+func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.MoveCard(ctx, owner, project, in.UID, in.After); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, owner, project, in.UID)
+}
+
+// deferCardInput pushes a card's scheduled day ahead.
+type deferCardInput struct {
+	cardRef
+	Days int `json:"days" jsonschema:"days to push ahead of today (or of the already-deferred slot): 1 for a day, 7 for a week (required)"`
+}
+
+func (h *server) deferCard(ctx context.Context, _ *mcp.CallToolRequest, in deferCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.Defer(ctx, owner, project, in.UID, in.Days); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, owner, project, in.UID)
+}
+
+// setInProgress moves a card to the implicit In Progress status: the stage is
+// cleared and the progress nudged into the [10, 90] band at the edges.
+func (h *server) setInProgress(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.SetInProgress(ctx, owner, project, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, owner, project, in.UID)
+}
+
+// sendToReviewInput sends a card to review for a reviewer.
+type sendToReviewInput struct {
+	cardRef
+	Reviewer string `json:"reviewer" jsonschema:"GitHub login of the reviewer (required)"`
+	Day      string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
+}
+
+func (h *server) sendToReview(ctx context.Context, _ *mcp.CallToolRequest, in sendToReviewInput) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	review, err := svc.SendToReview(ctx, owner, project, in.UID, in.Reviewer, in.Day)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, owner, project, review.ItemID)
+}
+
+func (h *server) removeReviewer(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.RemoveReviewer(ctx, owner, project, in.UID); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "ok", UID: in.UID}, nil
+}
+
+// takeIntoPlanInput takes a weekly-plan card into work.
+type takeIntoPlanInput struct {
+	cardRef
+	Engineer string `json:"engineer" jsonschema:"GitHub login to assign (required)"`
+	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave; empty keeps the card's own zone"`
+	Day      string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
+}
+
+func (h *server) takeIntoPlan(ctx context.Context, _ *mcp.CallToolRequest, in takeIntoPlanInput) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	zone, err := domainZone(in.Zone)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.TakeIntoPlan(ctx, owner, project, in.UID, in.Engineer, zone, in.Day); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, owner, project, in.UID)
+}
+
+func (h *server) releaseFromPlan(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.ReleaseFromPlan(ctx, owner, project, in.UID); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "released", UID: in.UID}, nil
+}
+
+// --- Sprint actions ----------------------------------------------------------
+
+// carryOverInput names a team for the sprint carry-over.
+type carryOverInput struct {
+	boardRef
+	Team   string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
+	DryRun bool   `json:"dryRun,omitempty" jsonschema:"report the would-be counts without changing anything"`
+}
+
+func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in carryOverInput) (*mcp.CallToolResult, boardservice.CarryReport, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, boardservice.CarryReport{}, err
+	}
+	rep, err := svc.CarryOver(ctx, owner, project, in.Team, in.DryRun)
+	if err != nil {
+		return nil, boardservice.CarryReport{}, err
+	}
+	return nil, rep, nil
 }
 
 // carryWeekInput names a team and target week for the weekly carry.
 type carryWeekInput struct {
 	boardRef
-	Team string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
-	Week string `json:"week,omitempty" jsonschema:"target week Monday as yyyy-mm-dd; defaults to the current week"`
+	Team   string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
+	Week   string `json:"week,omitempty" jsonschema:"target week Monday as yyyy-mm-dd; defaults to the current week"`
+	DryRun bool   `json:"dryRun,omitempty" jsonschema:"report the would-be counts without changing anything"`
 }
 
-func (h *server) carryWeek(ctx context.Context, _ *mcp.CallToolRequest, in carryWeekInput) (*mcp.CallToolResult, cardsOutput, error) {
+func (h *server) carryWeek(ctx context.Context, _ *mcp.CallToolRequest, in carryWeekInput) (*mcp.CallToolResult, boardservice.CarryReport, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, cardsOutput{}, err
+		return nil, boardservice.CarryReport{}, err
 	}
-	carried, err := svc.CarryWeek(ctx, owner, project, in.Team, in.Week)
+	rep, err := svc.CarryWeek(ctx, owner, project, in.Team, in.Week, in.DryRun)
 	if err != nil {
-		return nil, cardsOutput{}, err
+		return nil, boardservice.CarryReport{}, err
 	}
-	return nil, cardsOutput{Cards: carried}, nil
+	return nil, rep, nil
 }
 
-// setStageInput moves a card to a stage.
-type setStageInput struct {
-	itemInput
-	Stage string `json:"stage,omitempty" jsonschema:"locked, review, done, or empty to clear"`
-}
+// --- Notes ---------------------------------------------------------------------
 
-func (h *server) setStage(ctx context.Context, _ *mcp.CallToolRequest, in setStageInput) (*mcp.CallToolResult, board.Card, error) {
+func (h *server) listNotes(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, noteListOutput, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, board.Card{}, err
+		return nil, noteListOutput{}, err
 	}
-	if err := svc.SetStage(ctx, owner, project, in.ItemID, board.StageKey(in.Stage)); err != nil {
-		return nil, board.Card{}, err
-	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
-}
-
-func (h *server) setInProgress(ctx context.Context, _ *mcp.CallToolRequest, in itemInput) (*mcp.CallToolResult, board.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	_, card, err := h.loadCard(ctx, svc, owner, project, in.UID)
 	if err != nil {
-		return nil, board.Card{}, err
+		return nil, noteListOutput{}, err
 	}
-	if err := svc.SetInProgress(ctx, owner, project, in.ItemID); err != nil {
-		return nil, board.Card{}, err
-	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
-}
-
-// setProgressInput sets a card's readiness percentage.
-type setProgressInput struct {
-	itemInput
-	Progress int `json:"progress" jsonschema:"readiness percentage 0..100"`
-}
-
-func (h *server) setProgress(ctx context.Context, _ *mcp.CallToolRequest, in setProgressInput) (*mcp.CallToolResult, board.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, board.Card{}, err
-	}
-	if err := svc.SetProgress(ctx, owner, project, in.ItemID, in.Progress); err != nil {
-		return nil, board.Card{}, err
-	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
-}
-
-// sendToReviewInput sends a card to review for a reviewer.
-type sendToReviewInput struct {
-	itemInput
-	Reviewer string `json:"reviewer,omitempty" jsonschema:"GitHub login of the reviewer"`
-	Day      string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
-}
-
-func (h *server) sendToReview(ctx context.Context, _ *mcp.CallToolRequest, in sendToReviewInput) (*mcp.CallToolResult, board.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, board.Card{}, err
-	}
-	review, err := svc.SendToReview(ctx, owner, project, in.ItemID, in.Reviewer, in.Day)
-	if err != nil {
-		return nil, board.Card{}, err
-	}
-	return nil, review, nil
-}
-
-// reassignReviewerInput points a card's review at another reviewer.
-type reassignReviewerInput struct {
-	itemInput
-	Reviewer string `json:"reviewer,omitempty" jsonschema:"GitHub login of the new reviewer"`
-	Day      string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
-}
-
-func (h *server) reassignReviewer(ctx context.Context, _ *mcp.CallToolRequest, in reassignReviewerInput) (*mcp.CallToolResult, board.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, board.Card{}, err
-	}
-	if err := svc.ReassignReviewer(ctx, owner, project, in.ItemID, in.Reviewer, in.Day); err != nil {
-		return nil, board.Card{}, err
-	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
-}
-
-func (h *server) removeReviewer(ctx context.Context, _ *mcp.CallToolRequest, in itemInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.RemoveReviewer(ctx, owner, project, in.ItemID); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "ok", ItemID: in.ItemID}, nil
-}
-
-// setAssigneeInput sets or clears a card's assignee.
-type setAssigneeInput struct {
-	itemInput
-	Login string `json:"login,omitempty" jsonschema:"GitHub login; empty unassigns"`
-}
-
-func (h *server) setAssignee(ctx context.Context, _ *mcp.CallToolRequest, in setAssigneeInput) (*mcp.CallToolResult, board.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, board.Card{}, err
-	}
-	if err := svc.SetAssignee(ctx, owner, project, in.ItemID, in.Login); err != nil {
-		return nil, board.Card{}, err
-	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
-}
-
-// setTeamInput moves a card to a team.
-type setTeamInput struct {
-	itemInput
-	Team string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
-	Day  string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
-}
-
-func (h *server) setTeam(ctx context.Context, _ *mcp.CallToolRequest, in setTeamInput) (*mcp.CallToolResult, board.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, board.Card{}, err
-	}
-	if err := svc.SetTeam(ctx, owner, project, in.ItemID, in.Team, in.Day); err != nil {
-		return nil, board.Card{}, err
-	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
-}
-
-// takeIntoPlanInput takes a weekly-plan card into work.
-type takeIntoPlanInput struct {
-	itemInput
-	Engineer string `json:"engineer,omitempty" jsonschema:"GitHub login to assign; empty unassigns"`
-	Zone     string `json:"zone,omitempty" jsonschema:"Ford zone; empty keeps the card's own zone"`
-	Day      string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
-}
-
-func (h *server) takeIntoPlan(ctx context.Context, _ *mcp.CallToolRequest, in takeIntoPlanInput) (*mcp.CallToolResult, board.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, board.Card{}, err
-	}
-	if err := svc.TakeIntoPlan(ctx, owner, project, in.ItemID, in.Engineer, board.ZoneKey(in.Zone), in.Day); err != nil {
-		return nil, board.Card{}, err
-	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
-}
-
-func (h *server) releaseFromPlan(ctx context.Context, _ *mcp.CallToolRequest, in itemInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.ReleaseFromPlan(ctx, owner, project, in.ItemID); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "ok", ItemID: in.ItemID}, nil
-}
-
-// moveCardInput reorders a card.
-type moveCardInput struct {
-	itemInput
-	AfterID string `json:"afterId,omitempty" jsonschema:"item id to position after; empty moves to the top"`
-}
-
-func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCardInput) (*mcp.CallToolResult, board.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, board.Card{}, err
-	}
-	if err := svc.MoveCard(ctx, owner, project, in.ItemID, in.AfterID); err != nil {
-		return nil, board.Card{}, err
-	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
-}
-
-func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in itemInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, statusOutput{}, err
-	}
-	if err := svc.DeleteCard(ctx, owner, project, in.ItemID); err != nil {
-		return nil, statusOutput{}, err
-	}
-	return nil, statusOutput{Status: "ok", ItemID: in.ItemID}, nil
+	return nil, noteListOutput{Kind: "NoteList", Items: apiserver.NoteResources(card)}, nil
 }
 
 // addNoteInput attaches a note to a card.
 type addNoteInput struct {
-	itemInput
+	cardRef
 	Text string `json:"text" jsonschema:"note text (required)"`
 }
 
@@ -386,25 +527,43 @@ func (h *server) addNote(ctx context.Context, _ *mcp.CallToolRequest, in addNote
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddNote(ctx, owner, project, in.ItemID, in.Text); err != nil {
+	if err := svc.AddNote(ctx, owner, project, in.UID, in.Text); err != nil {
 		return nil, statusOutput{}, err
 	}
-	return nil, statusOutput{Status: "ok", ItemID: in.ItemID}, nil
+	return nil, statusOutput{Status: "ok", UID: in.UID}, nil
 }
 
-// renameCardInput changes a card's title.
-type renameCardInput struct {
-	itemInput
-	Title string `json:"title" jsonschema:"new title (required)"`
+// editNoteInput rewrites one of a card's notes.
+type editNoteInput struct {
+	cardRef
+	NoteID string `json:"noteId" jsonschema:"note id from list_notes (required)"`
+	Text   string `json:"text" jsonschema:"new note text (required)"`
 }
 
-func (h *server) renameCard(ctx context.Context, _ *mcp.CallToolRequest, in renameCardInput) (*mcp.CallToolResult, board.Card, error) {
+func (h *server) editNote(ctx context.Context, _ *mcp.CallToolRequest, in editNoteInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, board.Card{}, err
+		return nil, statusOutput{}, err
 	}
-	if err := svc.Rename(ctx, owner, project, in.ItemID, in.Title); err != nil {
-		return nil, board.Card{}, err
+	if err := svc.EditNote(ctx, owner, project, in.UID, in.NoteID, in.Text); err != nil {
+		return nil, statusOutput{}, err
 	}
-	return h.cardResult(ctx, svc, owner, project, in.ItemID)
+	return nil, statusOutput{Status: "ok", UID: in.UID}, nil
+}
+
+// deleteNoteInput removes one of a card's notes.
+type deleteNoteInput struct {
+	cardRef
+	NoteID string `json:"noteId" jsonschema:"note id from list_notes (required)"`
+}
+
+func (h *server) deleteNote(ctx context.Context, _ *mcp.CallToolRequest, in deleteNoteInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.DeleteNote(ctx, owner, project, in.UID, in.NoteID); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
 }

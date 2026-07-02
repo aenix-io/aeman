@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aenix-org/aeman/internal/apiserver"
 	"github.com/aenix-org/aeman/internal/board"
 	"github.com/aenix-org/aeman/internal/boardservice"
 	"github.com/aenix-org/aeman/internal/boardservice/boardservicetest"
@@ -44,41 +45,58 @@ func do(t *testing.T, srv *Server, method, target, body string) *httptest.Respon
 	return rec
 }
 
-func TestAPIBoardMeta(t *testing.T) {
-	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
+func decodeCard(t *testing.T, rec *httptest.ResponseRecorder) apiserver.Card {
+	t.Helper()
+	var c apiserver.Card
+	if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil {
+		t.Fatalf("decode card: %v (%s)", err, rec.Body.String())
+	}
+	return c
+}
+
+func decodeList(t *testing.T, rec *httptest.ResponseRecorder) apiserver.CardList {
+	t.Helper()
+	var l apiserver.CardList
+	if err := json.Unmarshal(rec.Body.Bytes(), &l); err != nil {
+		t.Fatalf("decode list: %v (%s)", err, rec.Body.String())
+	}
+	return l
+}
+
+func TestAPIBoard(t *testing.T) {
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "st1"}})
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodGet, "/api/v1/board?owner=acme&project=1", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	var meta boardMeta
-	if err := json.Unmarshal(rec.Body.Bytes(), &meta); err != nil {
-		t.Fatalf("decode: %v", err)
+	var info apiserver.BoardInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
 	}
-	if meta.Owner != "acme" || meta.SprintStates["alpha"].Current != "2026-06-20" {
-		t.Fatalf("meta = %+v", meta)
+	if info.Kind != "Board" || len(info.Metadata.Teams) != 1 || info.Metadata.Teams[0] != "alpha" {
+		t.Fatalf("board = %+v", info)
 	}
 }
 
-func TestAPITeamView(t *testing.T) {
+func TestAPIListCardsTeamView(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Team: "alpha", StartDate: today, SprintStart: today},
 		{ItemID: "c2", Team: "beta", StartDate: today, SprintStart: today},
 	}, nil)
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodGet, "/api/v1/team?owner=acme&project=1&team=alpha", "")
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=team&team=alpha", "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	var out cardsResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if len(out.Cards) != 1 || out.Cards[0].ItemID != "c1" {
-		t.Fatalf("cards = %+v", out.Cards)
+	list := decodeList(t, rec)
+	if list.Kind != "CardList" || len(list.Items) != 1 || list.Items[0].Metadata.UID != "c1" {
+		t.Fatalf("list = %+v", list)
 	}
 }
 
-func TestAPIMeView(t *testing.T) {
+func TestAPIListCardsMeView(t *testing.T) {
 	today := board.TodayIso()
 	// Me shows a card whose sprintStart equals the sprint active on the viewed day
 	// and whose startDate has arrived, so the no-team group needs a sprint anchor.
@@ -86,133 +104,261 @@ func TestAPIMeView(t *testing.T) {
 		{ItemID: "c1", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
 	}, map[string]board.SprintState{"": {Current: today}})
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodGet, "/api/v1/me?owner=acme&project=1&user=bob", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	var out cardsResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if len(out.Cards) != 1 || out.Cards[0].ItemID != "c1" {
-		t.Fatalf("cards = %+v", out.Cards)
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=me&user=bob", "")
+	list := decodeList(t, rec)
+	if len(list.Items) != 1 || list.Items[0].Metadata.UID != "c1" {
+		t.Fatalf("me view = %+v", list.Items)
 	}
 }
 
-func TestAPIWeeklyView(t *testing.T) {
-	week := "2026-06-22"
+func TestAPIListCardsWeeklyCarriesProgress(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
-		{ItemID: "a1", Plan: board.PlanWed, Week: week, Team: "alpha"},
-		{ItemID: "a2", Plan: board.PlanFri, Week: week, Team: "alpha"},
+		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-15", Progress: 40},
+		{ItemID: "p2", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-15", Stage: board.StageRecurrent, Progress: 100},
 	}, nil)
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodGet, "/api/v1/weekly?owner=acme&project=1&team=alpha&week="+week, "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	var bands board.WeeklyBands
-	_ = json.Unmarshal(rec.Body.Bytes(), &bands)
-	if len(bands.Wed) != 1 || len(bands.Fri) != 1 {
-		t.Fatalf("bands = %+v", bands)
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=weekly&team=alpha&week=2026-06-15", "")
+	list := decodeList(t, rec)
+	if len(list.Items) != 2 || list.Weekly == nil || list.Weekly.Progress != 40 {
+		t.Fatalf("weekly = %+v %+v (recurrent excluded from the bar)", list.Items, list.Weekly)
 	}
 }
 
 func TestAPICreateCard(t *testing.T) {
-	fake := boardservicetest.New(nil, nil)
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards?owner=acme&project=1",
-		`{"team":"alpha","zone":"red","title":"New","assignee":"bob"}`)
+		`{"title":"New task","team":"alpha","zone":"urgent","assignees":["kvaps"],"dates":{"start":"2026-06-21"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	var card board.Card
-	_ = json.Unmarshal(rec.Body.Bytes(), &card)
-	if card.Title != "New" || card.Team != "alpha" {
-		t.Fatalf("card = %+v", card)
+	c := decodeCard(t, rec)
+	if c.Spec.Title != "New task" || c.Spec.Zone != "urgent" {
+		t.Fatalf("card = %+v", c.Spec)
 	}
-	if len(fake.Creates()) != 1 || fake.Creates()[0].Zone != board.ZoneRed {
-		t.Fatalf("creates = %+v", fake.Creates())
+	// One-day range: end defaults to start; the card joins the current sprint.
+	if c.Spec.Dates.Start != "2026-06-21" || c.Spec.Dates.End != "2026-06-21" || c.Spec.Dates.Sprint != "2026-06-20" {
+		t.Fatalf("dates = %+v", c.Spec.Dates)
 	}
 }
 
 func TestAPICreateRequiresTitle(t *testing.T) {
-	fake := boardservicetest.New(nil, nil)
-	srv := apiServer(t, Options{}, fake)
+	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards?owner=acme&project=1", `{"team":"alpha"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestAPIPatchProgressDoneIsDerived(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Progress: 40}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPatch, "/api/v1/cards/c1?owner=acme&project=1", `{"progress":100}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	c := decodeCard(t, rec)
+	if c.Spec.Progress != 100 || c.Spec.Stage != "" || !c.Status.Complete {
+		t.Fatalf("card = %+v %+v (done is derived: 100%% + no stage)", c.Spec, c.Status)
+	}
+}
+
+func TestAPIPatchStageDoneFillsProgress(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Progress: 40}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPatch, "/api/v1/cards/c1?owner=acme&project=1", `{"stage":"done"}`)
+	c := decodeCard(t, rec)
+	if c.Spec.Stage != "" || c.Spec.Progress != 100 {
+		t.Fatalf("card = %+v (picking done clears the stage and fills 100)", c.Spec)
+	}
+}
+
+func TestAPIPatchZoneSemanticNames(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1"}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPatch, "/api/v1/cards/c1?owner=acme&project=1", `{"zone":"unplanned"}`)
+	if c := decodeCard(t, rec); c.Spec.Zone != "unplanned" {
+		t.Fatalf("card = %+v", c.Spec)
+	}
+	rec = do(t, srv, http.MethodPatch, "/api/v1/cards/c1?owner=acme&project=1", `{"zone":"red"}`)
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
+		t.Fatalf("colour names are not part of the API: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestAPISetProgressDoneLink(t *testing.T) {
-	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Progress: 50}}, nil)
+func TestAPIPatchDatesRunsCalendarRule(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", StartDate: "2026-06-20", SprintStart: "2026-06-20", Day: "2026-06-20"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", Previous: "2026-06-13", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/progress?owner=acme&project=1", `{"progress":100}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-	var card board.Card
-	_ = json.Unmarshal(rec.Body.Bytes(), &card)
-	// Done is derived (no stage + 100%), never stored: full progress leaves the
-	// stage empty and the card counts as complete.
-	if card.Progress != 100 || card.Stage != board.StageNone {
-		t.Fatalf("100%% should stay stage-less: %+v", card)
-	}
-	if !board.Complete(card.Stage, card.Progress) {
-		t.Fatalf("a stage-less 100%% card should be complete: %+v", card)
+	rec := do(t, srv, http.MethodPatch, "/api/v1/cards/c1?owner=acme&project=1",
+		`{"dates":{"start":"2026-06-14","end":"2026-06-16"}}`)
+	c := decodeCard(t, rec)
+	// 06-14 is inside the previous sprint [06-13, 06-20): the card joins it.
+	if c.Spec.Dates.Start != "2026-06-14" || c.Spec.Dates.Sprint != "2026-06-13" || c.Spec.Dates.End != "2026-06-16" {
+		t.Fatalf("dates = %+v", c.Spec.Dates)
 	}
 }
 
-func TestAPISetStage(t *testing.T) {
-	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Progress: 100}}, nil)
+func TestAPIDeferAction(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", StartDate: "2000-01-01", SprintStart: "2000-01-01", CreatedAt: "2000-01-01T10:00:00Z"},
+	}, nil)
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/stage?owner=acme&project=1", `{"stage":"review"}`)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/actions/defer?owner=acme&project=1", `{"days":1}`)
+	c := decodeCard(t, rec)
+	want := board.AddDays(board.TodayIso(), 1)
+	if c.Spec.Dates.Start != want || c.Spec.Dates.Sprint != "2000-01-01" {
+		t.Fatalf("dates = %+v, want start %s with history kept", c.Spec.Dates, want)
+	}
+}
+
+func TestAPIRemoveActionDemotes(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", StartDate: "2026-06-20", SprintStart: "2026-06-20"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", Previous: "2026-06-13", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/actions/remove?owner=acme&project=1", `{"from":"grid"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	var card board.Card
-	_ = json.Unmarshal(rec.Body.Bytes(), &card)
-	if card.Stage != board.StageReview || card.Progress != 90 {
-		t.Fatalf("review should knock a full card to 90: %+v", card)
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards/c1?owner=acme&project=1", "")
+	if c := decodeCard(t, rec); c.Spec.Dates.Sprint != "2026-06-13" {
+		t.Fatalf("first remove demotes: %+v", c.Spec.Dates)
 	}
 }
 
 func TestAPIDeleteCascadesToReview(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
-		{ItemID: "orig", Title: "x"},
-		{ItemID: "rev", ReviewOf: "orig"},
+		{ItemID: "c1", Team: "alpha"},
+		{ItemID: "r1", Team: "alpha", ReviewOf: "c1"},
 	}, nil)
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodDelete, "/api/v1/cards/orig?owner=acme&project=1", "")
+	rec := do(t, srv, http.MethodDelete, "/api/v1/cards/c1?owner=acme&project=1", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if fake.Card("orig") != nil || fake.Card("rev") != nil {
-		t.Fatalf("both cards should be gone; orig=%v rev=%v", fake.Card("orig"), fake.Card("rev"))
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards/r1?owner=acme&project=1", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("the linked review card must cascade: %d", rec.Code)
 	}
-	if fake.Count("DeleteCard") != 2 {
-		t.Fatalf("expected two deletes, got %d", fake.Count("DeleteCard"))
+}
+
+func TestAPISendToReviewCreatesLinkedCard(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", Title: "Work", Progress: 50},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/actions/send-to-review?owner=acme&project=1",
+		`{"reviewer":"lllamnyp","day":"2026-06-21"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	review := decodeCard(t, rec)
+	if review.Spec.ReviewOf != "c1" || review.Spec.Assignees[0] != "lllamnyp" {
+		t.Fatalf("review card = %+v", review.Spec)
+	}
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards/c1?owner=acme&project=1", "")
+	if c := decodeCard(t, rec); c.Spec.Stage != "review" || c.Status.ReviewedBy != "lllamnyp" {
+		t.Fatalf("original = %+v %+v", c.Spec, c.Status)
+	}
+}
+
+func TestAPICarryOverDryRun(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-01"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-01", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPost, "/api/v1/sprints/actions/carry-over?owner=acme&project=1",
+		`{"team":"alpha","dryRun":true}`)
+	var rep boardservice.CarryReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if rep.Carried != 1 {
+		t.Fatalf("report = %+v", rep)
+	}
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards/c1?owner=acme&project=1", "")
+	if c := decodeCard(t, rec); c.Spec.Dates.Sprint != "2026-01-01" {
+		t.Fatalf("dry run must not move the card: %+v", c.Spec.Dates)
+	}
+}
+
+func TestAPISprints(t *testing.T) {
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", Previous: "2026-06-13", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodGet, "/api/v1/sprints?owner=acme&project=1", "")
+	var list struct {
+		Kind  string             `json:"kind"`
+		Items []apiserver.Sprint `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.Kind != "SprintList" || len(list.Items) != 1 || list.Items[0].Spec.Current != "2026-06-20" {
+		t.Fatalf("sprints = %+v", list)
+	}
+	rec = do(t, srv, http.MethodPatch, "/api/v1/sprints?owner=acme&project=1",
+		`{"team":"alpha","current":"2026-06-27","previous":"2026-06-20"}`)
+	var sp apiserver.Sprint
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatal(err)
+	}
+	if sp.Spec.Current != "2026-06-27" {
+		t.Fatalf("sprint = %+v", sp)
+	}
+}
+
+func TestAPIOrdering(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1"}, {ItemID: "c2"}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodGet, "/api/v1/ordering?owner=acme&project=1", "")
+	var o apiserver.Ordering
+	if err := json.Unmarshal(rec.Body.Bytes(), &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Kind != "Ordering" || len(o.Spec.UIDs) != 2 {
+		t.Fatalf("ordering = %+v", o)
+	}
+}
+
+func TestAPINotes(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", ContentID: "D1", IsDraft: true}}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/notes?owner=acme&project=1", `{"text":"hello"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Kind  string           `json:"kind"`
+		Items []apiserver.Note `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.Kind != "NoteList" || len(list.Items) != 1 || list.Items[0].Spec.Text != "hello" {
+		t.Fatalf("notes = %+v", list)
 	}
 }
 
 func TestAPIUnknownCardReturns404(t *testing.T) {
-	fake := boardservicetest.New(nil, nil)
-	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards/nope/progress?owner=acme&project=1", `{"progress":50}`)
+	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
+	rec := do(t, srv, http.MethodPatch, "/api/v1/cards/nope?owner=acme&project=1", `{"progress":50}`)
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", rec.Code)
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
 
 func TestAPIMissingBoardRef(t *testing.T) {
-	fake := boardservicetest.New(nil, nil)
-	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodGet, "/api/v1/team", "")
+	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards", "")
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
+		t.Fatalf("status = %d", rec.Code)
 	}
 }
 
 func TestAPILockBoardIgnoresQuery(t *testing.T) {
-	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "x"}})
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "x", ItemID: "s1"}})
 	srv := apiServer(t, Options{DefaultOwner: "acme", DefaultProject: 7, LockBoard: true}, fake)
 	rec := do(t, srv, http.MethodGet, "/api/v1/board?owner=evil&project=99", "")
 	if rec.Code != http.StatusOK {
@@ -235,25 +381,20 @@ func TestAPIIndex(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &idx); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if idx.Name != "aeman" {
-		t.Fatalf("name = %q, want aeman", idx.Name)
+	if idx.Name != "aeman" || idx.Version != "test-1.2.3" || idx.MCP != "/mcp" || len(idx.Endpoints) == 0 {
+		t.Fatalf("index = %+v", idx)
 	}
-	if idx.Version != "test-1.2.3" {
-		t.Fatalf("version = %q, want test-1.2.3", idx.Version)
-	}
-	if idx.MCP != "/mcp" {
-		t.Fatalf("mcp = %q, want /mcp", idx.MCP)
-	}
-	if len(idx.Endpoints) == 0 {
-		t.Fatal("endpoints is empty")
+	for _, ep := range idx.Endpoints {
+		if ep.Path == "/api/v1/snapshot" {
+			t.Fatal("the old snapshot endpoint must be gone from the catalog")
+		}
 	}
 }
 
 func TestAPIInvalidJSON(t *testing.T) {
-	fake := boardservicetest.New(nil, nil)
-	srv := apiServer(t, Options{}, fake)
+	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards?owner=acme&project=1", `{not json}`)
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
+		t.Fatalf("status = %d", rec.Code)
 	}
 }

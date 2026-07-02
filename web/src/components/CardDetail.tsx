@@ -47,11 +47,13 @@ export function CardDetail({
       return;
     }
     patchCard(card.itemId, { title: next });
-    void provider.renameCard(board, card, next).catch((err: unknown) => {
-      patchCard(card.itemId, { title: card.title });
-      setTitle(card.title);
-      fail(err);
-    });
+    void provider
+      .patchCard(board, card.itemId, { title: next })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { title: card.title });
+        setTitle(card.title);
+        fail(err);
+      });
   };
 
   const handleSave = () => {
@@ -59,12 +61,14 @@ export function CardDetail({
     // Apply immediately and close; the backend runs in the background.
     patchCard(card.itemId, { description: next });
     onClose();
-    void provider.setDescription(board, card, next).catch((err: unknown) => {
-      patchCard(card.itemId, { description: card.description ?? "" });
-      if (err instanceof Error) {
-        console.error(err);
-      }
-    });
+    void provider
+      .patchCard(board, card.itemId, { description: next })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { description: card.description ?? "" });
+        if (err instanceof Error) {
+          console.error(err);
+        }
+      });
   };
 
   return (

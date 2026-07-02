@@ -6,15 +6,21 @@ import {
   useState,
   type Ref,
 } from "react";
+import {
+  cancelPendingCard,
+  consumePendingCancel,
+  registerPendingCard,
+} from "../api/pending";
 import type {
   Board,
   Card as CardModel,
+  CardPatch,
+  CarryReport,
   Provider,
   StageKey,
   ZoneKey,
 } from "../providers/types";
-import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
-import { fieldRoles } from "../providers/fields";
+import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, addDays, localDateIso, mondayOf } from "../date";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
@@ -188,8 +194,6 @@ export function TeamBoard({
       window.removeEventListener("focus", sync);
     };
   }, []);
-
-  const roles = useMemo(() => fieldRoles(board), [board]);
 
   // Single-select: no filter shows all; otherwise match the card's group.
   const passesFilter = (card: CardModel): boolean =>
@@ -367,13 +371,28 @@ export function TeamBoard({
       notes: [],
     };
     addCard(optimistic);
-    void provider
-      .createCard(board, { title, plan, week: currentWeek, team: team ?? null })
+    const creating = provider.createCard(board, {
+      title,
+      plan,
+      week: currentWeek,
+      team: team ?? null,
+    });
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
       .then((card) => {
         removeCard(tempId);
+        if (consumePendingCancel(tempId)) {
+          // Deleted while the create was in flight: drop the server twin.
+          void provider.deleteCard(board, card.itemId).catch(() => undefined);
+          return;
+        }
         addCard(card);
       })
       .catch((err: unknown) => {
+        consumePendingCancel(tempId);
         removeCard(tempId);
         onError(errMessage(err));
       });
@@ -381,55 +400,51 @@ export function TeamBoard({
 
   // Weekly carry over: pull a team's unfinished plan cards from earlier weeks
   // into the current (selected) week — the weekly analogue of the daily sprint
-  // carry over, so a new week's empty plan can absorb last week's leftovers.
+  // carry over. A dry run supplies the confirm-dialog counts; the real call
+  // moves the cards and reseeds the finished recurrent ones server-side.
   const handleCarryWeek = (team: string | null) => {
     setCarryWeekOpen(false);
     const label = team ?? "no team";
-    const fromEarlier = board.cards.filter(
-      (c) =>
-        c.plan &&
-        c.week != null &&
-        c.week < currentWeek &&
-        // Skip not-yet-persisted optimistic cards (temporary ids).
-        !c.itemId.startsWith("tmp-") &&
-        (team === null ? c.team == null : c.team === team),
-    );
-    const carry = fromEarlier.filter((c) => !isComplete(c));
-    // Finished recurrent plan cards stay behind; the backend reseeds a fresh
-    // copy into the week (skipping titles already planned there).
-    const reseed = fromEarlier.filter(
-      (c) =>
-        c.stage === "recurrent" &&
-        (c.progress ?? 0) >= 100 &&
-        !board.cards.some(
-          (t) =>
-            t.plan &&
-            t.week === currentWeek &&
-            (t.team ?? "") === (c.team ?? "") &&
-            t.title === c.title,
-        ),
-    );
-    if (carry.length === 0 && reseed.length === 0) {
-      onError(
-        `No unfinished plan cards from earlier weeks for "${label}" to carry into the week of ${currentWeek}.`,
-      );
-      return;
-    }
-    if (
-      !window.confirm(
-        `Carry over ${carry.length} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?` +
-          (reseed.length > 0
-            ? ` ${reseed.length} recurrent card(s) will restart at 0%.`
-            : ""),
-      )
-    ) {
-      return;
-    }
-    carry.forEach((card) => patchCard(card.itemId, { week: currentWeek }));
     void (async () => {
+      let rep: CarryReport;
       try {
-        // One server-side call: it moves the unfinished cards and reseeds the
-        // finished recurrent ones.
+        rep = await provider.carryWeek(board, team, currentWeek, true);
+      } catch (err: unknown) {
+        onError(errMessage(err));
+        return;
+      }
+      if (rep.carried === 0 && rep.reseeded === 0) {
+        onError(
+          `No unfinished plan cards from earlier weeks for "${label}" to carry into the week of ${currentWeek}.`,
+        );
+        return;
+      }
+      if (
+        !window.confirm(
+          `Carry over ${rep.carried} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?` +
+            (rep.reseeded > 0
+              ? ` ${rep.reseeded} recurrent card(s) will restart at 0%.`
+              : ""),
+        )
+      ) {
+        return;
+      }
+      // Optimistic: move the unfinished plan cards locally; the re-list after
+      // the server call reconciles (and picks up the reseeded copies).
+      for (const c of board.cards) {
+        if (
+          c.plan &&
+          c.week != null &&
+          c.week < currentWeek &&
+          // Skip not-yet-persisted optimistic cards (temporary ids).
+          !c.itemId.startsWith("tmp-") &&
+          (team === null ? c.team == null : c.team === team) &&
+          !isComplete(c)
+        ) {
+          patchCard(c.itemId, { week: currentWeek });
+        }
+      }
+      try {
         await provider.carryWeek(board, team, currentWeek);
       } catch (err: unknown) {
         onError(errMessage(err));
@@ -443,20 +458,26 @@ export function TeamBoard({
   const handleSetPlan = (card: CardModel, plan: "wed" | "fri") => {
     const prev = card.plan;
     patchCard(card.itemId, { plan });
-    void provider.setPlan(board, card, plan).catch((err: unknown) => {
-      patchCard(card.itemId, { plan: prev });
-      onError(errMessage(err));
-    });
+    void provider
+      .patchCard(board, card.itemId, { plan: { band: plan } })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { plan: prev });
+        onError(errMessage(err));
+      });
   };
 
   // Move a single plan card to another plan week (+1/+2 weeks, or a picked one).
   const handleSetWeek = (card: CardModel, week: string | null) => {
     const prev = card.week ?? null;
     patchCard(card.itemId, { week: week ?? undefined });
-    void provider.setWeek(board, card, week).catch((err: unknown) => {
-      patchCard(card.itemId, { week: prev ?? undefined });
-      onError(errMessage(err));
-    });
+    void provider
+      .patchCard(board, card.itemId, { plan: { week: week ?? "" } })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { week: prev ?? undefined });
+        onError(errMessage(err));
+      });
   };
 
   // Take a grid card into the weekly plan: mark it for the dropped band and the
@@ -464,55 +485,47 @@ export function TeamBoard({
   // shows the weekly stripe in the grid and the "taken" tint in the plan.
   const takeIntoPlan = (card: CardModel, band: "wed" | "fri") => {
     const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
-    const weekChanged = card.week !== currentWeek;
     patchCard(card.itemId, { plan: band, week: currentWeek });
-    void (async () => {
-      try {
-        await provider.setPlan(board, card, band);
-        if (weekChanged) {
-          await provider.setWeek(board, card, currentWeek);
-        }
-      } catch (err: unknown) {
+    void provider
+      .patchCard(board, card.itemId, { plan: { band, week: currentWeek } })
+      .then(addCard)
+      .catch((err: unknown) => {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
-      }
-    })();
+      });
   };
 
   // Take a plan card into work: assign it to the column's person and add it to
   // today's daily sprint, while it stays in the weekly plan (the same card).
+  // One server action; dropping on the Unassigned column has no engineer to
+  // send, so it falls back to a plain spec patch with the same outcome.
   const takePlanCard = (card: CardModel, engineer: string, dropZone?: ZoneKey) => {
     const login = engineer === UNASSIGNED ? null : engineer;
     const zone = dropZone ?? card.zone ?? "gray";
-    const optionId = optionIdForZone(roles.zone, zone) ?? card.zoneOptionId;
-    const zoneChanged = zone !== card.zone;
-    // Join the card's team's current sprint (its explicit state), falling back to
-    // the selected day when the team has none yet.
+    // The optimistic sprint mirrors the server: the team's current sprint,
+    // falling back to the selected day when the team has none yet.
     const sprintStart = currentSprint(board, card.team ?? null) ?? selectedDate;
     const prev: Partial<CardModel> = {
       assignees: card.assignees,
       zone: card.zone,
-      zoneOptionId: card.zoneOptionId,
       sprintStart: card.sprintStart,
     };
     patchCard(card.itemId, {
       assignees: login ? [login] : [],
       zone,
-      zoneOptionId: optionId,
       sprintStart,
     });
-    void (async () => {
-      try {
-        await provider.setAssignee(board, card, login);
-        if (zoneChanged && optionId) {
-          await provider.setZone(board, card, optionId);
-        }
-        await provider.setSprintStart(board, card, sprintStart);
-      } catch (err: unknown) {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      }
-    })();
+    const request = login
+      ? provider.takeIntoPlan(board, card.itemId, login, zone, selectedDate)
+      : provider.patchCard(board, card.itemId, {
+          assignees: [],
+          zone,
+          dates: { sprint: sprintStart },
+        });
+    void request.then(addCard).catch((err: unknown) => {
+      patchCard(card.itemId, prev);
+      onError(errMessage(err));
+    });
   };
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
@@ -665,7 +678,7 @@ export function TeamBoard({
     );
     reorderCards(next);
     const afterId = afterIdFor(next, card.itemId);
-    void provider.moveCard(board, card, afterId).catch((err: unknown) => {
+    void provider.moveCard(board, card.itemId, afterId).catch((err: unknown) => {
       onError(errMessage(err));
       reload();
     });
@@ -706,22 +719,11 @@ export function TeamBoard({
     const zoneChanged = fromMeta.zone !== toMeta.zone;
     const engineerChanged = fromMeta.engineer !== toMeta.engineer;
 
-    let optionId = card.zoneOptionId;
-    if (zoneChanged) {
-      const resolved = optionIdForZone(roles.zone, toMeta.zone);
-      if (!resolved) {
-        onError(`Project has no Zone option for ${toMeta.zone}`);
-        return;
-      }
-      optionId = resolved;
-    }
-
     // 1) Optimistic local state first.
     if (zoneChanged || engineerChanged) {
       const patch: Partial<CardModel> = {};
       if (zoneChanged) {
         patch.zone = toMeta.zone;
-        patch.zoneOptionId = optionId;
       }
       if (engineerChanged) {
         patch.assignees = toMeta.engineer ? [toMeta.engineer] : [];
@@ -738,13 +740,17 @@ export function TeamBoard({
     const afterId = afterIdFor(order, card.itemId);
     void (async () => {
       try {
-        if (zoneChanged && optionId) {
-          await provider.setZone(board, card, optionId);
+        if (zoneChanged || engineerChanged) {
+          const patch: CardPatch = {};
+          if (zoneChanged) {
+            patch.zone = toMeta.zone;
+          }
+          if (engineerChanged) {
+            patch.assignees = toMeta.engineer ? [toMeta.engineer] : [];
+          }
+          await provider.patchCard(board, card.itemId, patch);
         }
-        if (engineerChanged) {
-          await provider.setAssignee(board, card, toMeta.engineer || null);
-        }
-        await provider.moveCard(board, card, afterId);
+        await provider.moveCard(board, card.itemId, afterId);
       } catch (err: unknown) {
         onError(errMessage(err));
         reload();
@@ -752,159 +758,75 @@ export function TeamBoard({
     })();
   };
 
-  // Drive an original card's review stage from its review card's progress:
-  // at 100% the original leaves review; below 100% it (re)enters review.
-  const syncOriginalReview = (original: CardModel, reviewProgress: number) => {
-    let next: StageKey | null | undefined;
-    if (reviewProgress === 100 && original.stage === "review") {
-      next = null;
-    } else if (reviewProgress < 100 && original.stage !== "review") {
-      next = "review";
-    }
-    if (next === undefined) {
-      return;
-    }
-    const prevStage = original.stage;
-    patchCard(original.itemId, { stage: next ?? undefined });
-    void provider.setStage(board, original, next).catch((err: unknown) => {
-      patchCard(original.itemId, { stage: prevStage });
-      onError(errMessage(err));
-    });
-  };
-
+  // Progress is one intent; the server clamps (review/locked stay in 10–90),
+  // clears a legacy stored done below full, and — when this is a review card —
+  // drives the original's review stage. The optimistic patch mirrors the
+  // clamps; the re-list converges the linked original.
   const handleProgress = (card: CardModel, raw: number) => {
-    // review/locked cards are clamped to a 10–90% band (never 0% or 100%).
     const value =
       card.stage === "review" || card.stage === "locked"
         ? Math.min(90, Math.max(10, raw))
         : raw;
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
-    // Done is derived (no stage + 100%), never stored: reaching full needs no
-    // stage write; only a legacy stored done clears itself below full.
-    let stageChange: StageKey | null | undefined;
-    if (roles.stage && value < 100 && card.stage === "done") {
-      stageChange = null;
-    }
-    if (stageChange !== undefined) {
-      patch.stage = stageChange ?? undefined;
+    if (value < 100 && card.stage === "done") {
+      patch.stage = undefined;
     }
     patchCard(card.itemId, patch);
-    void (async () => {
-      try {
-        await provider.setProgress(board, card, value);
-        if (stageChange !== undefined) {
-          await provider.setStage(board, card, stageChange);
+    void provider
+      .patchCard(board, card.itemId, { progress: value })
+      .then((updated) => {
+        addCard(updated);
+        // A review card's progress drives the original's stage server-side.
+        if (card.reviewOf) {
+          reload();
         }
-      } catch (err: unknown) {
+      })
+      .catch((err: unknown) => {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
-      }
-    })();
-
-    // When this is a review card, its progress drives the original's review stage.
-    if (card.reviewOf) {
-      const original = board.cards.find((c) => c.itemId === card.reviewOf);
-      if (original) {
-        syncOriginalReview(original, value);
-      }
-    }
-  };
-
-  // Taking a card off review cancels its linked unfinished review card,
-  // mirroring the × logic: still on the team's current sprint → demoted to the
-  // previous one; otherwise deleted. A finished review card stays as a record.
-  const cancelLinkedReview = (original: CardModel) => {
-    const review = board.cards.find(
-      (c) =>
-        c.reviewOf === original.itemId &&
-        c.stage !== "done" &&
-        !(!c.stage && (c.progress ?? 0) >= 100) &&
-        !c.itemId.startsWith("tmp-"),
-    );
-    if (!review) {
-      return;
-    }
-    const cur = currentSprint(board, review.team ?? null);
-    const prevS = previousSprint(board, review.team ?? null);
-    if (review.sprintStart && cur && review.sprintStart === cur && prevS && prevS < cur) {
-      const rollback: Partial<CardModel> = {
-        startDate: review.startDate,
-        sprintStart: review.sprintStart,
-        day: review.day,
-      };
-      patchCard(review.itemId, {
-        startDate: prevS,
-        sprintStart: prevS,
-        ...(review.day ? { day: prevS } : {}),
       });
-      void (async () => {
-        try {
-          await provider.setStart(board, review, prevS);
-          await provider.setSprintStart(board, review, prevS);
-          if (review.day && review.day !== prevS) {
-            await provider.setDay(board, review, prevS);
-          }
-        } catch (err: unknown) {
-          patchCard(review.itemId, rollback);
-          onError(errMessage(err));
-        }
-      })();
-      return;
-    }
-    removeCard(review.itemId);
-    void provider.deleteCard(board, review).catch((err: unknown) => {
-      if (isGone(err)) {
-        return;
-      }
-      addCard(review);
-      onError(errMessage(err));
-    });
   };
 
+  // Stage is one intent; the server derives done (clears stage + fills 100),
+  // knocks a full review/locked card to 90, and cancels the linked review card
+  // when the original leaves review. The optimistic patch mirrors the local
+  // effects; the re-list converges the linked-card cascade.
   const handleStage = (card: CardModel, stage: StageKey | null) => {
-    if (card.stage === "review" && stage !== "review") {
-      cancelLinkedReview(card);
-    }
     const prev: Partial<CardModel> = {
       stage: card.stage,
       progress: card.progress,
     };
-    // Done is derived (no stage + 100%), never stored: picking it clears the
-    // stage and fills the bar instead of writing a Done option.
-    const storedStage = stage === "done" ? null : stage;
-    const patch: Partial<CardModel> = { stage: storedStage ?? undefined };
-    const fillTo100 = stage === "done" && card.progress !== 100;
+    const patch: Partial<CardModel> = {
+      stage: stage === "done" ? undefined : stage ?? undefined,
+    };
     if (stage === "done") {
       patch.progress = 100;
     }
-    // review/locked cards can never sit at 100%: knock a full card down to 90%.
-    const dropTo90 =
-      (stage === "review" || stage === "locked") && card.progress === 100;
-    if (dropTo90) {
-      patch.progress = 90;
+    if (stage === "review" || stage === "locked") {
+      // The 10-90 clamp is stored on stage pick (mirrors board.ApplyStage).
+      patch.progress = Math.min(90, Math.max(10, card.progress ?? 0));
     }
     patchCard(card.itemId, patch);
-    void provider.setStage(board, card, storedStage).catch((err: unknown) => {
-      patchCard(card.itemId, prev);
-      onError(errMessage(err));
-    });
-    if (fillTo100 || dropTo90) {
-      const target = dropTo90 ? 90 : 100;
-      void provider.setProgress(board, card, target).catch((err: unknown) => {
-        patchCard(card.itemId, { progress: prev.progress });
+    const leavingReview = card.stage === "review" && stage !== "review";
+    void provider
+      .patchCard(board, card.itemId, { stage: stage ?? "" })
+      .then((updated) => {
+        addCard(updated);
+        if (leavingReview || card.reviewOf) {
+          reload();
+        }
+      })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
         onError(errMessage(err));
       });
-    }
   };
 
-  // "In Progress" is the implicit status (no stage, progress in [10, 90]).
-  // Picking it clears any stage and clamps progress into that band: under 10
-  // becomes 10, a done/full card drops to 90, otherwise the value is kept.
+  // "In Progress" is the implicit status (no stage, progress in [10, 90]) —
+  // one action; the server clears the stage, nudges progress into the band,
+  // cancels a linked review card and syncs a review card's original.
   const handleInProgress = (card: CardModel) => {
-    if (card.stage === "review") {
-      cancelLinkedReview(card);
-    }
     const cur = card.progress ?? 0;
     let value = cur;
     if (cur < 10) {
@@ -914,71 +836,30 @@ export function TeamBoard({
     }
     const prev: Partial<CardModel> = { stage: card.stage, progress: card.progress };
     patchCard(card.itemId, { stage: undefined, progress: value });
-    void (async () => {
-      try {
-        await provider.setStage(board, card, null);
-        if (value !== cur) {
-          await provider.setProgress(board, card, value);
+    void provider
+      .setInProgress(board, card.itemId)
+      .then((updated) => {
+        addCard(updated);
+        if (card.stage === "review" || card.reviewOf) {
+          reload();
         }
-      } catch (err: unknown) {
+      })
+      .catch((err: unknown) => {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
-      }
-    })();
-
-    // A review card's progress drives its original's review stage; keep that
-    // in sync when In Progress changes it (e.g. a done review card reopens it).
-    if (card.reviewOf && value !== cur) {
-      const original = board.cards.find((c) => c.itemId === card.reviewOf);
-      if (original) {
-        syncOriginalReview(original, value);
-      }
-    }
+      });
   };
 
   const handleRename = (card: CardModel, title: string) => {
     const prev = card.title;
     patchCard(card.itemId, { title });
-    void provider.renameCard(board, card, title).catch((err: unknown) => {
-      patchCard(card.itemId, { title: prev });
-      onError(errMessage(err));
-    });
-  };
-
-  const handleDelete = (card: CardModel) => {
-    // A just-created optimistic card has no server twin yet: drop it locally
-    // (deleting it via the API would 404 and resurrect a phantom copy).
-    if (card.itemId.startsWith("tmp-")) {
-      removeCard(card.itemId);
-      return;
-    }
-    // If a review card links back to this one, delete both (with one confirm).
-    const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-    if (linkedReview) {
-      if (
-        !window.confirm(
-          `Delete this card and its linked review card «${linkedReview.title}»?`,
-        )
-      ) {
-        return;
-      }
-      removeCard(linkedReview.itemId);
-      void provider.deleteCard(board, linkedReview).catch((err: unknown) => {
-        if (isGone(err)) {
-          return;
-        }
-        addCard(linkedReview);
+    void provider
+      .patchCard(board, card.itemId, { title })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { title: prev });
         onError(errMessage(err));
       });
-    }
-    removeCard(card.itemId);
-    void provider.deleteCard(board, card).catch((err: unknown) => {
-      if (isGone(err)) {
-        return;
-      }
-      addCard(card);
-      onError(errMessage(err));
-    });
   };
 
   // The team's explicit previous sprint — where deleting a grid card demotes it
@@ -999,19 +880,24 @@ export function TeamBoard({
     return prev;
   };
 
-  // Deleting a taken plan card from the grid releases it (clears assignee + the
-  // daily sprint) instead of deleting it, so it stays in the weekly plan. A plain
-  // grid card is demoted to its previous sprint (if any) rather than deleted.
+  // The grid ×: one remove intent — the server demotes a card still in the
+  // team's current sprint, releases a taken plan card back to plan-only, or
+  // deletes for real (cascading the linked review card). The optimistic patch
+  // mirrors those rules locally; the re-list converges the server's outcome.
   const handleGridDelete = (card: CardModel) => {
+    if (card.itemId.startsWith("tmp-")) {
+      cancelPendingCard(card.itemId);
+      removeCard(card.itemId);
+      return;
+    }
+    let rollback: () => void;
     if (!card.plan) {
-      // Demote-then-delete: the first × on a card still in the team's current
-      // sprint moves it (and all its dates) back to the previous sprint; once it
-      // is no longer in the current sprint — already demoted, older, or the team
-      // has no earlier sprint — × deletes it for real.
       const cur = currentSprint(board, card.team ?? null);
       const prevSprint = previousSprintFor(card);
       const inCurrent = !!card.sprintStart && !!cur && card.sprintStart === cur;
-      if (inCurrent && prevSprint && prevSprint < cur) {
+      if (inCurrent && cur && prevSprint && prevSprint < cur) {
+        // Demote to the previous sprint, all dates pulled along (the end date
+        // too, or the [start…end] range would keep the card on its old day).
         const prev: Partial<CardModel> = {
           startDate: card.startDate,
           sprintStart: card.sprintStart,
@@ -1020,104 +906,138 @@ export function TeamBoard({
         patchCard(card.itemId, {
           startDate: prevSprint,
           sprintStart: prevSprint,
-          // Pull the end date back too, or the [start…end] range would keep the
-          // card on its old day and the demote would look like a no-op.
           ...(card.day ? { day: prevSprint } : {}),
         });
-        void (async () => {
-          try {
-            await provider.setStart(board, card, prevSprint);
-            await provider.setSprintStart(board, card, prevSprint);
-            if (card.day && card.day !== prevSprint) {
-              await provider.setDay(board, card, prevSprint);
-            }
-          } catch (err: unknown) {
-            patchCard(card.itemId, prev);
-            onError(errMessage(err));
+        rollback = () => patchCard(card.itemId, prev);
+      } else {
+        // Delete for real; the server cascades to a linked review card.
+        const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
+        if (
+          linkedReview &&
+          !window.confirm(
+            `Delete this card and its linked review card «${linkedReview.title}»?`,
+          )
+        ) {
+          return;
+        }
+        removeCard(card.itemId);
+        if (linkedReview) {
+          removeCard(linkedReview.itemId);
+        }
+        rollback = () => {
+          addCard(card);
+          if (linkedReview) {
+            addCard(linkedReview);
           }
-        })();
-        return;
+        };
       }
-      handleDelete(card);
-      return;
+    } else {
+      // A taken plan card is released (assignee + sprint cleared), so it stays
+      // in the weekly plan.
+      const prev: Partial<CardModel> = {
+        assignees: card.assignees,
+        sprintStart: card.sprintStart,
+      };
+      patchCard(card.itemId, { assignees: [], sprintStart: undefined });
+      rollback = () => patchCard(card.itemId, prev);
     }
-    const prev: Partial<CardModel> = {
-      assignees: card.assignees,
-      sprintStart: card.sprintStart,
-    };
-    patchCard(card.itemId, { assignees: [], sprintStart: undefined });
-    void (async () => {
-      try {
-        await provider.setAssignee(board, card, null);
-        await provider.setSprintStart(board, card, null);
-      } catch (err: unknown) {
-        patchCard(card.itemId, prev);
+    void provider
+      .removeCard(board, card.itemId, "grid")
+      .then(() => reload())
+      .catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
+        rollback();
         onError(errMessage(err));
-      }
-    })();
+      });
   };
 
-  // Remove a card from the weekly plan. If it was taken into work (assigned) it
-  // stays on the board — only the weekly marker (Plan + Week) is cleared. A pure
-  // plan card is demoted to its previous week (if any) instead of being deleted.
+  // The plan-band ×: one remove intent — the server keeps a taken (assigned)
+  // card working and clears only its weekly marker, demotes a pure plan card
+  // to its previous week, or deletes it when there is none. The optimistic
+  // patch mirrors those rules; the re-list converges the server's outcome.
   const removeFromPlan = (card: CardModel) => {
+    if (card.itemId.startsWith("tmp-")) {
+      cancelPendingCard(card.itemId);
+      removeCard(card.itemId);
+      return;
+    }
+    let rollback: () => void;
     if (card.assignees.length === 0) {
       const prevWeek = previousWeekFor(card);
       if (prevWeek) {
         const prev: Partial<CardModel> = { week: card.week };
         patchCard(card.itemId, { week: prevWeek });
-        void provider.setWeek(board, card, prevWeek).catch((err: unknown) => {
-          patchCard(card.itemId, prev);
-          onError(errMessage(err));
-        });
-        return;
+        rollback = () => patchCard(card.itemId, prev);
+      } else {
+        // Delete for real; the server cascades to a linked review card.
+        const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
+        if (
+          linkedReview &&
+          !window.confirm(
+            `Delete this card and its linked review card «${linkedReview.title}»?`,
+          )
+        ) {
+          return;
+        }
+        removeCard(card.itemId);
+        if (linkedReview) {
+          removeCard(linkedReview.itemId);
+        }
+        rollback = () => {
+          addCard(card);
+          if (linkedReview) {
+            addCard(linkedReview);
+          }
+        };
       }
-      handleDelete(card);
-      return;
+    } else {
+      const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
+      patchCard(card.itemId, { plan: undefined, week: undefined });
+      rollback = () => patchCard(card.itemId, prev);
     }
-    const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
-    patchCard(card.itemId, { plan: undefined, week: undefined });
-    void (async () => {
-      try {
-        await provider.setPlan(board, card, null);
-        await provider.setWeek(board, card, null);
-      } catch (err: unknown) {
-        patchCard(card.itemId, prev);
+    void provider
+      .removeCard(board, card.itemId, "plan")
+      .then(() => reload())
+      .catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
+        rollback();
         onError(errMessage(err));
-      }
-    })();
+      });
   };
 
-  // Move a card's start date; if it passes the finish date, push finish too.
+  // Moving a card between teams also joins the new team's current sprint
+  // (server-side), so it stays visible instead of dropping off when its old
+  // sprint predates the new team's current one. Mirror both optimistically.
   const handleSetTeam = (card: CardModel, team: string | null) => {
-    const prevTeam = card.team;
-    const prevSprint = card.sprintStart;
-    // Join the new team's current sprint (its explicit state), so a card moved
-    // between teams stays visible instead of dropping off when its old sprint
-    // predates the new team's current one. Fall back to the selected day.
+    const prev: Partial<CardModel> = {
+      team: card.team,
+      sprintStart: card.sprintStart,
+    };
     const sprintStart = currentSprint(board, team) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
-    void provider.setTeam(board, card, team).catch((err: unknown) => {
-      patchCard(card.itemId, { team: prevTeam });
-      onError(errMessage(err));
-    });
-    if (sprintStart !== prevSprint) {
-      void provider
-        .setSprintStart(board, card, sprintStart)
-        .catch((err: unknown) => {
-          patchCard(card.itemId, { sprintStart: prevSprint });
-          onError(errMessage(err));
-        });
-    }
+    void provider
+      .patchCard(board, card.itemId, { team: team ?? "" })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
   };
 
   const handleSetAssignee = (card: CardModel, login: string | null) => {
     const prev = card.assignees;
     patchCard(card.itemId, { assignees: login ? [login] : [] });
-    void provider.setAssignee(board, card, login).catch((err: unknown) => {
-      patchCard(card.itemId, { assignees: prev });
-      onError(errMessage(err));
-    });
+    void provider
+      .patchCard(board, card.itemId, { assignees: login ? [login] : [] })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { assignees: prev });
+        onError(errMessage(err));
+      });
   };
 
   // Item ids of cards that already have a linked review card (delete cascades).
@@ -1143,17 +1063,23 @@ export function TeamBoard({
   };
 
   // Reassign the linked review card to another person, or (login = null) delete
-  // it — driven from the counterpart avatar's menu.
+  // it — driven from the counterpart avatar's menu. One intent either way; the
+  // server resolves the linked card itself (send-to-review reassigns when a
+  // review card already exists).
   const handleSetReviewAssignee = (card: CardModel, login: string | null) => {
     const reviewCard = board.cards.find((c) => c.reviewOf === card.itemId);
     if (login === null) {
-      if (reviewCard) {
-        removeCard(reviewCard.itemId);
-        void provider.deleteCard(board, reviewCard).catch((err: unknown) => {
+      if (!reviewCard) {
+        return;
+      }
+      removeCard(reviewCard.itemId);
+      void provider
+        .removeReviewer(board, card.itemId)
+        .then(addCard)
+        .catch((err: unknown) => {
           addCard(reviewCard);
           onError(errMessage(err));
         });
-      }
       return;
     }
     if (!reviewCard) {
@@ -1163,14 +1089,19 @@ export function TeamBoard({
     }
     const prev = reviewCard.assignees;
     patchCard(reviewCard.itemId, { assignees: [login] });
-    void provider.setAssignee(board, reviewCard, login).catch((err: unknown) => {
-      patchCard(reviewCard.itemId, { assignees: prev });
-      onError(errMessage(err));
-    });
+    void provider
+      .sendToReview(board, card.itemId, login, selectedDate)
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(reviewCard.itemId, { assignees: prev });
+        onError(errMessage(err));
+      });
   };
 
-  // Send a card to review: create a linked review card for the reviewer (in the
-  // original's zone on the Team board) and put the original on the review stage.
+  // Send a card to review: one action — the server creates the linked review
+  // card (in the original's zone/team) and puts the original on the review
+  // stage. Both effects are mirrored optimistically; the re-list converges
+  // the original's server-side state.
   const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
     const team = card.team ?? null;
     const zone: ZoneKey = card.zone ?? "gray";
@@ -1183,7 +1114,6 @@ export function TeamBoard({
       isDraft: true,
       assignees: [reviewerLogin],
       zone,
-      zoneOptionId: optionIdForZone(roles.zone, zone) ?? card.zoneOptionId,
       day: selectedDate,
       startDate: selectedDate,
       sprintStart,
@@ -1194,34 +1124,48 @@ export function TeamBoard({
       notes: [],
     };
     addCard(optimistic);
-    void provider
-      .createCard(board, {
-        title,
-        zone,
-        day: selectedDate,
-        start: selectedDate,
-        sprintStart,
-        assigneeLogin: reviewerLogin,
-        team,
-        reviewOf: card.itemId,
-      })
+    const prevOriginal: Partial<CardModel> = {
+      stage: card.stage,
+      progress: card.progress,
+    };
+    patchCard(card.itemId, {
+      stage: "review",
+      // The 10-90 clamp is stored on the review pick (mirrors board.ApplyStage).
+      progress: Math.min(90, Math.max(10, card.progress ?? 0)),
+    });
+    const creating = provider.sendToReview(
+      board,
+      card.itemId,
+      reviewerLogin,
+      selectedDate,
+    );
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
       .then((created) => {
         removeCard(tempId);
+        if (consumePendingCancel(tempId)) {
+          // Deleted while the create was in flight: drop the server twin.
+          void provider.deleteCard(board, created.itemId).catch(() => undefined);
+          return;
+        }
         addCard(created);
+        reload();
       })
       .catch((err: unknown) => {
+        consumePendingCancel(tempId);
         removeCard(tempId);
+        patchCard(card.itemId, prevOriginal);
         onError(errMessage(err));
       });
-
-    // Put the original on review. handleStage also drops a 100% card to 90%,
-    // since review/locked can't sit at full.
-    handleStage(card, "review");
   };
 
-  // The calendar relocates the card for real: its start…end range, and the
-  // sprint that was active on the start day (so a date inside the current
-  // sprint joins it instead of standing alone on the picked day).
+  // The calendar relocates the card for real: one dates patch — the server
+  // runs the calendar rule (the start day picks the sprint that was active on
+  // it, so a date inside the current sprint joins it instead of standing alone
+  // on the picked day). The optimistic patch mirrors that rule.
   const handleSetDates = (
     card: CardModel,
     start: string | null,
@@ -1240,25 +1184,27 @@ export function TeamBoard({
       sprintStart: sprint ?? undefined,
       day: end ?? undefined,
     });
-    void (async () => {
-      try {
-        await provider.setStart(board, card, start);
-        await provider.setSprintStart(board, card, sprint);
-        await provider.setDay(board, card, end);
-      } catch (err: unknown) {
+    void provider
+      .patchCard(board, card.itemId, {
+        dates: { start: start ?? "", end: end ?? "" },
+      })
+      .then(addCard)
+      .catch((err: unknown) => {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
-      }
-    })();
+      });
   };
 
-  // Defer moves the scheduled day (startDate); a card with history keeps its
-  // sprint, so its past sprint day still shows it while it hides until the new
-  // day. A card created today has no history yet, so it relocates fully —
-  // sprint (and a stale end date) move along with it.
-  const handleDefer = (card: CardModel, newStart: string) => {
-    const full =
-      !!card.createdAt && localDateIso(card.createdAt) === todayIso();
+  // Defer moves the scheduled day (startDate) N days ahead of today (or of an
+  // already-deferred slot; presses stack). The server owns the rule — a card
+  // created today relocates fully (sprint and a stale end date move along) —
+  // and this mirrors it for the optimistic patch.
+  const handleDefer = (card: CardModel, days: number) => {
+    const today = todayIso();
+    const base =
+      card.startDate && card.startDate > today ? card.startDate : today;
+    const newStart = addDays(base, days);
+    const full = !!card.createdAt && localDateIso(card.createdAt) === today;
     const newDay =
       full && card.day && card.day < newStart ? newStart : card.day;
     const prev = {
@@ -1270,33 +1216,28 @@ export function TeamBoard({
       startDate: newStart,
       ...(full ? { sprintStart: newStart, day: newDay } : {}),
     });
-    void (async () => {
-      try {
-        await provider.setStart(board, card, newStart);
-        if (full) {
-          await provider.setSprintStart(board, card, newStart);
-          if (newDay !== card.day) {
-            await provider.setDay(board, card, newDay ?? null);
-          }
-        }
-      } catch (err: unknown) {
+    void provider
+      .deferCard(board, card.itemId, days)
+      .then(addCard)
+      .catch((err: unknown) => {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
-      }
-    })();
+      });
   };
 
-  // Optimistically create a Team grid card with explicit sprint dates and push
-  // it to the provider.
+  // Optimistically create a Team grid card scheduled for the given day; the
+  // server joins the team's current sprint — recording a first sprint when the
+  // team has none yet, in which case a reload picks the new pointer up.
   const createTeamCard = (
     engineer: string,
     zone: ZoneKey,
     title: string,
     team: string | null,
     startDate: string,
-    sprintStart: string,
     day: string,
   ) => {
+    const sprint = currentSprint(board, team);
+    const firstSprint = sprint === null;
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
@@ -1306,70 +1247,68 @@ export function TeamBoard({
       zone,
       day,
       startDate,
-      sprintStart,
+      sprintStart: sprint ?? startDate,
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
       description: "",
       notes: [],
     };
     addCard(optimistic);
-    void provider
-      .createCard(board, {
-        title,
-        zone,
-        day,
-        start: startDate,
-        sprintStart,
-        assigneeLogin: engineer || null,
-        team,
-      })
+    const creating = provider.createCard(board, {
+      title,
+      zone,
+      day,
+      start: startDate,
+      assigneeLogin: engineer || null,
+      team,
+    });
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
       .then((card) => {
         removeCard(tempId);
+        if (consumePendingCancel(tempId)) {
+          // Deleted while the create was in flight: drop the server twin.
+          void provider.deleteCard(board, card.itemId).catch(() => undefined);
+          return;
+        }
         addCard(card);
+        if (firstSprint) {
+          reload();
+        }
       })
       .catch((err: unknown) => {
+        consumePendingCancel(tempId);
         removeCard(tempId);
         onError(errMessage(err));
       });
   };
 
-  // Creating a Team card joins the team's current sprint (sprintStart) and is
-  // scheduled for the viewed day (startDate = selectedDate). A team with no sprint
-  // yet records its first one on the state card and the card joins it, so the Me
-  // view has a sprint anchor.
+  // Creating a Team card is scheduled for the viewed day as a one-day range —
+  // a backdated create with day = today would stretch onto today's board. The
+  // sprint join (and the first-sprint record) happens server-side.
   const handleCreate = (
     engineer: string,
     zone: ZoneKey,
     title: string,
     team?: string | null,
   ) => {
-    const teamKey = team ?? null;
-    const cur = currentSprint(board, teamKey);
-    const sprint = cur ?? selectedDate;
-    if (cur === null) {
-      // First sprint for this team: record it on the state card, then reload to
-      // pick it up as the Me sprint anchor.
-      void provider
-        .setSprintState(board, teamKey, selectedDate, null)
-        .then(() => reload())
-        .catch((err: unknown) => onError(errMessage(err)));
-    }
     createTeamCard(
       engineer,
       zone,
       title,
-      teamKey,
+      team ?? null,
       selectedDate,
-      sprint,
-      // The end (due) date starts as the card's own day — a one-day range. A
-      // backdated create with day = today would stretch onto today's board.
       selectedDate,
     );
   };
 
-  // Carry over: advance the team's sprint to today (the prior current becomes the
-  // previous) and pull its unfinished cards forward. Always advances, even with
-  // nothing to carry. `team` is null for the no-team group.
+  // Carry over: advance the team's sprint to today (the prior current becomes
+  // the previous) and pull its unfinished cards forward — one server action; a
+  // dry run feeds the confirm count. Always advances, even with nothing to
+  // carry. `team` is null for the no-team group.
   const startSprint = async (team: string | null) => {
     setSprintMenuOpen(false);
     const label = team ?? "no team";
@@ -1383,31 +1322,37 @@ export function TeamBoard({
       onError(`«${label}» is already on today's sprint.`);
       return;
     }
-    // Only the closing (current) sprint's unfinished cards carry — a card that
-    // is not on today's sprint stays put, so removing it from the sprint is
-    // final. Mirrors boardservice.CarryOver.
-    const carry = board.cards.filter(
-      (c) =>
-        (team === null ? c.team == null : c.team === team) &&
-        !!old &&
-        c.sprintStart === old &&
-        !isComplete(c) &&
-        !c.itemId.startsWith("tmp-"),
-    );
+    let rep: CarryReport;
+    try {
+      rep = await provider.carryOver(board, team, true);
+    } catch (err: unknown) {
+      onError(errMessage(err));
+      return;
+    }
     if (
       !window.confirm(
-        `Start a new sprint for «${label}» (${today})? ${carry.length} unfinished card(s) carried over.`,
+        `Start a new sprint for «${label}» (${today})? ${rep.carried} unfinished card(s) carried over.`,
       )
     ) {
       return;
     }
     // Land on today and move the cards optimistically before the network call,
     // so the jump to the new sprint never depends on the request's outcome.
+    // Only the closing (current) sprint's unfinished cards carry, mirroring
+    // boardservice.CarryOver.
     setSelectedDate(today);
-    carry.forEach((card) => patchCard(card.itemId, { sprintStart: today }));
+    for (const c of board.cards) {
+      if (
+        (team === null ? c.team == null : c.team === team) &&
+        !!old &&
+        c.sprintStart === old &&
+        !isComplete(c) &&
+        !c.itemId.startsWith("tmp-")
+      ) {
+        patchCard(c.itemId, { sprintStart: today });
+      }
+    }
     try {
-      // One provider call: the API backend advances the pointer and re-dates the
-      // unfinished cards concurrently, streaming a watch event per card.
       await provider.carryOver(board, team);
     } catch (err: unknown) {
       onError(errMessage(err));

@@ -220,34 +220,54 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	})
 }
 
+// CarryReport summarizes what a carry pass did — or would do, on a dry run
+// (which backs the UI's confirm dialog counts).
+type CarryReport struct {
+	Carried  int `json:"carried"`
+	Reseeded int `json:"reseeded"`
+}
+
 // CarryOver advances a team's sprint to today (the old current becomes previous)
 // and pulls its unfinished cards forward. It mirrors startSprint in TeamBoard.tsx:
 // idempotent (a no-op when the sprint is already today's), and it always advances
-// even with nothing to carry. team = "" is the no-team group.
-func (s *Service) CarryOver(ctx context.Context, owner string, project int, team string) error {
+// even with nothing to carry. team = "" is the no-team group. With dryRun the
+// would-be counts are reported and nothing is written.
+func (s *Service) CarryOver(ctx context.Context, owner string, project int, team string, dryRun bool) (CarryReport, error) {
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
-		return err
+		return CarryReport{}, err
 	}
 	old := board.CurrentSprint(b, team)
 	today := board.TodayIso()
 	if old == today {
 		// Already on today's sprint: re-advancing would overwrite previous.
-		return nil
-	}
-	if err := s.backend.SetSprintState(ctx, b, team, today, old); err != nil {
-		return err
+		return CarryReport{}, nil
 	}
 	// Carry only the unfinished cards of the sprint being closed (sprintStart ==
 	// the old current pointer). A card that is NOT on today's sprint — demoted
 	// back to an earlier one, or simply old — stays where it is, so removing a
-	// card from the current sprint is final and it never boomerangs back.
-	var carry []board.Card
+	// card from the current sprint is final and it never boomerangs back. A
+	// finished recurrent card stays behind and reseeds a fresh copy instead.
+	var carry, reseed []board.Card
 	for _, c := range b.Cards {
-		if c.Team != team || old == "" || c.SprintStart != old || board.Complete(c.Stage, c.Progress) {
+		if c.Team != team || old == "" || c.SprintStart != old {
+			continue
+		}
+		if c.Stage == board.StageRecurrent && c.Progress >= 100 {
+			reseed = append(reseed, c)
+			continue
+		}
+		if board.Complete(c.Stage, c.Progress) {
 			continue
 		}
 		carry = append(carry, c)
+	}
+	rep := CarryReport{Carried: len(carry), Reseeded: len(reseed)}
+	if dryRun {
+		return rep, nil
+	}
+	if err := s.backend.SetSprintState(ctx, b, team, today, old); err != nil {
+		return CarryReport{}, err
 	}
 	// The per-card writes are independent, but a burst of concurrent Projects v2
 	// mutations trips GitHub's secondary rate limit, so run them at a modest
@@ -276,16 +296,9 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		}(c)
 	}
 	wg.Wait()
-	// A finished recurrent card of the closing sprint stays behind and seeds the
-	// new sprint with a fresh copy: same title/description/team/zone/assignee at
-	// 0%, recurrent again, without the old notes.
-	for _, c := range b.Cards {
-		if c.Team != team || old == "" || c.SprintStart != old {
-			continue
-		}
-		if c.Stage != board.StageRecurrent || c.Progress < 100 {
-			continue
-		}
+	// Seed the new sprint with fresh copies of the finished recurrent cards:
+	// same title/description/team/zone/assignee at 0%, without the old notes.
+	for _, c := range reseed {
 		if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
 			Title:       c.Title,
 			Zone:        c.Zone,
@@ -294,19 +307,17 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 			SprintStart: today,
 			Team:        c.Team,
 		}); err != nil {
-			mu.Lock()
 			failed++
 			if firstErr == nil {
 				firstErr = err
 			}
-			mu.Unlock()
 		}
 	}
 	if firstErr != nil {
-		return fmt.Errorf("carried over %d of %d cards, %d failed: %w",
+		return rep, fmt.Errorf("carried over %d of %d cards, %d failed: %w",
 			len(carry)-failed, len(carry), failed, firstErr)
 	}
-	return nil
+	return rep, nil
 }
 
 // reseedRecurrent creates the fresh copy of a finished recurrent card: the given
@@ -352,12 +363,13 @@ func (s *Service) setSprintStartRetry(ctx context.Context, b board.Board, c boar
 
 // CarryWeek pulls a team's unfinished plan cards from earlier weeks into the
 // target week (week = "" is the current week's Monday), returning the cards it
-// moved. It mirrors handleCarryWeek in TeamBoard.tsx (nothing to carry yields an
-// empty result, not an error). team = "" is the no-team group.
-func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team, week string) ([]board.Card, error) {
+// moved and reseeded. It mirrors handleCarryWeek in TeamBoard.tsx (nothing to
+// carry yields an empty report, not an error). team = "" is the no-team group.
+// With dryRun the would-be counts are reported and nothing is written.
+func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team, week string, dryRun bool) (CarryReport, error) {
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
-		return nil, err
+		return CarryReport{}, err
 	}
 	if week == "" {
 		week = board.MondayOf(board.TodayIso())
@@ -370,7 +382,7 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 			inTarget[c.Title] = true
 		}
 	}
-	var carried []board.Card
+	var rep CarryReport
 	for _, c := range b.Cards {
 		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week || c.Team != team {
 			continue
@@ -381,6 +393,10 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 			if inTarget[c.Title] {
 				continue
 			}
+			rep.Reseeded++
+			if dryRun {
+				continue
+			}
 			if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
 				Title: c.Title,
 				Zone:  c.Zone,
@@ -388,7 +404,7 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 				Week:  week,
 				Team:  c.Team,
 			}); err != nil {
-				return carried, err
+				return rep, err
 			}
 			inTarget[c.Title] = true
 			continue
@@ -396,13 +412,162 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if board.Complete(c.Stage, c.Progress) {
 			continue
 		}
-		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
-			return carried, err
+		rep.Carried++
+		if dryRun {
+			continue
 		}
-		c.Week = week
-		carried = append(carried, c)
+		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
+			return rep, err
+		}
 	}
-	return carried, nil
+	return rep, nil
+}
+
+// --- Defer / dates / remove (the frontend's date logic, moved server-side) --
+
+// Defer pushes a card's scheduled day N days ahead of today — or ahead of its
+// already-deferred slot, so presses stack. An old card keeps its history (only
+// startDate moves); a card created today has none, so it relocates fully:
+// sprint and a stale end date move along. It mirrors moveStart in Card.tsx +
+// handleDefer in TeamBoard.tsx.
+func (s *Service) Defer(ctx context.Context, owner string, project int, itemID string, days int) error {
+	b, c, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	today := board.TodayIso()
+	base := today
+	if c.StartDate != "" && c.StartDate > today {
+		base = c.StartDate
+	}
+	target := board.AddDays(base, days)
+	if err := s.backend.SetStart(ctx, b, c, target); err != nil {
+		return err
+	}
+	if board.LocalDateIso(c.CreatedAt) == today {
+		if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
+			return err
+		}
+		if c.Day != "" && c.Day < target {
+			return s.backend.SetDay(ctx, b, c, target)
+		}
+	}
+	return nil
+}
+
+// SetDates applies the calendar: an explicit start…end relocation. The card
+// joins the sprint that was active on the start day (falling back to the start
+// day itself when no tracked sprint covers it); empty values clear the dates.
+// It mirrors handleSetDates in TeamBoard.tsx.
+func (s *Service) SetDates(ctx context.Context, owner string, project int, itemID, start, end string) error {
+	b, c, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	sprint := ""
+	if start != "" {
+		sprint = board.ActiveSprint(b, c.Team, start)
+		if sprint == "" {
+			sprint = start
+		}
+	}
+	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
+		return err
+	}
+	if err := s.backend.SetSprintStart(ctx, b, c, sprint); err != nil {
+		return err
+	}
+	return s.backend.SetDay(ctx, b, c, end)
+}
+
+// Remove is the smart × — one method, the backend decides the outcome. It
+// mirrors handleGridDelete/removeFromPlan in TeamBoard.tsx:
+//
+//   - from the grid (from = "" or "grid"): a plan-taken card is released back
+//     to plan-only (assignee + sprint cleared); a card still in the team's
+//     current sprint demotes to the previous one (all dates pulled along);
+//     anything else is deleted for real (cascading its review card).
+//   - from the plan band (from = "plan"): an assigned card keeps working and
+//     only loses the weekly marker; a pure plan card demotes to its team's
+//     previous week, or is deleted when there is none.
+func (s *Service) Remove(ctx context.Context, owner string, project int, itemID, from string) error {
+	b, c, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	if from == "plan" {
+		if len(c.Assignees) > 0 {
+			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
+				return err
+			}
+			return s.backend.SetWeek(ctx, b, c, "")
+		}
+		if prev := previousWeekFor(b, c); prev != "" {
+			return s.backend.SetWeek(ctx, b, c, prev)
+		}
+		return s.deleteWithCascade(ctx, b, c)
+	}
+	if c.Plan != board.PlanNone {
+		if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
+			return err
+		}
+		return s.backend.SetSprintStart(ctx, b, c, "")
+	}
+	cur := board.CurrentSprint(b, c.Team)
+	prev := board.PreviousSprint(b, c.Team)
+	if c.SprintStart != "" && cur != "" && c.SprintStart == cur && prev != "" && prev < cur {
+		if err := s.backend.SetStart(ctx, b, c, prev); err != nil {
+			return err
+		}
+		if err := s.backend.SetSprintStart(ctx, b, c, prev); err != nil {
+			return err
+		}
+		if c.Day != "" && c.Day != prev {
+			return s.backend.SetDay(ctx, b, c, prev)
+		}
+		return nil
+	}
+	return s.deleteWithCascade(ctx, b, c)
+}
+
+// SetReviewOf sets or clears (reviewOf = "") the link marking a card as the
+// review of another.
+func (s *Service) SetReviewOf(ctx context.Context, owner string, project int, itemID, reviewOf string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetReviewOf(ctx, b, card, reviewOf)
+}
+
+// cancelLinkedReview demotes or deletes the unfinished review card linked to an
+// original that just left the review stage, mirroring the × logic; the demote
+// also breaks the reviewOf link, or the original would keep showing "On review".
+// A finished review card stays as a record of the work. It mirrors
+// cancelLinkedReview in TeamBoard.tsx / MeBoard.tsx.
+func (s *Service) cancelLinkedReview(ctx context.Context, b board.Board, original board.Card) error {
+	review, ok := findReviewCard(b, original.ItemID)
+	if !ok || board.Complete(review.Stage, review.Progress) {
+		return nil
+	}
+	cur := board.CurrentSprint(b, review.Team)
+	prev := board.PreviousSprint(b, review.Team)
+	if review.SprintStart != "" && cur != "" && review.SprintStart == cur && prev != "" && prev < cur {
+		if err := s.backend.SetStart(ctx, b, review, prev); err != nil {
+			return err
+		}
+		if err := s.backend.SetSprintStart(ctx, b, review, prev); err != nil {
+			return err
+		}
+		if err := s.backend.SetReviewOf(ctx, b, review, ""); err != nil {
+			return err
+		}
+		if review.Day != "" && review.Day != prev {
+			return s.backend.SetDay(ctx, b, review, prev)
+		}
+		return nil
+	}
+	return s.backend.DeleteCard(ctx, b, review)
 }
 
 // --- Stage / progress ------------------------------------------------------
@@ -410,12 +575,19 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 // SetStage moves a card to a stage (stage = "" clears it). It mirrors handleStage
 // in TeamBoard.tsx: board.ApplyStage computes the resulting (stage, progress) and
 // both are persisted (done fills 100%, review/locked knock a full card to 90%).
+// Taking a card off review cancels its unfinished linked review card.
 func (s *Service) SetStage(ctx context.Context, owner string, project int, itemID string, stage board.StageKey) error {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
 	}
-	return s.applyStage(ctx, b, card, stage)
+	if err := s.applyStage(ctx, b, card, stage); err != nil {
+		return err
+	}
+	if card.Stage == board.StageReview && stage != board.StageReview {
+		return s.cancelLinkedReview(ctx, b, card)
+	}
+	return nil
 }
 
 // applyStage persists a stage change and any coupled progress change.
@@ -463,6 +635,12 @@ func (s *Service) SetInProgress(ctx context.Context, owner string, project int, 
 	newStage, newProgress := board.ApplyInProgress(card.Stage, card.Progress)
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 		return err
+	}
+	// In Progress leaves the review stage too: cancel the linked review card.
+	if card.Stage == board.StageReview {
+		if err := s.cancelLinkedReview(ctx, b, card); err != nil {
+			return err
+		}
 	}
 	if newProgress == card.Progress {
 		return nil
