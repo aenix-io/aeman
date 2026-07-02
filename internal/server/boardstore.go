@@ -2,31 +2,47 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/aenix-org/aeman/internal/apiserver"
 	"github.com/aenix-org/aeman/internal/board"
 	"github.com/aenix-org/aeman/internal/boardservice"
 )
 
-// changeType classifies a watch event, mirroring the Kubernetes watch verbs.
-type changeType string
+// watchFrame is one event on the watch stream: a typed change to a Card,
+// Sprint or Ordering resource, mirroring the Kubernetes watch verbs.
+type watchFrame struct {
+	Type   string `json:"type"` // ADDED | MODIFIED | DELETED
+	Kind   string `json:"kind"` // Card | Sprint | Ordering
+	Object any    `json:"object,omitempty"`
+}
 
-const (
-	changeAdded    changeType = "ADDED"
-	changeModified changeType = "MODIFIED"
-	changeDeleted  changeType = "DELETED"
-	// changeReload asks watchers to re-list the whole board: a sprint pointer
-	// moved, so board-wide filtering may have shifted in ways a single-card patch
-	// can't express.
-	changeReload changeType = "RELOAD"
-)
+// subscription is one watch connection's registration: the client id for echo
+// suppression, the resource kinds it wants, and — when scoped by a selector —
+// its current view membership, kept server-side so entering/leaving the scope
+// turns into ADDED/DELETED events.
+type subscription struct {
+	ch        chan []byte
+	clientID  string
+	sel       *apiserver.Selector
+	resources map[string]bool
+	members   map[string]bool
+}
 
-// changeEvent is one board change delivered to watchers over the watch stream.
-type changeEvent struct {
-	Type changeType  `json:"type"`
-	Card *board.Card `json:"card,omitempty"`
+// send marshals and delivers one frame; a slow subscriber drops it and
+// reconciles on its next re-list.
+func (sub *subscription) send(frame watchFrame) {
+	data, err := json.Marshal(frame)
+	if err != nil {
+		return
+	}
+	select {
+	case sub.ch <- data:
+	default:
+	}
 }
 
 // clientIDCtxKey carries the mutating client's self-assigned id (the
@@ -58,9 +74,9 @@ type boardEntry struct {
 	board    board.Board
 	loadedAt time.Time
 	loaded   bool
-	// watchers maps each subscription to its client id ("" = unknown), so a
-	// change is not echoed back to the client that made it.
-	watchers map[chan changeEvent]string
+	// watchers is the subscription set; each carries its own scope and echo
+	// suppression id.
+	watchers map[*subscription]struct{}
 }
 
 // fresh returns the cached board while it is loaded and within its TTL.
@@ -73,19 +89,108 @@ func (e *boardEntry) fresh() (board.Board, bool) {
 	return board.Board{}, false
 }
 
-// notify fans an event out to every watcher except the originating client (it
-// already holds the change optimistically). The caller holds e.mu; sends are
-// non-blocking, so a slow watcher drops this event and reconciles on its next
-// re-list.
-func (e *boardEntry) notify(origin string, ev changeEvent) {
-	for ch, id := range e.watchers {
-		if origin != "" && id == origin {
+// cardChanged fans one card change out to the subscriptions. The caller holds
+// e.mu with the cache already updated. Unscoped subscriptions get the verb as
+// is; scoped ones get the membership transition (entering the scope is ADDED,
+// leaving it is DELETED, staying is MODIFIED). The originating client's own
+// events are suppressed — it already holds the change optimistically — but its
+// membership is still tracked, or later diffs would mis-fire.
+func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
+	res := apiserver.CardResource(e.board, c)
+	for sub := range e.watchers {
+		if !sub.resources["cards"] {
 			continue
 		}
-		select {
-		case ch <- ev:
-		default:
+		suppressed := origin != "" && sub.clientID == origin
+		if sub.sel == nil {
+			if !suppressed {
+				sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
+			}
+			continue
 		}
+		was := sub.members[c.ItemID]
+		now := verb != "DELETED" && sub.sel.Matches(e.board, c)
+		if now {
+			sub.members[c.ItemID] = true
+		} else {
+			delete(sub.members, c.ItemID)
+		}
+		if suppressed {
+			continue
+		}
+		switch {
+		case now && !was:
+			sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: res})
+		case was && !now:
+			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: res})
+		case was && now:
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: res})
+		}
+	}
+}
+
+// reevaluate recomputes every scoped subscription's membership against the
+// cached board and emits the deltas — the board shifted in a way no single
+// card event expresses (a sprint pointer moved, or the day rolled over).
+// The caller holds e.mu.
+func (e *boardEntry) reevaluate(origin string) {
+	for sub := range e.watchers {
+		if sub.sel == nil || !sub.resources["cards"] {
+			continue
+		}
+		suppressed := origin != "" && sub.clientID == origin
+		now := map[string]bool{}
+		for _, c := range apiserver.FilterCards(e.board, *sub.sel) {
+			now[c.ItemID] = true
+			if !sub.members[c.ItemID] && !suppressed {
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+			}
+		}
+		for id := range sub.members {
+			if now[id] || suppressed {
+				continue
+			}
+			obj := apiserver.Card{Kind: "Card", Metadata: apiserver.CardMetadata{UID: id}}
+			for _, c := range e.board.Cards {
+				if c.ItemID == id {
+					obj = apiserver.CardResource(e.board, c)
+					break
+				}
+			}
+			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
+		}
+		sub.members = now
+	}
+}
+
+// sprintChanged announces a team's moved sprint pointer and re-evaluates the
+// scoped memberships it may have shifted. The caller holds e.mu with the
+// cached pointer already updated.
+func (e *boardEntry) sprintChanged(origin, team string) {
+	st := e.board.SprintStates[team]
+	res := apiserver.Sprint{
+		Kind:     "Sprint",
+		Metadata: apiserver.SprintMetadata{Team: team},
+		Spec:     apiserver.SprintSpec{Current: st.Current, Previous: st.Previous},
+	}
+	for sub := range e.watchers {
+		if !sub.resources["sprints"] || (origin != "" && sub.clientID == origin) {
+			continue
+		}
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Sprint", Object: res})
+	}
+	e.reevaluate(origin)
+}
+
+// orderingChanged announces the board's new manual order. The caller holds
+// e.mu with the cache already reordered; membership is unaffected.
+func (e *boardEntry) orderingChanged(origin string) {
+	res := apiserver.OrderingResource(e.board)
+	for sub := range e.watchers {
+		if !sub.resources["ordering"] || (origin != "" && sub.clientID == origin) {
+			continue
+		}
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Ordering", Object: res})
 	}
 }
 
@@ -166,25 +271,51 @@ func (s *boardStore) entry(key string) *boardEntry {
 	defer s.mu.Unlock()
 	e, ok := s.entries[key]
 	if !ok {
-		e = &boardEntry{watchers: map[chan changeEvent]string{}}
+		e = &boardEntry{watchers: map[*subscription]struct{}{}}
 		s.entries[key] = e
 	}
 	return e
 }
 
-// subscribe registers a watcher on a board under the given client id ("" =
-// unknown) and returns it with an unsubscribe.
-func (s *boardStore) subscribe(key, clientID string) (<-chan changeEvent, func()) {
+// subscribe registers a watch subscription: clientID keys echo suppression
+// ("" = unknown), sel scopes it to a view/selector (nil = every card), and
+// resources picks the kinds ("cards", "sprints", "ordering"). A scoped
+// subscription's membership is seeded from the cached board, so subscribe
+// after the board is loaded and LIST after subscribing.
+func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, resources map[string]bool) (*subscription, func()) {
 	e := s.entry(key)
-	ch := make(chan changeEvent, 64)
+	sub := &subscription{
+		ch:        make(chan []byte, 64),
+		clientID:  clientID,
+		sel:       sel,
+		resources: resources,
+		members:   map[string]bool{},
+	}
 	e.mu.Lock()
-	e.watchers[ch] = clientID
+	if sel != nil && e.loaded {
+		for _, c := range apiserver.FilterCards(e.board, *sel) {
+			sub.members[c.ItemID] = true
+		}
+	}
+	e.watchers[sub] = struct{}{}
 	e.mu.Unlock()
-	return ch, func() {
+	return sub, func() {
 		e.mu.Lock()
-		delete(e.watchers, ch)
+		delete(e.watchers, sub)
 		e.mu.Unlock()
 	}
+}
+
+// reevaluateAll re-diffs every scoped subscription on a board — the watch
+// handlers call it when the local day rolls over, since day-relative views
+// shift at midnight without any board change.
+func (s *boardStore) reevaluateAll(key string) {
+	e := s.entry(key)
+	e.mu.Lock()
+	if e.loaded {
+		e.reevaluate("")
+	}
+	e.mu.Unlock()
 }
 
 // storeBackend wraps a boardservice.Backend so reads are served from the shared
@@ -240,7 +371,7 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.upsertCard(card)
-	e.notify(clientIDFrom(ctx), changeEvent{Type: changeModified, Card: &card})
+	e.cardChanged(clientIDFrom(ctx), card, "MODIFIED")
 	e.mu.Unlock()
 }
 
@@ -252,8 +383,7 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.upsertCard(card)
-	created := card
-	e.notify(clientIDFrom(ctx), changeEvent{Type: changeAdded, Card: &created})
+	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
 	e.mu.Unlock()
 	return card, nil
 }
@@ -265,15 +395,14 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.removeCard(card.ItemID)
-	deleted := card
-	e.notify(clientIDFrom(ctx), changeEvent{Type: changeDeleted, Card: &deleted})
+	e.cardChanged(clientIDFrom(ctx), card, "DELETED")
 	e.mu.Unlock()
 	return nil
 }
 
-// MoveCard applies the new position to the cached order (so snapshots keep the
-// board's real order) and asks other clients to re-list: per-card events carry
-// no ordering, and the originator already reordered optimistically.
+// MoveCard applies the new position to the cached order (so lists keep the
+// board's real order) and announces the new Ordering to other clients — the
+// originator already reordered optimistically.
 func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
 	if err := b.inner.MoveCard(ctx, bd, card, afterID); err != nil {
 		return err
@@ -281,7 +410,7 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.moveCardTo(card.ItemID, afterID)
-	e.notify(clientIDFrom(ctx), changeEvent{Type: changeReload})
+	e.orderingChanged(clientIDFrom(ctx))
 	e.mu.Unlock()
 	return nil
 }
@@ -414,16 +543,30 @@ func (b *storeBackend) SetReviewOf(ctx context.Context, bd board.Board, card boa
 	return nil
 }
 
-// SetSprintState invalidates the cache (the created/updated sprint-state card
-// carries a new id that must be re-split) and asks watchers to re-list.
+// SetSprintState updates the cached pointer in place when the team's
+// sprint-state card already exists (its id is stable), announces the Sprint
+// change and re-diffs scoped memberships. A first pointer creates a state card
+// whose id the cache does not know, so that path reloads the board first.
 func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team, current, previous string) error {
 	if err := b.inner.SetSprintState(ctx, bd, team, current, previous); err != nil {
 		return err
 	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	st, had := e.board.SprintStates[team]
+	if e.loaded && had && st.ItemID != "" {
+		st.Current, st.Previous = current, previous
+		e.board.SprintStates[team] = st
+		e.sprintChanged(clientIDFrom(ctx), team)
+		e.mu.Unlock()
+		return nil
+	}
 	e.loaded = false
-	e.notify(clientIDFrom(ctx), changeEvent{Type: changeReload})
 	e.mu.Unlock()
+	if _, err := b.LoadBoard(ctx, bd.Owner, bd.Number); err == nil {
+		e.mu.Lock()
+		e.sprintChanged(clientIDFrom(ctx), team)
+		e.mu.Unlock()
+	}
 	return nil
 }
