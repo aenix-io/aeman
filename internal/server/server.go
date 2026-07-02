@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aenix-org/aeman/internal/boardservice"
 	"github.com/aenix-org/aeman/internal/ghcli"
+	"github.com/aenix-org/aeman/pkg/boardservice"
 	"github.com/aenix-org/aeman/web"
 )
 

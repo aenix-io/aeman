@@ -11,8 +11,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aenix-org/aeman/internal/boardservice"
-	"github.com/aenix-org/aeman/internal/ghprojects"
+	"github.com/aenix-org/aeman/pkg/boardservice"
+	"github.com/aenix-org/aeman/pkg/ghprojects"
 )
 
 // Config configures the MCP server.

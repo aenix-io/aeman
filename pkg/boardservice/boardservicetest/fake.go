@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aenix-org/aeman/internal/board"
-	"github.com/aenix-org/aeman/internal/boardservice"
+	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-org/aeman/pkg/boardservice"
 )
 
 // Backend is an in-memory boardservice.Backend. It logs every call and mutates

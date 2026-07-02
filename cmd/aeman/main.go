@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/aenix-org/aeman/internal/ghcli"
-	"github.com/aenix-org/aeman/internal/mcpserver"
 	"github.com/aenix-org/aeman/internal/server"
+	"github.com/aenix-org/aeman/pkg/mcpserver"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".

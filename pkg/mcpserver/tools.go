@@ -6,9 +6,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aenix-org/aeman/internal/apiserver"
-	"github.com/aenix-org/aeman/internal/board"
-	"github.com/aenix-org/aeman/internal/boardservice"
+	"github.com/aenix-org/aeman/pkg/apiserver"
+	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-org/aeman/pkg/boardservice"
 )
 
 // boardRef is embedded in every tool input to select the target board.
