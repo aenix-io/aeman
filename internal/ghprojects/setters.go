@@ -277,10 +277,11 @@ func (c *Client) SetStage(ctx context.Context, b board.Board, card board.Card, s
 	return c.setSingleSelect(ctx, b.ID, card.ItemID, field.ID, option)
 }
 
-// ensureStageOption adds a missing stage option to an existing Stage field. The
-// GitHub API replaces the whole option list on update, so the current options
-// are re-sent verbatim (name, colour, description — matching names keep their
-// ids and the values already set on cards) plus the missing one from the spec.
+// ensureStageOption adds a missing stage option to an existing Stage field.
+// The GitHub API replaces the whole option list on update and RECREATES every
+// option with a new id — even for unchanged names — which wipes the stage
+// values stored on cards. So the current values are snapshotted from the board
+// first and re-applied against the new option ids right after the update.
 func (c *Client) ensureStageOption(ctx context.Context, b board.Board, field board.ProjectField, stage board.StageKey) (board.ProjectField, error) {
 	var spec *domainSelectOption
 	for i := range domainFieldSpecs["stage"].options {
@@ -314,6 +315,13 @@ func (c *Client) ensureStageOption(ctx context.Context, b board.Board, field boa
 		}
 	}
 	options = append(options, map[string]any{"name": spec.name, "color": spec.color, "description": spec.description})
+	// Snapshot every card's current stage before the update wipes the values.
+	staged := map[string]board.StageKey{}
+	for _, card := range b.Cards {
+		if card.Stage != board.StageNone {
+			staged[card.ItemID] = card.Stage
+		}
+	}
 	var data struct {
 		UpdateProjectV2Field struct {
 			ProjectV2Field createdFieldRaw `json:"projectV2Field"`
@@ -325,6 +333,26 @@ func (c *Client) ensureStageOption(ctx context.Context, b board.Board, field boa
 	}
 	updated := data.UpdateProjectV2Field.ProjectV2Field.toDomain()
 	c.fieldCache.store(b.ID+"\x00stage", updated)
+	// Re-apply the wiped values against the new option ids.
+	var restoreErr error
+	restored := 0
+	for itemID, s := range staged {
+		opt := domainOptionForStage(updated, s)
+		if opt == "" {
+			continue
+		}
+		if err := c.setSingleSelect(ctx, b.ID, itemID, updated.ID, opt); err != nil {
+			if restoreErr == nil {
+				restoreErr = err
+			}
+			continue
+		}
+		restored++
+	}
+	if restoreErr != nil {
+		return updated, fmt.Errorf("stage option %q added, but only %d of %d stage values were restored: %w",
+			spec.name, restored, len(staged), restoreErr)
+	}
 	return updated, nil
 }
 
