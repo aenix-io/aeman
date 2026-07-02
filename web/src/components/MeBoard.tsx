@@ -272,15 +272,11 @@ export function MeBoard({
         : raw;
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
-    // Auto-link progress and "done": 100% sets done (unless review/locked is on),
-    // dropping below 100% clears done. review/locked are left untouched.
+    // Done is derived (no stage + 100%), never stored: reaching full needs no
+    // stage write; only a legacy stored done clears itself below full.
     let stageChange: StageKey | null | undefined;
-    if (roles.stage) {
-      if (value === 100 && card.stage == null) {
-        stageChange = "done";
-      } else if (value < 100 && card.stage === "done") {
-        stageChange = null;
-      }
+    if (roles.stage && value < 100 && card.stage === "done") {
+      stageChange = null;
     }
     if (stageChange !== undefined) {
       patch.stage = stageChange ?? undefined;
@@ -312,7 +308,11 @@ export function MeBoard({
       stage: card.stage,
       progress: card.progress,
     };
-    const patch: Partial<CardModel> = { stage: stage ?? undefined };
+    // Done is derived (no stage + 100%), never stored: picking it clears the
+    // stage and fills the bar instead of writing a Done option.
+    const storedStage = stage === "done" ? null : stage;
+    const patch: Partial<CardModel> = { stage: storedStage ?? undefined };
+    const fillTo100 = stage === "done" && card.progress !== 100;
     if (stage === "done") {
       patch.progress = 100;
     }
@@ -323,12 +323,13 @@ export function MeBoard({
       patch.progress = 90;
     }
     patchCard(card.itemId, patch);
-    void provider.setStage(board, card, stage).catch((err: unknown) => {
+    void provider.setStage(board, card, storedStage).catch((err: unknown) => {
       patchCard(card.itemId, prev);
       onError(errMessage(err));
     });
-    if (dropTo90) {
-      void provider.setProgress(board, card, 90).catch((err: unknown) => {
+    if (fillTo100 || dropTo90) {
+      const target = dropTo90 ? 90 : 100;
+      void provider.setProgress(board, card, target).catch((err: unknown) => {
         patchCard(card.itemId, { progress: prev.progress });
         onError(errMessage(err));
       });

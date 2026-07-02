@@ -151,8 +151,13 @@ func TestAPISetProgressDoneLink(t *testing.T) {
 	}
 	var card board.Card
 	_ = json.Unmarshal(rec.Body.Bytes(), &card)
-	if card.Progress != 100 || card.Stage != board.StageDone {
-		t.Fatalf("100%% should auto-set done: %+v", card)
+	// Done is derived (no stage + 100%), never stored: full progress leaves the
+	// stage empty and the card counts as complete.
+	if card.Progress != 100 || card.Stage != board.StageNone {
+		t.Fatalf("100%% should stay stage-less: %+v", card)
+	}
+	if !board.Complete(card.Stage, card.Progress) {
+		t.Fatalf("a stage-less 100%% card should be complete: %+v", card)
 	}
 }
 

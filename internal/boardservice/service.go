@@ -175,13 +175,18 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 			ReviewOf: args.ReviewOf,
 		})
 	}
+	// Start and Day (the end/due date) default to each other so a create with
+	// only one of them yields a one-day range — a backdated create must NOT get
+	// day = today, or the [start…day] range would stretch it onto today's board.
 	day := args.Day
-	if day == "" {
-		day = board.TodayIso()
-	}
 	start := args.Start
 	if start == "" {
+		if day == "" {
+			day = board.TodayIso()
+		}
 		start = day
+	} else if day == "" {
+		day = start
 	}
 	cur := board.CurrentSprint(b, args.Team)
 	startNew := cur == ""
@@ -238,7 +243,7 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	// on the backend) are picked up too. Future-dated cards stay.
 	var carry []board.Card
 	for _, c := range b.Cards {
-		if c.Team != team || c.SprintStart == "" || c.SprintStart >= today || c.Stage == board.StageDone {
+		if c.Team != team || c.SprintStart == "" || c.SprintStart >= today || board.Complete(c.Stage, c.Progress) {
 			continue
 		}
 		carry = append(carry, c)
@@ -315,7 +320,7 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week {
 			continue
 		}
-		if c.Stage == board.StageDone || c.Team != team {
+		if board.Complete(c.Stage, c.Progress) || c.Team != team {
 			continue
 		}
 		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {

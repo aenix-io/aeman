@@ -385,8 +385,13 @@ func TestSetStageDoneFillsProgress(t *testing.T) {
 	if err := f2svc(f).SetStage(ctx, "acme", 1, "c1", board.StageDone); err != nil {
 		t.Fatal(err)
 	}
-	if f.get("c1").Stage != board.StageDone || f.get("c1").Progress != 100 {
+	// Done is derived, never stored: picking it clears the stage and fills the
+	// bar, and Complete reports the card finished.
+	if f.get("c1").Stage != board.StageNone || f.get("c1").Progress != 100 {
 		t.Fatalf("card = %+v", f.get("c1"))
+	}
+	if !board.Complete(f.get("c1").Stage, f.get("c1").Progress) {
+		t.Fatalf("a stage-less 100%% card should be complete: %+v", f.get("c1"))
 	}
 }
 
@@ -405,15 +410,17 @@ func TestSetProgressDoneLink(t *testing.T) {
 	if err := f2svc(f).SetProgress(ctx, "acme", 1, "c1", 100); err != nil {
 		t.Fatal(err)
 	}
-	if f.get("c1").Progress != 100 || f.get("c1").Stage != board.StageDone {
-		t.Fatalf("100%% should auto-set done: %+v", f.get("c1"))
+	// Done is derived (no stage + 100%), never stored.
+	if f.get("c1").Progress != 100 || f.get("c1").Stage != board.StageNone {
+		t.Fatalf("100%% should stay stage-less: %+v", f.get("c1"))
 	}
-	// Dropping below 100 clears done.
+	// A legacy stored done clears itself when progress drops below full.
+	f.get("c1").Stage = board.StageDone
 	if err := f2svc(f).SetProgress(ctx, "acme", 1, "c1", 80); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c1").Progress != 80 || f.get("c1").Stage != board.StageNone {
-		t.Fatalf("below 100 should clear done: %+v", f.get("c1"))
+		t.Fatalf("below 100 should clear a stored done: %+v", f.get("c1"))
 	}
 }
 

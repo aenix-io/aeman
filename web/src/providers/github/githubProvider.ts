@@ -727,6 +727,7 @@ export const githubProvider: Provider = {
         c.sprintStart !== "" &&
         c.sprintStart < today &&
         c.stage !== "done" &&
+        !(!c.stage && (c.progress ?? 0) >= 100) &&
         !c.itemId.startsWith("tmp-"),
     );
     await githubProvider.setSprintState(board, team, today, old);
