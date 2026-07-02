@@ -932,12 +932,35 @@ func (s *Service) Rename(ctx context.Context, owner string, project int, itemID,
 
 // SetDescription replaces a card's free-form description (the body text above
 // the note log).
+// SetDescription sets a card's description. The description live-syncs with
+// the linked counterpart — editing the original updates its review card and
+// vice versa, so both always show the same context. Notes stay per-card.
 func (s *Service) SetDescription(ctx context.Context, owner string, project int, itemID, description string) error {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
 	}
-	return s.backend.SetDescription(ctx, b, card, description)
+	if err := s.backend.SetDescription(ctx, b, card, description); err != nil {
+		return err
+	}
+	if other, ok := reviewCounterpart(b, card); ok {
+		return s.backend.SetDescription(ctx, b, other, description)
+	}
+	return nil
+}
+
+// reviewCounterpart finds the card linked to this one through the review
+// relation: the original for a review card, or the review card of an original.
+func reviewCounterpart(b board.Board, card board.Card) (board.Card, bool) {
+	for _, c := range b.Cards {
+		if card.ReviewOf != "" && c.ItemID == card.ReviewOf {
+			return c, true
+		}
+		if card.ReviewOf == "" && c.ReviewOf == card.ItemID {
+			return c, true
+		}
+	}
+	return board.Card{}, false
 }
 
 // findNote resolves a note on a card by its id.
