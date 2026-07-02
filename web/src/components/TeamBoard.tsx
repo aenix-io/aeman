@@ -780,7 +780,61 @@ export function TeamBoard({
     }
   };
 
+  // Taking a card off review cancels its linked unfinished review card,
+  // mirroring the × logic: still on the team's current sprint → demoted to the
+  // previous one; otherwise deleted. A finished review card stays as a record.
+  const cancelLinkedReview = (original: CardModel) => {
+    const review = board.cards.find(
+      (c) =>
+        c.reviewOf === original.itemId &&
+        c.stage !== "done" &&
+        !(!c.stage && (c.progress ?? 0) >= 100) &&
+        !c.itemId.startsWith("tmp-"),
+    );
+    if (!review) {
+      return;
+    }
+    const cur = currentSprint(board, review.team ?? null);
+    const prevS = previousSprint(board, review.team ?? null);
+    if (review.sprintStart && cur && review.sprintStart === cur && prevS && prevS < cur) {
+      const rollback: Partial<CardModel> = {
+        startDate: review.startDate,
+        sprintStart: review.sprintStart,
+        day: review.day,
+      };
+      patchCard(review.itemId, {
+        startDate: prevS,
+        sprintStart: prevS,
+        ...(review.day ? { day: prevS } : {}),
+      });
+      void (async () => {
+        try {
+          await provider.setStart(board, review, prevS);
+          await provider.setSprintStart(board, review, prevS);
+          if (review.day && review.day !== prevS) {
+            await provider.setDay(board, review, prevS);
+          }
+        } catch (err: unknown) {
+          patchCard(review.itemId, rollback);
+          onError(errMessage(err));
+        }
+      })();
+      return;
+    }
+    removeCard(review.itemId);
+    void provider.deleteCard(board, review).catch((err: unknown) => {
+      if (isGone(err)) {
+        return;
+      }
+      addCard(review);
+      onError(errMessage(err));
+    });
+  };
+
   const handleStage = (card: CardModel, stage: StageKey | null) => {
+    if (card.stage === "review" && stage !== "review") {
+      cancelLinkedReview(card);
+    }
     const prev: Partial<CardModel> = {
       stage: card.stage,
       progress: card.progress,
@@ -817,6 +871,9 @@ export function TeamBoard({
   // Picking it clears any stage and clamps progress into that band: under 10
   // becomes 10, a done/full card drops to 90, otherwise the value is kept.
   const handleInProgress = (card: CardModel) => {
+    if (card.stage === "review") {
+      cancelLinkedReview(card);
+    }
     const cur = card.progress ?? 0;
     let value = cur;
     if (cur < 10) {
