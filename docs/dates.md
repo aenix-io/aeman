@@ -89,8 +89,12 @@ today while the card stays in its sprint).
 ### Carry Over
 - No-op if the team's sprint is already today.
 - Else: sets sprint-state to (current = today, previous = old current), and for
-  every **unfinished** card with `sprintStart < today`, sets `sprintStart = today`.
-  Future-dated and **done** cards stay put. Then the view jumps to today.
+  every **unfinished** card of the **closing sprint** (`sprintStart == old
+  current`), sets `sprintStart = today`. A card that is **not on today's
+  sprint** — demoted back, or simply older — stays where it is, so removing a
+  card from the current sprint is final and it never boomerangs back. Complete
+  cards (done, or 100% with no stage) stay put too. Then the view jumps to
+  today.
 - A carried card keeps its `startDate`, so it stays visible on the days of the
   sprint it came from (see the Team / Me rules): Carry Over adds it to the new
   sprint without removing it from the previous one.
