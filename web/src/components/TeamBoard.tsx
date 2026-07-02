@@ -315,7 +315,11 @@ export function TeamBoard({
 
   // Overall completion across all plan cards (a done card counts as 100%).
   const planProgress = useMemo(() => {
-    const all = [...weekly.wed, ...weekly.fri];
+    // Recurrent plan cards are excluded: the bar describes the week's one-off
+    // work, while recurrent tasks restart every week and would skew it.
+    const all = [...weekly.wed, ...weekly.fri].filter(
+      (c) => c.stage !== "recurrent",
+    );
     if (all.length === 0) {
       return 0;
     }

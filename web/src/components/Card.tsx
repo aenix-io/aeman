@@ -353,14 +353,11 @@ export function Card({
                 width="13"
                 height="13"
                 viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3.6"
-                strokeLinecap="round"
+                fill="currentColor"
                 aria-hidden="true"
               >
-                <line x1="9" y1="7" x2="9" y2="17" />
-                <line x1="15" y1="7" x2="15" y2="17" />
+                <rect x="7" y="7" width="3.6" height="10" rx="1.4" />
+                <rect x="13.4" y="7" width="3.6" height="10" rx="1.4" />
               </svg>
             ) : card.stage === "recurrent" ? (
               <svg
