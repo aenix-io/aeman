@@ -2199,3 +2199,10 @@ button.card-age {
 .card-stage + .card-links {
   margin-left: 6px;
 }
+
+/* When the links icon is the last action (cards with no visible stage, where
+   the hover flag sits before it), it borrows the stage icon's tightened
+   margin, so its gap to the day counter matches the staged cards'. */
+.card-links:last-child {
+  margin-right: -3px;
+}
