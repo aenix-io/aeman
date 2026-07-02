@@ -6,7 +6,7 @@
 package apiserver
 
 import (
-	"github.com/aenix-org/aeman/internal/board"
+	"github.com/aenix-org/aeman/pkg/board"
 )
 
 // Zones are addressed by meaning in the API, not colour. The domain (and the

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/aenix-org/aeman/internal/apiserver"
-	"github.com/aenix-org/aeman/internal/board"
+	"github.com/aenix-org/aeman/pkg/apiserver"
+	"github.com/aenix-org/aeman/pkg/board"
 )
 
 // frame decodes one marshalled watch frame from a subscription channel.

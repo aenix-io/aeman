@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aenix-org/aeman/internal/board"
-	"github.com/aenix-org/aeman/internal/ghprojects"
+	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-org/aeman/pkg/ghprojects"
 )
 
 // *ghprojects.Client must satisfy Backend structurally (no boardservice import in

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/aenix-org/aeman/internal/board"
+	"github.com/aenix-org/aeman/pkg/board"
 )
 
 // Selector scopes a card LIST or watch subscription. View selectors reproduce

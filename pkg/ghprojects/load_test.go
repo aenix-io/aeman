@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/aenix-org/aeman/internal/board"
+	"github.com/aenix-org/aeman/pkg/board"
 )
 
 // domainBoardJSON is a raw project exercising the domain mapping: a normal card

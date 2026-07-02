@@ -7,9 +7,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aenix-org/aeman/internal/board"
-	"github.com/aenix-org/aeman/internal/boardservice"
-	"github.com/aenix-org/aeman/internal/boardservice/boardservicetest"
+	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-org/aeman/pkg/boardservice"
+	"github.com/aenix-org/aeman/pkg/boardservice/boardservicetest"
 )
 
 // connect builds an in-memory MCP client session against an aeman MCP server

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aenix-org/aeman/internal/board"
+	"github.com/aenix-org/aeman/pkg/board"
 )
 
 // ErrCardNotFound is returned when an item id is not on the loaded board.
