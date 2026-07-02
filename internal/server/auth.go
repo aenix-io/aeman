@@ -44,6 +44,20 @@ type oauthSession struct {
 	created time.Time
 }
 
+// persistedState is the on-disk envelope: user sessions plus the dynamically
+// registered MCP OAuth clients (RFC 7591), which must survive restarts — MCP
+// clients cache their client_id and a wiped registry strands them on
+// "unknown client_id" until they re-register.
+type persistedState struct {
+	Sessions map[string]persistedSession `json:"sessions"`
+	Clients  map[string]persistedClient  `json:"clients,omitempty"`
+}
+
+// persistedClient is the on-disk form of an oauthClient.
+type persistedClient struct {
+	RedirectURIs []string `json:"redirectUris"`
+}
+
 // persistedSession is the on-disk form of an oauthSession.
 type persistedSession struct {
 	Token   string    `json:"token"`
@@ -140,19 +154,27 @@ func (a *authManager) load() {
 		}
 		return
 	}
-	var in map[string]persistedSession
-	if err := json.Unmarshal(data, &in); err != nil {
-		a.log.Error("session load: parse failed", "err", err)
-		return
+	var in persistedState
+	if err := json.Unmarshal(data, &in); err != nil || in.Sessions == nil {
+		// Legacy format: a bare map of sessions with no envelope.
+		var legacy map[string]persistedSession
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			a.log.Error("session load: parse failed", "err", err)
+			return
+		}
+		in = persistedState{Sessions: legacy}
 	}
 	now := time.Now()
-	for sid, s := range in {
+	for sid, s := range in.Sessions {
 		if now.Sub(s.Created) > sessionTTL {
 			continue
 		}
 		a.sessions[sid] = oauthSession{token: s.Token, login: s.Login, created: s.Created}
 	}
-	a.log.Info("sessions restored", "count", len(a.sessions))
+	for id, c := range in.Clients {
+		a.clients[id] = oauthClient{redirectURIs: append([]string(nil), c.RedirectURIs...)}
+	}
+	a.log.Info("sessions restored", "count", len(a.sessions), "clients", len(a.clients))
 }
 
 // saveLocked writes the current sessions to disk. Callers must hold a.mu.
@@ -160,9 +182,15 @@ func (a *authManager) saveLocked() {
 	if a.path == "" {
 		return
 	}
-	out := make(map[string]persistedSession, len(a.sessions))
+	out := persistedState{
+		Sessions: make(map[string]persistedSession, len(a.sessions)),
+		Clients:  make(map[string]persistedClient, len(a.clients)),
+	}
 	for sid, s := range a.sessions {
-		out[sid] = persistedSession{Token: s.token, Login: s.login, Created: s.created}
+		out.Sessions[sid] = persistedSession{Token: s.token, Login: s.login, Created: s.created}
+	}
+	for id, c := range a.clients {
+		out.Clients[id] = persistedClient{RedirectURIs: append([]string(nil), c.redirectURIs...)}
 	}
 	data, err := json.Marshal(out)
 	if err != nil {

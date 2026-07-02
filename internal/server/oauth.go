@@ -101,6 +101,7 @@ func (a *authManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 	clientID := randToken()
 	a.mu.Lock()
 	a.clients[clientID] = oauthClient{redirectURIs: append([]string(nil), meta.RedirectURIs...)}
+	a.saveLocked()
 	a.mu.Unlock()
 
 	resp := oauthex.ClientRegistrationResponse{
@@ -131,7 +132,8 @@ func (a *authManager) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	// A bad client or redirect_uri is a hard 400: redirecting an unverified URI
 	// would be an open redirect.
 	if !ok {
-		writeJSONError(w, http.StatusBadRequest, "unknown client_id")
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client",
+			"unknown client_id — register via /oauth/register")
 		return
 	}
 	if !slices.Contains(client.redirectURIs, redirectURI) {
