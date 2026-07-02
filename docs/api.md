@@ -32,10 +32,11 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | --- | --- |
 | `GET /api/v1/board` | Board identity and the team roster. |
 | `GET /api/v1/cards` | LIST cards (selectors below), in board order. |
-| `POST /api/v1/cards` | Create a card (201). |
+| `POST /api/v1/cards` | Create a card (201). A title that is nothing but a GitHub issue/PR URL becomes that item's real title, with the link moved into the description (one-time, never re-synced). |
 | `GET /api/v1/cards/{uid}` | One card. |
 | `PATCH /api/v1/cards/{uid}` | Edit spec fields; only present fields apply, empty clears. |
 | `DELETE /api/v1/cards/{uid}` | Hard delete (cascades to the linked review card). |
+| `GET /api/v1/cards/{uid}/links` | URLs from the card's description: GitHub issue/PR references first (resolved to their live titles and states), plain links after. |
 | `GET /api/v1/cards/{uid}/notes` | The card's work notes. |
 | `POST /api/v1/cards/{uid}/notes` | Append a note `{text}` (201). |
 | `PATCH /api/v1/cards/{uid}/notes/{noteId}` | Edit a note `{text}`. |
@@ -169,7 +170,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over?owner=acme
 | --- | --- |
 | `get_board` | Board identity and team roster. |
 | `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`). |
-| `get_card` / `list_notes` | One card; its notes. |
+| `get_card` / `list_notes` / `list_links` | One card; its notes; its description links (GitHub refs resolved with titles). |
 | `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). |
 | `update_card` | The PATCH: only provided fields apply, empty clears. |
 | `delete_card` / `remove_card` | Hard delete; the smart × (`from: grid\|plan`). |

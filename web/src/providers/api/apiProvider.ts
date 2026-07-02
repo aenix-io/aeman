@@ -5,6 +5,7 @@
 
 import { clientId } from "../../api/client";
 import { resolveCardId } from "../../api/pending";
+import type { CardLink } from "../../links";
 import {
   resourceToCard,
   resourceToNote,
@@ -305,6 +306,16 @@ export const apiProvider: Provider = {
       current: current ?? "",
       previous: previous ?? "",
     });
+  },
+
+  async listLinks(board: BoardAddr, uid: string): Promise<CardLink[]> {
+    uid = await resolveCardId(uid);
+    const list = await api<{ kind: string; items: CardLink[] | null }>(
+      board,
+      "GET",
+      `/cards/${uid}/links`,
+    );
+    return list.items ?? [];
   },
 
   async listNotes(board: BoardAddr, uid: string): Promise<Note[]> {

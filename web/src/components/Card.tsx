@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { addDays, daysSince, todayIso, mondayOf } from "../date";
 import { Dropdown } from "./Dropdown";
+import { extractLinks, type CardLink } from "../links";
 import { RangeCalendar } from "./RangeCalendar";
 
 // ageColor fades the age badge from light grey (fresh) to maroon-red by ~10 days.
@@ -56,6 +57,9 @@ interface CardProps {
   /** Dim the card's team avatar to 50%. Set unless this card is the selected
    *  team, so only the selected team's avatars stay at full opacity. */
   dimAvatar?: boolean;
+  /** Resolve the card's description links server-side (GitHub issue/PR refs
+   *  get their titles). The menu falls back to the local extraction. */
+  onLoadLinks?: (card: CardModel) => Promise<CardLink[]>;
 }
 
 const SEGMENTS = 10;
@@ -98,6 +102,7 @@ export function Card({
   weekMode,
   onSetWeek,
   dimAvatar,
+  onLoadLinks,
 }: CardProps) {
   // Done is derived, not stored: a card with no stage at 100% renders as done
   // (legacy cards with a stored Done option still count too).
@@ -124,6 +129,26 @@ export function Card({
   const assignRef = useRef<HTMLDivElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const [datesOpen, setDatesOpen] = useState(false);
+  const [linksOpen, setLinksOpen] = useState(false);
+  const [resolvedLinks, setResolvedLinks] = useState<CardLink[] | null>(null);
+  const linksRef = useRef<HTMLDivElement | null>(null);
+  const localLinks = useMemo(
+    () => extractLinks(card.description ?? ""),
+    [card.description],
+  );
+  const hasGitHubRefs = localLinks.some((l) => l.kind !== "link");
+  const toggleLinks = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const opening = !linksOpen;
+    setLinksOpen(opening);
+    // Resolve titles lazily on open; the local list shows meanwhile.
+    if (opening && hasGitHubRefs && onLoadLinks) {
+      void onLoadLinks(card)
+        .then((links) => setResolvedLinks(links))
+        .catch(() => undefined);
+    }
+  };
+  const shownLinks = resolvedLinks ?? localLinks;
   const [startVal, setStartVal] = useState("");
   const [endVal, setEndVal] = useState("");
   const ageRef = useRef<HTMLDivElement | null>(null);
@@ -266,6 +291,126 @@ export function Card({
   const ageDays =
     weekMode && card.assignees.length === 0 ? 0 : daysSince(card.createdAt, asOf);
 
+  // The status control: an always-visible icon for review/locked/recurrent,
+  // a hover-only flag otherwise. A staged card keeps it after the links icon
+  // (the hashtag sits before the stage marker); an unstaged card renders the
+  // hover flag BEFORE the links icon, so the always-visible links icon does
+  // not jump left when the flag pops in on hover (the actions block is
+  // right-anchored, so growth to its left leaves it in place).
+  const stageVisible =
+    card.stage === "review" ||
+    card.stage === "locked" ||
+    card.stage === "recurrent";
+  const stageControl = (
+    <div
+      className={`card-stage${card.stage === "review" || card.stage === "locked" || card.stage === "recurrent" ? "" : " card-hoveronly"}`}
+      ref={menuRef}
+    >
+      <button
+        type="button"
+        className="card-action card-status-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          setMenuOpen((o) => !o);
+        }}
+        aria-label="Set status"
+        title={
+          card.stage === "review"
+            ? "On review"
+            : card.stage === "recurrent"
+              ? "Recurrent"
+              : card.stage === "locked"
+                ? "Locked"
+                : "Status"
+        }
+        style={card.stage ? { color: STAGES[card.stage].color } : undefined}
+      >
+        {card.stage === "review" ? (
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <rect x="7" y="7" width="3.6" height="10" rx="1.4" />
+            <rect x="13.4" y="7" width="3.6" height="10" rx="1.4" />
+          </svg>
+        ) : card.stage === "recurrent" ? (
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 2v6h-6" />
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M3 22v-6h6" />
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        ) : card.stage === "locked" ? (
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3 2 21h20L12 3z" />
+            <line x1="12" y1="10" x2="12" y2="15" />
+            <line x1="12" y1="18" x2="12.01" y2="18" />
+          </svg>
+        ) : (
+          "⚑"
+        )}
+      </button>
+      <Dropdown
+        open={menuOpen}
+        anchorRef={menuRef}
+        onClose={() => setMenuOpen(false)}
+        className="card-stage-menu"
+      >
+        <button
+          type="button"
+          className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
+          onClick={pickInProgress}
+        >
+          <span
+            className="card-stage-dot"
+            style={{ background: DEFAULT_BAR_COLOR }}
+          />
+          In Progress
+        </button>
+        {STAGE_ORDER.map((stage) =>
+          // A review card cannot be put on the "review" stage itself.
+          stage === "review" && card.reviewOf ? null : (
+            <button
+              key={stage}
+              type="button"
+              className={`card-stage-item${(stage === "done" ? doneish : card.stage === stage) ? " card-stage-item-active" : ""}`}
+              onClick={(e) => pickStage(e, stage)}
+            >
+              <span
+                className="card-stage-dot"
+                style={{ background: STAGES[stage].color }}
+              />
+              {STAGES[stage].label}
+            </button>
+          ),
+        )}
+      </Dropdown>
+    </div>
+  );
+
   return (
     <div
       className={`card${selected ? " card-selected" : ""}${
@@ -323,113 +468,69 @@ export function Card({
         >
           ×
         </button>
-        <div
-          className={`card-stage${card.stage === "review" || card.stage === "locked" || card.stage === "recurrent" ? "" : " card-hoveronly"}`}
-          ref={menuRef}
-        >
-          <button
-            type="button"
-            className="card-action card-status-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((o) => !o);
-            }}
-            aria-label="Set status"
-            title={
-              card.stage === "review"
-                ? "On review"
-                : card.stage === "recurrent"
-                  ? "Recurrent"
-                  : card.stage === "locked"
-                    ? "Locked"
-                    : "Status"
-            }
-            style={card.stage ? { color: STAGES[card.stage].color } : undefined}
-          >
-            {card.stage === "review" ? (
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <rect x="7" y="7" width="3.6" height="10" rx="1.4" />
-                <rect x="13.4" y="7" width="3.6" height="10" rx="1.4" />
-              </svg>
-            ) : card.stage === "recurrent" ? (
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M21 2v6h-6" />
-                <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-                <path d="M3 22v-6h6" />
-                <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-              </svg>
-            ) : card.stage === "locked" ? (
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 3 2 21h20L12 3z" />
-                <line x1="12" y1="10" x2="12" y2="15" />
-                <line x1="12" y1="18" x2="12.01" y2="18" />
-              </svg>
-            ) : (
-              "⚑"
-            )}
-          </button>
-          <Dropdown
-            open={menuOpen}
-            anchorRef={menuRef}
-            onClose={() => setMenuOpen(false)}
-            className="card-stage-menu"
-          >
+        {!stageVisible && stageControl}
+        {localLinks.length > 0 && (
+          <div className="card-links" ref={linksRef}>
             <button
               type="button"
-              className={`card-stage-item${isInProgress(card) ? " card-stage-item-active" : ""}`}
-              onClick={pickInProgress}
+              className="card-action card-links-btn"
+              onClick={toggleLinks}
+              aria-label="Card links"
+              title={hasGitHubRefs ? "Linked issues" : "Links"}
             >
-              <span
-                className="card-stage-dot"
-                style={{ background: DEFAULT_BAR_COLOR }}
-              />
-              In Progress
-            </button>
-            {STAGE_ORDER.map((stage) =>
-              // A review card cannot be put on the "review" stage itself.
-              stage === "review" && card.reviewOf ? null : (
-                <button
-                  key={stage}
-                  type="button"
-                  className={`card-stage-item${(stage === "done" ? doneish : card.stage === stage) ? " card-stage-item-active" : ""}`}
-                  onClick={(e) => pickStage(e, stage)}
+              {hasGitHubRefs ? (
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  aria-hidden="true"
                 >
-                  <span
-                    className="card-stage-dot"
-                    style={{ background: STAGES[stage].color }}
-                  />
-                  {STAGES[stage].label}
+                  <line x1="4" y1="9" x2="20" y2="9" />
+                  <line x1="4" y1="15" x2="20" y2="15" />
+                  <line x1="10" y1="3" x2="8" y2="21" />
+                  <line x1="16" y1="3" x2="14" y2="21" />
+                </svg>
+              ) : (
+                <LinkGlyph size={11} />
+              )}
+            </button>
+            <Dropdown
+              open={linksOpen}
+              anchorRef={linksRef}
+              onClose={() => setLinksOpen(false)}
+              className="card-stage-menu card-links-menu"
+            >
+              {shownLinks.map((link) => (
+                <button
+                  key={link.url}
+                  type="button"
+                  className="card-stage-item card-links-item"
+                  title={
+                    link.state ? `${link.url} (${link.state})` : link.url
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLinksOpen(false);
+                    window.open(link.url, "_blank", "noopener");
+                  }}
+                >
+                  <LinkKindIcon link={link} />
+                  <span className="card-links-text">
+                    {link.kind === "link"
+                      ? link.url
+                      : link.title ||
+                        `${link.owner}/${link.repo}#${link.number}`}
+                  </span>
                 </button>
-              ),
-            )}
-          </Dropdown>
-        </div>
+              ))}
+            </Dropdown>
+          </div>
+        )}
+        {stageVisible && stageControl}
       </span>
 
       {card.createdAt && (
@@ -770,4 +871,92 @@ export function Card({
       </div>
     </div>
   );
+}
+
+/** LinkGlyph is the chain icon for plain links. */
+function LinkGlyph({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+/** linkStateColor picks the GitHub-ish colour for an issue/PR state. */
+function linkStateColor(link: CardLink): string {
+  switch (link.state) {
+    case "closed":
+      return link.kind === "pull" ? "#cf222e" : "#8250df";
+    case "merged":
+      return "#8250df";
+    case "draft":
+      return "#6e7781";
+    default:
+      return "#1a7f37";
+  }
+}
+
+/** LinkKindIcon renders the GitHub-style glyph for an issue / pull request /
+ * plain link, with the shape AND colour following the resolved state (open,
+ * closed, merged, draft) the way github.com draws them. */
+function LinkKindIcon({ link }: { link: CardLink }) {
+  const glyph = (path: JSX.Element) => (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill={linkStateColor(link)}
+      aria-hidden="true"
+    >
+      {path}
+    </svg>
+  );
+  if (link.kind === "issue") {
+    if (link.state === "closed") {
+      // Issue closed: a check in a circle.
+      return glyph(
+        <>
+          <path d="M11.28 6.78a.75.75 0 0 0-1.06-1.06L7.25 8.69 5.78 7.22a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.5-3.5Z" />
+          <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0Zm-1.5 0a6.5 6.5 0 1 0-13 0 6.5 6.5 0 0 0 13 0Z" />
+        </>,
+      );
+    }
+    // Issue open: the dotted circle.
+    return glyph(
+      <>
+        <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z" />
+      </>,
+    );
+  }
+  if (link.kind === "pull") {
+    if (link.state === "merged") {
+      // Merged: the git-merge glyph.
+      return glyph(
+        <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" />,
+      );
+    }
+    if (link.state === "closed") {
+      // Closed unmerged: the crossed-out pull-request glyph.
+      return glyph(
+        <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />,
+      );
+    }
+    // Open (or draft, greyed): the pull-request glyph.
+    return glyph(
+      <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />,
+    );
+  }
+  return <LinkGlyph />;
 }
