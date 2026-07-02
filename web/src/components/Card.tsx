@@ -326,7 +326,7 @@ export function Card({
           ×
         </button>
         <div
-          className={`card-stage${card.stage === "review" || card.stage === "locked" ? "" : " card-hoveronly"}`}
+          className={`card-stage${card.stage === "review" || card.stage === "locked" || card.stage === "recurrent" ? "" : " card-hoveronly"}`}
           ref={menuRef}
         >
           <button
@@ -340,13 +340,26 @@ export function Card({
             title={
               card.stage === "review"
                 ? "On review"
-                : card.stage === "locked"
-                  ? "Locked"
-                  : "Status"
+                : card.stage === "recurrent"
+                  ? "Recurrent"
+                  : card.stage === "locked"
+                    ? "Locked"
+                    : "Status"
             }
             style={card.stage ? { color: STAGES[card.stage].color } : undefined}
           >
             {card.stage === "review" ? (
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <rect x="7" y="7" width="3.6" height="10" rx="1.4" />
+                <rect x="13.4" y="7" width="3.6" height="10" rx="1.4" />
+              </svg>
+            ) : card.stage === "recurrent" ? (
               <svg
                 width="13"
                 height="13"

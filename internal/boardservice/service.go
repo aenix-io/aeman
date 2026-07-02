@@ -238,12 +238,13 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	if err := s.backend.SetSprintState(ctx, b, team, today, old); err != nil {
 		return err
 	}
-	// Carry every unfinished card whose sprint is before the new day — not just
-	// the previous sprint — so cards added on an in-between day (or made directly
-	// on the backend) are picked up too. Future-dated cards stay.
+	// Carry only the unfinished cards of the sprint being closed (sprintStart ==
+	// the old current pointer). A card that is NOT on today's sprint — demoted
+	// back to an earlier one, or simply old — stays where it is, so removing a
+	// card from the current sprint is final and it never boomerangs back.
 	var carry []board.Card
 	for _, c := range b.Cards {
-		if c.Team != team || c.SprintStart == "" || c.SprintStart >= today || board.Complete(c.Stage, c.Progress) {
+		if c.Team != team || old == "" || c.SprintStart != old || board.Complete(c.Stage, c.Progress) {
 			continue
 		}
 		carry = append(carry, c)
@@ -275,9 +276,55 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		}(c)
 	}
 	wg.Wait()
+	// A finished recurrent card of the closing sprint stays behind and seeds the
+	// new sprint with a fresh copy: same title/description/team/zone/assignee at
+	// 0%, recurrent again, without the old notes.
+	for _, c := range b.Cards {
+		if c.Team != team || old == "" || c.SprintStart != old {
+			continue
+		}
+		if c.Stage != board.StageRecurrent || c.Progress < 100 {
+			continue
+		}
+		if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
+			Title:       c.Title,
+			Zone:        c.Zone,
+			Day:         today,
+			Start:       today,
+			SprintStart: today,
+			Team:        c.Team,
+		}); err != nil {
+			mu.Lock()
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			mu.Unlock()
+		}
+	}
 	if firstErr != nil {
 		return fmt.Errorf("carried over %d of %d cards, %d failed: %w",
 			len(carry)-failed, len(carry), failed, firstErr)
+	}
+	return nil
+}
+
+// reseedRecurrent creates the fresh copy of a finished recurrent card: the given
+// create input plus the original's first assignee, the recurrent stage and the
+// original's description (notes are deliberately not copied).
+func (s *Service) reseedRecurrent(ctx context.Context, b board.Board, c board.Card, in board.CreateInput) error {
+	if len(c.Assignees) > 0 {
+		in.Assignee = c.Assignees[0]
+	}
+	created, err := s.backend.CreateCard(ctx, b, in)
+	if err != nil {
+		return err
+	}
+	if err := s.backend.SetStage(ctx, b, created, board.StageRecurrent); err != nil {
+		return err
+	}
+	if c.Description != "" {
+		return s.backend.SetDescription(ctx, b, created, c.Description)
 	}
 	return nil
 }
@@ -315,12 +362,38 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 	if week == "" {
 		week = board.MondayOf(board.TodayIso())
 	}
+	// Titles already planned in the target week, for the recurrent reseed dedup:
+	// re-running carry-week must not create a second copy.
+	inTarget := map[string]bool{}
+	for _, c := range b.Cards {
+		if c.Plan != board.PlanNone && c.Week == week && c.Team == team {
+			inTarget[c.Title] = true
+		}
+	}
 	var carried []board.Card
 	for _, c := range b.Cards {
-		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week {
+		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week || c.Team != team {
 			continue
 		}
-		if board.Complete(c.Stage, c.Progress) || c.Team != team {
+		// A finished recurrent plan card stays in its week and seeds the target
+		// week with a fresh copy (unless one with the same title is already there).
+		if c.Stage == board.StageRecurrent && c.Progress >= 100 {
+			if inTarget[c.Title] {
+				continue
+			}
+			if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
+				Title: c.Title,
+				Zone:  c.Zone,
+				Plan:  c.Plan,
+				Week:  week,
+				Team:  c.Team,
+			}); err != nil {
+				return carried, err
+			}
+			inTarget[c.Title] = true
+			continue
+		}
+		if board.Complete(c.Stage, c.Progress) {
 			continue
 		}
 		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {

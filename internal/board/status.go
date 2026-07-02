@@ -17,12 +17,16 @@ func ClampProgress(stage StageKey, value int) int {
 }
 
 // Complete reports whether a card counts as finished — an explicit done stage,
-// or 100% readiness with no stage (100% + StageNone is the done auto-link, and
-// can arrive straight from GitHub without going through ApplyProgress). A 100%
-// card that is on review or locked is still unfinished, so it is NOT complete.
-// Carry Over and Carry Week use this so finished cards are not dragged forward.
+// or 100% readiness with no stage (done is derived) or on the recurrent stage
+// (a finished recurrent card stays behind; Carry Over reseeds a fresh copy). A
+// 100% card that is on review or locked is still unfinished, so it is NOT
+// complete. Carry Over and Carry Week use this so finished cards are not
+// dragged forward.
 func Complete(stage StageKey, progress int) bool {
-	return stage == StageDone || (progress >= 100 && stage == StageNone)
+	if stage == StageDone {
+		return true
+	}
+	return progress >= 100 && (stage == StageNone || stage == StageRecurrent)
 }
 
 // ApplyProgress computes the (stage, progress) resulting from setting a card's

@@ -60,6 +60,7 @@ var domainFieldSpecs = map[string]domainFieldSpec{
 	"stage": {name: "Stage", options: []domainSelectOption{
 		{"Locked", "RED", "Locked"},
 		{"Review", "YELLOW", "Review"},
+		{"Recurrent", "BLUE", "Recurrent"},
 		{"Done", "GREEN", "Done"},
 	}},
 	"progress":    {name: "Progress", dataType: "NUMBER"},
@@ -262,9 +263,97 @@ func (c *Client) SetStage(ctx context.Context, b board.Board, card board.Card, s
 	}
 	option := domainOptionForStage(field, stage)
 	if option == "" {
+		// A Stage field provisioned before this stage existed (e.g. Recurrent)
+		// lacks its option: add it to the field in place, then retry.
+		field, err = c.ensureStageOption(ctx, b, field, stage)
+		if err != nil {
+			return err
+		}
+		option = domainOptionForStage(field, stage)
+	}
+	if option == "" {
 		return fmt.Errorf("stage %q has no matching option on field %q", stage, field.Name)
 	}
 	return c.setSingleSelect(ctx, b.ID, card.ItemID, field.ID, option)
+}
+
+// ensureStageOption adds a missing stage option to an existing Stage field.
+// The GitHub API replaces the whole option list on update and RECREATES every
+// option with a new id — even for unchanged names — which wipes the stage
+// values stored on cards. So the current values are snapshotted from the board
+// first and re-applied against the new option ids right after the update.
+func (c *Client) ensureStageOption(ctx context.Context, b board.Board, field board.ProjectField, stage board.StageKey) (board.ProjectField, error) {
+	var spec *domainSelectOption
+	for i := range domainFieldSpecs["stage"].options {
+		o := &domainFieldSpecs["stage"].options[i]
+		if board.StageFromName(o.name) == stage {
+			spec = o
+			break
+		}
+	}
+	if spec == nil {
+		return field, fmt.Errorf("stage %q has no option spec", stage)
+	}
+	// Fetch the live options with their descriptions — the update input requires
+	// a description per option, and wiping existing ones would lose data.
+	var cur struct {
+		Node *struct {
+			Options []struct {
+				Name        string `json:"name"`
+				Color       string `json:"color"`
+				Description string `json:"description"`
+			} `json:"options"`
+		} `json:"node"`
+	}
+	if err := c.graphql(ctx, selectFieldOptionsQuery, map[string]any{"id": field.ID}, &cur); err != nil {
+		return field, err
+	}
+	options := []map[string]any{}
+	if cur.Node != nil {
+		for _, o := range cur.Node.Options {
+			options = append(options, map[string]any{"name": o.Name, "color": o.Color, "description": o.Description})
+		}
+	}
+	options = append(options, map[string]any{"name": spec.name, "color": spec.color, "description": spec.description})
+	// Snapshot every card's current stage before the update wipes the values.
+	staged := map[string]board.StageKey{}
+	for _, card := range b.Cards {
+		if card.Stage != board.StageNone {
+			staged[card.ItemID] = card.Stage
+		}
+	}
+	var data struct {
+		UpdateProjectV2Field struct {
+			ProjectV2Field createdFieldRaw `json:"projectV2Field"`
+		} `json:"updateProjectV2Field"`
+	}
+	if err := c.graphql(ctx, updateSelectFieldOptionsMutation,
+		map[string]any{"field": field.ID, "options": options}, &data); err != nil {
+		return field, err
+	}
+	updated := data.UpdateProjectV2Field.ProjectV2Field.toDomain()
+	c.fieldCache.store(b.ID+"\x00stage", updated)
+	// Re-apply the wiped values against the new option ids.
+	var restoreErr error
+	restored := 0
+	for itemID, s := range staged {
+		opt := domainOptionForStage(updated, s)
+		if opt == "" {
+			continue
+		}
+		if err := c.setSingleSelect(ctx, b.ID, itemID, updated.ID, opt); err != nil {
+			if restoreErr == nil {
+				restoreErr = err
+			}
+			continue
+		}
+		restored++
+	}
+	if restoreErr != nil {
+		return updated, fmt.Errorf("stage option %q added, but only %d of %d stage values were restored: %w",
+			spec.name, restored, len(staged), restoreErr)
+	}
+	return updated, nil
 }
 
 // SetProgress sets the readiness percentage.

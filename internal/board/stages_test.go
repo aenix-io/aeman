@@ -47,7 +47,7 @@ func TestStageFromName(t *testing.T) {
 }
 
 func TestStageOrderAndDefs(t *testing.T) {
-	want := []StageKey{StageLocked, StageReview, StageDone}
+	want := []StageKey{StageLocked, StageReview, StageRecurrent, StageDone}
 	if len(StageOrder) != len(want) {
 		t.Fatalf("StageOrder = %v, want %v", StageOrder, want)
 	}
