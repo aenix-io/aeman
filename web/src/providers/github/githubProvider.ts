@@ -934,6 +934,28 @@ export const githubProvider: Provider = {
     await graphql(UPDATE_ISSUE_BODY, { id: card.contentId, body: description });
   },
 
+  async setReviewOf(
+    board: Board,
+    card: Card,
+    reviewOf: string | null,
+  ): Promise<void> {
+    const field = await ensureField(board, "reviewOf", "Review Of");
+    if (reviewOf === null) {
+      await graphql(CLEAR_FIELD, {
+        project: board.id,
+        item: card.itemId,
+        field: field.id,
+      });
+      return;
+    }
+    await graphql(SET_TEXT, {
+      project: board.id,
+      item: card.itemId,
+      field: field.id,
+      value: reviewOf,
+    });
+  },
+
   async createCard(board: Board, input: NewCardInput): Promise<Card> {
     const assigneeIds = input.assigneeLogin
       ? [await resolveUserId(input.assigneeLogin)]

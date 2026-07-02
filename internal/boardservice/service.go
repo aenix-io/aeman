@@ -528,6 +528,17 @@ func (s *Service) SetWeek(ctx context.Context, owner string, project int, itemID
 	return s.backend.SetWeek(ctx, b, card, week)
 }
 
+// SetReviewOf sets (or clears, when reviewOf is empty) the link that marks a
+// card as the review of another. Cancelling a review clears it so the original
+// stops showing "On review".
+func (s *Service) SetReviewOf(ctx context.Context, owner string, project int, itemID, reviewOf string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetReviewOf(ctx, b, card, reviewOf)
+}
+
 // SetSprintState sets a team's sprint pointer directly (current/previous sprint
 // start dates; "" clears them). team = "" is the no-team group. It backs the
 // frontend's client-side Carry Over, which advances the pointer then re-dates the

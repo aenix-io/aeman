@@ -324,16 +324,20 @@ export function MeBoard({
         startDate: review.startDate,
         sprintStart: review.sprintStart,
         day: review.day,
+        reviewOf: review.reviewOf,
       };
+      // Break the review link too, or the original keeps showing "On review".
       patchCard(review.itemId, {
         startDate: prevS,
         sprintStart: prevS,
+        reviewOf: undefined,
         ...(review.day ? { day: prevS } : {}),
       });
       void (async () => {
         try {
           await provider.setStart(board, review, prevS);
           await provider.setSprintStart(board, review, prevS);
+          await provider.setReviewOf(board, review, null);
           if (review.day && review.day !== prevS) {
             await provider.setDay(board, review, prevS);
           }

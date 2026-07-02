@@ -187,6 +187,16 @@ export const apiProvider: Provider = {
     });
   },
 
+  async setReviewOf(
+    board: Board,
+    card: Card,
+    reviewOf: string | null,
+  ): Promise<void> {
+    await api<Card>(board, "POST", `/cards/${card.itemId}/review-of`, {
+      reviewOf: reviewOf ?? "",
+    });
+  },
+
   async createCard(board: Board, input: NewCardInput): Promise<Card> {
     return api<Card>(board, "POST", "/cards", {
       title: input.title,

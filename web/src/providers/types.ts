@@ -179,6 +179,8 @@ export interface Provider {
   setTeam(board: Board, card: Card, team: string | null): Promise<void>;
   renameCard(board: Board, card: Card, title: string): Promise<void>;
   setDescription(board: Board, card: Card, description: string): Promise<void>;
+  /** Set (or clear, with null) the link marking card as the review of another. */
+  setReviewOf(board: Board, card: Card, reviewOf: string | null): Promise<void>;
   createCard(board: Board, input: NewCardInput): Promise<Card>;
   deleteCard(board: Board, card: Card): Promise<void>;
   /** Reposition card after afterItemId in the project order (null = top). */

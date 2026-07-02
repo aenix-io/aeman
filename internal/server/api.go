@@ -87,6 +87,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v1/cards/{id}/notes/{noteId}", s.handleEditNote)
 	mux.HandleFunc("DELETE /api/v1/cards/{id}/notes/{noteId}", s.handleDeleteNote)
 	mux.HandleFunc("POST /api/v1/cards/{id}/description", s.handleSetDescription)
+	mux.HandleFunc("POST /api/v1/cards/{id}/review-of", s.handleSetReviewOf)
 	mux.HandleFunc("POST /api/v1/cards/{id}/rename", s.handleRename)
 	mux.HandleFunc("POST /api/v1/cards/{id}/review", s.handleSendToReview)
 	mux.HandleFunc("POST /api/v1/cards/{id}/review/reassign", s.handleReassignReviewer)
@@ -146,6 +147,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"PATCH", "/api/v1/cards/{id}/notes/{noteId}", "Edit a work note"},
 			{"DELETE", "/api/v1/cards/{id}/notes/{noteId}", "Delete a work note"},
 			{"POST", "/api/v1/cards/{id}/description", "Set the free-form description"},
+			{"POST", "/api/v1/cards/{id}/review-of", "Set or clear the review link"},
 			{"POST", "/api/v1/cards/{id}/rename", "Rename a card"},
 			{"POST", "/api/v1/cards/{id}/review", "Send to review (creates a review card)"},
 			{"POST", "/api/v1/cards/{id}/review/reassign", "Point the review at another reviewer"},
@@ -597,6 +599,25 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	if err := svc.DeleteNote(r.Context(), owner, project, id, r.PathValue("noteId")); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, id)
+}
+
+func (s *Server) handleSetReviewOf(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ReviewOf string `json:"reviewOf"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if err := svc.SetReviewOf(r.Context(), owner, project, id, in.ReviewOf); err != nil {
 		s.apiError(w, err)
 		return
 	}
