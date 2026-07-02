@@ -256,3 +256,16 @@ const removeAssigneesMutation = `mutation($assignable: ID!, $assignees: [ID!]!) 
     clientMutationId
   }
 }`
+
+// issueRefQuery resolves a GitHub issue or pull request to its title and
+// state, for the card link menus and the create-by-URL flow.
+const issueRefQuery = `
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issueOrPullRequest(number: $number) {
+      __typename
+      ... on Issue { title state }
+      ... on PullRequest { title state isDraft }
+    }
+  }
+}`

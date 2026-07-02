@@ -504,6 +504,29 @@ func (h *server) carryWeek(ctx context.Context, _ *mcp.CallToolRequest, in carry
 
 // --- Notes ---------------------------------------------------------------------
 
+// linkListOutput is the list_links result envelope.
+type linkListOutput struct {
+	Kind  string       `json:"kind"`
+	Items []board.Link `json:"items"`
+}
+
+// listLinks returns the URLs found in a card's description: GitHub issue/PR
+// references first (resolved to their titles when possible), plain links after.
+func (h *server) listLinks(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, linkListOutput, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, linkListOutput{}, err
+	}
+	links, err := svc.CardLinks(ctx, owner, project, in.UID)
+	if err != nil {
+		return nil, linkListOutput{}, err
+	}
+	if links == nil {
+		links = []board.Link{}
+	}
+	return nil, linkListOutput{Kind: "LinkList", Items: links}, nil
+}
+
 func (h *server) listNotes(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, noteListOutput, error) {
 	svc, owner, project, err := h.ref(ctx, in.boardRef)
 	if err != nil {

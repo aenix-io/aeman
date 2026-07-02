@@ -4,6 +4,8 @@
 // so components never see wire shapes or semantic zone names.
 
 /** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
+import type { CardLink } from "../links";
+
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
 /** StageKey is an explicit per-card status that recolours the progress bar. */
@@ -183,6 +185,9 @@ export interface Provider {
     current: string | null,
     previous: string | null,
   ): Promise<void>;
+  /** URLs from the card's description: GitHub issue/PR refs (resolved with
+   *  titles when possible) first, plain links after. */
+  listLinks(board: BoardAddr, uid: string): Promise<CardLink[]>;
   listNotes(board: BoardAddr, uid: string): Promise<Note[]>;
   addNote(board: BoardAddr, uid: string, text: string): Promise<Note[]>;
   editNote(
