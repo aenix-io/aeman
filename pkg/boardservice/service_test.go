@@ -1046,7 +1046,7 @@ func TestRemovePlanDeletesWithoutEarlierWeek(t *testing.T) {
 func TestStageOffReviewDemotesLinkedReview(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
-		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40,
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig",
 			StartDate: "2026-01-10", SprintStart: "2026-01-10", Day: "2026-01-10"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageNone); err != nil {
@@ -1064,7 +1064,7 @@ func TestStageOffReviewDemotesLinkedReview(t *testing.T) {
 func TestStageOffReviewDeletesLinkedOutsideCurrentSprint(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
-		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, SprintStart: "2026-01-03"},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", SprintStart: "2026-01-03"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageLocked); err != nil {
 		t.Fatal(err)
@@ -1090,7 +1090,7 @@ func TestStageOffReviewKeepsFinishedReview(t *testing.T) {
 func TestInProgressCancelsLinkedReview(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
-		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, SprintStart: "2026-01-03"},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", SprintStart: "2026-01-03"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).SetInProgress(ctx, "acme", 1, "orig"); err != nil {
 		t.Fatal(err)
@@ -1286,5 +1286,86 @@ func TestSetDescriptionSyncsAcrossReviewLink(t *testing.T) {
 	}
 	if fake2.count("SetDescription") != 1 {
 		t.Fatal("no counterpart, no extra write")
+	}
+}
+
+// --- Worked-on review cards are never auto-removed (lifecycle rules) ---------
+
+// A review card the reviewer already put progress into stays untouched when
+// the original leaves review (done, locked, in-progress) — link intact.
+func TestStageOffReviewKeepsWorkedReviewCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40,
+			StartDate: "2026-01-10", SprintStart: "2026-01-10"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageDone); err != nil {
+		t.Fatal(err)
+	}
+	r := f.get("rev")
+	if r == nil || r.SprintStart != "2026-01-10" || r.ReviewOf != "orig" || r.Progress != 40 {
+		t.Fatalf("a worked-on review card must stay untouched: %+v", r)
+	}
+}
+
+// Reassigning a reviewer who already worked keeps their card (released from
+// the link) and spawns a fresh review card for the new reviewer.
+func TestReassignWorkedReviewerSpawnsNewCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", Stage: board.StageReview, Progress: 50},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, Assignees: []string{"old"}},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.saw("SetReviewOf rev ") {
+		t.Fatal("the worked-on card must be released from the link")
+	}
+	if len(f.creates) != 1 || f.creates[0].Assignee != "new" || f.creates[0].ReviewOf != "orig" {
+		t.Fatalf("a fresh review card for the new reviewer: %+v", f.creates)
+	}
+	if r := f.get("rev"); r == nil || r.Progress != 40 {
+		t.Fatalf("the old reviewer's work stays: %+v", r)
+	}
+}
+
+// An untouched (0%) review card is still simply handed over.
+func TestReassignUntouchedReviewerInPlace(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Assignees: []string{"old"}},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.creates) != 0 || !f.saw("SetAssignee rev new") {
+		t.Fatalf("an untouched review card is reassigned in place; creates=%v", f.creates)
+	}
+}
+
+// Carry-over moves a review card only while its review is still required: the
+// original unfinished on the review stage and a reviewer assigned.
+func TestCarryOverReviewCardsOnlyWhileRequired(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "origDone", Team: "alpha", Progress: 100, SprintStart: "2026-01-01"},
+		{ItemID: "revStale", Team: "alpha", ReviewOf: "origDone", Progress: 40,
+			Assignees: []string{"bob"}, SprintStart: "2026-01-01"},
+		{ItemID: "origLive", Team: "alpha", Stage: board.StageReview, Progress: 50, SprintStart: "2026-01-01"},
+		{ItemID: "revLive", Team: "alpha", ReviewOf: "origLive", Progress: 40,
+			Assignees: []string{"bob"}, SprintStart: "2026-01-01"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-01", ItemID: "s1"}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// origLive + revLive carry; origDone finished; revStale left behind.
+	if rep.Carried != 2 {
+		t.Fatalf("carried = %d, want 2 (the stale review card stays)", rep.Carried)
+	}
+	if f.get("revStale").SprintStart != "2026-01-01" {
+		t.Fatal("stale review card must not be dragged forward")
+	}
+	if f.get("revLive").SprintStart == "2026-01-01" {
+		t.Fatal("a still-required review card carries")
 	}
 }
