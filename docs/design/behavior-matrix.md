@@ -77,3 +77,61 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 The 🆕 tests are written and committed **red-first** (or against thin stubs)
 before the implementation lands, so the port from the frontend cannot silently
 drift from today's behaviour.
+
+## Old → new coverage audit
+
+Every surface of the pre-redesign API, checked off against its replacement.
+Done after the cutover so nothing silently dropped.
+
+### HTTP endpoints (35 old → new)
+
+| Old | New | Notes |
+| --- | --- | --- |
+| GET /board | GET /board | Field metadata dropped by design — zones are semantic now, no option-id mapping for clients. |
+| GET /snapshot | GET /cards + /sprints | Split per resource; board order preserved in the list. |
+| GET /watch | GET /watch | New frames {type, kind, object}; RELOAD replaced by Sprint/Ordering events + scoped re-diffs. |
+| GET /team, /me, /weekly | GET /cards?view= | Weekly bands via spec.plan.band; +weekly.progress. |
+| POST /cards | POST /cards | Body follows the spec shape. |
+| POST /carry-over, /carry-week | POST /sprints/actions/… | +dryRun count reports. |
+| POST /sprint-state | PATCH /sprints | |
+| DELETE /cards/{id} | DELETE /cards/{uid} | Cascade unchanged. |
+| …/stage | PATCH {stage} | + server-side review-cancel cascade (was frontend). |
+| …/in-progress | …/actions/in-progress | |
+| …/progress | PATCH {progress} | Done-link unchanged. |
+| …/zone | PATCH {zone} | Semantic names; colour keys rejected. |
+| …/day | PATCH {dates:{end}} | |
+| …/start | PATCH {dates:{start}} | Now runs the calendar rule (sprint follows). Granular start-only writes had no standalone use: defer and demote are actions. |
+| …/sprint-start | PATCH {dates:{sprint}} | |
+| …/plan, …/week | PATCH {plan:{band, week}} | |
+| …/assignee | PATCH {assignees} | |
+| …/team | PATCH {team} | Sprint join falls back to today (was: the UI's selected day). Deliberate: the server has no view state. |
+| …/take-plan, …/release-plan | …/actions/take-into-plan, release-from-plan | |
+| …/move | …/actions/move | + Ordering resource/events. |
+| …/note, …/notes/{id} | …/notes CRUD | Mutations return the NoteList. |
+| …/description | PATCH {description} | |
+| …/rename | PATCH {title} | |
+| …/review | …/actions/send-to-review | |
+| …/review/reassign | (folded) | send-to-review reassigns when a review card exists. |
+| …/review/remove | …/actions/remove-reviewer | |
+| — | …/actions/remove | New: the frontend's smart × (A1–A3). |
+| — | …/actions/defer | New: D9/D10. |
+| — | PATCH {reviewOf} | New: the review link is writable (A5 fix). |
+| — | GET /ordering | New singleton. |
+
+### MCP tools (21 old → 20 new)
+
+get_board ✓ · team_view/me_view/weekly_plan → list_cards ✓ · create_card ✓ ·
+carry_over/carry_week ✓ (+dryRun) · set_stage/set_progress/set_assignee/
+set_team/rename_card → update_card ✓ · set_in_progress → **in_progress**
+(added by this audit — update_card cannot express the nudge) ·
+send_to_review ✓ · reassign_reviewer → folded into send_to_review ✓ ·
+remove_reviewer ✓ · take_into_plan/release_from_plan ✓ ·
+move_card/delete_card/add_note ✓ · new: get_card, list_notes, edit_note,
+delete_note, remove_card, defer_card, update_card(dates/plan/reviewOf).
+
+### Frontend logic moved server-side
+
+Defer (D9/D10) · calendar set-dates (D11) · smart remove (A1–A3) ·
+review-cancel cascade incl. the reviewOf break (A5) · first-sprint record on
+create (D8, was doubled client-side) · carry confirm counts (D16) · weekly
+plan progress (V2). Each is pinned by the 🆕 tests above.
