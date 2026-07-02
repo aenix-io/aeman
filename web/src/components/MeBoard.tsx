@@ -7,10 +7,9 @@ import type {
   StageKey,
   ZoneKey,
 } from "../providers/types";
-import { ZONES, ZONE_ORDER, optionIdForZone } from "../zones";
-import { fieldRoles } from "../providers/fields";
+import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
-import { activeSprint, currentSprint, previousSprint } from "../sprint";
+import { activeSprint, currentSprint } from "../sprint";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
@@ -125,8 +124,6 @@ export function MeBoard({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [board.cards, me]);
 
-  const roles = useMemo(() => fieldRoles(board), [board]);
-
   // My cards (any day); when me is empty, everyone's.
   const mine = useMemo(
     () => board.cards.filter((c) => (viewMe ? c.assignees.includes(viewMe) : true)),
@@ -236,6 +233,31 @@ export function MeBoard({
     return out;
   }, [myCards, selectedDate]);
 
+  // Notes live in the notes subresource, not on the Card resource: lazily load
+  // them for the day's visible cards. A card's loaded notes are the "fetched"
+  // marker (mutations and the watch keep them fresh); a re-list clears them,
+  // so they refetch. A request that failed stays marked and is not retried.
+  const notesRequested = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const c of myCards) {
+      if (
+        c.notes !== undefined ||
+        c.itemId.startsWith("tmp-") ||
+        notesRequested.current.has(c.itemId)
+      ) {
+        continue;
+      }
+      notesRequested.current.add(c.itemId);
+      void provider
+        .listNotes(board, c.itemId)
+        .then((notes) => {
+          notesRequested.current.delete(c.itemId);
+          patchCard(c.itemId, { notes });
+        })
+        .catch(() => {});
+    }
+  }, [myCards, board, provider, patchCard]);
+
   const selectedCard =
     myCards.find((c) => c.itemId === selectedCardId) ?? null;
 
@@ -244,159 +266,74 @@ export function MeBoard({
     reload();
   };
 
-  // Drive an original card's review stage from its review card's progress:
-  // at 100% the original leaves review; below 100% it (re)enters review.
-  const syncOriginalReview = (original: CardModel, reviewProgress: number) => {
-    let next: StageKey | null | undefined;
-    if (reviewProgress === 100 && original.stage === "review") {
-      next = null;
-    } else if (reviewProgress < 100 && original.stage !== "review") {
-      next = "review";
-    }
-    if (next === undefined) {
-      return;
-    }
-    const prevStage = original.stage;
-    patchCard(original.itemId, { stage: next ?? undefined });
-    void provider.setStage(board, original, next).catch((err: unknown) => {
-      patchCard(original.itemId, { stage: prevStage });
-      onError(errMessage(err));
-    });
-  };
-
+  // Progress is one intent; the server clamps (review/locked stay in 10–90),
+  // clears a legacy stored done below full, and — when this is a review card —
+  // drives the original's review stage. The optimistic patch mirrors the
+  // clamps; the re-list converges the linked original.
   const handleProgress = (card: CardModel, raw: number) => {
-    // review/locked cards are clamped to a 10–90% band (never 0% or 100%).
     const value =
       card.stage === "review" || card.stage === "locked"
         ? Math.min(90, Math.max(10, raw))
         : raw;
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
-    // Done is derived (no stage + 100%), never stored: reaching full needs no
-    // stage write; only a legacy stored done clears itself below full.
-    let stageChange: StageKey | null | undefined;
-    if (roles.stage && value < 100 && card.stage === "done") {
-      stageChange = null;
-    }
-    if (stageChange !== undefined) {
-      patch.stage = stageChange ?? undefined;
+    if (value < 100 && card.stage === "done") {
+      patch.stage = undefined;
     }
     patchCard(card.itemId, patch);
-    void (async () => {
-      try {
-        await provider.setProgress(board, card, value);
-        if (stageChange !== undefined) {
-          await provider.setStage(board, card, stageChange);
+    void provider
+      .patchCard(board, card.itemId, { progress: value })
+      .then((updated) => {
+        addCard(updated);
+        // A review card's progress drives the original's stage server-side.
+        if (card.reviewOf) {
+          reload();
         }
-      } catch (err: unknown) {
+      })
+      .catch((err: unknown) => {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
-      }
-    })();
-
-    // When this is a review card, its progress drives the original's review stage.
-    if (card.reviewOf) {
-      const original = board.cards.find((c) => c.itemId === card.reviewOf);
-      if (original) {
-        syncOriginalReview(original, value);
-      }
-    }
-  };
-
-  // Taking a card off review cancels its linked unfinished review card,
-  // mirroring the × logic: still on the team's current sprint → demoted to the
-  // previous one; otherwise deleted. A finished review card stays as a record.
-  const cancelLinkedReview = (original: CardModel) => {
-    const review = board.cards.find(
-      (c) =>
-        c.reviewOf === original.itemId &&
-        c.stage !== "done" &&
-        !(!c.stage && (c.progress ?? 0) >= 100) &&
-        !c.itemId.startsWith("tmp-"),
-    );
-    if (!review) {
-      return;
-    }
-    const cur = currentSprint(board, review.team ?? null);
-    const prevS = previousSprint(board, review.team ?? null);
-    if (review.sprintStart && cur && review.sprintStart === cur && prevS && prevS < cur) {
-      const rollback: Partial<CardModel> = {
-        startDate: review.startDate,
-        sprintStart: review.sprintStart,
-        day: review.day,
-      };
-      patchCard(review.itemId, {
-        startDate: prevS,
-        sprintStart: prevS,
-        ...(review.day ? { day: prevS } : {}),
       });
-      void (async () => {
-        try {
-          await provider.setStart(board, review, prevS);
-          await provider.setSprintStart(board, review, prevS);
-          if (review.day && review.day !== prevS) {
-            await provider.setDay(board, review, prevS);
-          }
-        } catch (err: unknown) {
-          patchCard(review.itemId, rollback);
-          onError(errMessage(err));
-        }
-      })();
-      return;
-    }
-    removeCard(review.itemId);
-    void provider.deleteCard(board, review).catch((err: unknown) => {
-      if (isGone(err)) {
-        return;
-      }
-      addCard(review);
-      onError(errMessage(err));
-    });
   };
 
+  // Stage is one intent; the server derives done (clears stage + fills 100),
+  // knocks a full review/locked card to 90, and cancels the linked review card
+  // when the original leaves review. The optimistic patch mirrors the local
+  // effects; the re-list converges the linked-card cascade.
   const handleStage = (card: CardModel, stage: StageKey | null) => {
-    if (card.stage === "review" && stage !== "review") {
-      cancelLinkedReview(card);
-    }
     const prev: Partial<CardModel> = {
       stage: card.stage,
       progress: card.progress,
     };
-    // Done is derived (no stage + 100%), never stored: picking it clears the
-    // stage and fills the bar instead of writing a Done option.
-    const storedStage = stage === "done" ? null : stage;
-    const patch: Partial<CardModel> = { stage: storedStage ?? undefined };
-    const fillTo100 = stage === "done" && card.progress !== 100;
+    const patch: Partial<CardModel> = {
+      stage: stage === "done" ? undefined : stage ?? undefined,
+    };
     if (stage === "done") {
       patch.progress = 100;
     }
-    // review/locked cards can never sit at 100%: knock a full card down to 90%.
-    const dropTo90 =
-      (stage === "review" || stage === "locked") && card.progress === 100;
-    if (dropTo90) {
+    if ((stage === "review" || stage === "locked") && card.progress === 100) {
       patch.progress = 90;
     }
     patchCard(card.itemId, patch);
-    void provider.setStage(board, card, storedStage).catch((err: unknown) => {
-      patchCard(card.itemId, prev);
-      onError(errMessage(err));
-    });
-    if (fillTo100 || dropTo90) {
-      const target = dropTo90 ? 90 : 100;
-      void provider.setProgress(board, card, target).catch((err: unknown) => {
-        patchCard(card.itemId, { progress: prev.progress });
+    const leavingReview = card.stage === "review" && stage !== "review";
+    void provider
+      .patchCard(board, card.itemId, { stage: stage ?? "" })
+      .then((updated) => {
+        addCard(updated);
+        if (leavingReview || card.reviewOf) {
+          reload();
+        }
+      })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
         onError(errMessage(err));
       });
-    }
   };
 
-  // "In Progress" is the implicit status (no stage, progress in [10, 90]).
-  // Picking it clears any stage and clamps progress into that band: under 10
-  // becomes 10, a done/full card drops to 90, otherwise the value is kept.
+  // "In Progress" is the implicit status (no stage, progress in [10, 90]) —
+  // one action; the server clears the stage, nudges progress into the band,
+  // cancels a linked review card and syncs a review card's original.
   const handleInProgress = (card: CardModel) => {
-    if (card.stage === "review") {
-      cancelLinkedReview(card);
-    }
     const cur = card.progress ?? 0;
     let value = cur;
     if (cur < 10) {
@@ -406,57 +343,49 @@ export function MeBoard({
     }
     const prev: Partial<CardModel> = { stage: card.stage, progress: card.progress };
     patchCard(card.itemId, { stage: undefined, progress: value });
-    void (async () => {
-      try {
-        await provider.setStage(board, card, null);
-        if (value !== cur) {
-          await provider.setProgress(board, card, value);
+    void provider
+      .setInProgress(board, card.itemId)
+      .then((updated) => {
+        addCard(updated);
+        if (card.stage === "review" || card.reviewOf) {
+          reload();
         }
-      } catch (err: unknown) {
+      })
+      .catch((err: unknown) => {
         patchCard(card.itemId, prev);
         onError(errMessage(err));
-      }
-    })();
-
-    // A review card's progress drives its original's review stage; keep that
-    // in sync when In Progress changes it (e.g. a done review card reopens it).
-    if (card.reviewOf && value !== cur) {
-      const original = board.cards.find((c) => c.itemId === card.reviewOf);
-      if (original) {
-        syncOriginalReview(original, value);
-      }
-    }
+      });
   };
 
+  // Moving a card between teams also joins the new team's current sprint
+  // (server-side), so it stays visible instead of dropping off when its old
+  // sprint predates the new team's current one. Mirror both optimistically.
   const handleSetTeam = (card: CardModel, team: string | null) => {
-    const prevTeam = card.team;
-    const prevSprint = card.sprintStart;
-    // Join the new team's current sprint (its explicit state), so a card moved
-    // between teams stays visible instead of dropping off when its old sprint
-    // predates the new team's current one. Fall back to the selected day.
+    const prev: Partial<CardModel> = {
+      team: card.team,
+      sprintStart: card.sprintStart,
+    };
     const sprintStart = currentSprint(board, team) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
-    void provider.setTeam(board, card, team).catch((err: unknown) => {
-      patchCard(card.itemId, { team: prevTeam });
-      onError(errMessage(err));
-    });
-    if (sprintStart !== prevSprint) {
-      void provider
-        .setSprintStart(board, card, sprintStart)
-        .catch((err: unknown) => {
-          patchCard(card.itemId, { sprintStart: prevSprint });
-          onError(errMessage(err));
-        });
-    }
+    void provider
+      .patchCard(board, card.itemId, { team: team ?? "" })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
   };
 
   const handleRename = (card: CardModel, title: string) => {
     const prev = card.title;
     patchCard(card.itemId, { title });
-    void provider.renameCard(board, card, title).catch((err: unknown) => {
-      patchCard(card.itemId, { title: prev });
-      onError(errMessage(err));
-    });
+    void provider
+      .patchCard(board, card.itemId, { title })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { title: prev });
+        onError(errMessage(err));
+      });
   };
 
   const handleDelete = (card: CardModel) => {
@@ -466,31 +395,29 @@ export function MeBoard({
       removeCard(card.itemId);
       return;
     }
-    // If a review card links back to this one, delete both (with one confirm).
+    // The server cascades the delete to a linked review card; one confirm for
+    // both, one request, both removed optimistically.
     const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-    if (linkedReview) {
-      if (
-        !window.confirm(
-          `Delete this card and its linked review card «${linkedReview.title}»?`,
-        )
-      ) {
-        return;
-      }
-      removeCard(linkedReview.itemId);
-      void provider.deleteCard(board, linkedReview).catch((err: unknown) => {
-        if (isGone(err)) {
-          return;
-        }
-        addCard(linkedReview);
-        onError(errMessage(err));
-      });
+    if (
+      linkedReview &&
+      !window.confirm(
+        `Delete this card and its linked review card «${linkedReview.title}»?`,
+      )
+    ) {
+      return;
     }
     removeCard(card.itemId);
-    void provider.deleteCard(board, card).catch((err: unknown) => {
+    if (linkedReview) {
+      removeCard(linkedReview.itemId);
+    }
+    void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
       if (isGone(err)) {
         return;
       }
       addCard(card);
+      if (linkedReview) {
+        addCard(linkedReview);
+      }
       onError(errMessage(err));
     });
   };
@@ -518,17 +445,23 @@ export function MeBoard({
   };
 
   // Reassign the linked review card to another person, or (login = null) delete
-  // it — driven from the counterpart avatar's menu.
+  // it — driven from the counterpart avatar's menu. One intent either way; the
+  // server resolves the linked card itself (send-to-review reassigns when a
+  // review card already exists).
   const handleSetReviewAssignee = (card: CardModel, login: string | null) => {
     const reviewCard = board.cards.find((c) => c.reviewOf === card.itemId);
     if (login === null) {
-      if (reviewCard) {
-        removeCard(reviewCard.itemId);
-        void provider.deleteCard(board, reviewCard).catch((err: unknown) => {
+      if (!reviewCard) {
+        return;
+      }
+      removeCard(reviewCard.itemId);
+      void provider
+        .removeReviewer(board, card.itemId)
+        .then(addCard)
+        .catch((err: unknown) => {
           addCard(reviewCard);
           onError(errMessage(err));
         });
-      }
       return;
     }
     if (!reviewCard) {
@@ -538,17 +471,22 @@ export function MeBoard({
     }
     const prev = reviewCard.assignees;
     patchCard(reviewCard.itemId, { assignees: [login] });
-    void provider.setAssignee(board, reviewCard, login).catch((err: unknown) => {
-      patchCard(reviewCard.itemId, { assignees: prev });
-      onError(errMessage(err));
-    });
+    void provider
+      .sendToReview(board, card.itemId, login, selectedDate)
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(reviewCard.itemId, { assignees: prev });
+        onError(errMessage(err));
+      });
   };
 
-  // Send a card to review: create a linked review card for the reviewer (in the
-  // yellow/unplanned zone on the Me board) and put the original on review.
+  // Send a card to review: one action — the server creates the linked review
+  // card (in the original's zone/team) and puts the original on the review
+  // stage. Both effects are mirrored optimistically; the re-list converges
+  // the original's server-side state.
   const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
     const team = card.team ?? null;
-    const zone: ZoneKey = "yellow";
+    const zone: ZoneKey = card.zone ?? "gray";
     const sprintStart = currentSprint(board, team) ?? selectedDate;
     const title = `review: ${card.title}`;
     const tempId = `tmp-${new Date().toISOString()}`;
@@ -558,7 +496,6 @@ export function MeBoard({
       isDraft: true,
       assignees: [reviewerLogin],
       zone,
-      zoneOptionId: optionIdForZone(roles.zone, zone),
       day: selectedDate,
       startDate: selectedDate,
       sprintStart,
@@ -569,29 +506,27 @@ export function MeBoard({
       notes: [],
     };
     addCard(optimistic);
+    const prevOriginal: Partial<CardModel> = {
+      stage: card.stage,
+      progress: card.progress,
+    };
+    patchCard(card.itemId, {
+      stage: "review",
+      // review/locked can't sit at full: the server knocks a 100% card to 90.
+      ...(card.progress === 100 ? { progress: 90 } : {}),
+    });
     void provider
-      .createCard(board, {
-        title,
-        zone,
-        day: selectedDate,
-        start: selectedDate,
-        sprintStart,
-        assigneeLogin: reviewerLogin,
-        team,
-        reviewOf: card.itemId,
-      })
+      .sendToReview(board, card.itemId, reviewerLogin, selectedDate)
       .then((created) => {
         removeCard(tempId);
         addCard(created);
+        reload();
       })
       .catch((err: unknown) => {
         removeCard(tempId);
+        patchCard(card.itemId, prevOriginal);
         onError(errMessage(err));
       });
-
-    // Put the original on review. handleStage also drops a 100% card to 90%,
-    // since review/locked can't sit at full.
-    handleStage(card, "review");
   };
 
   // The 4 sortable groups: one per zone, in ZONE_ORDER (top → bottom).
@@ -608,20 +543,9 @@ export function MeBoard({
   const handleDrop = ({ card, fromMeta, toMeta, groups: g }: DropResult<MeMeta>) => {
     const zoneChanged = fromMeta.zone !== toMeta.zone;
 
-    // Resolve the new zone option up front; abort the whole drop if missing.
-    let optionId = card.zoneOptionId;
-    if (zoneChanged) {
-      const resolved = optionIdForZone(roles.zone, toMeta.zone);
-      if (!resolved) {
-        onError(`Project has no Zone option for ${toMeta.zone}`);
-        return;
-      }
-      optionId = resolved;
-    }
-
     // 1) Optimistic local state first.
     if (zoneChanged) {
-      patchCard(card.itemId, { zone: toMeta.zone, zoneOptionId: optionId });
+      patchCard(card.itemId, { zone: toMeta.zone });
     }
     const order = globalOrderFromGroups(
       board,
@@ -633,10 +557,10 @@ export function MeBoard({
     const afterId = afterIdFor(order, card.itemId);
     void (async () => {
       try {
-        if (zoneChanged && optionId) {
-          await provider.setZone(board, card, optionId);
+        if (zoneChanged) {
+          await provider.patchCard(board, card.itemId, { zone: toMeta.zone });
         }
-        await provider.moveCard(board, card, afterId);
+        await provider.moveCard(board, card.itemId, afterId);
       } catch (err: unknown) {
         onError(errMessage(err));
         reload();
@@ -644,12 +568,13 @@ export function MeBoard({
     })();
   };
 
+  // The card is scheduled for the viewed day as a one-day range; the server
+  // joins the team's current sprint (recording a first sprint when the team
+  // has none yet — reload picks the new pointer up in that case).
   const handleCreate = (zone: ZoneKey, title: string, team?: string | null) => {
     const tempId = `tmp-${new Date().toISOString()}`;
-    // The card is scheduled for the viewed day (startDate = selectedDate) and joins
-    // the team's current sprint (sprintStart), falling back to the viewed day when
-    // the team has no sprint yet.
-    const sprintStart = currentSprint(board, team ?? null) ?? selectedDate;
+    const sprint = currentSprint(board, team ?? null);
+    const firstSprint = sprint === null;
     const optimistic: CardModel = {
       itemId: tempId,
       title,
@@ -658,7 +583,7 @@ export function MeBoard({
       zone,
       day: selectedDate,
       startDate: selectedDate,
-      sprintStart,
+      sprintStart: sprint ?? selectedDate,
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
       description: "",
@@ -671,13 +596,15 @@ export function MeBoard({
         zone,
         day: selectedDate,
         start: selectedDate,
-        sprintStart,
         assigneeLogin: viewMe || null,
         team: team ?? null,
       })
       .then((card) => {
         removeCard(tempId);
         addCard(card);
+        if (firstSprint) {
+          reload();
+        }
       })
       .catch((err: unknown) => {
         removeCard(tempId);
@@ -696,10 +623,14 @@ export function MeBoard({
       author: viewMe || undefined,
       source: selectedCard.isDraft ? "draft" : "comment",
     };
-    patchCard(selectedCard.itemId, {
+    const uid = selectedCard.itemId;
+    patchCard(uid, {
       notes: [...(selectedCard.notes ?? []), optimistic],
     });
-    void provider.addNote(board, selectedCard, text).catch(fail);
+    void provider
+      .addNote(board, uid, text)
+      .then((notes) => patchCard(uid, { notes }))
+      .catch(fail);
   };
 
   const handleEditNote = (note: Note, card: CardModel, text: string) => {
@@ -708,14 +639,20 @@ export function MeBoard({
         n.id === note.id ? { ...n, body: text } : n,
       ),
     });
-    void provider.editNote(board, card, note, text).catch(fail);
+    void provider
+      .editNote(board, card.itemId, note.id, text)
+      .then((notes) => patchCard(card.itemId, { notes }))
+      .catch(fail);
   };
 
   const handleDeleteNote = (note: Note, card: CardModel) => {
     patchCard(card.itemId, {
       notes: (card.notes ?? []).filter((n) => n.id !== note.id),
     });
-    void provider.deleteNote(board, card, note).catch(fail);
+    void provider
+      .deleteNote(board, card.itemId, note.id)
+      .then((notes) => patchCard(card.itemId, { notes }))
+      .catch(fail);
   };
 
   return (

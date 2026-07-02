@@ -1,29 +1,37 @@
-// A Provider backed by aeman's own REST API under /api/v1, instead of talking to
-// GitHub GraphQL directly. It is still GitHub-backed (the server proxies to
-// Projects v2), so it keeps the "github" ProviderId. Live board updates arrive
-// out-of-band over a WebSocket handled elsewhere; loadCards therefore always
-// asks for a full reload rather than patching individual cards.
+// The thin intent client of aeman's Kubernetes-style API under /api/v1: reads
+// compose the LIST responses into the frontend Board; writes state intent and
+// return the resulting resources (mapped to the internal Card model), which the
+// caller applies over its optimistic state. All board rules run server-side.
 
 import { clientId } from "../../api/client";
-import { fieldRoles } from "../fields";
+import {
+  resourceToCard,
+  resourceToNote,
+  semanticZone,
+  sprintStatesFrom,
+  type BoardResource,
+  type CardListResource,
+  type CardResource,
+  type NoteListResource,
+  type SprintListResource,
+} from "../../api/resources";
 import type {
   Board,
-  BoardSummary,
+  BoardAddr,
   Card,
+  CardPatch,
+  CarryReport,
   NewCardInput,
   Note,
   Provider,
-  StageKey,
-  ZoneKey,
 } from "../types";
-import { zoneFromColor } from "../../zones";
 
 // api issues a request against /api/v1 for a given board. It carries the board
 // identity as query parameters (?owner=&project=) so the server resolves the
 // right board, sets a JSON content type when there is a body, and on a non-2xx
 // response surfaces the server's {error} message (falling back to statusText).
 async function api<T>(
-  board: Pick<Board, "owner" | "number">,
+  board: BoardAddr,
   method: string,
   path: string,
   body?: unknown,
@@ -58,199 +66,268 @@ async function api<T>(
   return (await res.json()) as T;
 }
 
-// setSprintStartOn posts a card's Sprint Start date. Shared by setSprintStart and
-// setSprintStartMany so Carry Over reuses the exact same request per card.
-function setSprintStartOn(
-  board: Board,
-  card: Card,
-  date: string | null,
+// cardFrom runs a request that answers with a Card resource and maps it.
+async function cardFrom(
+  board: BoardAddr,
+  method: string,
+  path: string,
+  body?: unknown,
 ): Promise<Card> {
-  return api<Card>(board, "POST", `/cards/${card.itemId}/sprint-start`, {
-    sprintStart: date ?? "",
-  });
+  return resourceToCard(await api<CardResource>(board, method, path, body));
+}
+
+// notesFrom runs a request that answers with a NoteList and maps it.
+async function notesFrom(
+  board: BoardAddr,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<Note[]> {
+  const list = await api<NoteListResource>(board, method, path, body);
+  return (list.items ?? []).map(resourceToNote);
+}
+
+// patchBody translates a CardPatch onto the wire shape: only present fields go
+// out ("" clears), zones travel under their semantic names.
+function patchBody(patch: CardPatch): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (patch.title !== undefined) {
+    body.title = patch.title;
+  }
+  if (patch.description !== undefined) {
+    body.description = patch.description;
+  }
+  if (patch.team !== undefined) {
+    body.team = patch.team;
+  }
+  if (patch.zone !== undefined) {
+    body.zone = semanticZone(patch.zone);
+  }
+  if (patch.assignees !== undefined) {
+    body.assignees = patch.assignees;
+  }
+  if (patch.progress !== undefined) {
+    body.progress = patch.progress;
+  }
+  if (patch.stage !== undefined) {
+    body.stage = patch.stage;
+  }
+  if (patch.dates) {
+    const dates: Record<string, string> = {};
+    if (patch.dates.start !== undefined) {
+      dates.start = patch.dates.start;
+    }
+    if (patch.dates.end !== undefined) {
+      dates.end = patch.dates.end;
+    }
+    if (patch.dates.sprint !== undefined) {
+      dates.sprint = patch.dates.sprint;
+    }
+    body.dates = dates;
+  }
+  if (patch.plan) {
+    const plan: Record<string, string> = {};
+    if (patch.plan.band !== undefined) {
+      plan.band = patch.plan.band;
+    }
+    if (patch.plan.week !== undefined) {
+      plan.week = patch.plan.week;
+    }
+    body.plan = plan;
+  }
+  if (patch.reviewOf !== undefined) {
+    body.reviewOf = patch.reviewOf;
+  }
+  return body;
 }
 
 export const apiProvider: Provider = {
-  id: "github",
-  label: "GitHub",
-
-  async listBoards(_owner: string): Promise<BoardSummary[]> {
-    return [];
-  },
-
   async loadBoard(owner: string, number: number): Promise<Board> {
-    return api<Board>({ owner, number }, "GET", "/snapshot");
+    const addr: BoardAddr = { owner, number };
+    const [info, cards, sprints] = await Promise.all([
+      api<BoardResource>(addr, "GET", "/board"),
+      api<CardListResource>(addr, "GET", "/cards"),
+      api<SprintListResource>(addr, "GET", "/sprints"),
+    ]);
+    return {
+      owner,
+      number,
+      title: info.metadata.title ?? "",
+      url: info.metadata.url ?? "",
+      // LIST responses are served in board order; the Ordering watch events
+      // keep the local copy sorted between re-lists.
+      cards: (cards.items ?? []).map(resourceToCard),
+      sprintStates: sprintStatesFrom(sprints.items ?? []),
+    };
   },
 
-  async loadCards(
-    _board: Board,
-    _ids: string[],
-  ): Promise<{ cards: Card[]; needsFullReload: boolean }> {
-    // Live updates arrive over a WebSocket handled elsewhere; if a caller ever
-    // reaches here, force a full board reload rather than patching cards.
-    return { cards: [], needsFullReload: true };
-  },
-
-  async setZone(board: Board, card: Card, optionId: string | null): Promise<void> {
-    // The API takes a ZoneKey, not an option id: resolve the option's colour on
-    // the board's zone field and convert it to a zone (null → clear, i.e. "").
-    let zone: ZoneKey | "" = "";
-    if (optionId !== null) {
-      const option = fieldRoles(board).zone?.options?.find(
-        (o) => o.id === optionId,
-      );
-      zone = zoneFromColor(option?.color) ?? "";
+  async createCard(board: BoardAddr, input: NewCardInput): Promise<Card> {
+    const body: Record<string, unknown> = {
+      title: input.title,
+      team: input.team ?? "",
+      zone: semanticZone(input.zone),
+      assignees: input.assigneeLogin ? [input.assigneeLogin] : [],
+      reviewOf: input.reviewOf ?? "",
+    };
+    // Plan cards carry no dates (they live in the weekly bands); day cards pass
+    // their start/end and the server joins (or records) the sprint itself.
+    if (input.start || input.day) {
+      body.dates = { start: input.start ?? "", end: input.day ?? "" };
     }
-    await api<Card>(board, "POST", `/cards/${card.itemId}/zone`, { zone });
+    if (input.plan) {
+      body.plan = { band: input.plan, week: input.week ?? "" };
+    }
+    if (input.startNewSprint !== undefined) {
+      body.startNewSprint = input.startNewSprint;
+    }
+    return cardFrom(board, "POST", "/cards", body);
   },
 
-  async setProgress(board: Board, card: Card, progress: number): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/progress`, { progress });
+  async patchCard(
+    board: BoardAddr,
+    uid: string,
+    patch: CardPatch,
+  ): Promise<Card> {
+    return cardFrom(board, "PATCH", `/cards/${uid}`, patchBody(patch));
   },
 
-  async setDay(board: Board, card: Card, day: string | null): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/day`, { day: day ?? "" });
+  async deleteCard(board: BoardAddr, uid: string): Promise<void> {
+    await api(board, "DELETE", `/cards/${uid}`);
   },
 
-  async setStart(board: Board, card: Card, date: string | null): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/start`, {
-      start: date ?? "",
+  async removeCard(
+    board: BoardAddr,
+    uid: string,
+    from: "grid" | "plan",
+  ): Promise<void> {
+    await api(board, "POST", `/cards/${uid}/actions/remove`, { from });
+  },
+
+  async moveCard(
+    board: BoardAddr,
+    uid: string,
+    afterId: string | null,
+  ): Promise<void> {
+    await api(board, "POST", `/cards/${uid}/actions/move`, {
+      after: afterId ?? "",
     });
   },
 
-  async setSprintStart(board: Board, card: Card, date: string | null): Promise<void> {
-    await setSprintStartOn(board, card, date);
+  async deferCard(board: BoardAddr, uid: string, days: number): Promise<Card> {
+    return cardFrom(board, "POST", `/cards/${uid}/actions/defer`, { days });
   },
 
-  async setSprintStartMany(
-    board: Board,
-    cards: Card[],
-    date: string,
-  ): Promise<void> {
-    await Promise.all(cards.map((c) => setSprintStartOn(board, c, date)));
+  async setInProgress(board: BoardAddr, uid: string): Promise<Card> {
+    return cardFrom(board, "POST", `/cards/${uid}/actions/in-progress`, {});
+  },
+
+  async sendToReview(
+    board: BoardAddr,
+    uid: string,
+    reviewer: string,
+    day?: string,
+  ): Promise<Card> {
+    return cardFrom(board, "POST", `/cards/${uid}/actions/send-to-review`, {
+      reviewer,
+      day: day ?? "",
+    });
+  },
+
+  async removeReviewer(board: BoardAddr, uid: string): Promise<Card> {
+    return cardFrom(board, "POST", `/cards/${uid}/actions/remove-reviewer`, {});
+  },
+
+  async takeIntoPlan(
+    board: BoardAddr,
+    uid: string,
+    engineer: string,
+    zone,
+    day?: string,
+  ): Promise<Card> {
+    return cardFrom(board, "POST", `/cards/${uid}/actions/take-into-plan`, {
+      engineer,
+      zone: semanticZone(zone),
+      day: day ?? "",
+    });
+  },
+
+  async releaseFromPlan(board: BoardAddr, uid: string): Promise<Card> {
+    return cardFrom(
+      board,
+      "POST",
+      `/cards/${uid}/actions/release-from-plan`,
+      {},
+    );
+  },
+
+  async carryOver(
+    board: BoardAddr,
+    team: string | null,
+    dryRun = false,
+  ): Promise<CarryReport> {
+    return api<CarryReport>(board, "POST", "/sprints/actions/carry-over", {
+      team: team ?? "",
+      dryRun,
+    });
+  },
+
+  async carryWeek(
+    board: BoardAddr,
+    team: string | null,
+    week: string,
+    dryRun = false,
+  ): Promise<CarryReport> {
+    return api<CarryReport>(board, "POST", "/sprints/actions/carry-week", {
+      team: team ?? "",
+      week,
+      dryRun,
+    });
   },
 
   async setSprintState(
-    board: Board,
+    board: BoardAddr,
     team: string | null,
     current: string | null,
     previous: string | null,
   ): Promise<void> {
-    await api(board, "POST", "/sprint-state", {
+    await api(board, "PATCH", "/sprints", {
       team: team ?? "",
       current: current ?? "",
       previous: previous ?? "",
     });
   },
 
-  async setPlan(board: Board, card: Card, plan: "wed" | "fri" | null): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/plan`, {
-      plan: plan ?? "",
-    });
+  async listNotes(board: BoardAddr, uid: string): Promise<Note[]> {
+    return notesFrom(board, "GET", `/cards/${uid}/notes`);
   },
 
-  async setWeek(board: Board, card: Card, date: string | null): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/week`, {
-      week: date ?? "",
-    });
-  },
-
-  async setAssignee(board: Board, card: Card, login: string | null): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/assignee`, {
-      login: login ?? "",
-    });
-  },
-
-  async setStage(board: Board, card: Card, stage: StageKey | null): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/stage`, {
-      stage: stage ?? "",
-    });
-  },
-
-  async setTeam(board: Board, card: Card, team: string | null): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/team`, {
-      team: team ?? "",
-    });
-  },
-
-  async renameCard(board: Board, card: Card, title: string): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/rename`, { title });
-  },
-
-  async setDescription(
-    board: Board,
-    card: Card,
-    description: string,
-  ): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/description`, {
-      description,
-    });
-  },
-
-  async createCard(board: Board, input: NewCardInput): Promise<Card> {
-    return api<Card>(board, "POST", "/cards", {
-      title: input.title,
-      zone: input.zone ?? "",
-      day: input.day ?? "",
-      start: input.start ?? "",
-      sprintStart: input.sprintStart ?? "",
-      plan: input.plan ?? "",
-      week: input.week ?? "",
-      team: input.team ?? "",
-      assignee: input.assigneeLogin ?? "",
-      reviewOf: input.reviewOf ?? "",
-    });
-  },
-
-  async deleteCard(board: Board, card: Card): Promise<void> {
-    await api(board, "DELETE", `/cards/${card.itemId}`);
-  },
-
-  async moveCard(board: Board, card: Card, afterItemId: string | null): Promise<void> {
-    await api<Card>(board, "POST", `/cards/${card.itemId}/move`, {
-      afterId: afterItemId ?? "",
-    });
-  },
-
-  async addNote(board: Board, card: Card, text: string): Promise<void> {
-    await api(board, "POST", `/cards/${card.itemId}/note`, { text });
+  async addNote(board: BoardAddr, uid: string, text: string): Promise<Note[]> {
+    return notesFrom(board, "POST", `/cards/${uid}/notes`, { text });
   },
 
   async editNote(
-    board: Board,
-    card: Card,
-    note: Note,
+    board: BoardAddr,
+    uid: string,
+    noteId: string,
     text: string,
-  ): Promise<void> {
-    await api<Card>(
+  ): Promise<Note[]> {
+    return notesFrom(
       board,
       "PATCH",
-      `/cards/${card.itemId}/notes/${encodeURIComponent(note.id)}`,
+      `/cards/${uid}/notes/${encodeURIComponent(noteId)}`,
       { text },
     );
   },
 
-  async deleteNote(board: Board, card: Card, note: Note): Promise<void> {
-    await api<Card>(
+  async deleteNote(
+    board: BoardAddr,
+    uid: string,
+    noteId: string,
+  ): Promise<Note[]> {
+    return notesFrom(
       board,
       "DELETE",
-      `/cards/${card.itemId}/notes/${encodeURIComponent(note.id)}`,
+      `/cards/${uid}/notes/${encodeURIComponent(noteId)}`,
     );
-  },
-
-  async carryOver(board: Board, team: string | null): Promise<void> {
-    // One server-side call: the backend advances the sprint pointer and carries
-    // the unfinished cards concurrently, emitting watch events per card.
-    await api(board, "POST", "/carry-over", { team: team ?? "" });
-  },
-
-  async carryWeek(
-    board: Board,
-    team: string | null,
-    week: string,
-  ): Promise<void> {
-    // One server-side call: the backend moves the unfinished plan cards and
-    // reseeds finished recurrent ones as fresh copies in the target week.
-    await api(board, "POST", "/carry-week", { team: team ?? "", week });
   },
 };
