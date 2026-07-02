@@ -1252,3 +1252,39 @@ func TestSendToReviewCopiesDescription(t *testing.T) {
 		t.Fatal("description copy not persisted")
 	}
 }
+
+// The description live-syncs across the review link, both directions; notes
+// are untouched (they stay per-card).
+func TestSetDescriptionSyncsAcrossReviewLink(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", Title: "Work"},
+		{ItemID: "r1", Team: "alpha", Title: "review: Work", ReviewOf: "c1"},
+	}, nil)
+	svc := New(fake)
+
+	// Original -> review card.
+	if err := svc.SetDescription(context.Background(), "acme", 1, "c1", "new context"); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.saw("SetDescription c1 new context") || !fake.saw("SetDescription r1 new context") {
+		t.Fatal("original edit must sync onto the review card")
+	}
+
+	// Review card -> original.
+	if err := svc.SetDescription(context.Background(), "acme", 1, "r1", "reviewer note"); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.saw("SetDescription c1 reviewer note") {
+		t.Fatal("review-card edit must sync back onto the original")
+	}
+
+	// A card with no counterpart writes only itself.
+	fake2 := newFake([]board.Card{{ItemID: "solo"}}, nil)
+	svc2 := New(fake2)
+	if err := svc2.SetDescription(context.Background(), "acme", 1, "solo", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if fake2.count("SetDescription") != 1 {
+		t.Fatal("no counterpart, no extra write")
+	}
+}
