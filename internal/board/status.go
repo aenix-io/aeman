@@ -16,34 +16,40 @@ func ClampProgress(stage StageKey, value int) int {
 	return value
 }
 
+// Complete reports whether a card counts as finished — an explicit done stage,
+// or 100% readiness with no stage (100% + StageNone is the done auto-link, and
+// can arrive straight from GitHub without going through ApplyProgress). A 100%
+// card that is on review or locked is still unfinished, so it is NOT complete.
+// Carry Over and Carry Week use this so finished cards are not dragged forward.
+func Complete(stage StageKey, progress int) bool {
+	return stage == StageDone || (progress >= 100 && stage == StageNone)
+}
+
 // ApplyProgress computes the (stage, progress) resulting from setting a card's
-// progress to raw. The value is first clamped for the current stage, then the
-// done auto-link runs: reaching 100% with no stage moves the card to done, and
-// dropping below 100% clears a done stage. review/locked stages are left as-is.
-// It mirrors handleProgress (the done-link assumes the board has a Stage field,
-// the `if (roles.stage)` guard there; aeman boards always do).
+// progress to raw. The value is first clamped for the current stage. Done is
+// derived (no stage + 100%, see Complete), never stored: reaching 100% with no
+// stage simply stays stage-less, and a legacy stored done clears itself when
+// progress drops below full. review/locked stages are left as-is. It mirrors
+// handleProgress.
 func ApplyProgress(stage StageKey, raw int) (StageKey, int) {
 	value := ClampProgress(stage, raw)
-	switch {
-	case value == 100 && stage == StageNone:
-		return StageDone, value
-	case value < 100 && stage == StageDone:
+	if value < 100 && stage == StageDone {
 		return StageNone, value
-	default:
-		return stage, value
 	}
+	return stage, value
 }
 
 // ApplyStage computes the (stage, progress) resulting from moving a card to the
-// given stage. Choosing done fills progress to 100%; choosing review or locked
-// knocks a full (100%) card down to 90%, since those stages can never sit at
-// full. Clearing the stage (StageNone) or any other case keeps progress. It
-// mirrors handleStage.
+// given stage. Done is derived, never stored: choosing it clears the stage and
+// fills progress to 100% (Complete then reports the card finished). Choosing
+// review or locked knocks a full (100%) card down to 90%, since those stages can
+// never sit at full. Clearing the stage (StageNone) or any other case keeps
+// progress. It mirrors handleStage.
 func ApplyStage(stage StageKey, currentProgress int) (StageKey, int) {
 	progress := currentProgress
 	switch {
 	case stage == StageDone:
-		progress = 100
+		return StageNone, 100
 	case (stage == StageReview || stage == StageLocked) && currentProgress == 100:
 		progress = 90
 	}

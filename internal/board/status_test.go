@@ -37,7 +37,7 @@ func TestApplyProgress(t *testing.T) {
 		wantStage StageKey
 		wantValue int
 	}{
-		{"full with no stage links done", StageNone, 100, StageDone, 100},
+		{"full with no stage stays stage-less (done is derived)", StageNone, 100, StageNone, 100},
 		{"below full clears done", StageDone, 50, StageNone, 50},
 		{"mid with no stage unchanged", StageNone, 50, StageNone, 50},
 		{"review clamps full to 90, no link", StageReview, 100, StageReview, 90},
@@ -64,7 +64,7 @@ func TestApplyStage(t *testing.T) {
 		wantStage StageKey
 		wantValue int
 	}{
-		{"done fills to full", StageDone, 50, StageDone, 100},
+		{"done clears the stage and fills to full (derived)", StageDone, 50, StageNone, 100},
 		{"review drops full to 90", StageReview, 100, StageReview, 90},
 		{"locked drops full to 90", StageLocked, 100, StageLocked, 90},
 		{"review below full kept", StageReview, 50, StageReview, 50},
@@ -105,5 +105,26 @@ func TestApplyInProgress(t *testing.T) {
 					c.stage, c.progress, gotStage, gotValue, StageNone, c.wantValue)
 			}
 		})
+	}
+}
+
+func TestComplete(t *testing.T) {
+	cases := []struct {
+		name     string
+		stage    StageKey
+		progress int
+		want     bool
+	}{
+		{"explicit done", StageDone, 100, true},
+		{"100% with no stage is the done auto-link", StageNone, 100, true},
+		{"100% on review is still unfinished", StageReview, 100, false},
+		{"100% locked is still unfinished", StageLocked, 100, false},
+		{"in progress", StageNone, 40, false},
+		{"review below full", StageReview, 90, false},
+	}
+	for _, c := range cases {
+		if got := Complete(c.stage, c.progress); got != c.want {
+			t.Errorf("%s: Complete(%q,%d) = %v, want %v", c.name, c.stage, c.progress, got, c.want)
+		}
 	}
 }
