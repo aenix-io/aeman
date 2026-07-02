@@ -783,8 +783,9 @@ export function TeamBoard({
     if (stage === "done") {
       patch.progress = 100;
     }
-    if ((stage === "review" || stage === "locked") && card.progress === 100) {
-      patch.progress = 90;
+    if (stage === "review" || stage === "locked") {
+      // The 10-90 clamp is stored on stage pick (mirrors board.ApplyStage).
+      patch.progress = Math.min(90, Math.max(10, card.progress ?? 0));
     }
     patchCard(card.itemId, patch);
     const leavingReview = card.stage === "review" && stage !== "review";
