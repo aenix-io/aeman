@@ -132,9 +132,23 @@ func (a *authManager) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	// A bad client or redirect_uri is a hard 400: redirecting an unverified URI
 	// would be an open redirect.
 	if !ok {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client",
-			"unknown client_id — register via /oauth/register")
-		return
+		// Self-heal a stale registration. The authorize step runs in the user's
+		// browser, so the MCP client never sees this error and cannot re-register
+		// on its own. For loopback redirect URIs re-registering on the fly is
+		// safe (RFC 8252): the authorization code can only land on the
+		// initiator's own machine, so there is nothing for a remote attacker to
+		// phish. Anything else keeps the hard error.
+		if clientID == "" || !isLoopbackRedirect(redirectURI) {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_client",
+				"unknown client_id — register via /oauth/register")
+			return
+		}
+		client = oauthClient{redirectURIs: []string{redirectURI}}
+		a.mu.Lock()
+		a.clients[clientID] = client
+		a.saveLocked()
+		a.mu.Unlock()
+		a.log.Info("oauth: auto-registered unknown loopback client", "client_id", clientID)
 	}
 	if !slices.Contains(client.redirectURIs, redirectURI) {
 		writeJSONError(w, http.StatusBadRequest, "redirect_uri is not registered for this client")
@@ -381,4 +395,16 @@ func (a *authManager) redirectError(w http.ResponseWriter, r *http.Request, redi
 // writeOAuthError writes an RFC 6749 token-endpoint error response.
 func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
 	writeJSON(w, status, map[string]string{"error": code, "error_description": desc})
+}
+
+// isLoopbackRedirect reports whether a redirect URI points at the local
+// machine (http://localhost, 127.0.0.1 or [::1], any port/path) — the only
+// redirect targets an unknown client may auto-register with.
+func isLoopbackRedirect(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
