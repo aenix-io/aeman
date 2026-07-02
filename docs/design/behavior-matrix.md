@@ -144,3 +144,11 @@ plan progress (V2). Each is pinned by the 🆕 tests above.
 | L2 | Create-by-URL: a title that is only a GitHub issue/PR URL resolves to that item's title, the link moves into the description; unresolvable keeps the URL title | boardservice.CreateCard | ✅ TestCreateCardFromGitHubURL / FromURLUnresolved |
 | L3 | UI: hashtag icon (link icon when only plain links) before the stage icon; one menu, refs-with-titles first, plain links as-is; click opens a new tab | Card.tsx + links.ts mirror | manual |
 | L4 | Send-to-review copies the description; afterwards it LIVE-SYNCS across the review link both ways (notes stay per-card) | boardservice.SendToReview / SetDescription | ✅ TestSendToReviewCopiesDescription, TestSetDescriptionSyncsAcrossReviewLink |
+
+## Review-card lifecycle (2026-07-02)
+
+| # | Rule | Lives in | Test |
+| --- | --- | --- | --- |
+| R1 | A review card the reviewer worked on (progress > 0) is never auto-removed: leaving review / done keeps it untouched, link intact | boardservice.cancelLinkedReview | ✅ TestStageOffReviewKeepsWorkedReviewCard |
+| R2 | Reassigning a reviewer who worked keeps their card (released from the link, stays behind on the next carry) and spawns a fresh review card; an untouched card is handed over in place | boardservice.ReassignReviewer | ✅ TestReassignWorkedReviewerSpawnsNewCard / InPlace |
+| R3 | Carry-over moves a review card only while the review is still required: original unfinished on the review stage + a reviewer assigned; stale review work stays behind | boardservice.CarryOver | ✅ TestCarryOverReviewCardsOnlyWhileRequired |

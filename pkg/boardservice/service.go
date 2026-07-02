@@ -289,6 +289,13 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		if board.Complete(c.Stage, c.Progress) {
 			continue
 		}
+		// A review card crosses sprints only while its review is still on: the
+		// original must still sit on the review stage unfinished, and the card
+		// must still be the assigned reviewer's. Stale review work (original
+		// done, reviewer swapped, link severed) stays behind.
+		if c.ReviewOf != "" && !reviewStillRequired(b, c) {
+			continue
+		}
 		carry = append(carry, c)
 	}
 	rep := CarryReport{Carried: len(carry), Reseeded: len(reseed)}
@@ -611,6 +618,12 @@ func (s *Service) cancelLinkedReview(ctx context.Context, b board.Board, origina
 	if !ok || board.Complete(review.Stage, review.Progress) {
 		return nil
 	}
+	// The reviewer already put work into it (progress > 0): never auto-remove
+	// that work. The card stays in place, link intact — the next carry-over
+	// decides its fate (it only travels while the review is still required).
+	if review.Progress > 0 {
+		return nil
+	}
 	cur := board.CurrentSprint(b, review.Team)
 	prev := board.PreviousSprint(b, review.Team)
 	if review.SprintStart != "" && cur != "" && review.SprintStart == cur && prev != "" && prev < cur {
@@ -868,7 +881,34 @@ func (s *Service) ReassignReviewer(ctx context.Context, owner string, project in
 		_, err := s.sendToReview(ctx, b, card, reviewer, day)
 		return err
 	}
-	return s.backend.SetAssignee(ctx, b, reviewCard, reviewer)
+	// An untouched review card is simply handed to the new reviewer. One the
+	// old reviewer already worked on (progress > 0) keeps their work: it is
+	// released from the link (a standalone card now — the next carry-over
+	// leaves it behind) and a fresh review card is created for the new
+	// reviewer.
+	if reviewCard.Progress == 0 {
+		return s.backend.SetAssignee(ctx, b, reviewCard, reviewer)
+	}
+	if err := s.backend.SetReviewOf(ctx, b, reviewCard, ""); err != nil {
+		return err
+	}
+	_, err = s.sendToReview(ctx, b, card, reviewer, day)
+	return err
+}
+
+// reviewStillRequired reports whether a review card's review is still on: its
+// original is on the board, unfinished, on the review stage, and the review
+// card still has a reviewer assigned.
+func reviewStillRequired(b board.Board, review board.Card) bool {
+	if len(review.Assignees) == 0 {
+		return false
+	}
+	for _, c := range b.Cards {
+		if c.ItemID == review.ReviewOf {
+			return c.Stage == board.StageReview && !board.Complete(c.Stage, c.Progress)
+		}
+	}
+	return false
 }
 
 // RemoveReviewer deletes a card's linked review card (a no-op when there is
