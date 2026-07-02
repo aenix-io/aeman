@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -436,5 +437,75 @@ func TestMCPRequiresBearer(t *testing.T) {
 	}
 	if !strings.Contains(wa, testBaseURL+"/.well-known/oauth-protected-resource") {
 		t.Fatalf("WWW-Authenticate = %q, missing metadata URL", wa)
+	}
+}
+
+// A dynamically-registered MCP client must survive a server restart: MCP
+// clients cache their client_id, and a wiped registry would strand them on
+// invalid_client until a manual re-registration.
+func TestOAuthClientRegistrationPersists(t *testing.T) {
+	path := t.TempDir() + "/sessions.json"
+	mk := func() *Server {
+		srv, err := New(Options{
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Auth: &OAuthConfig{
+				ClientID:     "gh-client",
+				ClientSecret: "gh-secret",
+				BaseURL:      testBaseURL,
+				SessionFile:  path,
+			},
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		return srv
+	}
+	srv := mk()
+	rec := do(t, srv, http.MethodPost, "/oauth/register", `{"redirect_uris":["`+testRedirectURI+`"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register status = %d", rec.Code)
+	}
+	var resp oauthex.ClientRegistrationResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh server over the same file must know the client: /oauth/authorize
+	// gets past client validation (302 to GitHub, not a 400 invalid_client).
+	srv2 := mk()
+	aq := url.Values{}
+	aq.Set("client_id", resp.ClientID)
+	aq.Set("redirect_uri", testRedirectURI)
+	aq.Set("response_type", "code")
+	aq.Set("code_challenge", pkceChallenge("v"))
+	aq.Set("code_challenge_method", "S256")
+	rec = do(t, srv2, http.MethodGet, "/oauth/authorize?"+aq.Encode(), "")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("authorize after restart = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The pre-envelope session file (a bare map of sessions) still loads.
+func TestSessionFileLegacyFormat(t *testing.T) {
+	path := t.TempDir() + "/sessions.json"
+	legacy := `{"sid1":{"token":"gh-tok","login":"octocat","created":"` +
+		time.Now().Format(time.RFC3339Nano) + `"}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(Options{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Auth: &OAuthConfig{
+			ClientID:     "gh-client",
+			ClientSecret: "gh-secret",
+			BaseURL:      testBaseURL,
+			SessionFile:  path,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, ok := srv.auth.sessions["sid1"]; !ok {
+		t.Fatal("legacy session not restored")
 	}
 }
