@@ -530,6 +530,16 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 	return s.deleteWithCascade(ctx, b, c)
 }
 
+// SetReviewOf sets or clears (reviewOf = "") the link marking a card as the
+// review of another.
+func (s *Service) SetReviewOf(ctx context.Context, owner string, project int, itemID, reviewOf string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	return s.backend.SetReviewOf(ctx, b, card, reviewOf)
+}
+
 // cancelLinkedReview demotes or deletes the unfinished review card linked to an
 // original that just left the review stage, mirroring the × logic; the demote
 // also breaks the reviewOf link, or the original would keep showing "On review".

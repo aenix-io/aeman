@@ -98,7 +98,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	f.nextID++
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
-		Zone: in.Zone, StartDate: in.Start, SprintStart: in.SprintStart,
+		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Team: in.Team, ReviewOf: in.ReviewOf,
 		Assignees: []string{},
 	}
@@ -133,6 +133,14 @@ func (f *Backend) MoveCard(_ context.Context, _ board.Board, card board.Card, af
 // AddNote records a note on a card.
 func (f *Backend) AddNote(_ context.Context, _ board.Board, card board.Card, text string) error {
 	f.rec("AddNote %s %s", card.ItemID, text)
+	if c := f.Card(card.ItemID); c != nil {
+		f.nextID++
+		c.Notes = append(c.Notes, board.Note{
+			ID:     fmt.Sprintf("note%d", f.nextID),
+			Body:   text,
+			Source: "log",
+		})
+	}
 	return nil
 }
 
@@ -212,6 +220,9 @@ func (f *Backend) SetZone(_ context.Context, _ board.Board, card board.Card, zon
 // SetDay records a day change.
 func (f *Backend) SetDay(_ context.Context, _ board.Board, card board.Card, day string) error {
 	f.rec("SetDay %s %s", card.ItemID, day)
+	if c := f.Card(card.ItemID); c != nil {
+		c.Day = day
+	}
 	return nil
 }
 
