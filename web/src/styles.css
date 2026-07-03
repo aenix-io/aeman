@@ -2211,12 +2211,6 @@ button.card-age {
    avatar is a team-badge-sized circle hanging 60% off the card's LEFT border,
    and the card gets a soft glow — deliberately quieter than the local
    .card-selected outline, so the two never read as the same thing. */
-/* The wrapper must not participate in the card's flex layout (it would eat a
-   6px gap slot before the day counter); its avatars position against the card. */
-.card-presence {
-  display: contents;
-}
-
 .card-presence-avatar {
   position: absolute;
   top: 50%;
@@ -2231,4 +2225,11 @@ button.card-age {
 
 .card-peer-selected {
   box-shadow: 0 0 0 1px rgba(9, 105, 218, 0.18);
+}
+
+/* The presence wrapper must not occupy a flex slot in the card row (its gap
+   would widen the space before the day counter); only its absolutely
+   positioned avatars exist visually. */
+.card-presence {
+  display: contents;
 }
