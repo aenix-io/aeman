@@ -81,9 +81,10 @@ type CardSpec struct {
 
 // CardStatus is derived by the server, never written by clients.
 type CardStatus struct {
-	Complete   bool   `json:"complete"`
-	InProgress bool   `json:"inProgress"`
-	ReviewedBy string `json:"reviewedBy,omitempty"`
+	Complete    bool   `json:"complete"`
+	InProgress  bool   `json:"inProgress"`
+	ReviewedBy  string `json:"reviewedBy,omitempty"`
+	ReviewRound int    `json:"reviewRound,omitempty"`
 }
 
 // Sprint is a team's sprint pointer as an API resource (name = the team key,
@@ -177,8 +178,9 @@ func CardResource(b board.Board, c board.Card) Card {
 		spec.Plan = &CardPlan{Band: string(c.Plan), Week: c.Week}
 	}
 	status := CardStatus{
-		Complete:   board.Complete(c.Stage, c.Progress),
-		InProgress: board.IsInProgress(c),
+		Complete:    board.Complete(c.Stage, c.Progress),
+		InProgress:  board.IsInProgress(c),
+		ReviewRound: c.ReviewRound,
 	}
 	for _, r := range b.Cards {
 		if r.ReviewOf == c.ItemID && len(r.Assignees) > 0 &&
