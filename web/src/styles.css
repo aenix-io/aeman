@@ -2235,22 +2235,10 @@ button.card-age {
   display: contents;
 }
 
-/* Me view: the focus toggle (meditation glyph) by the View-as picker. Off it is
-   muted like a secondary control; on it goes accent-coloured and filled. */
-.btn-icon {
+/* Me view: the focus toggle sits next to the View-as picker with the same
+   button shape; its meditation glyph is centred and it borrows the eye's
+   accent border/colour when active (.impersonate-active). */
+.me-focus {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 4px 6px;
-}
-.me-focus {
-  color: var(--muted);
-}
-.me-focus:hover {
-  color: var(--fg);
-}
-.me-focus-active {
-  color: #fff;
-  background: var(--accent);
-  border-color: var(--accent);
 }

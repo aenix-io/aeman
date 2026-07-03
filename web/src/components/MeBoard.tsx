@@ -883,7 +883,7 @@ export function MeBoard({
 
         <button
           type="button"
-          className={`btn btn-icon me-focus${focus ? " me-focus-active" : ""}`}
+          className={`btn me-focus${focus ? " impersonate-active" : ""}`}
           onClick={() => setFocus((v) => !v)}
           aria-pressed={focus}
           title="Focus: only cards you can work on now (hide locked / on-review / done)"
