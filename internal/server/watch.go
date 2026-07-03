@@ -51,7 +51,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	resources := map[string]bool{"cards": true, "sprints": true, "ordering": true}
+	resources := map[string]bool{"cards": true, "sprints": true, "ordering": true, "presence": true}
 	if raw := q.Get("resources"); raw != "" {
 		resources = map[string]bool{}
 		for _, kind := range strings.Split(raw, ",") {
@@ -77,8 +77,11 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	ctx := conn.CloseRead(r.Context())
 
 	key := storeKey(owner, project)
-	sub, cancel := s.store.subscribe(key, q.Get("client"), sel, resources)
+	clientID := q.Get("client")
+	sub, cancel := s.store.subscribe(key, clientID, sel, resources)
 	defer cancel()
+	// A closed tab takes its live selection with it.
+	defer s.store.ClearPresence(key, clientID)
 
 	ping := time.NewTicker(30 * time.Second)
 	defer ping.Stop()

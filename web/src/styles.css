@@ -2206,3 +2206,31 @@ button.card-age {
 .card-links:last-child {
   margin-right: -3px;
 }
+
+/* Shared presence: a teammate has this card selected in their Me view. Their
+   avatar is a team-badge-sized circle hanging 60% off the card's LEFT border,
+   and the card gets a soft glow — deliberately quieter than the local
+   .card-selected outline, so the two never read as the same thing. */
+.card-presence-avatar {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--bg);
+  background: var(--bg-soft);
+  z-index: 3;
+}
+
+.card-peer-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.35);
+}
+
+/* The presence wrapper must not occupy a flex slot in the card row (its gap
+   would widen the space before the day counter); only its absolutely
+   positioned avatars exist visually. */
+.card-presence {
+  display: contents;
+}

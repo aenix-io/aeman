@@ -116,6 +116,13 @@ export interface NoteListResource {
   items: NoteResource[] | null;
 }
 
+/** PresenceResource is one user's live Me-view selection, broadcast over the
+ * watch ("" card = cleared). Ephemeral: never part of the board data. */
+export interface PresenceResource {
+  login?: string;
+  card?: string;
+}
+
 /** WatchFrame is one event on the /api/v1/watch WebSocket. */
 export interface WatchFrame {
   type?: "ADDED" | "MODIFIED" | "DELETED";

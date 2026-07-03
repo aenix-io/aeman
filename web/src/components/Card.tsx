@@ -60,6 +60,9 @@ interface CardProps {
   /** Resolve the card's description links server-side (GitHub issue/PR refs
    *  get their titles). The menu falls back to the local extraction. */
   onLoadLinks?: (card: CardModel) => Promise<CardLink[]>;
+  /** Logins of teammates whose Me view has this card selected right now: the
+   *  card highlights and their avatars hang off its right border. */
+  selectedBy?: string[];
 }
 
 const SEGMENTS = 10;
@@ -103,6 +106,7 @@ export function Card({
   onSetWeek,
   dimAvatar,
   onLoadLinks,
+  selectedBy,
 }: CardProps) {
   // Done is derived, not stored: a card with no stage at 100% renders as done
   // (legacy cards with a stored Done option still count too).
@@ -413,7 +417,7 @@ export function Card({
 
   return (
     <div
-      className={`card${selected ? " card-selected" : ""}${
+      className={`card${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
         card.plan ? ` card-plan-${card.plan}` : ""
       }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
         dimAvatar ? " card-dim-avatar" : ""
@@ -533,6 +537,20 @@ export function Card({
         {stageVisible && stageControl}
       </span>
 
+      {selectedBy && selectedBy.length > 0 && (
+        <span className="card-presence" aria-hidden="true">
+          {selectedBy.map((login, i) => (
+            <img
+              key={login}
+              className="card-presence-avatar"
+              style={{ left: `${-17 - i * 12}px` }}
+              src={avatarUrlFor(login, users?.[login])}
+              alt=""
+              title={`Selected by ${displayName(login, users?.[login])}`}
+            />
+          ))}
+        </span>
+      )}
       {card.createdAt && (
         <div
           className="card-age-wrap"
