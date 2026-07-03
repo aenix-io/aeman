@@ -2239,8 +2239,10 @@ button.card-age {
    right edge of the toolbar. */
 .me-today {
   margin-left: auto;
-/* Review-round badge: a small red number just left of the day counter on a
-   review card that has been sent back for another round (round 2+). */
+}
+
+/* Review-round badge: a dark-yellow circled number just left of the day counter
+   on a review card that has been sent back for another round (round 2+). */
 .card-review-round {
   flex: none;
   display: inline-flex;
