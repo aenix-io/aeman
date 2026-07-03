@@ -28,7 +28,8 @@ const domainBoardJSON = `{
        {"id":"p_wed","name":"Wed","color":"BLUE"},
        {"id":"p_fri","name":"Fri","color":"PURPLE"}]},
     {"__typename":"ProjectV2Field","id":"F_WEEK","name":"Week","dataType":"DATE"},
-    {"__typename":"ProjectV2Field","id":"F_REV","name":"Review Of","dataType":"TEXT"}
+    {"__typename":"ProjectV2Field","id":"F_REV","name":"Review Of","dataType":"TEXT"},
+    {"__typename":"ProjectV2Field","id":"F_ROUND","name":"Review Round","dataType":"NUMBER"}
   ]},
   "items":{"nodes":[
     {"id":"I_ORIG","type":"DRAFT_ISSUE","createdAt":"2026-06-20T10:00:00Z",
@@ -47,6 +48,7 @@ const domainBoardJSON = `{
      "content":{"__typename":"DraftIssue","id":"DI_REV","title":"review: Build feature","assignees":{"nodes":[{"login":"carol"}]}},
      "fieldValues":{"nodes":[
         {"__typename":"ProjectV2ItemFieldTextValue","text":"I_ORIG","field":{"id":"F_REV","name":"Review Of"}},
+        {"__typename":"ProjectV2ItemFieldNumberValue","number":3,"field":{"id":"F_ROUND","name":"Review Round"}},
         {"__typename":"ProjectV2ItemFieldTextValue","text":"alpha","field":{"id":"F_TEAM","name":"Team"}}
      ]}},
     {"id":"I_STATE","type":"DRAFT_ISSUE","createdAt":"2026-06-08T10:00:00Z",
@@ -72,8 +74,8 @@ func TestMapDomainBoard(t *testing.T) {
 	if len(b.Cards) != 2 {
 		t.Fatalf("want 2 visible cards (state card split out), got %d", len(b.Cards))
 	}
-	if len(b.Fields) != 9 {
-		t.Fatalf("want 9 fields, got %d", len(b.Fields))
+	if len(b.Fields) != 10 {
+		t.Fatalf("want 10 fields, got %d", len(b.Fields))
 	}
 
 	// The sprint-state card is split into SprintStates, not Cards.
@@ -116,6 +118,9 @@ func TestMapDomainBoard(t *testing.T) {
 	rev := cardOf(t, b, "I_REV")
 	if rev.ReviewOf != "I_ORIG" {
 		t.Errorf("review card ReviewOf = %q, want I_ORIG", rev.ReviewOf)
+	}
+	if rev.ReviewRound != 3 {
+		t.Errorf("review card ReviewRound = %d, want 3", rev.ReviewRound)
 	}
 }
 
