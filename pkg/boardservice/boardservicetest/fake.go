@@ -308,6 +308,15 @@ func (f *Backend) SetReviewOf(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
+// SetReviewRound records a review card's round counter.
+func (f *Backend) SetReviewRound(_ context.Context, _ board.Board, card board.Card, round int) error {
+	f.rec("SetReviewRound %s %d", card.ItemID, round)
+	if c := f.Card(card.ItemID); c != nil {
+		c.ReviewRound = round
+	}
+	return nil
+}
+
 // SetSprintState creates or updates a team's sprint pointer.
 func (f *Backend) SetSprintState(_ context.Context, _ board.Board, team, current, previous string) error {
 	f.rec("SetSprintState %s cur=%s prev=%s", team, current, previous)
