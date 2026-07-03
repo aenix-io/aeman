@@ -200,7 +200,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 type updateCardInput struct {
 	cardRef
 	Title       *string `json:"title,omitempty" jsonschema:"new title"`
-	Description *string `json:"description,omitempty" jsonschema:"new description; empty clears it"`
+	Description *string `json:"description,omitempty" jsonschema:"the card's shared free-form body (what the whole team sees; live-syncs onto the linked review card) — the right place for review or handoff context; empty clears it"`
 	Team        *string `json:"team,omitempty" jsonschema:"team to move to (joins its current sprint); empty is the no-team group"`
 	Zone        *string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave; empty clears it"`
 	Assignee    *string `json:"assignee,omitempty" jsonschema:"GitHub login; empty unassigns"`
@@ -542,7 +542,7 @@ func (h *server) listNotes(ctx context.Context, _ *mcp.CallToolRequest, in cardR
 // addNoteInput attaches a note to a card.
 type addNoteInput struct {
 	cardRef
-	Text string `json:"text" jsonschema:"note text (required)"`
+	Text string `json:"text" jsonschema:"work-log line, private to the assignee's Me-view day panel — not team-visible context (use update_card description for that) (required)"`
 }
 
 func (h *server) addNote(ctx context.Context, _ *mcp.CallToolRequest, in addNoteInput) (*mcp.CallToolResult, statusOutput, error) {
