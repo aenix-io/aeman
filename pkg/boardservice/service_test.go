@@ -252,6 +252,14 @@ func (f *fakeBackend) SetReviewOf(_ context.Context, _ board.Board, card board.C
 	return nil
 }
 
+func (f *fakeBackend) SetReviewRound(_ context.Context, _ board.Board, card board.Card, round int) error {
+	f.rec("SetReviewRound %s %d", card.ItemID, round)
+	if c := f.get(card.ItemID); c != nil {
+		c.ReviewRound = round
+	}
+	return nil
+}
+
 func (f *fakeBackend) SetSprintState(_ context.Context, _ board.Board, team, current, previous string) error {
 	f.rec("SetSprintState %s cur=%s prev=%s", team, current, previous)
 	st := f.b.SprintStates[team]
@@ -1387,5 +1395,149 @@ func TestRecurrentRejectedOnReviewCard(t *testing.T) {
 	// A non-review card can still go recurrent.
 	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageRecurrent); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Re-review reactivates the same reviewer's finished review card: the original
+// goes back on review (progress clamped off 100), the review card resets to 0,
+// and the round counter ticks up (round 1 implicit → 2 → 3).
+func TestReReviewReactivatesReviewCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", Progress: 100},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"}},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
+	svc := f2svc(f)
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	orig := f.get("orig")
+	if orig.Stage != board.StageReview || orig.Progress != 90 {
+		t.Fatalf("original back on review, clamped: %+v", orig)
+	}
+	rev := f.get("rev")
+	if rev.Progress != 0 || rev.ReviewRound != 2 || rev.ReviewOf != "orig" {
+		t.Fatalf("review card reactivated at round 2, progress 0: %+v", rev)
+	}
+	// A second re-review advances to round 3.
+	f.get("rev").Progress = 100
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.get("rev"); r.ReviewRound != 3 || r.Progress != 0 {
+		t.Fatalf("second re-review → round 3: %+v", r)
+	}
+}
+
+// Re-review to a DIFFERENT reviewer is not a reactivation: the finished card is
+// released as a record and a fresh review card is created (PR #20 behaviour).
+func TestReReviewDifferentReviewerDoesNotReactivate(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", Progress: 100},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"}},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
+	svc := f2svc(f)
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "carol", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.saw("SetReviewOf rev ") {
+		t.Fatal("the finished card is released for a different reviewer")
+	}
+	if f.count("SetReviewRound") != 0 {
+		t.Fatal("no round bump on a different-reviewer re-review")
+	}
+	if len(f.creates) != 1 || f.creates[0].Assignee != "carol" {
+		t.Fatalf("a fresh review card for the new reviewer: %+v", f.creates)
+	}
+}
+
+// Re-review via the STAGE menu (setting a passed original back to review, no
+// reviewer re-pick) also reactivates the completed review card.
+func TestReReviewViaStageMenuReactivates(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", Progress: 100},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, ReviewRound: 2, Assignees: []string{"bob"}},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
+	svc := f2svc(f)
+	if err := svc.SetStage(ctx, "acme", 1, "orig", board.StageReview); err != nil {
+		t.Fatal(err)
+	}
+	if o := f.get("orig"); o.Stage != board.StageReview {
+		t.Fatalf("original on review: %+v", o)
+	}
+	if r := f.get("rev"); r.Progress != 0 || r.ReviewRound != 3 {
+		t.Fatalf("review card reactivated (0, round 3): %+v", r)
+	}
+}
+
+// Entering review with no completed review card (a fresh send handled
+// elsewhere, or a still-in-progress review) does not reset anything.
+func TestEnterReviewNoCompletedCardIsNoop(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Progress: 40},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, Assignees: []string{"bob"}},
+	}, nil)
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageReview); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetReviewRound") != 0 || f.get("rev").Progress != 40 {
+		t.Fatal("an in-progress review card is left alone when the original enters review")
+	}
+}
+
+// A review card is created in the SAME sprint as the card it reviews, not the
+// team's current pointer.
+func TestSendToReviewUsesOriginalSprint(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", SprintStart: "2026-01-01"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-08", ItemID: "s1"}})
+	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "bob", "2026-01-08")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rev.SprintStart != "2026-01-01" {
+		t.Fatalf("review card sprintStart = %q, want the original's 2026-01-01", rev.SprintStart)
+	}
+}
+
+// Carry-over leaves a completed review card behind, pinned to the closing
+// sprint's day, so it does not linger on the new sprint (and its unfinished
+// original carries).
+func TestCarryOverPinsCompletedReviewCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Progress: 50, StartDate: "2026-07-03", Day: "2026-07-03", SprintStart: "2026-07-02"},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"},
+			StartDate: "2026-07-03", Day: "2026-07-03", SprintStart: "2026-07-02"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-07-02", ItemID: "s1"}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Carried != 1 {
+		t.Fatalf("carried = %d, want 1 (only the original)", rep.Carried)
+	}
+	r := f.get("rev")
+	if r.StartDate != "2026-07-02" || r.Day != "2026-07-02" || r.SprintStart != "2026-07-02" {
+		t.Fatalf("completed review card must be pinned to the closing sprint: %+v", r)
+	}
+}
+
+// A re-review in the new sprint pulls the review card into the original's
+// current sprint and onto today, and bumps the round counter.
+func TestReReviewRelocatesToNewSprintWithCounter(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Progress: 50, SprintStart: today},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, ReviewRound: 2,
+			Assignees: []string{"bob"}, StartDate: "2026-07-02", Day: "2026-07-02", SprintStart: "2026-07-02"},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageReview); err != nil {
+		t.Fatal(err)
+	}
+	r := f.get("rev")
+	if r.SprintStart != today || r.StartDate != today || r.Day != today {
+		t.Fatalf("re-review must relocate the review card to the current sprint/today: %+v", r)
+	}
+	if r.Progress != 0 || r.ReviewRound != 3 {
+		t.Fatalf("re-review resets to 0 and bumps the round: %+v", r)
 	}
 }

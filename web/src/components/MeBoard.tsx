@@ -4,6 +4,7 @@ import {
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
+import { isWorkable } from "../stages";
 import type {
   Board,
   Card as CardModel,
@@ -96,6 +97,10 @@ export function MeBoard({
   // Eye toggle by the team chips: when on, show only the selected teams' cards.
   // Deliberately not persisted — resets to off (show all) on reload.
   const [teamFocus, setTeamFocus] = useState(false);
+  // Focus toggle (the meditation glyph by the View-as picker): show only cards
+  // that can be worked on right now — drops locked/review/done. Ephemeral,
+  // resets to off on reload, like the team-focus eye.
+  const [focus, setFocus] = useState(false);
   // Impersonate: view (and act on) the board as another person.
   const [impersonated, setImpersonated] = useState<string | null>(null);
   const [impOpen, setImpOpen] = useState(false);
@@ -153,6 +158,9 @@ export function MeBoard({
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
+        if (focus && !isWorkable(c)) {
+          return false;
+        }
         if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
           return false;
         }
@@ -185,7 +193,7 @@ export function MeBoard({
           (!c.startDate || c.startDate <= selectedDate)
         );
       }),
-    [mine, board, selectedDate, teamFocus, teamFilter],
+    [mine, board, selectedDate, teamFocus, teamFilter, focus],
   );
 
   const byZone = useMemo(() => {
@@ -336,11 +344,15 @@ export function MeBoard({
     }
     patchCard(card.itemId, patch);
     const leavingReview = card.stage === "review" && stage !== "review";
+    // Entering review re-review reactivates a completed linked review card
+    // server-side (progress → 0, round bumped); re-list so it converges.
+    const enteringReview = stage === "review" && card.stage !== "review";
+    const hasLinkedReview = board.cards.some((c) => c.reviewOf === card.itemId);
     void provider
       .patchCard(board, card.itemId, { stage: stage ?? "" })
       .then((updated) => {
         addCard(updated);
-        if (leavingReview || card.reviewOf) {
+        if (leavingReview || (enteringReview && hasLinkedReview) || card.reviewOf) {
           reload();
         }
       })
@@ -494,7 +506,14 @@ export function MeBoard({
     patchCard(reviewCard.itemId, { assignees: [login] });
     void provider
       .sendToReview(board, card.itemId, login, selectedDate)
-      .then(addCard)
+      .then((updated) => {
+        addCard(updated);
+        // Re-sending a passed card to the same reviewer reactivates their
+        // review card server-side (progress reset to 0, round bumped, the
+        // original put back on review). Those effects touch more than the
+        // returned card, so re-list to converge them in the UI.
+        reload();
+      })
       .catch((err: unknown) => {
         patchCard(reviewCard.itemId, { assignees: prev });
         onError(errMessage(err));
@@ -797,11 +816,12 @@ export function MeBoard({
           canManage={false}
           noTeamChip
           filterToggle={{ on: teamFocus, onToggle: () => setTeamFocus((v) => !v) }}
+          focusToggle={{ on: focus, onToggle: () => setFocus((v) => !v) }}
         />
 
         <button
           type="button"
-          className="btn"
+          className="btn me-today"
           onClick={() => setSelectedDate(todayIso())}
           disabled={selectedDate === todayIso()}
           title="Jump to today"
