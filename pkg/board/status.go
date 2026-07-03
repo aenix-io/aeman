@@ -22,6 +22,17 @@ func ClampProgress(stage StageKey, value int) int {
 // 100% card that is on review or locked is still unfinished, so it is NOT
 // complete. Carry Over and Carry Week use this so finished cards are not
 // dragged forward.
+// Workable reports whether a card can be picked up and worked on right now: it
+// is neither finished nor parked awaiting someone else. It excludes done
+// (complete) cards, cards on review (waiting on a reviewer) and locked
+// (blocked) cards, keeping in-progress, not-yet-started and recurrent ones.
+func Workable(c Card) bool {
+	if Complete(c.Stage, c.Progress) {
+		return false
+	}
+	return c.Stage != StageLocked && c.Stage != StageReview
+}
+
 func Complete(stage StageKey, progress int) bool {
 	if stage == StageDone {
 		return true

@@ -115,6 +115,8 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
 - `?view=me&user=octocat&day=` — the personal day view (empty user = everyone).
 - `?view=weekly&team=platform&week=2026-06-29` — the weekly plan (week = a Monday, defaults to the current week); the response also carries `weekly: {progress}` (recurrent cards excluded).
 - Field selectors — `stage=`, `zone=`, `assignee=` — compose with a view or apply to all cards.
+- `focus=true` — keep only cards workable right now (drops done, on-review and locked); the "what can I pick up now" filter.
+- On `view=me` (and the default all-cards list), `team=` filters the personal board to a team — a comma-separated set (`team=marketing,portal`) matches any of them.
 
 ### Live updates: list + watch
 

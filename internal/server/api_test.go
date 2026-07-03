@@ -448,6 +448,31 @@ func TestAPICreateCardFromGitHubURL(t *testing.T) {
 	}
 }
 
+func TestAPIListCardsFocusQuery(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "wip", Team: "alpha", Progress: 40},
+		{ItemID: "rev", Team: "alpha", Stage: board.StageReview, Progress: 50},
+		{ItemID: "done", Team: "alpha", Progress: 100},
+		{ItemID: "beta", Team: "beta", Progress: 40},
+	}, nil)
+	srv := apiServer(t, Options{}, fake)
+	// focus=true drops review/done, keeps workable.
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&focus=true", "")
+	got := map[string]bool{}
+	for _, c := range decodeList(t, rec).Items {
+		got[c.Metadata.UID] = true
+	}
+	if !got["wip"] || !got["beta"] || got["rev"] || got["done"] {
+		t.Fatalf("focus list = %v", got)
+	}
+	// comma-separated team set filters the default list.
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&team=alpha&focus=true", "")
+	only := decodeList(t, rec).Items
+	if len(only) != 1 || only[0].Metadata.UID != "wip" {
+		t.Fatalf("team+focus = %v", only)
+	}
+}
+
 func TestAPIReReviewReactivatesWithRound(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Team: "alpha", Title: "Work", Progress: 50, SprintStart: "2026-06-20"},
