@@ -332,10 +332,7 @@ button {
 .zone-area {
   display: flex;
   align-items: stretch;
-  /* The gutter between the spine and the cards fits a presence avatar (16px):
-     a teammate's selection mark lives there, right of the spine, fully left
-     of the card. */
-  gap: 16px;
+  gap: 6px;
   border-left: 3px solid #ccc;
   border-radius: 0;
   padding: 5px 6px;
