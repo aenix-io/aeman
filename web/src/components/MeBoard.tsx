@@ -812,7 +812,7 @@ export function MeBoard({
 
         <button
           type="button"
-          className="btn"
+          className="btn me-today"
           onClick={() => setSelectedDate(todayIso())}
           disabled={selectedDate === todayIso()}
           title="Jump to today"
