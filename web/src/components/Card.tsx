@@ -162,7 +162,10 @@ export function Card({
 
   // While dragging the handle, show the snapped drag value; otherwise the card's.
   const shown = dragValue ?? value;
-  const filled = Math.round(shown / 10);
+  // Fill whole 10% segments by flooring, so an off-grid value the slider never
+  // produces (e.g. 95 set via MCP/API) reads as not-yet-done instead of rounding
+  // up to a full bar — only a true 100% fills every segment.
+  const filled = Math.floor(shown / 10);
 
   // Progress is changed only by dragging the handle, which snaps to 10% steps.
   const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
