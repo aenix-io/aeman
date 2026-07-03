@@ -494,7 +494,14 @@ export function MeBoard({
     patchCard(reviewCard.itemId, { assignees: [login] });
     void provider
       .sendToReview(board, card.itemId, login, selectedDate)
-      .then(addCard)
+      .then((updated) => {
+        addCard(updated);
+        // Re-sending a passed card to the same reviewer reactivates their
+        // review card server-side (progress reset to 0, round bumped, the
+        // original put back on review). Those effects touch more than the
+        // returned card, so re-list to converge them in the UI.
+        reload();
+      })
       .catch((err: unknown) => {
         patchCard(reviewCard.itemId, { assignees: prev });
         onError(errMessage(err));
