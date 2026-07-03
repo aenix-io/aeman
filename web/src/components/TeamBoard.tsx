@@ -765,13 +765,15 @@ export function TeamBoard({
   // clears a legacy stored done below full, and — when this is a review card —
   // drives the original's review stage. The optimistic patch mirrors the
   // clamps; the re-list converges the linked original.
-  // Who has this card selected in their Me view right now (excluding me).
+  // Who has this card selected in their Me view right now. Own selections
+  // from another window count too — the map only ever carries OTHER tabs'
+  // marks (this tab's watch echo is suppressed), so nothing self-duplicates.
   const selectedByFor = (card: CardModel): string[] | undefined => {
     if (!presence) {
       return undefined;
     }
     const logins = Object.entries(presence)
-      .filter(([login, uid]) => uid === card.itemId && login !== me)
+      .filter(([, uid]) => uid === card.itemId)
       .map(([login]) => login);
     return logins.length > 0 ? logins : undefined;
   };
