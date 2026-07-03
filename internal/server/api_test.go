@@ -464,3 +464,50 @@ func TestAPIRecurrentOnReviewCardRejected(t *testing.T) {
 		t.Fatalf("recurrent on a normal card must be OK, got %d", rec.Code)
 	}
 }
+
+func TestAPIListCardsFocusQuery(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "wip", Team: "alpha", Progress: 40},
+		{ItemID: "rev", Team: "alpha", Stage: board.StageReview, Progress: 50},
+		{ItemID: "done", Team: "alpha", Progress: 100},
+		{ItemID: "beta", Team: "beta", Progress: 40},
+	}, nil)
+	srv := apiServer(t, Options{}, fake)
+	// focus=true drops review/done, keeps workable.
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&focus=true", "")
+	got := map[string]bool{}
+	for _, c := range decodeList(t, rec).Items {
+		got[c.Metadata.UID] = true
+	}
+	if !got["wip"] || !got["beta"] || got["rev"] || got["done"] {
+		t.Fatalf("focus list = %v", got)
+	}
+	// comma-separated team set filters the default list.
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&team=alpha&focus=true", "")
+	only := decodeList(t, rec).Items
+	if len(only) != 1 || only[0].Metadata.UID != "wip" {
+		t.Fatalf("team+focus = %v", only)
+	}
+}
+
+func TestAPIReReviewReactivatesWithRound(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", Title: "Work", Progress: 50, SprintStart: "2026-06-20"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	// send to review
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/actions/send-to-review?owner=acme&project=1",
+		`{"reviewer":"bob","day":"2026-06-20"}`)
+	rev := decodeCard(t, rec)
+	revUID := rev.Metadata.UID
+	// reviewer completes the review
+	do(t, srv, http.MethodPatch, "/api/v1/cards/"+revUID+"?owner=acme&project=1", `{"progress":100}`)
+	// re-review to the same reviewer reactivates: progress 0, round 2
+	do(t, srv, http.MethodPost, "/api/v1/cards/c1/actions/send-to-review?owner=acme&project=1",
+		`{"reviewer":"bob","day":"2026-06-20"}`)
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards/"+revUID+"?owner=acme&project=1", "")
+	c := decodeCard(t, rec)
+	if c.Spec.Progress != 0 || c.Status.ReviewRound != 2 {
+		t.Fatalf("re-review resource = progress %d round %d, want 0 / 2", c.Spec.Progress, c.Status.ReviewRound)
+	}
+}

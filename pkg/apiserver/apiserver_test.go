@@ -174,3 +174,42 @@ func TestOrderingResource(t *testing.T) {
 		t.Fatalf("ordering = %+v", o)
 	}
 }
+
+// Focus keeps only workable cards; the me view's team accepts a comma set.
+func TestSelectorFocusAndMultiTeam(t *testing.T) {
+	b := board.Board{Cards: []board.Card{
+		{ItemID: "wip", Team: "alpha", Progress: 40},
+		{ItemID: "todo", Team: "alpha"},
+		{ItemID: "rev", Team: "alpha", Stage: board.StageReview, Progress: 50},
+		{ItemID: "locked", Team: "beta", Stage: board.StageLocked, Progress: 50},
+		{ItemID: "done", Team: "beta", Progress: 100},
+		{ItemID: "recur", Team: "gamma", Stage: board.StageRecurrent, Progress: 30},
+	}}
+	ids := func(sel Selector) []string {
+		out := []string{}
+		for _, c := range FilterCards(b, sel) {
+			out = append(out, c.ItemID)
+		}
+		return out
+	}
+	// Focus drops review/locked/done, keeps wip/todo/recurrent.
+	got := ids(Selector{Focus: true})
+	want := []string{"wip", "todo", "recur"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("focus = %v, want %v", got, want)
+	}
+	// Comma-separated team set on the me view (no sprint gating here: default view).
+	got = ids(Selector{Team: "alpha,beta"})
+	if !reflect.DeepEqual(got, []string{"wip", "todo", "rev", "locked", "done"}) {
+		t.Fatalf("multi-team = %v", got)
+	}
+	// Focus + one team.
+	if got := ids(Selector{Team: "alpha", Focus: true}); !reflect.DeepEqual(got, []string{"wip", "todo"}) {
+		t.Fatalf("team+focus = %v", got)
+	}
+	// focus= query parsing.
+	sel, _ := ParseSelector(map[string][]string{"focus": {"true"}})
+	if !sel.Focus {
+		t.Fatal("focus=true must parse")
+	}
+}
