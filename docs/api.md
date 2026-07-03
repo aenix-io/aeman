@@ -173,8 +173,8 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over?owner=acme
 | `get_board` | Board identity and team roster. |
 | `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`). |
 | `get_card` / `list_notes` / `list_links` | One card; its notes; its description links (GitHub refs resolved with titles). |
-| `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). |
-| `update_card` | The PATCH: only provided fields apply, empty clears. |
+| `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). A title that is only a GitHub issue/PR URL is auto-filled from that item. |
+| `update_card` | The PATCH: only provided fields apply, empty clears. The `description` is the card's shared body — also the place for reference links: URLs are surfaced on the card, GitHub issue/PR links resolved to titles (`list_links`). |
 | `delete_card` / `remove_card` | Hard delete; the smart × (`from: grid\|plan`). |
 | `move_card` / `defer_card` | Reorder; push the scheduled day ahead. |
 | `send_to_review` / `remove_reviewer` | The review-card cycle (send reassigns when a review card exists). |
