@@ -344,11 +344,15 @@ export function MeBoard({
     }
     patchCard(card.itemId, patch);
     const leavingReview = card.stage === "review" && stage !== "review";
+    // Entering review re-review reactivates a completed linked review card
+    // server-side (progress → 0, round bumped); re-list so it converges.
+    const enteringReview = stage === "review" && card.stage !== "review";
+    const hasLinkedReview = board.cards.some((c) => c.reviewOf === card.itemId);
     void provider
       .patchCard(board, card.itemId, { stage: stage ?? "" })
       .then((updated) => {
         addCard(updated);
-        if (leavingReview || card.reviewOf) {
+        if (leavingReview || (enteringReview && hasLinkedReview) || card.reviewOf) {
           reload();
         }
       })
@@ -502,7 +506,14 @@ export function MeBoard({
     patchCard(reviewCard.itemId, { assignees: [login] });
     void provider
       .sendToReview(board, card.itemId, login, selectedDate)
-      .then(addCard)
+      .then((updated) => {
+        addCard(updated);
+        // Re-sending a passed card to the same reviewer reactivates their
+        // review card server-side (progress reset to 0, round bumped, the
+        // original put back on review). Those effects touch more than the
+        // returned card, so re-list to converge them in the UI.
+        reload();
+      })
       .catch((err: unknown) => {
         patchCard(reviewCard.itemId, { assignees: prev });
         onError(errMessage(err));
@@ -810,7 +821,7 @@ export function MeBoard({
 
         <button
           type="button"
-          className="btn"
+          className="btn me-today"
           onClick={() => setSelectedDate(todayIso())}
           disabled={selectedDate === todayIso()}
           title="Jump to today"

@@ -69,6 +69,7 @@ export interface CardResource {
     complete?: boolean;
     inProgress?: boolean;
     reviewedBy?: string;
+    reviewRound?: number;
   };
 }
 
@@ -163,6 +164,7 @@ export function resourceToCard(res: CardResource): Card {
     stage: spec.stage ? STAGE_KEYS[spec.stage] : undefined,
     team: spec.team || undefined,
     reviewOf: spec.reviewOf || undefined,
+    reviewRound: res.status?.reviewRound,
     day: dates.end || undefined,
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
