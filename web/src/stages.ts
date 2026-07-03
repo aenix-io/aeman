@@ -23,6 +23,26 @@ export const STAGE_ORDER: StageKey[] = ["locked", "review", "recurrent", "done"]
 /** Progress bar colour for a stage; the default (no stage) bar is green. */
 export const DEFAULT_BAR_COLOR = "#3fb950";
 
+/** isComplete mirrors board.Complete: a card is finished when it has an explicit
+ *  done stage, or is 100% with no stage, or is a recurrent card at 100%. */
+export function isComplete(card: { stage?: StageKey; progress?: number }): boolean {
+  if (card.stage === "done") {
+    return true;
+  }
+  const p = card.progress ?? 0;
+  return p >= 100 && (!card.stage || card.stage === "recurrent");
+}
+
+/** isWorkable mirrors board.Workable: a card can be picked up right now when it
+ *  is neither finished nor parked awaiting someone else — it drops done,
+ *  on-review and locked cards, keeping in-progress, not-started and recurrent. */
+export function isWorkable(card: { stage?: StageKey; progress?: number }): boolean {
+  if (isComplete(card)) {
+    return false;
+  }
+  return card.stage !== "locked" && card.stage !== "review";
+}
+
 /** isInProgress reports the implicit "In Progress" status: a card with no stored
  *  stage whose progress sits in [10, 90] inclusive. It is deliberately NOT a
  *  StageKey — there is no stored option for it. */

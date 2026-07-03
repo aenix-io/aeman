@@ -152,3 +152,11 @@ plan progress (V2). Each is pinned by the 🆕 tests above.
 | R1 | A review card the reviewer worked on (progress > 0) is never auto-removed: leaving review / done keeps it untouched, link intact | boardservice.cancelLinkedReview | ✅ TestStageOffReviewKeepsWorkedReviewCard |
 | R2 | Reassigning a reviewer who worked keeps their card (released from the link, stays behind on the next carry) and spawns a fresh review card; an untouched card is handed over in place | boardservice.ReassignReviewer | ✅ TestReassignWorkedReviewerSpawnsNewCard / InPlace |
 | R3 | Carry-over moves a review card only while the review is still required: original unfinished on the review stage + a reviewer assigned; stale review work stays behind | boardservice.CarryOver | ✅ TestCarryOverReviewCardsOnlyWhileRequired |
+
+## Focus filter (2026-07-03)
+
+| # | Rule | Lives in | Test |
+| --- | --- | --- | --- |
+| F1 | Workable = not done, not on-review, not locked (keeps in-progress, not-started, recurrent<100) | board.Workable | ✅ apiserver TestSelectorFocusAndMultiTeam |
+| F2 | `focus=true` selector keeps only workable cards; shared by the Me view toggle, the HTTP LIST and MCP list_cards | apiserver.Selector.Focus + FilterCards | ✅ TestSelectorFocusAndMultiTeam |
+| F3 | On view=me / default, `team=` filters by team as a comma-separated set (the eye toggle over the selected chips) | apiserver.FilterCards teamInSet | ✅ TestSelectorFocusAndMultiTeam |

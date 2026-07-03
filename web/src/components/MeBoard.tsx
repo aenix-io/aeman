@@ -4,6 +4,7 @@ import {
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
+import { isWorkable } from "../stages";
 import type {
   Board,
   Card as CardModel,
@@ -96,6 +97,10 @@ export function MeBoard({
   // Eye toggle by the team chips: when on, show only the selected teams' cards.
   // Deliberately not persisted — resets to off (show all) on reload.
   const [teamFocus, setTeamFocus] = useState(false);
+  // Focus toggle (the meditation glyph by the View-as picker): show only cards
+  // that can be worked on right now — drops locked/review/done. Ephemeral,
+  // resets to off on reload, like the team-focus eye.
+  const [focus, setFocus] = useState(false);
   // Impersonate: view (and act on) the board as another person.
   const [impersonated, setImpersonated] = useState<string | null>(null);
   const [impOpen, setImpOpen] = useState(false);
@@ -153,6 +158,9 @@ export function MeBoard({
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
+        if (focus && !isWorkable(c)) {
+          return false;
+        }
         if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
           return false;
         }
@@ -185,7 +193,7 @@ export function MeBoard({
           (!c.startDate || c.startDate <= selectedDate)
         );
       }),
-    [mine, board, selectedDate, teamFocus, teamFilter],
+    [mine, board, selectedDate, teamFocus, teamFilter, focus],
   );
 
   const byZone = useMemo(() => {
@@ -872,6 +880,19 @@ export function MeBoard({
             )}
           </Dropdown>
         </div>
+
+        <button
+          type="button"
+          className={`btn btn-icon me-focus${focus ? " me-focus-active" : ""}`}
+          onClick={() => setFocus((v) => !v)}
+          aria-pressed={focus}
+          title="Focus: only cards you can work on now (hide locked / on-review / done)"
+        >
+          <svg width="17" height="17" viewBox="-351 153 256 256" fill="currentColor" aria-hidden="true">
+            <circle cx="-222.3" cy="188.5" r="31.1" />
+            <path d="M-106.6,332.4c-0.4-0.6-0.9-1.1-1.4-1.6l-35.3-32.8l-22.8-49c-6.2-12.5-15.2-20.3-28.6-20.3h-57.5c-13.5,0-22.4,7.8-28.6,20.3l-22.8,49l-35.3,32.8c-0.5,0.5-1,1.1-1.4,1.6c-3.6,3.1-5.9,7.7-5.9,12.8c0,9.3,7.6,16.9,16.9,16.9c5.5,0,10.3-2.6,13.4-6.7c0.3-0.2,0.6-0.5,0.8-0.7l37.4-34.8c1.4-1.4,2.5-3,3.3-4.8l11.9-25.5l-0.6,45l-52.2,28.4c-9.5,5.2-14,16.4-10.6,26.7c3.4,10.3,13.6,16.7,24.3,15.2l78.1-20.2l78.1,20.2c10.7,1.5,21-4.9,24.3-15.2c3.4-10.3-1.1-21.5-10.6-26.7l-52.2-28.5l-0.6-45l11.9,25.5c0.8,1.8,2,3.4,3.3,4.8l37.4,34.8c0.3,0.3,0.5,0.5,0.8,0.7c3.1,4,7.9,6.7,13.4,6.7c9.3,0,16.9-7.6,16.9-16.9C-100.7,340-103,335.5-106.6,332.4z" />
+          </svg>
+        </button>
       </div>
 
       <div className="me-panes">
