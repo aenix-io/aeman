@@ -71,9 +71,10 @@ var domainFieldSpecs = map[string]domainFieldSpec{
 		{"Wed", "BLUE", "By Wednesday"},
 		{"Fri", "PURPLE", "By Friday"},
 	}},
-	"week":     {name: "Week", dataType: "DATE"},
-	"team":     {name: "Team", dataType: "TEXT"},
-	"reviewOf": {name: "Review Of", dataType: "TEXT"},
+	"week":        {name: "Week", dataType: "DATE"},
+	"team":        {name: "Team", dataType: "TEXT"},
+	"reviewOf":    {name: "Review Of", dataType: "TEXT"},
+	"reviewRound": {name: "Review Round", dataType: "NUMBER"},
 }
 
 // zoneGHColors maps each Ford zone onto the GitHub single-select option colours
@@ -364,6 +365,16 @@ func (c *Client) SetProgress(ctx context.Context, b board.Board, card board.Card
 	}
 	return c.graphql(ctx, setNumberMutation,
 		map[string]any{"project": b.ID, "item": card.ItemID, "field": field.ID, "value": float64(progress)}, nil)
+}
+
+// SetReviewRound records a review card's review-round counter.
+func (c *Client) SetReviewRound(ctx context.Context, b board.Board, card board.Card, round int) error {
+	field, err := c.ensureDomainField(ctx, b, "reviewRound")
+	if err != nil {
+		return err
+	}
+	return c.graphql(ctx, setNumberMutation,
+		map[string]any{"project": b.ID, "item": card.ItemID, "field": field.ID, "value": float64(round)}, nil)
 }
 
 // SetPlan sets (or clears) the weekly-plan band.

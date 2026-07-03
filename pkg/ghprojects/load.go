@@ -250,6 +250,8 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		card.Team = v.Text
 	case roles.ReviewOf != nil && id == roles.ReviewOf.ID && v.Text != "":
 		card.ReviewOf = v.Text
+	case roles.ReviewRound != nil && id == roles.ReviewRound.ID && v.Number != nil:
+		card.ReviewRound = int(*v.Number)
 	}
 }
 
@@ -269,6 +271,7 @@ type domainFieldRoles struct {
 	Stage       *board.ProjectField
 	Team        *board.ProjectField
 	ReviewOf    *board.ProjectField
+	ReviewRound *board.ProjectField
 }
 
 // domainRoleAliases maps each role to the field names (case-insensitive) that
@@ -287,6 +290,7 @@ var domainRoleAliases = map[string][]string{
 	"stage":       {"stage", "состояние"},
 	"team":        {"team", "команда"},
 	"reviewOf":    {"review of", "reviewof"},
+	"reviewRound": {"review round", "reviewround"},
 }
 
 // domainRoles maps the board's fields onto the typed roles by name.
@@ -320,6 +324,8 @@ func domainRoles(fields []board.ProjectField) domainFieldRoles {
 			r.Team = f
 		case r.ReviewOf == nil && domainMatchesAlias("reviewOf", name):
 			r.ReviewOf = f
+		case r.ReviewRound == nil && domainMatchesAlias("reviewRound", name):
+			r.ReviewRound = f
 		}
 	}
 	return r
@@ -352,6 +358,8 @@ func (r domainFieldRoles) get(role string) *board.ProjectField {
 		return r.Team
 	case "reviewOf":
 		return r.ReviewOf
+	case "reviewRound":
+		return r.ReviewRound
 	default:
 		return nil
 	}
