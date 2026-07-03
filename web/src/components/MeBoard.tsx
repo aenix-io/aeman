@@ -721,6 +721,16 @@ export function MeBoard({
           filterToggle={{ on: teamFocus, onToggle: () => setTeamFocus((v) => !v) }}
         />
 
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setSelectedDate(todayIso())}
+          disabled={selectedDate === todayIso()}
+          title="Jump to today"
+        >
+          Today
+        </button>
+
         <div className="field field-inline impersonate" ref={impRef}>
           <button
             type="button"
