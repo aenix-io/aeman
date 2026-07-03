@@ -1429,3 +1429,37 @@ func TestReReviewDifferentReviewerDoesNotReactivate(t *testing.T) {
 		t.Fatalf("a fresh review card for the new reviewer: %+v", f.creates)
 	}
 }
+
+// Re-review via the STAGE menu (setting a passed original back to review, no
+// reviewer re-pick) also reactivates the completed review card.
+func TestReReviewViaStageMenuReactivates(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", Progress: 100},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, ReviewRound: 2, Assignees: []string{"bob"}},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
+	svc := f2svc(f)
+	if err := svc.SetStage(ctx, "acme", 1, "orig", board.StageReview); err != nil {
+		t.Fatal(err)
+	}
+	if o := f.get("orig"); o.Stage != board.StageReview {
+		t.Fatalf("original on review: %+v", o)
+	}
+	if r := f.get("rev"); r.Progress != 0 || r.ReviewRound != 3 {
+		t.Fatalf("review card reactivated (0, round 3): %+v", r)
+	}
+}
+
+// Entering review with no completed review card (a fresh send handled
+// elsewhere, or a still-in-progress review) does not reset anything.
+func TestEnterReviewNoCompletedCardIsNoop(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Progress: 40},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, Assignees: []string{"bob"}},
+	}, nil)
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageReview); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetReviewRound") != 0 || f.get("rev").Progress != 40 {
+		t.Fatal("an in-progress review card is left alone when the original enters review")
+	}
+}

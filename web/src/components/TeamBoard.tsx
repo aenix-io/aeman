@@ -829,11 +829,15 @@ export function TeamBoard({
     }
     patchCard(card.itemId, patch);
     const leavingReview = card.stage === "review" && stage !== "review";
+    // Entering review re-review reactivates a completed linked review card
+    // server-side (progress → 0, round bumped); re-list so it converges.
+    const enteringReview = stage === "review" && card.stage !== "review";
+    const hasLinkedReview = board.cards.some((c) => c.reviewOf === card.itemId);
     void provider
       .patchCard(board, card.itemId, { stage: stage ?? "" })
       .then((updated) => {
         addCard(updated);
-        if (leavingReview || card.reviewOf) {
+        if (leavingReview || (enteringReview && hasLinkedReview) || card.reviewOf) {
           reload();
         }
       })
