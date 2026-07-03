@@ -17,6 +17,10 @@ var ErrCardNotFound = errors.New("card not found")
 // ErrNoteNotFound is returned when a note id is not on the loaded card.
 var ErrNoteNotFound = errors.New("note not found")
 
+// ErrInvalidStage is returned when a stage cannot apply to a card — a review
+// card cannot be made recurrent (a review is one-off, not a repeating task).
+var ErrInvalidStage = errors.New("invalid stage for this card")
+
 // Service performs aeman's board actions. It is stateless: every method loads
 // the board through the backend, computes the change with internal/board logic,
 // then applies it through the backend setters.
@@ -654,6 +658,10 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
+	}
+	// A review card is auxiliary and one-off: it cannot be made recurrent.
+	if stage == board.StageRecurrent && card.ReviewOf != "" {
+		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)
 	}
 	if err := s.applyStage(ctx, b, card, stage); err != nil {
 		return err
