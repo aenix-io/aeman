@@ -395,8 +395,10 @@ export function Card({
           In Progress
         </button>
         {STAGE_ORDER.map((stage) =>
-          // A review card cannot be put on the "review" stage itself.
-          stage === "review" && card.reviewOf ? null : (
+          // A review card is auxiliary: it cannot be put on the "review" stage
+          // itself, nor made "recurrent" (a repeating task makes no sense for a
+          // one-off review).
+          (stage === "review" || stage === "recurrent") && card.reviewOf ? null : (
             <button
               key={stage}
               type="button"

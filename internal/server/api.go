@@ -966,7 +966,8 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent):
+	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),
+		errors.Is(err, boardservice.ErrInvalidStage):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())
