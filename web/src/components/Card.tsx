@@ -551,6 +551,14 @@ export function Card({
           ))}
         </span>
       )}
+      {card.reviewOf && (card.reviewRound ?? 0) >= 2 && (
+        <span
+          className="card-review-round"
+          title={`Round ${card.reviewRound} of review`}
+        >
+          {card.reviewRound}
+        </span>
+      )}
       {card.createdAt && (
         <div
           className="card-age-wrap"
