@@ -561,6 +561,74 @@ export function MeBoard({
     [byZone],
   );
 
+  // Keyboard navigation over the visible day list (zone bands top to bottom):
+  // arrows move the selection, Shift+arrows reorder the selected card, Escape
+  // deselects. Ignored while typing in an input.
+  const flatCards = useMemo(() => groups.flatMap((g) => g.cards), [groups]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "Escape") {
+        setSelectedCardId(null);
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") {
+        return;
+      }
+      if (flatCards.length === 0) {
+        return;
+      }
+      e.preventDefault();
+      const idx = flatCards.findIndex((c) => c.itemId === selectedCardId);
+      const dir = e.key === "ArrowDown" ? 1 : -1;
+      if (!e.shiftKey) {
+        const next =
+          idx < 0
+            ? dir === 1
+              ? 0
+              : flatCards.length - 1
+            : Math.min(Math.max(idx + dir, 0), flatCards.length - 1);
+        setSelectedCardId(flatCards[next].itemId);
+        return;
+      }
+      // Shift+arrow: reorder the selected card past its visible neighbour.
+      if (idx < 0) {
+        return;
+      }
+      const swap = idx + dir;
+      if (swap < 0 || swap >= flatCards.length) {
+        return;
+      }
+      const card = flatCards[idx];
+      const afterId =
+        dir === 1
+          ? flatCards[swap].itemId
+          : swap - 1 >= 0
+            ? flatCards[swap - 1].itemId
+            : null;
+      const order = board.cards
+        .map((c) => c.itemId)
+        .filter((id) => id !== card.itemId);
+      const pos = afterId ? order.indexOf(afterId) + 1 : 0;
+      order.splice(pos, 0, card.itemId);
+      reorderCards(order);
+      void provider.moveCard(board, card.itemId, afterId).catch((err: unknown) => {
+        reload();
+        onError(errMessage(err));
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
+
   const handleDrop = ({ card, fromMeta, toMeta, groups: g }: DropResult<MeMeta>) => {
     const zoneChanged = fromMeta.zone !== toMeta.zone;
 
