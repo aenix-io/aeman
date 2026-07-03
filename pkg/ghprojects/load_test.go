@@ -233,3 +233,33 @@ func cardOf(t *testing.T, b board.Board, itemID string) board.Card {
 	t.Fatalf("card %q not found", itemID)
 	return board.Card{}
 }
+
+// A draft-log note may span multiple lines: everything up to the next
+// "- [timestamp]" header belongs to its body, and the edit/delete rebuild
+// round-trips it unchanged.
+func TestDraftLogMultilineNotes(t *testing.T) {
+	body := "context\n\n<!-- aeman:log -->\n" +
+		"- [2026-07-02T18:46:58Z] Review list (day one).\n" +
+		"\nMerged:\n- repo#1011 — roles catalog\n- repo#1013 — subject matching\n" +
+		"- [2026-07-03T07:52:38Z] Second note.\nWith one continuation line."
+	desc, notes := domainParseDraftBody(body, "item1")
+	if desc != "context" {
+		t.Fatalf("description = %q", desc)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("notes = %d, want 2", len(notes))
+	}
+	want0 := "Review list (day one).\n\nMerged:\n- repo#1011 — roles catalog\n- repo#1013 — subject matching"
+	if notes[0].Body != want0 {
+		t.Fatalf("note[0] = %q", notes[0].Body)
+	}
+	if notes[1].Body != "Second note.\nWith one continuation line." {
+		t.Fatalf("note[1] = %q", notes[1].Body)
+	}
+	// The rebuild (what EditNote/DeleteNote write back) must keep both bodies.
+	rebuilt := domainBuildDraftBody(desc, notes)
+	desc2, notes2 := domainParseDraftBody(rebuilt, "item1")
+	if desc2 != desc || len(notes2) != 2 || notes2[0].Body != want0 {
+		t.Fatalf("round-trip lost content: %q %+v", desc2, notes2)
+	}
+}
