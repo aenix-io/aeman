@@ -2234,23 +2234,9 @@ button.card-age {
 .card-presence {
   display: contents;
 }
-<<<<<<< Updated upstream
-=======
-
-/* Review-round badge: a small red number just left of the day counter on a
-   review card that has been sent back for another round (round 2+). */
-.card-review-round {
-  flex: none;
-  font-size: 10px;
-  font-weight: 700;
-  color: #cf222e;
-  font-variant-numeric: tabular-nums;
-  margin-right: 1px;
-}
 
 /* Me view: push the Today button (and the View-as picker after it) to the
    right edge of the toolbar. */
 .me-today {
   margin-left: auto;
 }
->>>>>>> Stashed changes
