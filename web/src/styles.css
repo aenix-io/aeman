@@ -2234,11 +2234,3 @@ button.card-age {
 .card-presence {
   display: contents;
 }
-
-/* Me view: the focus toggle sits next to the View-as picker with the same
-   button shape; its meditation glyph is centred and it borrows the eye's
-   accent border/colour when active (.impersonate-active). */
-.me-focus {
-  display: inline-flex;
-  align-items: center;
-}
