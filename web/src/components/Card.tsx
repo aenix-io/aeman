@@ -543,7 +543,7 @@ export function Card({
             <img
               key={login}
               className="card-presence-avatar"
-              style={{ left: `${-10 - i * 12}px` }}
+              style={{ left: `${-17 - i * 12}px` }}
               src={avatarUrlFor(login, users?.[login])}
               alt=""
               title={`Selected by ${displayName(login, users?.[login])}`}
