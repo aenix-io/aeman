@@ -658,10 +658,37 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 	if err := s.applyStage(ctx, b, card, stage); err != nil {
 		return err
 	}
+	// Leaving review cancels the unfinished linked review card.
 	if card.Stage == board.StageReview && stage != board.StageReview {
 		return s.cancelLinkedReview(ctx, b, card)
 	}
+	// Entering review re-review: a passed card put back on review reactivates
+	// its completed review card for a fresh round (the reverse of the review
+	// done → off-review forward sync).
+	if stage == board.StageReview && card.Stage != board.StageReview {
+		return s.reactivateReviewCard(ctx, b, card)
+	}
 	return nil
+}
+
+// reactivateReviewCard resets a completed linked review card for a new review
+// round: its progress back to 0 (no longer done) and the round counter bumped.
+// A no-op when the original has no linked review card, or the review is still
+// in progress. It is called whenever an already-passed original is put back on
+// review — from the stage menu or by re-sending it to the same reviewer.
+func (s *Service) reactivateReviewCard(ctx context.Context, b board.Board, original board.Card) error {
+	review, ok := findReviewCard(b, original.ItemID)
+	if !ok || !board.Complete(review.Stage, review.Progress) {
+		return nil
+	}
+	if err := s.backend.SetProgress(ctx, b, review, 0); err != nil {
+		return err
+	}
+	round := review.ReviewRound
+	if round < 1 {
+		round = 1
+	}
+	return s.backend.SetReviewRound(ctx, b, review, round+1)
 }
 
 // applyStage persists a stage change and any coupled progress change.
@@ -892,14 +919,7 @@ func (s *Service) ReassignReviewer(ctx context.Context, owner string, project in
 		if err := s.applyStage(ctx, b, card, board.StageReview); err != nil {
 			return err
 		}
-		if err := s.backend.SetProgress(ctx, b, reviewCard, 0); err != nil {
-			return err
-		}
-		round := reviewCard.ReviewRound
-		if round < 1 {
-			round = 1
-		}
-		return s.backend.SetReviewRound(ctx, b, reviewCard, round+1)
+		return s.reactivateReviewCard(ctx, b, card)
 	}
 	// An untouched review card is simply handed to the new reviewer. One the
 	// old reviewer already worked on (progress > 0) keeps their work: it is
