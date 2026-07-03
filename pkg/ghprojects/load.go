@@ -160,8 +160,11 @@ func domainParseDraftBody(body, itemID string) (string, []board.Note) {
 	return strings.TrimSpace(strings.Join(descLines, "\n")), notes
 }
 
-// domainParseNoteLines extracts "[timestamp] text" draft-log lines from text,
-// mirroring parseNoteLines in the frontend githubProvider.
+// domainParseNoteLines extracts "- [timestamp] text" draft-log entries from
+// text. A note may span multiple lines: everything after its header line and
+// before the next header belongs to its body (agents routinely file whole
+// review checklists as one note), so continuation lines are accumulated
+// instead of dropped. Note ids stay anchored to the header line's index.
 func domainParseNoteLines(text, itemID string) []board.Note {
 	var notes []board.Note
 	for i, line := range strings.Split(text, "\n") {
@@ -172,7 +175,15 @@ func domainParseNoteLines(text, itemID string) []board.Note {
 				CreatedAt: m[1],
 				Source:    "draft",
 			})
+			continue
 		}
+		if len(notes) == 0 {
+			continue
+		}
+		notes[len(notes)-1].Body += "\n" + line
+	}
+	for i := range notes {
+		notes[i].Body = strings.TrimSpace(notes[i].Body)
 	}
 	return notes
 }
