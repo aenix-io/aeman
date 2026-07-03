@@ -2,6 +2,7 @@ package boardservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1367,5 +1368,24 @@ func TestCarryOverReviewCardsOnlyWhileRequired(t *testing.T) {
 	}
 	if f.get("revLive").SprintStart == "2026-01-01" {
 		t.Fatal("a still-required review card carries")
+	}
+}
+
+// A review card cannot be made recurrent — the backend rejects it.
+func TestRecurrentRejectedOnReviewCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha"},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40},
+	}, nil)
+	err := f2svc(f).SetStage(ctx, "acme", 1, "rev", board.StageRecurrent)
+	if err == nil || !errors.Is(err, ErrInvalidStage) {
+		t.Fatalf("expected ErrInvalidStage, got %v", err)
+	}
+	if f.count("SetStage") != 0 {
+		t.Fatal("nothing must be written when the stage is rejected")
+	}
+	// A non-review card can still go recurrent.
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageRecurrent); err != nil {
+		t.Fatal(err)
 	}
 }
