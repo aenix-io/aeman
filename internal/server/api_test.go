@@ -448,6 +448,23 @@ func TestAPICreateCardFromGitHubURL(t *testing.T) {
 	}
 }
 
+func TestAPIRecurrentOnReviewCardRejected(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "orig", Team: "alpha"},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40},
+	}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPatch, "/api/v1/cards/rev?owner=acme&project=1", `{"stage":"recurrent"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("recurrent on a review card must be 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// A non-review card still accepts recurrent.
+	rec = do(t, srv, http.MethodPatch, "/api/v1/cards/orig?owner=acme&project=1", `{"stage":"recurrent"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("recurrent on a normal card must be OK, got %d", rec.Code)
+	}
+}
+
 func TestAPIListCardsFocusQuery(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "wip", Team: "alpha", Progress: 40},
