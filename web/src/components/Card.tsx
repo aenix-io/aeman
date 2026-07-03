@@ -888,7 +888,9 @@ export function Card({
         ))}
         <div
           className={`card-bar-handle${dragValue !== null ? " card-bar-handle-dragging" : ""}`}
-          style={{ left: `${shown}%`, borderColor: fill }}
+          // Sit the handle on the last filled 10% boundary, not the raw value, so
+          // an off-grid value (e.g. 95) doesn't leave it floating past the fill.
+          style={{ left: `${filled * 10}%`, borderColor: fill }}
           role="slider"
           aria-label="Progress"
           aria-valuenow={shown}
