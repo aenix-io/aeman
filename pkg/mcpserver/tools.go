@@ -100,13 +100,14 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 type listCardsInput struct {
 	boardRef
 	View     string `json:"view,omitempty" jsonschema:"view to scope to: team, me or weekly; empty lists every card"`
-	Team     string `json:"team,omitempty" jsonschema:"team key for the team/weekly views; empty is the no-team group"`
+	Team     string `json:"team,omitempty" jsonschema:"team key for the team/weekly views; on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
 	Week     string `json:"week,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd for the weekly view; defaults to the current week"`
 	Stage    string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent or done"`
 	Zone     string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
+	Focus    bool   `json:"focus,omitempty" jsonschema:"keep only cards workable right now — drops done, on-review and locked; use this to show what can be picked up and worked on here and now"`
 }
 
 func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listCardsInput) (*mcp.CallToolResult, apiserver.CardList, error) {
@@ -114,7 +115,7 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	if err != nil {
 		return nil, apiserver.CardList{}, err
 	}
-	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User, Week: in.Week, Assignee: in.Assignee}
+	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User, Week: in.Week, Assignee: in.Assignee, Focus: in.Focus}
 	switch sel.View {
 	case "", "team", "me", "weekly":
 	default:

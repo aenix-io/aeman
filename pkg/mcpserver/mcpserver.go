@@ -65,7 +65,7 @@ func New(cfg Config) *mcp.Server {
 func (h *server) mcpServer() *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "aeman", Version: h.cfg.Version}, nil)
 	mcp.AddTool(s, &mcp.Tool{Name: "get_board", Description: "Get the board identity and its team roster."}, h.getBoard)
-	mcp.AddTool(s, &mcp.Tool{Name: "list_cards", Description: "List cards, optionally scoped to a view (team, me, weekly) and filtered by stage, semantic zone (urgent/unplanned/planned/niceToHave) or assignee."}, h.listCards)
+	mcp.AddTool(s, &mcp.Tool{Name: "list_cards", Description: "List cards, optionally scoped to a view (team, me, weekly) and filtered by stage, semantic zone (urgent/unplanned/planned/niceToHave), assignee or team. Pass focus=true to keep only cards that can be worked on right now (drops done, on-review and locked) — the go-to way to answer \"what should I pick up next\"."}, h.listCards)
 	mcp.AddTool(s, &mcp.Tool{Name: "get_card", Description: "Get a single card by uid."}, h.getCard)
 	mcp.AddTool(s, &mcp.Tool{Name: "create_card", Description: "Create a card that joins (or starts) its team's sprint — or a weekly-plan card when a plan band is given; zones are semantic (urgent/unplanned/planned/niceToHave)."}, h.createCard)
 	mcp.AddTool(s, &mcp.Tool{Name: "update_card", Description: "Patch a card: only the provided fields change, an explicit empty string clears a field; zones are semantic (urgent/unplanned/planned/niceToHave). Use the description field to leave context the whole team should see on the card — it is the card body everyone sees and it live-syncs onto the linked review card. (For shareable context prefer this over add_note, which is a private per-person log.)"}, h.updateCard)

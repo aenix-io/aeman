@@ -3,6 +3,7 @@ package apiserver
 import (
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/aenix-org/aeman/pkg/board"
 )
@@ -26,6 +27,9 @@ type Selector struct {
 	Stage    *string
 	Zone     *string
 	Assignee string
+	// Focus keeps only workable cards — the "what can I act on now" filter
+	// (drops done, on-review and locked). It mirrors the Me view's focus toggle.
+	Focus bool
 }
 
 // ParseSelector reads a selector from query parameters. Unknown views error.
@@ -37,6 +41,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		User:     q.Get("user"),
 		Week:     q.Get("week"),
 		Assignee: q.Get("assignee"),
+		Focus:    q.Get("focus") == "true" || q.Get("focus") == "1",
 	}
 	if q.Has("stage") {
 		v := q.Get("stage")
@@ -94,6 +99,16 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		if sel.Assignee != "" && !contains(c.Assignees, sel.Assignee) {
 			continue
 		}
+		// team filters the views that are not already scoped by it (the me and
+		// default lists). It accepts a comma-separated set, so
+		// ?view=me&team=marketing,portal narrows the personal board to those
+		// teams — the Me view's team-focus toggle over the selected chips.
+		if (sel.View == "me" || sel.View == "") && !teamInSet(c.Team, sel.Team) {
+			continue
+		}
+		if sel.Focus && !board.Workable(c) {
+			continue
+		}
 		out = append(out, c)
 	}
 	return out
@@ -146,6 +161,21 @@ func planProgress(cards []board.Card) int {
 		return 0
 	}
 	return (sum + n/2) / n
+}
+
+// teamInSet reports whether a card's team is in a comma-separated selector
+// set. An empty set matches every team (no team filter).
+func teamInSet(team, set string) bool {
+	set = strings.TrimSpace(set)
+	if set == "" {
+		return true
+	}
+	for _, want := range strings.Split(set, ",") {
+		if strings.TrimSpace(want) == team {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(s []string, v string) bool {
