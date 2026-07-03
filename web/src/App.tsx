@@ -8,6 +8,7 @@ import {
   type OrderingResource,
   type SprintResource,
   type WatchFrame,
+  type PresenceResource,
 } from "./api/resources";
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
@@ -71,6 +72,9 @@ export function App() {
   const fetchedUsers = useRef<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live selections of other users (login -> card uid), fed by Presence
+  // watch frames; purely ephemeral shared-cursor state.
+  const [presence, setPresenceMap] = useState<Record<string, string>>({});
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
 
   // Team roster + filter, persisted in localStorage. The roster is the union of
@@ -385,9 +389,27 @@ export function App() {
       }
       if (frame.kind === "Ordering") {
         reorderCards((frame.object as OrderingResource).spec.uids);
+        return;
+      }
+      if (frame.kind === "Presence") {
+        const { login, card } = frame.object as PresenceResource;
+        if (!login) {
+          return;
+        }
+        setPresenceMap((cur) => {
+          const next = { ...cur };
+          if (card) {
+            next[login] = card;
+          } else {
+            delete next[login];
+          }
+          return next;
+        });
       }
     };
     const connect = () => {
+      // A fresh connection replays the presence snapshot; drop stale marks.
+      setPresenceMap({});
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       // No selector params: an unscoped watch streams every Card/Sprint/Ordering
       // change; ?client= keeps our own mutations from echoing back.
@@ -637,6 +659,13 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
+            onPresence={(card) => {
+              if (board && config?.login) {
+                void provider
+                  .setPresence(board, config.login, card)
+                  .catch(() => {});
+              }
+            }}
           />
         )}
         {board && view === "team" && (
@@ -656,6 +685,7 @@ export function App() {
             addCard={addCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
+            presence={presence}
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}

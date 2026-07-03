@@ -76,6 +76,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-over", s.handleCarryOver)
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-week", s.handleCarryWeek)
 	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
+	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
 }
 
@@ -127,6 +128,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/sprints/actions/carry-over", "Advance a team's sprint to today, carry unfinished ({team, dryRun})"},
 			{"POST", "/api/v1/sprints/actions/carry-week", "Pull unfinished plan cards into the week ({team, week, dryRun})"},
 			{"GET", "/api/v1/ordering", "The board-level manual card order"},
+			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
 			{"GET", "/api/v1/watch", "WebSocket stream of Card/Sprint/Ordering events; selector-scoped with view params"},
 		},
 	})
@@ -873,6 +875,30 @@ func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Shared helpers ----------------------------------------------------------------
+
+// handleSetPresence records the caller's live Me-view selection — ephemeral
+// shared-cursor state broadcast over the watch, never persisted. The client id
+// (X-Aeman-Client) keys it, so a closed tab clears its own mark.
+func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Login string `json:"login"`
+		Card  string `json:"card"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	owner, project, err := s.boardRef(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := s.newService(r); err != nil {
+		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
+		return
+	}
+	s.store.SetPresence(storeKey(owner, project), clientIDFrom(r.Context()), in.Login, in.Card)
+	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
+}
 
 // cardResponse loads the (post-mutation) card and writes it as the resource —
 // mutations echo the card exactly as a fresh GET would return it.

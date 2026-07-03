@@ -78,6 +78,10 @@ type boardEntry struct {
 	// watchers is the subscription set; each carries its own scope and echo
 	// suppression id.
 	watchers map[*subscription]struct{}
+	// presence maps a client id to the card its user has selected in the Me
+	// view — ephemeral shared-cursor state, never persisted, cleared when the
+	// client's watch connection goes away.
+	presence map[string]presenceEntry
 	// recentCards / recentGone guard the cache against GitHub's eventually
 	// consistent item list: a card created (or deleted) through aeman seconds
 	// ago may still be missing from (or present in) a fresh full load, and a
@@ -262,6 +266,58 @@ func (e *boardEntry) orderingChanged(origin string) {
 	}
 }
 
+// presenceEntry is one user's live selection: the card their Me view has
+// selected right now.
+type presenceEntry struct {
+	Login string `json:"login"`
+	Card  string `json:"card"`
+}
+
+// presenceChanged announces one user's selection to every subscription that
+// wants presence, skipping the originator (their own tab already shows it).
+// The caller holds e.mu.
+func (e *boardEntry) presenceChanged(origin string, entry presenceEntry) {
+	for sub := range e.watchers {
+		if !sub.resources["presence"] || (origin != "" && sub.clientID == origin) {
+			continue
+		}
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: entry})
+	}
+}
+
+// SetPresence records (card != "") or clears (card == "") the selection of the
+// client's user and broadcasts it.
+func (s *boardStore) SetPresence(key, clientID, login, card string) {
+	if clientID == "" {
+		return
+	}
+	e := s.entry(key)
+	e.mu.Lock()
+	if card == "" {
+		delete(e.presence, clientID)
+	} else {
+		e.presence[clientID] = presenceEntry{Login: login, Card: card}
+	}
+	e.presenceChanged(clientID, presenceEntry{Login: login, Card: card})
+	e.mu.Unlock()
+}
+
+// ClearPresence drops a departing client's selection (the watch connection
+// closed) and tells everyone.
+func (s *boardStore) ClearPresence(key, clientID string) {
+	if clientID == "" {
+		return
+	}
+	e := s.entry(key)
+	e.mu.Lock()
+	entry, ok := e.presence[clientID]
+	if ok {
+		delete(e.presence, clientID)
+		e.presenceChanged(clientID, presenceEntry{Login: entry.Login, Card: ""})
+	}
+	e.mu.Unlock()
+}
+
 // moveCardTo reorders the cached card to sit after afterID ("" = the top), so
 // snapshots keep serving the board in its real order after a move.
 func (e *boardEntry) moveCardTo(itemID, afterID string) {
@@ -339,7 +395,10 @@ func (s *boardStore) entry(key string) *boardEntry {
 	defer s.mu.Unlock()
 	e, ok := s.entries[key]
 	if !ok {
-		e = &boardEntry{watchers: map[*subscription]struct{}{}}
+		e = &boardEntry{
+			watchers: map[*subscription]struct{}{},
+			presence: map[string]presenceEntry{},
+		}
 		s.entries[key] = e
 	}
 	return e
@@ -366,6 +425,11 @@ func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, re
 		}
 	}
 	e.watchers[sub] = struct{}{}
+	if resources["presence"] {
+		for _, entry := range e.presence {
+			sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: entry})
+		}
+	}
 	e.mu.Unlock()
 	return sub, func() {
 		e.mu.Lock()
