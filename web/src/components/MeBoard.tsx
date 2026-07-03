@@ -46,6 +46,8 @@ interface MeBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
+  /** Share the live selection with other boards ("" clears on deselect). */
+  onPresence?: (card: string | null) => void;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -80,9 +82,17 @@ export function MeBoard({
   reload,
   onError,
   onOpen,
+  onPresence,
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // Broadcast the selection as shared presence: teammates' Team boards
+  // highlight this card with our avatar. Cleared on deselect and unmount.
+  useEffect(() => {
+    onPresence?.(selectedCardId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCardId]);
+  useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   // Eye toggle by the team chips: when on, show only the selected teams' cards.
   // Deliberately not persisted — resets to off (show all) on reload.
   const [teamFocus, setTeamFocus] = useState(false);
@@ -550,6 +560,74 @@ export function MeBoard({
       })),
     [byZone],
   );
+
+  // Keyboard navigation over the visible day list (zone bands top to bottom):
+  // arrows move the selection, Shift+arrows reorder the selected card, Escape
+  // deselects. Ignored while typing in an input.
+  const flatCards = useMemo(() => groups.flatMap((g) => g.cards), [groups]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "Escape") {
+        setSelectedCardId(null);
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") {
+        return;
+      }
+      if (flatCards.length === 0) {
+        return;
+      }
+      e.preventDefault();
+      const idx = flatCards.findIndex((c) => c.itemId === selectedCardId);
+      const dir = e.key === "ArrowDown" ? 1 : -1;
+      if (!e.shiftKey) {
+        const next =
+          idx < 0
+            ? dir === 1
+              ? 0
+              : flatCards.length - 1
+            : Math.min(Math.max(idx + dir, 0), flatCards.length - 1);
+        setSelectedCardId(flatCards[next].itemId);
+        return;
+      }
+      // Shift+arrow: reorder the selected card past its visible neighbour.
+      if (idx < 0) {
+        return;
+      }
+      const swap = idx + dir;
+      if (swap < 0 || swap >= flatCards.length) {
+        return;
+      }
+      const card = flatCards[idx];
+      const afterId =
+        dir === 1
+          ? flatCards[swap].itemId
+          : swap - 1 >= 0
+            ? flatCards[swap - 1].itemId
+            : null;
+      const order = board.cards
+        .map((c) => c.itemId)
+        .filter((id) => id !== card.itemId);
+      const pos = afterId ? order.indexOf(afterId) + 1 : 0;
+      order.splice(pos, 0, card.itemId);
+      reorderCards(order);
+      void provider.moveCard(board, card.itemId, afterId).catch((err: unknown) => {
+        reload();
+        onError(errMessage(err));
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
 
   const handleDrop = ({ card, fromMeta, toMeta, groups: g }: DropResult<MeMeta>) => {
     const zoneChanged = fromMeta.zone !== toMeta.zone;

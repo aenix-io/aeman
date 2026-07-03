@@ -188,6 +188,8 @@ export interface Provider {
   /** URLs from the card's description: GitHub issue/PR refs (resolved with
    *  titles when possible) first, plain links after. */
   listLinks(board: BoardAddr, uid: string): Promise<CardLink[]>;
+  /** Share the caller's live card selection ("" clears) with other boards. */
+  setPresence(board: BoardAddr, login: string, card: string | null): Promise<void>;
   listNotes(board: BoardAddr, uid: string): Promise<Note[]>;
   addNote(board: BoardAddr, uid: string, text: string): Promise<Note[]>;
   editNote(
