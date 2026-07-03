@@ -2206,3 +2206,17 @@ button.card-age {
 .card-links:last-child {
   margin-right: -3px;
 }
+
+/* Shared presence: a teammate has this card selected in their Me view. Their
+   avatar is a team-badge-sized circle hanging 60% off the card's right border. */
+.card-presence-avatar {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--bg);
+  background: var(--bg-soft);
+  z-index: 3;
+}

@@ -318,6 +318,15 @@ export const apiProvider: Provider = {
     return list.items ?? [];
   },
 
+  async setPresence(
+    board: BoardAddr,
+    login: string,
+    card: string | null,
+  ): Promise<void> {
+    const uid = card && !card.startsWith("tmp-") ? card : "";
+    await api(board, "POST", "/presence", { login, card: uid });
+  },
+
   async listNotes(board: BoardAddr, uid: string): Promise<Note[]> {
     uid = await resolveCardId(uid);
     return notesFrom(board, "GET", `/cards/${uid}/notes`);

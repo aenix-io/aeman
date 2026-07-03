@@ -53,6 +53,8 @@ interface TeamBoardProps {
   removeCard: (itemId: string) => void;
   reorderCards: (orderedItemIds: string[]) => void;
   reload: () => void;
+  /** Other users' live selections (login -> card uid) shown as avatars. */
+  presence?: Record<string, string>;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
 }
@@ -97,6 +99,7 @@ export function TeamBoard({
   removeCard,
   reorderCards,
   reload,
+  presence,
   onError,
   onOpen,
 }: TeamBoardProps) {
@@ -762,6 +765,17 @@ export function TeamBoard({
   // clears a legacy stored done below full, and — when this is a review card —
   // drives the original's review stage. The optimistic patch mirrors the
   // clamps; the re-list converges the linked original.
+  // Who has this card selected in their Me view right now (excluding me).
+  const selectedByFor = (card: CardModel): string[] | undefined => {
+    if (!presence) {
+      return undefined;
+    }
+    const logins = Object.entries(presence)
+      .filter(([login, uid]) => uid === card.itemId && login !== me)
+      .map(([login]) => login);
+    return logins.length > 0 ? logins : undefined;
+  };
+
   // Resolve a card's description links (GitHub refs get titles) for the menu.
   const loadCardLinks = (card: CardModel) =>
     provider.listLinks(board, card.itemId);
@@ -1528,6 +1542,7 @@ export function TeamBoard({
           group.meta.kind === "band" ? (
             <Card
               card={card}
+              selectedBy={selectedByFor(card)}
               onLoadLinks={loadCardLinks}
               selected={card.itemId === selectedCardId}
               onSelect={(c) => setSelectedCardId(c.itemId)}
@@ -1555,6 +1570,7 @@ export function TeamBoard({
           ) : (
             <Card
               card={card}
+              selectedBy={selectedByFor(card)}
               onLoadLinks={loadCardLinks}
               selected={card.itemId === selectedCardId}
               onSelect={(c) => setSelectedCardId(c.itemId)}
@@ -1582,6 +1598,7 @@ export function TeamBoard({
           renderOverlay={(card) => (
             <Card
               card={card}
+              selectedBy={selectedByFor(card)}
               onLoadLinks={loadCardLinks}
               selected={false}
               onSelect={() => {}}

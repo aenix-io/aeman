@@ -46,6 +46,8 @@ interface MeBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
+  /** Share the live selection with other boards ("" clears on deselect). */
+  onPresence?: (card: string | null) => void;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -80,9 +82,17 @@ export function MeBoard({
   reload,
   onError,
   onOpen,
+  onPresence,
 }: MeBoardProps) {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // Broadcast the selection as shared presence: teammates' Team boards
+  // highlight this card with our avatar. Cleared on deselect and unmount.
+  useEffect(() => {
+    onPresence?.(selectedCardId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCardId]);
+  useEffect(() => () => onPresence?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   // Eye toggle by the team chips: when on, show only the selected teams' cards.
   // Deliberately not persisted — resets to off (show all) on reload.
   const [teamFocus, setTeamFocus] = useState(false);
