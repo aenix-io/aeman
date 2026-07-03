@@ -417,7 +417,7 @@ export function Card({
 
   return (
     <div
-      className={`card${selected || (selectedBy?.length ?? 0) > 0 ? " card-selected" : ""}${
+      className={`card${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
         card.plan ? ` card-plan-${card.plan}` : ""
       }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
         dimAvatar ? " card-dim-avatar" : ""
@@ -543,7 +543,7 @@ export function Card({
             <img
               key={login}
               className="card-presence-avatar"
-              style={{ right: `${-10 - i * 12}px` }}
+              style={{ left: `${-10 - i * 12}px` }}
               src={avatarUrlFor(login, users?.[login])}
               alt=""
               title={`Selected by ${displayName(login, users?.[login])}`}

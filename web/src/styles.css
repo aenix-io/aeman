@@ -2208,7 +2208,9 @@ button.card-age {
 }
 
 /* Shared presence: a teammate has this card selected in their Me view. Their
-   avatar is a team-badge-sized circle hanging 60% off the card's right border. */
+   avatar is a team-badge-sized circle hanging 60% off the card's LEFT border,
+   and the card gets a soft glow — deliberately quieter than the local
+   .card-selected outline, so the two never read as the same thing. */
 .card-presence-avatar {
   position: absolute;
   top: 50%;
@@ -2219,4 +2221,8 @@ button.card-age {
   border: 1px solid var(--bg);
   background: var(--bg-soft);
   z-index: 3;
+}
+
+.card-peer-selected {
+  box-shadow: 0 0 0 1px rgba(9, 105, 218, 0.18);
 }
