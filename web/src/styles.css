@@ -2239,9 +2239,17 @@ button.card-age {
    review card that has been sent back for another round (round 2+). */
 .card-review-round {
   flex: none;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #b8860b;
+  border-radius: 50%;
+  color: #b8860b;
+  font-size: 9px;
   font-weight: 700;
-  color: #cf222e;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
-  margin-right: 1px;
+  margin-right: 2px;
 }
