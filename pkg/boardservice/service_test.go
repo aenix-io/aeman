@@ -1463,3 +1463,61 @@ func TestEnterReviewNoCompletedCardIsNoop(t *testing.T) {
 		t.Fatal("an in-progress review card is left alone when the original enters review")
 	}
 }
+
+// A review card is created in the SAME sprint as the card it reviews, not the
+// team's current pointer.
+func TestSendToReviewUsesOriginalSprint(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", SprintStart: "2026-01-01"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-08", ItemID: "s1"}})
+	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "bob", "2026-01-08")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rev.SprintStart != "2026-01-01" {
+		t.Fatalf("review card sprintStart = %q, want the original's 2026-01-01", rev.SprintStart)
+	}
+}
+
+// Carry-over leaves a completed review card behind, pinned to the closing
+// sprint's day, so it does not linger on the new sprint (and its unfinished
+// original carries).
+func TestCarryOverPinsCompletedReviewCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Progress: 50, StartDate: "2026-07-03", Day: "2026-07-03", SprintStart: "2026-07-02"},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"},
+			StartDate: "2026-07-03", Day: "2026-07-03", SprintStart: "2026-07-02"},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-07-02", ItemID: "s1"}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Carried != 1 {
+		t.Fatalf("carried = %d, want 1 (only the original)", rep.Carried)
+	}
+	r := f.get("rev")
+	if r.StartDate != "2026-07-02" || r.Day != "2026-07-02" || r.SprintStart != "2026-07-02" {
+		t.Fatalf("completed review card must be pinned to the closing sprint: %+v", r)
+	}
+}
+
+// A re-review in the new sprint pulls the review card into the original's
+// current sprint and onto today, and bumps the round counter.
+func TestReReviewRelocatesToNewSprintWithCounter(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Progress: 50, SprintStart: today},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, ReviewRound: 2,
+			Assignees: []string{"bob"}, StartDate: "2026-07-02", Day: "2026-07-02", SprintStart: "2026-07-02"},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "orig", board.StageReview); err != nil {
+		t.Fatal(err)
+	}
+	r := f.get("rev")
+	if r.SprintStart != today || r.StartDate != today || r.Day != today {
+		t.Fatalf("re-review must relocate the review card to the current sprint/today: %+v", r)
+	}
+	if r.Progress != 0 || r.ReviewRound != 3 {
+		t.Fatalf("re-review resets to 0 and bumps the round: %+v", r)
+	}
+}

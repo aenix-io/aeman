@@ -277,7 +277,7 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	// back to an earlier one, or simply old — stays where it is, so removing a
 	// card from the current sprint is final and it never boomerangs back. A
 	// finished recurrent card stays behind and reseeds a fresh copy instead.
-	var carry, reseed []board.Card
+	var carry, reseed, relocate []board.Card
 	for _, c := range b.Cards {
 		if c.Team != team || old == "" || c.SprintStart != old {
 			continue
@@ -287,6 +287,14 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 			continue
 		}
 		if board.Complete(c.Stage, c.Progress) {
+			// A completed review card created on a later day of the closing
+			// sprint keeps its own start-day (often today), so it would linger on
+			// the new sprint's day even though it is not carried. Pull its dates
+			// back to the closing sprint so it stays behind; a re-review in the
+			// new sprint relocates it forward.
+			if c.ReviewOf != "" && (c.StartDate != old || c.Day != old) {
+				relocate = append(relocate, c)
+			}
 			continue
 		}
 		// A review card crosses sprints only while its review is still on: the
@@ -304,6 +312,13 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	}
 	if err := s.backend.SetSprintState(ctx, b, team, today, old); err != nil {
 		return CarryReport{}, err
+	}
+	// Pin completed review cards to the closing sprint's day so they do not
+	// linger on the new sprint (best-effort; failures are non-fatal).
+	for _, c := range relocate {
+		_ = s.backend.SetStart(ctx, b, c, old)
+		_ = s.backend.SetDay(ctx, b, c, old)
+		_ = s.backend.SetSprintStart(ctx, b, c, old)
 	}
 	// The per-card writes are independent, but a burst of concurrent Projects v2
 	// mutations trips GitHub's secondary rate limit, so run them at a modest
@@ -681,6 +696,25 @@ func (s *Service) reactivateReviewCard(ctx context.Context, b board.Board, origi
 	if !ok || !board.Complete(review.Stage, review.Progress) {
 		return nil
 	}
+	// Bring the review card into the original's current sprint and onto today,
+	// so a re-review in a NEW sprint makes it appear there (it may have been
+	// left behind in the closing sprint by carry-over).
+	today := board.TodayIso()
+	if review.SprintStart != original.SprintStart {
+		if err := s.backend.SetSprintStart(ctx, b, review, original.SprintStart); err != nil {
+			return err
+		}
+	}
+	if review.StartDate != today {
+		if err := s.backend.SetStart(ctx, b, review, today); err != nil {
+			return err
+		}
+	}
+	if review.Day != today {
+		if err := s.backend.SetDay(ctx, b, review, today); err != nil {
+			return err
+		}
+	}
 	if err := s.backend.SetProgress(ctx, b, review, 0); err != nil {
 		return err
 	}
@@ -863,7 +897,14 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 	if zone == "" {
 		zone = board.ZoneGray
 	}
-	sprintStart := board.CurrentSprint(b, card.Team)
+	// A review card belongs to the SAME sprint as the card it reviews, not
+	// merely the team's current pointer — otherwise a card being reviewed in an
+	// older, not-yet-carried sprint would get a review card in a different
+	// sprint, and carry-over would split them.
+	sprintStart := card.SprintStart
+	if sprintStart == "" {
+		sprintStart = board.CurrentSprint(b, card.Team)
+	}
 	if sprintStart == "" {
 		sprintStart = day
 	}
@@ -1140,7 +1181,14 @@ func (s *Service) TakeIntoPlan(ctx context.Context, owner string, project int, i
 			zone = board.ZoneGray
 		}
 	}
-	sprintStart := board.CurrentSprint(b, card.Team)
+	// A review card belongs to the SAME sprint as the card it reviews, not
+	// merely the team's current pointer — otherwise a card being reviewed in an
+	// older, not-yet-carried sprint would get a review card in a different
+	// sprint, and carry-over would split them.
+	sprintStart := card.SprintStart
+	if sprintStart == "" {
+		sprintStart = board.CurrentSprint(b, card.Team)
+	}
 	if sprintStart == "" {
 		sprintStart = day
 	}
