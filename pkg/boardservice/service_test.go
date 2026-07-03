@@ -251,6 +251,14 @@ func (f *fakeBackend) SetReviewOf(_ context.Context, _ board.Board, card board.C
 	return nil
 }
 
+func (f *fakeBackend) SetReviewRound(_ context.Context, _ board.Board, card board.Card, round int) error {
+	f.rec("SetReviewRound %s %d", card.ItemID, round)
+	if c := f.get(card.ItemID); c != nil {
+		c.ReviewRound = round
+	}
+	return nil
+}
+
 func (f *fakeBackend) SetSprintState(_ context.Context, _ board.Board, team, current, previous string) error {
 	f.rec("SetSprintState %s cur=%s prev=%s", team, current, previous)
 	st := f.b.SprintStates[team]
@@ -1367,5 +1375,57 @@ func TestCarryOverReviewCardsOnlyWhileRequired(t *testing.T) {
 	}
 	if f.get("revLive").SprintStart == "2026-01-01" {
 		t.Fatal("a still-required review card carries")
+	}
+}
+
+// Re-review reactivates the same reviewer's finished review card: the original
+// goes back on review (progress clamped off 100), the review card resets to 0,
+// and the round counter ticks up (round 1 implicit → 2 → 3).
+func TestReReviewReactivatesReviewCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", Progress: 100},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"}},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
+	svc := f2svc(f)
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	orig := f.get("orig")
+	if orig.Stage != board.StageReview || orig.Progress != 90 {
+		t.Fatalf("original back on review, clamped: %+v", orig)
+	}
+	rev := f.get("rev")
+	if rev.Progress != 0 || rev.ReviewRound != 2 || rev.ReviewOf != "orig" {
+		t.Fatalf("review card reactivated at round 2, progress 0: %+v", rev)
+	}
+	// A second re-review advances to round 3.
+	f.get("rev").Progress = 100
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	if r := f.get("rev"); r.ReviewRound != 3 || r.Progress != 0 {
+		t.Fatalf("second re-review → round 3: %+v", r)
+	}
+}
+
+// Re-review to a DIFFERENT reviewer is not a reactivation: the finished card is
+// released as a record and a fresh review card is created (PR #20 behaviour).
+func TestReReviewDifferentReviewerDoesNotReactivate(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", Progress: 100},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"}},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
+	svc := f2svc(f)
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "carol", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.saw("SetReviewOf rev ") {
+		t.Fatal("the finished card is released for a different reviewer")
+	}
+	if f.count("SetReviewRound") != 0 {
+		t.Fatal("no round bump on a different-reviewer re-review")
+	}
+	if len(f.creates) != 1 || f.creates[0].Assignee != "carol" {
+		t.Fatalf("a fresh review card for the new reviewer: %+v", f.creates)
 	}
 }

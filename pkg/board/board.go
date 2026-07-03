@@ -111,8 +111,12 @@ type Card struct {
 	Plan PlanBand `json:"plan,omitempty"`
 	Week string   `json:"week,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
-	ReviewOf  string `json:"reviewOf,omitempty"`
-	CreatedAt string `json:"createdAt,omitempty"`
+	ReviewOf string `json:"reviewOf,omitempty"`
+	// ReviewRound counts a review card's review rounds. A card sent back for
+	// another review after already passing starts round 2, 3, … The first
+	// review is implicit and left at 0 (round 1 is not shown).
+	ReviewRound int    `json:"reviewRound,omitempty"`
+	CreatedAt   string `json:"createdAt,omitempty"`
 	// Description is the card's free-form details (a draft body minus its appended
 	// action log, or an issue/PR body). Notes are the card's dated work notes.
 	Description string `json:"description,omitempty"`

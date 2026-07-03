@@ -56,6 +56,7 @@ type Backend interface {
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	SetAssignee(ctx context.Context, b board.Board, card board.Card, login string) error
 	SetReviewOf(ctx context.Context, b board.Board, card board.Card, reviewOf string) error
+	SetReviewRound(ctx context.Context, b board.Board, card board.Card, round int) error
 
 	// SetSprintState creates or updates a team's hidden sprint-state card.
 	// current/previous are the team's current and previous sprint start dates

@@ -881,6 +881,26 @@ func (s *Service) ReassignReviewer(ctx context.Context, owner string, project in
 		_, err := s.sendToReview(ctx, b, card, reviewer, day)
 		return err
 	}
+	// Re-review: sending an already-passed card back to the SAME reviewer
+	// reactivates their finished review card instead of orphaning it — the
+	// reverse of "review done → off review". The original goes back on the
+	// review stage (which clamps its progress off 100%), the review card's
+	// progress resets to 0 for the fresh round, and its round counter ticks
+	// up (the first review is round 1, implicit; the first re-review is 2).
+	sameReviewer := len(reviewCard.Assignees) > 0 && reviewCard.Assignees[0] == reviewer
+	if sameReviewer && board.Complete(reviewCard.Stage, reviewCard.Progress) {
+		if err := s.applyStage(ctx, b, card, board.StageReview); err != nil {
+			return err
+		}
+		if err := s.backend.SetProgress(ctx, b, reviewCard, 0); err != nil {
+			return err
+		}
+		round := reviewCard.ReviewRound
+		if round < 1 {
+			round = 1
+		}
+		return s.backend.SetReviewRound(ctx, b, reviewCard, round+1)
+	}
 	// An untouched review card is simply handed to the new reviewer. One the
 	// old reviewer already worked on (progress > 0) keeps their work: it is
 	// released from the link (a standalone card now — the next carry-over
