@@ -679,6 +679,14 @@ func (b *storeBackend) SetReviewOf(ctx context.Context, bd board.Board, card boa
 	return nil
 }
 
+func (b *storeBackend) SetReviewRound(ctx context.Context, bd board.Board, card board.Card, round int) error {
+	if err := b.inner.SetReviewRound(ctx, bd, card, round); err != nil {
+		return err
+	}
+	b.touched(ctx, bd, card.ItemID)
+	return nil
+}
+
 // ResolveIssueRef passes through to the inner backend's resolver — link
 // titles are live lookups, never cached board state.
 func (b *storeBackend) ResolveIssueRef(ctx context.Context, link board.Link) (board.Link, error) {

@@ -46,6 +46,8 @@ export interface Card {
   /** On a review card, the itemId of the original card it reviews (review →
    * original; find the reverse by scanning for `reviewOf === original.itemId`). */
   reviewOf?: string;
+  /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
+  reviewRound?: number;
   /** ISO date (yyyy-mm-dd) the card is planned to finish/be due on. */
   day?: string;
   /** ISO date (yyyy-mm-dd) the card starts on (set at creation). */
@@ -116,6 +118,8 @@ export interface CardPatch {
   dates?: { start?: string; end?: string; sprint?: string };
   plan?: { band?: "wed" | "fri" | ""; week?: string };
   reviewOf?: string;
+  /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
+  reviewRound?: number;
 }
 
 /** CarryReport is what a carry-over / carry-week pass did — or would do on a
