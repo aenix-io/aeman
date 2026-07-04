@@ -165,6 +165,32 @@ func TestSelectorParsing(t *testing.T) {
 	if _, err := ParseSelector(url.Values{"view": {"nope"}}); err == nil {
 		t.Fatal("unknown view must error")
 	}
+	if _, err := ParseSelector(url.Values{"view": {"all"}}); err != nil {
+		t.Fatalf("view=all must be accepted: %v", err)
+	}
+}
+
+// view=all lists every card (like the empty view) and still honours the team
+// set and field filters — it is the explicit whole-board request.
+func TestViewAllListsEverythingWithTeamFilter(t *testing.T) {
+	b := board.Board{Cards: []board.Card{
+		{ItemID: "a1", Team: "alpha", Progress: 40},
+		{ItemID: "a2", Team: "alpha", Progress: 100},
+		{ItemID: "b1", Team: "beta", Progress: 40},
+	}}
+	ids := func(sel Selector) []string {
+		out := []string{}
+		for _, c := range FilterCards(b, sel) {
+			out = append(out, c.ItemID)
+		}
+		return out
+	}
+	if got := ids(Selector{View: "all"}); !reflect.DeepEqual(got, []string{"a1", "a2", "b1"}) {
+		t.Fatalf("view=all = %v, want all three", got)
+	}
+	if got := ids(Selector{View: "all", Team: "beta"}); !reflect.DeepEqual(got, []string{"b1"}) {
+		t.Fatalf("view=all&team=beta = %v, want [b1]", got)
+	}
 }
 
 func TestOrderingResource(t *testing.T) {

@@ -18,6 +18,11 @@ import (
 // bridges it onto the context the tools actually run with.
 type mcpTokenCtxKey struct{}
 
+// mcpLoginCtxKey carries the caller's GitHub login (the verified TokenInfo's
+// UserID) to the ResolveLogin seam, so the default list can scope to their own
+// Me board without a round-trip.
+type mcpLoginCtxKey struct{}
+
 // registerMCP mounts the MCP streamable HTTP transport at /mcp, guarded by the
 // bearer-token middleware so unauthenticated callers get a 401 carrying the
 // protected-resource metadata URL. It is only mounted in OAuth mode.
@@ -42,6 +47,7 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 		Endpoint:     s.graphqlEndpoint,
 		HTTPClient:   s.httpClient,
 		ResolveToken: resolveTokenFromContext,
+		ResolveLogin: resolveLoginFromContext,
 		// Route MCP writes through the shared board store, so agent edits update
 		// the cache and reach the UI's watch stream like every other write.
 		WrapBackend: func(b boardservice.Backend) boardservice.Backend {
@@ -60,6 +66,9 @@ func injectGitHubToken(next mcp.MethodHandler) mcp.MethodHandler {
 			if tok, ok := extra.TokenInfo.Extra[githubTokenExtraKey].(string); ok && tok != "" {
 				ctx = context.WithValue(ctx, mcpTokenCtxKey{}, tok)
 			}
+			if extra.TokenInfo.UserID != "" {
+				ctx = context.WithValue(ctx, mcpLoginCtxKey{}, extra.TokenInfo.UserID)
+			}
 		}
 		return next(ctx, method, req)
 	}
@@ -72,4 +81,14 @@ func resolveTokenFromContext(ctx context.Context) (string, error) {
 		return "", errors.New("no authenticated GitHub token for this MCP request")
 	}
 	return tok, nil
+}
+
+// resolveLoginFromContext is the MCP ResolveLogin seam for the HTTP transport:
+// the caller's login is the verified session's UserID, injected above.
+func resolveLoginFromContext(ctx context.Context) (string, error) {
+	login, _ := ctx.Value(mcpLoginCtxKey{}).(string)
+	if login == "" {
+		return "", errors.New("no authenticated login for this MCP request")
+	}
+	return login, nil
 }

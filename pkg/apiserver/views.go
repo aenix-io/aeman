@@ -12,7 +12,8 @@ import (
 // exactly what the UI renders (the Team grid, the Me day board, the Weekly
 // plan); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "team", "me" or "weekly".
+	// View is "", "all", "team", "me" or "weekly". "" and "all" both list every
+	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
 	View string
 	// Team is the team key for the team/weekly views ("" = the no-team group).
 	Team string
@@ -52,7 +53,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Zone = &v
 	}
 	switch sel.View {
-	case "", "team", "me", "weekly":
+	case "", "all", "team", "me", "weekly":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -99,11 +100,11 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		if sel.Assignee != "" && !contains(c.Assignees, sel.Assignee) {
 			continue
 		}
-		// team filters the views that are not already scoped by it (the me and
-		// default lists). It accepts a comma-separated set, so
+		// team filters the views that are not already scoped by it (the me, all
+		// and default lists). It accepts a comma-separated set, so
 		// ?view=me&team=marketing,portal narrows the personal board to those
 		// teams — the Me view's team-focus toggle over the selected chips.
-		if (sel.View == "me" || sel.View == "") && !teamInSet(c.Team, sel.Team) {
+		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
