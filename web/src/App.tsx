@@ -16,6 +16,8 @@ import { TeamBoard } from "./components/TeamBoard";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
+import { queryString, viewQuery } from "./viewquery";
+import { todayIso } from "./date";
 
 type ViewMode = "me" | "team";
 
@@ -68,6 +70,9 @@ export function App() {
   const [view, setView] = useState<ViewMode>(readView);
 
   const [board, setBoard] = useState<Board | null>(null);
+  // The viewed day, shared by both boards and driving the lazy view fetch and
+  // the scoped watch. Lifted out of the boards so the App owns what to load.
+  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [users, setUsers] = useState<Record<string, GhUser>>({});
   const fetchedUsers = useRef<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -124,6 +129,27 @@ export function App() {
     localStorage.setItem(LS_VIEW, view);
   }, [view]);
 
+  // A tab left open past midnight keeps a stale "today". When it regains focus,
+  // catch the viewed day up to the real today — unless the user navigated to a
+  // specific other day. (Formerly TeamBoard owned this.)
+  const lastTodayRef = useRef(todayIso());
+  useEffect(() => {
+    const sync = () => {
+      const now = todayIso();
+      if (now === lastTodayRef.current) {
+        return;
+      }
+      setSelectedDate((d) => (d === lastTodayRef.current ? now : d));
+      lastTodayRef.current = now;
+    };
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, []);
+
   const provider = apiProvider;
 
   // The roster: user-arranged teams first (in their saved order), then any team
@@ -138,16 +164,27 @@ export function App() {
         out.push(t);
       }
     }
-    if (board) {
-      for (const card of board.cards) {
-        if (card.team && !seen.has(card.team)) {
-          seen.add(card.team);
-          out.push(card.team);
-        }
+    // The board's own roster (teams with a sprint pointer) is the source of
+    // truth — cards now load one view at a time, so we can't infer teams from
+    // them. Any team present on the loaded cards is folded in as a fallback.
+    for (const t of [...(board?.teams ?? []), ...(board?.cards ?? []).map((c) => c.team ?? "")]) {
+      if (t && !seen.has(t)) {
+        seen.add(t);
+        out.push(t);
       }
     }
     return out;
   }, [addedTeams, board]);
+
+  // What the active board loads and watches: Me is personal (the server fills in
+  // "who am I"), Team names the teams it shows (the filter, or the whole roster).
+  // activeKey is the stable serialisation used to re-fetch and re-subscribe only
+  // when the selection actually changes.
+  const activeQuery = useMemo(
+    () => viewQuery(view, selectedDate, teamFilter ?? roster),
+    [view, selectedDate, teamFilter, roster],
+  );
+  const activeKey = queryString(activeQuery);
 
   // Reorder the whole roster (from the manage dialog) and persist the order.
   const reorderTeams = useCallback((ordered: string[]) => {
@@ -210,6 +247,35 @@ export function App() {
     },
     [provider],
   );
+
+  // Load the active view's cards whenever the selection (view/day/teams) changes
+  // or the board is (re)loaded. loadBoard brings only identity + sprints; the
+  // cards for one view arrive here, so the UI holds just what it shows.
+  const activeQueryRef = useRef(activeQuery);
+  activeQueryRef.current = activeQuery;
+  const bOwner = board?.owner;
+  const bNumber = board?.number;
+  useEffect(() => {
+    if (!bOwner || bNumber == null) {
+      return;
+    }
+    let cancelled = false;
+    provider
+      .listCards({ owner: bOwner, number: bNumber }, activeQueryRef.current)
+      .then((cards) => {
+        if (!cancelled) {
+          setBoard((cur) => (cur ? { ...cur, cards } : cur));
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(errMessage(err));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bOwner, bNumber, activeKey, provider]);
 
   // Locked board: auto-load the pinned project once authenticated. A user whose
   // token can't read it just gets a load error (the access-denied placeholder).
@@ -411,11 +477,13 @@ export function App() {
       // A fresh connection replays the presence snapshot; drop stale marks.
       setPresenceMap({});
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // No selector params: an unscoped watch streams every Card/Sprint/Ordering
-      // change; ?client= keeps our own mutations from echoing back.
+      // Scope the watch to the active view (activeKey = view/day/team/reviews):
+      // a card entering the selection arrives as ADDED, one leaving as DELETED,
+      // so the UI holds just what it shows. ?client= keeps our own mutations
+      // from echoing back. Re-subscribes when activeKey changes (a dep below).
       const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
         watchOwner,
-      )}&project=${watchProject}&client=${clientId}`;
+      )}&project=${watchProject}&client=${clientId}&${activeKey}`;
       socket = new WebSocket(url);
       socket.addEventListener("message", (e) => {
         let frame: WatchFrame;
@@ -446,6 +514,7 @@ export function App() {
     boardLoaded,
     watchOwner,
     watchProject,
+    activeKey,
     provider,
     addCard,
     removeCard,
@@ -643,6 +712,8 @@ export function App() {
         {board && view === "me" && (
           <MeBoard
             board={board}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
             provider={provider}
             me={config?.login ?? ""}
             users={users}
@@ -671,6 +742,8 @@ export function App() {
         {board && view === "team" && (
           <TeamBoard
             board={board}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
             provider={provider}
             me={config?.login ?? ""}
             users={users}

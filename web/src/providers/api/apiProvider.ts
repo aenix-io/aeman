@@ -146,9 +146,8 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
 export const apiProvider: Provider = {
   async loadBoard(owner: string, number: number): Promise<Board> {
     const addr: BoardAddr = { owner, number };
-    const [info, cards, sprints] = await Promise.all([
+    const [info, sprints] = await Promise.all([
       api<BoardResource>(addr, "GET", "/board"),
-      api<CardListResource>(addr, "GET", "/cards"),
       api<SprintListResource>(addr, "GET", "/sprints"),
     ]);
     return {
@@ -156,11 +155,25 @@ export const apiProvider: Provider = {
       number,
       title: info.metadata.title ?? "",
       url: info.metadata.url ?? "",
-      // LIST responses are served in board order; the Ordering watch events
-      // keep the local copy sorted between re-lists.
-      cards: (cards.items ?? []).map(resourceToCard),
+      // Cards are loaded per view via listCards; the initial set arrives right
+      // after this from the App's first view fetch.
+      cards: [],
+      teams: info.metadata.teams ?? [],
       sprintStates: sprintStatesFrom(sprints.items ?? []),
     };
+  },
+
+  async listCards(
+    board: BoardAddr,
+    query: Record<string, string>,
+  ): Promise<Card[]> {
+    const qs = Object.keys(query)
+      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`)
+      .join("&");
+    // LIST responses are served in board order; the Ordering watch events keep
+    // the local copy sorted between re-lists.
+    const cards = await api<CardListResource>(board, "GET", `/cards?${qs}`);
+    return (cards.items ?? []).map(resourceToCard);
   },
 
   async createCard(board: BoardAddr, input: NewCardInput): Promise<Card> {
