@@ -27,6 +27,11 @@ type Config struct {
 	Version string
 	// ResolveToken returns a GitHub token for the current call.
 	ResolveToken func(ctx context.Context) (string, error)
+	// ResolveLogin returns the caller's own GitHub login, used to scope the
+	// default (unspecified-view) list to their personal Me board. Optional: when
+	// nil or it errors, an unspecified list falls back to the Me view for
+	// everyone in the active sprint rather than a personal one.
+	ResolveLogin func(ctx context.Context) (string, error)
 	// Endpoint overrides the GraphQL endpoint (used in tests).
 	Endpoint string
 	// HTTPClient overrides the HTTP client (used in tests).
@@ -65,7 +70,7 @@ func New(cfg Config) *mcp.Server {
 func (h *server) mcpServer() *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "aeman", Version: h.cfg.Version}, nil)
 	mcp.AddTool(s, &mcp.Tool{Name: "get_board", Description: "Get the board identity and its team roster."}, h.getBoard)
-	mcp.AddTool(s, &mcp.Tool{Name: "list_cards", Description: "List cards, optionally scoped to a view (team, me, weekly) and filtered by stage, semantic zone (urgent/unplanned/planned/niceToHave), assignee or team. Pass focus=true to keep only cards that can be worked on right now (drops done, on-review and locked) — the go-to way to answer \"what should I pick up next\"."}, h.listCards)
+	mcp.AddTool(s, &mcp.Tool{Name: "list_cards", Description: "List cards. With no view it defaults to YOUR personal Me board — your own cards in the active sprint — because that is where everyone works and you normally act only on your own cards. Pass view=team&team=X for a team lead's grid of the whole team's cards (the lead view; you usually don't need it and shouldn't edit others' cards unless you're the lead or creating one), view=weekly for the plan, or view=all for every card on the board. Also filter by stage, semantic zone (urgent/unplanned/planned/niceToHave), assignee or team, and focus=true to keep only cards workable right now (drops done, on-review and locked) — the go-to way to answer \"what should I pick up next\"."}, h.listCards)
 	mcp.AddTool(s, &mcp.Tool{Name: "get_card", Description: "Get a single card by uid."}, h.getCard)
 	mcp.AddTool(s, &mcp.Tool{Name: "create_card", Description: "Create a card that joins (or starts) its team's sprint — or a weekly-plan card when a plan band is given; zones are semantic (urgent/unplanned/planned/niceToHave). A title that is just a GitHub issue/PR URL is auto-filled from that issue/PR (its real title, with the link kept in the card description). To attach reference links afterwards, put them in the description via update_card."}, h.createCard)
 	mcp.AddTool(s, &mcp.Tool{Name: "update_card", Description: "Patch a card: only the provided fields change, an explicit empty string clears a field; zones are semantic (urgent/unplanned/planned/niceToHave). Use the description field to leave context the whole team should see on the card — it is the card body everyone sees and it live-syncs onto the linked review card. Put reference links in the description too: any URL is surfaced on the card, and GitHub issue/PR links are resolved to their titles and listed first (read them with list_links). (For shareable context prefer this over add_note, which is a private per-person log.)"}, h.updateCard)

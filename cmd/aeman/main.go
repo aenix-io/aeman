@@ -144,6 +144,9 @@ func runMCP(args []string) error {
 		Lock:         *lockBoard,
 		Version:      version,
 		ResolveToken: resolveGitHubToken,
+		// Scope the default (unspecified-view) list to the local user's own Me
+		// board; best-effort via the gh CLI, else the list stays sprint-scoped.
+		ResolveLogin: ghcli.Login,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

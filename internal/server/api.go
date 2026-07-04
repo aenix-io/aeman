@@ -229,6 +229,19 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// An unspecified view defaults to the caller's personal Me board — their own
+	// cards in the active sprint — since that is where everyone works day to day;
+	// Team is the lead view, requested explicitly with ?view=team, and ?view=all
+	// lists the whole board. "Who am I" is resolved here, server-side, so a Me
+	// request needs no user (an explicit ?user= still wins, e.g. for "view as").
+	if sel.View == "" {
+		sel.View = "me"
+	}
+	if sel.View == "me" && sel.User == "" {
+		if _, login, err := s.apiTokens(r); err == nil {
+			sel.User = login
+		}
+	}
 	b, err := svc.Board(r.Context(), owner, project)
 	if err != nil {
 		s.apiError(w, err)
