@@ -37,6 +37,9 @@ interface TeamBoardProps {
   board: Board;
   provider: Provider;
   me: string;
+  /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
+  selectedDate: string;
+  onSelectDate: (day: string) => void;
   /** GitHub profiles (name + avatar) for assignees, keyed by login. */
   users: Record<string, GhUser>;
   /** Known teams (the roster), shown as filter chips. */
@@ -86,6 +89,8 @@ export function TeamBoard({
   board,
   provider,
   me,
+  selectedDate,
+  onSelectDate,
   users,
   roster,
   teamFilter,
@@ -103,7 +108,6 @@ export function TeamBoard({
   onError,
   onOpen,
 }: TeamBoardProps) {
-  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
   const sprintRef = useRef<HTMLDivElement | null>(null);
@@ -174,29 +178,6 @@ export function TeamBoard({
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [sprintMenuOpen]);
-
-  // A tab left open past midnight keeps a stale "today", so the weekly plan and
-  // newly-planned cards (week = mondayOf(selectedDate)) would land on the old
-  // week and vanish from the real current week. When the tab regains focus,
-  // catch the selected day up to the real today — unless the user navigated to a
-  // specific other day. (The grid create already reads the live date directly.)
-  const lastToday = useRef(todayIso());
-  useEffect(() => {
-    const sync = () => {
-      const now = todayIso();
-      if (now === lastToday.current) {
-        return;
-      }
-      setSelectedDate((d) => (d === lastToday.current ? now : d));
-      lastToday.current = now;
-    };
-    document.addEventListener("visibilitychange", sync);
-    window.addEventListener("focus", sync);
-    return () => {
-      document.removeEventListener("visibilitychange", sync);
-      window.removeEventListener("focus", sync);
-    };
-  }, []);
 
   // Single-select: no filter shows all; otherwise match the card's group.
   const passesFilter = (card: CardModel): boolean =>
@@ -1349,7 +1330,7 @@ export function TeamBoard({
     // overwrite the previous sprint, making previous = current = today. Still land
     // on today, so pressing Carry over always brings the current sprint into view.
     if (old === today) {
-      setSelectedDate(today);
+      onSelectDate(today);
       onError(`«${label}» is already on today's sprint.`);
       return;
     }
@@ -1371,7 +1352,7 @@ export function TeamBoard({
     // so the jump to the new sprint never depends on the request's outcome.
     // Only the closing (current) sprint's unfinished cards carry, mirroring
     // boardservice.CarryOver.
-    setSelectedDate(today);
+    onSelectDate(today);
     for (const c of board.cards) {
       if (
         (team === null ? c.team == null : c.team === team) &&
@@ -1401,7 +1382,7 @@ export function TeamBoard({
             <button
               type="button"
               className="day-arrow"
-              onClick={() => setSelectedDate((d) => addDays(d, -1))}
+              onClick={() => onSelectDate(addDays(selectedDate, -1))}
               aria-label="Previous day"
               title="Previous day"
             >
@@ -1410,12 +1391,12 @@ export function TeamBoard({
             <input
               type="date"
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value || todayIso())}
+              onChange={(e) => onSelectDate(e.target.value || todayIso())}
             />
             <button
               type="button"
               className="day-arrow"
-              onClick={() => setSelectedDate((d) => addDays(d, 1))}
+              onClick={() => onSelectDate(addDays(selectedDate, 1))}
               aria-label="Next day"
               title="Next day"
             >
@@ -1492,7 +1473,7 @@ export function TeamBoard({
           className="btn"
           onClick={() => {
             if (sprintJump) {
-              setSelectedDate(sprintJump.target);
+              onSelectDate(sprintJump.target);
             }
           }}
           disabled={!sprintJump}
@@ -1506,7 +1487,7 @@ export function TeamBoard({
         <button
           type="button"
           className="btn"
-          onClick={() => setSelectedDate(todayIso())}
+          onClick={() => onSelectDate(todayIso())}
           disabled={selectedDate === todayIso()}
           title="Jump to today"
         >

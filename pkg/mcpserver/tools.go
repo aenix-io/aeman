@@ -117,9 +117,20 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	}
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User, Week: in.Week, Assignee: in.Assignee, Focus: in.Focus}
 	switch sel.View {
-	case "", "team", "me", "weekly":
+	case "", "all", "team", "me", "weekly":
 	default:
-		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use team, me or weekly)", sel.View)
+		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use all, team, me or weekly)", sel.View)
+	}
+	// An unspecified view defaults to the caller's personal Me board (their own
+	// cards); Team is the lead view and view=all is the whole board. "Who am I"
+	// is resolved server-side, so a Me request needs no user (explicit wins).
+	if sel.View == "" {
+		sel.View = "me"
+	}
+	if sel.View == "me" && sel.User == "" && h.cfg.ResolveLogin != nil {
+		if login, err := h.cfg.ResolveLogin(ctx); err == nil {
+			sel.User = login
+		}
 	}
 	// MCP inputs cannot distinguish absent from empty, so an empty stage/zone
 	// means "not filtering" (unlike the HTTP query, where ?stage= filters).

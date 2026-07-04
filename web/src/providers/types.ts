@@ -95,6 +95,9 @@ export interface Board {
   title: string;
   url: string;
   cards: Card[];
+  /** The board's team roster (teams that have a sprint pointer), from GET
+   *  /board — the source of truth now that cards load one view at a time. */
+  teams: string[];
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
 }
@@ -133,8 +136,12 @@ export interface CarryReport {
  * intent, keep optimistic state, and reconcile from the returned resources
  * (and the watch stream). All board rules live server-side. */
 export interface Provider {
-  /** Compose GET /board + /cards + /sprints into the frontend Board. */
+  /** Board identity + per-team sprint pointers (no cards — the active view is
+   *  loaded lazily via listCards). */
   loadBoard(owner: string, number: number): Promise<Board>;
+  /** The cards of one view (GET /cards with a selector), so the UI loads only
+   *  the active board — Me by default, a team's grid on demand. */
+  listCards(board: BoardAddr, query: Record<string, string>): Promise<Card[]>;
   createCard(board: BoardAddr, input: NewCardInput): Promise<Card>;
   patchCard(board: BoardAddr, uid: string, patch: CardPatch): Promise<Card>;
   /** Hard delete; the server cascades to the linked review card. */

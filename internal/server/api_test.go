@@ -473,8 +473,8 @@ func TestAPIListCardsFocusQuery(t *testing.T) {
 		{ItemID: "beta", Team: "beta", Progress: 40},
 	}, nil)
 	srv := apiServer(t, Options{}, fake)
-	// focus=true drops review/done, keeps workable.
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&focus=true", "")
+	// focus=true drops review/done, keeps workable (over the whole board).
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=all&focus=true", "")
 	got := map[string]bool{}
 	for _, c := range decodeList(t, rec).Items {
 		got[c.Metadata.UID] = true
@@ -482,8 +482,8 @@ func TestAPIListCardsFocusQuery(t *testing.T) {
 	if !got["wip"] || !got["beta"] || got["rev"] || got["done"] {
 		t.Fatalf("focus list = %v", got)
 	}
-	// comma-separated team set filters the default list.
-	rec = do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&team=alpha&focus=true", "")
+	// comma-separated team set filters the view=all list too.
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=all&team=alpha&focus=true", "")
 	only := decodeList(t, rec).Items
 	if len(only) != 1 || only[0].Metadata.UID != "wip" {
 		t.Fatalf("team+focus = %v", only)
@@ -509,5 +509,31 @@ func TestAPIReReviewReactivatesWithRound(t *testing.T) {
 	c := decodeCard(t, rec)
 	if c.Spec.Progress != 0 || c.Status.ReviewRound != 2 {
 		t.Fatalf("re-review resource = progress %d round %d, want 0 / 2", c.Spec.Progress, c.Status.ReviewRound)
+	}
+}
+
+func TestAPIListDefaultsToMe(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "mine", Team: "alpha", Assignees: []string{"bob"}, Progress: 40, SprintStart: today},
+		{ItemID: "theirs", Team: "alpha", Assignees: []string{"carol"}, Progress: 40, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+	// Bare list → the caller's own Me board (who-am-I resolved server-side).
+	got := map[string]bool{}
+	for _, c := range decodeList(t, do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1", "")).Items {
+		got[c.Metadata.UID] = true
+	}
+	if !got["mine"] || got["theirs"] {
+		t.Fatalf("bare list must be the caller's Me board: %v", got)
+	}
+	// view=all still lists the whole board.
+	all := map[string]bool{}
+	for _, c := range decodeList(t, do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=all", "")).Items {
+		all[c.Metadata.UID] = true
+	}
+	if !all["mine"] || !all["theirs"] {
+		t.Fatalf("view=all must list the whole board: %v", all)
 	}
 }

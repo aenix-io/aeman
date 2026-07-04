@@ -127,7 +127,7 @@ func TestMCPListCardsZoneFilterIsSemantic(t *testing.T) {
 		{ItemID: "c2", Zone: board.ZoneGray},
 	}, nil)
 	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
-	res := call(t, cs, "list_cards", map[string]any{"zone": "urgent"})
+	res := call(t, cs, "list_cards", map[string]any{"view": "all", "zone": "urgent"})
 	if !strings.Contains(textOf(res), "c1") || strings.Contains(textOf(res), "c2") {
 		t.Fatalf("zone=urgent should hold exactly c1: %s", textOf(res))
 	}
@@ -314,5 +314,24 @@ func TestMCPMissingBoardConfig(t *testing.T) {
 	cs := connect(t, Config{}, boardservicetest.New(nil, nil))
 	if msg := callErr(t, cs, "list_cards", nil); !strings.Contains(msg, "owner and project are required") {
 		t.Fatalf("expected board-required error, got %s", msg)
+	}
+}
+
+func TestMCPListDefaultsToMe(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "mine", Team: "alpha", Assignees: []string{"bob"}, Progress: 40, SprintStart: today},
+		{ItemID: "theirs", Team: "alpha", Assignees: []string{"carol"}, Progress: 40, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	cs := connect(t, Config{Owner: "acme", Project: 1, ResolveLogin: func(context.Context) (string, error) { return "bob", nil }}, fake)
+	// No view → the caller's own Me board.
+	res := call(t, cs, "list_cards", map[string]any{})
+	if !strings.Contains(textOf(res), "mine") || strings.Contains(textOf(res), "theirs") {
+		t.Fatalf("default list must be the caller's Me board: %s", textOf(res))
+	}
+	// view=all lists the whole board.
+	all := call(t, cs, "list_cards", map[string]any{"view": "all"})
+	if !strings.Contains(textOf(all), "mine") || !strings.Contains(textOf(all), "theirs") {
+		t.Fatalf("view=all must list the whole board: %s", textOf(all))
 	}
 }
