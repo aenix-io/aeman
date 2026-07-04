@@ -111,12 +111,15 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
 
 `GET /api/v1/cards` reproduces the UI's views server-side:
 
-- `?view=team&team=platform&day=2026-07-02` — the Team grid for a team on a day (day defaults to today).
-- `?view=me&user=octocat&day=` — the personal day view (empty user = everyone).
+- **No view** — defaults to the caller's personal **Me** board (their own cards in the active sprint). Who-am-I is resolved server-side (session/token login), so no `user` is needed; an explicit `?user=` still wins. This is where everyone works day to day.
+- `?view=all` — every card on the board (the old bare-list behaviour; still honours the field/team filters).
+- `?view=team&team=platform&day=2026-07-02` — the Team grid (the lead view) for a team on a day; `team=` accepts a comma-separated set (`team=platform,marketing`) so the multi-team board loads in one request. Day defaults to today.
+- `?view=me&user=octocat&day=` — the personal day view for a specific user (empty user = the caller; on the Me view an empty user resolves to who-am-i via the handler).
 - `?view=weekly&team=platform&week=2026-06-29` — the weekly plan (week = a Monday, defaults to the current week); the response also carries `weekly: {progress}` (recurrent cards excluded).
 - Field selectors — `stage=`, `zone=`, `assignee=` — compose with a view or apply to all cards.
 - `focus=true` — keep only cards workable right now (drops done, on-review and locked); the "what can I pick up now" filter.
-- On `view=me` (and the default all-cards list), `team=` filters the personal board to a team — a comma-separated set (`team=marketing,portal`) matches any of them.
+- `reviews=true` — on a me/team view, append each card's linked review card so a client rendering the reviewer badge has it without a second request (the UI uses this; off by default so an agent's Me list isn't padded with review cards).
+- On the me / all lists, `team=` filters by a comma-separated set (`team=marketing,portal`) matching any of them.
 
 ### Live updates: list + watch
 
@@ -171,7 +174,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over?owner=acme
 | Tool | Purpose |
 | --- | --- |
 | `get_board` | Board identity and team roster. |
-| `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`). |
+| `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`, `focus`). No view defaults to your own Me board (who-am-i resolved server-side); `view=all` is the whole board, `view=team` the lead view. |
 | `get_card` / `list_notes` / `list_links` | One card; its notes; its description links (GitHub refs resolved with titles). |
 | `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). A title that is only a GitHub issue/PR URL is auto-filled from that item. |
 | `update_card` | The PATCH: only provided fields apply, empty clears. The `description` is the card's shared body — also the place for reference links: URLs are surfaced on the card, GitHub issue/PR links resolved to titles (`list_links`). |
