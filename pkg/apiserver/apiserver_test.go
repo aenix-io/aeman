@@ -165,6 +165,32 @@ func TestSelectorParsing(t *testing.T) {
 	if _, err := ParseSelector(url.Values{"view": {"nope"}}); err == nil {
 		t.Fatal("unknown view must error")
 	}
+	if _, err := ParseSelector(url.Values{"view": {"all"}}); err != nil {
+		t.Fatalf("view=all must be accepted: %v", err)
+	}
+}
+
+// view=all lists every card (like the empty view) and still honours the team
+// set and field filters — it is the explicit whole-board request.
+func TestViewAllListsEverythingWithTeamFilter(t *testing.T) {
+	b := board.Board{Cards: []board.Card{
+		{ItemID: "a1", Team: "alpha", Progress: 40},
+		{ItemID: "a2", Team: "alpha", Progress: 100},
+		{ItemID: "b1", Team: "beta", Progress: 40},
+	}}
+	ids := func(sel Selector) []string {
+		out := []string{}
+		for _, c := range FilterCards(b, sel) {
+			out = append(out, c.ItemID)
+		}
+		return out
+	}
+	if got := ids(Selector{View: "all"}); !reflect.DeepEqual(got, []string{"a1", "a2", "b1"}) {
+		t.Fatalf("view=all = %v, want all three", got)
+	}
+	if got := ids(Selector{View: "all", Team: "beta"}); !reflect.DeepEqual(got, []string{"b1"}) {
+		t.Fatalf("view=all&team=beta = %v, want [b1]", got)
+	}
 }
 
 func TestOrderingResource(t *testing.T) {
@@ -211,5 +237,57 @@ func TestSelectorFocusAndMultiTeam(t *testing.T) {
 	sel, _ := ParseSelector(map[string][]string{"focus": {"true"}})
 	if !sel.Focus {
 		t.Fatal("focus=true must parse")
+	}
+}
+
+// reviews=true appends a me/team card's linked review card so the view is
+// self-contained for the badge; off by default it is not mixed in.
+func TestViewIncludeReviews(t *testing.T) {
+	today := board.TodayIso()
+	b := board.Board{
+		Cards: []board.Card{
+			{ItemID: "mine", Team: "alpha", Assignees: []string{"bob"}, Progress: 40, SprintStart: today},
+			{ItemID: "rev", Team: "alpha", Assignees: []string{"carol"}, ReviewOf: "mine", Progress: 50, SprintStart: today},
+		},
+		SprintStates: map[string]board.SprintState{"alpha": {Current: today}},
+	}
+	has := func(sel Selector, id string) bool {
+		for _, c := range FilterCards(b, sel) {
+			if c.ItemID == id {
+				return true
+			}
+		}
+		return false
+	}
+	base := Selector{View: "me", User: "bob", Day: today}
+	if !has(base, "mine") || has(base, "rev") {
+		t.Fatal("plain me view holds only the user's own card")
+	}
+	withRev := Selector{View: "me", User: "bob", Day: today, IncludeReviews: true}
+	if !has(withRev, "mine") || !has(withRev, "rev") {
+		t.Fatal("reviews=true must append the linked review card")
+	}
+}
+
+// view=team accepts a comma set: the Team board fetches every team it shows in
+// one request (union of the per-team grids).
+func TestTeamViewMultiTeam(t *testing.T) {
+	day := "2026-01-10"
+	b := board.Board{
+		Cards: []board.Card{
+			{ItemID: "a1", Team: "alpha", Progress: 40, StartDate: day, SprintStart: day},
+			{ItemID: "b1", Team: "beta", Progress: 40, StartDate: day, SprintStart: day},
+			{ItemID: "g1", Team: "gamma", Progress: 40, StartDate: day, SprintStart: day},
+		},
+		SprintStates: map[string]board.SprintState{
+			"alpha": {Current: day}, "beta": {Current: day}, "gamma": {Current: day},
+		},
+	}
+	ids := map[string]bool{}
+	for _, c := range FilterCards(b, Selector{View: "team", Team: "alpha,beta", Day: day}) {
+		ids[c.ItemID] = true
+	}
+	if !ids["a1"] || !ids["b1"] || ids["g1"] {
+		t.Fatalf("team=alpha,beta = %v, want alpha+beta only", ids)
 	}
 }
