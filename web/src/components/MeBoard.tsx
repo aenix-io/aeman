@@ -30,6 +30,9 @@ interface MeBoardProps {
   board: Board;
   provider: Provider;
   me: string;
+  /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
+  selectedDate: string;
+  onSelectDate: (day: string) => void;
   /** GitHub user details (avatars / names) for the impersonate picker. */
   users: Record<string, GhUser>;
   /** Known teams to offer in the team selector. */
@@ -69,6 +72,8 @@ export function MeBoard({
   board,
   provider,
   me,
+  selectedDate,
+  onSelectDate,
   users,
   teams,
   teamFilter,
@@ -85,7 +90,6 @@ export function MeBoard({
   onOpen,
   onPresence,
 }: MeBoardProps) {
-  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   // Broadcast the selection as shared presence: teammates' Team boards
   // highlight this card with our avatar. Cleared on deselect and unmount.
@@ -782,7 +786,7 @@ export function MeBoard({
             <button
               type="button"
               className="day-arrow"
-              onClick={() => setSelectedDate((d) => addDays(d, -1))}
+              onClick={() => onSelectDate(addDays(selectedDate, -1))}
               aria-label="Previous day"
               title="Previous day"
             >
@@ -791,12 +795,12 @@ export function MeBoard({
             <input
               type="date"
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value || todayIso())}
+              onChange={(e) => onSelectDate(e.target.value || todayIso())}
             />
             <button
               type="button"
               className="day-arrow"
-              onClick={() => setSelectedDate((d) => addDays(d, 1))}
+              onClick={() => onSelectDate(addDays(selectedDate, 1))}
               aria-label="Next day"
               title="Next day"
             >
@@ -822,7 +826,7 @@ export function MeBoard({
         <button
           type="button"
           className="btn me-today"
-          onClick={() => setSelectedDate(todayIso())}
+          onClick={() => onSelectDate(todayIso())}
           disabled={selectedDate === todayIso()}
           title="Jump to today"
         >
