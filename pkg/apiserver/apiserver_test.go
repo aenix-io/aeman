@@ -239,3 +239,55 @@ func TestSelectorFocusAndMultiTeam(t *testing.T) {
 		t.Fatal("focus=true must parse")
 	}
 }
+
+// reviews=true appends a me/team card's linked review card so the view is
+// self-contained for the badge; off by default it is not mixed in.
+func TestViewIncludeReviews(t *testing.T) {
+	today := board.TodayIso()
+	b := board.Board{
+		Cards: []board.Card{
+			{ItemID: "mine", Team: "alpha", Assignees: []string{"bob"}, Progress: 40, SprintStart: today},
+			{ItemID: "rev", Team: "alpha", Assignees: []string{"carol"}, ReviewOf: "mine", Progress: 50, SprintStart: today},
+		},
+		SprintStates: map[string]board.SprintState{"alpha": {Current: today}},
+	}
+	has := func(sel Selector, id string) bool {
+		for _, c := range FilterCards(b, sel) {
+			if c.ItemID == id {
+				return true
+			}
+		}
+		return false
+	}
+	base := Selector{View: "me", User: "bob", Day: today}
+	if !has(base, "mine") || has(base, "rev") {
+		t.Fatal("plain me view holds only the user's own card")
+	}
+	withRev := Selector{View: "me", User: "bob", Day: today, IncludeReviews: true}
+	if !has(withRev, "mine") || !has(withRev, "rev") {
+		t.Fatal("reviews=true must append the linked review card")
+	}
+}
+
+// view=team accepts a comma set: the Team board fetches every team it shows in
+// one request (union of the per-team grids).
+func TestTeamViewMultiTeam(t *testing.T) {
+	day := "2026-01-10"
+	b := board.Board{
+		Cards: []board.Card{
+			{ItemID: "a1", Team: "alpha", Progress: 40, StartDate: day, SprintStart: day},
+			{ItemID: "b1", Team: "beta", Progress: 40, StartDate: day, SprintStart: day},
+			{ItemID: "g1", Team: "gamma", Progress: 40, StartDate: day, SprintStart: day},
+		},
+		SprintStates: map[string]board.SprintState{
+			"alpha": {Current: day}, "beta": {Current: day}, "gamma": {Current: day},
+		},
+	}
+	ids := map[string]bool{}
+	for _, c := range FilterCards(b, Selector{View: "team", Team: "alpha,beta", Day: day}) {
+		ids[c.ItemID] = true
+	}
+	if !ids["a1"] || !ids["b1"] || ids["g1"] {
+		t.Fatalf("team=alpha,beta = %v, want alpha+beta only", ids)
+	}
+}

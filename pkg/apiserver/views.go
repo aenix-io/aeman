@@ -31,18 +31,24 @@ type Selector struct {
 	// Focus keeps only workable cards — the "what can I act on now" filter
 	// (drops done, on-review and locked). It mirrors the Me view's focus toggle.
 	Focus bool
+	// IncludeReviews appends each returned card's linked review card to a me/team
+	// view, so a client rendering the reviewer badge has it on hand without a
+	// second request. It is a UI convenience, off by default (agents listing a
+	// Me board do not want the review cards mixed in).
+	IncludeReviews bool
 }
 
 // ParseSelector reads a selector from query parameters. Unknown views error.
 func ParseSelector(q url.Values) (Selector, error) {
 	sel := Selector{
-		View:     q.Get("view"),
-		Team:     q.Get("team"),
-		Day:      q.Get("day"),
-		User:     q.Get("user"),
-		Week:     q.Get("week"),
-		Assignee: q.Get("assignee"),
-		Focus:    q.Get("focus") == "true" || q.Get("focus") == "1",
+		View:           q.Get("view"),
+		Team:           q.Get("team"),
+		Day:            q.Get("day"),
+		User:           q.Get("user"),
+		Week:           q.Get("week"),
+		Assignee:       q.Get("assignee"),
+		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
+		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
 	}
 	if q.Has("stage") {
 		v := q.Get("stage")
@@ -80,7 +86,17 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	var base []board.Card
 	switch sel.View {
 	case "team":
-		base = board.TeamGrid(b, sel.Team, sel.Day)
+		// team accepts a comma-separated set so the Team board fetches every team
+		// it shows in one request; the grids are unioned, deduped by item id.
+		seen := map[string]bool{}
+		for _, t := range strings.Split(sel.Team, ",") {
+			for _, c := range board.TeamGrid(b, strings.TrimSpace(t), sel.Day) {
+				if !seen[c.ItemID] {
+					seen[c.ItemID] = true
+					base = append(base, c)
+				}
+			}
+		}
 	case "me":
 		base = board.MeView(b, sel.User, sel.Day)
 	case "weekly":
@@ -111,6 +127,28 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			continue
 		}
 		out = append(out, c)
+	}
+	if sel.IncludeReviews && (sel.View == "me" || sel.View == "team") {
+		out = withLinkedReviews(b, out)
+	}
+	return out
+}
+
+// withLinkedReviews appends each card's linked review card (reviewOf == its id),
+// skipping any already present, so a me/team view is self-contained for a client
+// that renders the reviewer badge from the same card set.
+func withLinkedReviews(b board.Board, out []board.Card) []board.Card {
+	present := make(map[string]bool, len(out))
+	ids := make(map[string]bool, len(out))
+	for _, c := range out {
+		present[c.ItemID] = true
+		ids[c.ItemID] = true
+	}
+	for _, c := range b.Cards {
+		if c.ReviewOf != "" && ids[c.ReviewOf] && !present[c.ItemID] {
+			out = append(out, c)
+			present[c.ItemID] = true
+		}
 	}
 	return out
 }
