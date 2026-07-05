@@ -16,7 +16,7 @@ import { TeamBoard } from "./components/TeamBoard";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
-import { queryString, viewQuery } from "./viewquery";
+import { queryString, viewQueries, watchQuery } from "./viewquery";
 import { todayIso } from "./date";
 
 type ViewMode = "me" | "team";
@@ -73,6 +73,10 @@ export function App() {
   // The viewed day, shared by both boards and driving the lazy view fetch and
   // the scoped watch. Lifted out of the boards so the App owns what to load.
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  // "View as" impersonation on the Me board — lifted here because the Me fetch
+  // must carry the impersonated user explicitly (the server otherwise resolves
+  // the caller's own login).
+  const [viewAs, setViewAs] = useState<string | null>(null);
   const [users, setUsers] = useState<Record<string, GhUser>>({});
   const fetchedUsers = useRef<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -177,14 +181,20 @@ export function App() {
   }, [addedTeams, board]);
 
   // What the active board loads and watches: Me is personal (the server fills in
-  // "who am I"), Team names the teams it shows (the filter, or the whole roster).
-  // activeKey is the stable serialisation used to re-fetch and re-subscribe only
-  // when the selection actually changes.
-  const activeQuery = useMemo(
-    () => viewQuery(view, selectedDate, teamFilter ?? roster),
-    [view, selectedDate, teamFilter, roster],
+  // "who am I" unless view-as impersonates someone), Team names the teams it
+  // shows (the filter, or the whole roster) and loads the day grid PLUS the
+  // weekly plan. activeKey / watchKey are stable serialisations used to
+  // re-fetch and re-subscribe only when the selection actually changes.
+  const activeQueries = useMemo(
+    () => viewQueries(view, selectedDate, teamFilter ?? roster, viewAs ?? undefined),
+    [view, selectedDate, teamFilter, roster, viewAs],
   );
-  const activeKey = queryString(activeQuery);
+  const activeKey = activeQueries.map(queryString).join("|");
+  const watchSel = useMemo(
+    () => watchQuery(view, selectedDate, teamFilter ?? roster, viewAs ?? undefined),
+    [view, selectedDate, teamFilter, roster, viewAs],
+  );
+  const watchKey = queryString(watchSel);
 
   // Reorder the whole roster (from the manage dialog) and persist the order.
   const reorderTeams = useCallback((ordered: string[]) => {
@@ -251,8 +261,8 @@ export function App() {
   // Load the active view's cards whenever the selection (view/day/teams) changes
   // or the board is (re)loaded. loadBoard brings only identity + sprints; the
   // cards for one view arrive here, so the UI holds just what it shows.
-  const activeQueryRef = useRef(activeQuery);
-  activeQueryRef.current = activeQuery;
+  const activeQueriesRef = useRef(activeQueries);
+  activeQueriesRef.current = activeQueries;
   const bOwner = board?.owner;
   const bNumber = board?.number;
   useEffect(() => {
@@ -260,12 +270,23 @@ export function App() {
       return;
     }
     let cancelled = false;
-    provider
-      .listCards({ owner: bOwner, number: bNumber }, activeQueryRef.current)
-      .then((cards) => {
-        if (!cancelled) {
-          setBoard((cur) => (cur ? { ...cur, cards } : cur));
+    const addr = { owner: bOwner, number: bNumber };
+    Promise.all(activeQueriesRef.current.map((q) => provider.listCards(addr, q)))
+      .then((lists) => {
+        if (cancelled) {
+          return;
         }
+        // Merge the view's lists (e.g. the Team grid + its weekly plan),
+        // deduping by item id; board order within each list is preserved.
+        const seen = new Set<string>();
+        const cards = lists.flat().filter((c) => {
+          if (seen.has(c.itemId)) {
+            return false;
+          }
+          seen.add(c.itemId);
+          return true;
+        });
+        setBoard((cur) => (cur ? { ...cur, cards } : cur));
       })
       .catch((err: unknown) => {
         if (!cancelled) {
@@ -477,13 +498,14 @@ export function App() {
       // A fresh connection replays the presence snapshot; drop stale marks.
       setPresenceMap({});
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // Scope the watch to the active view (activeKey = view/day/team/reviews):
-      // a card entering the selection arrives as ADDED, one leaving as DELETED,
-      // so the UI holds just what it shows. ?client= keeps our own mutations
-      // from echoing back. Re-subscribes when activeKey changes (a dep below).
+      // Scope the watch to the active view: Me watches its day selection, Team
+      // watches every card of the teams it shows (grid + weekly plan). A card
+      // entering the selection arrives as ADDED, one leaving as DELETED.
+      // ?client= keeps our own mutations from echoing back. Re-subscribes when
+      // watchKey changes (a dep below).
       const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
         watchOwner,
-      )}&project=${watchProject}&client=${clientId}&${activeKey}`;
+      )}&project=${watchProject}&client=${clientId}&${watchKey}`;
       socket = new WebSocket(url);
       socket.addEventListener("message", (e) => {
         let frame: WatchFrame;
@@ -514,7 +536,7 @@ export function App() {
     boardLoaded,
     watchOwner,
     watchProject,
-    activeKey,
+    watchKey,
     provider,
     addCard,
     removeCard,
@@ -714,6 +736,8 @@ export function App() {
             board={board}
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
+            viewAs={viewAs}
+            onViewAs={setViewAs}
             provider={provider}
             me={config?.login ?? ""}
             users={users}

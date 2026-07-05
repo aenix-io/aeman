@@ -144,6 +144,10 @@ type BoardMetadata struct {
 	Title string   `json:"title,omitempty"`
 	URL   string   `json:"url,omitempty"`
 	Teams []string `json:"teams"`
+	// Members is every distinct assignee on the board — the people roster for
+	// pickers (assign, review, view-as) now that clients load one view at a
+	// time and cannot derive it from the cards they hold.
+	Members []string `json:"members"`
 }
 
 // CardList is the LIST response envelope; Weekly carries the view's computed
@@ -261,9 +265,20 @@ func BoardResource(b board.Board) BoardInfo {
 		teams = append(teams, t)
 	}
 	sortStrings(teams)
+	seen := map[string]bool{}
+	members := []string{}
+	for _, c := range b.Cards {
+		for _, a := range c.Assignees {
+			if a != "" && !seen[a] {
+				seen[a] = true
+				members = append(members, a)
+			}
+		}
+	}
+	sortStrings(members)
 	return BoardInfo{
 		Kind:     "Board",
-		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams},
+		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams, Members: members},
 	}
 }
 
