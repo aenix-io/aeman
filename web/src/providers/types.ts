@@ -98,6 +98,9 @@ export interface Board {
   /** The board's team roster (teams that have a sprint pointer), from GET
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
+  /** Every distinct assignee on the board, from GET /board — the people roster
+   *  for pickers (assign, review, view-as). */
+  members: string[];
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
 }

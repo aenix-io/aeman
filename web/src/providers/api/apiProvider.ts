@@ -159,6 +159,7 @@ export const apiProvider: Provider = {
       // after this from the App's first view fetch.
       cards: [],
       teams: info.metadata.teams ?? [],
+      members: info.metadata.members ?? [],
       sprintStates: sprintStatesFrom(sprints.items ?? []),
     };
   },

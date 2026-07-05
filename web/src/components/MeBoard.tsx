@@ -33,6 +33,10 @@ interface MeBoardProps {
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
   onSelectDate: (day: string) => void;
+  /** "View as" impersonation, owned by the App: the Me fetch carries it as an
+   *  explicit user (null = the caller themselves). */
+  viewAs: string | null;
+  onViewAs: (login: string | null) => void;
   /** GitHub user details (avatars / names) for the impersonate picker. */
   users: Record<string, GhUser>;
   /** Known teams to offer in the team selector. */
@@ -74,6 +78,8 @@ export function MeBoard({
   me,
   selectedDate,
   onSelectDate,
+  viewAs,
+  onViewAs,
   users,
   teams,
   teamFilter,
@@ -106,7 +112,8 @@ export function MeBoard({
   // resets to off on reload, like the team-focus eye.
   const [focus, setFocus] = useState(false);
   // Impersonate: view (and act on) the board as another person.
-  const [impersonated, setImpersonated] = useState<string | null>(null);
+  const impersonated = viewAs;
+  const setImpersonated = onViewAs;
   const [impOpen, setImpOpen] = useState(false);
   // MCP / API connect dialog.
   const [connectOpen, setConnectOpen] = useState(false);
@@ -127,16 +134,16 @@ export function MeBoard({
   // Other people with cards — offered in the "View as" impersonate picker.
   const others = useMemo(
     () =>
-      [...new Set(board.cards.flatMap((c) => c.assignees))]
+      [...new Set([...board.members, ...board.cards.flatMap((c) => c.assignees)])]
         .filter((p) => p && p !== me)
         .sort(),
-    [board.cards, me],
+    [board.members, board.cards, me],
   );
 
   // People to offer when picking a reviewer: everyone seen on the board, plus
   // me — the same roster the Team board's assign menu uses.
   const people = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(board.members);
     for (const card of board.cards) {
       for (const login of card.assignees) {
         set.add(login);
@@ -145,8 +152,9 @@ export function MeBoard({
     if (me) {
       set.add(me);
     }
+    set.delete("");
     return [...set].sort((a, b) => a.localeCompare(b));
-  }, [board.cards, me]);
+  }, [board.members, board.cards, me]);
 
   // My cards (any day); when me is empty, everyone's.
   const mine = useMemo(
