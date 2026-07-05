@@ -60,6 +60,8 @@ export function NotesPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [group, setGroup] = useState<GroupMode>("time");
+  // The system log (recorded activity events) is opt-in: notes only by default.
+  const [showLog, setShowLog] = useState(false);
 
   const submit = () => {
     const text = draft.trim();
@@ -90,11 +92,13 @@ export function NotesPanel({
   const feed = useMemo<FeedItem[]>(() => {
     const out: FeedItem[] = [
       ...notes.map(({ note, card }) => ({ at: note.createdAt, note, card })),
-      ...events.map(({ event, card }) => ({ at: event.at, event, card })),
+      ...(showLog
+        ? events.map(({ event, card }) => ({ at: event.at, event, card }))
+        : []),
     ];
     out.sort((a, b) => a.at.localeCompare(b.at));
     return out;
-  }, [notes, events]);
+  }, [notes, events, showLog]);
 
   // In "by card" mode, group the day's feed under their card, ordered the way
   // the cards appear on the board (entries within a card stay in time order).
@@ -220,6 +224,15 @@ export function NotesPanel({
       <header className="notes-header">
         <span>Notes — {selectedDate}</span>
         <div className="notes-header-right">
+          <button
+            type="button"
+            className={`notes-log-toggle${showLog ? " notes-log-toggle-on" : ""}`}
+            aria-pressed={showLog}
+            onClick={() => setShowLog((v) => !v)}
+            title={showLog ? "Hide the system log" : "Show the system log"}
+          >
+            ⚙
+          </button>
           <div className="notes-group-toggle" role="tablist" aria-label="Group notes">
             <button
               type="button"

@@ -307,6 +307,18 @@ export function MeBoard({
     }
   }, [myCards, board, provider, patchCard]);
 
+  // Refresh a card's log after an own mutation: our watch echo is suppressed,
+  // so the freshly recorded event won't stream back — refetch it.
+  const refreshLog = (itemId: string) => {
+    if (itemId.startsWith("tmp-")) {
+      return;
+    }
+    void provider
+      .listLog(board, itemId)
+      .then(({ notes, events }) => patchCard(itemId, { notes, events }))
+      .catch(() => {});
+  };
+
   const selectedCard =
     myCards.find((c) => c.itemId === selectedCardId) ?? null;
 
@@ -338,6 +350,7 @@ export function MeBoard({
       .patchCard(board, card.itemId, { progress: value })
       .then((updated) => {
         addCard(updated);
+        refreshLog(card.itemId);
         // A review card's progress drives the original's stage server-side.
         if (card.reviewOf) {
           reload();
@@ -378,6 +391,7 @@ export function MeBoard({
       .patchCard(board, card.itemId, { stage: stage ?? "" })
       .then((updated) => {
         addCard(updated);
+        refreshLog(card.itemId);
         if (leavingReview || (enteringReview && hasLinkedReview) || card.reviewOf) {
           reload();
         }
@@ -405,6 +419,7 @@ export function MeBoard({
       .setInProgress(board, card.itemId)
       .then((updated) => {
         addCard(updated);
+        refreshLog(card.itemId);
         if (card.stage === "review" || card.reviewOf) {
           reload();
         }
