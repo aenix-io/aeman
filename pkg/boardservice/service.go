@@ -586,9 +586,9 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			}
 			return s.backend.SetWeek(ctx, b, c, "")
 		}
-		if prev := previousWeekFor(b, c); prev != "" {
-			return s.backend.SetWeek(ctx, b, c, prev)
-		}
+		// A pure plan card — unassigned, never worked — is deleted for real.
+		// (Demoting it to an earlier week only made carry-week boomerang it
+		// back into the plan.)
 		return s.deleteWithCascade(ctx, b, c)
 	}
 	if c.Plan != board.PlanNone {
@@ -1260,34 +1260,12 @@ func (s *Service) ReleaseFromPlan(ctx context.Context, owner string, project int
 		return err
 	}
 	if len(card.Assignees) == 0 && card.Progress == 0 {
-		if prevWeek := previousWeekFor(b, card); prevWeek != "" {
-			return s.backend.SetWeek(ctx, b, card, prevWeek)
-		}
+		// A pure plan card is deleted for real (an earlier-week demote would
+		// boomerang back on the next carry-week).
 		return s.deleteWithCascade(ctx, b, card)
 	}
 	if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
 		return err
 	}
 	return s.backend.SetWeek(ctx, b, card, "")
-}
-
-// previousWeekFor returns the latest plan week before a card's week among the
-// same team's cards, or "". It mirrors previousWeekFor in TeamBoard.tsx.
-func previousWeekFor(b board.Board, card board.Card) string {
-	if card.Week == "" {
-		return ""
-	}
-	prev := ""
-	for _, c := range b.Cards {
-		if c.ItemID == card.ItemID || c.Team != card.Team {
-			continue
-		}
-		if c.Week == "" || c.Week >= card.Week {
-			continue
-		}
-		if prev == "" || c.Week > prev {
-			prev = c.Week
-		}
-	}
-	return prev
 }
