@@ -291,8 +291,18 @@ export function TeamBoard({
   const weekly = useMemo(() => {
     const wed: CardModel[] = [];
     const fri: CardModel[] = [];
+    // A card shows in its own week — and, mirroring the day grid's sprint
+    // history, in every past week it was actually worked in: taken into work
+    // (it has a start date) and carried forward past that week. Carrying the
+    // plan forward does not erase the weeks it was worked in.
+    const showsInWeek = (c: CardModel): boolean =>
+      c.week === currentWeek ||
+      (!!c.startDate &&
+        !!c.week &&
+        c.week > currentWeek &&
+        mondayOf(c.startDate) <= currentWeek);
     for (const c of board.cards) {
-      if (!c.plan || c.week !== currentWeek || !passesFilter(c)) {
+      if (!c.plan || !showsInWeek(c) || !passesFilter(c)) {
         continue;
       }
       (c.plan === "fri" ? fri : wed).push(c);
@@ -937,14 +947,21 @@ export function TeamBoard({
         };
       }
     } else {
-      // A taken plan card is released (assignee + sprint cleared), so it stays
-      // in the weekly plan.
-      const prev: Partial<CardModel> = {
-        assignees: card.assignees,
-        sprintStart: card.sprintStart,
-      };
-      patchCard(card.itemId, { assignees: [], sprintStart: undefined });
-      rollback = () => patchCard(card.itemId, prev);
+      // An untouched taken plan card is released (assignee + sprint cleared),
+      // so it stays in the weekly plan. A card already worked on keeps its
+      // person and sprint history and sheds only the plan membership.
+      if ((card.progress ?? 0) > 0) {
+        const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
+        patchCard(card.itemId, { plan: undefined, week: undefined });
+        rollback = () => patchCard(card.itemId, prev);
+      } else {
+        const prev: Partial<CardModel> = {
+          assignees: card.assignees,
+          sprintStart: card.sprintStart,
+        };
+        patchCard(card.itemId, { assignees: [], sprintStart: undefined });
+        rollback = () => patchCard(card.itemId, prev);
+      }
     }
     void provider
       .removeCard(board, card.itemId, "grid")
@@ -969,7 +986,7 @@ export function TeamBoard({
       return;
     }
     let rollback: () => void;
-    if (card.assignees.length === 0) {
+    if (card.assignees.length === 0 && (card.progress ?? 0) === 0) {
       const prevWeek = previousWeekFor(card);
       if (prevWeek) {
         const prev: Partial<CardModel> = { week: card.week };

@@ -320,3 +320,33 @@ func TestBoardResourceMembers(t *testing.T) {
 		t.Fatalf("members = %v, want [lllamnyp octocat]", got)
 	}
 }
+
+// A worked plan card carried forward keeps showing in every past week it was
+// worked in (week history, mirroring the day grid's sprint history); a pure
+// never-started plan card moves with its week and leaves no history.
+func TestWeeklyHistoryForWorkedCards(t *testing.T) {
+	b := board.Board{Cards: []board.Card{
+		{ItemID: "worked", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06",
+			StartDate: "2026-07-01", Assignees: []string{"bob"}, Progress: 40},
+		{ItemID: "pure", Team: "alpha", Plan: board.PlanFri, Week: "2026-07-06"},
+		{ItemID: "later", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-13",
+			StartDate: "2026-07-08", Progress: 20},
+	}}
+	ids := func(week string) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range FilterCards(b, Selector{View: "weekly", Team: "alpha", Week: week}) {
+			out[c.ItemID] = true
+		}
+		return out
+	}
+	prev := ids("2026-06-29")
+	if !prev["worked"] || prev["pure"] || prev["later"] {
+		t.Fatalf("week 06-29 = %v, want only the worked card as history", prev)
+	}
+	cur := ids("2026-07-06")
+	// "later" started on 07-08 (inside week 07-06) and was carried to 07-13,
+	// so week 07-06 keeps it as history alongside its own members.
+	if !cur["worked"] || !cur["pure"] || !cur["later"] {
+		t.Fatalf("week 07-06 = %v, want worked+pure+later", cur)
+	}
+}
