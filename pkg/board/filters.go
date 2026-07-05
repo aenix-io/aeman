@@ -119,7 +119,10 @@ func WeeklyPlan(b Board, team, week string) WeeklyBands {
 		if c.Plan == PlanNone || c.Team != team || !planShowsInWeek(c, week) {
 			continue
 		}
-		if c.Plan == PlanFri {
+		// A week-history entry (the card has moved on to a later week) sits in
+		// the by-Friday band of the past week: it stayed open through that
+		// week's end, and its current band describes the week it lives in now.
+		if c.Plan == PlanFri || c.Week != week {
 			bands.Fri = append(bands.Fri, c)
 		} else {
 			bands.Wed = append(bands.Wed, c)
