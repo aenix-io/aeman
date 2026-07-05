@@ -193,7 +193,11 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 			Team:     args.Team,
 			ReviewOf: args.ReviewOf,
 		})
-		return s.withLinkDescription(ctx, b, card, err, linkDescription)
+		card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
+		if err == nil {
+			s.logEvent(ctx, b, card, board.EventCreated, "", "")
+		}
+		return card, err
 	}
 	// Start and Day (the end/due date) default to each other so a create with
 	// only one of them yields a one-day range — a backdated create must NOT get
