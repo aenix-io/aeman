@@ -1620,3 +1620,37 @@ func TestCarryWeekTightensFriToWed(t *testing.T) {
 		}
 	}
 }
+
+// Carry-week's reseed is idempotent: a copy already in the target week blocks a
+// second one, and a torn reseed (plan band set, week empty — an interrupted
+// earlier run) is finished by setting its week instead of duplicating.
+func TestCarryWeekReseedDedupAndTornRepair(t *testing.T) {
+	week := "2026-07-06"
+	// Case 1: copy already in the target week -> nothing new.
+	f := newFake([]board.Card{
+		{ItemID: "src", Team: "alpha", Title: "Habit", Plan: board.PlanFri, Week: "2026-06-29",
+			Stage: board.StageRecurrent, Progress: 100},
+		{ItemID: "copy", Team: "alpha", Title: "Habit", Plan: board.PlanFri, Week: week},
+	}, nil)
+	if _, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week, false); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("CreateCard") != 0 {
+		t.Fatal("an existing target-week copy must block the reseed")
+	}
+	// Case 2: torn reseed (week empty) -> repaired, not duplicated.
+	f = newFake([]board.Card{
+		{ItemID: "src", Team: "alpha", Title: "Habit", Plan: board.PlanFri, Week: "2026-06-29",
+			Stage: board.StageRecurrent, Progress: 100},
+		{ItemID: "stray", Team: "alpha", Title: "Habit", Plan: board.PlanWed, Week: ""},
+	}, nil)
+	if _, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", week, false); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("CreateCard") != 0 {
+		t.Fatal("a torn reseed must be repaired, not duplicated")
+	}
+	if c := f.get("stray"); c.Week != week {
+		t.Fatalf("the torn copy must be finished into the target week: %+v", c)
+	}
+}
