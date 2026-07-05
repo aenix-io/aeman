@@ -551,6 +551,14 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	return nil
 }
 
+func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card board.Card, e board.Event) error {
+	if err := b.inner.AppendEvent(ctx, bd, card, e); err != nil {
+		return err
+	}
+	b.touched(ctx, bd, card.ItemID)
+	return nil
+}
+
 func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.Card, text string) error {
 	if err := b.inner.AddNote(ctx, bd, card, text); err != nil {
 		return err

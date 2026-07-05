@@ -21,7 +21,7 @@ import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
-import { NotesPanel, type DayNote } from "./NotesPanel";
+import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
@@ -268,10 +268,24 @@ export function MeBoard({
     return out;
   }, [myCards, selectedDate]);
 
-  // Notes live in the notes subresource, not on the Card resource: lazily load
-  // them for the day's visible cards. A card's loaded notes are the "fetched"
-  // marker (mutations and the watch keep them fresh); a re-list clears them,
-  // so they refetch. A request that failed stays marked and is not retried.
+  // The day's recorded activity events, feeding the same panel as the notes.
+  const dayEvents = useMemo<DayEvent[]>(() => {
+    const out: DayEvent[] = [];
+    for (const card of myCards) {
+      for (const event of card.events ?? []) {
+        if (localDateIso(event.at) === selectedDate) {
+          out.push({ event, card });
+        }
+      }
+    }
+    out.sort((a, b) => a.event.at.localeCompare(b.event.at));
+    return out;
+  }, [myCards, selectedDate]);
+
+  // Notes and events live in the log subresource, not on the Card resource:
+  // lazily load them for the day's visible cards. A card's loaded notes are the
+  // "fetched" marker (mutations and the watch keep them fresh); a re-list
+  // clears them, so they refetch. A failed request stays marked, not retried.
   const notesRequested = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const c of myCards) {
@@ -284,10 +298,10 @@ export function MeBoard({
       }
       notesRequested.current.add(c.itemId);
       void provider
-        .listNotes(board, c.itemId)
-        .then((notes) => {
+        .listLog(board, c.itemId)
+        .then(({ notes, events }) => {
           notesRequested.current.delete(c.itemId);
-          patchCard(c.itemId, { notes });
+          patchCard(c.itemId, { notes, events });
         })
         .catch(() => {});
     }
@@ -987,6 +1001,7 @@ export function MeBoard({
         <NotesPanel
           selectedDate={selectedDate}
           notes={dayNotes}
+          events={dayEvents}
           cardOrder={noteCardOrder}
           selectedCard={selectedCard}
           onSelectCard={(c) => setSelectedCardId(c.itemId)}

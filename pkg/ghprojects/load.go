@@ -116,9 +116,11 @@ func mapDomainItem(item *rawItem, roles domainFieldRoles) board.Card {
 		}
 		if isDraft {
 			card.Description, card.Notes = domainParseDraftBody(content.Body, item.ID)
+			card.Notes, card.Events = board.PartitionEvents(card.Notes)
 		} else {
 			card.Description = content.Body
 			card.Notes = domainCommentNotes(content)
+			card.Notes, card.Events, card.EventLogID = domainSplitLogComments(content, card.Notes)
 		}
 	}
 	for i := range item.FieldValues.Nodes {
@@ -203,6 +205,41 @@ func domainCommentNotes(content *rawContent) []board.Note {
 		notes = append(notes, n)
 	}
 	return notes
+}
+
+// domainSplitLogComments extracts events from an issue/PR card's dedicated log
+// comments — comments whose body starts with the log marker hold event lines,
+// not conversation — returning the remaining notes, the parsed events and the
+// first log comment's id (the one AppendEvent keeps appending to).
+func domainSplitLogComments(content *rawContent, notes []board.Note) ([]board.Note, []board.Event, string) {
+	if content.Comments == nil {
+		return notes, nil, ""
+	}
+	isLog := map[string]bool{}
+	logID := ""
+	var events []board.Event
+	for _, cm := range content.Comments.Nodes {
+		if !strings.HasPrefix(strings.TrimSpace(cm.Body), domainLogMarker) {
+			continue
+		}
+		isLog[cm.ID] = true
+		if logID == "" {
+			logID = cm.ID
+		}
+		rest := strings.TrimSpace(cm.Body)[len(domainLogMarker):]
+		_, evs := board.PartitionEvents(domainParseNoteLines(rest, cm.ID))
+		events = append(events, evs...)
+	}
+	if len(isLog) == 0 {
+		return notes, nil, ""
+	}
+	keep := notes[:0]
+	for _, n := range notes {
+		if !isLog[n.ID] {
+			keep = append(keep, n)
+		}
+	}
+	return keep, events, logID
 }
 
 // applyDomainRole records a single raw field value under the matching typed role,
