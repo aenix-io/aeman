@@ -1,7 +1,9 @@
 package board
 
 import (
+	"context"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -54,6 +56,24 @@ func DateRange(start, end string) string {
 	return start + ".." + end
 }
 
+// actorKey carries the acting user's GitHub login on the context, so backends
+// can attribute the notes and events they write.
+type actorKey struct{}
+
+// WithActor returns a context carrying the acting user's GitHub login.
+func WithActor(ctx context.Context, login string) context.Context {
+	if login == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, actorKey{}, login)
+}
+
+// ActorFrom returns the acting user's login stamped by WithActor ("" when none).
+func ActorFrom(ctx context.Context) string {
+	login, _ := ctx.Value(actorKey{}).(string)
+	return login
+}
+
 // eventPrefix marks a log-line body as a machine event rather than a work
 // note. Parsers treat any log line whose body starts with it as an Event.
 const eventPrefix = ":: "
@@ -90,6 +110,28 @@ func ParseEventBody(body string) (Event, bool) {
 		return Event{}, false
 	}
 	return e, true
+}
+
+// noteAuthorRe extracts an "@login: " author prefix from a draft note body —
+// the attribution AddNote writes for the acting user.
+var noteAuthorRe = regexp.MustCompile(`^@([A-Za-z0-9][A-Za-z0-9-]*): ?`)
+
+// RenderNoteBody prepends the author attribution to a note body for storage
+// in the draft log ("@login: text"); an empty author stores the bare text.
+func RenderNoteBody(author, text string) string {
+	if author == "" {
+		return text
+	}
+	return "@" + author + ": " + text
+}
+
+// SplitNoteAuthor extracts the "@login: " attribution from a stored note body,
+// returning the author ("" for legacy unattributed notes) and the bare text.
+func SplitNoteAuthor(body string) (author, text string) {
+	if m := noteAuthorRe.FindStringSubmatch(body); m != nil {
+		return m[1], body[len(m[0]):]
+	}
+	return "", body
 }
 
 // PartitionEvents splits a parsed log into plain work notes and events: any

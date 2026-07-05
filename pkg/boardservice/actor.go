@@ -7,24 +7,19 @@ import (
 	"github.com/aenix-org/aeman/pkg/board"
 )
 
-// actorKey carries the acting user's GitHub login on the context.
-type actorKey struct{}
-
 // WithActor returns a context carrying the acting user's GitHub login. The
 // HTTP server stamps it from the request's session, the MCP servers from
-// their resolved login; service mutations read it when recording events.
+// their resolved login; service mutations read it when recording events, and
+// backends when attributing notes. (Defined in pkg/board so backends can read
+// it without importing boardservice.)
 func WithActor(ctx context.Context, login string) context.Context {
-	if login == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, actorKey{}, login)
+	return board.WithActor(ctx, login)
 }
 
 // ActorFrom returns the acting user's login stamped by WithActor ("" when
-// none — the event is still recorded, just unattributed).
+// none — the entry is still recorded, just unattributed).
 func ActorFrom(ctx context.Context) string {
-	login, _ := ctx.Value(actorKey{}).(string)
-	return login
+	return board.ActorFrom(ctx)
 }
 
 // logEvent records one activity event on a card, best-effort: the event log

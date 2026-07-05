@@ -152,6 +152,7 @@ export function NotesPanel({
     <div className="note" key={note.id}>
       <div className="note-meta">
         <span className="note-time">{localTime(note.createdAt)}</span>
+        {note.author && <span className="note-author">@{note.author}</span>}
         {showCard && (
           <button
             type="button"

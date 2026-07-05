@@ -130,7 +130,7 @@ func logLinesMixed(notes []board.Note, events []board.Event) []string {
 	type entry struct{ at, body string }
 	entries := make([]entry, 0, len(notes)+len(events))
 	for _, n := range notes {
-		entries = append(entries, entry{n.CreatedAt, n.Body})
+		entries = append(entries, entry{n.CreatedAt, board.RenderNoteBody(n.Author, n.Body)})
 	}
 	for _, e := range events {
 		entries = append(entries, entry{e.At, board.FormatEventBody(e)})

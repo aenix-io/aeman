@@ -67,3 +67,20 @@ func TestPartitionEvents(t *testing.T) {
 		t.Fatalf("events = %+v, want %+v", events, want)
 	}
 }
+
+// Note author attribution round-trips through the stored body format; legacy
+// bodies without it stay unattributed.
+func TestNoteAuthorRoundTrip(t *testing.T) {
+	body := RenderNoteBody("kvaps", "wrote the plan")
+	author, text := SplitNoteAuthor(body)
+	if author != "kvaps" || text != "wrote the plan" {
+		t.Fatalf("round-trip = %q %q", author, text)
+	}
+	author, text = SplitNoteAuthor("legacy note body")
+	if author != "" || text != "legacy note body" {
+		t.Fatalf("legacy = %q %q", author, text)
+	}
+	if RenderNoteBody("", "bare") != "bare" {
+		t.Fatal("empty author stores the bare text")
+	}
+}

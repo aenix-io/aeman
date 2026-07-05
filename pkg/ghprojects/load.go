@@ -149,10 +149,12 @@ func domainParseDraftBody(body, itemID string) (string, []board.Note) {
 	var notes []board.Note
 	for i, line := range strings.Split(body, "\n") {
 		if m := draftNoteRe.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			author, body := board.SplitNoteAuthor(m[2])
 			notes = append(notes, board.Note{
 				ID:        fmt.Sprintf("%s:%d", itemID, i),
-				Body:      m[2],
+				Body:      body,
 				CreatedAt: m[1],
+				Author:    author,
 				Source:    "draft",
 			})
 		} else {
@@ -171,10 +173,12 @@ func domainParseNoteLines(text, itemID string) []board.Note {
 	var notes []board.Note
 	for i, line := range strings.Split(text, "\n") {
 		if m := draftNoteRe.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			author, body := board.SplitNoteAuthor(m[2])
 			notes = append(notes, board.Note{
 				ID:        fmt.Sprintf("%s:%d", itemID, i),
-				Body:      m[2],
+				Body:      body,
 				CreatedAt: m[1],
+				Author:    author,
 				Source:    "draft",
 			})
 			continue
