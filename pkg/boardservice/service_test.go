@@ -1923,3 +1923,45 @@ func TestCarryRecordsEvents(t *testing.T) {
 		t.Fatal("the reseeded recurrent copy must record created")
 	}
 }
+
+// flakyEventBackend fails AppendEvent a few times before delegating — the way
+// GitHub's secondary rate limit behaves on carry bursts.
+type flakyEventBackend struct {
+	*fakeBackend
+	failures int
+}
+
+func (f *flakyEventBackend) AppendEvent(ctx context.Context, b board.Board, card board.Card, e board.Event) error {
+	if f.failures > 0 {
+		f.failures--
+		return errors.New("secondary rate limit")
+	}
+	return f.fakeBackend.AppendEvent(ctx, b, card, e)
+}
+
+// Event writes retry transient failures with backoff instead of silently
+// dropping the event; a persistent failure still never fails the mutation.
+func TestLogEventRetriesTransientFailures(t *testing.T) {
+	prev := eventRetryBackoff
+	eventRetryBackoff = time.Millisecond
+	defer func() { eventRetryBackoff = prev }()
+
+	inner := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Progress: 40}}, nil)
+	f := &flakyEventBackend{fakeBackend: inner, failures: 2}
+	svc := New(f)
+	if err := svc.SetProgress(WithActor(ctx, "kvaps"), "acme", 1, "c1", 60); err != nil {
+		t.Fatal(err)
+	}
+	evs := inner.get("c1").Events
+	if len(evs) != 1 || evs[0].Kind != board.EventProgress {
+		t.Fatalf("events = %+v, want the retried progress event", evs)
+	}
+	// Persistent failure: the mutation still succeeds, the event is dropped.
+	f.failures = 100
+	if err := svc.SetProgress(WithActor(ctx, "kvaps"), "acme", 1, "c1", 80); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(inner.get("c1").Events); got != 1 {
+		t.Fatalf("events = %d, want still 1 (dropped after retries)", got)
+	}
+}

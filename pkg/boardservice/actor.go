@@ -22,18 +22,38 @@ func ActorFrom(ctx context.Context) string {
 	return board.ActorFrom(ctx)
 }
 
+// eventRetryBackoff is the per-attempt backoff base for event writes; a
+// package variable so tests can shrink it.
+var eventRetryBackoff = 400 * time.Millisecond
+
 // logEvent records one activity event on a card, best-effort: the event log
-// must never fail or slow down the mutation it describes, so errors are
-// swallowed. No-op changes (from == to) are not recorded.
+// must never fail the mutation it describes, so the final error is swallowed —
+// but transient GitHub hiccups (secondary rate limits on carry bursts, 5xx)
+// are retried with backoff first, mirroring setSprintStartRetry. A retry after
+// a timed-out-but-applied write can rarely duplicate an event line; events are
+// informational, so that beats silently losing them. No-op changes (from ==
+// to) are not recorded.
 func (s *Service) logEvent(ctx context.Context, b board.Board, card board.Card, kind, from, to string) {
 	if from == to && kind != board.EventCreated {
 		return
 	}
-	_ = s.backend.AppendEvent(ctx, b, card, board.Event{
+	e := board.Event{
 		Kind:  kind,
 		Actor: ActorFrom(ctx),
 		From:  from,
 		To:    to,
 		At:    time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(attempt) * eventRetryBackoff):
+			}
+		}
+		if err := s.backend.AppendEvent(ctx, b, card, e); err == nil {
+			return
+		}
+	}
 }
