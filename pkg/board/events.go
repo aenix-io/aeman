@@ -39,6 +39,7 @@ const (
 	EventReviewPassed    = "review-passed"
 	EventReviewerRemoved = "reviewer-removed"
 	EventPlanTaken       = "plan-taken"
+	EventPlanAdded       = "plan-added"
 	EventPlanReleased    = "plan-released"
 	EventDates           = "dates"
 	EventSprint          = "sprint"

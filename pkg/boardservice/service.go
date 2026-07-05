@@ -356,7 +356,11 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 					firstErr = err
 				}
 				mu.Unlock()
+				return
 			}
+			// Same kind as a manual sprint move, so the day-state replay reads
+			// carries and hand moves uniformly. Best-effort, inside the worker.
+			s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, today)
 		}(c)
 	}
 	wg.Wait()
@@ -395,6 +399,7 @@ func (s *Service) reseedRecurrent(ctx context.Context, b board.Board, c board.Ca
 	if err != nil {
 		return err
 	}
+	s.logEvent(ctx, b, created, board.EventCreated, "", "")
 	if err := s.backend.SetStage(ctx, b, created, board.StageRecurrent); err != nil {
 		return err
 	}
@@ -475,6 +480,7 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 				if err := s.backend.SetWeek(ctx, b, stray, week); err != nil {
 					return rep, err
 				}
+				s.logEvent(ctx, b, stray, board.EventWeek, "", week)
 				delete(torn, c.Title)
 				inTarget[c.Title] = true
 				continue
@@ -501,6 +507,7 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
 			return rep, err
 		}
+		s.logEvent(ctx, b, c, board.EventWeek, c.Week, week)
 		// A carried card is already overdue, so it lands in the target week's
 		// earlier half: a by-Friday card tightens to by-Wednesday. (Its past
 		// weeks keep showing it in the by-Friday band — the week-history rule.)
@@ -508,6 +515,7 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanWed); err != nil {
 				return rep, err
 			}
+			s.logEvent(ctx, b, c, board.EventPlanBand, "fri", "wed")
 		}
 	}
 	return rep, nil
@@ -951,7 +959,17 @@ func (s *Service) SetPlan(ctx context.Context, owner string, project int, itemID
 	if err := s.backend.SetPlan(ctx, b, card, plan); err != nil {
 		return err
 	}
-	s.logEvent(ctx, b, card, board.EventPlanBand, string(card.Plan), string(plan))
+	// The semantic transition matters more than the raw band value: a regular
+	// card gaining a band joined the weekly plan, one losing it left the plan;
+	// only a band-to-band change is a deadline move.
+	switch {
+	case card.Plan == board.PlanNone && plan != board.PlanNone:
+		s.logEvent(ctx, b, card, board.EventPlanAdded, "", string(plan))
+	case card.Plan != board.PlanNone && plan == board.PlanNone:
+		s.logEvent(ctx, b, card, board.EventPlanReleased, string(card.Plan), "")
+	default:
+		s.logEvent(ctx, b, card, board.EventPlanBand, string(card.Plan), string(plan))
+	}
 	return nil
 }
 

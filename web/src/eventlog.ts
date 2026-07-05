@@ -29,6 +29,8 @@ export function eventLabel(e: CardEvent): string {
       return from ? `reviewer @${from} removed` : "reviewer removed";
     case "plan-taken":
       return to ? `taken into work by @${to}` : "taken into work";
+    case "plan-added":
+      return `added to the weekly plan (${to})`;
     case "plan-released":
       return "released from the plan";
     case "dates":
