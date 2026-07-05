@@ -908,7 +908,8 @@ button.team-avatar {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
+  /* No auto margin here: .me-today owns the right-push — two auto margins
+     would split the free space and strand Today mid-bar. */
 }
 
 .btn.impersonate-active {
@@ -2258,4 +2259,102 @@ button.card-age {
   line-height: 1;
   font-variant-numeric: tabular-nums;
   margin-right: 2px;
+}
+
+/* Activity events in the notes feed: quieter than notes — small, grey, no
+   actions. The card's history reads as a subdued machine trace between the
+   human entries. */
+.note-event {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.note-event .note-meta {
+  margin-bottom: 0;
+}
+.note-event-body {
+  font-size: 11px;
+  color: #656d76;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Card detail: the Details / Activity tabs. */
+.modal-tabs {
+  display: inline-flex;
+  gap: 2px;
+  margin: 6px 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  align-self: flex-start;
+}
+.modal-tab {
+  border: none;
+  background: var(--bg);
+  padding: 3px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.modal-tab + .modal-tab {
+  border-left: 1px solid var(--line);
+}
+.modal-tab-on {
+  background: var(--bg-soft);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* Card detail: the activity timeline grouped by day (its own tab). */
+.modal-log {
+  margin: 8px 16px;
+  padding: 2px 0 4px;
+  min-height: 180px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.modal-log-date {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8c959f;
+  margin: 8px 0 2px;
+}
+.modal-log-row {
+  font-size: 12px;
+  color: #1f2328;
+  padding: 1px 0;
+  white-space: pre-wrap;
+}
+.modal-log-event {
+  color: #656d76;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.modal-log-time {
+  color: #8c959f;
+  margin-right: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The system-log (activity events) toggle in the notes header: events are
+   opt-in — the feed shows human notes only until it is pressed. */
+.notes-log-toggle {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.notes-log-toggle-on {
+  background: var(--bg-soft);
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+/* Note author attribution in the day feed. */
+.note-author {
+  color: var(--faint);
+  font-size: 11px;
 }

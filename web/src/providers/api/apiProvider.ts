@@ -21,6 +21,7 @@ import type {
   Board,
   BoardAddr,
   Card,
+  CardEvent,
   CardPatch,
   CarryReport,
   NewCardInput,
@@ -320,6 +321,50 @@ export const apiProvider: Provider = {
       current: current ?? "",
       previous: previous ?? "",
     });
+  },
+
+  async listLog(
+    board: BoardAddr,
+    uid: string,
+  ): Promise<{ notes: Note[]; events: CardEvent[] }> {
+    uid = await resolveCardId(uid);
+    const list = await api<{
+      items:
+        | {
+            type: string;
+            id: string;
+            at?: string;
+            actor?: string;
+            kind?: string;
+            from?: string;
+            to?: string;
+            text?: string;
+          }[]
+        | null;
+    }>(board, "GET", `/cards/${uid}/log`);
+    const notes: Note[] = [];
+    const events: CardEvent[] = [];
+    for (const it of list.items ?? []) {
+      if (it.type === "event") {
+        events.push({
+          id: it.id,
+          kind: it.kind ?? "",
+          actor: it.actor,
+          from: it.from,
+          to: it.to,
+          at: it.at ?? "",
+        });
+      } else {
+        notes.push({
+          id: it.id,
+          body: it.text ?? "",
+          createdAt: it.at ?? "",
+          author: it.actor,
+          source: "draft",
+        });
+      }
+    }
+    return { notes, events };
   },
 
   async listLinks(board: BoardAddr, uid: string): Promise<CardLink[]> {

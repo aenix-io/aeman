@@ -21,7 +21,7 @@ import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
-import { NotesPanel, type DayNote } from "./NotesPanel";
+import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
@@ -268,10 +268,24 @@ export function MeBoard({
     return out;
   }, [myCards, selectedDate]);
 
-  // Notes live in the notes subresource, not on the Card resource: lazily load
-  // them for the day's visible cards. A card's loaded notes are the "fetched"
-  // marker (mutations and the watch keep them fresh); a re-list clears them,
-  // so they refetch. A request that failed stays marked and is not retried.
+  // The day's recorded activity events, feeding the same panel as the notes.
+  const dayEvents = useMemo<DayEvent[]>(() => {
+    const out: DayEvent[] = [];
+    for (const card of myCards) {
+      for (const event of card.events ?? []) {
+        if (localDateIso(event.at) === selectedDate) {
+          out.push({ event, card });
+        }
+      }
+    }
+    out.sort((a, b) => a.event.at.localeCompare(b.event.at));
+    return out;
+  }, [myCards, selectedDate]);
+
+  // Notes and events live in the log subresource, not on the Card resource:
+  // lazily load them for the day's visible cards. A card's loaded notes are the
+  // "fetched" marker (mutations and the watch keep them fresh); a re-list
+  // clears them, so they refetch. A failed request stays marked, not retried.
   const notesRequested = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const c of myCards) {
@@ -284,14 +298,26 @@ export function MeBoard({
       }
       notesRequested.current.add(c.itemId);
       void provider
-        .listNotes(board, c.itemId)
-        .then((notes) => {
+        .listLog(board, c.itemId)
+        .then(({ notes, events }) => {
           notesRequested.current.delete(c.itemId);
-          patchCard(c.itemId, { notes });
+          patchCard(c.itemId, { notes, events });
         })
         .catch(() => {});
     }
   }, [myCards, board, provider, patchCard]);
+
+  // Refresh a card's log after an own mutation: our watch echo is suppressed,
+  // so the freshly recorded event won't stream back — refetch it.
+  const refreshLog = (itemId: string) => {
+    if (itemId.startsWith("tmp-")) {
+      return;
+    }
+    void provider
+      .listLog(board, itemId)
+      .then(({ notes, events }) => patchCard(itemId, { notes, events }))
+      .catch(() => {});
+  };
 
   const selectedCard =
     myCards.find((c) => c.itemId === selectedCardId) ?? null;
@@ -324,6 +350,7 @@ export function MeBoard({
       .patchCard(board, card.itemId, { progress: value })
       .then((updated) => {
         addCard(updated);
+        refreshLog(card.itemId);
         // A review card's progress drives the original's stage server-side.
         if (card.reviewOf) {
           reload();
@@ -364,6 +391,7 @@ export function MeBoard({
       .patchCard(board, card.itemId, { stage: stage ?? "" })
       .then((updated) => {
         addCard(updated);
+        refreshLog(card.itemId);
         if (leavingReview || (enteringReview && hasLinkedReview) || card.reviewOf) {
           reload();
         }
@@ -391,6 +419,7 @@ export function MeBoard({
       .setInProgress(board, card.itemId)
       .then((updated) => {
         addCard(updated);
+        refreshLog(card.itemId);
         if (card.stage === "review" || card.reviewOf) {
           reload();
         }
@@ -987,6 +1016,7 @@ export function MeBoard({
         <NotesPanel
           selectedDate={selectedDate}
           notes={dayNotes}
+          events={dayEvents}
           cardOrder={noteCardOrder}
           selectedCard={selectedCard}
           onSelectCard={(c) => setSelectedCardId(c.itemId)}

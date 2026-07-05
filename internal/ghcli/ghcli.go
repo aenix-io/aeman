@@ -51,13 +51,26 @@ func (t *TokenSource) Token(ctx context.Context) (string, error) {
 	return tok, nil
 }
 
-// Login returns the login of the currently authenticated GitHub user.
+var (
+	loginMu     sync.Mutex
+	cachedLogin string
+)
+
+// Login returns the login of the currently authenticated GitHub user, cached
+// for the lifetime of the process (it is read on every API request in local
+// mode, and the gh identity does not change under a running server).
 func Login(ctx context.Context) (string, error) {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+	if cachedLogin != "" {
+		return cachedLogin, nil
+	}
 	out, err := Run(ctx, "api", "user", "--jq", ".login")
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(out), nil
+	cachedLogin = strings.TrimSpace(out)
+	return cachedLogin, nil
 }
 
 // Run executes `gh` with the given arguments and returns its stdout. The gh

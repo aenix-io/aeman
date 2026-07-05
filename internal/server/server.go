@@ -117,7 +117,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
-	s.handler = logRequests(s.log, clientIDMiddleware(mux))
+	s.handler = logRequests(s.log, clientIDMiddleware(s.actorMiddleware(mux)))
 	return s, nil
 }
 
@@ -204,6 +204,21 @@ func (s *Server) githubProxy() http.Handler {
 
 // tokenForRequest resolves the GitHub token (and login) for a request: from the
 // signed-in session in OAuth mode, or from the local gh CLI otherwise.
+// actorMiddleware stamps the acting user's login onto the request context, so
+// boardservice mutations can attribute the activity events they record. Only
+// /api/v1 mutations read it; resolution is the same session/token lookup the
+// handlers already use, so this adds no extra round-trips.
+func (s *Server) actorMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1") {
+			if _, login, err := s.apiTokens(r); err == nil && login != "" {
+				r = r.WithContext(boardservice.WithActor(r.Context(), login))
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) tokenForRequest(r *http.Request) (token, login string, err error) {
 	if s.auth != nil {
 		sess, ok := s.auth.session(r)

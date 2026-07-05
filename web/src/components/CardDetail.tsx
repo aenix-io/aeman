@@ -1,5 +1,13 @@
-import { useEffect, useState } from "react";
-import type { Board, Card as CardModel, Provider } from "../providers/types";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  Board,
+  Card as CardModel,
+  CardEvent,
+  Note,
+  Provider,
+} from "../providers/types";
+import { eventLabel } from "../eventlog";
+import { localDateIso } from "../date";
 
 interface CardDetailProps {
   card: CardModel;
@@ -22,13 +30,66 @@ export function CardDetail({
   const [title, setTitle] = useState(card.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const [description, setDescription] = useState(card.description ?? "");
+  const [log, setLog] = useState<{ notes: Note[]; events: CardEvent[] } | null>(
+    null,
+  );
+  const [tab, setTab] = useState<"details" | "activity">("details");
 
   // Reset local edit state whenever a different card is opened.
   useEffect(() => {
     setTitle(card.title);
     setDescription(card.description ?? "");
     setEditingTitle(false);
+    setTab("details");
+    setLog(null);
   }, [card.itemId, card.title, card.description]);
+
+  // The card's full activity feed (events + notes) loads on demand — fetched
+  // fresh every time the Activity tab is opened, so the timeline is current.
+  useEffect(() => {
+    if (tab !== "activity" || card.itemId.startsWith("tmp-")) {
+      return;
+    }
+    let cancelled = false;
+    void provider
+      .listLog(board, card.itemId)
+      .then((l) => {
+        if (!cancelled) {
+          setLog(l);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLog({ notes: [], events: [] });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // log deliberately not a dep: refetch is keyed to opening the tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, card.itemId, board, provider]);
+
+  // Timeline grouped by day, newest day first (entries inside stay in order).
+  const timeline = useMemo(() => {
+    if (!log) {
+      return [];
+    }
+    type Entry = { at: string; note?: Note; event?: CardEvent };
+    const entries: Entry[] = [
+      ...log.notes.map((n) => ({ at: n.createdAt, note: n })),
+      ...log.events.map((e) => ({ at: e.at, event: e })),
+    ];
+    entries.sort((a, b) => a.at.localeCompare(b.at));
+    const days = new Map<string, Entry[]>();
+    for (const e of entries) {
+      const day = localDateIso(e.at) || "—";
+      const list = days.get(day) ?? [];
+      list.push(e);
+      days.set(day, list);
+    }
+    return [...days.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [log]);
 
   const fail = (err: unknown) => {
     onClose();
@@ -136,25 +197,91 @@ export function CardDetail({
           </button>
         </div>
 
-        <div className="modal-body">
-          <label className="modal-field">
-            <span>Details</span>
-            <textarea
-              className="modal-textarea"
-              value={description}
-              placeholder="Card details…"
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </label>
+        <div className="modal-tabs" role="tablist" aria-label="Card sections">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "details"}
+            className={`modal-tab${tab === "details" ? " modal-tab-on" : ""}`}
+            onClick={() => setTab("details")}
+          >
+            Details
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "activity"}
+            className={`modal-tab${tab === "activity" ? " modal-tab-on" : ""}`}
+            onClick={() => setTab("activity")}
+          >
+            Activity
+          </button>
         </div>
+
+        {tab === "details" && (
+          <div className="modal-body">
+            <label className="modal-field">
+              <span>Details</span>
+              <textarea
+                className="modal-textarea"
+                value={description}
+                placeholder="Card details…"
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+
+        {tab === "activity" && (
+          <div className="modal-log">
+            {log === null && <p className="notes-empty">Loading…</p>}
+            {log !== null && timeline.length === 0 && (
+              <p className="notes-empty">No activity yet.</p>
+            )}
+            {timeline.map(([day, entries]) => (
+              <div className="modal-log-day" key={day}>
+                <div className="modal-log-date">{day}</div>
+                {entries.map((e) =>
+                  e.event ? (
+                    <div className="modal-log-row modal-log-event" key={e.event.id}>
+                      <span className="modal-log-time">
+                        {new Date(e.at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        })}
+                      </span>
+                      {e.event.actor ? `@${e.event.actor} · ` : ""}
+                      {eventLabel(e.event)}
+                    </div>
+                  ) : (
+                    <div className="modal-log-row" key={e.note?.id}>
+                      <span className="modal-log-time">
+                        {new Date(e.at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        })}
+                      </span>
+                      {e.note?.author ? `@${e.note.author} · ` : ""}
+                      {e.note?.body}
+                    </div>
+                  ),
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="modal-footer">
           <button type="button" className="btn" onClick={onClose}>
             Close
           </button>
-          <button type="button" className="btn btn-primary" onClick={handleSave}>
-            Save
-          </button>
+          {tab === "details" && (
+            <button type="button" className="btn btn-primary" onClick={handleSave}>
+              Save
+            </button>
+          )}
         </div>
       </div>
     </div>
