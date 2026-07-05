@@ -139,5 +139,11 @@ func planShowsInWeek(c Card, week string) bool {
 	if c.Week == week {
 		return true
 	}
-	return c.StartDate != "" && c.Week > week && MondayOf(c.StartDate) <= week
+	// The "began work" anchor is the earliest of the start date and the sprint
+	// join — take-into-plan sets the sprint but not necessarily a start date.
+	started := c.StartDate
+	if c.SprintStart != "" && (started == "" || c.SprintStart < started) {
+		started = c.SprintStart
+	}
+	return started != "" && c.Week > week && MondayOf(started) <= week
 }
