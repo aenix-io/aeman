@@ -901,19 +901,6 @@ export function TeamBoard({
   const previousSprintFor = (card: CardModel): string | null =>
     previousSprint(board, card.team ?? null);
 
-  const previousWeekFor = (card: CardModel): string | null => {
-    const team = card.team ?? "";
-    const cur = card.week;
-    if (!cur) return null;
-    let prev: string | null = null;
-    for (const c of board.cards) {
-      if (c.itemId === card.itemId || (c.team ?? "") !== team) continue;
-      if (!c.week || c.week >= cur) continue;
-      if (prev === null || c.week > prev) prev = c.week;
-    }
-    return prev;
-  };
-
   // The grid ×: one remove intent — the server demotes a card still in the
   // team's current sprint, releases a taken plan card back to plan-only, or
   // deletes for real (cascading the linked review card). The optimistic patch
@@ -1006,33 +993,28 @@ export function TeamBoard({
     }
     let rollback: () => void;
     if (card.assignees.length === 0 && (card.progress ?? 0) === 0) {
-      const prevWeek = previousWeekFor(card);
-      if (prevWeek) {
-        const prev: Partial<CardModel> = { week: card.week };
-        patchCard(card.itemId, { week: prevWeek });
-        rollback = () => patchCard(card.itemId, prev);
-      } else {
-        // Delete for real; the server cascades to a linked review card.
-        const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-        if (
-          linkedReview &&
-          !window.confirm(
-            `Delete this card and its linked review card «${linkedReview.title}»?`,
-          )
-        ) {
-          return;
-        }
-        removeCard(card.itemId);
-        if (linkedReview) {
-          removeCard(linkedReview.itemId);
-        }
-        rollback = () => {
-          addCard(card);
-          if (linkedReview) {
-            addCard(linkedReview);
-          }
-        };
+      // A pure plan card is deleted for real (a previous-week demote would
+      // boomerang back on the next carry-week); the server cascades to a
+      // linked review card.
+      const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
+      if (
+        linkedReview &&
+        !window.confirm(
+          `Delete this card and its linked review card «${linkedReview.title}»?`,
+        )
+      ) {
+        return;
       }
+      removeCard(card.itemId);
+      if (linkedReview) {
+        removeCard(linkedReview.itemId);
+      }
+      rollback = () => {
+        addCard(card);
+        if (linkedReview) {
+          addCard(linkedReview);
+        }
+      };
     } else {
       const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
       patchCard(card.itemId, { plan: undefined, week: undefined });
