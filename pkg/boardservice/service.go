@@ -430,11 +430,20 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		week = board.MondayOf(board.TodayIso())
 	}
 	// Titles already planned in the target week, for the recurrent reseed dedup:
-	// re-running carry-week must not create a second copy.
+	// re-running carry-week must not create a second copy. A plan card with an
+	// EMPTY week is a torn reseed from an interrupted earlier run (create landed,
+	// the week write did not) — track those to finish them instead of duplicating.
 	inTarget := map[string]bool{}
+	torn := map[string]board.Card{}
 	for _, c := range b.Cards {
-		if c.Plan != board.PlanNone && c.Week == week && c.Team == team {
+		if c.Plan == board.PlanNone || c.Team != team {
+			continue
+		}
+		if c.Week == week {
 			inTarget[c.Title] = true
+		}
+		if c.Week == "" {
+			torn[c.Title] = c
 		}
 	}
 	var rep CarryReport
@@ -450,6 +459,15 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 			}
 			rep.Reseeded++
 			if dryRun {
+				continue
+			}
+			// Finish a torn reseed instead of creating another copy.
+			if stray, ok := torn[c.Title]; ok {
+				if err := s.backend.SetWeek(ctx, b, stray, week); err != nil {
+					return rep, err
+				}
+				delete(torn, c.Title)
+				inTarget[c.Title] = true
 				continue
 			}
 			if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
