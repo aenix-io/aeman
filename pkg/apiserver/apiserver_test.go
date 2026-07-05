@@ -331,6 +331,10 @@ func TestWeeklyHistoryForWorkedCards(t *testing.T) {
 		{ItemID: "pure", Team: "alpha", Plan: board.PlanFri, Week: "2026-07-06"},
 		{ItemID: "later", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-13",
 			StartDate: "2026-07-08", Progress: 20},
+		// Taken into the sprint without a start date (take-into-plan sets only
+		// the sprint): the sprint join anchors its week history.
+		{ItemID: "sprintOnly", Team: "alpha", Plan: board.PlanFri, Week: "2026-07-06",
+			SprintStart: "2026-07-03", Assignees: []string{"dan"}},
 	}}
 	ids := func(week string) map[string]bool {
 		out := map[string]bool{}
@@ -340,8 +344,8 @@ func TestWeeklyHistoryForWorkedCards(t *testing.T) {
 		return out
 	}
 	prev := ids("2026-06-29")
-	if !prev["worked"] || prev["pure"] || prev["later"] {
-		t.Fatalf("week 06-29 = %v, want only the worked card as history", prev)
+	if !prev["worked"] || !prev["sprintOnly"] || prev["pure"] || prev["later"] {
+		t.Fatalf("week 06-29 = %v, want worked+sprintOnly as history", prev)
 	}
 	cur := ids("2026-07-06")
 	// "later" started on 07-08 (inside week 07-06) and was carried to 07-13,

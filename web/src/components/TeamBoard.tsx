@@ -295,12 +295,23 @@ export function TeamBoard({
     // history, in every past week it was actually worked in: taken into work
     // (it has a start date) and carried forward past that week. Carrying the
     // plan forward does not erase the weeks it was worked in.
-    const showsInWeek = (c: CardModel): boolean =>
-      c.week === currentWeek ||
-      (!!c.startDate &&
+    const showsInWeek = (c: CardModel): boolean => {
+      if (c.week === currentWeek) {
+        return true;
+      }
+      // The "began work" anchor is the earliest of the start date and the
+      // sprint join — take-into-plan sets the sprint, not always a start date.
+      let started = c.startDate ?? "";
+      if (c.sprintStart && (!started || c.sprintStart < started)) {
+        started = c.sprintStart;
+      }
+      return (
+        !!started &&
         !!c.week &&
         c.week > currentWeek &&
-        mondayOf(c.startDate) <= currentWeek);
+        mondayOf(started) <= currentWeek
+      );
+    };
     for (const c of board.cards) {
       if (!c.plan || !showsInWeek(c) || !passesFilter(c)) {
         continue;
