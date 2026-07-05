@@ -316,7 +316,10 @@ export function TeamBoard({
       if (!c.plan || !showsInWeek(c) || !passesFilter(c)) {
         continue;
       }
-      (c.plan === "fri" ? fri : wed).push(c);
+      // A week-history entry (the card has moved on to a later week) sits in
+      // the by-Friday band of the past week: it stayed open through that
+      // week's end; its current band describes the week it lives in now.
+      (c.plan === "fri" || c.week !== currentWeek ? fri : wed).push(c);
     }
     return { wed, fri };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -446,7 +449,12 @@ export function TeamBoard({
           (team === null ? c.team == null : c.team === team) &&
           !isComplete(c)
         ) {
-          patchCard(c.itemId, { week: currentWeek });
+          patchCard(
+            c.itemId,
+            c.plan === "fri"
+              ? { week: currentWeek, plan: "wed" }
+              : { week: currentWeek },
+          );
         }
       }
       try {

@@ -1591,3 +1591,32 @@ func TestGridRemoveOnTakenPlanCard(t *testing.T) {
 		t.Fatal("nothing must be deleted")
 	}
 }
+
+// A carried by-Friday card tightens to by-Wednesday in the target week (it is
+// already overdue); a by-Wednesday card stays; a reseeded recurrent copy keeps
+// its original band.
+func TestCarryWeekTightensFriToWed(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "fri", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-29", Progress: 20},
+		{ItemID: "wed", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-29", Progress: 20},
+		{ItemID: "habit", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-29",
+			Stage: board.StageRecurrent, Progress: 100},
+	}, nil)
+	if _, err := f2svc(f).CarryWeek(ctx, "acme", 1, "alpha", "2026-07-06", false); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("fri"); c.Week != "2026-07-06" || c.Plan != board.PlanWed {
+		t.Fatalf("carried fri card must land in the wed band: %+v", c)
+	}
+	if c := f.get("wed"); c.Week != "2026-07-06" || c.Plan != board.PlanWed {
+		t.Fatalf("carried wed card stays wed: %+v", c)
+	}
+	// The finished recurrent stays behind; its fresh copy keeps the fri band.
+	for _, c := range f.b.Cards {
+		if c.ItemID != "habit" && c.Stage == board.StageRecurrent && c.Week == "2026-07-06" {
+			if c.Plan != board.PlanFri {
+				t.Fatalf("reseeded recurrent keeps its band: %+v", c)
+			}
+		}
+	}
+}

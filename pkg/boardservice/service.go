@@ -474,6 +474,14 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
 			return rep, err
 		}
+		// A carried card is already overdue, so it lands in the target week's
+		// earlier half: a by-Friday card tightens to by-Wednesday. (Its past
+		// weeks keep showing it in the by-Friday band — the week-history rule.)
+		if c.Plan == board.PlanFri {
+			if err := s.backend.SetPlan(ctx, b, c, board.PlanWed); err != nil {
+				return rep, err
+			}
+		}
 	}
 	return rep, nil
 }
