@@ -179,7 +179,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over?owner=acme
 | `get_card` / `list_notes` / `list_links` | One card; its notes; its description links (GitHub refs resolved with titles). |
 | `list_log` | The card's activity feed: events (stage/progress/review/plan changes with actor) + notes, one chronological list — read a card's delta instead of asking for morning reports. |
 | `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). A title that is only a GitHub issue/PR URL is auto-filled from that item. |
-| `update_card` | The PATCH: only provided fields apply, empty clears. The `description` is the card's shared body — also the place for reference links: URLs are surfaced on the card, GitHub issue/PR links resolved to titles (`list_links`). |
+| `update_card` | The PATCH: only provided fields apply, empty clears. The `description` is the card's shared body — and the place for reference links: include full URLs of related open PRs/issues in free form (encouraged); they are surfaced on the card and GitHub refs resolve to live titles/states (`list_links`). |
 | `delete_card` / `remove_card` | Hard delete; the smart × (`from: grid\|plan`). |
 | `move_card` / `defer_card` | Reorder; push the scheduled day ahead. |
 | `send_to_review` / `remove_reviewer` | The review-card cycle (send reassigns when a review card exists). |
