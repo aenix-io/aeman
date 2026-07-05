@@ -537,3 +537,40 @@ func TestAPIListDefaultsToMe(t *testing.T) {
 		t.Fatalf("view=all must list the whole board: %v", all)
 	}
 }
+
+func TestAPICardLogUnifiedFeed(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", Progress: 40,
+			Notes: []board.Note{{ID: "n1", Body: "human note", CreatedAt: "2026-07-06T09:00:00Z", Source: "draft"}},
+			Events: []board.Event{{ID: "e1", Kind: board.EventProgress, Actor: "kvaps",
+				From: "20", To: "40", At: "2026-07-06T10:00:00Z"}}},
+	}, nil)
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards/c1/log?owner=acme&project=1", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("log: %d %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Kind  string `json:"kind"`
+		Items []struct {
+			Type  string `json:"type"`
+			Kind  string `json:"kind"`
+			Actor string `json:"actor"`
+			Text  string `json:"text"`
+			At    string `json:"at"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.Kind != "LogList" || len(list.Items) != 2 {
+		t.Fatalf("log = %+v", list)
+	}
+	// Chronological: the 09:00 note before the 10:00 event.
+	if list.Items[0].Type != "note" || list.Items[0].Text != "human note" {
+		t.Fatalf("first item = %+v", list.Items[0])
+	}
+	if list.Items[1].Type != "event" || list.Items[1].Kind != "progress" || list.Items[1].Actor != "kvaps" {
+		t.Fatalf("second item = %+v", list.Items[1])
+	}
+}

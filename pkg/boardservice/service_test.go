@@ -132,6 +132,14 @@ func (f *fakeBackend) MoveCard(_ context.Context, _ board.Board, card board.Card
 	return nil
 }
 
+func (f *fakeBackend) AppendEvent(_ context.Context, _ board.Board, card board.Card, e board.Event) error {
+	f.rec("AppendEvent %s %s %s->%s", card.ItemID, e.Kind, e.From, e.To)
+	if c := f.get(card.ItemID); c != nil {
+		c.Events = append(c.Events, e)
+	}
+	return nil
+}
+
 func (f *fakeBackend) AddNote(_ context.Context, _ board.Board, card board.Card, text string) error {
 	f.rec("AddNote %s %s", card.ItemID, text)
 	return nil
@@ -1652,5 +1660,83 @@ func TestCarryWeekReseedDedupAndTornRepair(t *testing.T) {
 	}
 	if c := f.get("stray"); c.Week != week {
 		t.Fatalf("the torn copy must be finished into the target week: %+v", c)
+	}
+}
+
+// Mutations record activity events with the acting user from the context; the
+// event log is best-effort and no-op changes are not recorded.
+func TestMutationsRecordEvents(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", Progress: 40, SprintStart: today},
+		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06"},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := f2svc(f)
+	actx := WithActor(ctx, "kvaps")
+
+	if err := svc.SetProgress(actx, "acme", 1, "c1", 60); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetStage(actx, "acme", 1, "c1", board.StageLocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.TakeIntoPlan(actx, "acme", 1, "p1", "dan", "", today); err != nil {
+		t.Fatal(err)
+	}
+	evs := f.get("c1").Events
+	if len(evs) != 2 {
+		t.Fatalf("c1 events = %+v, want progress + stage", evs)
+	}
+	if evs[0].Kind != board.EventProgress || evs[0].From != "40" || evs[0].To != "60" || evs[0].Actor != "kvaps" {
+		t.Fatalf("progress event = %+v", evs[0])
+	}
+	if evs[1].Kind != board.EventStage || evs[1].To != "locked" || evs[1].Actor != "kvaps" {
+		t.Fatalf("stage event = %+v", evs[1])
+	}
+	pevs := f.get("p1").Events
+	if len(pevs) != 1 || pevs[0].Kind != board.EventPlanTaken || pevs[0].To != "dan" {
+		t.Fatalf("plan-taken event = %+v", pevs)
+	}
+}
+
+// The review cycle records review-sent on the original, created on the review
+// card, and review-passed on the original when the reviewer finishes.
+func TestReviewCycleRecordsEvents(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Title: "Work", Progress: 50, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := f2svc(f)
+	actx := WithActor(ctx, "kvaps")
+
+	rev, err := svc.SendToReview(actx, "acme", 1, "orig", "lllamnyp", today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent bool
+	for _, e := range f.get("orig").Events {
+		if e.Kind == board.EventReviewSent && e.To == "lllamnyp" && e.Actor == "kvaps" {
+			sent = true
+		}
+	}
+	if !sent {
+		t.Fatalf("orig events = %+v, want review-sent", f.get("orig").Events)
+	}
+	if revEvs := f.get(rev.ItemID).Events; len(revEvs) == 0 || revEvs[0].Kind != board.EventCreated {
+		t.Fatalf("review card events = %+v, want created", f.get(rev.ItemID).Events)
+	}
+	// The reviewer finishes: the original records review-passed.
+	rctx := WithActor(ctx, "lllamnyp")
+	if err := svc.SetProgress(rctx, "acme", 1, rev.ItemID, 100); err != nil {
+		t.Fatal(err)
+	}
+	var passed bool
+	for _, e := range f.get("orig").Events {
+		if e.Kind == board.EventReviewPassed && e.From == "lllamnyp" {
+			passed = true
+		}
+	}
+	if !passed {
+		t.Fatalf("orig events = %+v, want review-passed", f.get("orig").Events)
 	}
 }

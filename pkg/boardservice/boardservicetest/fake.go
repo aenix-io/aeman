@@ -146,6 +146,16 @@ func (f *Backend) MoveCard(_ context.Context, _ board.Board, card board.Card, af
 }
 
 // AddNote records a note on a card.
+func (f *Backend) AppendEvent(_ context.Context, _ board.Board, card board.Card, e board.Event) error {
+	f.rec("AppendEvent %s %s %s->%s", card.ItemID, e.Kind, e.From, e.To)
+	if c := f.Card(card.ItemID); c != nil {
+		f.nextID++
+		e.ID = fmt.Sprintf("ev%d", f.nextID)
+		c.Events = append(c.Events, e)
+	}
+	return nil
+}
+
 func (f *Backend) AddNote(_ context.Context, _ board.Board, card board.Card, text string) error {
 	f.rec("AddNote %s %s", card.ItemID, text)
 	if c := f.Card(card.ItemID); c != nil {

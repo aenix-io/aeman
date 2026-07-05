@@ -1,9 +1,16 @@
 import { useMemo, useState } from "react";
-import type { Card as CardModel, Note } from "../providers/types";
+import type { Card as CardModel, CardEvent, Note } from "../providers/types";
+import { eventLabel } from "../eventlog";
 
 /** DayNote is a note paired with the card it belongs to, for the day's list. */
 export interface DayNote {
   note: Note;
+  card: CardModel;
+}
+
+/** DayEvent is a recorded activity event paired with its card. */
+export interface DayEvent {
+  event: CardEvent;
   card: CardModel;
 }
 
@@ -12,6 +19,8 @@ type GroupMode = "time" | "card";
 interface NotesPanelProps {
   selectedDate: string;
   notes: DayNote[];
+  /** The day's recorded activity events, interleaved with the notes. */
+  events: DayEvent[];
   /** Card item ids in board (display) order, for the "by card" grouping. */
   cardOrder: string[];
   selectedCard: CardModel | null;
@@ -37,6 +46,7 @@ function localTime(iso: string): string {
 export function NotesPanel({
   selectedDate,
   notes,
+  events,
   cardOrder,
   selectedCard,
   onSelectCard,
@@ -73,17 +83,30 @@ export function NotesPanel({
     }
   };
 
-  // In "by card" mode, group the day's notes under their card, ordered the way
-  // the cards appear on the board (notes within a card stay in time order).
+  // The unified timeline: notes and events merged by timestamp.
+  type FeedItem =
+    | { at: string; note: Note; card: CardModel }
+    | { at: string; event: CardEvent; card: CardModel };
+  const feed = useMemo<FeedItem[]>(() => {
+    const out: FeedItem[] = [
+      ...notes.map(({ note, card }) => ({ at: note.createdAt, note, card })),
+      ...events.map(({ event, card }) => ({ at: event.at, event, card })),
+    ];
+    out.sort((a, b) => a.at.localeCompare(b.at));
+    return out;
+  }, [notes, events]);
+
+  // In "by card" mode, group the day's feed under their card, ordered the way
+  // the cards appear on the board (entries within a card stay in time order).
   const groups = useMemo(() => {
-    const byCard = new Map<string, { card: CardModel; notes: Note[] }>();
-    for (const { note, card } of notes) {
-      let g = byCard.get(card.itemId);
+    const byCard = new Map<string, { card: CardModel; items: FeedItem[] }>();
+    for (const item of feed) {
+      let g = byCard.get(item.card.itemId);
       if (!g) {
-        g = { card, notes: [] };
-        byCard.set(card.itemId, g);
+        g = { card: item.card, items: [] };
+        byCard.set(item.card.itemId, g);
       }
-      g.notes.push(note);
+      g.items.push(item);
     }
     const rank = (id: string) => {
       const i = cardOrder.indexOf(id);
@@ -92,7 +115,34 @@ export function NotesPanel({
     return [...byCard.values()].sort(
       (a, b) => rank(a.card.itemId) - rank(b.card.itemId),
     );
-  }, [notes, cardOrder]);
+  }, [feed, cardOrder]);
+
+  const renderEvent = (event: CardEvent, card: CardModel, showCard: boolean) => (
+    <div className="note note-event" key={event.id}>
+      <div className="note-meta">
+        <span className="note-time">{localTime(event.at)}</span>
+        {showCard && (
+          <button
+            type="button"
+            className="note-card"
+            onClick={() => onSelectCard(card)}
+            title={card.title}
+          >
+            {card.title}
+          </button>
+        )}
+      </div>
+      <div className="note-event-body">
+        {event.actor ? `@${event.actor} · ` : ""}
+        {eventLabel(event)}
+      </div>
+    </div>
+  );
+
+  const renderItem = (item: FeedItem, showCard: boolean) =>
+    "note" in item
+      ? renderNote(item.note, item.card, showCard)
+      : renderEvent(item.event, item.card, showCard);
 
   const renderNote = (note: Note, card: CardModel, showCard: boolean) => (
     <div className="note" key={note.id}>
@@ -205,9 +255,11 @@ export function NotesPanel({
       </header>
 
       <div className="notes-list">
-        {notes.length === 0 && <p className="notes-empty">No notes for this day.</p>}
+        {feed.length === 0 && (
+          <p className="notes-empty">No activity for this day.</p>
+        )}
         {group === "time"
-          ? notes.map(({ note, card }) => renderNote(note, card, true))
+          ? feed.map((item) => renderItem(item, true))
           : groups.map((g) => (
               <div className="note-group" key={g.card.itemId}>
                 <button
@@ -218,7 +270,7 @@ export function NotesPanel({
                 >
                   {g.card.title}
                 </button>
-                {g.notes.map((note) => renderNote(note, g.card, false))}
+                {g.items.map((item) => renderItem(item, false))}
               </div>
             ))}
       </div>

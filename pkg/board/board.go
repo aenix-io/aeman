@@ -121,6 +121,13 @@ type Card struct {
 	// action log, or an issue/PR body). Notes are the card's dated work notes.
 	Description string `json:"description,omitempty"`
 	Notes       []Note `json:"notes,omitempty"`
+	// Events is the card's recorded activity log (stage/progress/review/plan
+	// changes), stored alongside the notes — see Event.
+	Events []Event `json:"events,omitempty"`
+	// EventLogID is the id of the dedicated log comment holding an issue/PR
+	// card's events ("" when none exists yet, or on draft cards, whose events
+	// live in the body log). Internal plumbing for the event writer.
+	EventLogID string `json:"-"`
 }
 
 // CreateInput is the payload for creating a card on a board: the fields a create

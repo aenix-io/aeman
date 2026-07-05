@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -237,7 +238,11 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		Team:        args.Team,
 		ReviewOf:    args.ReviewOf,
 	})
-	return s.withLinkDescription(ctx, b, card, err, linkDescription)
+	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
+	if err == nil {
+		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+	}
+	return card, err
 }
 
 // withLinkDescription moves the source URL of a create-by-URL card into its
@@ -584,7 +589,11 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
-			return s.backend.SetWeek(ctx, b, c, "")
+			if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
+			return nil
 		}
 		// A pure plan card — unassigned, never worked — is deleted for real.
 		// (Demoting it to an earlier week only made carry-week boomerang it
@@ -600,7 +609,11 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
-			return s.backend.SetWeek(ctx, b, c, "")
+			if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
+			return nil
 		}
 		if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
 			return err
@@ -720,6 +733,7 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 	if err := s.applyStage(ctx, b, card, stage); err != nil {
 		return err
 	}
+	s.logEvent(ctx, b, card, board.EventStage, string(card.Stage), string(stage))
 	// Leaving review cancels the unfinished linked review card.
 	if card.Stage == board.StageReview && stage != board.StageReview {
 		return s.cancelLinkedReview(ctx, b, card)
@@ -798,6 +812,8 @@ func (s *Service) SetProgress(ctx context.Context, owner string, project int, it
 	if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
 		return err
 	}
+	s.logEvent(ctx, b, card, board.EventProgress,
+		strconv.Itoa(card.Progress), strconv.Itoa(newProgress))
 	if newStage != card.Stage {
 		if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 			return err
@@ -818,6 +834,7 @@ func (s *Service) SetInProgress(ctx context.Context, owner string, project int, 
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 		return err
 	}
+	s.logEvent(ctx, b, card, board.EventStage, string(card.Stage), "in-progress")
 	// In Progress leaves the review stage too: cancel the linked review card.
 	if card.Stage == board.StageReview {
 		if err := s.cancelLinkedReview(ctx, b, card); err != nil {
@@ -839,7 +856,11 @@ func (s *Service) SetZone(ctx context.Context, owner string, project int, itemID
 	if err != nil {
 		return err
 	}
-	return s.backend.SetZone(ctx, b, card, zone)
+	if err := s.backend.SetZone(ctx, b, card, zone); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, card, board.EventZone, string(card.Zone), string(zone))
+	return nil
 }
 
 // SetDay sets a card's scheduled day (day = "" clears it).
@@ -919,7 +940,19 @@ func (s *Service) syncReviewLink(ctx context.Context, b board.Board, card board.
 	default:
 		return nil
 	}
-	return s.backend.SetStage(ctx, b, original, next)
+	if err := s.backend.SetStage(ctx, b, original, next); err != nil {
+		return err
+	}
+	reviewer := ""
+	if len(card.Assignees) > 0 {
+		reviewer = card.Assignees[0]
+	}
+	if next == board.StageNone {
+		s.logEvent(ctx, b, original, board.EventReviewPassed, reviewer, "")
+	} else {
+		s.logEvent(ctx, b, original, board.EventStage, string(original.Stage), string(board.StageReview))
+	}
+	return nil
 }
 
 // --- Review linkage --------------------------------------------------------
@@ -980,6 +1013,8 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 	if err := s.applyStage(ctx, b, card, board.StageReview); err != nil {
 		return created, err
 	}
+	s.logEvent(ctx, b, created, board.EventCreated, "", "")
+	s.logEvent(ctx, b, card, board.EventReviewSent, "", reviewer)
 	return created, nil
 }
 
@@ -1007,7 +1042,11 @@ func (s *Service) ReassignReviewer(ctx context.Context, owner string, project in
 		if err := s.applyStage(ctx, b, card, board.StageReview); err != nil {
 			return err
 		}
-		return s.reactivateReviewCard(ctx, b, card)
+		if err := s.reactivateReviewCard(ctx, b, card); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventReviewSent, "", reviewer)
+		return nil
 	}
 	// An untouched review card is simply handed to the new reviewer. One the
 	// old reviewer already worked on (progress > 0) keeps their work: it is
@@ -1015,7 +1054,15 @@ func (s *Service) ReassignReviewer(ctx context.Context, owner string, project in
 	// leaves it behind) and a fresh review card is created for the new
 	// reviewer.
 	if reviewCard.Progress == 0 {
-		return s.backend.SetAssignee(ctx, b, reviewCard, reviewer)
+		prev := ""
+		if len(reviewCard.Assignees) > 0 {
+			prev = reviewCard.Assignees[0]
+		}
+		if err := s.backend.SetAssignee(ctx, b, reviewCard, reviewer); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventReviewSent, prev, reviewer)
+		return nil
 	}
 	if err := s.backend.SetReviewOf(ctx, b, reviewCard, ""); err != nil {
 		return err
@@ -1050,7 +1097,17 @@ func (s *Service) RemoveReviewer(ctx context.Context, owner string, project int,
 	if !ok {
 		return nil
 	}
-	return s.backend.DeleteCard(ctx, b, reviewCard)
+	if err := s.backend.DeleteCard(ctx, b, reviewCard); err != nil {
+		return err
+	}
+	if original, found := findCard(b, itemID); found {
+		reviewer := ""
+		if len(reviewCard.Assignees) > 0 {
+			reviewer = reviewCard.Assignees[0]
+		}
+		s.logEvent(ctx, b, original, board.EventReviewerRemoved, reviewer, "")
+	}
+	return nil
 }
 
 // --- Card field actions ----------------------------------------------------
@@ -1062,7 +1119,15 @@ func (s *Service) SetAssignee(ctx context.Context, owner string, project int, it
 	if err != nil {
 		return err
 	}
-	return s.backend.SetAssignee(ctx, b, card, login)
+	if err := s.backend.SetAssignee(ctx, b, card, login); err != nil {
+		return err
+	}
+	prev := ""
+	if len(card.Assignees) > 0 {
+		prev = card.Assignees[0]
+	}
+	s.logEvent(ctx, b, card, board.EventAssignee, prev, login)
+	return nil
 }
 
 // SetTeam moves a card to a team and joins that team's current sprint (team = ""
@@ -1083,6 +1148,7 @@ func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID
 	if err := s.backend.SetTeam(ctx, b, card, team); err != nil {
 		return err
 	}
+	s.logEvent(ctx, b, card, board.EventTeam, card.Team, team)
 	if sprintStart != card.SprintStart {
 		return s.backend.SetSprintStart(ctx, b, card, sprintStart)
 	}
@@ -1247,7 +1313,11 @@ func (s *Service) TakeIntoPlan(ctx context.Context, owner string, project int, i
 			return err
 		}
 	}
-	return s.backend.SetSprintStart(ctx, b, card, sprintStart)
+	if err := s.backend.SetSprintStart(ctx, b, card, sprintStart); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, card, board.EventPlanTaken, "", engineer)
+	return nil
 }
 
 // ReleaseFromPlan removes a card from the weekly plan. It mirrors removeFromPlan
@@ -1267,5 +1337,9 @@ func (s *Service) ReleaseFromPlan(ctx context.Context, owner string, project int
 	if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
 		return err
 	}
-	return s.backend.SetWeek(ctx, b, card, "")
+	if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, card, board.EventPlanReleased, string(card.Plan), "")
+	return nil
 }

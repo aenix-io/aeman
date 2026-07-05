@@ -1,5 +1,13 @@
-import { useEffect, useState } from "react";
-import type { Board, Card as CardModel, Provider } from "../providers/types";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  Board,
+  Card as CardModel,
+  CardEvent,
+  Note,
+  Provider,
+} from "../providers/types";
+import { eventLabel } from "../eventlog";
+import { localDateIso } from "../date";
 
 interface CardDetailProps {
   card: CardModel;
@@ -22,6 +30,9 @@ export function CardDetail({
   const [title, setTitle] = useState(card.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const [description, setDescription] = useState(card.description ?? "");
+  const [log, setLog] = useState<{ notes: Note[]; events: CardEvent[] } | null>(
+    null,
+  );
 
   // Reset local edit state whenever a different card is opened.
   useEffect(() => {
@@ -29,6 +40,48 @@ export function CardDetail({
     setDescription(card.description ?? "");
     setEditingTitle(false);
   }, [card.itemId, card.title, card.description]);
+
+  // The card's full activity feed (events + notes), fetched on open — the
+  // per-day delta Ivan asked for, readable straight off the card.
+  useEffect(() => {
+    let cancelled = false;
+    setLog(null);
+    if (card.itemId.startsWith("tmp-")) {
+      return;
+    }
+    void provider
+      .listLog(board, card.itemId)
+      .then((l) => {
+        if (!cancelled) {
+          setLog(l);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [card.itemId, board, provider]);
+
+  // Timeline grouped by day, newest day first (entries inside stay in order).
+  const timeline = useMemo(() => {
+    if (!log) {
+      return [];
+    }
+    type Entry = { at: string; note?: Note; event?: CardEvent };
+    const entries: Entry[] = [
+      ...log.notes.map((n) => ({ at: n.createdAt, note: n })),
+      ...log.events.map((e) => ({ at: e.at, event: e })),
+    ];
+    entries.sort((a, b) => a.at.localeCompare(b.at));
+    const days = new Map<string, Entry[]>();
+    for (const e of entries) {
+      const day = localDateIso(e.at) || "—";
+      const list = days.get(day) ?? [];
+      list.push(e);
+      days.set(day, list);
+    }
+    return [...days.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [log]);
 
   const fail = (err: unknown) => {
     onClose();
@@ -147,6 +200,44 @@ export function CardDetail({
             />
           </label>
         </div>
+
+        {timeline.length > 0 && (
+          <div className="modal-log">
+            <div className="modal-log-title">Activity</div>
+            {timeline.map(([day, entries]) => (
+              <div className="modal-log-day" key={day}>
+                <div className="modal-log-date">{day}</div>
+                {entries.map((e) =>
+                  e.event ? (
+                    <div className="modal-log-row modal-log-event" key={e.event.id}>
+                      <span className="modal-log-time">
+                        {new Date(e.at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        })}
+                      </span>
+                      {e.event.actor ? `@${e.event.actor} · ` : ""}
+                      {eventLabel(e.event)}
+                    </div>
+                  ) : (
+                    <div className="modal-log-row" key={e.note?.id}>
+                      <span className="modal-log-time">
+                        {new Date(e.at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        })}
+                      </span>
+                      {e.note?.author ? `@${e.note.author} · ` : ""}
+                      {e.note?.body}
+                    </div>
+                  ),
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="modal-footer">
           <button type="button" className="btn" onClick={onClose}>
