@@ -1366,11 +1366,11 @@ export function TeamBoard({
     ) {
       return;
     }
-    // Land on today and move the cards optimistically before the network call,
-    // so the jump to the new sprint never depends on the request's outcome.
-    // Only the closing (current) sprint's unfinished cards carry, mirroring
-    // boardservice.CarryOver.
-    onSelectDate(today);
+    // Move the cards optimistically so the current view keeps showing them
+    // while the (slow) carry runs; the jump to today happens AFTER the server
+    // call — changing the day now would refetch the view against the not-yet-
+    // advanced sprint and blank the board. Only the closing (current) sprint's
+    // unfinished cards carry, mirroring boardservice.CarryOver.
     for (const c of board.cards) {
       if (
         (team === null ? c.team == null : c.team === team) &&
@@ -1387,7 +1387,9 @@ export function TeamBoard({
     } catch (err: unknown) {
       onError(errMessage(err));
     }
-    // Re-read the advanced state (and reconcile the carried cards).
+    // Land on today and re-read the advanced state (the day-change refetch now
+    // sees the post-carry sprint).
+    onSelectDate(today);
     reload();
   };
 
