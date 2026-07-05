@@ -1840,3 +1840,86 @@ func TestPlanCreateRecordsEvent(t *testing.T) {
 		t.Fatalf("plan card events = %+v, want created", evs)
 	}
 }
+
+// SetPlan records the semantic transition: a regular card gaining a band was
+// added to the weekly plan, one losing it was released; band-to-band is a
+// deadline move.
+func TestSetPlanRecordsSemanticEvents(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha"},
+	}, nil)
+	svc := f2svc(f)
+	actx := WithActor(ctx, "kvaps")
+	if err := svc.SetPlan(actx, "acme", 1, "c1", board.PlanWed); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetPlan(actx, "acme", 1, "c1", board.PlanFri); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetPlan(actx, "acme", 1, "c1", board.PlanNone); err != nil {
+		t.Fatal(err)
+	}
+	evs := f.get("c1").Events
+	if len(evs) != 3 ||
+		evs[0].Kind != board.EventPlanAdded || evs[0].To != "wed" ||
+		evs[1].Kind != board.EventPlanBand || evs[1].From != "wed" || evs[1].To != "fri" ||
+		evs[2].Kind != board.EventPlanReleased || evs[2].From != "fri" {
+		t.Fatalf("events = %+v, want plan-added/plan-band/plan-released", evs)
+	}
+}
+
+// Carries are logged with the same kinds as manual moves: carry-over records a
+// sprint event on each carried card, carry-week a week event (plus the band
+// tighten), and a reseeded recurrent copy records created.
+func TestCarryRecordsEvents(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", Progress: 40, SprintStart: "2026-07-01",
+			StartDate: "2026-07-01", CreatedAt: "2026-07-01T08:00:00Z"},
+		{ItemID: "p1", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-29", Progress: 20},
+		{ItemID: "habit", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-29",
+			Stage: board.StageRecurrent, Progress: 100},
+	}, map[string]board.SprintState{"alpha": {Current: "2026-07-01", ItemID: "s1"}})
+	svc := f2svc(f)
+	actx := WithActor(ctx, "kvaps")
+	if _, err := svc.CarryOver(actx, "acme", 1, "alpha", false); err != nil {
+		t.Fatal(err)
+	}
+	var sprint bool
+	for _, e := range f.get("c1").Events {
+		if e.Kind == board.EventSprint && e.From == "2026-07-01" && e.Actor == "kvaps" {
+			sprint = true
+		}
+	}
+	if !sprint {
+		t.Fatalf("c1 events = %+v, want a sprint event from the carry", f.get("c1").Events)
+	}
+	if _, err := svc.CarryWeek(actx, "acme", 1, "alpha", "2026-07-06", false); err != nil {
+		t.Fatal(err)
+	}
+	var week, band bool
+	for _, e := range f.get("p1").Events {
+		if e.Kind == board.EventWeek && e.From == "2026-06-29" && e.To == "2026-07-06" {
+			week = true
+		}
+		if e.Kind == board.EventPlanBand && e.From == "fri" && e.To == "wed" {
+			band = true
+		}
+	}
+	if !week || !band {
+		t.Fatalf("p1 events = %+v, want week + plan-band", f.get("p1").Events)
+	}
+	// The reseeded recurrent copy records created.
+	var reseeded bool
+	for _, c := range f.b.Cards {
+		if c.ItemID != "habit" && c.Title == f.get("habit").Title && c.Week == "2026-07-06" {
+			for _, e := range c.Events {
+				if e.Kind == board.EventCreated {
+					reseeded = true
+				}
+			}
+		}
+	}
+	if !reseeded {
+		t.Fatal("the reseeded recurrent copy must record created")
+	}
+}
