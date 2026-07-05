@@ -33,22 +33,24 @@ export function CardDetail({
   const [log, setLog] = useState<{ notes: Note[]; events: CardEvent[] } | null>(
     null,
   );
+  const [tab, setTab] = useState<"details" | "activity">("details");
 
   // Reset local edit state whenever a different card is opened.
   useEffect(() => {
     setTitle(card.title);
     setDescription(card.description ?? "");
     setEditingTitle(false);
+    setTab("details");
+    setLog(null);
   }, [card.itemId, card.title, card.description]);
 
-  // The card's full activity feed (events + notes), fetched on open — the
-  // per-day delta Ivan asked for, readable straight off the card.
+  // The card's full activity feed (events + notes) loads on demand — fetched
+  // fresh every time the Activity tab is opened, so the timeline is current.
   useEffect(() => {
-    let cancelled = false;
-    setLog(null);
-    if (card.itemId.startsWith("tmp-")) {
+    if (tab !== "activity" || card.itemId.startsWith("tmp-")) {
       return;
     }
+    let cancelled = false;
     void provider
       .listLog(board, card.itemId)
       .then((l) => {
@@ -56,11 +58,17 @@ export function CardDetail({
           setLog(l);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) {
+          setLog({ notes: [], events: [] });
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [card.itemId, board, provider]);
+    // log deliberately not a dep: refetch is keyed to opening the tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, card.itemId, board, provider]);
 
   // Timeline grouped by day, newest day first (entries inside stay in order).
   const timeline = useMemo(() => {
@@ -189,21 +197,47 @@ export function CardDetail({
           </button>
         </div>
 
-        <div className="modal-body">
-          <label className="modal-field">
-            <span>Details</span>
-            <textarea
-              className="modal-textarea"
-              value={description}
-              placeholder="Card details…"
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </label>
+        <div className="modal-tabs" role="tablist" aria-label="Card sections">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "details"}
+            className={`modal-tab${tab === "details" ? " modal-tab-on" : ""}`}
+            onClick={() => setTab("details")}
+          >
+            Details
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "activity"}
+            className={`modal-tab${tab === "activity" ? " modal-tab-on" : ""}`}
+            onClick={() => setTab("activity")}
+          >
+            Activity
+          </button>
         </div>
 
-        {timeline.length > 0 && (
+        {tab === "details" && (
+          <div className="modal-body">
+            <label className="modal-field">
+              <span>Details</span>
+              <textarea
+                className="modal-textarea"
+                value={description}
+                placeholder="Card details…"
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+
+        {tab === "activity" && (
           <div className="modal-log">
-            <div className="modal-log-title">Activity</div>
+            {log === null && <p className="notes-empty">Loading…</p>}
+            {log !== null && timeline.length === 0 && (
+              <p className="notes-empty">No activity yet.</p>
+            )}
             {timeline.map(([day, entries]) => (
               <div className="modal-log-day" key={day}>
                 <div className="modal-log-date">{day}</div>
@@ -243,9 +277,11 @@ export function CardDetail({
           <button type="button" className="btn" onClick={onClose}>
             Close
           </button>
-          <button type="button" className="btn btn-primary" onClick={handleSave}>
-            Save
-          </button>
+          {tab === "details" && (
+            <button type="button" className="btn btn-primary" onClick={handleSave}>
+              Save
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -457,16 +457,16 @@ export function App() {
           removeCard(card.itemId);
           return;
         }
-        // Note edits arrive as plain card changes, and the resource carries no
-        // notes: refetch them when this card's notes were already loaded.
+        // Note/event changes arrive as plain card changes, and the resource
+        // carries neither: refetch the log when this card's was already loaded.
         const existing = boardRef.current?.cards.find(
           (c) => c.itemId === card.itemId,
         );
         addCard(card);
         if (existing?.notes !== undefined) {
           void provider
-            .listNotes({ owner: watchOwner, number: watchProject }, card.itemId)
-            .then((notes) => patchCard(card.itemId, { notes }))
+            .listLog({ owner: watchOwner, number: watchProject }, card.itemId)
+            .then(({ notes, events }) => patchCard(card.itemId, { notes, events }))
             .catch(() => {});
         }
         return;
