@@ -212,7 +212,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 type updateCardInput struct {
 	cardRef
 	Title       *string `json:"title,omitempty" jsonschema:"new title"`
-	Description *string `json:"description,omitempty" jsonschema:"the card's shared free-form body (what the whole team sees; live-syncs onto the linked review card) — the right place for review or handoff context, and for reference links: any URL in it is surfaced on the card, and GitHub issue/PR links are resolved to their titles and listed first (read them back with list_links); empty clears it"`
+	Description *string `json:"description,omitempty" jsonschema:"the card's shared free-form body (what the whole team sees; live-syncs onto the linked review card) — the right place for review or handoff context, and for reference links: include FULL URLs of related open PRs and issues in free form (encouraged — links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links); empty clears it"`
 	Team        *string `json:"team,omitempty" jsonschema:"team to move to (joins its current sprint); empty is the no-team group"`
 	Zone        *string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave; empty clears it"`
 	Assignee    *string `json:"assignee,omitempty" jsonschema:"GitHub login; empty unassigns"`
