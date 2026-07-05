@@ -648,7 +648,9 @@ func TestReleaseFromPlanClearsMarkersWhenAssigned(t *testing.T) {
 	}
 }
 
-func TestReleaseFromPlanDemotesPureCardToPreviousWeek(t *testing.T) {
+// Removing a pure (unassigned, never-worked) plan card deletes it for real —
+// the old demote-to-previous-week made the next carry-week boomerang it back.
+func TestReleaseFromPlanDeletesPureCardOutright(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "p1", Plan: board.PlanWed, Week: "2026-06-15", Team: "alpha", Assignees: []string{}},
 		{ItemID: "p2", Plan: board.PlanWed, Week: "2026-06-08", Team: "alpha", Assignees: []string{}},
@@ -656,11 +658,8 @@ func TestReleaseFromPlanDemotesPureCardToPreviousWeek(t *testing.T) {
 	if err := f2svc(f).ReleaseFromPlan(ctx, "acme", 1, "p1"); err != nil {
 		t.Fatal(err)
 	}
-	if f.get("p1").Week != "2026-06-08" {
-		t.Fatalf("pure plan card should demote to previous week: %+v", f.get("p1"))
-	}
-	if f.count("DeleteCard") != 0 {
-		t.Fatalf("demote must not delete; log=%v", f.log)
+	if f.count("DeleteCard") != 1 {
+		t.Fatalf("pure plan card must be deleted for real; log=%v", f.log)
 	}
 }
 
@@ -1026,17 +1025,18 @@ func TestRemovePlanClearsMarkerWhenAssigned(t *testing.T) {
 	}
 }
 
-func TestRemovePlanDemotesToPreviousWeek(t *testing.T) {
+// The plan × on a pure card deletes it for real even when earlier plan weeks
+// exist — the old demote-to-previous-week boomeranged on the next carry-week.
+func TestRemovePlanDeletesPureCardDespiteEarlierWeeks(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "c1", Team: "alpha", Plan: board.PlanWed, Week: "2026-01-12"},
 		{ItemID: "c2", Team: "alpha", Plan: board.PlanFri, Week: "2026-01-05"},
-		{ItemID: "c3", Team: "beta", Plan: board.PlanFri, Week: "2026-01-08"},
 	}, nil)
 	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", "plan"); err != nil {
 		t.Fatal(err)
 	}
-	if c := f.get("c1"); c == nil || c.Week != "2026-01-05" {
-		t.Fatalf("a pure plan card demotes to its team's previous week: %+v", c)
+	if f.count("DeleteCard") != 1 {
+		t.Fatalf("pure plan card must be deleted for real; log=%v", f.log)
 	}
 }
 

@@ -54,7 +54,7 @@ Actions carry the board rules — the client never reimplements them.
 
 | Method & path | Body | Purpose |
 | --- | --- | --- |
-| `POST /api/v1/cards/{uid}/actions/remove` | `{from: "grid"\|"plan"}` | The smart ×: a current-sprint card demotes to the previous sprint, a plan-taken card releases back to the plan, a pure plan card demotes to its previous week — and only otherwise is it deleted. |
+| `POST /api/v1/cards/{uid}/actions/remove` | `{from: "grid"\|"plan"}` | The smart ×: a current-sprint card demotes to the previous sprint; an untouched taken plan card releases back to the plan while a worked one sheds only its plan membership; a pure (unassigned, never-worked) plan card is deleted for real. |
 | `POST /api/v1/cards/{uid}/actions/move` | `{after}` | Reorder after another card (`""` = to the top). |
 | `POST /api/v1/cards/{uid}/actions/defer` | `{days}` | Push the scheduled day N days ahead of today (presses stack; a card created today relocates fully). |
 | `POST /api/v1/cards/{uid}/actions/in-progress` | `{}` | The implicit In Progress status. |
