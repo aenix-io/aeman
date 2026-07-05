@@ -1824,3 +1824,19 @@ func TestReviewCrossEvents(t *testing.T) {
 		t.Fatalf("orig events = %+v, want reviewer-removed", f.get("orig").Events)
 	}
 }
+
+// Creating a weekly-plan card records the created event too (the plan branch
+// returns earlier than the day branch and must not skip the hook).
+func TestPlanCreateRecordsEvent(t *testing.T) {
+	f := newFake(nil, nil)
+	card, err := f2svc(f).CreateCard(WithActor(ctx, "kvaps"), "acme", 1, CreateCardArgs{
+		Title: "Plan it", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := f.get(card.ItemID).Events
+	if len(evs) != 1 || evs[0].Kind != board.EventCreated || evs[0].Actor != "kvaps" {
+		t.Fatalf("plan card events = %+v, want created", evs)
+	}
+}
