@@ -98,7 +98,7 @@ export interface OrderingResource {
 
 export interface BoardResource {
   kind: string;
-  metadata: { title?: string; url?: string; teams?: string[] };
+  metadata: { title?: string; url?: string; teams?: string[]; members?: string[] };
 }
 
 export interface CardListResource {
