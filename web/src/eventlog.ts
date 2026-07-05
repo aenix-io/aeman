@@ -31,6 +31,16 @@ export function eventLabel(e: CardEvent): string {
       return to ? `taken into work by @${to}` : "taken into work";
     case "plan-released":
       return "released from the plan";
+    case "dates":
+      return `dates ${from || "—"} → ${to || "—"}`;
+    case "sprint":
+      return `sprint ${from || "—"} → ${to || "—"}`;
+    case "week":
+      return `plan week ${from || "—"} → ${to || "—"}`;
+    case "plan-band":
+      return `plan band ${from || "—"} → ${to || "—"}`;
+    case "review-round":
+      return `review round ${from} → ${to} (reset to 0%)`;
     default:
       return `${e.kind} ${from} → ${to}`.trim();
   }

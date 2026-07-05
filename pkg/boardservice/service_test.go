@@ -1740,3 +1740,87 @@ func TestReviewCycleRecordsEvents(t *testing.T) {
 		t.Fatalf("orig events = %+v, want review-passed", f.get("orig").Events)
 	}
 }
+
+// Date, sprint and plan-cycle changes are recorded with full from->to values —
+// the day-state replay feature reconstructs a card's state per day from these.
+func TestDateAndSprintEvents(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", StartDate: "2026-07-01", Day: "2026-07-02", SprintStart: "2026-07-01"},
+		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-29"},
+	}, nil)
+	svc := f2svc(f)
+	actx := WithActor(ctx, "kvaps")
+	if err := svc.SetDates(actx, "acme", 1, "c1", "2026-07-03", "2026-07-04"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetWeek(actx, "acme", 1, "p1", "2026-07-06"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetPlan(actx, "acme", 1, "p1", board.PlanFri); err != nil {
+		t.Fatal(err)
+	}
+	var dates, sprint bool
+	for _, e := range f.get("c1").Events {
+		if e.Kind == board.EventDates && e.From == "2026-07-01..2026-07-02" && e.To == "2026-07-03..2026-07-04" {
+			dates = true
+		}
+		if e.Kind == board.EventSprint {
+			sprint = true
+		}
+	}
+	if !dates || !sprint {
+		t.Fatalf("c1 events = %+v, want dates + sprint", f.get("c1").Events)
+	}
+	var week, band bool
+	for _, e := range f.get("p1").Events {
+		if e.Kind == board.EventWeek && e.From == "2026-06-29" && e.To == "2026-07-06" {
+			week = true
+		}
+		if e.Kind == board.EventPlanBand && e.From == "wed" && e.To == "fri" {
+			band = true
+		}
+	}
+	if !week || !band {
+		t.Fatalf("p1 events = %+v, want week + plan-band", f.get("p1").Events)
+	}
+}
+
+// The review cross-links are logged on both sides: reactivation records the
+// round reset on the REVIEW card; the original leaving review records the
+// cancelled reviewer on the ORIGINAL.
+func TestReviewCrossEvents(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "orig", Team: "alpha", Progress: 100, SprintStart: today},
+		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, ReviewRound: 2,
+			Assignees: []string{"bob"}, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := f2svc(f)
+	actx := WithActor(ctx, "kvaps")
+	// Stage-menu re-review: the review card records its round reset.
+	if err := svc.SetStage(actx, "acme", 1, "orig", board.StageReview); err != nil {
+		t.Fatal(err)
+	}
+	var round bool
+	for _, e := range f.get("rev").Events {
+		if e.Kind == board.EventReviewRound && e.From == "2" && e.To == "3" {
+			round = true
+		}
+	}
+	if !round {
+		t.Fatalf("rev events = %+v, want review-round", f.get("rev").Events)
+	}
+	// Leaving review cancels the fresh round: the original records it.
+	if err := svc.SetStage(actx, "acme", 1, "orig", board.StageNone); err != nil {
+		t.Fatal(err)
+	}
+	var removed bool
+	for _, e := range f.get("orig").Events {
+		if e.Kind == board.EventReviewerRemoved && e.From == "bob" {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Fatalf("orig events = %+v, want reviewer-removed", f.get("orig").Events)
+	}
+}
