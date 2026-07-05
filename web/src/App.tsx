@@ -59,6 +59,19 @@ function writeStringList(key: string, value: string[]) {
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
+// mergeCardLists flattens a view's lists (e.g. the Team grid + its weekly
+// plan), deduping by item id; board order within each list is preserved.
+function mergeCardLists(lists: CardModel[][]): CardModel[] {
+  const seen = new Set<string>();
+  return lists.flat().filter((c) => {
+    if (seen.has(c.itemId)) {
+      return false;
+    }
+    seen.add(c.itemId);
+    return true;
+  });
+}
+
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
@@ -247,8 +260,17 @@ export function App() {
       setLoading(true);
       setError(null);
       try {
-        const loaded = await provider.loadBoard(ownerArg, numberArg);
-        setBoard(loaded);
+        // Identity + sprints AND the active view's cards together, swapped in
+        // as one board: a reload() must never leave the board empty while the
+        // cards are still in flight (loadBoard itself carries no cards).
+        const addr = { owner: ownerArg, number: numberArg };
+        const [loaded, lists] = await Promise.all([
+          provider.loadBoard(ownerArg, numberArg),
+          Promise.all(
+            activeQueriesRef.current.map((q) => provider.listCards(addr, q)),
+          ),
+        ]);
+        setBoard({ ...loaded, cards: mergeCardLists(lists) });
       } catch (err: unknown) {
         setError(errMessage(err));
       } finally {
@@ -276,17 +298,7 @@ export function App() {
         if (cancelled) {
           return;
         }
-        // Merge the view's lists (e.g. the Team grid + its weekly plan),
-        // deduping by item id; board order within each list is preserved.
-        const seen = new Set<string>();
-        const cards = lists.flat().filter((c) => {
-          if (seen.has(c.itemId)) {
-            return false;
-          }
-          seen.add(c.itemId);
-          return true;
-        });
-        setBoard((cur) => (cur ? { ...cur, cards } : cur));
+        setBoard((cur) => (cur ? { ...cur, cards: mergeCardLists(lists) } : cur));
       })
       .catch((err: unknown) => {
         if (!cancelled) {
