@@ -100,8 +100,18 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	case "me":
 		base = board.MeView(b, sel.User, sel.Day)
 	case "weekly":
-		bands := board.WeeklyPlan(b, sel.Team, sel.Week)
-		base = append(append([]board.Card{}, bands.Wed...), bands.Fri...)
+		// weekly accepts a comma-separated team set too, so the Team board's
+		// weekly-plan panel fetches every team it shows in one request.
+		seen := map[string]bool{}
+		for _, t := range strings.Split(sel.Team, ",") {
+			bands := board.WeeklyPlan(b, strings.TrimSpace(t), sel.Week)
+			for _, c := range append(append([]board.Card{}, bands.Wed...), bands.Fri...) {
+				if !seen[c.ItemID] {
+					seen[c.ItemID] = true
+					base = append(base, c)
+				}
+			}
+		}
 	default:
 		base = b.Cards
 	}

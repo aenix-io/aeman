@@ -291,3 +291,32 @@ func TestTeamViewMultiTeam(t *testing.T) {
 		t.Fatalf("team=alpha,beta = %v, want alpha+beta only", ids)
 	}
 }
+
+// view=weekly accepts a comma set too: the Team board's weekly-plan panel
+// fetches every team it shows in one request.
+func TestWeeklyViewMultiTeam(t *testing.T) {
+	week := "2026-01-05"
+	b := board.Board{Cards: []board.Card{
+		{ItemID: "aw", Team: "alpha", Plan: board.PlanWed, Week: week},
+		{ItemID: "bf", Team: "beta", Plan: board.PlanFri, Week: week},
+		{ItemID: "gw", Team: "gamma", Plan: board.PlanWed, Week: week},
+	}}
+	ids := map[string]bool{}
+	for _, c := range FilterCards(b, Selector{View: "weekly", Team: "alpha,beta", Week: week}) {
+		ids[c.ItemID] = true
+	}
+	if !ids["aw"] || !ids["bf"] || ids["gw"] {
+		t.Fatalf("weekly team=alpha,beta = %v, want alpha+beta only", ids)
+	}
+}
+
+// The board resource carries the people roster (every distinct assignee), so
+// pickers work even though clients load one view at a time.
+func TestBoardResourceMembers(t *testing.T) {
+	b := testBoard()
+	info := BoardResource(b)
+	got := info.Metadata.Members
+	if !reflect.DeepEqual(got, []string{"lllamnyp", "octocat"}) {
+		t.Fatalf("members = %v, want [lllamnyp octocat]", got)
+	}
+}
