@@ -493,7 +493,8 @@ func (c *Client) AddNote(ctx context.Context, _ board.Board, card board.Card, te
 		if data.Node != nil {
 			body = data.Node.Body
 		}
-		line := fmt.Sprintf("- [%s] %s", time.Now().UTC().Format(time.RFC3339), text)
+		line := fmt.Sprintf("- [%s] %s", time.Now().UTC().Format(time.RFC3339),
+			board.RenderNoteBody(board.ActorFrom(ctx), text))
 		if body != "" {
 			line = body + "\n" + line
 		}

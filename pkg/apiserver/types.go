@@ -6,6 +6,8 @@
 package apiserver
 
 import (
+	"sort"
+
 	"github.com/aenix-org/aeman/pkg/board"
 )
 
@@ -288,4 +290,45 @@ func sortStrings(s []string) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// LogEntry is one item of a card's unified activity feed: a recorded event
+// (stage/progress/review/plan change) or a work note, in one timeline.
+type LogEntry struct {
+	// Type is "event" or "note".
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	At   string `json:"at,omitempty"`
+	// Actor is the event's actor or the note's author.
+	Actor string `json:"actor,omitempty"`
+	// Event fields (Type == "event").
+	EventKind string `json:"kind,omitempty"`
+	From      string `json:"from,omitempty"`
+	To        string `json:"to,omitempty"`
+	// Note body (Type == "note").
+	Text string `json:"text,omitempty"`
+}
+
+// LogList is the GET /cards/{uid}/log response envelope.
+type LogList struct {
+	Kind  string     `json:"kind"`
+	Items []LogEntry `json:"items"`
+}
+
+// CardLog merges a card's events and notes into one chronological feed.
+func CardLog(c board.Card) LogList {
+	items := make([]LogEntry, 0, len(c.Events)+len(c.Notes))
+	for _, e := range c.Events {
+		items = append(items, LogEntry{
+			Type: "event", ID: e.ID, At: e.At, Actor: e.Actor,
+			EventKind: e.Kind, From: e.From, To: e.To,
+		})
+	}
+	for _, n := range c.Notes {
+		items = append(items, LogEntry{
+			Type: "note", ID: n.ID, At: n.CreatedAt, Actor: n.Author, Text: n.Body,
+		})
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].At < items[j].At })
+	return LogList{Kind: "LogList", Items: items}
 }

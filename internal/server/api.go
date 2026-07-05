@@ -40,6 +40,7 @@ var errMissingBoard = errors.New("owner and project are required (set ?owner=&pr
 //	POST   /api/v1/cards/{uid}/actions/take-into-plan  take a plan card into work
 //	POST   /api/v1/cards/{uid}/actions/release-from-plan release from the weekly plan
 //	GET    /api/v1/cards/{uid}/links                  links from the description (GitHub refs resolved)
+//	GET    /api/v1/cards/{uid}/log                    unified activity feed (events + notes)
 //	GET    /api/v1/cards/{uid}/notes                  the card's work notes
 //	POST   /api/v1/cards/{uid}/notes                  append a note
 //	PATCH  /api/v1/cards/{uid}/notes/{noteId}         edit a note
@@ -67,6 +68,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/take-into-plan", s.handleTakeIntoPlan)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/release-from-plan", s.handleReleaseFromPlan)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/links", s.handleListLinks)
+	mux.HandleFunc("GET /api/v1/cards/{uid}/log", s.handleCardLog)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/notes", s.handleListNotes)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/notes", s.handleAddNote)
 	mux.HandleFunc("PATCH /api/v1/cards/{uid}/notes/{noteId}", s.handleEditNote)
@@ -119,6 +121,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/cards/{uid}/actions/take-into-plan", "Take a plan card into work ({engineer, zone, day})"},
 			{"POST", "/api/v1/cards/{uid}/actions/release-from-plan", "Release a card from the weekly plan"},
 			{"GET", "/api/v1/cards/{uid}/links", "URLs from the card's description; GitHub issue/PR refs resolved with titles, listed first"},
+			{"GET", "/api/v1/cards/{uid}/log", "The card's activity feed: recorded events (stage/progress/review/plan changes) and work notes, one chronological list"},
 			{"GET", "/api/v1/cards/{uid}/notes", "The card's work notes"},
 			{"POST", "/api/v1/cards/{uid}/notes", "Append a work note ({text})"},
 			{"PATCH", "/api/v1/cards/{uid}/notes/{noteId}", "Edit a work note ({text})"},
@@ -196,6 +199,22 @@ func (s *Server) service(w http.ResponseWriter, r *http.Request) (svc *boardserv
 		return nil, "", 0, false
 	}
 	return svc, owner, project, true
+}
+
+// handleCardLog serves a card's unified activity feed: its recorded events and
+// work notes merged chronologically. The day delta Ivan asked for — "what
+// happened on this card since yesterday" — reads straight off this list.
+func (s *Server) handleCardLog(w http.ResponseWriter, r *http.Request) {
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	card, err := svc.Card(r.Context(), owner, project, r.PathValue("uid"))
+	if err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apiserver.CardLog(card))
 }
 
 // statusResponse is the acknowledgement returned by actions that leave no single

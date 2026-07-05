@@ -18,8 +18,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/aenix-org/aeman/internal/ghcli"
 	"github.com/aenix-org/aeman/internal/server"
+	"github.com/aenix-org/aeman/pkg/boardservice"
 	"github.com/aenix-org/aeman/pkg/mcpserver"
 )
 
@@ -147,6 +150,16 @@ func runMCP(args []string) error {
 		// Scope the default (unspecified-view) list to the local user's own Me
 		// board; best-effort via the gh CLI, else the list stays sprint-scoped.
 		ResolveLogin: ghcli.Login,
+	})
+
+	// Attribute activity events to the local gh identity (cached per process).
+	srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if login, err := ghcli.Login(ctx); err == nil {
+				ctx = boardservice.WithActor(ctx, login)
+			}
+			return next(ctx, method, req)
+		}
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

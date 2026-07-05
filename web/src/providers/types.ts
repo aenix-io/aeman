@@ -21,6 +21,16 @@ export interface Note {
   source: "comment" | "draft";
 }
 
+/** CardEvent is one recorded action on a card (see board.Event server-side). */
+export interface CardEvent {
+  id: string;
+  kind: string;
+  actor?: string;
+  from?: string;
+  to?: string;
+  at: string;
+}
+
 /** Card is a single project item (issue, PR or draft). */
 export interface Card {
   itemId: string;
@@ -63,6 +73,8 @@ export interface Card {
   description?: string;
   /** Work notes; undefined until loaded from the notes subresource. */
   notes?: Note[];
+  /** Recorded activity events; undefined until loaded from the log subresource. */
+  events?: CardEvent[];
 }
 
 /** NewCardInput describes a card to create on a board. The server fills the
@@ -202,6 +214,11 @@ export interface Provider {
   /** URLs from the card's description: GitHub issue/PR refs (resolved with
    *  titles when possible) first, plain links after. */
   listLinks(board: BoardAddr, uid: string): Promise<CardLink[]>;
+  /** The card's unified activity feed, split back into notes and events. */
+  listLog(
+    board: BoardAddr,
+    uid: string,
+  ): Promise<{ notes: Note[]; events: CardEvent[] }>;
   /** Share the caller's live card selection ("" clears) with other boards. */
   setPresence(board: BoardAddr, login: string, card: string | null): Promise<void>;
   listNotes(board: BoardAddr, uid: string): Promise<Note[]>;

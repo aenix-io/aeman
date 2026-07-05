@@ -68,6 +68,8 @@ func injectGitHubToken(next mcp.MethodHandler) mcp.MethodHandler {
 			}
 			if extra.TokenInfo.UserID != "" {
 				ctx = context.WithValue(ctx, mcpLoginCtxKey{}, extra.TokenInfo.UserID)
+				// Attribute activity events recorded by this call's mutations.
+				ctx = boardservice.WithActor(ctx, extra.TokenInfo.UserID)
 			}
 		}
 		return next(ctx, method, req)

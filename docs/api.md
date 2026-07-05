@@ -37,6 +37,7 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | `PATCH /api/v1/cards/{uid}` | Edit spec fields; only present fields apply, empty clears. |
 | `DELETE /api/v1/cards/{uid}` | Hard delete (cascades to the linked review card). |
 | `GET /api/v1/cards/{uid}/links` | URLs from the card's description: GitHub issue/PR references first (resolved to their live titles and states), plain links after. |
+| `GET /api/v1/cards/{uid}/log` | The card's activity feed: recorded events (who changed the stage/progress/assignee/review/plan, when) merged chronologically with its work notes — the per-day delta without morning reports. Changes made outside aeman (directly in the GitHub Projects UI) are not recorded. |
 | `GET /api/v1/cards/{uid}/notes` | The card's work notes. |
 | `POST /api/v1/cards/{uid}/notes` | Append a note `{text}` (201). |
 | `PATCH /api/v1/cards/{uid}/notes/{noteId}` | Edit a note `{text}`. |
@@ -176,6 +177,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over?owner=acme
 | `get_board` | Board identity and team roster. |
 | `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`, `focus`). No view defaults to your own Me board (who-am-i resolved server-side); `view=all` is the whole board, `view=team` the lead view. |
 | `get_card` / `list_notes` / `list_links` | One card; its notes; its description links (GitHub refs resolved with titles). |
+| `list_log` | The card's activity feed: events (stage/progress/review/plan changes with actor) + notes, one chronological list — read a card's delta instead of asking for morning reports. |
 | `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). A title that is only a GitHub issue/PR URL is auto-filled from that item. |
 | `update_card` | The PATCH: only provided fields apply, empty clears. The `description` is the card's shared body — also the place for reference links: URLs are surfaced on the card, GitHub issue/PR links resolved to titles (`list_links`). |
 | `delete_card` / `remove_card` | Hard delete; the smart × (`from: grid\|plan`). |
