@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aenix-org/aeman/pkg/board"
 )
@@ -21,6 +22,14 @@ var ErrNoteNotFound = errors.New("note not found")
 // ErrInvalidStage is returned when a stage cannot apply to a card — a review
 // card cannot be made recurrent (a review is one-off, not a repeating task).
 var ErrInvalidStage = errors.New("invalid stage for this card")
+
+// MaxDescriptionLen caps a card description (in runes). The description shares
+// a draft card's body with the note and event logs, and GitHub caps the body
+// at ~64K — an oversized description would break log appends.
+const MaxDescriptionLen = 16384
+
+// ErrDescriptionTooLong is returned when a description exceeds MaxDescriptionLen.
+var ErrDescriptionTooLong = fmt.Errorf("description is too long (max %d characters)", MaxDescriptionLen)
 
 // Service performs aeman's board actions. It is stateless: every method loads
 // the board through the backend, computes the change with internal/board logic,
@@ -1250,6 +1259,9 @@ func (s *Service) Rename(ctx context.Context, owner string, project int, itemID,
 // the linked counterpart — editing the original updates its review card and
 // vice versa, so both always show the same context. Notes stay per-card.
 func (s *Service) SetDescription(ctx context.Context, owner string, project int, itemID, description string) error {
+	if utf8.RuneCountInString(description) > MaxDescriptionLen {
+		return ErrDescriptionTooLong
+	}
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
