@@ -38,7 +38,21 @@ const (
 	EventReviewerRemoved = "reviewer-removed"
 	EventPlanTaken       = "plan-taken"
 	EventPlanReleased    = "plan-released"
+	EventDates           = "dates"
+	EventSprint          = "sprint"
+	EventWeek            = "week"
+	EventPlanBand        = "plan-band"
+	EventReviewRound     = "review-round"
 )
+
+// DateRange renders a start..end pair for a dates event value ("" parts kept
+// readable: "..2026-07-04", "2026-07-01..", "" when both empty).
+func DateRange(start, end string) string {
+	if start == "" && end == "" {
+		return ""
+	}
+	return start + ".." + end
+}
 
 // eventPrefix marks a log-line body as a machine event rather than a work
 // note. Parsers treat any log line whose body starts with it as an Event.
