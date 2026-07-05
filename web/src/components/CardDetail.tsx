@@ -226,6 +226,7 @@ export function CardDetail({
                 className="modal-textarea"
                 value={description}
                 placeholder="Card details…"
+                maxLength={16384}
                 onChange={(e) => setDescription(e.target.value)}
               />
             </label>
