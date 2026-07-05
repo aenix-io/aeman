@@ -354,3 +354,20 @@ func TestWeeklyHistoryForWorkedCards(t *testing.T) {
 		t.Fatalf("week 07-06 = %v, want worked+pure+later", cur)
 	}
 }
+
+// A week-history entry sits in the by-Friday band of the past week regardless
+// of its current band; in its own week it sits in its own band.
+func TestWeeklyHistoryLandsInFriBand(t *testing.T) {
+	b := board.Board{Cards: []board.Card{
+		{ItemID: "moved", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06",
+			StartDate: "2026-07-01", Progress: 40},
+	}}
+	prev := board.WeeklyPlan(b, "alpha", "2026-06-29")
+	if len(prev.Fri) != 1 || len(prev.Wed) != 0 {
+		t.Fatalf("past week: history goes to the fri band, got wed=%d fri=%d", len(prev.Wed), len(prev.Fri))
+	}
+	cur := board.WeeklyPlan(b, "alpha", "2026-07-06")
+	if len(cur.Wed) != 1 || len(cur.Fri) != 0 {
+		t.Fatalf("own week: the card sits in its own band, got wed=%d fri=%d", len(cur.Wed), len(cur.Fri))
+	}
+}
