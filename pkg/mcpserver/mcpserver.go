@@ -82,7 +82,7 @@ func (h *server) mcpServer() *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "send_to_review", Description: "Create a linked review card for a reviewer and put the card on review; returns the review card."}, h.sendToReview)
 	mcp.AddTool(s, &mcp.Tool{Name: "remove_reviewer", Description: "Delete a card's linked review card."}, h.removeReviewer)
 	mcp.AddTool(s, &mcp.Tool{Name: "take_into_plan", Description: "Take a weekly-plan card into work: assign an engineer and join the team's sprint."}, h.takeIntoPlan)
-	mcp.AddTool(s, &mcp.Tool{Name: "release_from_plan", Description: "Release a card from the weekly plan (a pure plan card demotes to its previous week, else is deleted)."}, h.releaseFromPlan)
+	mcp.AddTool(s, &mcp.Tool{Name: "release_from_plan", Description: "Release a card from the weekly plan: an assigned or worked card sheds only its plan membership (it stays with the person and its sprint history); a pure untouched plan card is deleted for real."}, h.releaseFromPlan)
 	mcp.AddTool(s, &mcp.Tool{Name: "carry_over", Description: "Advance a team's sprint to today and carry its unfinished cards forward (dryRun reports the counts)."}, h.carryOver)
 	mcp.AddTool(s, &mcp.Tool{Name: "carry_week", Description: "Pull a team's unfinished plan cards from earlier weeks into the target week (dryRun reports the counts)."}, h.carryWeek)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_links", Description: "List URLs from a card's description: GitHub issue/PR refs (resolved with titles) first, plain links after."}, h.listLinks)
