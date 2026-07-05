@@ -30,7 +30,8 @@ func (c *Client) draftBody(ctx context.Context, contentID string) (string, error
 func domainBuildDraftBody(description string, notes []board.Note) string {
 	lines := make([]string, 0, len(notes))
 	for _, n := range notes {
-		lines = append(lines, fmt.Sprintf("- [%s] %s", n.CreatedAt, n.Body))
+		lines = append(lines, fmt.Sprintf("- [%s] %s", n.CreatedAt,
+			board.RenderNoteBody(n.Author, n.Body)))
 	}
 	head := ""
 	if description != "" {

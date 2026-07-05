@@ -156,13 +156,14 @@ func (f *Backend) AppendEvent(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
-func (f *Backend) AddNote(_ context.Context, _ board.Board, card board.Card, text string) error {
+func (f *Backend) AddNote(ctx context.Context, _ board.Board, card board.Card, text string) error {
 	f.rec("AddNote %s %s", card.ItemID, text)
 	if c := f.Card(card.ItemID); c != nil {
 		f.nextID++
 		c.Notes = append(c.Notes, board.Note{
 			ID:     fmt.Sprintf("note%d", f.nextID),
 			Body:   text,
+			Author: board.ActorFrom(ctx),
 			Source: "log",
 		})
 	}

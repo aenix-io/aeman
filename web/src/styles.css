@@ -2351,3 +2351,9 @@ button.card-age {
   color: var(--fg);
   border-color: var(--muted);
 }
+
+/* Note author attribution in the day feed. */
+.note-author {
+  color: var(--faint);
+  font-size: 11px;
+}
