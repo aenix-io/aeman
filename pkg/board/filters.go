@@ -116,7 +116,7 @@ type WeeklyBands struct {
 func WeeklyPlan(b Board, team, week string) WeeklyBands {
 	bands := WeeklyBands{Wed: []Card{}, Fri: []Card{}}
 	for _, c := range b.Cards {
-		if c.Plan == PlanNone || c.Week != week || c.Team != team {
+		if c.Plan == PlanNone || c.Team != team || !planShowsInWeek(c, week) {
 			continue
 		}
 		if c.Plan == PlanFri {
@@ -126,4 +126,18 @@ func WeeklyPlan(b Board, team, week string) WeeklyBands {
 		}
 	}
 	return bands
+}
+
+// planShowsInWeek reports whether a plan card belongs on week W's panel: its
+// own week, or — mirroring the day grid's sprint history — any past week it was
+// actually worked in. A card taken into work (it has a start date) that was
+// carried forward keeps showing in every week from the one it started in up to
+// (but excluding) the week it now belongs to, so carrying the plan forward does
+// not erase the weeks it was worked in. A pure (never-started) plan card moves
+// with its week and leaves no history.
+func planShowsInWeek(c Card, week string) bool {
+	if c.Week == week {
+		return true
+	}
+	return c.StartDate != "" && c.Week > week && MondayOf(c.StartDate) <= week
 }

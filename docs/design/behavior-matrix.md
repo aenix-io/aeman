@@ -62,6 +62,8 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 | --- | --- | --- | --- |
 | V1 | Team/Me/Weekly LIST selectors return exactly what the UI renders, sorted by board order | board filters (✅) + 🆕 apiserver `TestListSelectors*` |
 | V2 | Weekly view response carries wed/fri bands + plan progress (recurrent excluded, done→100, average) | **frontend** (planProgress) | 🆕 `TestWeeklyViewProgress*` |
+| W1 | Weekly history: a worked plan card (has a start date) carried forward keeps showing in every past week it was worked in, mirroring the day grid's sprint history; a pure never-started plan card moves with its week | board.planShowsInWeek + TeamBoard showsInWeek | ✅ TestWeeklyHistoryForWorkedCards |
+| W2 | Smart-remove never deletes nor unhooks a worked card: the plan × on an assigned-or-worked card and the grid × on a worked taken card shed only the plan membership (person, dates and sprint history stay); only untouched cards release/demote/delete as before | boardservice.Remove/ReleaseFromPlan | ✅ TestPlanRemoveKeepsWorkedCard / TestGridRemoveOnTakenPlanCard |
 | V3 | Watch (unscoped): ADDED/MODIFIED/DELETED per card; echo suppression by client id | server store | ✅ (live-verified) + 🆕 `TestWatchEvents*` |
 | V4 | Watch (view-scoped): entering/leaving the selection delivers ADDED/DELETED for that subscription | 🆕 apiserver `TestScopedWatch*` |
 | V5 | Ordering singleton: move emits one MODIFIED Ordering; LIST stays sorted | 🆕 apiserver `TestOrdering*` |

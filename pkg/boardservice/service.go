@@ -551,7 +551,10 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 		return err
 	}
 	if from == "plan" {
-		if len(c.Assignees) > 0 {
+		// A card someone is (or was) working on is never deleted by the plan ×:
+		// it sheds only its weekly membership and stays with the person and on
+		// the sprint days it passed through.
+		if len(c.Assignees) > 0 || c.Progress > 0 {
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
@@ -563,6 +566,16 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 		return s.deleteWithCascade(ctx, b, c)
 	}
 	if c.Plan != board.PlanNone {
+		// The grid × on an untouched taken plan card undoes the take: it releases
+		// back to the plan pool. A card already worked on (progress > 0) must NOT
+		// lose its person or sprint history — it sheds the plan membership
+		// instead and stays a regular sprint card.
+		if c.Progress > 0 {
+			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
+				return err
+			}
+			return s.backend.SetWeek(ctx, b, c, "")
+		}
 		if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
 			return err
 		}
@@ -1220,7 +1233,7 @@ func (s *Service) ReleaseFromPlan(ctx context.Context, owner string, project int
 	if err != nil {
 		return err
 	}
-	if len(card.Assignees) == 0 {
+	if len(card.Assignees) == 0 && card.Progress == 0 {
 		if prevWeek := previousWeekFor(b, card); prevWeek != "" {
 			return s.backend.SetWeek(ctx, b, card, prevWeek)
 		}
