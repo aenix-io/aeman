@@ -908,7 +908,8 @@ button.team-avatar {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
+  /* No auto margin here: .me-today owns the right-push — two auto margins
+     would split the free space and strand Today mid-bar. */
 }
 
 .btn.impersonate-active {
