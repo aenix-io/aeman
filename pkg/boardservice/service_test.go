@@ -1541,3 +1541,53 @@ func TestReReviewRelocatesToNewSprintWithCounter(t *testing.T) {
 		t.Fatalf("re-review resets to 0 and bumps the round: %+v", r)
 	}
 }
+
+// The plan × never deletes a card someone worked on: even unassigned, a card
+// with progress sheds only its weekly membership and survives.
+func TestPlanRemoveKeepsWorkedCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06", Progress: 40},
+	}, nil)
+	if err := f2svc(f).Remove(ctx, "acme", 1, "p", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("p")
+	if f.count("DeleteCard") != 0 {
+		t.Fatal("a worked card must not be deleted by the plan ×")
+	}
+	if c.Plan != board.PlanNone || c.Week != "" {
+		t.Fatalf("plan membership must be shed: %+v", c)
+	}
+}
+
+// The grid × on a taken plan card: untouched → released back to the plan
+// (person + sprint cleared); already worked → keeps the person and its sprint
+// history, shedding only the plan membership.
+func TestGridRemoveOnTakenPlanCard(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "fresh", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06",
+			Assignees: []string{"bob"}, SprintStart: "2026-07-03", StartDate: "2026-07-03"},
+		{ItemID: "worked", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06",
+			Assignees: []string{"bob"}, SprintStart: "2026-07-03", StartDate: "2026-07-03", Progress: 40},
+	}, nil)
+	svc := f2svc(f)
+	if err := svc.Remove(ctx, "acme", 1, "fresh", "grid"); err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get("fresh"); len(c.Assignees) != 0 || c.SprintStart != "" || c.Plan == board.PlanNone {
+		t.Fatalf("untouched taken card must release back to the plan: %+v", c)
+	}
+	if err := svc.Remove(ctx, "acme", 1, "worked", "grid"); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("worked")
+	if len(c.Assignees) == 0 || c.SprintStart == "" {
+		t.Fatalf("worked card must keep its person and sprint: %+v", c)
+	}
+	if c.Plan != board.PlanNone || c.Week != "" {
+		t.Fatalf("worked card sheds only the plan membership: %+v", c)
+	}
+	if f.count("DeleteCard") != 0 {
+		t.Fatal("nothing must be deleted")
+	}
+}
