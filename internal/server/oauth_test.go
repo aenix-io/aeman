@@ -476,11 +476,15 @@ func TestOAuthClientRegistrationPersists(t *testing.T) {
 	}
 }
 
-// The pre-envelope session file (a bare map of sessions) still loads.
-func TestSessionFileLegacyFormat(t *testing.T) {
+// GitHub tokens are not persisted: a file written by an older version that
+// stored sessions must NOT restore them, and the plaintext tokens must be
+// scrubbed from disk on load — while a registered client in the same file is
+// still restored.
+func TestSessionTokensNotPersisted(t *testing.T) {
 	path := t.TempDir() + "/sessions.json"
-	legacy := `{"sid1":{"token":"gh-tok","login":"octocat","created":"` +
-		time.Now().Format(time.RFC3339Nano) + `"}}`
+	legacy := `{"sessions":{"sid1":{"token":"gh-tok","login":"octocat","created":"` +
+		time.Now().Format(time.RFC3339Nano) + `"}},"clients":{"cid1":{"redirectUris":["` +
+		testRedirectURI + `"]}}}`
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -496,8 +500,21 @@ func TestSessionFileLegacyFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, ok := srv.auth.sessions["sid1"]; !ok {
-		t.Fatal("legacy session not restored")
+	if _, ok := srv.auth.sessions["sid1"]; ok {
+		t.Fatal("a persisted GitHub token was restored; tokens must never survive a restart")
+	}
+	if _, ok := srv.auth.clients["cid1"]; !ok {
+		t.Fatal("the registered client was not restored")
+	}
+	on, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(on), "gh-tok") {
+		t.Fatalf("plaintext token was not scrubbed from disk: %s", on)
+	}
+	if !strings.Contains(string(on), "cid1") {
+		t.Fatalf("client registry was lost from disk: %s", on)
 	}
 }
 
