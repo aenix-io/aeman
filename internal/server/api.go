@@ -181,7 +181,7 @@ func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) 
 	if err != nil {
 		return nil, err
 	}
-	return boardservice.New(&storeBackend{inner: client, store: s.store}), nil
+	return boardservice.New(&storeBackend{inner: client, store: s.store, multiUser: s.auth != nil}), nil
 }
 
 // service resolves the board reference and builds the per-request board service.
