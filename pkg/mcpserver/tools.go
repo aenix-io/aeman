@@ -365,7 +365,8 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 // moveCardInput reorders a card on the board.
 type moveCardInput struct {
 	cardRef
-	After string `json:"after,omitempty" jsonschema:"uid to position after; empty moves the card to the top"`
+	After  string `json:"after,omitempty" jsonschema:"uid to position after; empty moves the card to the top"`
+	Before string `json:"before,omitempty" jsonschema:"uid to position right before (the server resolves the true anchor); wins over after"`
 }
 
 func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -373,7 +374,13 @@ func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCa
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	if err := svc.MoveCard(ctx, owner, project, in.UID, in.After); err != nil {
+	move := func() error {
+		if in.Before != "" {
+			return svc.MoveCardBefore(ctx, owner, project, in.UID, in.Before)
+		}
+		return svc.MoveCard(ctx, owner, project, in.UID, in.After)
+	}
+	if err := move(); err != nil {
 		return nil, apiserver.Card{}, err
 	}
 	return h.cardResource(ctx, svc, owner, project, in.UID)

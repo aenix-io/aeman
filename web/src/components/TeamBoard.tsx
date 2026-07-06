@@ -696,8 +696,18 @@ export function TeamBoard({
       subset.has(c.itemId) ? order[i++] : c.itemId,
     );
     reorderCards(next);
-    const afterId = afterIdFor(next, card.itemId);
-    void provider.moveCard(board, card.itemId, afterId).catch((err: unknown) => {
+    // Persist anchored on a BAND neighbour, never on the local global order:
+    // the board list here is a merge of the grid and weekly fetches, so
+    // non-band neighbours don't reflect the true project order. After the
+    // new predecessor — or, for the top slot, before the card now second.
+    const idx = order.indexOf(card.itemId);
+    const persist =
+      idx > 0
+        ? provider.moveCard(board, card.itemId, order[idx - 1])
+        : order.length > 1
+          ? provider.moveCardBefore(board, card.itemId, order[1])
+          : null;
+    void persist?.catch((err: unknown) => {
       onError(errMessage(err));
       reload();
     });
