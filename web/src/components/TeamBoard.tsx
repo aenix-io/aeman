@@ -299,6 +299,12 @@ export function TeamBoard({
       if (c.week === currentWeek) {
         return true;
       }
+      // History only in weeks whose working days are over (past the week's
+      // Friday): while a week runs, a card pushed to a future week leaves its
+      // panel — it is not this week's work anymore.
+      if (todayIso() <= addDays(currentWeek, 4)) {
+        return false;
+      }
       // The "began work" anchor is the earliest of the start date and the
       // sprint join — take-into-plan sets the sprint, not always a start date.
       let started = c.startDate ?? "";
@@ -690,8 +696,18 @@ export function TeamBoard({
       subset.has(c.itemId) ? order[i++] : c.itemId,
     );
     reorderCards(next);
-    const afterId = afterIdFor(next, card.itemId);
-    void provider.moveCard(board, card.itemId, afterId).catch((err: unknown) => {
+    // Persist anchored on a BAND neighbour, never on the local global order:
+    // the board list here is a merge of the grid and weekly fetches, so
+    // non-band neighbours don't reflect the true project order. After the
+    // new predecessor — or, for the top slot, before the card now second.
+    const idx = order.indexOf(card.itemId);
+    const persist =
+      idx > 0
+        ? provider.moveCard(board, card.itemId, order[idx - 1])
+        : order.length > 1
+          ? provider.moveCardBefore(board, card.itemId, order[1])
+          : null;
+    void persist?.catch((err: unknown) => {
       onError(errMessage(err));
       reload();
     });

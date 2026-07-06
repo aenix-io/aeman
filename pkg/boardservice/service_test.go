@@ -1982,3 +1982,31 @@ func TestDescriptionLengthLimit(t *testing.T) {
 		t.Fatalf("at the limit must pass: %v", err)
 	}
 }
+
+// MoveCardBefore resolves the true global anchor server-side: the card lands
+// right before the named card, skipping itself when scanning for the
+// predecessor. Clients rendering a filtered slice (a weekly-plan band) use it
+// for "move to the top of my group" without knowing the full board order.
+func TestMoveCardBefore(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name         string
+		move, before string
+		wantAfter    string
+	}{
+		{"before the first card = board top", "c3", "c1", ""},
+		{"anchors on the true predecessor", "c1", "c3", "c2"},
+		{"skips itself when already adjacent", "c2", "c3", "c1"},
+	}
+	for _, tc := range cases {
+		f := newFake([]board.Card{{ItemID: "c1"}, {ItemID: "c2"}, {ItemID: "c3"}, {ItemID: "c4"}}, nil)
+		svc := New(f)
+		if err := svc.MoveCardBefore(ctx, "acme", 1, tc.move, tc.before); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		want := fmt.Sprintf("MoveCard %s after=%s", tc.move, tc.wantAfter)
+		if !f.saw(want) {
+			t.Errorf("%s: want %q; log=%v", tc.name, want, f.log)
+		}
+	}
+}

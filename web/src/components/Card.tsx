@@ -302,6 +302,17 @@ export function Card({
   // A plan card not yet taken into work hasn't started aging: show 0d. Once it
   // has an assignee it ages normally; and it gets a green "taken" background.
   const taken = Boolean(weekMode) && card.assignees.length > 0;
+  // The small second avatar: on a weekly-plan card it is the person the card
+  // is ASSIGNED to (who took it into work) — not the review counterpart; on
+  // grid cards it stays the counterpart (the reviewer / the implementer).
+  const smallAvatars = weekMode
+    ? card.assignees
+    : (counterpartAssignees ?? []);
+  const smallAvatarRole = weekMode
+    ? "Assigned to"
+    : card.reviewOf
+      ? "In implementation"
+      : "On review";
   const ageDays =
     weekMode && card.assignees.length === 0 ? 0 : daysSince(card.createdAt, asOf);
 
@@ -676,7 +687,9 @@ export function Card({
         </div>
       )}
 
-      {(card.team || canAssign || (counterpartAssignees?.length ?? 0) > 0) && (
+      {(card.team ||
+        canAssign ||
+        smallAvatars.length > 0) && (
         <div className="card-assign" ref={assignRef}>
           {card.team ? (
             <button
@@ -714,11 +727,11 @@ export function Card({
               +
             </button>
           )}
-          {counterpartAssignees && counterpartAssignees.length > 0 && (
+          {smallAvatars.length > 0 && (
             <button
               type="button"
               className="card-counterpart-avatar-btn"
-              title={`${card.reviewOf ? "In implementation" : "On review"}: ${counterpartAssignees
+              title={`${smallAvatarRole}: ${smallAvatars
                 .map((p) => displayName(p, users?.[p]))
                 .join(", ")}`}
               onClick={
@@ -732,14 +745,8 @@ export function Card({
             >
               <img
                 className="card-counterpart-avatar"
-                src={avatarUrlFor(
-                  counterpartAssignees[0],
-                  users?.[counterpartAssignees[0]],
-                )}
-                alt={displayName(
-                  counterpartAssignees[0],
-                  users?.[counterpartAssignees[0]],
-                )}
+                src={avatarUrlFor(smallAvatars[0], users?.[smallAvatars[0]])}
+                alt={displayName(smallAvatars[0], users?.[smallAvatars[0]])}
               />
             </button>
           )}
