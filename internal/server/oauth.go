@@ -91,6 +91,11 @@ func (a *authManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusMethodNotAllowed, "invalid_request", "method not allowed")
 		return
 	}
+	if !a.registerLimiter.allow(clientIP(r)) {
+		writeOAuthError(w, http.StatusTooManyRequests, "temporarily_unavailable",
+			"registration rate limit exceeded; try again shortly")
+		return
+	}
 	var meta oauthex.ClientRegistrationMetadata
 	if err := json.NewDecoder(r.Body).Decode(&meta); err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "invalid JSON body")
@@ -191,11 +196,13 @@ func (a *authManager) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	state := randToken()
 	a.mu.Lock()
+	a.pruneEphemeralLocked()
 	a.pendingAuth[state] = pendingAuth{
 		clientID:      clientID,
 		redirectURI:   redirectURI,
 		codeChallenge: challenge,
 		clientState:   clientState,
+		created:       time.Now(),
 	}
 	a.mu.Unlock()
 
@@ -281,7 +288,7 @@ func (a *authManager) promptConsent(w http.ResponseWriter, ghToken, login string
 	consentID := randToken()
 	browserToken := randToken()
 	a.mu.Lock()
-	a.pruneConsentLocked()
+	a.pruneEphemeralLocked()
 	a.pendingConsent[consentID] = pendingConsent{
 		ghToken:       ghToken,
 		login:         login,
@@ -524,9 +531,21 @@ func isAllowedRedirect(raw string) bool {
 	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
-// pruneConsentLocked drops expired pending-consent entries. Caller holds a.mu.
-func (a *authManager) pruneConsentLocked() {
+// pruneEphemeralLocked sweeps every short-lived authorization map — abandoned
+// authorize flows, expired codes, and un-answered consents — so none of them
+// can accumulate in memory. Caller holds a.mu.
+func (a *authManager) pruneEphemeralLocked() {
 	now := time.Now()
+	for state, p := range a.pendingAuth {
+		if now.Sub(p.created) > pendingAuthTTL {
+			delete(a.pendingAuth, state)
+		}
+	}
+	for code, c := range a.authCodes {
+		if now.After(c.expiry) {
+			delete(a.authCodes, code)
+		}
+	}
 	for id, pc := range a.pendingConsent {
 		if now.After(pc.expiry) {
 			delete(a.pendingConsent, id)

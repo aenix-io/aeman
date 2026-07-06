@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -105,6 +106,8 @@ type authManager struct {
 	// now await the user's explicit approval of the client + redirect target,
 	// keyed by an unguessable id also bound to the browser via a cookie.
 	pendingConsent map[string]pendingConsent
+	// registerLimiter rate-limits the public client-registration endpoint.
+	registerLimiter *rateLimiter
 }
 
 // oauthClient is a dynamically-registered MCP OAuth client.
@@ -118,7 +121,12 @@ type pendingAuth struct {
 	redirectURI   string
 	codeChallenge string
 	clientState   string
+	created       time.Time
 }
+
+// pendingAuthTTL bounds how long an abandoned authorize flow lingers before it
+// is swept, so unfinished flows cannot accumulate in memory.
+const pendingAuthTTL = 10 * time.Minute
 
 // authCode is an issued MCP authorization code (single-use, short-lived).
 type authCode struct {
@@ -144,6 +152,43 @@ type pendingConsent struct {
 	expiry        time.Time
 }
 
+// rateLimiter is a fixed-window per-key counter. It fronts the unauthenticated
+// registration endpoint so a flood cannot spin the O(n) state-file rewrite; the
+// window map is reset each period, so it never grows across windows.
+type rateLimiter struct {
+	mu     sync.Mutex
+	limit  int
+	period time.Duration
+	window time.Time
+	hits   map[string]int
+}
+
+func newRateLimiter(limit int, period time.Duration) *rateLimiter {
+	return &rateLimiter{limit: limit, period: period, hits: map[string]int{}}
+}
+
+func (rl *rateLimiter) allow(key string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	if now.Sub(rl.window) >= rl.period {
+		rl.hits = map[string]int{}
+		rl.window = now
+	}
+	rl.hits[key]++
+	return rl.hits[key] <= rl.limit
+}
+
+// clientIP is the best-effort remote address used to key rate limiting: the
+// host part of RemoteAddr (behind a proxy every request shares the proxy's
+// address, which simply makes the registration limit effectively global).
+func clientIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
 func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 	if cfg.Scopes == "" {
 		cfg.Scopes = "repo project"
@@ -162,6 +207,9 @@ func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 		pendingAuth:    map[string]pendingAuth{},
 		authCodes:      map[string]authCode{},
 		pendingConsent: map[string]pendingConsent{},
+		// 30 registrations per minute per client address: legitimate MCP clients
+		// register once, so this only ever bites a flood.
+		registerLimiter: newRateLimiter(30, time.Minute),
 	}
 	a.load()
 	return a
