@@ -299,6 +299,12 @@ export function TeamBoard({
       if (c.week === currentWeek) {
         return true;
       }
+      // History only in weeks whose working days are over (past the week's
+      // Friday): while a week runs, a card pushed to a future week leaves its
+      // panel — it is not this week's work anymore.
+      if (todayIso() <= addDays(currentWeek, 4)) {
+        return false;
+      }
       // The "began work" anchor is the earliest of the start date and the
       // sprint join — take-into-plan sets the sprint, not always a start date.
       let started = c.startDate ?? "";
