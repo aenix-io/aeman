@@ -233,6 +233,16 @@ export const apiProvider: Provider = {
     await api(board, "POST", `/cards/${uid}/actions/move`, { after });
   },
 
+  async moveCardBefore(
+    board: BoardAddr,
+    uid: string,
+    beforeId: string,
+  ): Promise<void> {
+    uid = await resolveCardId(uid);
+    const before = await resolveCardId(beforeId);
+    await api(board, "POST", `/cards/${uid}/actions/move`, { before });
+  },
+
   async deferCard(board: BoardAddr, uid: string, days: number): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom(board, "POST", `/cards/${uid}/actions/defer`, { days });

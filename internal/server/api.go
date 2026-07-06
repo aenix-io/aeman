@@ -113,7 +113,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"PATCH", "/api/v1/cards/{uid}", "Edit spec fields; the server applies clamps, links and date rules"},
 			{"DELETE", "/api/v1/cards/{uid}", "Hard delete (cascades to the linked review card)"},
 			{"POST", "/api/v1/cards/{uid}/actions/remove", "The smart remove: demote, release or delete by board rules ({from: grid|plan})"},
-			{"POST", "/api/v1/cards/{uid}/actions/move", "Reorder after another card ({after}, empty = top)"},
+			{"POST", "/api/v1/cards/{uid}/actions/move", "Reorder after ({after}) or before ({before}) another card; empty = top"},
 			{"POST", "/api/v1/cards/{uid}/actions/defer", "Push the scheduled day {days} ahead of today"},
 			{"POST", "/api/v1/cards/{uid}/actions/in-progress", "Move to the implicit In Progress status"},
 			{"POST", "/api/v1/cards/{uid}/actions/send-to-review", "Send to review ({reviewer, day}); reassigns if a review card exists"},
@@ -585,7 +585,8 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		After string `json:"after"`
+		After  string `json:"after"`
+		Before string `json:"before"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
@@ -594,7 +595,13 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := svc.MoveCard(r.Context(), owner, project, r.PathValue("uid"), in.After); err != nil {
+	move := func() error {
+		if in.Before != "" {
+			return svc.MoveCardBefore(r.Context(), owner, project, r.PathValue("uid"), in.Before)
+		}
+		return svc.MoveCard(r.Context(), owner, project, r.PathValue("uid"), in.After)
+	}
+	if err := move(); err != nil {
 		s.apiError(w, err)
 		return
 	}

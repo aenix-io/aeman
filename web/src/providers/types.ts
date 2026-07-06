@@ -165,6 +165,10 @@ export interface Provider {
   removeCard(board: BoardAddr, uid: string, from: "grid" | "plan"): Promise<void>;
   /** Reposition card after afterId in the project order (null = top). */
   moveCard(board: BoardAddr, uid: string, afterId: string | null): Promise<void>;
+  /** Reorder to sit right before another card: the server resolves the true
+   *  global anchor, so callers rendering a filtered slice (a weekly band)
+   *  don't need to know the full board order. */
+  moveCardBefore(board: BoardAddr, uid: string, beforeId: string): Promise<void>;
   /** Push the scheduled day N days ahead of max(today, current start). */
   deferCard(board: BoardAddr, uid: string, days: number): Promise<Card>;
   /** Move to the implicit In Progress status (no stage, progress in [10,90]). */
