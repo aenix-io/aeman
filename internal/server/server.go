@@ -117,8 +117,54 @@ func New(opts Options) (*Server, error) {
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
-	s.handler = logRequests(s.log, clientIDMiddleware(s.actorMiddleware(mux)))
+	s.handler = logRequests(s.log, clientIDMiddleware(s.csrfGuard(s.actorMiddleware(mux))))
 	return s, nil
+}
+
+// csrfGuard rejects cross-site state-changing requests to the token-bearing
+// /api/ surface. In local-proxy mode a request is authenticated purely by
+// reaching the server, so a browser on another site could otherwise drive
+// mutations with the injected gh token; browsers attach an Origin header to
+// every cross-site POST (even "simple" text/plain ones, which skip preflight),
+// so an Origin mismatch is the tell. A request with no Origin is a non-browser
+// client (curl, scripts), which carries no ambient credentials to abuse.
+func (s *Server) csrfGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isStateChanging(r.Method) && strings.HasPrefix(r.URL.Path, "/api/") {
+			if origin := r.Header.Get("Origin"); origin != "" && !s.originAllowed(origin, r) {
+				writeJSONError(w, http.StatusForbidden, "cross-site request blocked")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isStateChanging reports whether the method mutates server state.
+func isStateChanging(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+// originAllowed reports whether a request's Origin may drive a mutation:
+// same-origin always, plus localhost (the Vite dev proxy) in local-proxy mode.
+func (s *Server) originAllowed(origin string, r *http.Request) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if u.Host == r.Host {
+		return true
+	}
+	if s.auth == nil {
+		h := u.Hostname()
+		return h == "localhost" || h == "127.0.0.1" || h == "::1"
+	}
+	return false
 }
 
 // URL returns the address the server can be reached on in a browser.
