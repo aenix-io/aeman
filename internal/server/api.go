@@ -920,8 +920,7 @@ func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
 // (X-Aeman-Client) keys it, so a closed tab clears its own mark.
 func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Login string `json:"login"`
-		Card  string `json:"card"`
+		Card string `json:"card"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
@@ -935,7 +934,11 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 		return
 	}
-	s.store.SetPresence(storeKey(owner, project), clientIDFrom(r.Context()), in.Login, in.Card)
+	// The broadcast login is the caller's authenticated identity (stamped by
+	// actorMiddleware), not a client-supplied value — otherwise any signed-in
+	// user could show a chosen card as selected by someone else.
+	login := board.ActorFrom(r.Context())
+	s.store.SetPresence(storeKey(owner, project), clientIDFrom(r.Context()), login, in.Card)
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 }
 
