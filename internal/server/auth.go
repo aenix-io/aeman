@@ -20,7 +20,13 @@ const (
 	githubTokenURL     = "https://github.com/login/oauth/access_token" //nolint:gosec // OAuth endpoint, not a credential
 	sessionCookie      = "aeman_session"
 	stateCookie        = "aeman_oauth_state"
+	consentCookie      = "aeman_mcp_consent"
 	sessionTTL         = 14 * 24 * time.Hour
+	consentTTL         = 10 * time.Minute
+	// maxClients caps the dynamic MCP client registry: registration is public
+	// and unauthenticated, so the cap plus per-IP-agnostic pruning stops an
+	// attacker growing it (and the persisted file) without bound.
+	maxClients = 512
 )
 
 // OAuthConfig enables multi-user mode: each visitor signs in with GitHub and
@@ -95,6 +101,10 @@ type authManager struct {
 	pendingAuth map[string]pendingAuth
 	// authCodes holds issued single-use MCP authorization codes (5-min TTL).
 	authCodes map[string]authCode
+	// pendingConsent holds MCP authorizations that have passed GitHub login and
+	// now await the user's explicit approval of the client + redirect target,
+	// keyed by an unguessable id also bound to the browser via a cookie.
+	pendingConsent map[string]pendingConsent
 }
 
 // oauthClient is a dynamically-registered MCP OAuth client.
@@ -119,23 +129,39 @@ type authCode struct {
 	expiry        time.Time
 }
 
+// pendingConsent is an MCP authorization awaiting the user's approval: GitHub
+// login already resolved the acting user's token, but no authorization code is
+// issued until the user confirms the client and (remote) redirect target, so a
+// phished authorize link cannot silently deliver a code to an attacker's URI.
+type pendingConsent struct {
+	ghToken       string
+	login         string
+	clientID      string
+	redirectURI   string
+	codeChallenge string
+	clientState   string
+	browserToken  string
+	expiry        time.Time
+}
+
 func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 	if cfg.Scopes == "" {
 		cfg.Scopes = "repo project"
 	}
 	a := &authManager{
-		cfg:          cfg,
-		secure:       strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://"),
-		log:          log,
-		client:       &http.Client{Timeout: 15 * time.Second},
-		path:         cfg.SessionFile,
-		authorizeURL: githubAuthorizeURL,
-		tokenURL:     githubTokenURL,
-		apiBase:      githubAPIBase,
-		sessions:     map[string]oauthSession{},
-		clients:      map[string]oauthClient{},
-		pendingAuth:  map[string]pendingAuth{},
-		authCodes:    map[string]authCode{},
+		cfg:            cfg,
+		secure:         strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://"),
+		log:            log,
+		client:         &http.Client{Timeout: 15 * time.Second},
+		path:           cfg.SessionFile,
+		authorizeURL:   githubAuthorizeURL,
+		tokenURL:       githubTokenURL,
+		apiBase:        githubAPIBase,
+		sessions:       map[string]oauthSession{},
+		clients:        map[string]oauthClient{},
+		pendingAuth:    map[string]pendingAuth{},
+		authCodes:      map[string]authCode{},
+		pendingConsent: map[string]pendingConsent{},
 	}
 	a.load()
 	return a

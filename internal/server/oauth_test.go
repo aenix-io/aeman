@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
+
+const testRemoteRedirectURI = "https://client.example/cb"
+
+var consentIDRe = regexp.MustCompile(`name="consent_id" value="([^"]+)"`)
 
 const testBaseURL = "https://aeman.test"
 
@@ -534,5 +539,141 @@ func TestOAuthAuthorizeUnknownClientRemoteRedirect(t *testing.T) {
 	rec := do(t, srv, http.MethodGet, "/oauth/authorize?"+aq.Encode(), "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// driveToConsent runs register(remote) → authorize → GitHub callback for a
+// non-loopback redirect and returns the consent page: the callback must render
+// the approval screen (not deliver a code), the consent id embedded in it, and
+// the browser-binding cookie the server set.
+func driveToConsent(t *testing.T, srv *Server, redirectURI string) (consentID, cookie, verifier, clientID string) {
+	t.Helper()
+	clientID = registerClient(t, srv, redirectURI)
+	verifier = "pkce-verifier-sufficiently-long-0123456789"
+	aq := url.Values{}
+	aq.Set("client_id", clientID)
+	aq.Set("redirect_uri", redirectURI)
+	aq.Set("response_type", "code")
+	aq.Set("code_challenge", pkceChallenge(verifier))
+	aq.Set("code_challenge_method", "S256")
+	aq.Set("state", "client-state")
+	rec := do(t, srv, http.MethodGet, "/oauth/authorize?"+aq.Encode(), "")
+	ghLoc, _ := url.Parse(rec.Header().Get("Location"))
+
+	cb := do(t, srv, http.MethodGet, "/auth/callback?code=gh-code&state="+ghLoc.Query().Get("state"), "")
+	if cb.Code != http.StatusOK {
+		t.Fatalf("remote-redirect callback status = %d, want 200 consent page (no code delivered)", cb.Code)
+	}
+	if loc := cb.Header().Get("Location"); loc != "" {
+		t.Fatalf("consent must not redirect yet; got Location=%s", loc)
+	}
+	if !strings.Contains(cb.Body.String(), redirectURI) {
+		t.Fatal("consent page must show the redirect target to the user")
+	}
+	m := consentIDRe.FindStringSubmatch(cb.Body.String())
+	if m == nil {
+		t.Fatalf("no consent_id in page: %s", cb.Body.String())
+	}
+	for _, c := range cb.Result().Cookies() {
+		if c.Name == consentCookie {
+			cookie = c.Value
+		}
+	}
+	if cookie == "" {
+		t.Fatal("consent flow set no browser-binding cookie")
+	}
+	return m[1], cookie, verifier, clientID
+}
+
+func postConsent(t *testing.T, srv *Server, consentID, action, cookie string) *httptest.ResponseRecorder {
+	t.Helper()
+	form := url.Values{}
+	form.Set("consent_id", consentID)
+	form.Set("action", action)
+	r := httptest.NewRequest(http.MethodPost, "/oauth/consent", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if cookie != "" {
+		r.AddCookie(&http.Cookie{Name: consentCookie, Value: cookie})
+	}
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, r)
+	return rec
+}
+
+// A remote (non-loopback) redirect must go through the consent screen, and
+// approving it (from the same browser) then delivers a redeemable code. This is
+// the account-takeover fix: no code reaches a remote URI without the user
+// having seen and approved that URI.
+func TestOAuthConsentApproveDeliversCode(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	consentID, cookie, verifier, clientID := driveToConsent(t, srv, testRemoteRedirectURI)
+
+	rec := postConsent(t, srv, consentID, "approve", cookie)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("approve status = %d, want 302", rec.Code)
+	}
+	loc, _ := url.Parse(rec.Header().Get("Location"))
+	if loc.Scheme+"://"+loc.Host+loc.Path != testRemoteRedirectURI {
+		t.Fatalf("approve redirected to %s, want the client redirect_uri", loc)
+	}
+	code := loc.Query().Get("code")
+	if code == "" {
+		t.Fatal("approve delivered no authorization code")
+	}
+	// The delivered code redeems for an access token, completing the flow.
+	tok := redeemToken(t, srv, code, verifier, testRemoteRedirectURI, clientID)
+	if tok.Code != http.StatusOK {
+		t.Fatalf("redeem status = %d, body = %s", tok.Code, tok.Body.String())
+	}
+	if !strings.Contains(tok.Body.String(), "access_token") {
+		t.Fatalf("no access_token in redeem response: %s", tok.Body.String())
+	}
+}
+
+// Approving from a different browser (no matching consent cookie) is rejected —
+// a forged or cross-site submission cannot complete the authorization.
+func TestOAuthConsentRejectsWrongBrowser(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	consentID, _, _, _ := driveToConsent(t, srv, testRemoteRedirectURI)
+
+	if rec := postConsent(t, srv, consentID, "approve", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("approve without the browser cookie status = %d, want 400", rec.Code)
+	}
+	if rec := postConsent(t, srv, consentID, "approve", "wrong-cookie-value"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("approve with a mismatched cookie status = %d, want 400", rec.Code)
+	}
+}
+
+// Denying redirects back with an OAuth error and hands out no code.
+func TestOAuthConsentDeny(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	consentID, cookie, _, _ := driveToConsent(t, srv, testRemoteRedirectURI)
+
+	rec := postConsent(t, srv, consentID, "deny", cookie)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("deny status = %d, want 302", rec.Code)
+	}
+	loc, _ := url.Parse(rec.Header().Get("Location"))
+	if loc.Query().Get("error") != "access_denied" {
+		t.Fatalf("deny error = %q, want access_denied", loc.Query().Get("error"))
+	}
+	if loc.Query().Get("code") != "" {
+		t.Fatal("deny must not deliver a code")
+	}
+}
+
+// Registration rejects redirect URIs that could leak a code: non-https remote
+// schemes and cleartext http to a remote host.
+func TestOAuthRegisterRejectsUnsafeRedirects(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	for _, bad := range []string{
+		"javascript:alert(1)",
+		"http://evil.example/cb",
+		"data:text/html,x",
+	} {
+		rec := do(t, srv, http.MethodPost, "/oauth/register", `{"redirect_uris":["`+bad+`"]}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("register %q status = %d, want 400", bad, rec.Code)
+		}
 	}
 }
