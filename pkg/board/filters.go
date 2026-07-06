@@ -132,15 +132,27 @@ func WeeklyPlan(b Board, team, week string) WeeklyBands {
 }
 
 // planShowsInWeek reports whether a plan card belongs on week W's panel: its
-// own week, or — mirroring the day grid's sprint history — any past week it was
-// actually worked in. A card taken into work (it has a start date) that was
-// carried forward keeps showing in every week from the one it started in up to
-// (but excluding) the week it now belongs to, so carrying the plan forward does
-// not erase the weeks it was worked in. A pure (never-started) plan card moves
-// with its week and leaves no history.
+// own week, or — mirroring the day grid's sprint history — any FINISHED week
+// it was actually worked in. A card taken into work that was moved forward
+// keeps showing in the weeks it was worked once those weeks are over (their
+// Friday has passed); while a week is still running, a card deliberately
+// pushed to a future week leaves its panel — it is not this week's work
+// anymore. A pure (never-started) plan card moves with its week and leaves no
+// history.
 func planShowsInWeek(c Card, week string) bool {
+	return planShowsInWeekAt(c, week, TodayIso())
+}
+
+// planShowsInWeekAt is planShowsInWeek against an explicit "today" (testable).
+func planShowsInWeekAt(c Card, week, today string) bool {
 	if c.Week == week {
 		return true
+	}
+	// History only in weeks whose working days are over: past the week's
+	// Friday (the plan's bands are wed/fri deadlines; the weekend belongs to
+	// wrap-up, not new placement).
+	if today <= AddDays(week, 4) {
+		return false
 	}
 	// The "began work" anchor is the earliest of the start date and the sprint
 	// join — take-into-plan sets the sprint but not necessarily a start date.

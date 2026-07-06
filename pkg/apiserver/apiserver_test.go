@@ -321,20 +321,25 @@ func TestBoardResourceMembers(t *testing.T) {
 	}
 }
 
-// A worked plan card carried forward keeps showing in every past week it was
-// worked in (week history, mirroring the day grid's sprint history); a pure
-// never-started plan card moves with its week and leaves no history.
+// A worked plan card moved forward keeps showing in FINISHED past weeks it was
+// worked in (week history); a pure never-started plan card moves with its week
+// and leaves no history. Weeks are relative to the real clock — a fully past
+// week is deterministic; the running-week gate is covered by
+// TestPlanShowsInWeekAt in pkg/board.
 func TestWeeklyHistoryForWorkedCards(t *testing.T) {
+	wPrev := board.AddDays(board.MondayOf(board.TodayIso()), -7)
+	wCur := board.MondayOf(board.TodayIso())
 	b := board.Board{Cards: []board.Card{
-		{ItemID: "worked", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06",
-			StartDate: "2026-07-01", Assignees: []string{"bob"}, Progress: 40},
-		{ItemID: "pure", Team: "alpha", Plan: board.PlanFri, Week: "2026-07-06"},
-		{ItemID: "later", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-13",
-			StartDate: "2026-07-08", Progress: 20},
+		{ItemID: "worked", Team: "alpha", Plan: board.PlanWed, Week: wCur,
+			StartDate: board.AddDays(wPrev, 2), Assignees: []string{"bob"}, Progress: 40},
+		{ItemID: "pure", Team: "alpha", Plan: board.PlanFri, Week: wCur},
 		// Taken into the sprint without a start date (take-into-plan sets only
 		// the sprint): the sprint join anchors its week history.
-		{ItemID: "sprintOnly", Team: "alpha", Plan: board.PlanFri, Week: "2026-07-06",
-			SprintStart: "2026-07-03", Assignees: []string{"dan"}},
+		{ItemID: "sprintOnly", Team: "alpha", Plan: board.PlanFri, Week: wCur,
+			SprintStart: board.AddDays(wPrev, 4), Assignees: []string{"dan"}},
+		// Anchored only in the current week: no trace in the previous one.
+		{ItemID: "later", Team: "alpha", Plan: board.PlanWed,
+			Week: board.AddDays(wCur, 7), StartDate: wCur, Progress: 20},
 	}}
 	ids := func(week string) map[string]bool {
 		out := map[string]bool{}
@@ -343,30 +348,30 @@ func TestWeeklyHistoryForWorkedCards(t *testing.T) {
 		}
 		return out
 	}
-	prev := ids("2026-06-29")
+	prev := ids(wPrev)
 	if !prev["worked"] || !prev["sprintOnly"] || prev["pure"] || prev["later"] {
-		t.Fatalf("week 06-29 = %v, want worked+sprintOnly as history", prev)
+		t.Fatalf("previous week = %v, want worked+sprintOnly as history", prev)
 	}
-	cur := ids("2026-07-06")
-	// "later" started on 07-08 (inside week 07-06) and was carried to 07-13,
-	// so week 07-06 keeps it as history alongside its own members.
-	if !cur["worked"] || !cur["pure"] || !cur["later"] {
-		t.Fatalf("week 07-06 = %v, want worked+pure+later", cur)
+	cur := ids(wCur)
+	if !cur["worked"] || !cur["pure"] || !cur["sprintOnly"] {
+		t.Fatalf("current week = %v, want its own members", cur)
 	}
 }
 
-// A week-history entry sits in the by-Friday band of the past week regardless
-// of its current band; in its own week it sits in its own band.
+// A week-history entry sits in the by-Friday band of the finished past week
+// regardless of its current band; in its own week it sits in its own band.
 func TestWeeklyHistoryLandsInFriBand(t *testing.T) {
+	wPrev := board.AddDays(board.MondayOf(board.TodayIso()), -7)
+	wCur := board.MondayOf(board.TodayIso())
 	b := board.Board{Cards: []board.Card{
-		{ItemID: "moved", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06",
-			StartDate: "2026-07-01", Progress: 40},
+		{ItemID: "moved", Team: "alpha", Plan: board.PlanWed, Week: wCur,
+			StartDate: board.AddDays(wPrev, 2), Progress: 40},
 	}}
-	prev := board.WeeklyPlan(b, "alpha", "2026-06-29")
+	prev := board.WeeklyPlan(b, "alpha", wPrev)
 	if len(prev.Fri) != 1 || len(prev.Wed) != 0 {
 		t.Fatalf("past week: history goes to the fri band, got wed=%d fri=%d", len(prev.Wed), len(prev.Fri))
 	}
-	cur := board.WeeklyPlan(b, "alpha", "2026-07-06")
+	cur := board.WeeklyPlan(b, "alpha", wCur)
 	if len(cur.Wed) != 1 || len(cur.Fri) != 0 {
 		t.Fatalf("own week: the card sits in its own band, got wed=%d fri=%d", len(cur.Wed), len(cur.Fri))
 	}

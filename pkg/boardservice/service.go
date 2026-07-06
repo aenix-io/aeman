@@ -1346,6 +1346,28 @@ func (s *Service) MoveCard(ctx context.Context, owner string, project int, itemI
 	return s.backend.MoveCard(ctx, b, card, afterID)
 }
 
+// MoveCardBefore reorders a card to sit right before beforeID. Clients that
+// render a filtered slice of the board (a weekly-plan band) cannot name the
+// global predecessor for "move to the top of my group" — but the server knows
+// the full order, so it resolves the card just before beforeID (skipping the
+// moved card itself) and anchors there ("" = top of the board).
+func (s *Service) MoveCardBefore(ctx context.Context, owner string, project int, itemID, beforeID string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	afterID := ""
+	for _, c := range b.Cards {
+		if c.ItemID == beforeID {
+			break
+		}
+		if c.ItemID != itemID {
+			afterID = c.ItemID
+		}
+	}
+	return s.backend.MoveCard(ctx, b, card, afterID)
+}
+
 // DeleteCard deletes a card, cascading to its linked review card. It mirrors
 // handleDelete in TeamBoard.tsx (deleting a reviewed card removes both).
 func (s *Service) DeleteCard(ctx context.Context, owner string, project int, itemID string) error {
