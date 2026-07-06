@@ -1,11 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/aenix-org/aeman/pkg/apiserver"
 	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-org/aeman/pkg/boardservice"
 )
 
 // frame decodes one marshalled watch frame from a subscription channel.
@@ -292,5 +296,85 @@ func TestReloadKeepsRecentMutations(t *testing.T) {
 	}
 	if ids["c1"] {
 		t.Fatalf("recently deleted card resurrected on reload: %v", ids)
+	}
+}
+
+// authzBackend is a per-user inner backend: LoadBoard succeeds or fails
+// depending on whether that user's token can read the board, and counts calls
+// so the test can prove when the shared cache was (not) consulted.
+type authzBackend struct {
+	boardservice.Backend // nil: only LoadBoard is exercised
+	loads                int
+	deny                 bool
+}
+
+func (a *authzBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
+	a.loads++
+	if a.deny {
+		return board.Board{}, errors.New("github: not authorized")
+	}
+	return board.Board{Owner: "acme", Number: 1}, nil
+}
+
+// A warm board cached by one authorized user must not be served to a different
+// signed-in user until that user's own token has proven access — the shared
+// cache is keyed only by owner/project, so per-login authorization is the gate.
+func TestBoardCachePerUserAuthz(t *testing.T) {
+	store := newBoardStore()
+
+	alice := &authzBackend{}
+	aliceBE := &storeBackend{inner: alice, store: store, multiUser: true}
+	mallory := &authzBackend{deny: true}
+	malloryBE := &storeBackend{inner: mallory, store: store, multiUser: true}
+
+	aliceCtx := board.WithActor(context.Background(), "alice")
+	malloryCtx := board.WithActor(context.Background(), "mallory")
+
+	// Alice's first read authorizes her token and warms the cache.
+	if _, err := aliceBE.LoadBoard(aliceCtx, "acme", 1); err != nil {
+		t.Fatalf("alice load: %v", err)
+	}
+	if alice.loads != 1 {
+		t.Fatalf("alice loads = %d, want 1", alice.loads)
+	}
+	// Alice again within the TTL: served from cache, no second backend hit.
+	if _, err := aliceBE.LoadBoard(aliceCtx, "acme", 1); err != nil {
+		t.Fatalf("alice second load: %v", err)
+	}
+	if alice.loads != 1 {
+		t.Fatalf("alice cache hit expected, loads = %d", alice.loads)
+	}
+	// Mallory hits the same warm cache but has never authorized: the store must
+	// fall through to HER token-scoped load, which GitHub rejects. Without the
+	// gate she would read alice's cached board.
+	if _, err := malloryBE.LoadBoard(malloryCtx, "acme", 1); err == nil {
+		t.Fatal("mallory read a board she cannot access (cache leak)")
+	}
+	if mallory.loads != 1 {
+		t.Fatalf("mallory's token was never checked, loads = %d", mallory.loads)
+	}
+}
+
+// freshFor gates a cache hit on load freshness AND, in multi-user mode, the
+// caller having authorized within authFreshFor; local single-user mode (empty
+// login, multiUser=false) always serves a fresh cache.
+func TestFreshForAuthz(t *testing.T) {
+	e := &boardEntry{loaded: true, loadedAt: time.Now()}
+	if _, ok := e.freshFor("", false); !ok {
+		t.Fatal("local single-user mode should serve the fresh cache")
+	}
+	if _, ok := e.freshFor("alice", true); ok {
+		t.Fatal("multi-user: unauthorized login must miss the cache")
+	}
+	e.markAuthed("alice")
+	if _, ok := e.freshFor("alice", true); !ok {
+		t.Fatal("multi-user: authorized login must hit the fresh cache")
+	}
+	if _, ok := e.freshFor("", true); ok {
+		t.Fatal("multi-user: an empty login must never hit the cache")
+	}
+	e.loadedAt = time.Now().Add(-2 * boardFreshFor)
+	if _, ok := e.freshFor("alice", true); ok {
+		t.Fatal("a stale board must miss regardless of authorization")
 	}
 }
