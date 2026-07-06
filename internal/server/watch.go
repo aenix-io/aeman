@@ -64,10 +64,10 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	// The stream carries nothing a same-origin page can't already read via the
-	// API and performs no mutations, so cross-origin (the Vite dev proxy) is
-	// allowed rather than rejected on an Origin mismatch.
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	// The Origin is checked so a cross-site page cannot open the stream and
+	// read the board — in local-proxy mode the request is authenticated purely
+	// by reaching the server, so without this any site could exfiltrate it.
+	conn, err := websocket.Accept(w, r, s.wsAcceptOptions())
 	if err != nil {
 		return
 	}
@@ -108,6 +108,20 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+}
+
+// wsAcceptOptions authorizes the watch handshake by Origin. Same-origin is
+// always allowed. In local-proxy mode (no OAuth: the request is trusted purely
+// for reaching the server) the Vite dev proxy's localhost origins are allowed
+// too; a remote page is rejected. In OAuth mode only same-origin is allowed —
+// tighter, and the SameSite session cookie already blocks cross-site anyway.
+func (s *Server) wsAcceptOptions() *websocket.AcceptOptions {
+	if s.auth != nil {
+		return &websocket.AcceptOptions{}
+	}
+	return &websocket.AcceptOptions{
+		OriginPatterns: []string{"localhost:*", "127.0.0.1:*", "[::1]:*"},
 	}
 }
 
