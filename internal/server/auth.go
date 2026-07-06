@@ -40,8 +40,10 @@ type OAuthConfig struct {
 	BaseURL string
 	// Scopes is a space-separated OAuth scope list (defaults to "repo project").
 	Scopes string
-	// SessionFile, when set, persists sessions to this path so they survive
-	// restarts (empty = in-memory only, lost on restart).
+	// SessionFile, when set, persists the dynamic MCP client registry to this
+	// path so registered clients survive restarts. GitHub tokens (sessions) are
+	// never written here — they live only in memory — so a restart signs users
+	// out but leaks no credentials to disk.
 	SessionFile string
 }
 
@@ -51,12 +53,15 @@ type oauthSession struct {
 	created time.Time
 }
 
-// persistedState is the on-disk envelope: user sessions plus the dynamically
-// registered MCP OAuth clients (RFC 7591), which must survive restarts — MCP
-// clients cache their client_id and a wiped registry strands them on
-// "unknown client_id" until they re-register.
+// persistedState is the on-disk envelope. Only the dynamically registered MCP
+// OAuth clients (RFC 7591) are persisted — they must survive restarts, since a
+// client caches its client_id and a wiped registry strands it on "unknown
+// client_id" until it re-registers, and they carry no secrets (just redirect
+// URIs). The Sessions field is retained solely to detect and scrub legacy
+// files that older versions wrote plaintext GitHub tokens into; it is never
+// written back.
 type persistedState struct {
-	Sessions map[string]persistedSession `json:"sessions"`
+	Sessions map[string]persistedSession `json:"sessions,omitempty"`
 	Clients  map[string]persistedClient  `json:"clients,omitempty"`
 }
 
@@ -215,7 +220,9 @@ func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 	return a
 }
 
-// load restores persisted sessions (dropping expired ones). No-op without a
+// load restores the persisted MCP client registry. Sessions are never restored
+// (GitHub tokens do not persist); if a legacy file carried them, it is rewritten
+// clients-only so the plaintext tokens are scrubbed from disk. No-op without a
 // SessionFile or when the file is absent.
 func (a *authManager) load() {
 	if a.path == "" {
@@ -224,60 +231,46 @@ func (a *authManager) load() {
 	data, err := os.ReadFile(a.path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			a.log.Error("session load failed", "err", err)
+			a.log.Error("client registry load failed", "err", err)
 		}
 		return
 	}
 	var in persistedState
-	if err := json.Unmarshal(data, &in); err != nil || in.Sessions == nil {
-		// Legacy format: a bare map of sessions with no envelope.
-		var legacy map[string]persistedSession
-		if err := json.Unmarshal(data, &legacy); err != nil {
-			a.log.Error("session load: parse failed", "err", err)
-			return
-		}
-		in = persistedState{Sessions: legacy}
-	}
-	now := time.Now()
-	for sid, s := range in.Sessions {
-		if now.Sub(s.Created) > sessionTTL {
-			continue
-		}
-		a.sessions[sid] = oauthSession{token: s.Token, login: s.Login, created: s.Created}
+	if err := json.Unmarshal(data, &in); err != nil {
+		a.log.Error("client registry load: parse failed", "err", err)
+		return
 	}
 	for id, c := range in.Clients {
 		a.clients[id] = oauthClient{redirectURIs: append([]string(nil), c.RedirectURIs...)}
 	}
-	a.log.Info("sessions restored", "count", len(a.sessions), "clients", len(a.clients))
+	a.log.Info("client registry restored", "clients", len(a.clients))
+	// Rewrite clients-only: scrubs any plaintext session tokens an older
+	// version may have left in the file.
+	a.saveLocked()
 }
 
-// saveLocked writes the current sessions to disk. Callers must hold a.mu.
+// saveLocked writes the MCP client registry to disk (no sessions, so no GitHub
+// tokens ever reach the file). Callers must hold a.mu.
 func (a *authManager) saveLocked() {
 	if a.path == "" {
 		return
 	}
-	out := persistedState{
-		Sessions: make(map[string]persistedSession, len(a.sessions)),
-		Clients:  make(map[string]persistedClient, len(a.clients)),
-	}
-	for sid, s := range a.sessions {
-		out.Sessions[sid] = persistedSession{Token: s.token, Login: s.login, Created: s.created}
-	}
+	out := persistedState{Clients: make(map[string]persistedClient, len(a.clients))}
 	for id, c := range a.clients {
 		out.Clients[id] = persistedClient{RedirectURIs: append([]string(nil), c.redirectURIs...)}
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
-		a.log.Error("session save: marshal failed", "err", err)
+		a.log.Error("client registry save: marshal failed", "err", err)
 		return
 	}
 	tmp := a.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		a.log.Error("session save: write failed", "err", err)
+		a.log.Error("client registry save: write failed", "err", err)
 		return
 	}
 	if err := os.Rename(tmp, a.path); err != nil {
-		a.log.Error("session save: rename failed", "err", err)
+		a.log.Error("client registry save: rename failed", "err", err)
 	}
 }
 
