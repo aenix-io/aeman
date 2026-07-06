@@ -677,3 +677,46 @@ func TestOAuthRegisterRejectsUnsafeRedirects(t *testing.T) {
 		}
 	}
 }
+
+// Registration is rate-limited so an unauthenticated flood cannot grow the
+// registry / rewrite the state file without bound.
+func TestOAuthRegisterRateLimited(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	srv.auth.registerLimiter = newRateLimiter(3, time.Minute)
+	limited := false
+	for i := 0; i < 6; i++ {
+		rec := do(t, srv, http.MethodPost, "/oauth/register", `{"redirect_uris":["`+testRedirectURI+`"]}`)
+		if rec.Code == http.StatusTooManyRequests {
+			limited = true
+		}
+	}
+	if !limited {
+		t.Fatal("registration flood was never rate-limited")
+	}
+}
+
+// pruneEphemeralLocked clears abandoned authorize flows, expired codes, and
+// stale consents so none of them accumulate.
+func TestPruneEphemeral(t *testing.T) {
+	srv, _ := newOAuthServer(t)
+	a := srv.auth
+	a.mu.Lock()
+	a.pendingAuth["stale"] = pendingAuth{created: time.Now().Add(-2 * pendingAuthTTL)}
+	a.pendingAuth["fresh"] = pendingAuth{created: time.Now()}
+	a.authCodes["expired"] = authCode{expiry: time.Now().Add(-time.Minute)}
+	a.authCodes["live"] = authCode{expiry: time.Now().Add(time.Minute)}
+	a.pendingConsent["old"] = pendingConsent{expiry: time.Now().Add(-time.Minute)}
+	a.pruneEphemeralLocked()
+	_, staleGone := a.pendingAuth["stale"]
+	_, freshKept := a.pendingAuth["fresh"]
+	_, expiredGone := a.authCodes["expired"]
+	_, liveKept := a.authCodes["live"]
+	_, oldGone := a.pendingConsent["old"]
+	a.mu.Unlock()
+	if staleGone || expiredGone || oldGone {
+		t.Fatal("expired ephemeral entries were not swept")
+	}
+	if !freshKept || !liveKept {
+		t.Fatal("live ephemeral entries were wrongly swept")
+	}
+}
