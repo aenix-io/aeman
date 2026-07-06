@@ -170,7 +170,7 @@ func (b *Board) fieldByName(name string) *ProjectField {
 // default GitHub "Status" field.
 func (b *Board) stageField() *ProjectField {
 	for i := range b.Fields {
-		if equalFold(b.Fields[i].Name, "stage") || equalFold(b.Fields[i].Name, "состояние") {
+		if equalFold(b.Fields[i].Name, "stage") {
 			return &b.Fields[i]
 		}
 	}

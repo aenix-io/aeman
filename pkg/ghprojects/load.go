@@ -319,17 +319,17 @@ type domainFieldRoles struct {
 // fill it. It mirrors ALIASES in web/src/providers/fields.ts (Stage is its own
 // role here, distinct from the default Status field).
 var domainRoleAliases = map[string][]string{
-	"zone":        {"zone", "priority zone", "зона"},
-	"progress":    {"progress", "readiness", "% done", "percent", "готовность"},
-	"day":         {"day", "date", "due date", "due", "finish", "finish date", "день", "дата"},
-	"start":       {"start", "start date", "начало", "старт"},
-	"sprintStart": {"sprint start", "sprintstart", "спринт старт"},
-	"sprint":      {"sprint", "iteration", "спринт", "итерация"},
-	"status":      {"status", "статус"},
-	"plan":        {"plan", "план"},
-	"week":        {"week", "неделя"},
-	"stage":       {"stage", "состояние"},
-	"team":        {"team", "команда"},
+	"zone":        {"zone", "priority zone"},
+	"progress":    {"progress", "readiness", "% done", "percent"},
+	"day":         {"day", "date", "due date", "due", "finish", "finish date"},
+	"start":       {"start", "start date"},
+	"sprintStart": {"sprint start", "sprintstart"},
+	"sprint":      {"sprint", "iteration"},
+	"status":      {"status"},
+	"plan":        {"plan"},
+	"week":        {"week"},
+	"stage":       {"stage"},
+	"team":        {"team"},
 	"reviewOf":    {"review of", "reviewof"},
 	"reviewRound": {"review round", "reviewround"},
 }
