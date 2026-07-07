@@ -1508,6 +1508,16 @@ button.card-age {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  border-radius: 6px;
+  margin: 0 -6px;
+  padding: 4px 6px;
+  transition: background 0.15s ease;
+}
+
+/* The group whose card is selected — highlighted so it stands out after the
+   list scrolls to it. */
+.note-group-selected {
+  background: color-mix(in srgb, var(--accent, #1f6feb) 8%, transparent);
 }
 
 .note-group-head {
