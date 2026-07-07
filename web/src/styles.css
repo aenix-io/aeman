@@ -1489,11 +1489,11 @@ button.card-age {
   gap: 8px;
 }
 
-/* The notes fold to just their header on narrow screens (where they stack under
-   the board), like the Team weekly plan. The toggle is hidden on wide screens,
-   where notes stay open as a side pane. */
+/* The notes fold to just their header bar on narrow screens (where they stack
+   under the board) and to a slim vertical strip on wide ones (side pane). */
 .notes-toggle {
-  display: none;
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--bg);
@@ -1507,14 +1507,27 @@ button.card-age {
 
 .notes-collapsed .notes-list,
 .notes-collapsed .notes-composer,
-.notes-collapsed .notes-group-toggle {
+.notes-collapsed .notes-group-toggle,
+.notes-collapsed .notes-log-toggle {
   display: none;
 }
 
-@media (max-width: 820px) {
-  .notes-toggle {
-    display: inline-flex;
-    align-items: center;
+@media (min-width: 821px) {
+  .notes-collapsed {
+    width: 34px;
+    min-width: 34px;
+  }
+
+  .notes-collapsed .notes-header {
+    flex-direction: column-reverse;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 8px 4px;
+    border-bottom: none;
+  }
+
+  .notes-collapsed .notes-header > span {
+    writing-mode: vertical-rl;
   }
 }
 
