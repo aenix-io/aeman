@@ -1,0 +1,68 @@
+# Target namespace, overridden at apply time (NAMESPACE=... make apply).
+namespace: aenix-aeman
+
+# Render the Namespace from the chart. Off by default because `make apply`
+# bootstraps it with helm --create-namespace (having both conflicts on
+# ownership). Turn on for GitOps flows (e.g. ArgoCD) that apply the chart
+# without that flag.
+createNamespace: false
+
+# aeman runs as a single replica: sessions live in memory and the client
+# registry is a single RWO volume, so there is exactly one writer.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/aenix-org/aeman
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Pull secret for the (currently private) image. Create it in the namespace
+# out of band; it is intentionally NOT part of the chart so no credential is
+# ever committed.
+imagePullSecrets:
+  - name: ghcr-registry-secret
+
+# aeman configuration → an AEMAN_* env Secret. githubClientSecret MUST be
+# supplied at apply time via an untracked values-secret.yaml (see
+# values-secret.example.yaml) — never commit it here.
+config:
+  githubClientId: ""
+  githubClientSecret: ""
+  baseUrl: "https://aeman.aenix.org"
+  scopes: "project"
+  owner: "aenix-org"
+  project: 37
+  lockBoard: true
+
+service:
+  type: ClusterIP
+  port: 8765
+
+# Persists only the MCP client registry (GitHub tokens are never written to
+# disk); losing it just makes MCP clients re-register.
+persistence:
+  enabled: true
+  storageClass: replicated
+  size: 128Mi
+  mountPath: /data
+
+resources:
+  requests:
+    memory: 64Mi
+    cpu: 25m
+  limits:
+    memory: 256Mi
+    cpu: "1"
+
+ingress:
+  enabled: true
+  host: aeman.aenix.org
+  ingressClassName: tenant-root
+  clusterIssuer: letsencrypt-prod
+  tlsSecretName: aeman-tls
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # The board pushes updates over a long-lived WebSocket (/api/v1/watch).
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
