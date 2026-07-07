@@ -168,6 +168,7 @@ export function NotesPanel({
   // The system log (recorded activity events) is opt-in: notes only by default.
   const [showLog, setShowLog] = useState(false);
   const { paneRef, style: resizeStyle, onHandleDown } = useNotesResize(collapsed);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const submit = () => {
     const text = draft.trim();
@@ -226,6 +227,23 @@ export function NotesPanel({
       (a, b) => rank(a.card.itemId) - rank(b.card.itemId),
     );
   }, [feed, cardOrder]);
+
+  // In "by card" grouping, selecting a card scrolls its group into view within
+  // the list (only the list scrolls, not the page), so the card you picked on
+  // the board lines up with its notes.
+  useEffect(() => {
+    if (group !== "card" || !selectedCard || collapsed || !listRef.current) {
+      return;
+    }
+    const list = listRef.current;
+    const target = list.querySelector<HTMLElement>(
+      `[data-card-id="${selectedCard.itemId}"]`,
+    );
+    if (target) {
+      list.scrollTop +=
+        target.getBoundingClientRect().top - list.getBoundingClientRect().top - 8;
+    }
+  }, [selectedCard, group, collapsed, groups]);
 
   const renderEvent = (event: CardEvent, card: CardModel, showCard: boolean) => (
     <div className="note note-event" key={event.id}>
@@ -384,14 +402,18 @@ export function NotesPanel({
         </div>
       </header>
 
-      <div className="notes-list">
+      <div className="notes-list" ref={listRef}>
         {feed.length === 0 && (
           <p className="notes-empty">No activity for this day.</p>
         )}
         {group === "time"
           ? feed.map((item) => renderItem(item, true))
           : groups.map((g) => (
-              <div className="note-group" key={g.card.itemId}>
+              <div
+                className={`note-group${g.card.itemId === selectedCard?.itemId ? " note-group-selected" : ""}`}
+                data-card-id={g.card.itemId}
+                key={g.card.itemId}
+              >
                 <button
                   type="button"
                   className="note-group-head"
