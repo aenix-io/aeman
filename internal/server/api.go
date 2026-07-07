@@ -1010,7 +1010,8 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 		writeJSONError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),
 		errors.Is(err, boardservice.ErrInvalidStage),
-		errors.Is(err, boardservice.ErrDescriptionTooLong):
+		errors.Is(err, boardservice.ErrDescriptionTooLong),
+		errors.Is(err, boardservice.ErrNoteTooLong):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())
