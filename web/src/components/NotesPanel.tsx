@@ -6,6 +6,8 @@ import { eventLabel } from "../eventlog";
 // side pane, a height when it stacks under the board on narrow screens.
 const NOTES_WIDTH_KEY = "aeman.notesWidth";
 const NOTES_HEIGHT_KEY = "aeman.notesHeight";
+const NOTES_GROUP_KEY = "aeman.notesGroup";
+const NOTES_SHOWLOG_KEY = "aeman.notesShowLog";
 const NOTES_WIDTH_MIN = 220;
 const NOTES_WIDTH_MAX = 640;
 const NOTES_HEIGHT_MIN = 140;
@@ -164,9 +166,19 @@ export function NotesPanel({
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
-  const [group, setGroup] = useState<GroupMode>("time");
-  // The system log (recorded activity events) is opt-in: notes only by default.
-  const [showLog, setShowLog] = useState(false);
+  // Grouping (time/card) and the system-log toggle persist across sessions.
+  const [group, setGroup] = useState<GroupMode>(
+    () => (localStorage.getItem(NOTES_GROUP_KEY) === "card" ? "card" : "time"),
+  );
+  const [showLog, setShowLog] = useState(
+    () => localStorage.getItem(NOTES_SHOWLOG_KEY) === "1",
+  );
+  useEffect(() => {
+    localStorage.setItem(NOTES_GROUP_KEY, group);
+  }, [group]);
+  useEffect(() => {
+    localStorage.setItem(NOTES_SHOWLOG_KEY, showLog ? "1" : "0");
+  }, [showLog]);
   const { paneRef, style: resizeStyle, onHandleDown } = useNotesResize(collapsed);
   const listRef = useRef<HTMLDivElement>(null);
 
