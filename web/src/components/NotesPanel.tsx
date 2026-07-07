@@ -146,7 +146,7 @@ function useNotesResize(collapsed: boolean) {
         ? { width }
         : {};
 
-  return { paneRef, style, onHandleDown };
+  return { paneRef, style, onHandleDown, stacked };
 }
 
 /** NotesPanel lists the day's notes and offers a composer for the selected card. */
@@ -179,7 +179,12 @@ export function NotesPanel({
   useEffect(() => {
     localStorage.setItem(NOTES_SHOWLOG_KEY, showLog ? "1" : "0");
   }, [showLog]);
-  const { paneRef, style: resizeStyle, onHandleDown } = useNotesResize(collapsed);
+  const {
+    paneRef,
+    style: resizeStyle,
+    onHandleDown,
+    stacked,
+  } = useNotesResize(collapsed);
   const listRef = useRef<HTMLDivElement>(null);
 
   const submit = () => {
@@ -410,7 +415,9 @@ export function NotesPanel({
             aria-label={collapsed ? "Expand notes" : "Collapse notes"}
             title={collapsed ? "Expand" : "Collapse"}
           >
-            {collapsed ? "▲" : "▼"}
+            {/* The arrow points where the pane will go: down/up when stacked
+                under the board, right/left as a desktop side pane. */}
+            {collapsed ? (stacked ? "▲" : "◀") : stacked ? "▼" : "▶"}
           </button>
         </div>
       </header>
