@@ -1,6 +1,29 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Card as CardModel, CardEvent, Note } from "../providers/types";
 import { eventLabel } from "../eventlog";
+
+// Persisted, clamped sizes for the resizable Notes pane: a width on the desktop
+// side pane, a height when it stacks under the board on narrow screens.
+const NOTES_WIDTH_KEY = "aeman.notesWidth";
+const NOTES_HEIGHT_KEY = "aeman.notesHeight";
+const NOTES_WIDTH_MIN = 220;
+const NOTES_WIDTH_MAX = 640;
+const NOTES_HEIGHT_MIN = 140;
+const NOTES_HEIGHT_MAX = 700;
+// Below this viewport width the pane stacks under the board and resizes by height
+// (mirrors the 820px responsive breakpoint in styles.css).
+const STACK_BREAKPOINT = 820;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+function readStored(key: string): number | null {
+  const raw = localStorage.getItem(key);
+  if (raw === null) {
+    return null;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
 
 /** DayNote is a note paired with the card it belongs to, for the day's list. */
 export interface DayNote {
@@ -42,6 +65,88 @@ function localTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+/** useNotesResize makes the pane draggable: horizontally as a desktop side pane
+ *  (drag its left edge), vertically when it stacks under the board on narrow
+ *  screens (drag its top edge). The chosen size persists per axis. */
+function useNotesResize(collapsed: boolean) {
+  const paneRef = useRef<HTMLElement>(null);
+  const [stacked, setStacked] = useState(
+    () => window.matchMedia(`(max-width: ${STACK_BREAKPOINT}px)`).matches,
+  );
+  const [width, setWidth] = useState<number | null>(() => readStored(NOTES_WIDTH_KEY));
+  const [height, setHeight] = useState<number | null>(() => readStored(NOTES_HEIGHT_KEY));
+  const drag = useRef<{ start: number; base: number } | null>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${STACK_BREAKPOINT}px)`);
+    const onChange = () => setStacked(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  const onPointerMove = useCallback(
+    (e: PointerEvent) => {
+      const d = drag.current;
+      if (!d) {
+        return;
+      }
+      if (stacked) {
+        // Pane sits below the board: dragging the top edge up grows it.
+        setHeight(clamp(d.base + (d.start - e.clientY), NOTES_HEIGHT_MIN, NOTES_HEIGHT_MAX));
+      } else {
+        // Pane sits to the right: dragging the left edge left grows it.
+        setWidth(clamp(d.base + (d.start - e.clientX), NOTES_WIDTH_MIN, NOTES_WIDTH_MAX));
+      }
+    },
+    [stacked],
+  );
+
+  const onPointerUp = useCallback(() => {
+    drag.current = null;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    const rect = paneRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+    if (stacked) {
+      localStorage.setItem(NOTES_HEIGHT_KEY, String(Math.round(rect.height)));
+    } else {
+      localStorage.setItem(NOTES_WIDTH_KEY, String(Math.round(rect.width)));
+    }
+  }, [stacked, onPointerMove]);
+
+  const onHandleDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      const rect = paneRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      drag.current = stacked
+        ? { start: e.clientY, base: rect.height }
+        : { start: e.clientX, base: rect.width };
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+    },
+    [stacked, onPointerMove, onPointerUp],
+  );
+
+  // Apply only the axis in play; a collapsed pane folds to its header, so no
+  // custom size is imposed then.
+  const style: React.CSSProperties = collapsed
+    ? {}
+    : stacked
+      ? height !== null
+        ? { height, maxHeight: "none", flex: "none" }
+        : {}
+      : width !== null
+        ? { width }
+        : {};
+
+  return { paneRef, style, onHandleDown };
+}
+
 /** NotesPanel lists the day's notes and offers a composer for the selected card. */
 export function NotesPanel({
   selectedDate,
@@ -62,6 +167,7 @@ export function NotesPanel({
   const [group, setGroup] = useState<GroupMode>("time");
   // The system log (recorded activity events) is opt-in: notes only by default.
   const [showLog, setShowLog] = useState(false);
+  const { paneRef, style: resizeStyle, onHandleDown } = useNotesResize(collapsed);
 
   const submit = () => {
     const text = draft.trim();
@@ -221,7 +327,17 @@ export function NotesPanel({
   );
 
   return (
-    <aside className={`notes${collapsed ? " notes-collapsed" : ""}`}>
+    <aside
+      ref={paneRef}
+      className={`notes${collapsed ? " notes-collapsed" : ""}`}
+      style={resizeStyle}
+    >
+      <div
+        className="notes-resizer"
+        onPointerDown={onHandleDown}
+        role="separator"
+        aria-label="Resize notes"
+      />
       <header className="notes-header">
         <span>Notes — {selectedDate}</span>
         <div className="notes-header-right">

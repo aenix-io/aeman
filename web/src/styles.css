@@ -1399,6 +1399,38 @@ button.card-age {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
+}
+
+/* Drag strip over the pane's leading edge: its left border as a desktop side
+   pane, its top border when stacked under the board. */
+.notes-resizer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.notes-resizer:hover {
+  background: color-mix(in srgb, var(--accent, #1f6feb) 30%, transparent);
+}
+
+.notes-collapsed .notes-resizer {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .notes-resizer {
+    top: -3px;
+    left: 0;
+    width: 100%;
+    height: 7px;
+    cursor: row-resize;
+  }
 }
 
 .notes-header {
