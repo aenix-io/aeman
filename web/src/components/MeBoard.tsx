@@ -118,8 +118,10 @@ export function MeBoard({
   // MCP / API connect dialog.
   const [connectOpen, setConnectOpen] = useState(false);
 
-  // Notes fold to a header bar on narrow screens (like the Team weekly plan) and
-  // stay open as a side pane on wide ones; the breakpoint matches .me-panes.
+  // Notes fold to a header bar on narrow screens (like the Team weekly plan)
+  // and to a slim strip on wide ones; crossing the breakpoint resets to that
+  // width's default (collapsed when stacked, open as a side pane). The
+  // breakpoint matches .me-panes.
   const [notesCollapsed, setNotesCollapsed] = useState(
     () => window.matchMedia("(max-width: 820px)").matches,
   );
