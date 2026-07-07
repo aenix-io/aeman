@@ -98,6 +98,15 @@ export function App() {
   const loading = pendingLoads > 0;
   const beginLoad = useCallback(() => setPendingLoads((n) => n + 1), []);
   const endLoad = useCallback(() => setPendingLoads((n) => n - 1), []);
+  // Boards wrap their slow server calls (carry over etc.) with this so the
+  // progress bar covers the operation itself, not just the refetch after it.
+  const trackLoad = useCallback(
+    <T,>(p: Promise<T>): Promise<T> => {
+      beginLoad();
+      return p.finally(endLoad);
+    },
+    [beginLoad, endLoad],
+  );
   const [error, setError] = useState<string | null>(null);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
@@ -806,6 +815,7 @@ export function App() {
             reorderCards={reorderCards}
             presence={presence}
             reload={reload}
+            track={trackLoad}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
           />
