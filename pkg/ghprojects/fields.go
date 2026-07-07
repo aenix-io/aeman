@@ -5,14 +5,14 @@ import "strings"
 // roleAliases maps a field role to the field names (case-insensitive) that fill
 // it. It mirrors web/src/providers/fields.ts, extended with a "team" role.
 var roleAliases = map[string][]string{
-	"zone":        {"zone", "priority zone", "зона"},
-	"progress":    {"progress", "readiness", "% done", "percent", "готовность"},
-	"day":         {"day", "date", "due date", "due", "день", "дата"},
-	"start":       {"start", "start date", "начало", "старт"},
-	"sprintStart": {"sprint start", "sprintstart", "спринт старт"},
-	"sprint":      {"sprint", "iteration", "спринт", "итерация"},
-	"status":      {"status", "stage", "статус"},
-	"team":        {"team", "group", "команда", "группа"},
+	"zone":        {"zone", "priority zone"},
+	"progress":    {"progress", "readiness", "% done", "percent"},
+	"day":         {"day", "date", "due date", "due"},
+	"start":       {"start", "start date"},
+	"sprintStart": {"sprint start", "sprintstart"},
+	"sprint":      {"sprint", "iteration"},
+	"status":      {"status", "stage"},
+	"team":        {"team", "group"},
 }
 
 // roles maps the board's fields onto well-known roles by name.

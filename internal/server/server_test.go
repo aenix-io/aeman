@@ -68,3 +68,46 @@ func TestURLNormalisesHost(t *testing.T) {
 		}
 	}
 }
+
+// csrfGuard blocks a cross-site state-changing request to /api (a browser
+// attaches Origin to every cross-site POST), while allowing same-origin,
+// no-Origin (non-browser) callers, and safe methods.
+func TestCSRFGuard(t *testing.T) {
+	local := &Server{}                     // local-proxy mode (auth nil)
+	oauth := &Server{auth: &authManager{}} // OAuth mode
+
+	req := func(method, origin, host string) *http.Request {
+		r := httptest.NewRequest(method, "/api/v1/cards", nil)
+		r.Host = host
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		return r
+	}
+	run := func(s *Server, r *http.Request) int {
+		rec := httptest.NewRecorder()
+		s.csrfGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(rec, r)
+		return rec.Code
+	}
+
+	if run(local, req(http.MethodPost, "http://evil.example", "127.0.0.1:8765")) != http.StatusForbidden {
+		t.Fatal("cross-site POST must be blocked")
+	}
+	if run(local, req(http.MethodPost, "http://127.0.0.1:8765", "127.0.0.1:8765")) != http.StatusOK {
+		t.Fatal("same-origin POST must pass")
+	}
+	if run(local, req(http.MethodPost, "http://localhost:5173", "127.0.0.1:8765")) != http.StatusOK {
+		t.Fatal("localhost dev origin must pass in local mode")
+	}
+	if run(oauth, req(http.MethodPost, "http://localhost:5173", "aeman.test")) != http.StatusForbidden {
+		t.Fatal("OAuth mode must be strict same-origin")
+	}
+	if run(local, req(http.MethodPost, "", "127.0.0.1:8765")) != http.StatusOK {
+		t.Fatal("no-Origin (non-browser) POST must pass")
+	}
+	if run(local, req(http.MethodGet, "http://evil.example", "127.0.0.1:8765")) != http.StatusOK {
+		t.Fatal("safe methods must not be guarded")
+	}
+}
