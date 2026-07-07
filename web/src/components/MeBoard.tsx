@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import {
   cancelPendingCard,
   consumePendingCancel,
@@ -66,6 +66,18 @@ interface MeMeta {
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
+// The notes pane folds differently per width mode (stacked under the board when
+// narrow, a side pane when wide), so its collapsed choice is remembered per
+// mode. With nothing stored, the default is collapsed when narrow, open when
+// wide.
+const NOTES_STACK_MQ = "(max-width: 820px)";
+const notesCollapsedKey = (narrow: boolean) =>
+  `aeman.notesCollapsed.${narrow ? "narrow" : "wide"}`;
+const storedNotesCollapsed = (narrow: boolean): boolean => {
+  const v = localStorage.getItem(notesCollapsedKey(narrow));
+  return v === null ? narrow : v === "1";
+};
+
 // isGone reports a "card not found" failure: the card no longer exists on the
 // server, so an optimistic removal must NOT be rolled back (re-adding it would
 // resurrect a phantom copy).
@@ -119,17 +131,26 @@ export function MeBoard({
   const [connectOpen, setConnectOpen] = useState(false);
 
   // Notes fold to a header bar on narrow screens (like the Team weekly plan)
-  // and to a slim strip on wide ones; crossing the breakpoint resets to that
-  // width's default (collapsed when stacked, open as a side pane). The
-  // breakpoint matches .me-panes.
-  const [notesCollapsed, setNotesCollapsed] = useState(
-    () => window.matchMedia("(max-width: 820px)").matches,
+  // and to a slim strip on wide ones. The collapsed choice persists per width
+  // mode; crossing the breakpoint restores that mode's remembered (or default)
+  // state. The breakpoint matches .me-panes.
+  const [notesCollapsed, setNotesCollapsed] = useState(() =>
+    storedNotesCollapsed(window.matchMedia(NOTES_STACK_MQ).matches),
   );
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 820px)");
-    const onChange = (e: MediaQueryListEvent) => setNotesCollapsed(e.matches);
+    const mq = window.matchMedia(NOTES_STACK_MQ);
+    const onChange = (e: MediaQueryListEvent) =>
+      setNotesCollapsed(storedNotesCollapsed(e.matches));
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const toggleNotesCollapsed = useCallback(() => {
+    const narrow = window.matchMedia(NOTES_STACK_MQ).matches;
+    setNotesCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem(notesCollapsedKey(narrow), next ? "1" : "0");
+      return next;
+    });
   }, []);
   const impRef = useRef<HTMLDivElement | null>(null);
   const viewMe = impersonated ?? me;
@@ -1026,7 +1047,7 @@ export function MeBoard({
           onEditNote={handleEditNote}
           onDeleteNote={handleDeleteNote}
           collapsed={notesCollapsed}
-          onToggleCollapse={() => setNotesCollapsed((c) => !c)}
+          onToggleCollapse={toggleNotesCollapsed}
         />
       </div>
       <div className="me-day-progress" title={`${dayProgress}% done today`}>
