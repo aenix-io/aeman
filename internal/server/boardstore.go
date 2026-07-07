@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -65,9 +66,17 @@ func clientIDFrom(ctx context.Context) string {
 // it from the backend, so edits made outside aeman eventually surface.
 const boardFreshFor = 30 * time.Second
 
-// authFreshFor bounds how long a login's proven read access is trusted before
-// a cache hit forces a fresh token-scoped load to re-authorize it — so access
-// revoked on GitHub takes effect within this window.
+// boardStaleMax bounds how old a snapshot a read-only request may still be
+// served while the store revalidates in the background. Past it (the first
+// visit of the morning) the read blocks on a fresh load instead of flashing
+// hours-old state.
+const boardStaleMax = 10 * time.Minute
+
+// authFreshFor bounds how long a login's proven read access backs a fresh
+// cache hit. An older proof (up to boardStaleMax) degrades the hit to stale:
+// still served to read paths, while the background reload re-checks the
+// token — so access revoked on GitHub takes effect within boardStaleMax, and
+// within this window for callers that cannot accept stale data.
 const authFreshFor = 60 * time.Second
 
 // boardEntry is the cached board plus its watcher set for one owner/project.
@@ -162,30 +171,60 @@ func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
 	return fresh
 }
 
-// freshFor returns the cached board while it is loaded, within its TTL, and the
-// caller is allowed to see it. A named login (OAuth multi-user mode) must have
-// proven token-scoped access within authFreshFor; an empty login is the single
-// local user (no OAuth), always allowed. multiUser forces the login check even
-// if a login somehow arrives empty, so an OAuth deployment never serves the
-// cache without a recent per-user authorization.
-func (e *boardEntry) freshFor(login string, multiUser bool) (board.Board, bool) {
+// cacheState grades a cache lookup: a fresh hit is served to anyone allowed,
+// a stale one only to read paths that revalidate in the background, a miss
+// always loads.
+type cacheState int
+
+const (
+	cacheMiss cacheState = iota
+	cacheStale
+	cacheFresh
+)
+
+// cached returns the board and how usable it is for this caller. cacheFresh
+// needs both the board within boardFreshFor and, for a named login (OAuth
+// multi-user mode; an empty login is the single local user, always allowed),
+// token-scoped access proven within authFreshFor. Past either TTL — but with
+// the board loaded and the login's proof both within boardStaleMax — the hit
+// degrades to cacheStale: read paths may serve it while a background reload
+// with the caller's own token refreshes the board AND re-proves their access,
+// so a revoked token stops refreshing its proof and hard-fails within
+// boardStaleMax. A login that never proved access always misses — the shared
+// cache is keyed only by owner/project, and this gate is what keeps one
+// user's warm board from leaking to another. multiUser forces the login check
+// even if a login somehow arrives empty, so an OAuth deployment never serves
+// the cache without a per-user authorization.
+func (e *boardEntry) cached(login string, multiUser bool) (board.Board, cacheState) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if !e.loaded || time.Since(e.loadedAt) >= boardFreshFor {
-		return board.Board{}, false
+	if !e.loaded {
+		return board.Board{}, cacheMiss
 	}
+	age := time.Since(e.loadedAt)
+	if age >= boardStaleMax {
+		return board.Board{}, cacheMiss
+	}
+	authAge := time.Duration(0)
 	if multiUser || login != "" {
 		ts, ok := e.authed[login]
-		if login == "" || !ok || time.Since(ts) >= authFreshFor {
-			return board.Board{}, false
+		if login == "" || !ok {
+			return board.Board{}, cacheMiss
+		}
+		authAge = time.Since(ts)
+		if authAge >= boardStaleMax {
+			return board.Board{}, cacheMiss
 		}
 	}
-	return e.board, true
+	if age >= boardFreshFor || authAge >= authFreshFor {
+		return e.board, cacheStale
+	}
+	return e.board, cacheFresh
 }
 
 // markAuthed records that a login's own token just proved read access, and
-// sweeps expired entries so the map tracks only currently-active users. The
-// caller holds e.mu.
+// sweeps entries too old to back even a stale hit so the map tracks only
+// currently-active users. The caller holds e.mu.
 func (e *boardEntry) markAuthed(login string) {
 	if login == "" {
 		return
@@ -195,7 +234,7 @@ func (e *boardEntry) markAuthed(login string) {
 	}
 	now := time.Now()
 	for l, ts := range e.authed {
-		if now.Sub(ts) >= authFreshFor {
+		if now.Sub(ts) >= boardStaleMax {
 			delete(e.authed, l)
 		}
 	}
@@ -506,36 +545,147 @@ type storeBackend struct {
 
 var _ boardservice.Backend = (*storeBackend)(nil)
 
-// LoadBoard serves the cached board while it is fresh, otherwise reloads it from
-// the backend and caches it (single-flight: concurrent misses share one fetch).
-// External edits surface on the next reload.
+// LoadBoard serves the cached board while it is fresh. A stale-but-recent
+// board is still served instantly to read paths that opted in (staleControl in
+// ctx) while a background reload revalidates it — watchers then receive the
+// diff as ordinary events plus a Sync frame. Everything else (mutation reads,
+// cold or too-old caches, unauthorized logins) blocks on a fresh load
+// (single-flight: concurrent misses share one fetch).
 func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
 	e := b.store.entry(storeKey(owner, project))
 	login := board.ActorFrom(ctx)
-	if bd, ok := e.freshFor(login, b.multiUser); ok {
+	bd, state := e.cached(login, b.multiUser)
+	if state == cacheFresh {
 		return bd, nil
+	}
+	if state == cacheStale {
+		if sc := staleControlFrom(ctx); sc != nil {
+			b.revalidate(ctx, e, owner, project)
+			sc.served.Store(true)
+			return bd, nil
+		}
 	}
 	e.loadMu.Lock()
 	defer e.loadMu.Unlock()
 	// A concurrent loader may have refreshed the cache while we waited.
-	if bd, ok := e.freshFor(login, b.multiUser); ok {
+	if bd, state := e.cached(login, b.multiUser); state == cacheFresh {
 		return bd, nil
 	}
 	// The token-scoped backend load is the authorization check: GitHub rejects a
 	// token that can't read this board, so reaching a cached result requires
-	// having passed it (recorded per login below).
-	bd, err := b.inner.LoadBoard(ctx, owner, project)
+	// having passed it (recorded per login in install).
+	fresh, err := b.inner.LoadBoard(ctx, owner, project)
 	if err != nil {
 		return board.Board{}, err
 	}
+	return b.install(e, fresh, login), nil
+}
+
+// revalidate refreshes a stale cache in the background with the requesting
+// user's token (kept past the response via WithoutCancel). Single-flight: when
+// a load is already running its completion will broadcast, so this one backs
+// off instead of stacking a second upstream fetch.
+func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, owner string, project int) {
+	if !e.loadMu.TryLock() {
+		return
+	}
+	login := board.ActorFrom(ctx)
+	bctx := context.WithoutCancel(ctx)
+	go func() {
+		defer e.loadMu.Unlock()
+		fresh, err := b.inner.LoadBoard(bctx, owner, project)
+		if err != nil {
+			// The stale snapshot stays served; tell clients to drop their
+			// revalidation hold and let a later read retry.
+			e.mu.Lock()
+			e.syncBroadcast()
+			e.mu.Unlock()
+			return
+		}
+		b.install(e, fresh, login)
+	}()
+}
+
+// install replaces the cache with a freshly loaded board, records the loading
+// login's proven access, fans the diff against the previous snapshot out to
+// watchers as ordinary events, and closes with a Sync frame. Returns the
+// installed board (with recent local mutations re-applied).
+func (b *storeBackend) install(e *boardEntry, fresh board.Board, login string) board.Board {
 	e.mu.Lock()
-	bd = e.applyRecent(bd)
-	e.board = bd
+	defer e.mu.Unlock()
+	old := e.board
+	hadOld := e.loaded
+	fresh = e.applyRecent(fresh)
+	e.board = fresh
 	e.loaded = true
 	e.loadedAt = time.Now()
 	e.markAuthed(login)
-	e.mu.Unlock()
-	return bd, nil
+	if hadOld {
+		e.diffNotify(old)
+	}
+	e.syncBroadcast()
+	return fresh
+}
+
+// diffNotify announces everything a full reload changed against the previous
+// snapshot — external edits made outside aeman become watch events just like
+// aeman-mediated ones. The caller holds e.mu with the new board installed.
+func (e *boardEntry) diffNotify(old board.Board) {
+	oldByID := make(map[string]board.Card, len(old.Cards))
+	for _, c := range old.Cards {
+		oldByID[c.ItemID] = c
+	}
+	seen := make(map[string]bool, len(e.board.Cards))
+	for _, c := range e.board.Cards {
+		seen[c.ItemID] = true
+		prev, ok := oldByID[c.ItemID]
+		switch {
+		case !ok:
+			e.cardChanged("", c, "ADDED")
+		case !reflect.DeepEqual(prev, c):
+			e.cardChanged("", c, "MODIFIED")
+		}
+	}
+	for _, c := range old.Cards {
+		if !seen[c.ItemID] {
+			e.cardChanged("", c, "DELETED")
+		}
+	}
+	for team, st := range e.board.SprintStates {
+		if old.SprintStates[team] != st {
+			e.sprintChanged("", team)
+		}
+	}
+	for team := range old.SprintStates {
+		if _, ok := e.board.SprintStates[team]; !ok {
+			e.sprintChanged("", team)
+		}
+	}
+	orderChanged := len(old.Cards) != len(e.board.Cards)
+	if !orderChanged {
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID != old.Cards[i].ItemID {
+				orderChanged = true
+				break
+			}
+		}
+	}
+	if orderChanged {
+		e.orderingChanged("")
+	}
+}
+
+// syncBroadcast tells every watcher a full reload just finished. Clients that
+// were served a stale snapshot use it to drop their revalidation hold — the
+// data itself already arrived as the diff's ordinary events. The caller holds
+// e.mu.
+func (e *boardEntry) syncBroadcast() {
+	frame := watchFrame{Type: "MODIFIED", Kind: "Sync", Object: map[string]string{
+		"loadedAt": e.loadedAt.UTC().Format(time.RFC3339),
+	}}
+	for sub := range e.watchers {
+		sub.send(frame)
+	}
 }
 
 // LoadCards passes straight through: it is already a partial read.

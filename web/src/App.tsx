@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, type AppConfig } from "./api/client";
-import { apiProvider } from "./providers/api/apiProvider";
+import { apiProvider, setStaleListener } from "./providers/api/apiProvider";
 import {
   resourceToCard,
   sprintStateFrom,
@@ -107,6 +107,28 @@ export function App() {
     },
     [beginLoad, endLoad],
   );
+  // A response served from a stale snapshot means the server is revalidating
+  // in the background: hold the progress bar until its Sync watch frame lands
+  // (one hold per revalidation; a failsafe timer releases a missed frame).
+  const revalTimer = useRef<number | null>(null);
+  const releaseReval = useCallback(() => {
+    if (revalTimer.current !== null) {
+      window.clearTimeout(revalTimer.current);
+      revalTimer.current = null;
+      endLoad();
+    }
+  }, [endLoad]);
+  const holdReval = useCallback(() => {
+    if (revalTimer.current !== null) {
+      return;
+    }
+    beginLoad();
+    revalTimer.current = window.setTimeout(releaseReval, 30_000);
+  }, [beginLoad, releaseReval]);
+  useEffect(() => {
+    setStaleListener(holdReval);
+    return () => setStaleListener(null);
+  }, [holdReval]);
   const [error, setError] = useState<string | null>(null);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
@@ -464,6 +486,12 @@ export function App() {
     let closed = false;
     let retry: number | undefined;
     const applyFrame = (frame: WatchFrame) => {
+      // The server finished a full board reload: any stale snapshot this tab
+      // was served has been reconciled by the frames before this one.
+      if (frame.kind === "Sync") {
+        releaseReval();
+        return;
+      }
       if (!frame.object) {
         return;
       }
@@ -570,6 +598,7 @@ export function App() {
     removeCard,
     patchCard,
     reorderCards,
+    releaseReval,
   ]);
 
   const onError = useCallback((message: string) => setError(message), []);
