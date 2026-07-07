@@ -2031,3 +2031,24 @@ func TestMoveCardBefore(t *testing.T) {
 		}
 	}
 }
+
+// A note over the cap is rejected before anything is written — add and edit
+// alike — mirroring the description guard.
+func TestNoteLengthLimit(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha",
+		Notes: []board.Note{{ID: "n1", Body: "hi"}}}}, nil)
+	svc := f2svc(f)
+	long := strings.Repeat("x", MaxNoteLen+1)
+	if err := svc.AddNote(ctx, "acme", 1, "c1", long); !errors.Is(err, ErrNoteTooLong) {
+		t.Fatalf("AddNote err = %v, want ErrNoteTooLong", err)
+	}
+	if err := svc.EditNote(ctx, "acme", 1, "c1", "n1", long); !errors.Is(err, ErrNoteTooLong) {
+		t.Fatalf("EditNote err = %v, want ErrNoteTooLong", err)
+	}
+	if f.count("AddNote") != 0 || f.count("EditNote") != 0 {
+		t.Fatal("nothing must be written on rejection")
+	}
+	if err := svc.AddNote(ctx, "acme", 1, "c1", strings.Repeat("x", MaxNoteLen)); err != nil {
+		t.Fatalf("at the limit must pass: %v", err)
+	}
+}

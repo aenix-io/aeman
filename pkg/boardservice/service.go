@@ -31,6 +31,14 @@ const MaxDescriptionLen = 16384
 // ErrDescriptionTooLong is returned when a description exceeds MaxDescriptionLen.
 var ErrDescriptionTooLong = fmt.Errorf("description is too long (max %d characters)", MaxDescriptionLen)
 
+// MaxNoteLen caps a single work note (in runes). A note is a short comment,
+// not a document — and notes share the same ~64K draft body as the description
+// and event log, so one oversized note would crowd out the rest.
+const MaxNoteLen = 4096
+
+// ErrNoteTooLong is returned when a note exceeds MaxNoteLen.
+var ErrNoteTooLong = fmt.Errorf("note is too long (max %d characters)", MaxNoteLen)
+
 // Service performs aeman's board actions. It is stateless: every method loads
 // the board through the backend, computes the change with internal/board logic,
 // then applies it through the backend setters.
@@ -1306,6 +1314,9 @@ func findNote(card board.Card, noteID string) (board.Note, bool) {
 // EditNote rewrites one of a card's work notes (ErrNoteNotFound when the note id
 // is not on the card).
 func (s *Service) EditNote(ctx context.Context, owner string, project int, itemID, noteID, text string) error {
+	if utf8.RuneCountInString(text) > MaxNoteLen {
+		return ErrNoteTooLong
+	}
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
@@ -1333,6 +1344,9 @@ func (s *Service) DeleteNote(ctx context.Context, owner string, project int, ite
 
 // AddNote appends a work note to a card.
 func (s *Service) AddNote(ctx context.Context, owner string, project int, itemID, text string) error {
+	if utf8.RuneCountInString(text) > MaxNoteLen {
+		return ErrNoteTooLong
+	}
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
