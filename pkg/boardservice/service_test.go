@@ -1232,7 +1232,9 @@ func TestCreateCardFromGitHubURL(t *testing.T) {
 	}
 }
 
-// Create-by-URL degrades gracefully: an unresolvable link keeps the URL title.
+// Create-by-URL degrades gracefully: an unresolvable link (no repo access on a
+// private repo) still yields a usable card — a readable "Issue: owner/repo#N"
+// title, with the source URL filed in the body — instead of a bare-URL title.
 func TestCreateCardFromURLUnresolved(t *testing.T) {
 	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	svc := New(fake)
@@ -1242,11 +1244,29 @@ func TestCreateCardFromURLUnresolved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.Title != "https://github.com/acme/private/issues/9" {
-		t.Fatalf("title = %q", card.Title)
+	if card.Title != "Issue: acme/private#9" {
+		t.Fatalf("title = %q, want the fallback label", card.Title)
 	}
-	if fake.count("SetDescription") != 0 {
-		t.Fatal("no description for an unresolved link")
+	if card.Description != "https://github.com/acme/private/issues/9" {
+		t.Fatalf("the source URL must be filed in the body, got %q", card.Description)
+	}
+	if fake.count("SetDescription") != 1 {
+		t.Fatal("the URL should have been written to the description")
+	}
+}
+
+// A PR URL falls back to a "Pull: owner/repo#N" label.
+func TestCreateCardFromPullURLUnresolved(t *testing.T) {
+	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	svc := New(fake)
+	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+		Team: "alpha", Title: "https://github.com/aenix-org/cozyportal/pull/1234",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Title != "Pull: aenix-org/cozyportal#1234" {
+		t.Fatalf("title = %q, want the pull fallback label", card.Title)
 	}
 }
 

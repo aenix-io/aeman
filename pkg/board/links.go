@@ -1,6 +1,7 @@
 package board
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -25,6 +26,17 @@ type Link struct {
 
 // IsGitHubRef reports whether the link addresses a GitHub issue or PR.
 func (l Link) IsGitHubRef() bool { return l.Kind == "issue" || l.Kind == "pull" }
+
+// FallbackTitle is a readable card title for a GitHub ref whose real title
+// could not be fetched (e.g. a token without access to a private repo):
+// "Issue: owner/repo#123" or "Pull: owner/repo#123".
+func (l Link) FallbackTitle() string {
+	kind := "Issue"
+	if l.Kind == "pull" {
+		kind = "Pull"
+	}
+	return fmt.Sprintf("%s: %s/%s#%d", kind, l.Owner, l.Repo, l.Number)
+}
 
 var urlPattern = regexp.MustCompile(`https?://[^\s<>"'\)\]]+`)
 

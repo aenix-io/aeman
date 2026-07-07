@@ -175,14 +175,18 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	}
 	// A title that is nothing but a GitHub issue/PR URL turns into that item's
 	// real title, with the link moved into the description — a one-time
-	// resolution at create, never re-synced. Resolution failures (no access,
-	// dead link) keep the URL as the title.
+	// resolution at create, never re-synced. The URL is always filed in the
+	// body, and the title defaults to a readable "Issue: owner/repo#N" /
+	// "Pull: owner/repo#N": when resolution fails (no repo access on a private
+	// repo, dead link) the card stays usable — a bare URL as the title, or a
+	// content-less item that never renders, is what left cards invisible.
 	var linkDescription string
 	if ref, ok := board.ParseGitHubRef(strings.TrimSpace(args.Title)); ok {
+		linkDescription = ref.URL
+		args.Title = ref.FallbackTitle()
 		if resolver, hasResolver := s.backend.(LinkResolver); hasResolver {
 			if resolved, err := resolver.ResolveIssueRef(ctx, ref); err == nil && resolved.Title != "" {
 				args.Title = resolved.Title
-				linkDescription = ref.URL
 			}
 		}
 	}
