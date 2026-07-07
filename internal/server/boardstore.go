@@ -65,6 +65,11 @@ func clientIDFrom(ctx context.Context) string {
 // it from the backend, so edits made outside aeman eventually surface.
 const boardFreshFor = 30 * time.Second
 
+// authFreshFor bounds how long a login's proven read access is trusted before
+// a cache hit forces a fresh token-scoped load to re-authorize it — so access
+// revoked on GitHub takes effect within this window.
+const authFreshFor = 60 * time.Second
+
 // boardEntry is the cached board plus its watcher set for one owner/project.
 type boardEntry struct {
 	mu sync.Mutex
@@ -82,6 +87,12 @@ type boardEntry struct {
 	// view — ephemeral shared-cursor state, never persisted, cleared when the
 	// client's watch connection goes away.
 	presence map[string]presenceEntry
+	// authed records, per login, when that user's own GitHub token last proved
+	// it can read this board (a token-scoped backend load succeeded). The
+	// shared cache is keyed only by owner/project, so without this a warm board
+	// would be served to any signed-in user regardless of access; a cache hit
+	// is allowed only for a login that authorized within authFreshFor.
+	authed map[string]time.Time
 	// recentCards / recentGone guard the cache against GitHub's eventually
 	// consistent item list: a card created (or deleted) through aeman seconds
 	// ago may still be missing from (or present in) a fresh full load, and a
@@ -151,14 +162,44 @@ func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
 	return fresh
 }
 
-// fresh returns the cached board while it is loaded and within its TTL.
-func (e *boardEntry) fresh() (board.Board, bool) {
+// freshFor returns the cached board while it is loaded, within its TTL, and the
+// caller is allowed to see it. A named login (OAuth multi-user mode) must have
+// proven token-scoped access within authFreshFor; an empty login is the single
+// local user (no OAuth), always allowed. multiUser forces the login check even
+// if a login somehow arrives empty, so an OAuth deployment never serves the
+// cache without a recent per-user authorization.
+func (e *boardEntry) freshFor(login string, multiUser bool) (board.Board, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.loaded && time.Since(e.loadedAt) < boardFreshFor {
-		return e.board, true
+	if !e.loaded || time.Since(e.loadedAt) >= boardFreshFor {
+		return board.Board{}, false
 	}
-	return board.Board{}, false
+	if multiUser || login != "" {
+		ts, ok := e.authed[login]
+		if login == "" || !ok || time.Since(ts) >= authFreshFor {
+			return board.Board{}, false
+		}
+	}
+	return e.board, true
+}
+
+// markAuthed records that a login's own token just proved read access, and
+// sweeps expired entries so the map tracks only currently-active users. The
+// caller holds e.mu.
+func (e *boardEntry) markAuthed(login string) {
+	if login == "" {
+		return
+	}
+	if e.authed == nil {
+		e.authed = map[string]time.Time{}
+	}
+	now := time.Now()
+	for l, ts := range e.authed {
+		if now.Sub(ts) >= authFreshFor {
+			delete(e.authed, l)
+		}
+	}
+	e.authed[login] = now
 }
 
 // cardChanged fans one card change out to the subscriptions. The caller holds
@@ -457,6 +498,10 @@ func (s *boardStore) reevaluateAll(key string) {
 type storeBackend struct {
 	inner boardservice.Backend
 	store *boardStore
+	// multiUser is set in OAuth mode, where each request carries a distinct
+	// user's token: a cache hit is then gated on that login having proven
+	// token-scoped access. Off in local-proxy mode (a single gh identity).
+	multiUser bool
 }
 
 var _ boardservice.Backend = (*storeBackend)(nil)
@@ -466,15 +511,19 @@ var _ boardservice.Backend = (*storeBackend)(nil)
 // External edits surface on the next reload.
 func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
 	e := b.store.entry(storeKey(owner, project))
-	if bd, ok := e.fresh(); ok {
+	login := board.ActorFrom(ctx)
+	if bd, ok := e.freshFor(login, b.multiUser); ok {
 		return bd, nil
 	}
 	e.loadMu.Lock()
 	defer e.loadMu.Unlock()
 	// A concurrent loader may have refreshed the cache while we waited.
-	if bd, ok := e.fresh(); ok {
+	if bd, ok := e.freshFor(login, b.multiUser); ok {
 		return bd, nil
 	}
+	// The token-scoped backend load is the authorization check: GitHub rejects a
+	// token that can't read this board, so reaching a cached result requires
+	// having passed it (recorded per login below).
 	bd, err := b.inner.LoadBoard(ctx, owner, project)
 	if err != nil {
 		return board.Board{}, err
@@ -484,6 +533,7 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 	e.board = bd
 	e.loaded = true
 	e.loadedAt = time.Now()
+	e.markAuthed(login)
 	e.mu.Unlock()
 	return bd, nil
 }

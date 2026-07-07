@@ -1971,14 +1971,15 @@ func TestLogEventRetriesTransientFailures(t *testing.T) {
 func TestDescriptionLengthLimit(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha"}}, nil)
 	svc := f2svc(f)
-	long := strings.Repeat("ы", MaxDescriptionLen+1)
+	// A multi-byte rune (3 bytes) verifies the cap counts runes, not bytes.
+	long := strings.Repeat("€", MaxDescriptionLen+1)
 	if err := svc.SetDescription(ctx, "acme", 1, "c1", long); !errors.Is(err, ErrDescriptionTooLong) {
 		t.Fatalf("err = %v, want ErrDescriptionTooLong", err)
 	}
 	if f.count("SetDescription") != 0 {
 		t.Fatal("nothing must be written on rejection")
 	}
-	if err := svc.SetDescription(ctx, "acme", 1, "c1", strings.Repeat("ы", MaxDescriptionLen)); err != nil {
+	if err := svc.SetDescription(ctx, "acme", 1, "c1", strings.Repeat("€", MaxDescriptionLen)); err != nil {
 		t.Fatalf("at the limit must pass: %v", err)
 	}
 }
