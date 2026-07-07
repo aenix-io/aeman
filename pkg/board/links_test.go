@@ -53,3 +53,19 @@ func TestParseGitHubRef(t *testing.T) {
 		}
 	}
 }
+
+func TestFallbackTitle(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com/aenix-org/cozyportal/issues/1060": "Issue: aenix-org/cozyportal#1060",
+		"https://github.com/acme/repo/pull/34":                "Pull: acme/repo#34",
+	}
+	for url, want := range cases {
+		ref, ok := ParseGitHubRef(url)
+		if !ok {
+			t.Fatalf("%s did not parse as a ref", url)
+		}
+		if got := ref.FallbackTitle(); got != want {
+			t.Errorf("FallbackTitle(%s) = %q, want %q", url, got, want)
+		}
+	}
+}
