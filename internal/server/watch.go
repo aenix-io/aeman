@@ -59,8 +59,12 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Warm the cache before subscribing: a scoped subscription seeds its
-	// membership from the cached board, and the client LISTs right after.
-	if _, err := svc.Board(r.Context(), owner, project); err != nil {
+	// membership from the cached board, and the client LISTs right after. A
+	// stale snapshot is fine here — the diff events that follow the background
+	// revalidation reconcile the membership (the middleware skips this endpoint
+	// because the connection is hijacked, so opt in explicitly).
+	warmCtx, _ := withStaleAllowed(r.Context())
+	if _, err := svc.Board(warmCtx, owner, project); err != nil {
 		s.apiError(w, err)
 		return
 	}
