@@ -56,6 +56,8 @@ interface TeamBoardProps {
   removeCard: (itemId: string) => void;
   reorderCards: (orderedItemIds: string[]) => void;
   reload: () => void;
+  /** Wraps a slow server call so the App's progress bar shows while it runs. */
+  track: <T>(p: Promise<T>) => Promise<T>;
   /** Other users' live selections (login -> card uid) shown as avatars. */
   presence?: Record<string, string>;
   onError: (message: string) => void;
@@ -104,6 +106,7 @@ export function TeamBoard({
   removeCard,
   reorderCards,
   reload,
+  track,
   presence,
   onError,
   onOpen,
@@ -422,7 +425,7 @@ export function TeamBoard({
     void (async () => {
       let rep: CarryReport;
       try {
-        rep = await provider.carryWeek(board, team, currentWeek, true);
+        rep = await track(provider.carryWeek(board, team, currentWeek, true));
       } catch (err: unknown) {
         onError(errMessage(err));
         return;
@@ -464,7 +467,7 @@ export function TeamBoard({
         }
       }
       try {
-        await provider.carryWeek(board, team, currentWeek);
+        await track(provider.carryWeek(board, team, currentWeek));
       } catch (err: unknown) {
         onError(errMessage(err));
       }
@@ -1370,7 +1373,7 @@ export function TeamBoard({
     }
     let rep: CarryReport;
     try {
-      rep = await provider.carryOver(board, team, true);
+      rep = await track(provider.carryOver(board, team, true));
     } catch (err: unknown) {
       onError(errMessage(err));
       return;
@@ -1399,7 +1402,7 @@ export function TeamBoard({
       }
     }
     try {
-      await provider.carryOver(board, team);
+      await track(provider.carryOver(board, team));
     } catch (err: unknown) {
       onError(errMessage(err));
     }
