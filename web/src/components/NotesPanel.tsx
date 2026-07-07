@@ -326,6 +326,7 @@ export function NotesPanel({
             className="notes-textarea"
             rows={2}
             autoFocus
+            maxLength={4096}
             value={editDraft}
             onChange={(e) => setEditDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -452,6 +453,7 @@ export function NotesPanel({
         <textarea
           className="notes-textarea"
           rows={3}
+          maxLength={4096}
           value={draft}
           placeholder="Write a note… (Enter to send, Shift+Enter for a new line)"
           onChange={(e) => setDraft(e.target.value)}
