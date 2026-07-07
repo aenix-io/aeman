@@ -92,7 +92,12 @@ export function App() {
   const [viewAs, setViewAs] = useState<string | null>(null);
   const [users, setUsers] = useState<Record<string, GhUser>>({});
   const fetchedUsers = useRef<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
+  // Count of in-flight data loads (initial load + per-view card fetches);
+  // any of them showing keeps the top progress bar visible.
+  const [pendingLoads, setPendingLoads] = useState(0);
+  const loading = pendingLoads > 0;
+  const beginLoad = useCallback(() => setPendingLoads((n) => n + 1), []);
+  const endLoad = useCallback(() => setPendingLoads((n) => n - 1), []);
   const [error, setError] = useState<string | null>(null);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
@@ -257,7 +262,7 @@ export function App() {
 
   const doLoad = useCallback(
     async (ownerArg: string, numberArg: number) => {
-      setLoading(true);
+      beginLoad();
       setError(null);
       try {
         // Identity + sprints AND the active view's cards together, swapped in
@@ -274,10 +279,10 @@ export function App() {
       } catch (err: unknown) {
         setError(errMessage(err));
       } finally {
-        setLoading(false);
+        endLoad();
       }
     },
-    [provider],
+    [provider, beginLoad, endLoad],
   );
 
   // Load the active view's cards whenever the selection (view/day/teams) changes
@@ -293,6 +298,7 @@ export function App() {
     }
     let cancelled = false;
     const addr = { owner: bOwner, number: bNumber };
+    beginLoad();
     Promise.all(activeQueriesRef.current.map((q) => provider.listCards(addr, q)))
       .then((lists) => {
         if (cancelled) {
@@ -304,11 +310,12 @@ export function App() {
         if (!cancelled) {
           setError(errMessage(err));
         }
-      });
+      })
+      .finally(endLoad);
     return () => {
       cancelled = true;
     };
-  }, [bOwner, bNumber, activeKey, provider]);
+  }, [bOwner, bNumber, activeKey, provider, beginLoad, endLoad]);
 
   // Locked board: auto-load the pinned project once authenticated. A user whose
   // token can't read it just gets a load error (the access-denied placeholder).
@@ -622,6 +629,9 @@ export function App() {
 
   return (
     <div className="app">
+      {loading && (
+        <div className="loading-bar" role="progressbar" aria-label="Loading data" />
+      )}
       <header className="app-header">
         <div className="brand">
           <Logo className="brand-logo" />
