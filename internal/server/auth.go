@@ -42,9 +42,15 @@ type OAuthConfig struct {
 	Scopes string
 	// SessionFile, when set, persists the dynamic MCP client registry to this
 	// path so registered clients survive restarts. GitHub tokens (sessions) are
-	// never written here — they live only in memory — so a restart signs users
-	// out but leaks no credentials to disk.
+	// written here only when SessionKey is set — encrypted — so without a key a
+	// restart signs users out but leaks no credentials to disk.
 	SessionFile string
+	// SessionKey, when set, is a secret that encrypts the persisted sessions at
+	// rest (AES-256-GCM, key = SHA-256 of this value). With it, sessions and
+	// MCP tokens survive a restart; the on-disk file holds only ciphertext, so
+	// a leak of the file alone (backup, stray volume) exposes no token. Empty =
+	// sessions stay in memory only (signed out on restart).
+	SessionKey string
 }
 
 type oauthSession struct {
@@ -63,6 +69,10 @@ type oauthSession struct {
 type persistedState struct {
 	Sessions map[string]persistedSession `json:"sessions,omitempty"`
 	Clients  map[string]persistedClient  `json:"clients,omitempty"`
+	// EncSessions is the AES-256-GCM ciphertext of the sessions map (base64),
+	// written only when a SessionKey is configured. Legacy plaintext Sessions
+	// are read once (to scrub) but never written.
+	EncSessions string `json:"encSessions,omitempty"`
 }
 
 // persistedClient is the on-disk form of an oauthClient.
@@ -91,6 +101,9 @@ type authManager struct {
 	log    *slog.Logger
 	client *http.Client
 	path   string
+	// sessionKey is the AES-256 key sessions are encrypted with at rest (nil
+	// when no SessionKey is configured, i.e. sessions are memory-only).
+	sessionKey []byte
 
 	// GitHub endpoints. They default to the real GitHub URLs and are overridden
 	// in tests to point at a stub server.
@@ -204,6 +217,7 @@ func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 		log:            log,
 		client:         &http.Client{Timeout: 15 * time.Second},
 		path:           cfg.SessionFile,
+		sessionKey:     deriveSessionKey(cfg.SessionKey),
 		authorizeURL:   githubAuthorizeURL,
 		tokenURL:       githubTokenURL,
 		apiBase:        githubAPIBase,
@@ -220,10 +234,10 @@ func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 	return a
 }
 
-// load restores the persisted MCP client registry. Sessions are never restored
-// (GitHub tokens do not persist); if a legacy file carried them, it is rewritten
-// clients-only so the plaintext tokens are scrubbed from disk. No-op without a
-// SessionFile or when the file is absent.
+// load restores the persisted MCP client registry, and — when a SessionKey is
+// configured — the encrypted sessions too, so a restart keeps users signed in
+// and MCP tokens live. Legacy plaintext sessions are never restored; the file
+// is rewritten so they are scrubbed. No-op without a SessionFile or file.
 func (a *authManager) load() {
 	if a.path == "" {
 		return
@@ -231,26 +245,39 @@ func (a *authManager) load() {
 	data, err := os.ReadFile(a.path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			a.log.Error("client registry load failed", "err", err)
+			a.log.Error("session store load failed", "err", err)
 		}
 		return
 	}
 	var in persistedState
 	if err := json.Unmarshal(data, &in); err != nil {
-		a.log.Error("client registry load: parse failed", "err", err)
+		a.log.Error("session store load: parse failed", "err", err)
 		return
 	}
 	for id, c := range in.Clients {
 		a.clients[id] = oauthClient{redirectURIs: append([]string(nil), c.RedirectURIs...)}
 	}
-	a.log.Info("client registry restored", "clients", len(a.clients))
-	// Rewrite clients-only: scrubs any plaintext session tokens an older
-	// version may have left in the file.
+	if a.sessionKey != nil && in.EncSessions != "" {
+		if sessions, err := decryptSessions(a.sessionKey, in.EncSessions); err != nil {
+			a.log.Error("session decrypt failed (wrong AEMAN_SESSION_KEY?); signing everyone out", "err", err)
+		} else {
+			now := time.Now()
+			for sid, s := range sessions {
+				if now.Sub(s.Created) <= sessionTTL {
+					a.sessions[sid] = oauthSession{token: s.Token, login: s.Login, created: s.Created}
+				}
+			}
+		}
+	}
+	a.log.Info("session store restored", "sessions", len(a.sessions), "clients", len(a.clients))
+	// Rewrite in the current format: scrubs any legacy plaintext tokens and
+	// re-encrypts sessions under the configured key.
 	a.saveLocked()
 }
 
-// saveLocked writes the MCP client registry to disk (no sessions, so no GitHub
-// tokens ever reach the file). Callers must hold a.mu.
+// saveLocked persists the MCP client registry and, when a SessionKey is set,
+// the sessions encrypted with it — so the file never holds a plaintext GitHub
+// token. Callers must hold a.mu.
 func (a *authManager) saveLocked() {
 	if a.path == "" {
 		return
@@ -259,18 +286,29 @@ func (a *authManager) saveLocked() {
 	for id, c := range a.clients {
 		out.Clients[id] = persistedClient{RedirectURIs: append([]string(nil), c.redirectURIs...)}
 	}
+	if a.sessionKey != nil && len(a.sessions) > 0 {
+		sessions := make(map[string]persistedSession, len(a.sessions))
+		for sid, s := range a.sessions {
+			sessions[sid] = persistedSession{Token: s.token, Login: s.login, Created: s.created}
+		}
+		if enc, err := encryptSessions(a.sessionKey, sessions); err != nil {
+			a.log.Error("session encrypt failed; not persisting sessions", "err", err)
+		} else {
+			out.EncSessions = enc
+		}
+	}
 	data, err := json.Marshal(out)
 	if err != nil {
-		a.log.Error("client registry save: marshal failed", "err", err)
+		a.log.Error("session store save: marshal failed", "err", err)
 		return
 	}
 	tmp := a.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		a.log.Error("client registry save: write failed", "err", err)
+		a.log.Error("session store save: write failed", "err", err)
 		return
 	}
 	if err := os.Rename(tmp, a.path); err != nil {
-		a.log.Error("client registry save: rename failed", "err", err)
+		a.log.Error("session store save: rename failed", "err", err)
 	}
 }
 
