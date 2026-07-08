@@ -24,6 +24,10 @@
 
 /* ---- light + default (the base; all variables are declared here) ---- */
 :root {
+  /* Tell the UA which scheme it renders native chrome in (form-control
+     backgrounds, the date-picker popup, scrollbars, caret): without this every
+     unstyled input and native widget stays light inside the dark theme. */
+  color-scheme: light;
   --fg: #1f2328;
   --muted: #57606a;
   --faint: #8c959f;
@@ -116,6 +120,14 @@
   --stage-recurrent: #0072b2;
   --stage-done: #007a59;
   --bar-default: #009e73;
+
+  /* Weekly-plan deadline bands. The default blue/violet pair collapses on the
+     red-green axis (violet minus its red content reads as blue), so the Fri
+     band moves to Okabe-Ito reddish-purple, pairwise safe against the blue. */
+  --band-wed: #0072b2;
+  --band-fri: #cc79a7;
+  --band-wed-bg: #e8f1f8;
+  --band-fri-bg: #f9edf4;
 }
 
 /* ---- light + marine (blue-yellow-friendly) ----
@@ -135,6 +147,14 @@
   --stage-recurrent: #1f6feb;
   --stage-done: #2596b5;
   --bar-default: #2596b5;
+
+  /* Weekly-plan deadline bands: under tritanopia violet drifts toward the
+     blues, so the Fri band moves to reddish-purple (red survives the missing
+     S-cone) while Wed stays blue. */
+  --band-wed: #0072b2;
+  --band-fri: #cc79a7;
+  --band-wed-bg: #e8f1f8;
+  --band-fri-bg: #f9edf4;
 }
 
 /* ---- dark base (dark + default) ----
@@ -143,6 +163,7 @@
    text on top); their pairwise separation for the CVD palettes is carried by
    both hue and lightness. */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --fg: #e6edf3;
   --muted: #9198a1;
   --faint: #868f99;
@@ -219,6 +240,12 @@
   --stage-recurrent: #58a6ff;
   --stage-done: #2ec4a6;
   --bar-default: #2ec4a6;
+
+  /* Weekly-plan bands, dark variants of the light-vivid pair. */
+  --band-wed: #58a9ff;
+  --band-fri: #e592c2;
+  --band-wed-bg: #10233b;
+  --band-fri-bg: #331b2b;
 }
 
 /* ---- dark + marine (blue-yellow-friendly) ---- */
@@ -237,6 +264,12 @@
   --stage-recurrent: #79c0ff;
   --stage-done: #56b6c2;
   --bar-default: #56b6c2;
+
+  /* Weekly-plan bands, dark variants of the light-marine pair. */
+  --band-wed: #58a9ff;
+  --band-fri: #e592c2;
+  --band-wed-bg: #10233b;
+  --band-fri-bg: #331b2b;
 }
 
 * {
@@ -261,6 +294,19 @@ body {
 
 button {
   font-family: inherit;
+  /* Buttons do not inherit text colour by default (UA buttontext is black);
+     inherit the themed foreground so dark mode never paints dark-on-dark. */
+  color: inherit;
+}
+
+/* Form fields follow the theme tokens; unstyled ones otherwise keep the UA
+   field look, which stays white inside the dark theme. Class rules still win
+   (element-level specificity), and in light mode this matches the UA colours. */
+input,
+textarea,
+select {
+  color: var(--fg);
+  background: var(--bg);
 }
 
 /* ---- shell ---- */
@@ -339,18 +385,6 @@ button {
   color: var(--faint);
 }
 
-.login-logout {
-  margin-left: 10px;
-  font-size: 12px;
-  color: var(--muted);
-  text-decoration: none;
-}
-
-.login-logout:hover {
-  color: var(--accent);
-  text-decoration: underline;
-}
-
 .account {
   display: flex;
   align-items: center;
@@ -422,6 +456,13 @@ button {
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
+  /* Items may be links (Sign out) as well as buttons. */
+  text-decoration: none;
+}
+
+.appearance-sep {
+  border-top: 1px solid var(--line-soft);
+  margin: 4px 0;
 }
 
 .appearance-item:hover {
@@ -1219,11 +1260,9 @@ button.team-avatar {
   flex: none;
 }
 
+/* Portalled to <body> via Dropdown (which positions it), so overflow/scroll
+   ancestors of the zone can never clip the roster. */
 .add-card-team-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 3px;
   min-width: 130px;
   max-height: 220px;
   overflow-y: auto;
@@ -1232,7 +1271,6 @@ button.team-avatar {
   border-radius: 6px;
   box-shadow: 0 4px 12px var(--elev-2);
   padding: 3px;
-  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 1px;

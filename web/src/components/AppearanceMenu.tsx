@@ -11,6 +11,8 @@ interface AppearanceMenuProps {
   login: string | null;
   appearance: Appearance;
   onChange: (next: Appearance) => void;
+  /** Sign-out link target (OAuth mode); when set the menu offers it. */
+  logoutUrl?: string | null;
 }
 
 // On-screen labels are intentionally plain "appearance" wording. The palette
@@ -33,7 +35,12 @@ const PALETTE_OPTIONS: { value: Palette; label: string }[] = [
  * appearance picker (theme mode + colour palette), rendered through the shared
  * Dropdown so it is never clipped by the header.
  */
-export function AppearanceMenu({ login, appearance, onChange }: AppearanceMenuProps) {
+export function AppearanceMenu({
+  login,
+  appearance,
+  onChange,
+  logoutUrl,
+}: AppearanceMenuProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
@@ -110,6 +117,15 @@ export function AppearanceMenu({ login, appearance, onChange }: AppearanceMenuPr
             </button>
           ))}
         </div>
+        {logoutUrl && (
+          <div className="appearance-group" role="group" aria-label="Account">
+            <div className="appearance-sep" aria-hidden="true" />
+            <a role="menuitem" className="appearance-item" href={logoutUrl}>
+              <span className="appearance-check" aria-hidden="true" />
+              Sign out
+            </a>
+          </div>
+        )}
         </div>
       </Dropdown>
     </div>
