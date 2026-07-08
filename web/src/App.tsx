@@ -701,16 +701,12 @@ export function App() {
             login={config?.login ?? null}
             appearance={appearance}
             onChange={setAppearance}
+            logoutUrl={
+              config?.mode === "oauth" && config.authenticated
+                ? (config.logoutUrl ?? "/auth/logout")
+                : null
+            }
           />
-          {config?.mode === "oauth" && config.authenticated && (
-            <a
-              className="login-logout"
-              href={config.logoutUrl ?? "/auth/logout"}
-              title="Sign out"
-            >
-              sign out
-            </a>
-          )}
         </div>
       </header>
 
