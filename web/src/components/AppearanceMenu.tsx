@@ -119,7 +119,6 @@ export function AppearanceMenu({
         </div>
         {logoutUrl && (
           <div className="appearance-group" role="group" aria-label="Account">
-            <div className="appearance-sep" aria-hidden="true" />
             <a role="menuitem" className="appearance-item" href={logoutUrl}>
               <span className="appearance-check" aria-hidden="true" />
               Sign out
