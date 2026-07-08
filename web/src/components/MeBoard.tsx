@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Ref,
+} from "react";
 import {
   cancelPendingCard,
   consumePendingCancel,
@@ -1010,11 +1018,15 @@ export function MeBoard({
                     key={group.key}
                     ref={dropRef as Ref<HTMLElement>}
                     className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
-                    style={{ background: def.background, borderLeftColor: def.accent }}
+                    style={
+                      {
+                        background: def.background,
+                        borderLeftColor: def.accent,
+                        "--zone-accent": def.accent,
+                      } as CSSProperties
+                    }
                   >
-                    <span className="zone-spine" style={{ color: def.accent }}>
-                      {def.spine}
-                    </span>
+                    <span className="zone-spine">{def.spine}</span>
                     <div className="zone-cards">
                       {body}
                       <AddCard

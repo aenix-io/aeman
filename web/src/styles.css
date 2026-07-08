@@ -1,3 +1,28 @@
+/* ============================================================================
+   Theming: two independent axes, each a data attribute on <html> (see theme.ts).
+     data-theme   = light | dark      (light is the default / no attribute)
+     data-palette = default | vivid | marine
+   Everything colour-valued is a CSS variable so the six (theme × palette) cells
+   below repaint the app without any component change.
+
+   Palettes (neutral names on screen; the accessibility purpose is documented
+   here, not shown to the user):
+     default  the standard look.
+     vivid    red-green-friendly. Warm, saturated, high-contrast — designed and
+              verified against a deuteranopia/protanopia colour-blindness
+              simulation so no two zones collapse together on the red-green axis.
+     marine   blue-yellow-friendly. Verified the same way against a tritanopia
+              simulation.
+   The zone/stage semantics are always also carried by text (zone spines, stage
+   names, progress %), so meaning never rests on colour alone.
+
+   Specificity note: light rules are :root / :root[data-palette]; dark base is
+   :root[data-theme="dark"] and beats them; each dark+palette combo has its own
+   :root[data-theme="dark"][data-palette] rule that beats the dark base. Every
+   reachable cell therefore has one clearly-winning rule regardless of order.
+   ============================================================================ */
+
+/* ---- light + default (the base; all variables are declared here) ---- */
 :root {
   --fg: #1f2328;
   --muted: #57606a;
@@ -7,8 +32,211 @@
   --bg: #ffffff;
   --bg-soft: #f6f8fa;
   --accent: #0969da;
+  /* Solid accent fill that carries white text (buttons, active segments). Split
+     from --accent because dark mode needs a lighter accent for text/icons but a
+     darker one behind white labels. In light both are the same blue. */
+  --accent-emphasis: #0969da;
   --danger: #cf222e;
+  /* Solid danger fill that carries white text (the delete-corner button on
+     hover). Split from --danger for the same reason as --accent-emphasis: dark
+     mode wants a lighter red for danger *text* but a deeper one behind white. */
+  --danger-emphasis: #cf222e;
   --radius: 6px;
+
+  /* Glyph/label colour on a saturated (accent/danger/avatar) fill. */
+  --on-accent: #fff;
+
+  /* Semantic surfaces that must flip for dark mode. */
+  --card-border: #d6dbe1;
+  --card-taken-bg: #f4f4f4;
+  --notes-bg: #fbfcfd;
+  --bg-raised: #fff;
+  --handle-bg: #fff;
+  --avatar-fg: #24292f;
+  --amber: #b8860b;
+  --band-wed: #3b82f6;
+  --band-fri: #8b5cf6;
+  --band-wed-bg: #eef4fb;
+  --band-fri-bg: #f3eefb;
+  --cal-range-bg: #dbeafe;
+  --warn-bg: #fff8c5;
+  --warn-line: #eac54f;
+  --err-bg: #ffebe9;
+  --err-line: #ff8182;
+
+  /* Shadows, scrims and overlays — tuned for dark-on-light; dark mode swaps
+     them for light-on-dark equivalents. */
+  --elev-1: rgba(27, 31, 36, 0.04);
+  --elev-2: rgba(27, 31, 36, 0.18);
+  --elev-3: rgba(27, 31, 36, 0.28);
+  --handle-shadow: rgba(27, 31, 36, 0.3);
+  --placeholder-border: rgba(27, 31, 36, 0.35);
+  --scrim: rgba(27, 31, 36, 0.45);
+  --code-bg: rgba(0, 0, 0, 0.06);
+  --dragover-outline: rgba(0, 0, 0, 0.28);
+  --drag-shadow: rgba(0, 0, 0, 0.14);
+  --accent-glow: rgba(9, 105, 218, 0.35);
+  --danger-tint: rgba(207, 34, 46, 0.1);
+  --hover-overlay: rgba(27, 31, 36, 0.08);
+  --hover-overlay-soft: rgba(27, 31, 36, 0.05);
+
+  /* Zone palette (accent = spine/border, bg = area tint). */
+  --zone-red-accent: #f85149;
+  --zone-red-bg: #fdecea;
+  --zone-yellow-accent: #d4a72c;
+  --zone-yellow-bg: #fdf6df;
+  --zone-gray-accent: #8b949e;
+  --zone-gray-bg: #f3f4f6;
+  --zone-green-accent: #3fb950;
+  --zone-green-bg: #eafaef;
+
+  /* Progress-bar / stage palette, consumed from JS via stages.ts. */
+  --stage-locked: #cf222e;
+  --stage-review: #d4a72c;
+  --stage-recurrent: #58a6ff;
+  --stage-done: #1f883d;
+  --bar-default: #3fb950;
+}
+
+/* ---- light + vivid (red-green-friendly) ----
+   Saturated fills, green pushed toward teal, so every pair of zone areas stays
+   apart under deuter-/protanopia; spine repainted near-black for legibility. */
+:root[data-palette="vivid"] {
+  --zone-red-accent: #d55e00; /* vermillion — urgent */
+  --zone-red-bg: #ff8f5a;
+  --zone-yellow-accent: #e69f00; /* orange — unplanned */
+  --zone-yellow-bg: #ffdd5e;
+  --zone-gray-accent: #6b7785; /* neutral gray — planned */
+  --zone-gray-bg: #edeff3;
+  --zone-green-accent: #009e73; /* teal-green — nice to have */
+  --zone-green-bg: #63d3d8;
+
+  --stage-locked: #d55e00;
+  --stage-review: #e69f00;
+  --stage-recurrent: #0072b2;
+  --stage-done: #007a59;
+  --bar-default: #009e73;
+}
+
+/* ---- light + marine (blue-yellow-friendly) ----
+   Verified against a tritanopia simulation. */
+:root[data-palette="marine"] {
+  --zone-red-accent: #d1453b;
+  --zone-red-bg: #ff9aa0;
+  --zone-yellow-accent: #c98a1e;
+  --zone-yellow-bg: #ffd98a;
+  --zone-gray-accent: #8b949e;
+  --zone-gray-bg: #e3e6ea;
+  --zone-green-accent: #2596b5; /* cyan */
+  --zone-green-bg: #6fcbe0;
+
+  --stage-locked: #cf222e;
+  --stage-review: #b07d1a;
+  --stage-recurrent: #1f6feb;
+  --stage-done: #2596b5;
+  --bar-default: #2596b5;
+}
+
+/* ---- dark base (dark + default) ----
+   Overrides the neutrals, surfaces, shadows and the default zone/stage palette
+   with dark-appropriate values. Dark zone fills are dark tints (light spine
+   text on top); their pairwise separation for the CVD palettes is carried by
+   both hue and lightness. */
+:root[data-theme="dark"] {
+  --fg: #e6edf3;
+  --muted: #9198a1;
+  --faint: #868f99;
+  --line: #30363d;
+  --line-soft: #21262d;
+  --bg: #0d1117;
+  --bg-soft: #161b22;
+  --accent: #4493f8;
+  --accent-emphasis: #1f6feb;
+  --danger: #f85149;
+  --danger-emphasis: #d5322c;
+
+  --on-accent: #fff;
+  --card-border: #30363d;
+  --card-taken-bg: #1c222b;
+  --notes-bg: #10151c;
+  --bg-raised: #21262d;
+  --handle-bg: #e6edf3;
+  --avatar-fg: #e6edf3;
+  --amber: #e3b341;
+  --band-wed: #4493f8;
+  --band-fri: #a371f7;
+  --band-wed-bg: #10233b;
+  --band-fri-bg: #241a3a;
+  --cal-range-bg: #163356;
+  --warn-bg: #2d2a10;
+  --warn-line: #7a6a1e;
+  --err-bg: #3a1a1a;
+  --err-line: #7a2a2a;
+
+  --elev-1: rgba(1, 4, 9, 0.5);
+  --elev-2: rgba(1, 4, 9, 0.6);
+  --elev-3: rgba(1, 4, 9, 0.7);
+  --handle-shadow: rgba(1, 4, 9, 0.6);
+  --placeholder-border: rgba(240, 246, 252, 0.25);
+  --scrim: rgba(1, 4, 9, 0.8);
+  --code-bg: rgba(240, 246, 252, 0.1);
+  --dragover-outline: rgba(240, 246, 252, 0.4);
+  --drag-shadow: rgba(1, 4, 9, 0.6);
+  --accent-glow: rgba(68, 147, 248, 0.4);
+  --danger-tint: rgba(248, 81, 73, 0.15);
+  --hover-overlay: rgba(240, 246, 252, 0.1);
+  --hover-overlay-soft: rgba(240, 246, 252, 0.06);
+
+  --zone-red-accent: #ff7b72;
+  --zone-red-bg: #4a2321;
+  --zone-yellow-accent: #e3b341;
+  --zone-yellow-bg: #463a17;
+  --zone-gray-accent: #7d8590;
+  --zone-gray-bg: #2b3138;
+  --zone-green-accent: #3fb950;
+  --zone-green-bg: #1a3d2a;
+
+  --stage-locked: #ff7b72;
+  --stage-review: #e3b341;
+  --stage-recurrent: #79c0ff;
+  --stage-done: #3fb950;
+  --bar-default: #3fb950;
+}
+
+/* ---- dark + vivid (red-green-friendly) ---- */
+:root[data-theme="dark"][data-palette="vivid"] {
+  --zone-red-accent: #ff8a50;
+  --zone-red-bg: #5c2410;
+  --zone-yellow-accent: #f0b429;
+  --zone-yellow-bg: #6b5510;
+  --zone-gray-accent: #8b98a6;
+  --zone-gray-bg: #242a30;
+  --zone-green-accent: #2ec4a6;
+  --zone-green-bg: #106f66;
+
+  --stage-locked: #ff8a50;
+  --stage-review: #f0b429;
+  --stage-recurrent: #58a6ff;
+  --stage-done: #2ec4a6;
+  --bar-default: #2ec4a6;
+}
+
+/* ---- dark + marine (blue-yellow-friendly) ---- */
+:root[data-theme="dark"][data-palette="marine"] {
+  --zone-red-accent: #ff9d8a;
+  --zone-red-bg: #8a3c1c;
+  --zone-yellow-accent: #e3b341;
+  --zone-yellow-bg: #6b5510;
+  --zone-gray-accent: #8b98a6;
+  --zone-gray-bg: #242a30;
+  --zone-green-accent: #56b6c2;
+  --zone-green-bg: #0e665c;
+
+  --stage-locked: #ff7b72;
+  --stage-review: #e3b341;
+  --stage-recurrent: #79c0ff;
+  --stage-done: #56b6c2;
+  --bar-default: #56b6c2;
 }
 
 * {
@@ -123,6 +351,94 @@ button {
   text-decoration: underline;
 }
 
+.account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Appearance picker: the nickname doubles as the trigger for a theme + palette
+   menu. Kept visually just like the plain login text, with a caret hint. */
+.appearance {
+  position: relative;
+  display: inline-flex;
+}
+
+.appearance-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.appearance-caret {
+  font-size: 9px;
+  color: var(--faint);
+  line-height: 1;
+}
+
+.appearance-menu {
+  min-width: 148px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px var(--elev-2);
+  padding: 3px;
+}
+
+.appearance-menu-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.appearance-group + .appearance-group {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 3px;
+  padding-top: 3px;
+}
+
+.appearance-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  padding: 4px 8px 2px;
+}
+
+.appearance-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.appearance-item:hover {
+  background: var(--bg-soft);
+}
+
+.appearance-item[aria-checked="true"] {
+  font-weight: 600;
+}
+
+.appearance-check {
+  width: 12px;
+  flex: none;
+  color: var(--accent);
+  font-size: 11px;
+}
+
 /* ---- sign-in gate (OAuth mode) ---- */
 .signin {
   flex: 1;
@@ -162,18 +478,18 @@ button {
 }
 
 .banner-warning {
-  background: #fff8c5;
-  border-bottom: 1px solid #eac54f;
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--warn-line);
 }
 
 .banner-error {
-  background: #ffebe9;
-  border-bottom: 1px solid #ff8182;
+  background: var(--err-bg);
+  border-bottom: 1px solid var(--err-line);
 }
 
 .banner code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--code-bg);
   padding: 0 4px;
   border-radius: 4px;
 }
@@ -234,9 +550,9 @@ button {
 }
 
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-emphasis);
+  border-color: var(--accent-emphasis);
+  color: var(--on-accent);
   font-weight: 500;
 }
 
@@ -267,8 +583,8 @@ button {
 }
 
 .segment-active {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-emphasis);
+  color: var(--on-accent);
   font-weight: 500;
 }
 
@@ -366,14 +682,14 @@ button {
   display: flex;
   align-items: stretch;
   gap: 6px;
-  border-left: 3px solid #ccc;
+  border-left: 3px solid var(--line);
   border-radius: 0;
   padding: 5px 6px;
   min-height: 40px;
 }
 
 .zone-area-dragover {
-  outline: 2px dashed rgba(0, 0, 0, 0.28);
+  outline: 2px dashed var(--dragover-outline);
   outline-offset: -2px;
 }
 
@@ -397,6 +713,30 @@ button {
   white-space: nowrap;
   pointer-events: none;
   opacity: 0.9;
+  /* Read the zone accent straight off the inherited --zone-accent that
+     .zone-area sets inline. Reading it here (not through a :root-declared
+     indirection) matters: a custom property that references --zone-accent must
+     be resolved on an element where --zone-accent actually exists, which is the
+     zone, not :root. The overrides below repaint it for the palettes/dark. */
+  color: var(--zone-accent);
+}
+
+/* The CVD palettes and dark mode paint the spine as the high-contrast
+   foreground instead of the zone accent, so the rotated label stays legible on
+   a saturated (CVD) or dark fill rather than fading into it. */
+[data-palette="vivid"] .zone-spine,
+[data-palette="marine"] .zone-spine,
+[data-theme="dark"] .zone-spine {
+  color: var(--fg);
+}
+
+/* In the CVD palettes the spine is the redundant text channel that must stay
+   readable, so drop the tint-driven fade and enlarge it a touch. */
+[data-palette="vivid"] .zone-spine,
+[data-palette="marine"] .zone-spine {
+  opacity: 1;
+  font-size: 9px;
+  font-weight: 800;
 }
 
 /* ---- dnd-kit drag styles ---- */
@@ -409,7 +749,7 @@ button {
    gap of card height so neighbouring cards visibly push apart toward it. */
 .sortable-card-placeholder .card {
   background: transparent;
-  border: 1px dashed rgba(27, 31, 36, 0.35);
+  border: 1px dashed var(--placeholder-border);
   box-shadow: none;
 }
 
@@ -423,7 +763,7 @@ button {
 }
 
 .dnd-overlay .card {
-  box-shadow: 0 8px 20px rgba(27, 31, 36, 0.28);
+  box-shadow: 0 8px 20px var(--elev-3);
   transform: scale(1.02);
   cursor: grabbing;
 }
@@ -456,9 +796,9 @@ button {
   flex: none;
   padding: 3px 8px 6px;
   background: var(--bg);
-  border: 1px solid #d6dbe1;
+  border: 1px solid var(--card-border);
   border-radius: 5px;
-  box-shadow: 0 1px 1px rgba(27, 31, 36, 0.04);
+  box-shadow: 0 1px 1px var(--elev-1);
   cursor: grab;
   user-select: none;
 }
@@ -469,7 +809,7 @@ button {
 
 .card-selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.35);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
 /* Plan-linked cards in working views get a coloured left stripe by band; review
@@ -487,20 +827,20 @@ button {
 }
 
 .card-plan-wed::before {
-  background: #3b82f6;
+  background: var(--band-wed);
 }
 
 .card-plan-fri::before {
-  background: #8b5cf6;
+  background: var(--band-fri);
 }
 
 .card-review::before {
-  background: #d4a72c;
+  background: var(--stage-review);
 }
 
 /* A plan card taken into work (assigned on the board) gets a light-blue tint. */
 .card-plan-taken {
-  background: #f4f4f4;
+  background: var(--card-taken-bg);
 }
 
 /* Team avatars are dimmed to 50% by default; only cards of the currently
@@ -518,7 +858,7 @@ button {
   border: none;
   border-radius: 50%;
   background: var(--faint);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   line-height: 14px;
   text-align: center;
@@ -534,7 +874,7 @@ button {
 }
 
 .card-delete:hover {
-  background: var(--danger);
+  background: var(--danger-emphasis);
 }
 
 /* Open: a round corner button over the top-right (mirror of the old delete). */
@@ -547,7 +887,7 @@ button {
   border: none;
   border-radius: 50%;
   background: var(--faint);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 11px;
   line-height: 14px;
   text-align: center;
@@ -563,12 +903,12 @@ button {
 }
 
 .card-open:hover {
-  background: var(--accent);
+  background: var(--accent-emphasis);
 }
 
 .card-action-delete:hover {
   color: var(--danger);
-  background: rgba(207, 34, 46, 0.1);
+  background: var(--danger-tint);
 }
 
 /* lock-with-note popup inside the status menu */
@@ -744,7 +1084,7 @@ button {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 9px;
   font-weight: 600;
   display: flex;
@@ -890,7 +1230,7 @@ button.team-avatar {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(27, 31, 36, 0.18);
+  box-shadow: 0 4px 12px var(--elev-2);
   padding: 3px;
   z-index: 20;
   display: flex;
@@ -962,7 +1302,7 @@ button.team-avatar {
 }
 
 .impersonate-reset:hover {
-  color: #cf222e;
+  color: var(--danger);
 }
 
 .card-stage-item .avatar-img {
@@ -1069,24 +1409,24 @@ button.card-age {
 }
 
 .rcal-in {
-  background: #dbeafe;
+  background: var(--cal-range-bg);
   border-radius: 0;
 }
 
 .rcal-start,
 .rcal-end {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-emphasis);
+  color: var(--on-accent);
   border-radius: 4px;
 }
 
 .card-dates-save {
   margin-top: 4px;
   padding: 3px 8px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-emphasis);
   border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-emphasis);
+  color: var(--on-accent);
   font-size: 12px;
   cursor: pointer;
 }
@@ -1152,7 +1492,7 @@ button.card-age {
   height: 16px;
   border-radius: 50%;
   background: var(--line);
-  color: #24292f;
+  color: var(--avatar-fg);
   font-size: 9px;
   font-weight: 600;
   display: flex;
@@ -1161,8 +1501,8 @@ button.card-age {
 }
 
 .avatar-me {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-emphasis);
+  color: var(--on-accent);
 }
 
 .avatar-img {
@@ -1239,9 +1579,9 @@ button.card-age {
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--handle-bg);
   border: 2px solid var(--accent);
-  box-shadow: 0 1px 2px rgba(27, 31, 36, 0.3);
+  box-shadow: 0 1px 2px var(--handle-shadow);
   cursor: ew-resize;
   opacity: 0;
   transition: opacity 0.1s;
@@ -1297,7 +1637,7 @@ button.card-age {
 }
 
 .card-action:hover {
-  background: rgba(27, 31, 36, 0.08);
+  background: var(--hover-overlay);
   color: var(--fg);
 }
 
@@ -1333,7 +1673,7 @@ button.card-age {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(27, 31, 36, 0.18);
+  box-shadow: 0 4px 12px var(--elev-2);
   padding: 3px;
   z-index: 10;
   display: flex;
@@ -1372,7 +1712,7 @@ button.card-age {
 
 /* "Send to review" sits apart from the stage options, with its amber accent. */
 .card-stage-send-review {
-  color: #b8860b;
+  color: var(--amber);
   border-top: 1px solid var(--line-soft);
   margin-top: 1px;
 }
@@ -1410,7 +1750,7 @@ button.card-age {
 }
 
 .add-card:hover {
-  background: rgba(27, 31, 36, 0.05);
+  background: var(--hover-overlay-soft);
   opacity: 1;
 }
 
@@ -1428,7 +1768,7 @@ button.card-age {
   width: 300px;
   flex: none;
   border-left: 1px solid var(--line);
-  background: #fbfcfd;
+  background: var(--notes-bg);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1544,9 +1884,9 @@ button.card-age {
 }
 
 .notes-group-btn-on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-emphasis);
+  border-color: var(--accent-emphasis);
+  color: var(--on-accent);
 }
 
 /* "By card" grouping: a card-title sub-header above its notes. */
@@ -1659,7 +1999,7 @@ button.card-age {
 }
 
 .note-action-delete:hover {
-  color: #cf222e;
+  color: var(--danger);
 }
 
 .note-edit {
@@ -1810,7 +2150,7 @@ button.card-age {
 .team-weekly-progress-fill,
 .me-day-progress-fill {
   height: 100%;
-  background: #3fb950;
+  background: var(--bar-default);
   transition: width 0.2s;
 }
 
@@ -1835,11 +2175,11 @@ button.card-age {
 }
 
 .team-weekly-wed {
-  background: #eef4fb;
+  background: var(--band-wed-bg);
 }
 
 .team-weekly-fri {
-  background: #f3eefb;
+  background: var(--band-fri-bg);
   border-left: 1px dashed var(--line);
 }
 
@@ -1916,7 +2256,7 @@ button.card-age {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(27, 31, 36, 0.45);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1930,7 +2270,7 @@ button.card-age {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(27, 31, 36, 0.28);
+  box-shadow: 0 12px 40px var(--elev-3);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2121,8 +2461,8 @@ button.card-age {
 }
 
 .teams-manage-row-dragging {
-  background: #fff;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  background: var(--bg-raised);
+  box-shadow: 0 2px 10px var(--drag-shadow);
   border-radius: 4px;
 }
 
@@ -2184,8 +2524,8 @@ button.card-age {
 }
 
 .teams-manage-del:hover:not(:disabled) {
-  color: #e5484d;
-  border-color: #e5484d;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .teams-manage-add {
@@ -2314,7 +2654,7 @@ button.card-age {
 
 .card-peer-selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.35);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
 /* The presence wrapper must not occupy a flex slot in the card row (its gap
@@ -2339,9 +2679,9 @@ button.card-age {
   justify-content: center;
   width: 14px;
   height: 14px;
-  border: 1px solid #b8860b;
+  border: 1px solid var(--amber);
   border-radius: 50%;
-  color: #b8860b;
+  color: var(--amber);
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
@@ -2361,7 +2701,7 @@ button.card-age {
 }
 .note-event-body {
   font-size: 11px;
-  color: #656d76;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2403,22 +2743,22 @@ button.card-age {
 .modal-log-date {
   font-size: 11px;
   font-weight: 600;
-  color: #8c959f;
+  color: var(--faint);
   margin: 8px 0 2px;
 }
 .modal-log-row {
   font-size: 12px;
-  color: #1f2328;
+  color: var(--fg);
   padding: 1px 0;
   white-space: pre-wrap;
 }
 .modal-log-event {
-  color: #656d76;
+  color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .modal-log-time {
-  color: #8c959f;
+  color: var(--faint);
   margin-right: 6px;
   font-variant-numeric: tabular-nums;
 }

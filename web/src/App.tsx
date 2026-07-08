@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, type AppConfig } from "./api/client";
 import { apiProvider, setStaleListener } from "./providers/api/apiProvider";
 import {
@@ -18,6 +18,8 @@ import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
 import { queryString, viewQueries, watchQuery } from "./viewquery";
 import { todayIso } from "./date";
+import { AppearanceMenu } from "./components/AppearanceMenu";
+import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
 type ViewMode = "me" | "team";
 
@@ -81,6 +83,25 @@ export function App() {
     () => localStorage.getItem(LS_PROJECT) ?? "",
   );
   const [view, setView] = useState<ViewMode>(readView);
+
+  // Appearance (theme mode + colour palette). Applied to <html> so the CSS
+  // theme/palette overrides repaint the app; persisted in localStorage like the
+  // app's other UI prefs. useLayoutEffect (not useEffect) so the attributes land
+  // before the browser paints — otherwise a returning user on a non-default
+  // appearance gets one frame of the default look on every load. When the mode
+  // is "system" we also follow live OS light/dark changes.
+  const [appearance, setAppearance] = useState<Appearance>(() => readAppearance(localStorage));
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => applyAppearance(document.documentElement, appearance, mq.matches);
+    apply();
+    persistAppearance(localStorage, appearance);
+    if (appearance.mode !== "system") {
+      return;
+    }
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [appearance]);
 
   const [board, setBoard] = useState<Board | null>(null);
   // The viewed day, shared by both boards and driving the lazy view fetch and
@@ -676,11 +697,11 @@ export function App() {
           {config && <span className="version">v{config.version}</span>}
         </div>
         <div className="account">
-          {config?.login ? (
-            <span className="login">@{config.login}</span>
-          ) : (
-            <span className="login login-anon">not signed in</span>
-          )}
+          <AppearanceMenu
+            login={config?.login ?? null}
+            appearance={appearance}
+            onChange={setAppearance}
+          />
           {config?.mode === "oauth" && config.authenticated && (
             <a
               className="login-logout"
