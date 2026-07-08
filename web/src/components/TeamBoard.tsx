@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type Ref,
 } from "react";
 import {
@@ -1704,11 +1705,15 @@ export function TeamBoard({
               <div
                 ref={dropRef as Ref<HTMLDivElement>}
                 className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
-                style={{ background: def.background, borderLeftColor: def.accent }}
+                style={
+                  {
+                    background: def.background,
+                    borderLeftColor: def.accent,
+                    "--zone-accent": def.accent,
+                  } as CSSProperties
+                }
               >
-                <span className="zone-spine" style={{ color: def.accent }}>
-                  {def.spine}
-                </span>
+                <span className="zone-spine">{def.spine}</span>
                 <div className="zone-cards">
                   {body}
                   <AddCard
