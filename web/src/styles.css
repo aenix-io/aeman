@@ -460,11 +460,6 @@ select {
   text-decoration: none;
 }
 
-.appearance-sep {
-  border-top: 1px solid var(--line-soft);
-  margin: 4px 0;
-}
-
 .appearance-item:hover {
   background: var(--bg-soft);
 }
