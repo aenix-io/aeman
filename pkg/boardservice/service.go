@@ -167,6 +167,11 @@ type CreateCardArgs struct {
 	// ReviewOf marks the new card as the review of the given item.
 	ReviewOf       string
 	StartNewSprint *bool
+	// NoSprint schedules the card for its day without joining any sprint — a
+	// "next sprint" create: the card lives on its own day only until the first
+	// carry-over whose day has reached the card's start adopts it into the
+	// sprint it opens.
+	NoSprint bool
 }
 
 // CreateCard creates a card with two dates: StartDate (its scheduled day) is the
@@ -233,24 +238,31 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	} else if day == "" {
 		day = start
 	}
-	cur := board.CurrentSprint(b, args.Team)
-	startNew := cur == ""
-	if args.StartNewSprint != nil {
-		startNew = *args.StartNewSprint || cur == ""
-	}
 	sprint := args.SprintStart
-	if startNew {
-		// Record the new sprint and have the card join it (previous = the old
-		// current, which is "" when the team had no sprint yet — matching the
-		// frontend's setSprintState(team, day, null)).
-		if sprint == "" {
-			sprint = day
+	if args.NoSprint {
+		// A "next sprint" create: the card is scheduled for its day but joins
+		// no sprint (and starts none) — the first carry-over whose day reaches
+		// the card's start adopts it into the sprint it opens.
+		sprint = ""
+	} else {
+		cur := board.CurrentSprint(b, args.Team)
+		startNew := cur == ""
+		if args.StartNewSprint != nil {
+			startNew = *args.StartNewSprint || cur == ""
 		}
-		if err := s.backend.SetSprintState(ctx, b, args.Team, sprint, cur); err != nil {
-			return board.Card{}, err
+		if startNew {
+			// Record the new sprint and have the card join it (previous = the old
+			// current, which is "" when the team had no sprint yet — matching the
+			// frontend's setSprintState(team, day, null)).
+			if sprint == "" {
+				sprint = day
+			}
+			if err := s.backend.SetSprintState(ctx, b, args.Team, sprint, cur); err != nil {
+				return board.Card{}, err
+			}
+		} else if sprint == "" {
+			sprint = cur
 		}
-	} else if sprint == "" {
-		sprint = cur
 	}
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
@@ -313,7 +325,18 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	// finished recurrent card stays behind and reseeds a fresh copy instead.
 	var carry, reseed, relocate []board.Card
 	for _, c := range b.Cards {
-		if c.Team != team || old == "" || c.SprintStart != old {
+		if c.Team != team {
+			continue
+		}
+		// Adopt sprint-less day cards whose scheduled day has arrived (a "next
+		// sprint" create): they join the sprint this carry-over opens, which is
+		// what "the next sprint" meant when they were created.
+		if c.SprintStart == "" && c.Plan == board.PlanNone && c.StartDate != "" &&
+			c.StartDate <= today && !board.Complete(c.Stage, c.Progress) {
+			carry = append(carry, c)
+			continue
+		}
+		if old == "" || c.SprintStart != old {
 			continue
 		}
 		if c.Stage == board.StageRecurrent && c.Progress >= 100 {

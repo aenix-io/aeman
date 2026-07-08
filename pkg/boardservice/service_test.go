@@ -349,6 +349,36 @@ func TestCreateCardForceNewSprintDemotesCurrent(t *testing.T) {
 	}
 }
 
+func TestCreateCardNextSprint(t *testing.T) {
+	f := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
+	// A "next sprint" create: scheduled for its day, joins no sprint and never
+	// touches the pointer — the next carry-over to reach the day adopts it.
+	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", Day: "2026-06-21", NoSprint: true}); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetSprintState") != 0 {
+		t.Fatalf("a no-sprint create must not touch the pointer; log=%v", f.log)
+	}
+	if f.creates[0].Start != "2026-06-21" || f.creates[0].SprintStart != "" {
+		t.Fatalf("want Start 2026-06-21 / no SprintStart; got %+v", f.creates[0])
+	}
+}
+
+func TestCreateCardNoSprintSkipsFirstSprintRecord(t *testing.T) {
+	f := newFake(nil, nil)
+	// Even a team with no sprint yet must not have one started by a
+	// "next sprint" create.
+	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", NoSprint: true}); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetSprintState") != 0 {
+		t.Fatalf("a no-sprint create must not record a first sprint; log=%v", f.log)
+	}
+	if f.creates[0].SprintStart != "" {
+		t.Fatalf("create input = %+v", f.creates[0])
+	}
+}
+
 // --- CarryOver -------------------------------------------------------------
 
 func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
@@ -382,6 +412,36 @@ func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
 	}
 	if f.get("c5").SprintStart != "2027-01-01" {
 		t.Fatalf("future-dated c5 should not carry: %+v", f.get("c5"))
+	}
+}
+
+func TestCarryOverAdoptsSprintlessDayCards(t *testing.T) {
+	old := "2026-01-01"
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		// A "next sprint" create whose day has arrived: adopted.
+		{ItemID: "n1", Team: "alpha", StartDate: today},
+		// Still ahead of today: stays sprint-less for a later carry-over.
+		{ItemID: "n2", Team: "alpha", StartDate: "2999-01-01"},
+		// A finished sprint-less card is not work to adopt.
+		{ItemID: "n3", Team: "alpha", StartDate: today, Stage: board.StageDone},
+		// A plan card without dates has no sprint by design.
+		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: "2026-01-05"},
+		// Another team's sprint-less card is not this carry-over's business.
+		{ItemID: "n4", Team: "beta", StartDate: today},
+	}, map[string]board.SprintState{"alpha": {Current: old}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetSprintStart") != 1 || !f.saw(fmt.Sprintf("SetSprintStart n1 %s", today)) {
+		t.Fatalf("only n1 should be adopted; log=%v", f.log)
+	}
+	if rep.Carried != 1 {
+		t.Fatalf("Carried = %d, want 1", rep.Carried)
+	}
+	if f.get("n2").SprintStart != "" || f.get("n3").SprintStart != "" {
+		t.Fatalf("future/finished sprint-less cards must stay: %+v %+v", f.get("n2"), f.get("n3"))
 	}
 }
 
