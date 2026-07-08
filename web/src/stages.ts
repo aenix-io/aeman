@@ -9,19 +9,23 @@ export interface StageDef {
   color: string;
 }
 
+// Colours are CSS custom properties (defined in styles.css) rather than literal
+// hex, so the opt-in colour-blind mode repaints stages through one palette
+// override. The stage name shown alongside the bar is the redundant channel
+// that carries the meaning when hues are hard to tell apart.
 export const STAGES: Record<StageKey, StageDef> = {
-  locked: { key: "locked", label: "Locked", color: "#cf222e" },
-  review: { key: "review", label: "Review", color: "#d4a72c" },
+  locked: { key: "locked", label: "Locked", color: "var(--stage-locked)" },
+  review: { key: "review", label: "Review", color: "var(--stage-review)" },
   // Recurrent marks a repeating task: unlike review/locked its progress spans
   // the full 0–100%, and Carry Over reseeds a finished one as a fresh copy.
-  recurrent: { key: "recurrent", label: "Recurrent", color: "#58a6ff" },
-  done: { key: "done", label: "Done", color: "#1f883d" },
+  recurrent: { key: "recurrent", label: "Recurrent", color: "var(--stage-recurrent)" },
+  done: { key: "done", label: "Done", color: "var(--stage-done)" },
 };
 
 export const STAGE_ORDER: StageKey[] = ["locked", "review", "recurrent", "done"];
 
 /** Progress bar colour for a stage; the default (no stage) bar is green. */
-export const DEFAULT_BAR_COLOR = "#3fb950";
+export const DEFAULT_BAR_COLOR = "var(--bar-default)";
 
 /** isComplete mirrors board.Complete: a card is finished when it has an explicit
  *  done stage, or is 100% with no stage, or is a recurrent card at 100%. */
