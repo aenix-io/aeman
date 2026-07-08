@@ -92,6 +92,9 @@ export interface NewCardInput {
   reviewOf?: string | null;
   /** Force the team's sprint pointer to (re)start on the card's day. */
   startNewSprint?: boolean;
+  /** Schedule the card for its day without joining any sprint (a "next
+   * sprint" create); the next carry-over to reach its day adopts it. */
+  noSprint?: boolean;
 }
 
 /** SprintState is a team's explicit sprint pointer: its current and previous

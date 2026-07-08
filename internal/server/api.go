@@ -325,6 +325,9 @@ type createCardRequest struct {
 	} `json:"plan"`
 	ReviewOf       string `json:"reviewOf"`
 	StartNewSprint *bool  `json:"startNewSprint"`
+	// NoSprint schedules the card for its day without joining any sprint (a
+	// "next sprint" create); the next carry-over to reach its day adopts it.
+	NoSprint bool `json:"noSprint"`
 }
 
 func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
@@ -353,6 +356,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		SprintStart:    in.Dates.Sprint,
 		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
+		NoSprint:       in.NoSprint,
 	}
 	if len(in.Assignees) > 0 {
 		args.Assignee = in.Assignees[0]

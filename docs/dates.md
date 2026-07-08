@@ -8,7 +8,7 @@ code** whenever the rules change.
 Code that implements these rules:
 - Frontend: `web/src/components/{TeamBoard,MeBoard,Card}.tsx`, `web/src/date.ts`,
   `web/src/sprint.ts`.
-- Go: `internal/board/{filters,date,sprint}.go`, `internal/boardservice/service.go`.
+- Go: `pkg/board/{filters,date,sprint}.go`, `pkg/boardservice/service.go`.
 
 ## Two dates per card
 
@@ -34,7 +34,8 @@ Also:
 
 `startDate` and `sprintStart` differ whenever a card is created on a later day of
 its sprint, or deferred with "+1 day" / "+1 week" (which pushes `startDate` past
-today while the card stays in its sprint).
+today while the card stays in its sprint). A "**next sprint**" create has **no
+`sprintStart` at all** until a Carry Over adopts it (see Create / Carry Over).
 
 ## Concepts
 
@@ -56,6 +57,15 @@ today while the card stays in its sprint).
   view.
 - First sprint: if the team has none yet, creating records the viewed day as its
   first sprint on the sprint-state card.
+- **Ahead of the sprint** (Team board, `selectedDate > currentSprint(team)`):
+  the day is ambiguous — a later day of the running sprint (two-day sprints) or
+  the next one (daily sprints) — so the board **asks**. "Current sprint" keeps
+  the rules above; "**next sprint**" creates the card with **no `sprintStart`**
+  (`noSprint` on the create API): it lives on its own day only and the first
+  Carry Over whose day reaches its `startDate` adopts it (see Carry Over). It
+  never appears on the old sprint's window.
+- **Me board creates never ask**: an engineer's own card always joins the
+  current sprint, so a lead reviewing the day sees what came up mid-sprint.
 
 ### Team view — a card's days (`selectedDate`)
 - A **materialized** card (`startDate <= today`) shows on its sprint's start day
@@ -83,6 +93,9 @@ today while the card stays in its sprint).
 - A **deferred / future-scheduled** card (`startDate > today`) is hidden until
   that day, then shows from it on (the next Carry Over re-syncs its sprint like
   any unfinished card).
+- A **sprint-less** day card (a "next sprint" create) shows from its
+  `startDate` on — the sprint gate above would otherwise hide it right when its
+  day arrives — until a Carry Over adopts it into a sprint.
 - The team-focus "eye" toggle further narrows to the selected teams (not
   persisted, off by default).
 
@@ -98,6 +111,11 @@ today while the card stays in its sprint).
 - A carried card keeps its `startDate`, so it stays visible on the days of the
   sprint it came from (see the Team / Me rules): Carry Over adds it to the new
   sprint without removing it from the previous one.
+- **Adoption**: unfinished **sprint-less** day cards ("next sprint" creates,
+  not plan cards) whose `startDate <= today` also get `sprintStart = today` —
+  they join the sprint this Carry Over opens, which is what "the next sprint"
+  meant when they were created. Ones still ahead of today wait for a later
+  Carry Over.
 
 ### Defer ("+1 day" / "+1 week")
 - The per-card control pushes **`startDate`** forward — counting from **today**

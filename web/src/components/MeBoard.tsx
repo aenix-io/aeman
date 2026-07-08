@@ -216,6 +216,12 @@ export function MeBoard({
         ) {
           return true;
         }
+        // A sprint-less day card (a "next sprint" create) stays visible from
+        // its scheduled day on — the sprint gate below would otherwise hide it
+        // right when its day arrives, until a carry-over adopts it.
+        if (!c.sprintStart && !c.plan && c.startDate && c.startDate <= selectedDate) {
+          return true;
+        }
         const as = activeSprint(board, c.team ?? null, selectedDate);
         const ss = c.sprintStart;
         // A card shows on every day of the sprints it spans — from the one it

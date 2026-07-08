@@ -90,6 +90,14 @@ func MeView(b Board, user, day string) []Card {
 			out = append(out, c)
 			continue
 		}
+		// A sprint-less day card (a "next sprint" create) stays visible from its
+		// scheduled day on — the sprint gate below would otherwise hide it right
+		// when its day arrives, until a carry-over adopts it into a sprint.
+		if c.SprintStart == "" && c.Plan == PlanNone && c.StartDate != "" &&
+			c.StartDate <= day {
+			out = append(out, c)
+			continue
+		}
 		as := ActiveSprint(b, c.Team, day)
 		// A card shows on every day of the sprints it spans — from the one it
 		// started in up to the sprint it now belongs to — so a carried-over card
