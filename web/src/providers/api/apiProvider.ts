@@ -210,6 +210,9 @@ export const apiProvider: Provider = {
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;
     }
+    if (input.noSprint) {
+      body.noSprint = true;
+    }
     return cardFrom(board, "POST", "/cards", body);
   },
 

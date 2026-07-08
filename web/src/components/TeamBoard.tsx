@@ -30,6 +30,7 @@ import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { TeamsModal } from "./TeamsModal";
+import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
@@ -116,6 +117,15 @@ export function TeamBoard({
   const sprintRef = useRef<HTMLDivElement | null>(null);
   const [carryWeekOpen, setCarryWeekOpen] = useState(false);
   const carryWeekRef = useRef<HTMLDivElement | null>(null);
+  // A create on a day ahead of the team's current sprint waits here for the
+  // lead's current-vs-next-sprint choice (null = no dialog open).
+  const [sprintChoice, setSprintChoice] = useState<{
+    engineer: string;
+    zone: ZoneKey;
+    title: string;
+    team: string | null;
+    sprint: string;
+  } | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     try {
       const v = localStorage.getItem("aeman.columnOrder");
@@ -1284,9 +1294,10 @@ export function TeamBoard({
     team: string | null,
     startDate: string,
     day: string,
+    noSprint = false,
   ) => {
     const sprint = currentSprint(board, team);
-    const firstSprint = sprint === null;
+    const firstSprint = !noSprint && sprint === null;
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
@@ -1296,7 +1307,7 @@ export function TeamBoard({
       zone,
       day,
       startDate,
-      sprintStart: sprint ?? startDate,
+      sprintStart: noSprint ? undefined : (sprint ?? startDate),
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
       description: "",
@@ -1310,6 +1321,7 @@ export function TeamBoard({
       start: startDate,
       assigneeLogin: engineer || null,
       team,
+      noSprint: noSprint || undefined,
     });
     registerPendingCard(
       tempId,
@@ -1337,13 +1349,22 @@ export function TeamBoard({
 
   // Creating a Team card is scheduled for the viewed day as a one-day range —
   // a backdated create with day = today would stretch onto today's board. The
-  // sprint join (and the first-sprint record) happens server-side.
+  // sprint join (and the first-sprint record) happens server-side. A day ahead
+  // of the team's current sprint is ambiguous — a later day of the running
+  // sprint (two-day sprints) or the next one (daily sprints)? Only the lead
+  // knows, so ask; "next sprint" creates the card without a sprint and the
+  // next carry over to reach its day adopts it.
   const handleCreate = (
     engineer: string,
     zone: ZoneKey,
     title: string,
     team?: string | null,
   ) => {
+    const sprint = currentSprint(board, team ?? null);
+    if (sprint !== null && selectedDate > sprint) {
+      setSprintChoice({ engineer, zone, title, team: team ?? null, sprint });
+      return;
+    }
     createTeamCard(
       engineer,
       zone,
@@ -1391,13 +1412,15 @@ export function TeamBoard({
     // advanced sprint and blank the board. Only the closing (current) sprint's
     // unfinished cards carry, mirroring boardservice.CarryOver.
     for (const c of board.cards) {
-      if (
-        (team === null ? c.team == null : c.team === team) &&
-        !!old &&
-        c.sprintStart === old &&
-        !isComplete(c) &&
-        !c.itemId.startsWith("tmp-")
-      ) {
+      const sameTeam = team === null ? c.team == null : c.team === team;
+      if (!sameTeam || isComplete(c) || c.itemId.startsWith("tmp-")) {
+        continue;
+      }
+      // Sprint-less day cards whose day has arrived ("next sprint" creates)
+      // are adopted by the sprint being started, mirroring CarryOver.
+      const adopted =
+        !c.sprintStart && !c.plan && !!c.startDate && c.startDate <= today;
+      if (adopted || (!!old && c.sprintStart === old)) {
         patchCard(c.itemId, { sprintStart: today });
       }
     }
@@ -1880,6 +1903,25 @@ export function TeamBoard({
           onRemove={onRemoveTeam}
           onReorder={onReorderTeams}
           onClose={() => setTeamsModalOpen(false)}
+        />
+      )}
+      {sprintChoice && (
+        <SprintChoiceDialog
+          title={sprintChoice.title}
+          day={selectedDate}
+          sprint={sprintChoice.sprint}
+          onClose={() => setSprintChoice(null)}
+          onSubmit={(noSprint) =>
+            createTeamCard(
+              sprintChoice.engineer,
+              sprintChoice.zone,
+              sprintChoice.title,
+              sprintChoice.team,
+              selectedDate,
+              selectedDate,
+              noSprint,
+            )
+          }
         />
       )}
     </div>
