@@ -583,7 +583,7 @@ export function MeBoard({
     const prev = reviewCard.assignees;
     patchCard(reviewCard.itemId, { assignees: [login] });
     void provider
-      .sendToReview(board, card.itemId, login, selectedDate)
+      .sendToReview(board, card.itemId, login, selectedDate, "yellow")
       .then((updated) => {
         addCard(updated);
         // Re-sending a passed card to the same reviewer reactivates their
@@ -599,9 +599,10 @@ export function MeBoard({
   };
 
   // Send a card to review: one action — the server creates the linked review
-  // card (in the original's team, landing in the reviewer's unplanned zone)
-  // and puts the original on the review stage. Both effects are mirrored
-  // optimistically; the re-list converges the original's server-side state.
+  // card and puts the original on the review stage. From the Me board the
+  // review card lands in the reviewer's unplanned zone: for them it popped up
+  // during the day. Both effects are mirrored optimistically; the re-list
+  // converges the original's server-side state.
   const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
     const team = card.team ?? null;
     const zone: ZoneKey = "yellow";
@@ -634,7 +635,7 @@ export function MeBoard({
       ...(card.progress === 100 ? { progress: 90 } : {}),
     });
     void provider
-      .sendToReview(board, card.itemId, reviewerLogin, selectedDate)
+      .sendToReview(board, card.itemId, reviewerLogin, selectedDate, zone)
       .then((created) => {
         removeCard(tempId);
         addCard(created);

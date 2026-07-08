@@ -182,6 +182,8 @@ export interface Provider {
     uid: string,
     reviewer: string,
     day?: string,
+    /** Zone for the review card; omitted = the original's zone. */
+    zone?: ZoneKey,
   ): Promise<Card>;
   /** Delete the linked review card; returns the original. */
   removeReviewer(board: BoardAddr, uid: string): Promise<Card>;
