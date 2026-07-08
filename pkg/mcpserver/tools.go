@@ -428,7 +428,7 @@ func (h *server) sendToReview(ctx context.Context, _ *mcp.CallToolRequest, in se
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	review, err := svc.SendToReview(ctx, owner, project, in.UID, in.Reviewer, in.Day)
+	review, err := svc.SendToReview(ctx, owner, project, in.UID, in.Reviewer, in.Day, "")
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}

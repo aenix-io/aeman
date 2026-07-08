@@ -655,12 +655,19 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Reviewer string `json:"reviewer"`
 		Day      string `json:"day"`
+		// Zone places the review card explicitly (the Me board sends it to the
+		// reviewer's unplanned zone); empty keeps the original's zone.
+		Zone string `json:"zone"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
 	if in.Reviewer == "" {
 		writeJSONError(w, http.StatusUnprocessableEntity, "reviewer is required")
+		return
+	}
+	zone, ok := parseZone(w, in.Zone)
+	if !ok {
 		return
 	}
 	svc, owner, project, ok := s.service(w, r)
@@ -676,7 +683,7 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range b.Cards {
 		if c.ReviewOf == uid {
-			if err := svc.ReassignReviewer(ctx, owner, project, uid, in.Reviewer, in.Day); err != nil {
+			if err := svc.ReassignReviewer(ctx, owner, project, uid, in.Reviewer, in.Day, zone); err != nil {
 				s.apiError(w, err)
 				return
 			}
@@ -684,7 +691,7 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	review, err := svc.SendToReview(ctx, owner, project, uid, in.Reviewer, in.Day)
+	review, err := svc.SendToReview(ctx, owner, project, uid, in.Reviewer, in.Day, zone)
 	if err != nil {
 		s.apiError(w, err)
 		return
