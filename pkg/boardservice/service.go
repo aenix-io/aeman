@@ -1079,26 +1079,30 @@ func (s *Service) syncReviewLink(ctx context.Context, b board.Board, card board.
 // --- Review linkage --------------------------------------------------------
 
 // SendToReview creates a linked review card for a reviewer (in the original's
-// team, landing in the unplanned zone) and puts the original on the review
-// stage, returning the review card. day = "" is today. It mirrors
+// team) and puts the original on the review stage, returning the review card.
+// day = "" is today. zone places the review card explicitly — the Me board
+// sends the reviewer's copy to their unplanned zone — while "" keeps the
+// original's zone (the Team board's and MCP's behaviour). It mirrors
 // handleSendToReview in TeamBoard.tsx / MeBoard.tsx.
-func (s *Service) SendToReview(ctx context.Context, owner string, project int, itemID, reviewer, day string) (board.Card, error) {
+func (s *Service) SendToReview(ctx context.Context, owner string, project int, itemID, reviewer, day string, zone board.ZoneKey) (board.Card, error) {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return board.Card{}, err
 	}
-	return s.sendToReview(ctx, b, card, reviewer, day)
+	return s.sendToReview(ctx, b, card, reviewer, day, zone)
 }
 
 // sendToReview is the create-review-card half of SendToReview over a loaded board.
-func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Card, reviewer, day string) (board.Card, error) {
+func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Card, reviewer, day string, zone board.ZoneKey) (board.Card, error) {
 	if day == "" {
 		day = board.TodayIso()
 	}
-	// The review card lands in the reviewer's unplanned (yellow) zone: for the
-	// reviewer this work popped up during the day, whatever zone the original
-	// occupies on its author's board.
-	zone := board.ZoneYellow
+	if zone == "" {
+		zone = card.Zone
+	}
+	if zone == "" {
+		zone = board.ZoneGray
+	}
 	// A review card belongs to the SAME sprint as the card it reviews, not
 	// merely the team's current pointer — otherwise a card being reviewed in an
 	// older, not-yet-carried sprint would get a review card in a different
@@ -1141,16 +1145,18 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 }
 
 // ReassignReviewer points a card's linked review card at another reviewer, or
-// sends the card to review when it has none yet (day = "" is today). It mirrors
+// sends the card to review when it has none yet (day = "" is today). zone
+// places a newly created review card like SendToReview's ("" = the original's
+// zone); an existing review card is never moved. It mirrors
 // handleSetReviewAssignee (non-null login) in TeamBoard.tsx.
-func (s *Service) ReassignReviewer(ctx context.Context, owner string, project int, itemID, reviewer, day string) error {
+func (s *Service) ReassignReviewer(ctx context.Context, owner string, project int, itemID, reviewer, day string, zone board.ZoneKey) error {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
 	}
 	reviewCard, ok := findReviewCard(b, card.ItemID)
 	if !ok {
-		_, err := s.sendToReview(ctx, b, card, reviewer, day)
+		_, err := s.sendToReview(ctx, b, card, reviewer, day, zone)
 		return err
 	}
 	// Re-review: sending an already-passed card back to the SAME reviewer
@@ -1189,7 +1195,7 @@ func (s *Service) ReassignReviewer(ctx context.Context, owner string, project in
 	if err := s.backend.SetReviewOf(ctx, b, reviewCard, ""); err != nil {
 		return err
 	}
-	_, err = s.sendToReview(ctx, b, card, reviewer, day)
+	_, err = s.sendToReview(ctx, b, card, reviewer, day, zone)
 	return err
 }
 
