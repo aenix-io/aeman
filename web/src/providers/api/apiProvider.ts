@@ -27,6 +27,7 @@ import type {
   NewCardInput,
   Note,
   Provider,
+  ZoneKey,
 } from "../types";
 
 // staleListener is notified whenever a response was served from a stale board
@@ -274,11 +275,13 @@ export const apiProvider: Provider = {
     uid: string,
     reviewer: string,
     day?: string,
+    zone?: ZoneKey,
   ): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom(board, "POST", `/cards/${uid}/actions/send-to-review`, {
       reviewer,
       day: day ?? "",
+      zone: zone ? semanticZone(zone) : "",
     });
   },
 

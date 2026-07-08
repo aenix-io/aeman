@@ -576,7 +576,7 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "orig", Title: "ship it", Team: "alpha", Zone: board.ZoneRed, Progress: 100}},
 		map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
 	day := "2026-06-25"
-	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "carol", day)
+	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "carol", day, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,6 +584,8 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	if in.Title != "review: ship it" || in.Assignee != "carol" || in.ReviewOf != "orig" {
 		t.Fatalf("review create input = %+v", in)
 	}
+	// Without an explicit zone the review card inherits the original's (the
+	// Team board's behaviour).
 	if in.Zone != board.ZoneRed || in.Team != "alpha" || in.Start != day || in.SprintStart != "2026-06-20" {
 		t.Fatalf("review create input = %+v", in)
 	}
@@ -596,12 +598,25 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	}
 }
 
+// The Me board sends the review card to the reviewer's unplanned zone
+// explicitly: for the reviewer it is work that popped up during the day.
+func TestSendToReviewWithExplicitZone(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "orig", Title: "ship it", Team: "alpha", Zone: board.ZoneRed}},
+		map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
+	if _, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "carol", "2026-06-25", board.ZoneYellow); err != nil {
+		t.Fatal(err)
+	}
+	if f.creates[0].Zone != board.ZoneYellow {
+		t.Fatalf("review create input = %+v", f.creates[0])
+	}
+}
+
 func TestReassignReviewerOnExistingReview(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Title: "x"},
 		{ItemID: "rev", ReviewOf: "orig", Assignees: []string{"carol"}},
 	}, nil)
-	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "dave", ""); err != nil {
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "dave", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("CreateCard") != 0 {
@@ -614,7 +629,7 @@ func TestReassignReviewerOnExistingReview(t *testing.T) {
 
 func TestReassignReviewerWithoutReviewSendsToReview(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "orig", Title: "x", Team: "alpha"}}, nil)
-	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "dave", "2026-06-25"); err != nil {
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "dave", "2026-06-25", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("CreateCard") != 1 || f.creates[0].Assignee != "dave" || f.creates[0].ReviewOf != "orig" {
@@ -1338,7 +1353,7 @@ func TestSendToReviewCopiesDescription(t *testing.T) {
 			Description: "context: https://github.com/acme/repo/issues/5"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	svc := New(fake)
-	review, err := svc.SendToReview(context.Background(), "acme", 1, "c1", "lllamnyp", "2026-06-21")
+	review, err := svc.SendToReview(context.Background(), "acme", 1, "c1", "lllamnyp", "2026-06-21", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1412,7 +1427,7 @@ func TestReassignWorkedReviewerSpawnsNewCard(t *testing.T) {
 		{ItemID: "orig", Team: "alpha", Title: "Work", Stage: board.StageReview, Progress: 50},
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, Assignees: []string{"old"}},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
-	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10"); err != nil {
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !f.saw("SetReviewOf rev ") {
@@ -1432,7 +1447,7 @@ func TestReassignUntouchedReviewerInPlace(t *testing.T) {
 		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Assignees: []string{"old"}},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
-	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10"); err != nil {
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.creates) != 0 || !f.saw("SetAssignee rev new") {
@@ -1495,7 +1510,7 @@ func TestReReviewReactivatesReviewCard(t *testing.T) {
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"}},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
 	svc := f2svc(f)
-	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10"); err != nil {
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	orig := f.get("orig")
@@ -1508,7 +1523,7 @@ func TestReReviewReactivatesReviewCard(t *testing.T) {
 	}
 	// A second re-review advances to round 3.
 	f.get("rev").Progress = 100
-	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10"); err != nil {
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	if r := f.get("rev"); r.ReviewRound != 3 || r.Progress != 0 {
@@ -1524,7 +1539,7 @@ func TestReReviewDifferentReviewerDoesNotReactivate(t *testing.T) {
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"}},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
 	svc := f2svc(f)
-	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "carol", "2026-01-10"); err != nil {
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "carol", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !f.saw("SetReviewOf rev ") {
@@ -1578,7 +1593,7 @@ func TestSendToReviewUsesOriginalSprint(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Team: "alpha", Title: "Work", SprintStart: "2026-01-01"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-08", ItemID: "s1"}})
-	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "bob", "2026-01-08")
+	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "bob", "2026-01-08", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1789,7 +1804,7 @@ func TestReviewCycleRecordsEvents(t *testing.T) {
 	svc := f2svc(f)
 	actx := WithActor(ctx, "kvaps")
 
-	rev, err := svc.SendToReview(actx, "acme", 1, "orig", "lllamnyp", today)
+	rev, err := svc.SendToReview(actx, "acme", 1, "orig", "lllamnyp", today, "")
 	if err != nil {
 		t.Fatal(err)
 	}
