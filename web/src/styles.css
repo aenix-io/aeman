@@ -1936,6 +1936,36 @@ button.card-age {
   overflow: hidden;
 }
 
+.modal-narrow {
+  width: 440px;
+}
+
+.sprint-choice-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sprint-choice-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sprint-choice-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+}
+
+.sprint-choice-btn span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .modal-header {
   display: flex;
   align-items: center;
