@@ -584,7 +584,9 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	if in.Title != "review: ship it" || in.Assignee != "carol" || in.ReviewOf != "orig" {
 		t.Fatalf("review create input = %+v", in)
 	}
-	if in.Zone != board.ZoneRed || in.Team != "alpha" || in.Start != day || in.SprintStart != "2026-06-20" {
+	// The review card lands in the reviewer's unplanned zone regardless of the
+	// original's zone (here red): for the reviewer it popped up unplanned.
+	if in.Zone != board.ZoneYellow || in.Team != "alpha" || in.Start != day || in.SprintStart != "2026-06-20" {
 		t.Fatalf("review create input = %+v", in)
 	}
 	if rev.ReviewOf != "orig" {

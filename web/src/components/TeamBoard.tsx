@@ -1159,12 +1159,12 @@ export function TeamBoard({
   };
 
   // Send a card to review: one action — the server creates the linked review
-  // card (in the original's zone/team) and puts the original on the review
-  // stage. Both effects are mirrored optimistically; the re-list converges
-  // the original's server-side state.
+  // card (in the original's team, landing in the reviewer's unplanned zone)
+  // and puts the original on the review stage. Both effects are mirrored
+  // optimistically; the re-list converges the original's server-side state.
   const handleSendToReview = (card: CardModel, reviewerLogin: string) => {
     const team = card.team ?? null;
-    const zone: ZoneKey = card.zone ?? "gray";
+    const zone: ZoneKey = "yellow";
     const sprintStart = currentSprint(board, team) ?? selectedDate;
     const title = `review: ${card.title}`;
     const tempId = `tmp-${new Date().toISOString()}`;
