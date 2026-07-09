@@ -429,6 +429,9 @@ func TestCarryOverAdoptsSprintlessDayCards(t *testing.T) {
 		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: "2026-01-05"},
 		// Another team's sprint-less card is not this carry-over's business.
 		{ItemID: "n4", Team: "beta", StartDate: today},
+		// An old sprint-less stray (scheduled before the closing sprint even
+		// started — a report card, a legacy card) is not this sprint's work.
+		{ItemID: "n5", Team: "alpha", StartDate: "2025-12-15"},
 	}, map[string]board.SprintState{"alpha": {Current: old}})
 	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
 	if err != nil {
@@ -442,6 +445,9 @@ func TestCarryOverAdoptsSprintlessDayCards(t *testing.T) {
 	}
 	if f.get("n2").SprintStart != "" || f.get("n3").SprintStart != "" {
 		t.Fatalf("future/finished sprint-less cards must stay: %+v %+v", f.get("n2"), f.get("n3"))
+	}
+	if f.get("n5").SprintStart != "" {
+		t.Fatalf("a pre-sprint stray must not be adopted: %+v", f.get("n5"))
 	}
 }
 

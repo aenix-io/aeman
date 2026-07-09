@@ -224,13 +224,21 @@ export function MeBoard({
         ) {
           return true;
         }
+        const as = activeSprint(board, c.team ?? null, selectedDate);
         // A sprint-less day card (a "next sprint" create) stays visible from
         // its scheduled day on — the sprint gate below would otherwise hide it
-        // right when its day arrives, until a carry-over adopts it.
-        if (!c.sprintStart && !c.plan && c.startDate && c.startDate <= selectedDate) {
+        // right when its day arrives, until a carry-over adopts it. Only cards
+        // scheduled into the sprint active on the viewed day (or later)
+        // qualify: an old sprint-less stray stays on its own past days.
+        if (
+          !c.sprintStart &&
+          !c.plan &&
+          c.startDate &&
+          c.startDate <= selectedDate &&
+          c.startDate >= as
+        ) {
           return true;
         }
-        const as = activeSprint(board, c.team ?? null, selectedDate);
         const ss = c.sprintStart;
         // A card shows on every day of the sprints it spans — from the one it
         // started in up to the sprint it now belongs to — so a carried-over card

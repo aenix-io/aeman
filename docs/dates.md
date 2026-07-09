@@ -95,7 +95,10 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
   any unfinished card).
 - A **sprint-less** day card (a "next sprint" create) shows from its
   `startDate` on — the sprint gate above would otherwise hide it right when its
-  day arrives — until a Carry Over adopts it into a sprint.
+  day arrives — until a Carry Over adopts it into a sprint. Only cards
+  scheduled into the sprint active on the viewed day or later
+  (`startDate >= activeSprint(team, day)`) qualify: an old sprint-less stray
+  stays on its own past days instead of resurfacing on current boards.
 - The team-focus "eye" toggle further narrows to the selected teams (not
   persisted, off by default).
 
@@ -112,10 +115,12 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
   sprint it came from (see the Team / Me rules): Carry Over adds it to the new
   sprint without removing it from the previous one.
 - **Adoption**: unfinished **sprint-less** day cards ("next sprint" creates,
-  not plan cards) whose `startDate <= today` also get `sprintStart = today` —
-  they join the sprint this Carry Over opens, which is what "the next sprint"
-  meant when they were created. Ones still ahead of today wait for a later
-  Carry Over.
+  not plan cards) with `old sprint < startDate <= today` also get
+  `sprintStart = today` — they join the sprint this Carry Over opens, which is
+  what "the next sprint" meant when they were created. Ones still ahead of
+  today wait for a later Carry Over; ones scheduled **before** the closing
+  sprint (old sprint-less strays — report cards, legacy cards) are never
+  dragged in.
 
 ### Defer ("+1 day" / "+1 week")
 - The per-card control pushes **`startDate`** forward — counting from **today**
