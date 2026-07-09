@@ -330,8 +330,12 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		}
 		// Adopt sprint-less day cards whose scheduled day has arrived (a "next
 		// sprint" create): they join the sprint this carry-over opens, which is
-		// what "the next sprint" meant when they were created.
+		// what "the next sprint" meant when they were created. Only cards
+		// scheduled PAST the closing sprint qualify — an old sprint-less stray
+		// (a report card, a pre-sprint legacy card) is not this sprint's work
+		// and must not be dragged in.
 		if c.SprintStart == "" && c.Plan == board.PlanNone && c.StartDate != "" &&
+			old != "" && c.StartDate > old &&
 			c.StartDate <= today && !board.Complete(c.Stage, c.Progress) {
 			carry = append(carry, c)
 			continue
