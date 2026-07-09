@@ -1417,10 +1417,16 @@ export function TeamBoard({
       if (!sameTeam || isComplete(c) || c.itemId.startsWith("tmp-")) {
         continue;
       }
-      // Sprint-less day cards whose day has arrived ("next sprint" creates)
-      // are adopted by the sprint being started, mirroring CarryOver.
+      // Sprint-less day cards scheduled past the closing sprint whose day has
+      // arrived ("next sprint" creates) are adopted by the sprint being
+      // started, mirroring CarryOver; older sprint-less strays stay put.
       const adopted =
-        !c.sprintStart && !c.plan && !!c.startDate && c.startDate <= today;
+        !c.sprintStart &&
+        !c.plan &&
+        !!c.startDate &&
+        !!old &&
+        c.startDate > old &&
+        c.startDate <= today;
       if (adopted || (!!old && c.sprintStart === old)) {
         patchCard(c.itemId, { sprintStart: today });
       }
