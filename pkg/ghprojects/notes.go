@@ -46,9 +46,9 @@ func domainBuildDraftBody(description string, notes []board.Note) string {
 // write-behind store coalesces a card's pending description/note/event
 // changes DeltaFIFO-style and pushes the final state through this, instead of
 // racing several read-modify-write cycles against the same body.
-func (c *Client) SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) error {
+func (c *Client) SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error) {
 	if card.ContentID == "" {
-		return ErrNoContent
+		return nil, nil, ErrNoContent
 	}
 	log := make([]board.Note, 0, len(notes)+len(events))
 	log = append(log, notes...)
@@ -65,10 +65,18 @@ func (c *Client) SyncDraftBody(ctx context.Context, card board.Card, description
 		return log[i].CreatedAt < log[j].CreatedAt
 	})
 	body := capDraftEventLog(domainBuildDraftBody(description, log), card.ItemID)
-	return c.graphql(ctx, updateDraftBodyMutation, map[string]any{
+	if err := c.graphql(ctx, updateDraftBodyMutation, map[string]any{
 		"draft": card.ContentID,
 		"body":  body,
-	}, nil)
+	}, nil); err != nil {
+		return nil, nil, err
+	}
+	// Parse the body just written back into the canonical log — real ids
+	// (draft line indexes) included — so the caller can fix its cache without
+	// an upstream re-read, which right after a write is often stale.
+	_, written := domainParseDraftBody(body, card.ItemID)
+	outNotes, outEvents := board.PartitionEvents(written)
+	return outNotes, outEvents, nil
 }
 
 // SetDescription replaces a card's free-form description. On a draft the body is

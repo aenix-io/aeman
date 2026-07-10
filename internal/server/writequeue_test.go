@@ -342,7 +342,7 @@ type wbBodyBackend struct {
 	lastEvs   []board.Event
 }
 
-func (w *wbBodyBackend) SyncDraftBody(_ context.Context, _ board.Card, description string, notes []board.Note, events []board.Event) error {
+func (w *wbBodyBackend) SyncDraftBody(_ context.Context, _ board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error) {
 	if w.bodyGate != nil {
 		<-w.bodyGate
 	}
@@ -352,7 +352,7 @@ func (w *wbBodyBackend) SyncDraftBody(_ context.Context, _ board.Card, descripti
 	w.lastDesc = description
 	w.lastNotes = append([]board.Note(nil), notes...)
 	w.lastEvs = append([]board.Event(nil), events...)
-	return nil
+	return notes, events, nil
 }
 
 // Rapid body-affecting changes on one draft card — notes, an event line, a

@@ -802,7 +802,7 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 // uses when the upstream backend supports it (ghprojects does; test fakes
 // without it fall back to per-op writes).
 type draftBodySyncer interface {
-	SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) error
+	SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error)
 }
 
 // bodyMutate queues a draft card's body-affecting change (description, note,
@@ -835,11 +835,32 @@ func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card boar
 		if snap == nil {
 			return nil // deleted meanwhile — nothing left to write
 		}
-		if err := syncer.SyncDraftBody(ctx, card, snap.Description, snap.Notes, snap.Events); err != nil {
+		notes, events, err := syncer.SyncDraftBody(ctx, card, snap.Description, snap.Notes, snap.Events)
+		if err != nil {
 			return err
 		}
-		// Re-read so draft note ids (body line indexes) match reality again.
-		b.touched(ctx, bd, itemID)
+		// The written body IS the canonical state: swap the cached log to it
+		// (real draft line-index ids included) and replay the still-pending
+		// deltas on top. No upstream re-read — right after a write it is
+		// often stale and would make fresh notes flicker away.
+		e.mu.Lock()
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID != itemID {
+				continue
+			}
+			e.board.Cards[i].Notes = notes
+			e.board.Cards[i].Events = events
+			if e.inflight != nil {
+				e.inflight.apply(&e.board)
+			}
+			for _, op := range e.pending {
+				op.apply(&e.board)
+			}
+			e.markRecent(itemID)
+			e.cardChanged("", e.board.Cards[i], "MODIFIED")
+			break
+		}
+		e.mu.Unlock()
 		return nil
 	}
 	b.mutateCardOp(ctx, bd, itemID, "body", desc, true, fn, exec)
