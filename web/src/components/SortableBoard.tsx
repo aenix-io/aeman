@@ -269,8 +269,9 @@ export function SortableBoard<Meta>({
   // The card the active placeholder would nest under, resolved from its slot
   // in the working copy and the held indent level — Todoist-style:
   //  - a middle-band hover (nestUnder) always nests under that card;
-  //  - between two subtasks of the same parent the slot is unambiguous: it
-  //    joins them regardless of indent;
+  //  - a slot strictly INSIDE a block (more subtasks follow below) is
+  //    unambiguous: it nests regardless of indent — a standalone card cannot
+  //    sit between a parent and its subtasks, so no flush preview there;
   //  - below the LAST subtask of a block, or below any plain card, the indent
   //    decides — held to the right nests, flush left stays standalone.
   // The drop commits exactly this resolution, so the preview never lies.
@@ -296,9 +297,13 @@ export function SortableBoard<Meta>({
       return null;
     }
     let target: CardModel | undefined;
-    if (above.parent) {
-      const lastOfBlock = !below || below.parent !== above.parent;
-      if (!lastOfBlock || indentOn) {
+    if (below?.parent) {
+      // Strictly inside a block: subtasks continue below, so the slot can
+      // only be one of them — the dedent gesture exists on the last slot only.
+      target = cardById.get(below.parent);
+    } else if (above.parent) {
+      // The last slot of a block: the held indent decides.
+      if (indentOn) {
         target = cardById.get(above.parent);
       }
     } else if (indentOn) {
