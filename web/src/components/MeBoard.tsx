@@ -435,6 +435,24 @@ export function MeBoard({
 
   const subsOpen = (id: string) => expandedSubs.has(id);
 
+  // A parent dragged with its list open folds for the flight (the whole
+  // block moving with the ghost is unwieldy) and unfolds where it lands.
+  const foldedForDrag = useRef<string | null>(null);
+  const handleDragActive = (id: string | null) => {
+    if (id && expandedSubs.has(id)) {
+      foldedForDrag.current = id;
+      setExpandedSubs((cur) => {
+        const next = new Set(cur);
+        next.delete(id);
+        return next;
+      });
+    } else if (id === null && foldedForDrag.current) {
+      const back = foldedForDrag.current;
+      foldedForDrag.current = null;
+      setExpandedSubs((cur) => new Set(cur).add(back));
+    }
+  };
+
   // A create ack swaps the optimistic tmp id for the real one; UI state keyed
   // by the tmp id (selection, expanded lists, an open add-subtask form) must
   // follow, or the + flow collapses mid-typing.
@@ -1458,6 +1476,7 @@ export function MeBoard({
               onDrop={handleDrop}
               onGroupDrop={handleGroup}
               onHoverCard={setGroupHover}
+              onDragActiveCard={handleDragActive}
               canGroup={canGroup}
               renderCard={(card) => withSubs(card, renderMeCard(card))}
               renderOverlay={(card) => (
