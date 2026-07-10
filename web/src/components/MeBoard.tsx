@@ -63,6 +63,8 @@ interface MeBoardProps {
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
   ) => void;
   addCard: (card: CardModel) => void;
+  /** Swap an optimistic card for its server twin in place (keeps the slot). */
+  replaceCard: (itemId: string, card: CardModel) => void;
   removeCard: (itemId: string) => void;
   reorderCards: (orderedItemIds: string[]) => void;
   reload: () => void;
@@ -121,6 +123,7 @@ export function MeBoard({
   onRenameTeam,
   patchCard,
   addCard,
+  replaceCard,
   removeCard,
   reorderCards,
   reload,
@@ -558,8 +561,7 @@ export function MeBoard({
         parent: parent.itemId,
       })
       .then((c) => {
-        removeCard(tempId);
-        addCard(c);
+        replaceCard(tempId, c);
       })
       .catch((err: unknown) => {
         removeCard(tempId);
