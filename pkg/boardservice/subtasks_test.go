@@ -295,3 +295,24 @@ func TestParentSprintChangeDragsSubtasks(t *testing.T) {
 		t.Fatalf("subtask sprint = %q, want dragged to 2026-01-03", f.get("c").SprintStart)
 	}
 }
+
+func TestSmartRemoveDemoteDragsSubtasks(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha", StartDate: "2026-01-10", SprintStart: "2026-01-10"},
+		{ItemID: "c", Team: "alpha", Parent: "p", SprintStart: "2026-01-10"},
+	}, map[string]board.SprintState{
+		"alpha": {Current: "2026-01-10", Previous: "2026-01-03"},
+	})
+	if err := f2svc(f).Remove(ctx, "acme", 1, "p", "grid"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("p") == nil || f.get("p").SprintStart != "2026-01-03" {
+		t.Fatalf("parent = %+v, want demoted to 2026-01-03", f.get("p"))
+	}
+	if f.get("c") == nil || f.get("c").SprintStart != "2026-01-03" {
+		t.Fatalf("subtask = %+v, want dragged to 2026-01-03 with the parent", f.get("c"))
+	}
+	if f.get("c").Parent != "p" {
+		t.Fatalf("subtask parent = %q, want kept", f.get("c").Parent)
+	}
+}
