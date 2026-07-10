@@ -39,7 +39,14 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 		if err := s.backend.SetParent(ctx, b, card, ""); err != nil {
 			return err
 		}
-		s.logEvent(ctx, b, card, board.EventParent, card.Parent, "")
+		// The log keeps titles, not item ids — that is what a human (or an
+		// agent reading list_log) can act on. Both sides record the change.
+		if op, ok := findCard(b, card.Parent); ok {
+			s.logEvent(ctx, b, card, board.EventParent, op.Title, "")
+			s.logEvent(ctx, b, op, board.EventSubtask, card.Title, "")
+		} else {
+			s.logEvent(ctx, b, card, board.EventParent, card.Parent, "")
+		}
 		return s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID)
 	}
 	if parent == card.ItemID {
@@ -88,7 +95,16 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 	if err := s.backend.SetParent(ctx, b, card, parent); err != nil {
 		return err
 	}
-	s.logEvent(ctx, b, card, board.EventParent, card.Parent, parent)
+	// The log keeps titles, not item ids — readable for humans and agents.
+	oldTitle := ""
+	if card.Parent != "" {
+		if op, ok := findCard(b, card.Parent); ok {
+			oldTitle = op.Title
+			s.logEvent(ctx, b, op, board.EventSubtask, card.Title, "")
+		}
+	}
+	s.logEvent(ctx, b, card, board.EventParent, oldTitle, p.Title)
+	s.logEvent(ctx, b, p, board.EventSubtask, "", card.Title)
 	// Moving between parents: the old parent's derived bar loses this child.
 	if card.Parent != "" && card.Parent != parent {
 		if err := s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID); err != nil {
