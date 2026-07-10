@@ -661,9 +661,9 @@ export function TeamBoard({
     [teamFilter, roster],
   );
 
-  // "No team" is offered like any other team: only when it is explicitly
-  // filtered in (or nothing is filtered at all).
-  const pickerNoTeam = teamFilter === null || teamFilter.includes("");
+  // "No team" is offered only when the no-team group is actually displayed
+  // on the board — a card created into a hidden group would just vanish.
+  const pickerNoTeam = (teamFilter ?? roster).includes("");
 
   // People to offer when reassigning a card: everyone seen on the board, me first.
   const people = useMemo(() => {
