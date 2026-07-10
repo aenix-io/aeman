@@ -224,6 +224,7 @@ type updateCardInput struct {
 	PlanBand    *string `json:"planBand,omitempty" jsonschema:"weekly-plan band, wed or fri; empty clears it"`
 	PlanWeek    *string `json:"planWeek,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd; empty clears it"`
 	ReviewOf    *string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
+	Parent      *string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep; empty ungroups it back to a standalone card); a subtask keeps its own description/notes/log, feeds the parent's derived progress and rides with it through carry-over"`
 }
 
 func (h *server) updateCard(ctx context.Context, _ *mcp.CallToolRequest, in updateCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -281,6 +282,11 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 	}
 	if in.Stage != nil {
 		if err := svc.SetStage(ctx, owner, project, in.UID, board.StageKey(*in.Stage)); err != nil {
+			return err
+		}
+	}
+	if in.Parent != nil {
+		if err := svc.SetParent(ctx, owner, project, in.UID, *in.Parent); err != nil {
 			return err
 		}
 	}
