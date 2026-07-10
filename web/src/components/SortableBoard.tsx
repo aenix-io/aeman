@@ -270,14 +270,14 @@ export function SortableBoard<Meta>({
   //  - below the LAST subtask of a block, or below any plain card, the indent
   //    decides — held to the right nests, flush left stays standalone.
   // The drop commits exactly this resolution, so the preview never lies.
-  const nestPreview = (): string | null => {
-    if (!activeId || !local) {
+  const nestPreview = (work: LocalGroups<Meta> | null): string | null => {
+    if (!activeId || !work) {
       return null;
     }
     if (nestUnder !== null) {
       return cardById.get(nestUnder)?.itemId ?? null;
     }
-    const entry = local.find((g) => g.ids.includes(activeId));
+    const entry = work.find((g) => g.ids.includes(activeId));
     if (!entry) {
       return null;
     }
@@ -442,8 +442,25 @@ export function SortableBoard<Meta>({
       }
       const from = findGroupIndex(cur, activeKey);
       const to = findGroupIndex(cur, overKey);
-      if (from === -1 || to === -1 || from === to) {
+      if (from === -1 || to === -1) {
         return cur;
+      }
+      // Within one container: reorder the working copy live, so the
+      // placeholder physically sits at the previewed slot (its subtask
+      // indent/guide line and the drop resolution then read the true
+      // neighbours, not the pre-drag ones).
+      if (from === to) {
+        const ids = cur[from].ids;
+        const oldIndex = ids.indexOf(activeKey);
+        const newIndex = ids.includes(overKey)
+          ? ids.indexOf(overKey)
+          : ids.length - 1;
+        if (oldIndex === newIndex || oldIndex === -1 || newIndex === -1) {
+          return cur;
+        }
+        return cur.map((g, i) =>
+          i === from ? { ...g, ids: arrayMove(ids, oldIndex, newIndex) } : g,
+        );
       }
       // Move the active card out of its group into the target group, at the
       // index of the card it is hovering (or the end when over the container).
@@ -534,7 +551,7 @@ export function SortableBoard<Meta>({
       fromMeta: fromGroup.meta,
       toMeta: toEntry.meta,
       groups: next.map((g) => ({ meta: g.meta, ids: g.ids })),
-      groupUnder: nestPreview(),
+      groupUnder: nestPreview(next),
     });
     reset();
   };
@@ -544,7 +561,8 @@ export function SortableBoard<Meta>({
     : null;
 
   // The placeholder previews at the indent exactly when the drop would nest.
-  const nestPreviewId = activeId !== null && nestPreview() !== null ? activeId : null;
+  const nestPreviewId =
+    activeId !== null && nestPreview(local) !== null ? activeId : null;
 
   // Render each group as a node, keyed by group.key, so a custom layout can
   // arrange them (Team groups cells into engineer columns); default is flat.
