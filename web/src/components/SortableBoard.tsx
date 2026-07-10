@@ -82,6 +82,9 @@ interface SortableBoardProps<Meta> {
   /** Fires with the card id the drag would group under (its middle band is
    *  hovered), null when the drag leaves it — the board highlights the target. */
   onHoverCard?: (cardId: string | null) => void;
+  /** Fires with the lifted card's itemId on drag start and null when the drag
+   *  settles — the board folds an expanded parent for the flight. */
+  onDragActiveCard?: (cardId: string | null) => void;
   /** Whether the active card may group under the target (e.g. depth limits). */
   canGroup?: (active: CardModel, target: CardModel) => boolean;
   /** Optional class wrapping the laid-out groups (e.g. a horizontal scroller). */
@@ -214,6 +217,7 @@ export function SortableBoard<Meta>({
   onExternalDrop,
   onGroupDrop,
   onHoverCard,
+  onDragActiveCard,
   canGroup,
   scrollClassName,
 }: SortableBoardProps<Meta>) {
@@ -418,6 +422,13 @@ export function SortableBoard<Meta>({
       // in the empty space below a list, stays at the main level.
       target = above;
     }
+    // A dragged subtask that still HOLDS its indent never ungroups: a slot
+    // past the block's edge (or above the parent) alone is not the exit —
+    // leaving takes the deliberate flush-left gesture. It snaps back to its
+    // own parent instead.
+    if (!target && active.parent && indentOn) {
+      target = cardById.get(active.parent);
+    }
     if (!target || target.itemId === active.itemId) {
       return null;
     }
@@ -480,6 +491,7 @@ export function SortableBoard<Meta>({
   const handleStart = (e: DragStartEvent) => {
     const id = String(e.active.id);
     setActiveId(id);
+    onDragActiveCard?.(cardById.get(id)?.itemId ?? null);
     const seed = !!cardById.get(id)?.parent;
     indentOnRef.current = seed;
     indentFlipAt.current = null;
@@ -638,6 +650,7 @@ export function SortableBoard<Meta>({
     disarmSlot();
     setIndentOn(false);
     onHoverCard?.(null);
+    onDragActiveCard?.(null);
   };
 
   const handleEnd = (e: DragEndEvent) => {
