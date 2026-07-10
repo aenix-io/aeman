@@ -143,3 +143,26 @@ func TestCarryOverDragsSubtasksWithParent(t *testing.T) {
 		t.Fatalf("hanging subtask moved: %+v", f.get("c3"))
 	}
 }
+
+func TestSetParentMoveBetweenParentsResyncsBoth(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p1", Team: "alpha", Progress: 54},
+		{ItemID: "p2", Team: "alpha", Progress: 0},
+		{ItemID: "c1", Team: "alpha", Parent: "p1", Progress: 40},
+		{ItemID: "c2", Team: "alpha", Parent: "p1", Progress: 80},
+	}, nil)
+	if err := f2svc(f).SetParent(ctx, "acme", 1, "c2", "p2"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c2").Parent != "p2" {
+		t.Fatalf("child = %+v", f.get("c2"))
+	}
+	// The old parent re-derives from its remaining child: 40 * 0.9 = 36.
+	if f.get("p1").Progress != 36 {
+		t.Fatalf("old parent progress = %d, want 36", f.get("p1").Progress)
+	}
+	// The new parent derives from its adopted child: 80 * 0.9 = 72.
+	if f.get("p2").Progress != 72 {
+		t.Fatalf("new parent progress = %d, want 72", f.get("p2").Progress)
+	}
+}
