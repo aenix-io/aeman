@@ -79,6 +79,8 @@ type CardSpec struct {
 	Dates       CardDates `json:"dates"`
 	Plan        *CardPlan `json:"plan,omitempty"`
 	ReviewOf    string    `json:"reviewOf,omitempty"`
+	// Parent, on a subtask, is the uid of the card it is grouped under.
+	Parent string `json:"parent,omitempty"`
 }
 
 // CardStatus is derived by the server, never written by clients.
@@ -179,6 +181,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Stage:       string(c.Stage),
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		ReviewOf:    c.ReviewOf,
+		Parent:      c.Parent,
 	}
 	if c.Plan != board.PlanNone {
 		spec.Plan = &CardPlan{Band: string(c.Plan), Week: c.Week}

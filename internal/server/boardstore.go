@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aenix-org/aeman/pkg/apiserver"
@@ -797,12 +798,85 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	return nil
 }
 
+// draftBodySyncer is the one-shot draft-body writer the DeltaFIFO body merge
+// uses when the upstream backend supports it (ghprojects does; test fakes
+// without it fall back to per-op writes).
+type draftBodySyncer interface {
+	SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error)
+}
+
+// bodyMutate queues a draft card's body-affecting change (description, note,
+// event line) as ONE coalescing op per card (key "body:<id>"): the cache
+// changes immediately as usual, and the queued write pushes the card's FINAL
+// cached body state upstream in a single write — rapid note adds, description
+// edits and logged events on one card merge DeltaFIFO-style instead of racing
+// several read-modify-write cycles against the same draft body.
+func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card board.Card, desc string, fn func(c *board.Card), fallback func(ctx context.Context) error) {
+	syncer, ok := b.inner.(draftBodySyncer)
+	if !ok || !card.IsDraft {
+		b.mutateCard(ctx, bd, card.ItemID, "", desc, fn, fallback)
+		return
+	}
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	itemID := card.ItemID
+	exec := func(ctx context.Context) error {
+		e.mu.Lock()
+		var snap *board.Card
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID == itemID {
+				cp := e.board.Cards[i]
+				cp.Notes = append([]board.Note(nil), cp.Notes...)
+				cp.Events = append([]board.Event(nil), cp.Events...)
+				snap = &cp
+				break
+			}
+		}
+		e.mu.Unlock()
+		if snap == nil {
+			return nil // deleted meanwhile — nothing left to write
+		}
+		notes, events, err := syncer.SyncDraftBody(ctx, card, snap.Description, snap.Notes, snap.Events)
+		if err != nil {
+			return err
+		}
+		// The written body IS the canonical state: swap the cached log to it
+		// (real draft line-index ids included) and replay the still-pending
+		// deltas on top. No upstream re-read — right after a write it is
+		// often stale and would make fresh notes flicker away.
+		e.mu.Lock()
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID != itemID {
+				continue
+			}
+			e.board.Cards[i].Notes = notes
+			e.board.Cards[i].Events = events
+			if e.inflight != nil {
+				e.inflight.apply(&e.board)
+			}
+			for _, op := range e.pending {
+				op.apply(&e.board)
+			}
+			e.markRecent(itemID)
+			e.cardChanged("", e.board.Cards[i], "MODIFIED")
+			break
+		}
+		e.mu.Unlock()
+		return nil
+	}
+	b.mutateCardOp(ctx, bd, itemID, "body", desc, true, fn, exec)
+}
+
+// wbSeq makes synthetic (:wb:) ids unique: timestamps alone carry second
+// precision, so rapid same-second adds would collide and the id-dedupe in the
+// cache apply would silently swallow all but the first.
+var wbSeq atomic.Int64
+
 func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card board.Card, ev board.Event) error {
 	// Synthesize a stable id for the cached copy (the real one appears on the
 	// next full read); the presence guard keeps the replayed append from
 	// duplicating the event once GitHub starts returning it.
-	ev.ID = card.ItemID + ":wb:" + ev.At + ":" + ev.Kind
-	b.mutateCard(ctx, bd, card.ItemID, "", "log a change on "+cardRef(card), func(c *board.Card) {
+	ev.ID = fmt.Sprintf("%s:wb:%s:%s:%d", card.ItemID, ev.At, ev.Kind, wbSeq.Add(1))
+	b.bodyMutate(ctx, bd, card, "log a change on "+cardRef(card), func(c *board.Card) {
 		for _, x := range c.Events {
 			if x.Kind == ev.Kind && x.At == ev.At && x.From == ev.From && x.To == ev.To {
 				return
@@ -825,7 +899,7 @@ func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card boa
 func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.Card, text string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	note := board.Note{
-		ID:        card.ItemID + ":wb:" + now,
+		ID:        fmt.Sprintf("%s:wb:%s:%d", card.ItemID, now, wbSeq.Add(1)),
 		Body:      text,
 		CreatedAt: now,
 		Author:    board.ActorFrom(ctx),
@@ -834,7 +908,7 @@ func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.C
 	if !card.IsDraft {
 		note.Source = "comment"
 	}
-	b.mutateCard(ctx, bd, card.ItemID, "", "add a note on "+cardRef(card), func(c *board.Card) {
+	b.bodyMutate(ctx, bd, card, "add a note on "+cardRef(card), func(c *board.Card) {
 		for _, n := range c.Notes {
 			if n.ID == note.ID || (n.Body == note.Body && n.Author == note.Author) {
 				return
@@ -853,7 +927,7 @@ func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.C
 }
 
 func (b *storeBackend) EditNote(ctx context.Context, bd board.Board, card board.Card, note board.Note, text string) error {
-	b.mutateCard(ctx, bd, card.ItemID, "", "edit a note on "+cardRef(card), func(c *board.Card) {
+	b.bodyMutate(ctx, bd, card, "edit a note on "+cardRef(card), func(c *board.Card) {
 		for i := range c.Notes {
 			if c.Notes[i].ID == note.ID ||
 				(c.Notes[i].Body == note.Body && c.Notes[i].Author == note.Author) {
@@ -876,7 +950,7 @@ func (b *storeBackend) EditNote(ctx context.Context, bd board.Board, card board.
 }
 
 func (b *storeBackend) DeleteNote(ctx context.Context, bd board.Board, card board.Card, note board.Note) error {
-	b.mutateCard(ctx, bd, card.ItemID, "", "delete a note on "+cardRef(card), func(c *board.Card) {
+	b.bodyMutate(ctx, bd, card, "delete a note on "+cardRef(card), func(c *board.Card) {
 		kept := c.Notes[:0]
 		removed := false
 		for _, n := range c.Notes {
@@ -933,11 +1007,17 @@ func (b *storeBackend) resolveNote(ctx context.Context, bd board.Board, itemID s
 // hear about it) immediately, the GitHub write is queued — see writequeue.go.
 
 func (b *storeBackend) SetDescription(ctx context.Context, bd board.Board, card board.Card, description string) error {
-	b.mutateCard(ctx, bd, card.ItemID, "description", "edit the description of "+cardRef(card), func(c *board.Card) {
+	apply := func(c *board.Card) {
 		c.Description = description
-	}, func(ctx context.Context) error {
+	}
+	exec := func(ctx context.Context) error {
 		return b.inner.SetDescription(ctx, bd, card, description)
-	})
+	}
+	if card.IsDraft {
+		b.bodyMutate(ctx, bd, card, "edit the description of "+cardRef(card), apply, exec)
+		return nil
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "description", "edit the description of "+cardRef(card), apply, exec)
 	return nil
 }
 
@@ -1040,6 +1120,15 @@ func (b *storeBackend) SetAssignee(ctx context.Context, bd board.Board, card boa
 		}
 	}, func(ctx context.Context) error {
 		return b.inner.SetAssignee(ctx, bd, card, login)
+	})
+	return nil
+}
+
+func (b *storeBackend) SetParent(ctx context.Context, bd board.Board, card board.Card, parent string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "parent", "regroup "+cardRef(card), func(c *board.Card) {
+		c.Parent = parent
+	}, func(ctx context.Context) error {
+		return b.inner.SetParent(ctx, bd, card, parent)
 	})
 	return nil
 }

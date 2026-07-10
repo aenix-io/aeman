@@ -43,6 +43,14 @@ export function eventLabel(e: CardEvent): string {
       return `plan band ${from || "—"} → ${to || "—"}`;
     case "review-round":
       return `review round ${from} → ${to} (reset to 0%)`;
+    case "parent":
+      return to
+        ? `grouped under «${to}»`
+        : from
+          ? `ungrouped (was under «${from}»)`
+          : "ungrouped";
+    case "subtask":
+      return to ? `subtask «${to}» attached` : `subtask «${from}» detached`;
     default:
       return `${e.kind} ${from} → ${to}`.trim();
   }

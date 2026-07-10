@@ -63,6 +63,17 @@ interface CardProps {
   /** Logins of teammates whose Me view has this card selected right now: the
    *  card highlights and their avatars hang off its right border. */
   selectedBy?: string[];
+  /** Number of subtasks grouped under this card (drives the expand arrow and
+   *  the derived progress bar). */
+  subCount?: number;
+  /** Whether the subtask list under the card is expanded. */
+  expanded?: boolean;
+  onToggleExpand?: (card: CardModel) => void;
+  /** Add a subtask (shown as a hover + when the card has none yet). */
+  onAddSubtask?: (card: CardModel) => void;
+  /** A drag is hovering this card's middle band: dropping groups the dragged
+   *  card as a subtask, and the card highlights as the target. */
+  groupTarget?: boolean;
 }
 
 const SEGMENTS = 10;
@@ -107,6 +118,11 @@ export function Card({
   dimAvatar,
   onLoadLinks,
   selectedBy,
+  subCount,
+  expanded,
+  onToggleExpand,
+  onAddSubtask,
+  groupTarget,
 }: CardProps) {
   // Done is derived, not stored: a card with no stage at 100% renders as done
   // (legacy cards with a stored Done option still count too).
@@ -444,11 +460,39 @@ export function Card({
         card.plan ? ` card-plan-${card.plan}` : ""
       }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
         dimAvatar ? " card-dim-avatar" : ""
-      }`}
+      }${groupTarget ? " card-group-target" : ""}`}
       onClick={() => onSelect(card)}
       onDoubleClick={() => onOpen(card)}
       title={card.title}
     >
+      {(subCount ?? 0) > 0 && onToggleExpand && (
+        <button
+          type="button"
+          className="card-action card-subs-toggle"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleExpand(card);
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse subtasks" : "Expand subtasks"}
+          title={`${subCount} subtask(s) — Space toggles`}
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {expanded ? <path d="m6 9 6 6 6-6" /> : <path d="m9 18 6-6-6-6" />}
+          </svg>
+        </button>
+      )}
       {editing ? (
         <input
           type="text"
@@ -495,6 +539,21 @@ export function Card({
         >
           ×
         </button>
+        {onAddSubtask && !card.parent && (
+          <button
+            type="button"
+            className="card-action card-hoveronly card-subs-add"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddSubtask(card);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            aria-label="Add a subtask"
+            title="Add a subtask"
+          >
+            +
+          </button>
+        )}
         {!stageVisible && stageControl}
         {localLinks.length > 0 && (
           <div className="card-links" ref={linksRef}>
@@ -892,7 +951,15 @@ export function Card({
         </div>
       )}
 
-      <div className="card-bar" ref={barRef} title={`${shown}%`}>
+      <div
+        className="card-bar"
+        ref={barRef}
+        title={
+          (subCount ?? 0) > 0
+            ? `${shown}% — derived from subtasks`
+            : `${shown}%`
+        }
+      >
         {Array.from({ length: SEGMENTS }, (_, i) => (
           <span
             key={i}

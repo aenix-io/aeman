@@ -56,6 +56,8 @@ export interface Card {
   /** On a review card, the itemId of the original card it reviews (review →
    * original; find the reverse by scanning for `reviewOf === original.itemId`). */
   reviewOf?: string;
+  /** On a subtask, the itemId of the card it is grouped under. */
+  parent?: string;
   /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
   reviewRound?: number;
   /** ISO date (yyyy-mm-dd) the card is planned to finish/be due on. */
@@ -90,6 +92,8 @@ export interface NewCardInput {
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
   reviewOf?: string | null;
+  /** Group the new card as a subtask of this card on create. */
+  parent?: string | null;
   /** Force the team's sprint pointer to (re)start on the card's day. */
   startNewSprint?: boolean;
   /** Schedule the card for its day without joining any sprint (a "next
@@ -139,6 +143,8 @@ export interface CardPatch {
   dates?: { start?: string; end?: string; sprint?: string };
   plan?: { band?: "wed" | "fri" | ""; week?: string };
   reviewOf?: string;
+  /** Group under another card as a subtask ("" ungroups back to standalone). */
+  parent?: string;
   /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
   reviewRound?: number;
 }

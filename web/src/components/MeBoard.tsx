@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
   type Ref,
 } from "react";
 import {
@@ -17,6 +18,7 @@ import { mergeNotes, sameNotes } from "../notes";
 import type {
   Board,
   Card as CardModel,
+  CardPatch,
   Note,
   Provider,
   StageKey,
@@ -61,6 +63,8 @@ interface MeBoardProps {
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
   ) => void;
   addCard: (card: CardModel) => void;
+  /** Swap an optimistic card for its server twin in place (keeps the slot). */
+  replaceCard: (itemId: string, card: CardModel) => void;
   removeCard: (itemId: string) => void;
   reorderCards: (orderedItemIds: string[]) => void;
   reload: () => void;
@@ -95,6 +99,12 @@ const storedNotesCollapsed = (narrow: boolean): boolean => {
 // resurrect a phantom copy).
 const isGone = (err: unknown) => errMessage(err).includes("card not found");
 
+// isComplete mirrors board.Complete: an explicit done, or 100% with no stage
+// (or recurrent).
+const isComplete = (c: CardModel) =>
+  c.stage === "done" ||
+  ((!c.stage || c.stage === "recurrent") && (c.progress ?? 0) >= 100);
+
 /** MeBoard is the personal day view: my cards stacked in zone bands + notes. */
 export function MeBoard({
   board,
@@ -113,6 +123,7 @@ export function MeBoard({
   onRenameTeam,
   patchCard,
   addCard,
+  replaceCard,
   removeCard,
   reorderCards,
   reload,
@@ -135,6 +146,12 @@ export function MeBoard({
   // that can be worked on right now — drops locked/review/done. Ephemeral,
   // resets to off on reload, like the team-focus eye.
   const [focus, setFocus] = useState(false);
+  // Subtask UI state: manually expanded parents, the card a drag would group
+  // under (its middle band is hovered — the card highlights), and the parent
+  // whose add-subtask form is open (the + button flow).
+  const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set());
+  const [groupHover, setGroupHover] = useState<string | null>(null);
+  const [addingSub, setAddingSub] = useState<string | null>(null);
   // Impersonate: view (and act on) the board as another person.
   const impersonated = viewAs;
   const setImpersonated = onViewAs;
@@ -191,11 +208,21 @@ export function MeBoard({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [board.members, board.cards, me]);
 
-  // My cards (any day); when me is empty, everyone's.
-  const mine = useMemo(
-    () => board.cards.filter((c) => (viewMe ? c.assignees.includes(viewMe) : true)),
-    [board.cards, viewMe],
-  );
+  // My cards (any day); when me is empty, everyone's. A parent counts as mine
+  // when any of its subtasks is mine, and a delivered parent brings all its
+  // subtasks along (mirrors MeView + withSubtasks server-side).
+  const mine = useMemo(() => {
+    if (!viewMe) {
+      return board.cards;
+    }
+    const owned = new Set<string>();
+    for (const c of board.cards) {
+      if (c.assignees.includes(viewMe)) {
+        owned.add(c.parent ?? c.itemId);
+      }
+    }
+    return board.cards.filter((c) => owned.has(c.parent ?? c.itemId));
+  }, [board.cards, viewMe]);
 
   // In Me a card shows when it belongs to the sprint that was active on the viewed
   // day (activeSprint) and its scheduled day has arrived (startDate empty or on or
@@ -205,6 +232,10 @@ export function MeBoard({
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
+        // Subtasks render nested under their parent, never as zone rows.
+        if (c.parent) {
+          return false;
+        }
         if (focus && !isWorkable(c)) {
           return false;
         }
@@ -384,29 +415,282 @@ export function MeBoard({
   const loadCardLinks = (card: CardModel) =>
     provider.listLinks(board, card.itemId);
 
+  // Subtasks grouped by parent. The Me board's team-focus filter applies to
+  // subtask rows the same way it applies to cards.
+  const childrenOf = useMemo(() => {
+    const m = new Map<string, CardModel[]>();
+    for (const c of mine) {
+      if (!c.parent) {
+        continue;
+      }
+      if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
+        continue;
+      }
+      const list = m.get(c.parent) ?? [];
+      list.push(c);
+      m.set(c.parent, list);
+    }
+    return m;
+  }, [mine, teamFocus, teamFilter]);
+
+  const subsOpen = (id: string) => expandedSubs.has(id);
+
+  // A parent dragged with its list open folds for the flight (the whole
+  // block moving with the ghost is unwieldy) and unfolds where it lands.
+  const foldedForDrag = useRef<string | null>(null);
+  const handleDragActive = (id: string | null) => {
+    if (id && expandedSubs.has(id)) {
+      foldedForDrag.current = id;
+      setExpandedSubs((cur) => {
+        const next = new Set(cur);
+        next.delete(id);
+        return next;
+      });
+    } else if (id === null && foldedForDrag.current) {
+      const back = foldedForDrag.current;
+      foldedForDrag.current = null;
+      setExpandedSubs((cur) => new Set(cur).add(back));
+    }
+  };
+
+  // A create ack swaps the optimistic tmp id for the real one; UI state keyed
+  // by the tmp id (selection, expanded lists, an open add-subtask form) must
+  // follow, or the + flow collapses mid-typing.
+  const migrateCardId = (tempId: string, realId: string) => {
+    setSelectedCardId((cur) => (cur === tempId ? realId : cur));
+    setExpandedSubs((cur) => {
+      if (!cur.has(tempId)) {
+        return cur;
+      }
+      const next = new Set(cur);
+      next.delete(tempId);
+      next.add(realId);
+      return next;
+    });
+    setAddingSub((cur) => (cur === tempId ? realId : cur));
+  };
+
+
+  // A drag parked on a collapsed parent unfolds it so the drop target is
+  // visible; when the drag leaves, it folds back (manual expands stay).
+  const autoExpanded = useRef<string | null>(null);
+  useEffect(() => {
+    const id = groupHover;
+    const prev = autoExpanded.current;
+    if (prev && prev !== id) {
+      autoExpanded.current = null;
+      setExpandedSubs((cur) => {
+        const next = new Set(cur);
+        next.delete(prev);
+        return next;
+      });
+    }
+    if (id && (childrenOf.get(id) ?? []).length > 0 && !expandedSubs.has(id)) {
+      autoExpanded.current = id;
+      setExpandedSubs((cur) => new Set(cur).add(id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupHover]);
+
+
+  const toggleSubs = (id: string) =>
+    setExpandedSubs((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+
+  // A drag dwelling over a card opens its subtask drop area; leaving closes it.
+  // A card may take the dragged card as a subtask unless depth would exceed
+  // one level (the target is already a subtask, or the dragged card has its
+  // own subtasks) — the middle-band group drop only offers valid targets.
+  const canGroup = (active: CardModel, target: CardModel) =>
+    !target.parent &&
+    target.itemId !== active.parent &&
+    !(childrenOf.get(active.itemId) ?? []).length;
+
+  // itemId → card, for resolving a drop's neighbours.
+  const cardsById = useMemo(
+    () => new Map(board.cards.map((c) => [c.itemId, c])),
+    [board.cards],
+  );
+
+  // Space expands/collapses the selected card's subtask list.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== " " || !selectedCardId) {
+        return;
+      }
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
+        return;
+      }
+      if (!(childrenOf.get(selectedCardId) ?? []).length) {
+        return;
+      }
+      e.preventDefault();
+      toggleSubs(selectedCardId);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCardId, childrenOf]);
+
+  // Group a dropped card as a subtask; the server enforces depth and moves a
+  // weekly card's plan slot onto the parent (which replaces it in the plan).
+  const handleGroup = (card: CardModel, parentId: string) => {
+    if (card.itemId === parentId || card.parent === parentId) {
+      return;
+    }
+    const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
+    patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    autoExpanded.current = null; // the drop keeps the target unfolded
+    setExpandedSubs((cur) => new Set(cur).add(parentId));
+    void provider
+      .patchCard(board, card.itemId, { parent: parentId })
+      .then((c) => {
+        addCard(c);
+        reload();
+      })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  // Create a card directly as a subtask (inherits the parent's team and zone,
+  // assigned to the viewer so it stays on this board). An optimistic copy
+  // shows at the end of the list instantly; the server card replaces it.
+  const handleCreateSubtask = (parent: CardModel, title: string) => {
+    const tempId = `tmp-${new Date().toISOString()}`;
+    addCard({
+      itemId: tempId,
+      title,
+      isDraft: true,
+      assignees: viewMe ? [viewMe] : [],
+      zone: parent.zone ?? "gray",
+      team: parent.team,
+      parent: parent.itemId,
+      startDate: selectedDate,
+      day: selectedDate,
+      sprintStart: parent.sprintStart,
+      progress: 0,
+    });
+    // The parent's derived bar counts the newcomer at 0% right away
+    // (mirrors the server's syncParentProgress — including reopening a
+    // complete parent, since the fresh subtask is open work).
+    const kids = board.cards.filter((c) => c.parent === parent.itemId);
+    const sum = kids.reduce(
+      (acc, k) => acc + (isComplete(k) ? 100 : k.progress ?? 0),
+      0,
+    );
+    const derived = Math.floor((sum * 90) / ((kids.length + 1) * 100));
+    const reopen = isComplete(parent);
+    if (derived !== (parent.progress ?? 0) || reopen) {
+      patchCard(parent.itemId, {
+        progress: derived,
+        ...(reopen ? { stage: undefined } : {}),
+      });
+    }
+
+    const created = provider.createCard(board, {
+      title,
+      team: parent.team ?? null,
+      zone: parent.zone ?? "gray",
+      start: selectedDate,
+      day: selectedDate,
+        assigneeLogin: viewMe || null,
+      parent: parent.itemId,
+    });
+    // Mutations fired against the tmp id (a quick reorder, a rename) wait in
+    // the pending registry for the real uid instead of erroring out.
+    registerPendingCard(tempId, created.then((c) => c.itemId));
+    created
+      .then((c) => {
+        if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
+          void provider.deleteCard(board, c.itemId).catch(() => {});
+          return;
+        }
+        replaceCard(tempId, c);
+        migrateCardId(tempId, c.itemId);
+      })
+      .catch((err: unknown) => {
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
+  };
+
+  // Mirror the server's derived-progress rule (board.DerivedProgress) so a
+  // parent's bar moves the instant a subtask's does; the server converges it.
+  const syncParentBar = (child: CardModel, childValue: number) => {
+    if (!child.parent) {
+      return;
+    }
+    const parent = cardsById.get(child.parent);
+    if (!parent || isComplete(parent)) {
+      return;
+    }
+    const kids = board.cards.filter((c) => c.parent === child.parent);
+    if (kids.length === 0) {
+      return;
+    }
+    const sum = kids.reduce(
+      (acc, k) =>
+        acc +
+        (k.itemId === child.itemId
+          ? childValue
+          : isComplete(k)
+            ? 100
+            : k.progress ?? 0),
+      0,
+    );
+    const derived = Math.floor((sum * 90) / (kids.length * 100));
+    if (derived !== (parent.progress ?? 0)) {
+      patchCard(parent.itemId, { progress: derived });
+    }
+  };
+
   const handleProgress = (card: CardModel, raw: number) => {
-    const value =
+    let value =
       card.stage === "review" || card.stage === "locked"
         ? Math.min(90, Math.max(10, raw))
         : raw;
+    // A parent's bar cannot be dragged to done while subtasks are open (the
+    // server guard); it tops out at 90 until every subtask is closed.
+    if (
+      value >= 100 &&
+      board.cards.some((k) => k.parent === card.itemId && !isComplete(k))
+    ) {
+      value = 90;
+    }
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
     if (value < 100 && card.stage === "done") {
       patch.stage = undefined;
     }
     patchCard(card.itemId, patch);
+    syncParentBar(card, value);
     void provider
       .patchCard(board, card.itemId, { progress: value })
       .then((updated) => {
         addCard(updated);
         refreshLog(card.itemId);
-        // A review card's progress drives the original's stage server-side.
-        if (card.reviewOf) {
+        // A review card's progress drives the original's stage server-side,
+        // and a subtask's drives its parent's derived bar.
+        if (card.reviewOf || card.parent) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
@@ -420,8 +704,15 @@ export function MeBoard({
       stage: card.stage,
       progress: card.progress,
     };
+    // Done on a recurrent card completes the iteration but keeps the
+    // recurrence (mirrors the server): only the progress fills.
     const patch: Partial<CardModel> = {
-      stage: stage === "done" ? undefined : stage ?? undefined,
+      stage:
+        stage === "done"
+          ? card.stage === "recurrent"
+            ? "recurrent"
+            : undefined
+          : stage ?? undefined,
     };
     if (stage === "done") {
       patch.progress = 100;
@@ -431,6 +722,7 @@ export function MeBoard({
       patch.progress = Math.min(90, Math.max(10, card.progress ?? 0));
     }
     patchCard(card.itemId, patch);
+    syncParentBar(card, stage === "done" ? 100 : patch.progress ?? card.progress ?? 0);
     const leavingReview = card.stage === "review" && stage !== "review";
     // Entering review re-review reactivates a completed linked review card
     // server-side (progress → 0, round bumped); re-list so it converges.
@@ -441,12 +733,20 @@ export function MeBoard({
       .then((updated) => {
         addCard(updated);
         refreshLog(card.itemId);
-        if (leavingReview || (enteringReview && hasLinkedReview) || card.reviewOf) {
+        if (
+          leavingReview ||
+          (enteringReview && hasLinkedReview) ||
+          card.reviewOf ||
+          card.parent
+        ) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
@@ -464,17 +764,21 @@ export function MeBoard({
     }
     const prev: Partial<CardModel> = { stage: card.stage, progress: card.progress };
     patchCard(card.itemId, { stage: undefined, progress: value });
+    syncParentBar(card, value);
     void provider
       .setInProgress(board, card.itemId)
       .then((updated) => {
         addCard(updated);
         refreshLog(card.itemId);
-        if (card.stage === "review" || card.reviewOf) {
+        if (card.stage === "review" || card.reviewOf || card.parent) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
@@ -532,6 +836,27 @@ export function MeBoard({
     removeCard(card.itemId);
     if (linkedReview) {
       removeCard(linkedReview.itemId);
+    }
+    // The server releases the subtasks (they return standalone, sliding into
+    // the parent's slot); mirror both locally while the delete round-trips.
+    const freed = board.cards.filter((c) => c.parent === card.itemId);
+    for (const c of freed) {
+      patchCard(c.itemId, { parent: undefined });
+    }
+    if (freed.length > 0) {
+      const freedIds = new Set(freed.map((c) => c.itemId));
+      const order: string[] = [];
+      for (const c of board.cards) {
+        if (freedIds.has(c.itemId)) {
+          continue;
+        }
+        if (c.itemId === card.itemId) {
+          order.push(...freed.map((f) => f.itemId));
+          continue;
+        }
+        order.push(c.itemId);
+      }
+      reorderCards(order);
     }
     void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
       if (isGone(err)) {
@@ -649,8 +974,8 @@ export function MeBoard({
     void provider
       .sendToReview(board, card.itemId, reviewerLogin, selectedDate, zone)
       .then((created) => {
-        removeCard(tempId);
-        addCard(created);
+        replaceCard(tempId, created);
+        migrateCardId(tempId, created.itemId);
         reload();
       })
       .catch((err: unknown) => {
@@ -661,14 +986,19 @@ export function MeBoard({
   };
 
   // The 4 sortable groups: one per zone, in ZONE_ORDER (top → bottom).
+  // An expanded parent's subtasks follow it as indented rows of the same zone
+  // band (a subtask has no zone placement of its own).
   const groups = useMemo<BoardGroup<MeMeta>[]>(
     () =>
       ZONE_ORDER.map((zone) => ({
         key: zone,
         meta: { zone },
-        cards: byZone[zone],
+        cards: byZone[zone].flatMap((c) =>
+          subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
+        ),
       })),
-    [byZone],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [byZone, childrenOf, expandedSubs],
   );
 
   // Keyboard navigation over the visible day list (zone bands top to bottom):
@@ -739,12 +1069,31 @@ export function MeBoard({
     return () => window.removeEventListener("keydown", onKey);
   }, [flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
 
-  const handleDrop = ({ card, fromMeta, toMeta, groups: g }: DropResult<MeMeta>) => {
-    const zoneChanged = fromMeta.zone !== toMeta.zone;
+  const handleDrop = ({ card, toMeta, groups: g, groupUnder }: DropResult<MeMeta>) => {
+    // The board committed exactly what the placeholder previewed: groupUnder
+    // is the already-validated parent to nest under (null = standalone).
+    const parentTo = groupUnder;
+    const parentChanged = (card.parent ?? "") !== (parentTo ?? "");
 
     // 1) Optimistic local state first.
-    if (zoneChanged) {
-      patchCard(card.itemId, { zone: toMeta.zone });
+    const optimistic: Partial<CardModel> = {};
+    const patch: CardPatch = {};
+    if (parentChanged) {
+      optimistic.parent = parentTo ?? undefined;
+      patch.parent = parentTo ?? "";
+      if (parentTo) {
+        optimistic.plan = undefined;
+        optimistic.week = undefined;
+        autoExpanded.current = null; // the drop keeps the target unfolded
+        setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
+      }
+    }
+    if (!parentTo && (card.zone ?? "gray") !== toMeta.zone) {
+      optimistic.zone = toMeta.zone;
+      patch.zone = toMeta.zone;
+    }
+    if (Object.keys(optimistic).length > 0) {
+      patchCard(card.itemId, optimistic);
     }
     const order = globalOrderFromGroups(
       board,
@@ -752,14 +1101,29 @@ export function MeBoard({
     );
     reorderCards(order);
 
-    // 2) Persist in the background; revert via reload() on any error.
+    // 2) Persist in the background; revert via reload() on any error. The
+    // move anchors on a neighbour from the card's OWN group: the flattened
+    // cross-group order is a view artefact, and a card landing first in its
+    // group would otherwise anchor on another group's tail — a card whose
+    // global position may be past the visible neighbour below.
+    const entryIds = g.find((x) => x.ids.includes(card.itemId))?.ids ?? [];
+    const at = entryIds.indexOf(card.itemId);
     const afterId = afterIdFor(order, card.itemId);
     void (async () => {
       try {
-        if (zoneChanged) {
-          await provider.patchCard(board, card.itemId, { zone: toMeta.zone });
+        if (Object.keys(patch).length > 0) {
+          await provider.patchCard(board, card.itemId, patch);
         }
-        await provider.moveCard(board, card.itemId, afterId);
+        if (at > 0) {
+          await provider.moveCard(board, card.itemId, entryIds[at - 1]);
+        } else if (at === 0 && entryIds.length > 1) {
+          await provider.moveCardBefore(board, card.itemId, entryIds[1]);
+        } else {
+          await provider.moveCard(board, card.itemId, afterId);
+        }
+        if (parentChanged) {
+          reload();
+        }
       } catch (err: unknown) {
         onError(errMessage(err));
         reload();
@@ -803,13 +1167,15 @@ export function MeBoard({
     );
     void creating
       .then((card) => {
-        removeCard(tempId);
         if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
           void provider.deleteCard(board, card.itemId).catch(() => undefined);
           return;
         }
-        addCard(card);
+        // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        replaceCard(tempId, card);
+        migrateCardId(tempId, card.itemId);
         if (firstSprint) {
           reload();
         }
@@ -897,6 +1263,88 @@ export function MeBoard({
         }
         fail(err);
       });
+  };
+
+  // renderMeCard is the zone-band card used both for top-level rows and for
+  // subtask rows (a subtask works exactly like any card).
+  const renderMeCard = (card: CardModel): ReactNode => (
+    <Card
+      card={card}
+      onLoadLinks={loadCardLinks}
+      selected={card.itemId === selectedCardId}
+      onSelect={(c) => setSelectedCardId(c.itemId)}
+      onProgress={handleProgress}
+      onDelete={handleDelete}
+      onStage={handleStage}
+      onInProgress={handleInProgress}
+      onRename={handleRename}
+      onOpen={onOpen}
+      teams={teams}
+      people={people}
+      users={users}
+      onSetTeam={handleSetTeam}
+      hasLinkedReview={reviewedItemIds.has(card.itemId)}
+      counterpartAssignees={counterpartAssigneesFor(card)}
+      onSetReviewAssignee={handleSetReviewAssignee}
+      asOf={selectedDate}
+      dimAvatar={teamFilter === null || !teamFilter.includes(card.team ?? "")}
+      subCount={(childrenOf.get(card.itemId) ?? []).length}
+      expanded={subsOpen(card.itemId)}
+      onToggleExpand={(c) => toggleSubs(c.itemId)}
+      onAddSubtask={(c) => {
+        setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+        setAddingSub(c.itemId);
+      }}
+      groupTarget={groupHover === card.itemId}
+    />
+  );
+
+  // The inline add-subtask form (the + flow), indented like a subtask row.
+  const subtaskAddForm = (parent: CardModel): ReactNode => (
+    <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
+      <AddCard
+        autoOpen
+        placeholder="Add a subtask…"
+        onCreate={(title) => handleCreateSubtask(parent, title)}
+        onClosed={() => setAddingSub(null)}
+      />
+    </div>
+  );
+
+  // Wraps a rendered card: subtask rows are indented under their parent, and
+  // the add-subtask form (the + flow) hangs after the LAST subtask row — or
+  // right under the parent while it has none visible yet.
+  const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
+    if (card.parent) {
+      const wrapped = <div className="subtask-indent">{node}</div>;
+      const subs = childrenOf.get(card.parent) ?? [];
+      const parent = cardsById.get(card.parent);
+      if (
+        addingSub === card.parent &&
+        parent &&
+        subs[subs.length - 1]?.itemId === card.itemId
+      ) {
+        return (
+          <>
+            {wrapped}
+            {subtaskAddForm(parent)}
+          </>
+        );
+      }
+      return wrapped;
+    }
+    if (
+      addingSub !== card.itemId ||
+      (subsOpen(card.itemId) && (childrenOf.get(card.itemId) ?? []).length > 0)
+    ) {
+      return node;
+    }
+    return (
+      <>
+        {node}
+        {subtaskAddForm(card)}
+      </>
+    );
   };
 
   return (
@@ -1026,31 +1474,11 @@ export function MeBoard({
             <SortableBoard<MeMeta>
               groups={groups}
               onDrop={handleDrop}
-              renderCard={(card) => (
-                <Card
-                  card={card}
-                  onLoadLinks={loadCardLinks}
-                  selected={card.itemId === selectedCardId}
-                  onSelect={(c) => setSelectedCardId(c.itemId)}
-                  onProgress={handleProgress}
-                  onDelete={handleDelete}
-                  onStage={handleStage}
-                  onInProgress={handleInProgress}
-                  onRename={handleRename}
-                  onOpen={onOpen}
-                  teams={teams}
-                  people={people}
-                  users={users}
-                  onSetTeam={handleSetTeam}
-                  hasLinkedReview={reviewedItemIds.has(card.itemId)}
-                  counterpartAssignees={counterpartAssigneesFor(card)}
-                  onSetReviewAssignee={handleSetReviewAssignee}
-                  asOf={selectedDate}
-                  dimAvatar={
-                    teamFilter === null || !teamFilter.includes(card.team ?? "")
-                  }
-                />
-              )}
+              onGroupDrop={handleGroup}
+              onHoverCard={setGroupHover}
+              onDragActiveCard={handleDragActive}
+              canGroup={canGroup}
+              renderCard={(card) => withSubs(card, renderMeCard(card))}
               renderOverlay={(card) => (
                 <Card
                   card={card}

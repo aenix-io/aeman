@@ -341,6 +341,36 @@ export function NotesPanel({
   // the list (only the list scrolls, not the page), so the card you picked on
   // the board lines up with its notes.
   const scrolledTo = useRef<string | null>(null);
+  // The feeds read top-down (newest LAST): keep the view pinned to the latest
+  // entry — jump to the bottom when a pane/card/day opens, and follow new
+  // entries while the user is already near the bottom. Scrolled-up history is
+  // never yanked away mid-read.
+  const cardFeedRef = useRef<HTMLDivElement>(null);
+  const lastFeedView = useRef("");
+  useEffect(() => {
+    if (collapsed) {
+      return;
+    }
+    // The selected card matters for the Card pane's view identity only; in
+    // the day log a selection change belongs to scroll-to-selected below.
+    const view =
+      pane === "card"
+        ? `card:${selectedCard?.itemId ?? ""}`
+        : `log:${group}`;
+    const fresh = lastFeedView.current !== view;
+    lastFeedView.current = view;
+    const stick = (el: HTMLDivElement | null) => {
+      if (!el) {
+        return;
+      }
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      if (fresh || nearBottom) {
+        el.scrollTop = el.scrollHeight;
+      }
+    };
+    stick(pane === "card" ? cardFeedRef.current : listRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pane, group, collapsed, selectedCard?.itemId, feed.length, cardFeed.length]);
   useEffect(() => {
     if (
       pane !== "log" ||
@@ -618,7 +648,7 @@ export function NotesPanel({
       )}
 
       {pane === "card" && selectedCard && (
-        <div className="notes-list notes-card-feed">
+        <div className="notes-list notes-card-feed" ref={cardFeedRef}>
           {cardFeed.length === 0 && (
             <p className="notes-empty">No activity on this card today.</p>
           )}
