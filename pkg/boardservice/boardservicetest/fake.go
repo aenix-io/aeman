@@ -115,7 +115,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Team: in.Team, ReviewOf: in.ReviewOf,
-		Assignees: []string{},
+		Parent: in.Parent, Assignees: []string{},
 	}
 	if in.Assignee != "" {
 		card.Assignees = []string{in.Assignee}

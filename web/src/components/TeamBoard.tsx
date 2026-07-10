@@ -1426,7 +1426,9 @@ export function TeamBoard({
       const cur = currentSprint(board, card.team ?? null);
       const prevSprint = previousSprintFor(card);
       const inCurrent = !!card.sprintStart && !!cur && card.sprintStart === cur;
-      if (inCurrent && cur && prevSprint && prevSprint < cur) {
+      // A card created today has no sprint history worth keeping: delete for
+      // real instead of demoting (mirrors boardservice.Remove).
+      if (inCurrent && cur && prevSprint && prevSprint < cur && card.startDate !== todayIso()) {
         // Demote to the previous sprint, all dates pulled along (the end date
         // too, or the [start…end] range would keep the card on its old day).
         const prev: Partial<CardModel> = {
