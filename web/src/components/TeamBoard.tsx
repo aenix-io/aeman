@@ -1149,7 +1149,14 @@ export function TeamBoard({
   // right under the parent while it has none visible yet.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
     if (card.parent) {
-      const wrapped = <div className="subtask-indent">{node}</div>;
+      const par = cardsById.get(card.parent);
+      // Under a taken weekly parent the subtask rows dim with it.
+      const dim = !!par?.plan && (par?.assignees.length ?? 0) > 0;
+      const wrapped = (
+        <div className={`subtask-indent${dim ? " subtask-indent-taken" : ""}`}>
+          {node}
+        </div>
+      );
       const subs = childrenOf.get(card.parent) ?? [];
       const parent = cardsById.get(card.parent);
       if (
@@ -2077,7 +2084,7 @@ export function TeamBoard({
         renderCard={(card, group) =>
           withSubs(
             card,
-            group.meta.kind === "band" && !card.parent ? (
+            group.meta.kind === "band" ? (
             <Card
               card={card}
               selectedBy={selectedByFor(card)}
@@ -2085,7 +2092,7 @@ export function TeamBoard({
               selected={card.itemId === selectedCardId}
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
-              onDelete={removeFromPlan}
+              onDelete={card.parent ? handleGridDelete : removeFromPlan}
               onStage={handleStage}
               onInProgress={handleInProgress}
               onRename={handleRename}
