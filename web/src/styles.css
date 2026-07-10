@@ -598,21 +598,35 @@ select {
 }
 
 /* Unsynced-changes counter: server-applied writes GitHub has not confirmed
-   yet. Sits left of the Me/Team switch, trends to zero, hidden at zero. */
+   yet. A pill with a slowly spinning sync glyph and the count, left of the
+   Me/Team switch; trends to zero and is hidden at zero. */
 .sync-badge {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-line);
-  color: var(--fg);
+  gap: 4px;
+  height: 20px;
+  /* The toolbar bottom-aligns its row; lift the pill so its middle matches
+     the Me|Team switch's (~28px tall) middle. */
+  margin-bottom: 4px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: var(--line-soft);
+  color: var(--muted);
   font-size: 11px;
   font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.sync-badge svg {
+  animation: sync-badge-spin 1.8s linear infinite;
+}
+
+@keyframes sync-badge-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sync-badge + .segmented {
