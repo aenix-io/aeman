@@ -239,6 +239,14 @@ export function SortableBoard<Meta>({
   const [indentOn, setIndentOn] = useState(false);
   const indentOnRef = useRef(false);
   const indentFlipAt = useRef<number | null>(null);
+  // Whether the indent was actively asserted during THIS drag (a real
+  // rightward crossing) — a subtask's seeded indent keeps it in its own
+  // block, but never nests it under a NEW parent by default.
+  const indentAsserted = useRef(false);
+  // The middle-band tuck-in needs a short dwell before it arms, so sweeping
+  // a card across the board does not flip into grouping mode in passing.
+  const bandTarget = useRef<string | null>(null);
+  const bandSince = useRef(0);
 
   // The groups actually rendered: local working copy while dragging, else props.
   const view: LocalGroups<Meta> = useMemo(() => {
@@ -306,7 +314,9 @@ export function SortableBoard<Meta>({
       if (indentOn) {
         target = cardById.get(above.parent);
       }
-    } else if (indentOn) {
+    } else if (indentOn && indentAsserted.current) {
+      // A NEW parent (no visible block below it) takes a deliberate gesture:
+      // the seeded indent of a dragged subtask is not enough.
       target = above;
     }
     if (!target || target.itemId === active.itemId) {
@@ -351,8 +361,20 @@ export function SortableBoard<Meta>({
       centerY > rect.top + rect.height * 0.3 &&
       centerY < rect.top + rect.height * 0.7
     ) {
+      // Arm the tuck-in only after a ~300ms dwell on the SAME card's middle:
+      // by default a drag passing over cards keeps the main level.
+      const now = performance.now();
+      if (bandTarget.current !== overKey) {
+        bandTarget.current = overKey;
+        bandSince.current = now;
+        return base;
+      }
+      if (now - bandSince.current < 300) {
+        return base;
+      }
       return [{ id: `grp:${overKey}` }];
     }
+    bandTarget.current = null;
     return base;
   };
 
@@ -362,6 +384,8 @@ export function SortableBoard<Meta>({
     const seed = !!cardById.get(id)?.parent;
     indentOnRef.current = seed;
     indentFlipAt.current = null;
+    indentAsserted.current = false;
+    bandTarget.current = null;
     setIndentOn(seed);
     if (isExternal(id)) {
       return; // external draggables don't reshuffle the grid's working copy
@@ -402,6 +426,9 @@ export function SortableBoard<Meta>({
     }
     indentFlipAt.current = null;
     indentOnRef.current = want;
+    if (want) {
+      indentAsserted.current = true; // a real rightward crossing, not a seed
+    }
     setIndentOn(want);
   };
 
@@ -490,6 +517,8 @@ export function SortableBoard<Meta>({
     setNestUnder(null);
     indentOnRef.current = false;
     indentFlipAt.current = null;
+    indentAsserted.current = false;
+    bandTarget.current = null;
     setIndentOn(false);
     onHoverCard?.(null);
   };
