@@ -7,6 +7,7 @@ import {
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
@@ -29,6 +30,12 @@ export interface BoardGroup<Meta> {
   /** Cards currently in this group, in display order. */
   cards: CardModel[];
 }
+
+/** Where a dragged subtask row (id "subrow:<itemId>") landed. */
+export type SubtaskDropTarget<Meta> =
+  | { kind: "parent"; parentId: string }
+  | { kind: "before"; beforeId: string }
+  | { kind: "group"; meta: Meta };
 
 /** Result of a committed drop, handed to the parent to persist. */
 export interface DropResult<Meta> {
@@ -70,11 +77,21 @@ interface SortableBoardProps<Meta> {
   externalCards?: Map<string, CardModel>;
   /** Commit a drop of an external (extra) draggable onto an over id. */
   onExternalDrop?: (card: CardModel, overId: string | null) => void;
-  /** Commit a drop into a card's subtask area (over id "sub:<parentId>"). */
+  /** Commit a drop that groups the dragged card under another card — either
+   *  onto its middle band (over id "grp:<dnd id>") or into an expanded subtask
+   *  area (over id "sub:<parentId>"). */
   onGroupDrop?: (card: CardModel, parentId: string) => void;
-  /** Fires with the card id the drag is hovering (null when it leaves) — the
-   *  board uses it to dwell-open that card's subtask drop area. */
+  /** Fires with the card id the drag would group under (its middle band is
+   *  hovered), null when the drag leaves it — the board highlights the target. */
   onHoverCard?: (cardId: string | null) => void;
+  /** Whether the active card may group under the target (e.g. depth limits). */
+  canGroup?: (active: CardModel, target: CardModel) => boolean;
+  /** Cards rendered as subtask rows (itemId → card), draggable as
+   *  "subrow:<itemId>" from inside their parent's list. */
+  subtaskCards?: Map<string, CardModel>;
+  /** Commit a subtask-row drop: regroup under a card, reorder before a
+   *  sibling, or pull the card out into a group. */
+  onSubtaskDrop?: (card: CardModel, target: SubtaskDropTarget<Meta>) => void;
   /** Optional class wrapping the laid-out groups (e.g. a horizontal scroller). */
   scrollClassName?: string;
 }
@@ -84,13 +101,22 @@ type LocalGroups<Meta> = { key: string; meta: Meta; ids: string[] }[];
 /** Wraps one card so dnd-kit can sort it; keeps the body as the drag handle. */
 function SortableCard({
   id,
+  groupable,
   children,
 }: {
   id: string;
+  groupable: boolean;
   children: ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
+  // A second droppable on the same node is the grouping target: the collision
+  // detector retargets to it while a drag hovers this card's middle band, so
+  // grouping needs no reshuffle preview and nothing moves under the pointer.
+  const { setNodeRef: setGroupRef } = useDroppable({
+    id: `grp:${id}`,
+    disabled: !groupable,
+  });
   // The dragged item stays put as a dashed gap (the DragOverlay shows the lift);
   // only the OTHER items get the sortable shift transform so they push apart.
   const style = {
@@ -99,7 +125,10 @@ function SortableCard({
   };
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node);
+        setGroupRef(node);
+      }}
       style={style}
       className={`sortable-card${isDragging ? " sortable-card-placeholder" : ""}`}
       {...attributes}
@@ -117,6 +146,7 @@ function DroppableGroup<Meta>({
   ids,
   activeId,
   cardById,
+  groupable,
   renderGroup,
   renderCard,
 }: {
@@ -124,6 +154,7 @@ function DroppableGroup<Meta>({
   ids: string[];
   activeId: string | null;
   cardById: Map<string, CardModel>;
+  groupable: boolean;
   renderGroup: SortableBoardProps<Meta>["renderGroup"];
   renderCard: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
 }) {
@@ -136,7 +167,7 @@ function DroppableGroup<Meta>({
           return null;
         }
         return (
-          <SortableCard key={id} id={id}>
+          <SortableCard key={id} id={id} groupable={groupable}>
             {renderCard(c, group)}
           </SortableCard>
         );
@@ -173,6 +204,9 @@ export function SortableBoard<Meta>({
   onExternalDrop,
   onGroupDrop,
   onHoverCard,
+  canGroup,
+  subtaskCards,
+  onSubtaskDrop,
   scrollClassName,
 }: SortableBoardProps<Meta>) {
   const sensors = useSensors(
@@ -214,11 +248,61 @@ export function SortableBoard<Meta>({
   const findGroupIndex = (work: LocalGroups<Meta>, id: string): number =>
     work.findIndex((g) => g.ids.includes(id) || g.key === id);
 
+  // The card behind any active/over dnd id, whichever registry it lives in.
+  const lookupCard = (id: string): CardModel | undefined =>
+    id.startsWith("subrow:")
+      ? subtaskCards?.get(id.slice(7))
+      : cardById.get(id) ?? externalCards?.get(id);
+
+  // closestCorners with a grouping band: while the dragged card's centre is
+  // over the vertical middle of another card, the drop retargets to that
+  // card's grp: droppable — the card highlights as a group target and no
+  // reorder preview runs, so nothing shifts under the pointer. The edges keep
+  // the normal sorting behaviour. grp:/subrow: droppables share their row's
+  // rect, so they are filtered out of the base pass to avoid duplicates.
+  const detectCollisions: CollisionDetection = (args) => {
+    const activeKey = String(args.active.id);
+    const subDrag = activeKey.startsWith("subrow:");
+    const base = closestCorners(args).filter((c) => {
+      const id = String(c.id);
+      if (id.startsWith("grp:")) {
+        return false;
+      }
+      if (id.startsWith("subrow:")) {
+        return subDrag; // sibling reorder targets, only for subtask drags
+      }
+      return true;
+    });
+    const first = base[0];
+    if (!first || !onGroupDrop || isExternal(activeKey)) {
+      return base;
+    }
+    const overKey = String(first.id);
+    const target = cardById.get(overKey);
+    const active = lookupCard(activeKey);
+    if (!target || !active || target.itemId === active.itemId) {
+      return base;
+    }
+    if (canGroup && !canGroup(active, target)) {
+      return base;
+    }
+    const rect = args.droppableRects.get(first.id);
+    const centerY = args.collisionRect.top + args.collisionRect.height / 2;
+    if (
+      rect &&
+      centerY > rect.top + rect.height * 0.3 &&
+      centerY < rect.top + rect.height * 0.7
+    ) {
+      return [{ id: `grp:${overKey}` }];
+    }
+    return base;
+  };
+
   const handleStart = (e: DragStartEvent) => {
     const id = String(e.active.id);
     setActiveId(id);
-    if (isExternal(id)) {
-      return; // external draggables don't reshuffle the grid's working copy
+    if (isExternal(id) || id.startsWith("subrow:")) {
+      return; // external/subtask draggables don't reshuffle the working copy
     }
     setLocal(
       groups.map((g) => ({
@@ -232,25 +316,24 @@ export function SortableBoard<Meta>({
   const handleOver = (e: DragOverEvent) => {
     const { active, over } = e;
     const overRaw = over ? String(over.id) : null;
-    // Report which card the drag hovers (a card id or a sub: area) so the
-    // board can dwell-open its subtask drop area.
+    // Report the card the drag would group under (its middle band or its
+    // expanded subtask area is hovered) so the board highlights the target.
     if (onHoverCard) {
-      if (overRaw === null) {
-        onHoverCard(null);
-      } else if (overRaw.startsWith("sub:")) {
+      if (overRaw?.startsWith("grp:")) {
+        onHoverCard(cardById.get(overRaw.slice(4))?.itemId ?? null);
+      } else if (overRaw?.startsWith("sub:")) {
         onHoverCard(overRaw.slice(4));
       } else {
-        const overCard = cardById.get(overRaw);
-        onHoverCard(overCard && overRaw !== String(active.id) ? overCard.itemId : null);
+        onHoverCard(null);
       }
     }
-    if (!over || isExternal(String(active.id))) {
+    const activeKey = String(active.id);
+    if (!over || isExternal(activeKey) || activeKey.startsWith("subrow:")) {
       return;
     }
-    const activeKey = String(active.id);
     const overKey = String(over.id);
-    if (overKey.startsWith("sub:")) {
-      return; // grouping target: no reshuffle preview
+    if (overKey.startsWith("sub:") || overKey.startsWith("grp:") || overKey.startsWith("subrow:")) {
+      return; // grouping/sibling target: no reshuffle preview
     }
     setLocal((cur) => {
       if (!cur) {
@@ -277,12 +360,48 @@ export function SortableBoard<Meta>({
   const reset = () => {
     setLocal(null);
     setActiveId(null);
+    onHoverCard?.(null);
   };
 
   const handleEnd = (e: DragEndEvent) => {
     const activeKey = String(e.active.id);
-    onHoverCard?.(null);
     const overRaw = e.over ? String(e.over.id) : null;
+    // A dragged subtask row: regroup, reorder before a sibling, or pull out.
+    if (activeKey.startsWith("subrow:")) {
+      const card = subtaskCards?.get(activeKey.slice(7));
+      if (card && overRaw && onSubtaskDrop) {
+        if (overRaw.startsWith("grp:")) {
+          const t = cardById.get(overRaw.slice(4));
+          if (t && t.itemId !== card.itemId) {
+            onSubtaskDrop(card, { kind: "parent", parentId: t.itemId });
+          }
+        } else if (overRaw.startsWith("sub:")) {
+          onSubtaskDrop(card, { kind: "parent", parentId: overRaw.slice(4) });
+        } else if (overRaw.startsWith("subrow:")) {
+          const beforeId = overRaw.slice(7);
+          if (beforeId !== card.itemId) {
+            onSubtaskDrop(card, { kind: "before", beforeId });
+          }
+        } else {
+          const idx = findGroupIndex(view, overRaw);
+          if (idx !== -1) {
+            onSubtaskDrop(card, { kind: "group", meta: view[idx].meta });
+          }
+        }
+      }
+      reset();
+      return;
+    }
+    // A drop on a card's middle band groups the dragged card under it.
+    if (overRaw?.startsWith("grp:") && !isExternal(activeKey)) {
+      const card = cardById.get(activeKey);
+      const target = cardById.get(overRaw.slice(4));
+      if (card && target && card.itemId !== target.itemId) {
+        onGroupDrop?.(card, target.itemId);
+      }
+      reset();
+      return;
+    }
     if (overRaw?.startsWith("sub:") && !isExternal(activeKey)) {
       const card = cardById.get(activeKey);
       const parentId = overRaw.slice(4);
@@ -349,9 +468,7 @@ export function SortableBoard<Meta>({
     reset();
   };
 
-  const activeCard = activeId
-    ? cardById.get(activeId) ?? externalCards?.get(activeId) ?? null
-    : null;
+  const activeCard = activeId ? lookupCard(activeId) ?? null : null;
 
   // Render each group as a node, keyed by group.key, so a custom layout can
   // arrange them (Team groups cells into engineer columns); default is flat.
@@ -369,6 +486,7 @@ export function SortableBoard<Meta>({
         ids={entry.ids}
         activeId={activeId}
         cardById={cardById}
+        groupable={!!onGroupDrop}
         renderGroup={renderGroup}
         renderCard={renderCard}
       />,
@@ -378,7 +496,7 @@ export function SortableBoard<Meta>({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={detectCollisions}
       onDragStart={handleStart}
       onDragOver={handleOver}
       onDragEnd={handleEnd}

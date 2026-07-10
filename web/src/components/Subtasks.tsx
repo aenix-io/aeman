@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { useDroppable } from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { Card as CardModel } from "../providers/types";
 import { AddCard } from "./AddCard";
 
@@ -13,51 +13,106 @@ interface SubtasksProps {
   onUngroup: (card: CardModel) => void;
   /** Create a new subtask under this parent. */
   onCreate: (title: string) => void;
+  /** Open with the add form already expanded (the card's + button). */
+  adding?: boolean;
+  /** The add form closed; created reports whether a subtask was submitted. */
+  onAddingDone?: (created: boolean) => void;
+}
+
+/** One subtask row: draggable on its own (id "subrow:<itemId>") so lifting a
+ * subtask never lifts the parent, and a droppable so siblings reorder. */
+function SubtaskRow({
+  card,
+  onUngroup,
+  children,
+}: {
+  card: CardModel;
+  onUngroup: (card: CardModel) => void;
+  children: ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    isDragging,
+  } = useDraggable({ id: `subrow:${card.itemId}` });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `subrow:${card.itemId}`,
+  });
+  return (
+    <div
+      ref={(node) => {
+        setDragRef(node);
+        setDropRef(node);
+      }}
+      className={`subtask-row${isDragging ? " subtask-row-dragging" : ""}${
+        isOver && !isDragging ? " subtask-row-over" : ""
+      }`}
+      {...attributes}
+      {...listeners}
+    >
+      <div className="subtask-card">{children}</div>
+      <button
+        type="button"
+        className="subtask-out"
+        onClick={() => onUngroup(card)}
+        aria-label="Ungroup the subtask"
+        title="Pull back out as a standalone card"
+      >
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M7 17 17 7" />
+          <path d="M9 7h8v8" />
+        </svg>
+      </button>
+    </div>
+  );
 }
 
 /**
  * Subtasks is the list under an expanded card: its subtask rows (full cards,
- * indented), an add row, and — while a drag hovers the parent — the drop area
- * that turns the dragged card into a subtask (droppable id "sub:<parentId>").
+ * indented) and an add row. The whole area is also a drop target that groups
+ * a dragged card (droppable id "sub:<parentId>").
  */
-export function Subtasks({ parent, subs, renderChild, onUngroup, onCreate }: SubtasksProps) {
+export function Subtasks({
+  parent,
+  subs,
+  renderChild,
+  onUngroup,
+  onCreate,
+  adding,
+  onAddingDone,
+}: SubtasksProps) {
   const { setNodeRef, isOver } = useDroppable({ id: `sub:${parent.itemId}` });
   return (
     <div
       ref={setNodeRef}
       className={`subtasks${isOver ? " subtasks-over" : ""}`}
+      // Rows drag and the add form types on their own: never bubble pointer
+      // presses up into the parent card's sortable listeners.
+      onPointerDown={(e) => e.stopPropagation()}
     >
-      {subs.length === 0 && (
-        <div className="subtasks-empty">Drop a card here to group it as a subtask</div>
-      )}
       {subs.map((c) => (
-        <div className="subtask-row" key={c.itemId}>
-          <div className="subtask-card">{renderChild(c)}</div>
-          <button
-            type="button"
-            className="subtask-out"
-            onClick={() => onUngroup(c)}
-            aria-label="Ungroup the subtask"
-            title="Pull back out as a standalone card"
-          >
-            <svg
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M7 17 17 7" />
-              <path d="M9 7h8v8" />
-            </svg>
-          </button>
-        </div>
+        <SubtaskRow key={c.itemId} card={c} onUngroup={onUngroup}>
+          {renderChild(c)}
+        </SubtaskRow>
       ))}
-      <AddCard onCreate={(title) => onCreate(title)} placeholder="Add a subtask…" />
+      <AddCard
+        key={adding ? "adding" : "idle"}
+        autoOpen={adding}
+        onClosed={onAddingDone}
+        onCreate={(title) => onCreate(title)}
+        placeholder="Add a subtask…"
+      />
     </div>
   );
 }

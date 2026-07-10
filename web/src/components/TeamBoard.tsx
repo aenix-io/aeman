@@ -34,7 +34,12 @@ import { TeamChips } from "./TeamChips";
 import { TeamsModal } from "./TeamsModal";
 import { Subtasks } from "./Subtasks";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
-import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
+import {
+  SortableBoard,
+  type BoardGroup,
+  type DropResult,
+  type SubtaskDropTarget,
+} from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface TeamBoardProps {
@@ -123,12 +128,12 @@ export function TeamBoard({
   const sprintRef = useRef<HTMLDivElement | null>(null);
   const [carryWeekOpen, setCarryWeekOpen] = useState(false);
   const carryWeekRef = useRef<HTMLDivElement | null>(null);
-  // Subtask UI state: manually expanded parents, plus the card a drag is
-  // dwell-hovering (its drop area opens while the drag lasts).
+  // Subtask UI state: manually expanded parents, the card a drag would group
+  // under (its middle band is hovered — the card highlights), and the parent
+  // whose add-subtask form is open (the + button flow).
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set());
-  const [dwellSub, setDwellSub] = useState<string | null>(null);
-  const dwellTimer = useRef<number | null>(null);
-  const dwellFor = useRef<string | null>(null);
+  const [groupHover, setGroupHover] = useState<string | null>(null);
+  const [addingSub, setAddingSub] = useState<string | null>(null);
   // A create on a day ahead of the team's current sprint waits here for the
   // lead's current-vs-next-sprint choice (null = no dialog open).
   const [sprintChoice, setSprintChoice] = useState<{
@@ -837,7 +842,7 @@ export function TeamBoard({
     return m;
   }, [board.cards]);
 
-  const subsOpen = (id: string) => expandedSubs.has(id) || dwellSub === id;
+  const subsOpen = (id: string) => expandedSubs.has(id);
 
   const toggleSubs = (id: string) =>
     setExpandedSubs((cur) => {
@@ -850,21 +855,71 @@ export function TeamBoard({
       return next;
     });
 
-  // A drag dwelling over a card opens its subtask drop area; leaving closes it.
-  const handleHoverCard = (id: string | null) => {
-    if (dwellFor.current === id) {
+  // A card may take the dragged card as a subtask unless depth would exceed
+  // one level (the target is already a subtask, or the dragged card has its
+  // own subtasks) — the middle-band group drop only offers valid targets.
+  const canGroup = (active: CardModel, target: CardModel) =>
+    !target.parent &&
+    target.itemId !== active.parent &&
+    !(childrenOf.get(active.itemId) ?? []).length;
+
+  // itemId → subtask card: the rows draggable from inside expanded lists.
+  const subCards = useMemo(() => {
+    const m = new Map<string, CardModel>();
+    for (const c of board.cards) {
+      if (c.parent) {
+        m.set(c.itemId, c);
+      }
+    }
+    return m;
+  }, [board.cards]);
+
+  // A dragged subtask row: regroup under another card, reorder before a
+  // sibling, or pull it out of the group into the dropped grid cell.
+  const handleSubtaskDrop = (card: CardModel, target: SubtaskDropTarget<TeamMeta>) => {
+    if (target.kind === "parent") {
+      handleGroup(card, target.parentId);
       return;
     }
-    dwellFor.current = id;
-    if (dwellTimer.current !== null) {
-      window.clearTimeout(dwellTimer.current);
-      dwellTimer.current = null;
-    }
-    if (id === null) {
-      setDwellSub(null);
+    if (target.kind === "before") {
+      const other = subCards.get(target.beforeId);
+      if (!other || other.itemId === card.itemId || other.parent !== card.parent) {
+        return;
+      }
+      void provider
+        .moveCardBefore(board, card.itemId, target.beforeId)
+        .then(reload)
+        .catch((err: unknown) => onError(errMessage(err)));
       return;
     }
-    dwellTimer.current = window.setTimeout(() => setDwellSub(id), 500);
+    if (target.meta.kind !== "cell") {
+      return; // a subtask never lands in the weekly plan
+    }
+    const prev: Partial<CardModel> = {
+      parent: card.parent,
+      zone: card.zone,
+      assignees: card.assignees,
+    };
+    const patch: CardPatch = { parent: "", zone: target.meta.zone };
+    const optimistic: Partial<CardModel> = {
+      parent: undefined,
+      zone: target.meta.zone,
+    };
+    if (target.meta.engineer !== (card.assignees[0] ?? "")) {
+      patch.assignees = target.meta.engineer ? [target.meta.engineer] : [];
+      optimistic.assignees = patch.assignees;
+    }
+    patchCard(card.itemId, optimistic);
+    void provider
+      .patchCard(board, card.itemId, patch)
+      .then((c) => {
+        addCard(c);
+        reload();
+      })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
   };
 
   // Space expands/collapses the selected card's subtask list.
@@ -971,7 +1026,9 @@ export function TeamBoard({
       onToggleExpand={(c) => toggleSubs(c.itemId)}
       onAddSubtask={(c) => {
         setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+        setAddingSub(c.itemId);
       }}
+      groupTarget={groupHover === card.itemId}
     />
   );
 
@@ -990,6 +1047,18 @@ export function TeamBoard({
           renderChild={(c) => renderGridCard(c)}
           onUngroup={handleUngroup}
           onCreate={(title) => handleCreateSubtask(card, title)}
+          adding={addingSub === card.itemId}
+          onAddingDone={(created) => {
+            setAddingSub(null);
+            // Nothing was created into an otherwise empty list: fold it back.
+            if (!created && !(childrenOf.get(card.itemId) ?? []).length) {
+              setExpandedSubs((cur) => {
+                const next = new Set(cur);
+                next.delete(card.itemId);
+                return next;
+              });
+            }
+          }}
         />
       </>
     );
@@ -1808,7 +1877,10 @@ export function TeamBoard({
         }
         onDrop={handleDrop}
         onGroupDrop={handleGroup}
-        onHoverCard={handleHoverCard}
+        onHoverCard={setGroupHover}
+        canGroup={canGroup}
+        subtaskCards={subCards}
+        onSubtaskDrop={handleSubtaskDrop}
         renderCard={(card, group) =>
           withSubs(
             card,
@@ -1844,7 +1916,9 @@ export function TeamBoard({
               onToggleExpand={(c) => toggleSubs(c.itemId)}
               onAddSubtask={(c) => {
                 setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+                setAddingSub(c.itemId);
               }}
+              groupTarget={groupHover === card.itemId}
             />
             ) : (
               renderGridCard(card)

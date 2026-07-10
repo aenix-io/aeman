@@ -3015,16 +3015,20 @@ button.card-age {
   outline-offset: -1px;
 }
 
-.subtasks-empty {
-  color: var(--faint);
-  font-size: 11px;
-  padding: 4px 2px;
-}
-
 .subtask-row {
   display: flex;
   align-items: flex-start;
   gap: 2px;
+}
+
+/* The lifted subtask stays as a dim placeholder (the DragOverlay shows the
+   moving copy); a hovered sibling shows the insertion line above itself. */
+.subtask-row-dragging {
+  opacity: 0.35;
+}
+
+.subtask-row-over {
+  box-shadow: 0 -2px 0 0 var(--accent);
 }
 
 .subtask-row > .subtask-card {
@@ -3083,4 +3087,11 @@ button.card-age {
 .card-subs-toggle-on {
   color: var(--fg);
   border-color: var(--muted);
+}
+
+/* A drag hovering a card's vertical middle band retargets the drop to "group
+   as a subtask": the target card highlights in place and nothing reshuffles. */
+.card.card-group-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
 }
