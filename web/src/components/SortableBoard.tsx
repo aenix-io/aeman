@@ -253,6 +253,10 @@ export function SortableBoard<Meta>({
   // block never waits.
   const slotArmed = useRef(false);
   const slotTimer = useRef<number | null>(null);
+  // Whether the drag currently hovers a card ROW (not a container's empty
+  // area): adopting a parent is only offered within a card's height of the
+  // rows themselves — dropping into the space below a list stays main-level.
+  const overRow = useRef(false);
   const [, bumpRender] = useState(0);
   const disarmSlot = () => {
     if (slotTimer.current !== null) {
@@ -392,8 +396,9 @@ export function SortableBoard<Meta>({
         if (indentOn || !slotArmed.current) {
           target = cardById.get(above.parent);
         }
-      } else if (indentOn && slotArmed.current) {
-        // A foreign block's last slot: joining takes a parked indent.
+      } else if (indentOn && slotArmed.current && overRow.current) {
+        // A foreign block's last slot: joining takes a parked indent, held
+        // over the rows themselves.
         target = cardById.get(above.parent);
       }
     } else if (above.itemId === active.parent) {
@@ -402,9 +407,15 @@ export function SortableBoard<Meta>({
       if (indentOn || !slotArmed.current) {
         target = above;
       }
-    } else if (indentOn && indentAsserted.current && slotArmed.current) {
+    } else if (
+      indentOn &&
+      indentAsserted.current &&
+      slotArmed.current &&
+      overRow.current
+    ) {
       // A NEW parent (no visible block below it) takes a deliberate gesture
-      // held in place — a fast drop in passing stays at the main level.
+      // held in place over the rows — a fast drop in passing, or one hanging
+      // in the empty space below a list, stays at the main level.
       target = above;
     }
     if (!target || target.itemId === active.itemId) {
@@ -524,6 +535,9 @@ export function SortableBoard<Meta>({
   const handleOver = (e: DragOverEvent) => {
     const { active, over } = e;
     const overRaw = over ? String(over.id) : null;
+    overRow.current =
+      overRaw !== null &&
+      (overRaw.startsWith("grp:") || cardById.has(overRaw));
     // The slot changed: indent-based nesting re-arms after a fresh pause.
     armSlotSoon();
     // Report the card the drag would group under so the board highlights it.
@@ -620,6 +634,7 @@ export function SortableBoard<Meta>({
     indentFlipAt.current = null;
     indentAsserted.current = false;
     bandTarget.current = null;
+    overRow.current = false;
     disarmSlot();
     setIndentOn(false);
     onHoverCard?.(null);
