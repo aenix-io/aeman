@@ -337,6 +337,11 @@ export function SortableBoard<Meta>({
     for (const g of groups) {
       for (const c of g.cards) {
         m.set(idOf(c, g), c);
+        // Parent references are plain itemIds; a card living only in a
+        // namespaced group (a weekly band) must still resolve by them.
+        if (!m.has(c.itemId)) {
+          m.set(c.itemId, c);
+        }
       }
     }
     return m;
