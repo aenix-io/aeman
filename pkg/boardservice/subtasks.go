@@ -124,8 +124,23 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 // final call.
 func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentID string, changed *board.Card, removedID string) error {
 	p, ok := findCard(b, parentID)
-	if !ok || board.Complete(p.Stage, p.Progress) {
+	if !ok {
 		return nil
+	}
+	if board.Complete(p.Stage, p.Progress) {
+		// A complete parent stays the human's final call — unless an
+		// UNFINISHED subtask just joined or reopened: done cannot stand on
+		// top of open subtasks, so the parent reopens and derives again.
+		if changed == nil || board.Complete(changed.Stage, changed.Progress) {
+			return nil
+		}
+		if p.Stage == board.StageDone {
+			if err := s.backend.SetStage(ctx, b, p, board.StageNone); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, p, board.EventStage, string(board.StageDone), "")
+			p.Stage = board.StageNone
+		}
 	}
 	var children []board.Card
 	seen := false
