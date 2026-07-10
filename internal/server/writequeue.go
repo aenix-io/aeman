@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-org/aeman/pkg/ghprojects"
 )
 
 // The write-behind queue: a mutation is applied to the shared board cache
@@ -97,6 +98,12 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		e.mu.Unlock()
 
 		err := execRetry(ctx, op)
+		// The target node is gone (deleted mid-queue) or still settling on
+		// GitHub's read path: the cache already reflects the user's intent,
+		// and rolling the whole board back over it would wipe fresher state.
+		if ghprojects.IsUnresolvedNode(err) {
+			err = nil
+		}
 
 		e.mu.Lock()
 		e.inflight = nil

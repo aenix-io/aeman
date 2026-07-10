@@ -110,6 +110,35 @@ func isNotFoundErr(err error) bool {
 }
 
 // graphql executes a GraphQL document and decodes the data field into out.
+// IsUnresolvedNode reports GitHub's eventual-consistency failure: a node id
+// (usually just created) that mutations cannot resolve yet — retryable for a
+// fresh item, ignorable for a deleted one.
+func IsUnresolvedNode(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Could not resolve to a node")
+}
+
+// unresolvedRetryWait is the backoff between fresh-node retries (test var).
+var unresolvedRetryWait = 500 * time.Millisecond
+
+// retryResolve runs a mutation against a just-created node, retrying while
+// GitHub's read path has not caught up with the creation.
+func (c *Client) retryResolve(ctx context.Context, fn func() error) error {
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(time.Duration(attempt) * unresolvedRetryWait):
+			}
+		}
+		if err = fn(); err == nil || !IsUnresolvedNode(err) {
+			return err
+		}
+	}
+	return err
+}
+
 func (c *Client) graphql(ctx context.Context, query string, vars map[string]any, out any) error {
 	payload, err := json.Marshal(map[string]any{"query": query, "variables": vars})
 	if err != nil {
