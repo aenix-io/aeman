@@ -21,8 +21,13 @@ type pendingOp struct {
 	// key coalesces queued writes, DeltaFIFO-style: a new op replaces a
 	// not-yet-executing queued op with the same key in place, so dragging a
 	// slider five times costs one GitHub write carrying the final value.
-	// "" never coalesces (log events are each their own write).
+	// "" never coalesces.
 	key string
+	// compose chains the replaced op's apply before this op's on coalesce:
+	// body ops are DELTAS (append a note, log an event, set the description),
+	// so a reload replay must re-impose all of them, not just the newest —
+	// while their shared exec writes the final cached state once either way.
+	compose bool
 	// desc names the operation for the sync-error message ("set progress on
 	// «title»").
 	desc  string
@@ -45,6 +50,13 @@ func (b *storeBackend) enqueue(ctx context.Context, e *boardEntry, op pendingOp)
 	if op.key != "" {
 		for i := range e.pending {
 			if e.pending[i].key == op.key {
+				if op.compose {
+					prev, next := e.pending[i].apply, op.apply
+					op.apply = func(bd *board.Board) {
+						prev(bd)
+						next(bd)
+					}
+				}
 				e.pending[i] = op
 				merged = true
 				break
@@ -162,6 +174,11 @@ func (e *boardEntry) syncError(message string) {
 // desc/exec describe and perform the GitHub write; origin echo suppression
 // matches the direct-mutation path.
 func (b *storeBackend) mutateCard(ctx context.Context, bd board.Board, itemID, kind, desc string, fn func(c *board.Card), exec func(ctx context.Context) error) {
+	b.mutateCardOp(ctx, bd, itemID, kind, desc, false, fn, exec)
+}
+
+// mutateCardOp is mutateCard with an explicit compose choice (see pendingOp).
+func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID, kind, desc string, compose bool, fn func(c *board.Card), exec func(ctx context.Context) error) {
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	apply := func(target *board.Board) {
 		for i := range target.Cards {
@@ -185,7 +202,7 @@ func (b *storeBackend) mutateCard(ctx context.Context, bd board.Board, itemID, k
 	if kind != "" {
 		key = kind + ":" + itemID
 	}
-	b.enqueue(ctx, e, pendingOp{key: key, desc: desc, apply: apply, exec: exec})
+	b.enqueue(ctx, e, pendingOp{key: key, desc: desc, compose: compose, apply: apply, exec: exec})
 }
 
 // waitDrained blocks until every board's write-behind queue is empty or the

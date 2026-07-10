@@ -3,6 +3,7 @@ package ghprojects
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/aenix-org/aeman/pkg/board"
@@ -38,6 +39,36 @@ func domainBuildDraftBody(description string, notes []board.Note) string {
 		head = description + "\n\n"
 	}
 	return head + domainLogMarker + "\n" + strings.Join(lines, "\n")
+}
+
+// SyncDraftBody rewrites a draft card's whole body — the description plus the
+// merged note/event log, in chronological order — in ONE write. The server's
+// write-behind store coalesces a card's pending description/note/event
+// changes DeltaFIFO-style and pushes the final state through this, instead of
+// racing several read-modify-write cycles against the same body.
+func (c *Client) SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) error {
+	if card.ContentID == "" {
+		return ErrNoContent
+	}
+	log := make([]board.Note, 0, len(notes)+len(events))
+	log = append(log, notes...)
+	for _, e := range events {
+		log = append(log, board.Note{
+			Body:      board.FormatEventBody(e),
+			CreatedAt: e.At,
+			Source:    "draft",
+		})
+	}
+	// RFC3339 timestamps order lexicographically; the sort is stable so
+	// same-second entries keep their relative order.
+	sort.SliceStable(log, func(i, j int) bool {
+		return log[i].CreatedAt < log[j].CreatedAt
+	})
+	body := capDraftEventLog(domainBuildDraftBody(description, log), card.ItemID)
+	return c.graphql(ctx, updateDraftBodyMutation, map[string]any{
+		"draft": card.ContentID,
+		"body":  body,
+	}, nil)
 }
 
 // SetDescription replaces a card's free-form description. On a draft the body is
