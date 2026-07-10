@@ -1856,10 +1856,73 @@ button.card-age {
   flex: none;
 }
 
+/* Left side of the header: the Description|Notes pane switch with the viewed
+   day to its right. */
+.notes-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.notes-date {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .notes-header-right {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* The Card pane: the selected card's description on top (editable in place),
+   its own feed below. The description yields to the feed past ~half the pane. */
+.notes-desc {
+  flex: 0 1 auto;
+  max-height: 50%;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-desc-on {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  flex: none;
+}
+
+.notes-desc-body {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* While editing, the description area drops its height cap and splits the
+   pane with the card feed, so the editor gets real room to write in. */
+.notes-desc-editing {
+  flex: 1 1 auto;
+  max-height: none;
+}
+
+.notes-desc-edit {
+  flex: 1;
+  min-height: 200px;
+  resize: vertical;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+
+.notes-card-feed {
+  border-top: none;
 }
 
 /* The notes fold to just their header bar on narrow screens (where they stack
@@ -1867,19 +1930,22 @@ button.card-age {
 .notes-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  height: 20px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--bg);
   cursor: pointer;
   font-size: 11px;
   line-height: 1;
-  padding: 3px 8px;
+  padding: 0 8px;
   color: var(--muted);
   flex: none;
 }
 
 .notes-collapsed .notes-list,
 .notes-collapsed .notes-composer,
+.notes-collapsed .notes-desc,
 .notes-collapsed .notes-group-toggle,
 .notes-collapsed .notes-log-toggle {
   display: none;
@@ -1899,7 +1965,7 @@ button.card-age {
     border-bottom: none;
   }
 
-  .notes-collapsed .notes-header > span {
+  .notes-collapsed .notes-date {
     writing-mode: vertical-rl;
   }
 }
@@ -2828,15 +2894,55 @@ button.card-age {
 
 /* The system-log (activity events) toggle in the notes header: events are
    opt-in — the feed shows human notes only until it is pressed. */
+/* Same fixed height as .notes-toggle so the header's icon buttons (gear,
+   alarm, pencil) and the collapse arrow line up as one row of equals. */
 .notes-log-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--bg);
   color: var(--faint);
   font-size: 12px;
-  line-height: 1;
-  padding: 3px 7px;
+  line-height: 0;
+  padding: 0 7px;
   cursor: pointer;
+}
+
+.notes-log-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Two icon buttons joined into one segmented toggle (timeline | by-card):
+   outer corners rounded, the shared border collapsed. */
+.notes-icon-seg {
+  display: inline-flex;
+}
+
+.notes-icon-seg .notes-log-toggle {
+  border-radius: 0;
+  /* Segments hold text (Card/Log) as well as icons; a collapsed line box
+     would misrender the labels. */
+  line-height: 1;
+}
+
+.notes-icon-seg .notes-log-toggle:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.notes-icon-seg .notes-log-toggle:last-child {
+  border-radius: 0 6px 6px 0;
+  margin-left: -1px;
+}
+
+/* The active segment's border must win over the neighbour overlapping it
+   through the collapsed (-1px) shared edge. */
+.notes-icon-seg .notes-log-toggle-on {
+  position: relative;
+  z-index: 1;
 }
 .notes-log-toggle-on {
   background: var(--bg-soft);
