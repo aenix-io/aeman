@@ -8,6 +8,7 @@ const NOTES_WIDTH_KEY = "aeman.notesWidth";
 const NOTES_HEIGHT_KEY = "aeman.notesHeight";
 const NOTES_GROUP_KEY = "aeman.notesGroup";
 const NOTES_SHOWLOG_KEY = "aeman.notesShowLog";
+const NOTES_PANE_KEY = "aeman.notesPane";
 const NOTES_WIDTH_MIN = 220;
 const NOTES_WIDTH_MAX = 640;
 const NOTES_HEIGHT_MIN = 140;
@@ -41,6 +42,10 @@ export interface DayEvent {
 
 type GroupMode = "time" | "card";
 
+/** PaneMode picks what the panel shows: the selected card (its description,
+ *  editable in place, with the card's own feed below) or the whole day's log. */
+type PaneMode = "card" | "log";
+
 interface NotesPanelProps {
   selectedDate: string;
   notes: DayNote[];
@@ -53,10 +58,57 @@ interface NotesPanelProps {
   onAddNote: (text: string) => void;
   onEditNote: (note: Note, card: CardModel, text: string) => void;
   onDeleteNote: (note: Note, card: CardModel) => void;
+  /** Saves the selected card's description (the Card pane's in-place edit). */
+  onSetDescription: (card: CardModel, text: string) => void;
   /** Fold to just the header bar (used on narrow screens). */
   collapsed: boolean;
   onToggleCollapse: () => void;
 }
+
+// Shared stroke-icon props so the header's toggles (gear, alarm, pencil) read
+// as one consistent icon set instead of mixed text glyphs and emoji.
+const iconProps = {
+  width: 12,
+  height: 12,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": true,
+} as const;
+
+const GearIcon = () => (
+  <svg {...iconProps}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
+const AlarmIcon = () => (
+  <svg {...iconProps}>
+    <circle cx="12" cy="13" r="8" />
+    <path d="M12 9v4l2 2" />
+    <path d="M5 3 2 6" />
+    <path d="m22 6-3-3" />
+  </svg>
+);
+
+/** A card with a folded corner — the "grouped by card" face of the timeline
+ *  toggle. */
+const CardIcon = () => (
+  <svg {...iconProps}>
+    <path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z" />
+    <path d="M15 3v4a2 2 0 0 0 2 2h4" />
+  </svg>
+);
+
+const PencilIcon = () => (
+  <svg {...iconProps}>
+    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+  </svg>
+);
 
 /** localTime formats an ISO timestamp as a local HH:MM string. */
 function localTime(iso: string): string {
@@ -160,19 +212,27 @@ export function NotesPanel({
   onAddNote,
   onEditNote,
   onDeleteNote,
+  onSetDescription,
   collapsed,
   onToggleCollapse,
 }: NotesPanelProps) {
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
-  // Grouping (time/card) and the system-log toggle persist across sessions.
+  // The pane switch (description/notes), grouping (time/card) and the
+  // system-log toggle persist across sessions.
+  const [pane, setPane] = useState<PaneMode>(() =>
+    localStorage.getItem(NOTES_PANE_KEY) === "card" ? "card" : "log",
+  );
   const [group, setGroup] = useState<GroupMode>(
     () => (localStorage.getItem(NOTES_GROUP_KEY) === "card" ? "card" : "time"),
   );
   const [showLog, setShowLog] = useState(
     () => localStorage.getItem(NOTES_SHOWLOG_KEY) === "1",
   );
+  useEffect(() => {
+    localStorage.setItem(NOTES_PANE_KEY, pane);
+  }, [pane]);
   useEffect(() => {
     localStorage.setItem(NOTES_GROUP_KEY, group);
   }, [group]);
@@ -186,6 +246,28 @@ export function NotesPanel({
     stacked,
   } = useNotesResize(collapsed);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // In-place description editing on the Card pane. The draft resets whenever
+  // the selection changes — a half-typed edit must not land on another card.
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState("");
+  const selectedId = selectedCard?.itemId;
+  useEffect(() => {
+    setEditingDesc(false);
+  }, [selectedId]);
+  const startDescEdit = () => {
+    if (!selectedCard) {
+      return;
+    }
+    setDescDraft(selectedCard.description ?? "");
+    setEditingDesc(true);
+  };
+  const saveDescEdit = () => {
+    if (selectedCard) {
+      onSetDescription(selectedCard, descDraft);
+    }
+    setEditingDesc(false);
+  };
 
   const submit = () => {
     const text = draft.trim();
@@ -224,6 +306,16 @@ export function NotesPanel({
     return out;
   }, [notes, events, showLog]);
 
+  // The Card pane's feed: the selected card's slice of the day (the ⚙ toggle
+  // filters its system events through `feed` the same way).
+  const cardFeed = useMemo<FeedItem[]>(
+    () =>
+      selectedCard
+        ? feed.filter((item) => item.card.itemId === selectedCard.itemId)
+        : [],
+    [feed, selectedCard],
+  );
+
   // In "by card" mode, group the day's feed under their card, ordered the way
   // the cards appear on the board (entries within a card stay in time order).
   const groups = useMemo(() => {
@@ -249,7 +341,13 @@ export function NotesPanel({
   // the list (only the list scrolls, not the page), so the card you picked on
   // the board lines up with its notes.
   useEffect(() => {
-    if (group !== "card" || !selectedCard || collapsed || !listRef.current) {
+    if (
+      pane !== "log" ||
+      group !== "card" ||
+      !selectedCard ||
+      collapsed ||
+      !listRef.current
+    ) {
       return;
     }
     const list = listRef.current;
@@ -260,7 +358,7 @@ export function NotesPanel({
       list.scrollTop +=
         target.getBoundingClientRect().top - list.getBoundingClientRect().top - 8;
     }
-  }, [selectedCard, group, collapsed, groups]);
+  }, [selectedCard, pane, group, collapsed, groups]);
 
   const renderEvent = (event: CardEvent, card: CardModel, showCard: boolean) => (
     <div className="note note-event" key={event.id}>
@@ -375,7 +473,35 @@ export function NotesPanel({
         aria-label="Resize notes"
       />
       <header className="notes-header">
-        <span>Notes — {selectedDate}</span>
+        <div className="notes-head-left">
+          <div className="notes-icon-seg" role="tablist" aria-label="Panel content">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={pane === "card"}
+              className={`notes-log-toggle${pane === "card" ? " notes-log-toggle-on" : ""}`}
+              onClick={() => setPane("card")}
+              title="The selected card: description and its activity"
+            >
+              Card
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={pane === "log"}
+              className={`notes-log-toggle${pane === "log" ? " notes-log-toggle-on" : ""}`}
+              onClick={() => setPane("log")}
+              title="The whole day's notes and activity"
+            >
+              Log
+            </button>
+          </div>
+          {(collapsed || pane === "log") && (
+            <span className="notes-date">
+              {collapsed ? `Notes — ${selectedDate}` : selectedDate}
+            </span>
+          )}
+        </div>
         <div className="notes-header-right">
           <button
             type="button"
@@ -384,30 +510,61 @@ export function NotesPanel({
             onClick={() => setShowLog((v) => !v)}
             title={showLog ? "Hide the system log" : "Show the system log"}
           >
-            ⚙
+            <GearIcon />
           </button>
-          <div className="notes-group-toggle" role="tablist" aria-label="Group notes">
+          {pane === "log" ? (
+            <div className="notes-icon-seg" role="tablist" aria-label="Group notes">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={group === "time"}
+                className={`notes-log-toggle${group === "time" ? " notes-log-toggle-on" : ""}`}
+                onClick={() => setGroup("time")}
+                title="The day in time order"
+              >
+                <AlarmIcon />
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={group === "card"}
+                className={`notes-log-toggle${group === "card" ? " notes-log-toggle-on" : ""}`}
+                onClick={() => setGroup("card")}
+                title="Group by card"
+              >
+                <CardIcon />
+              </button>
+            </div>
+          ) : editingDesc ? (
+            <div className="notes-group-toggle">
+              <button
+                type="button"
+                className="notes-group-btn notes-group-btn-on"
+                onClick={saveDescEdit}
+                title="Save the description"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                className="notes-group-btn"
+                onClick={() => setEditingDesc(false)}
+                title="Discard the edit"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
-              role="tab"
-              aria-selected={group === "time"}
-              className={`notes-group-btn${group === "time" ? " notes-group-btn-on" : ""}`}
-              onClick={() => setGroup("time")}
-              title="Group by timeline"
+              className="notes-log-toggle"
+              onClick={startDescEdit}
+              disabled={!selectedCard}
+              title="Edit the description"
             >
-              Time
+              <PencilIcon />
             </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={group === "card"}
-              className={`notes-group-btn${group === "card" ? " notes-group-btn-on" : ""}`}
-              onClick={() => setGroup("card")}
-              title="Group by card"
-            >
-              Card
-            </button>
-          </div>
+          )}
           <button
             type="button"
             className="notes-toggle"
@@ -422,6 +579,46 @@ export function NotesPanel({
         </div>
       </header>
 
+      {pane === "card" && (
+        <div className={`notes-desc${editingDesc ? " notes-desc-editing" : ""}`}>
+          {selectedCard ? (
+            <>
+              <div className="notes-desc-on">{selectedCard.title}</div>
+              {editingDesc ? (
+                <textarea
+                  className="notes-desc-edit"
+                  autoFocus
+                  maxLength={16384}
+                  value={descDraft}
+                  onChange={(e) => setDescDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setEditingDesc(false);
+                    }
+                  }}
+                />
+              ) : selectedCard.description ? (
+                <div className="notes-desc-body">{selectedCard.description}</div>
+              ) : (
+                <p className="notes-empty">No description on this card.</p>
+              )}
+            </>
+          ) : (
+            <p className="notes-empty">Select a card to see its description.</p>
+          )}
+        </div>
+      )}
+
+      {pane === "card" && selectedCard && (
+        <div className="notes-list notes-card-feed">
+          {cardFeed.length === 0 && (
+            <p className="notes-empty">No activity on this card today.</p>
+          )}
+          {cardFeed.map((item) => renderItem(item, false))}
+        </div>
+      )}
+
+      {pane === "log" && (
       <div className="notes-list" ref={listRef}>
         {feed.length === 0 && (
           <p className="notes-empty">No activity for this day.</p>
@@ -446,7 +643,9 @@ export function NotesPanel({
               </div>
             ))}
       </div>
+      )}
 
+      {(pane === "log" || selectedCard) && (
       <div className="notes-composer">
         <div className="notes-on">
           {selectedCard ? (
@@ -480,6 +679,7 @@ export function NotesPanel({
           Add note
         </button>
       </div>
+      )}
     </aside>
   );
 }
