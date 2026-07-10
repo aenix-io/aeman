@@ -12,6 +12,10 @@ interface AddCardProps {
   /** Offer the "no team" option; when false, the picker defaults to the first
    *  team instead of "no team". */
   allowNoTeam?: boolean;
+  /** Start with the form already open (input focused). */
+  autoOpen?: boolean;
+  /** The form closed; created reports whether a card was submitted. */
+  onClosed?: (created: boolean) => void;
 }
 
 /** AddCard expands into a title input with an integrated team picker. */
@@ -21,12 +25,14 @@ export function AddCard({
   teams,
   forcedTeam,
   allowNoTeam = true,
+  autoOpen,
+  onClosed,
 }: AddCardProps) {
   // With "no team" disabled the picker starts on the first team, so a filtered
   // create lands on a real team by default instead of "no team".
   const defaultTeam =
     allowNoTeam || !teams || teams.length === 0 ? null : teams[0];
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen ?? false);
   const [value, setValue] = useState("");
   const [team, setTeam] = useState<string | null>(defaultTeam);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -37,11 +43,12 @@ export function AddCard({
   // The team picker is shown only when a roster is supplied and no team is forced.
   const showPicker = forcedTeam === undefined && teams !== undefined;
 
-  const close = () => {
+  const close = (created: boolean) => {
     setOpen(false);
     setValue("");
     setTeam(defaultTeam);
     setMenuOpen(false);
+    onClosed?.(created);
   };
 
   const submit = () => {
@@ -49,7 +56,7 @@ export function AddCard({
     if (title) {
       onCreate(title, forcedTeam !== undefined ? forcedTeam : team);
     }
-    close();
+    close(Boolean(title));
   };
 
   // A live ref so the outside-click handler always sees the latest input.
@@ -113,7 +120,7 @@ export function AddCard({
           if (e.key === "Enter") {
             submit();
           } else if (e.key === "Escape") {
-            close();
+            close(false);
           }
         }}
       />

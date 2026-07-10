@@ -71,6 +71,9 @@ interface CardProps {
   onToggleExpand?: (card: CardModel) => void;
   /** Add a subtask (shown as a hover + when the card has none yet). */
   onAddSubtask?: (card: CardModel) => void;
+  /** A drag is hovering this card's middle band: dropping groups the dragged
+   *  card as a subtask, and the card highlights as the target. */
+  groupTarget?: boolean;
 }
 
 const SEGMENTS = 10;
@@ -119,6 +122,7 @@ export function Card({
   expanded,
   onToggleExpand,
   onAddSubtask,
+  groupTarget,
 }: CardProps) {
   // Done is derived, not stored: a card with no stage at 100% renders as done
   // (legacy cards with a stored Done option still count too).
@@ -456,7 +460,7 @@ export function Card({
         card.plan ? ` card-plan-${card.plan}` : ""
       }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
         dimAvatar ? " card-dim-avatar" : ""
-      }`}
+      }${groupTarget ? " card-group-target" : ""}`}
       onClick={() => onSelect(card)}
       onDoubleClick={() => onOpen(card)}
       title={card.title}
