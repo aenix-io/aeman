@@ -795,12 +795,47 @@ export function TeamBoard({
   }: DropResult<TeamMeta>) => {
     // Drops that involve a weekly-plan band.
     if (fromMeta.kind === "band" || toMeta.kind === "band") {
-      if (card.parent) {
-        return; // a subtask never lands in (or leaves for) the weekly plan
+      // A drop whose slot nests it under a weekly parent groups it — the
+      // server hands a plan card's slot to the parent (SetParent).
+      if (!card.parent && toMeta.kind === "band" && groupUnder) {
+        handleGroup(card, groupUnder);
+        return;
       }
-      if (fromMeta.kind === "band" && toMeta.kind === "cell") {
+      if (card.parent && toMeta.kind === "band") {
+        if (groupUnder && groupUnder !== card.parent) {
+          handleGroup(card, groupUnder); // regroup under another weekly parent
+          return;
+        }
+        if (!groupUnder) {
+          return; // a subtask cannot become a plan card: stay grouped
+        }
+        // Reorder within the own block, anchored on the final sibling order.
+        const entry = g.find((x) => x.ids.includes(`plan:${card.itemId}`));
+        const ids = (entry?.ids ?? []).map((id) => id.replace(/^plan:/, ""));
+        const idx = ids.indexOf(card.itemId);
+        const above = idx > 0 ? cardsById.get(ids[idx - 1]) : undefined;
+        const below =
+          idx >= 0 && idx + 1 < ids.length
+            ? cardsById.get(ids[idx + 1])
+            : undefined;
+        const persist =
+          above && above.parent === card.parent
+            ? provider.moveCard(board, card.itemId, above.itemId)
+            : below && below.parent === card.parent
+              ? provider.moveCardBefore(board, card.itemId, below.itemId)
+              : null;
+        void persist
+          ?.then(reload)
+          .catch((err: unknown) => {
+            onError(errMessage(err));
+            reload();
+          });
+        return;
+      }
+      if (!card.parent && fromMeta.kind === "band" && toMeta.kind === "cell") {
         // Take the plan card into work, in the dropped cell's zone.
         takePlanCard(card, toMeta.engineer, toMeta.zone);
+        return;
       } else if (fromMeta.kind === "band" && toMeta.kind === "band") {
         if (toMeta.band !== fromMeta.band) {
           handleSetPlan(card, toMeta.band);
@@ -814,11 +849,18 @@ export function TeamBoard({
             entry.ids.map((id) => id.replace(/^plan:/, "")),
           );
         }
-      } else if (fromMeta.kind === "cell" && toMeta.kind === "band") {
+      } else if (!card.parent && fromMeta.kind === "cell" && toMeta.kind === "band") {
         // Take a grid card into the weekly plan; it stays on the board.
         takeIntoPlan(card, toMeta.band);
       }
-      return;
+      if (!card.parent || toMeta.kind !== "cell") {
+        return;
+      }
+      // A subtask pulled from a weekly block into a grid cell falls through:
+      // it works like any grid drop (ungroup or regroup by slot).
+    }
+    if (toMeta.kind !== "cell") {
+      return; // narrows the type: everything below places into a grid cell
     }
 
     // From here both ends are grid cells. The board committed exactly what
@@ -851,7 +893,12 @@ export function TeamBoard({
         card.assignees.length === wantAssignees.length &&
         card.assignees.every((a, i) => a === wantAssignees[i]);
       // Keep multi-assignee cards intact on a plain reorder within the cell.
-      if (!sameAssignees && (parentChanged || fromMeta.engineer !== toMeta.engineer)) {
+      if (
+        !sameAssignees &&
+        (parentChanged ||
+          fromMeta.kind !== "cell" ||
+          fromMeta.engineer !== toMeta.engineer)
+      ) {
         optimistic.assignees = wantAssignees;
         patch.assignees = wantAssignees;
       }
