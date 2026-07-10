@@ -29,6 +29,7 @@ const LS_PROJECT = "aeman.project";
 const LS_VIEW = "aeman.view";
 const LS_TEAM_ROSTER = "aeman.teamRoster";
 const LS_TEAM_FILTER = "aeman.teamFilter";
+const LS_VIEW_AS = "aeman.viewAs";
 
 function readView(): ViewMode {
   const raw = localStorage.getItem(LS_VIEW);
@@ -111,7 +112,20 @@ export function App() {
   // "View as" impersonation on the Me board — lifted here because the Me fetch
   // must carry the impersonated user explicitly (the server otherwise resolves
   // the caller's own login).
-  const [viewAs, setViewAs] = useState<string | null>(null);
+  // Persisted: an impersonating lead refreshing the page stays on the same
+  // person's board (a card just created for them would otherwise "vanish"
+  // when the view silently snapped back to the lead's own).
+  const [viewAs, setViewAs] = useState<string | null>(
+    () => localStorage.getItem(LS_VIEW_AS) || null,
+  );
+  const setViewAsPersisted = useCallback((login: string | null) => {
+    setViewAs(login);
+    if (login) {
+      localStorage.setItem(LS_VIEW_AS, login);
+    } else {
+      localStorage.removeItem(LS_VIEW_AS);
+    }
+  }, []);
   const [users, setUsers] = useState<Record<string, GhUser>>({});
   const fetchedUsers = useRef<Set<string>>(new Set());
   // Count of in-flight data loads (initial load + per-view card fetches);
@@ -898,7 +912,7 @@ export function App() {
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
             viewAs={viewAs}
-            onViewAs={setViewAs}
+            onViewAs={setViewAsPersisted}
             provider={provider}
             me={config?.login ?? ""}
             users={users}
