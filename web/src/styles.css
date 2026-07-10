@@ -3021,7 +3021,9 @@ button.card-age {
 }
 
 .sortable-card-nested {
-  margin-left: 22px;
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
 }
 
 /* The placeholder's indent is driven by the drop preview above, not by the
