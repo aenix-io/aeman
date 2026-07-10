@@ -1073,16 +1073,24 @@ export function TeamBoard({
       sprintStart: parent.sprintStart,
       progress: 0,
     });
-    void provider
-      .createCard(board, {
-        title,
-        team: parent.team ?? null,
-        zone: parent.zone ?? "gray",
-        start: selectedDate,
-        day: selectedDate,
-        parent: parent.itemId,
-      })
+    const created = provider.createCard(board, {
+      title,
+      team: parent.team ?? null,
+      zone: parent.zone ?? "gray",
+      start: selectedDate,
+      day: selectedDate,
+      parent: parent.itemId,
+    });
+    // Mutations fired against the tmp id (a quick reorder, a rename) wait in
+    // the pending registry for the real uid instead of erroring out.
+    registerPendingCard(tempId, created.then((c) => c.itemId));
+    created
       .then((c) => {
+        if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
+          void provider.deleteCard(board, c.itemId).catch(() => {});
+          return;
+        }
         replaceCard(tempId, c);
       })
       .catch((err: unknown) => {
