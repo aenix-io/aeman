@@ -896,6 +896,24 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 	if stage == board.StageDone && board.OpenChildren(b, card.ItemID) {
 		return ErrOpenSubtasks
 	}
+	// Done on a RECURRENT card completes this iteration without shedding the
+	// recurrence: progress fills to 100 (complete for carry-over/reseed) and
+	// the recurrent marker stays for the next round.
+	if stage == board.StageDone && card.Stage == board.StageRecurrent {
+		if card.Progress != 100 {
+			if err := s.backend.SetProgress(ctx, b, card, 100); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, card, board.EventProgress,
+				strconv.Itoa(card.Progress), "100")
+		}
+		if card.Parent != "" {
+			child := card
+			child.Progress = 100
+			return s.syncParentProgress(ctx, b, card.Parent, &child, "")
+		}
+		return nil
+	}
 	if err := s.applyStage(ctx, b, card, stage); err != nil {
 		return err
 	}

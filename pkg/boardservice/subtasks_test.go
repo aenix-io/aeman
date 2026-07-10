@@ -359,3 +359,19 @@ func TestSmartRemoveCreatedTodayDeletesForReal(t *testing.T) {
 		t.Fatalf("released child = %+v, want standalone with bob", c)
 	}
 }
+
+func TestDoneOnRecurrentKeepsRecurrence(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "r", Team: "alpha", Stage: board.StageRecurrent, Progress: 40},
+	}, nil)
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "r", board.StageDone); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("r")
+	if c.Stage != board.StageRecurrent {
+		t.Fatalf("stage = %q, want recurrent kept", c.Stage)
+	}
+	if c.Progress != 100 {
+		t.Fatalf("progress = %d, want 100", c.Progress)
+	}
+}
