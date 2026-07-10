@@ -156,6 +156,7 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 	for _, c := range out {
 		present[c.ItemID] = true
 	}
+	extra := map[string][]board.Card{}
 	for _, c := range b.Cards {
 		if c.Parent == "" || !present[c.Parent] || present[c.ItemID] {
 			continue
@@ -169,10 +170,21 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 		if (sel.View == "team" || sel.View == "me") && !subtaskOnDay(b, c, sel.Day) {
 			continue
 		}
-		out = append(out, c)
+		extra[c.Parent] = append(extra[c.Parent], c)
 		present[c.ItemID] = true
 	}
-	return out
+	if len(extra) == 0 {
+		return out
+	}
+	// Children slot in right AFTER their parent, so the list order a client
+	// installs wholesale still matches the board order — appended tails would
+	// reshuffle rows on every refetch.
+	merged := make([]board.Card, 0, len(out))
+	for _, c := range out {
+		merged = append(merged, c)
+		merged = append(merged, extra[c.ItemID]...)
+	}
+	return merged
 }
 
 // subtaskOnDay reports whether a subtask belongs on a day view: hidden while
