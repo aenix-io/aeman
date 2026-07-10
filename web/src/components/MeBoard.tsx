@@ -905,8 +905,7 @@ export function MeBoard({
     void provider
       .sendToReview(board, card.itemId, reviewerLogin, selectedDate, zone)
       .then((created) => {
-        removeCard(tempId);
-        addCard(created);
+        replaceCard(tempId, created);
         reload();
       })
       .catch((err: unknown) => {
@@ -1098,13 +1097,14 @@ export function MeBoard({
     );
     void creating
       .then((card) => {
-        removeCard(tempId);
         if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
           void provider.deleteCard(board, card.itemId).catch(() => undefined);
           return;
         }
-        addCard(card);
+        // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        replaceCard(tempId, card);
         if (firstSprint) {
           reload();
         }

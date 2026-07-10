@@ -428,13 +428,14 @@ export function TeamBoard({
     );
     void creating
       .then((card) => {
-        removeCard(tempId);
         if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
           void provider.deleteCard(board, card.itemId).catch(() => undefined);
           return;
         }
-        addCard(card);
+        // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        replaceCard(tempId, card);
       })
       .catch((err: unknown) => {
         consumePendingCancel(tempId);
@@ -1795,13 +1796,14 @@ export function TeamBoard({
     );
     void creating
       .then((card) => {
-        removeCard(tempId);
         if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
           void provider.deleteCard(board, card.itemId).catch(() => undefined);
           return;
         }
-        addCard(card);
+        // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        replaceCard(tempId, card);
         if (firstSprint) {
           reload();
         }
