@@ -325,6 +325,11 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	// finished recurrent card stays behind and reseeds a fresh copy instead.
 	var carry, reseed, relocate []board.Card
 	for _, c := range b.Cards {
+		// A subtask is never carried on its own - it rides with its parent
+		// (below), whatever team either of them belongs to.
+		if c.Parent != "" {
+			continue
+		}
 		if c.Team != team {
 			continue
 		}
@@ -367,7 +372,14 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		}
 		carry = append(carry, c)
 	}
-	rep := CarryReport{Carried: len(carry), Reseeded: len(reseed)}
+	// Subtasks ride with their carried parent - even completed ones, and
+	// whatever team they belong to; the parent's team drives the sprint.
+	followers := make([]board.Card, 0)
+	for _, p := range carry {
+		followers = append(followers, board.Children(b, p.ItemID)...)
+	}
+	carry = append(carry, followers...)
+	rep := CarryReport{Carried: len(carry) - len(followers), Reseeded: len(reseed)}
 	if dryRun {
 		return rep, nil
 	}
@@ -816,10 +828,23 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 	if stage == board.StageRecurrent && card.ReviewOf != "" {
 		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)
 	}
+	// Closing the parent is the human's final call - made only once every
+	// subtask is done.
+	if stage == board.StageDone && board.OpenChildren(b, card.ItemID) {
+		return ErrOpenSubtasks
+	}
 	if err := s.applyStage(ctx, b, card, stage); err != nil {
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventStage, string(card.Stage), string(stage))
+	// A subtask's completion state feeds its parent's derived progress.
+	if card.Parent != "" {
+		child := card
+		child.Stage, child.Progress = board.ApplyStage(stage, card.Progress)
+		if err := s.syncParentProgress(ctx, b, card.Parent, &child, ""); err != nil {
+			return err
+		}
+	}
 	// Leaving review cancels the unfinished linked review card.
 	if card.Stage == board.StageReview && stage != board.StageReview {
 		return s.cancelLinkedReview(ctx, b, card)
@@ -901,6 +926,11 @@ func (s *Service) SetProgress(ctx context.Context, owner string, project int, it
 	if err != nil {
 		return err
 	}
+	// 100% completes a stageless card; the parent's final 100 waits for
+	// every subtask to be done first.
+	if raw >= 100 && board.OpenChildren(b, card.ItemID) {
+		return ErrOpenSubtasks
+	}
 	newStage, newProgress := board.ApplyProgress(card.Stage, raw)
 	if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
 		return err
@@ -909,6 +939,14 @@ func (s *Service) SetProgress(ctx context.Context, owner string, project int, it
 		strconv.Itoa(card.Progress), strconv.Itoa(newProgress))
 	if newStage != card.Stage {
 		if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
+			return err
+		}
+	}
+	// A subtask's progress feeds its parent's derived progress.
+	if card.Parent != "" {
+		child := card
+		child.Stage, child.Progress = newStage, newProgress
+		if err := s.syncParentProgress(ctx, b, card.Parent, &child, ""); err != nil {
 			return err
 		}
 	}

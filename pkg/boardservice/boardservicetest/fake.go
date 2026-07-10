@@ -310,6 +310,15 @@ func (f *Backend) SetAssignee(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
+// SetParent sets a card's parent link.
+func (f *Backend) SetParent(_ context.Context, _ board.Board, card board.Card, parent string) error {
+	f.rec("SetParent %s %s", card.ItemID, parent)
+	if c := f.Card(card.ItemID); c != nil {
+		c.Parent = parent
+	}
+	return nil
+}
+
 // SetReviewOf sets a card's review-of link.
 func (f *Backend) SetReviewOf(_ context.Context, _ board.Board, card board.Card, reviewOf string) error {
 	f.rec("SetReviewOf %s %s", card.ItemID, reviewOf)

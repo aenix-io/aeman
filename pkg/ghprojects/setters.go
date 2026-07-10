@@ -74,6 +74,7 @@ var domainFieldSpecs = map[string]domainFieldSpec{
 	"week":        {name: "Week", dataType: "DATE"},
 	"team":        {name: "Team", dataType: "TEXT"},
 	"reviewOf":    {name: "Review Of", dataType: "TEXT"},
+	"parent":      {name: "Parent", dataType: "TEXT"},
 	"reviewRound": {name: "Review Round", dataType: "NUMBER"},
 }
 
@@ -447,6 +448,11 @@ func (c *Client) setDomainText(ctx context.Context, b board.Board, card board.Ca
 	}
 	return c.graphql(ctx, setTextMutation,
 		map[string]any{"project": b.ID, "item": card.ItemID, "field": field.ID, "value": value}, nil)
+}
+
+// SetParent sets (or clears) the parent link making a card a subtask.
+func (c *Client) SetParent(ctx context.Context, b board.Board, card board.Card, parent string) error {
+	return c.setDomainText(ctx, b, card, "parent", parent)
 }
 
 // SetAssignee replaces the card's assignee with login (empty clears it).
