@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode, type Ref } from "react";
+import { useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -9,6 +9,7 @@ import {
   useSensors,
   type CollisionDetection,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -38,10 +39,10 @@ export interface DropResult<Meta> {
   toMeta: Meta;
   /** Final per-group ordering of card ids across the whole (visible) board. */
   groups: { meta: Meta; ids: string[] }[];
-  /** The drop landed with a rightward offset from its slot — the Notion-style
-   *  cue that an ambiguous slot (right under an expanded parent) means "tuck
-   *  in as a subtask" rather than "standalone below". */
-  indented: boolean;
+  /** The itemId the card was dropped under as a subtask, resolved exactly as
+   *  the placeholder previewed it (indent level, Todoist-style), or null for
+   *  a standalone drop. */
+  groupUnder: string | null;
 }
 
 interface SortableBoardProps<Meta> {
@@ -227,6 +228,13 @@ export function SortableBoard<Meta>({
   // While a drag hovers a card's middle band: the dnd id of that card. The
   // active placeholder previews right below it at the subtask indent.
   const [nestUnder, setNestUnder] = useState<string | null>(null);
+  // The Todoist-style indent level of the drag: held to the right = "nest
+  // under the card above", flush left = "standalone". Guarded against
+  // accidental wobble by hysteresis (enter past the indent, leave well before
+  // it) plus a short persistence window before the level flips.
+  const [indentOn, setIndentOn] = useState(false);
+  const indentOnRef = useRef(false);
+  const indentFlipAt = useRef<number | null>(null);
 
   // The groups actually rendered: local working copy while dragging, else props.
   const view: LocalGroups<Meta> = useMemo(() => {
@@ -254,37 +262,55 @@ export function SortableBoard<Meta>({
   const findGroupIndex = (work: LocalGroups<Meta>, id: string): number =>
     work.findIndex((g) => g.ids.includes(id) || g.key === id);
 
-  // Whether the active placeholder previews at the subtask indent: the drop
-  // would nest it — a middle band is hovered (nestUnder), or its slot in the
-  // working copy sits right below a subtask row (it would join those
-  // siblings). The card's own parent is deliberately ignored: a subtask
-  // dragged towards a top-level slot previews flush, ready to pull out.
-  const placeholderNested = useMemo(() => {
+  // The card the active placeholder would nest under, resolved from its slot
+  // in the working copy and the held indent level — Todoist-style:
+  //  - a middle-band hover (nestUnder) always nests under that card;
+  //  - between two subtasks of the same parent the slot is unambiguous: it
+  //    joins them regardless of indent;
+  //  - below the LAST subtask of a block, or below any plain card, the indent
+  //    decides — held to the right nests, flush left stays standalone.
+  // The drop commits exactly this resolution, so the preview never lies.
+  const nestPreview = (): string | null => {
     if (!activeId || !local) {
-      return false;
+      return null;
     }
     if (nestUnder !== null) {
-      return true;
+      return cardById.get(nestUnder)?.itemId ?? null;
     }
     const entry = local.find((g) => g.ids.includes(activeId));
     if (!entry) {
-      return false;
+      return null;
     }
     const idx = entry.ids.indexOf(activeId);
     const above = idx > 0 ? cardById.get(entry.ids[idx - 1]) : undefined;
-    if (!above?.parent) {
-      return false;
-    }
+    const below =
+      idx >= 0 && idx + 1 < entry.ids.length
+        ? cardById.get(entry.ids[idx + 1])
+        : undefined;
     const active = cardById.get(activeId);
-    if (!active) {
-      return false;
+    if (!above || !active) {
+      return null;
     }
-    if (active.parent === above.parent) {
-      return true; // staying among its own siblings
+    let target: CardModel | undefined;
+    if (above.parent) {
+      const lastOfBlock = !below || below.parent !== above.parent;
+      if (!lastOfBlock || indentOn) {
+        target = cardById.get(above.parent);
+      }
+    } else if (indentOn) {
+      target = above;
     }
-    const parentCard = cardById.get(above.parent);
-    return !canGroup || !parentCard || canGroup(active, parentCard);
-  }, [activeId, local, nestUnder, cardById, canGroup]);
+    if (!target || target.itemId === active.itemId) {
+      return null;
+    }
+    if (active.parent === target.itemId) {
+      return target.itemId; // staying among its own siblings
+    }
+    if (canGroup && !canGroup(active, target)) {
+      return null;
+    }
+    return target.itemId;
+  };
 
   // closestCorners with a grouping band: while the dragged card's centre is
   // over the vertical middle of another card, the drop retargets to that
@@ -324,6 +350,10 @@ export function SortableBoard<Meta>({
   const handleStart = (e: DragStartEvent) => {
     const id = String(e.active.id);
     setActiveId(id);
+    const seed = !!cardById.get(id)?.parent;
+    indentOnRef.current = seed;
+    indentFlipAt.current = null;
+    setIndentOn(seed);
     if (isExternal(id)) {
       return; // external draggables don't reshuffle the grid's working copy
     }
@@ -334,6 +364,36 @@ export function SortableBoard<Meta>({
         ids: g.cards.map((c) => idOf(c, g)),
       })),
     );
+  };
+
+  const handleMove = (e: DragMoveEvent) => {
+    const translated = e.active.rect.current.translated;
+    const overRect = e.over?.rect;
+    if (!translated || !overRect) {
+      return;
+    }
+    const offset = translated.left - overRect.left;
+    const cur = indentOnRef.current;
+    // Hysteresis: enter the nest level past the indent (26px), leave it only
+    // well before (12px); the band in between is sticky.
+    const want = cur ? offset > 12 : offset > 26;
+    if (want === cur) {
+      indentFlipAt.current = null;
+      return;
+    }
+    // The crossing must persist ~80ms before the level flips, so a wobble on
+    // the way down never re-nests (or un-nests) a card by accident.
+    const now = performance.now();
+    if (indentFlipAt.current === null) {
+      indentFlipAt.current = now;
+      return;
+    }
+    if (now - indentFlipAt.current < 80) {
+      return;
+    }
+    indentFlipAt.current = null;
+    indentOnRef.current = want;
+    setIndentOn(want);
   };
 
   const handleOver = (e: DragOverEvent) => {
@@ -402,6 +462,9 @@ export function SortableBoard<Meta>({
     setLocal(null);
     setActiveId(null);
     setNestUnder(null);
+    indentOnRef.current = false;
+    indentFlipAt.current = null;
+    setIndentOn(false);
     onHoverCard?.(null);
   };
 
@@ -466,21 +529,12 @@ export function SortableBoard<Meta>({
       return;
     }
 
-    // The rightward offset of the dropped card against its final slot — the
-    // "indent to nest" cue for ambiguous slots (right under an expanded parent).
-    const translated = e.active.rect.current.translated;
-    const indented = !!(
-      over &&
-      translated &&
-      translated.left - over.rect.left > 16
-    );
-
     onDrop({
       card,
       fromMeta: fromGroup.meta,
       toMeta: toEntry.meta,
       groups: next.map((g) => ({ meta: g.meta, ids: g.ids })),
-      indented,
+      groupUnder: nestPreview(),
     });
     reset();
   };
@@ -488,6 +542,9 @@ export function SortableBoard<Meta>({
   const activeCard = activeId
     ? cardById.get(activeId) ?? externalCards?.get(activeId) ?? null
     : null;
+
+  // The placeholder previews at the indent exactly when the drop would nest.
+  const nestPreviewId = activeId !== null && nestPreview() !== null ? activeId : null;
 
   // Render each group as a node, keyed by group.key, so a custom layout can
   // arrange them (Team groups cells into engineer columns); default is flat.
@@ -504,7 +561,7 @@ export function SortableBoard<Meta>({
         group={group}
         ids={entry.ids}
         activeId={activeId}
-        nestedId={placeholderNested ? activeId : null}
+        nestedId={nestPreviewId}
         cardById={cardById}
         groupable={!!onGroupDrop}
         renderGroup={renderGroup}
@@ -518,6 +575,7 @@ export function SortableBoard<Meta>({
       sensors={sensors}
       collisionDetection={detectCollisions}
       onDragStart={handleStart}
+      onDragMove={handleMove}
       onDragOver={handleOver}
       onDragEnd={handleEnd}
       onDragCancel={reset}
