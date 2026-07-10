@@ -18,6 +18,7 @@ import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
 import { queryString, viewQueries, watchQuery } from "./viewquery";
 import { todayIso } from "./date";
+import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
@@ -409,17 +410,30 @@ export function App() {
     }
   }, [board, doLoad]);
 
-  const patchCard = useCallback((itemId: string, patch: Partial<CardModel>) => {
-    setBoard((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      return {
-        ...cur,
-        cards: cur.cards.map((c) => (c.itemId === itemId ? { ...c, ...patch } : c)),
-      };
-    });
-  }, []);
+  // patch is a plain partial, or an updater computing one from the card's
+  // CURRENT state — rapid successive changes (notes typed Enter-Enter-Enter)
+  // must not base themselves on a stale render's copy.
+  const patchCard = useCallback(
+    (
+      itemId: string,
+      patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
+    ) => {
+      setBoard((cur) => {
+        if (!cur) {
+          return cur;
+        }
+        return {
+          ...cur,
+          cards: cur.cards.map((c) =>
+            c.itemId === itemId
+              ? { ...c, ...(typeof patch === "function" ? patch(c) : patch) }
+              : c,
+          ),
+        };
+      });
+    },
+    [],
+  );
 
   // addCard upserts by item id: the watch stream may deliver a created card
   // before (or after) the creator's own response lands, so both paths must
@@ -524,7 +538,14 @@ export function App() {
         if (existing?.notes !== undefined) {
           void provider
             .listLog({ owner: watchOwner, number: watchProject }, card.itemId)
-            .then(({ notes, events }) => patchCard(card.itemId, { notes, events }))
+            .then(({ notes, events }) =>
+              // Merge, don't replace: the response may predate a local
+              // optimistic note added while it was in flight.
+              patchCard(card.itemId, (c) => ({
+                notes: mergeNotes(notes, c.notes),
+                events,
+              })),
+            )
             .catch(() => {});
         }
         return;
@@ -775,6 +796,22 @@ export function App() {
             className="sync-badge"
             title={`${pendingSync} change(s) applied but not yet written to GitHub`}
           >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 2v6h-6" />
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M3 22v-6h6" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
             {pendingSync}
           </span>
         )}

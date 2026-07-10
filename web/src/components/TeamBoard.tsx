@@ -53,7 +53,10 @@ interface TeamBoardProps {
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
   onReorderTeams: (ordered: string[]) => void;
-  patchCard: (itemId: string, patch: Partial<CardModel>) => void;
+  patchCard: (
+    itemId: string,
+    patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
+  ) => void;
   addCard: (card: CardModel) => void;
   removeCard: (itemId: string) => void;
   reorderCards: (orderedItemIds: string[]) => void;
