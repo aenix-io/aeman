@@ -495,8 +495,23 @@ export function MeBoard({
   };
 
   // Create a card directly as a subtask (inherits the parent's team and zone,
-  // assigned to the viewer so it stays on this board).
+  // assigned to the viewer so it stays on this board). An optimistic copy
+  // shows at the end of the list instantly; the server card replaces it.
   const handleCreateSubtask = (parent: CardModel, title: string) => {
+    const tempId = `tmp-${new Date().toISOString()}`;
+    addCard({
+      itemId: tempId,
+      title,
+      isDraft: true,
+      assignees: viewMe ? [viewMe] : [],
+      zone: parent.zone ?? "gray",
+      team: parent.team,
+      parent: parent.itemId,
+      startDate: selectedDate,
+      day: selectedDate,
+      sprintStart: parent.sprintStart,
+      progress: 0,
+    });
     void provider
       .createCard(board, {
         title,
@@ -508,10 +523,14 @@ export function MeBoard({
       })
       .then((c) => provider.patchCard(board, c.itemId, { parent: parent.itemId }))
       .then((c) => {
+        removeCard(tempId);
         addCard(c);
         reload();
       })
-      .catch((err: unknown) => onError(errMessage(err)));
+      .catch((err: unknown) => {
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
   };
 
   const handleProgress = (card: CardModel, raw: number) => {
@@ -1113,29 +1132,50 @@ export function MeBoard({
     />
   );
 
+  // The inline add-subtask form (the + flow), indented like a subtask row.
+  const subtaskAddForm = (parent: CardModel): ReactNode => (
+    <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
+      <AddCard
+        autoOpen
+        placeholder="Add a subtask…"
+        onCreate={(title) => handleCreateSubtask(parent, title)}
+        onClosed={() => setAddingSub(null)}
+      />
+    </div>
+  );
+
   // Wraps a rendered card: subtask rows are indented under their parent, and
-  // the parent grows an inline add-subtask form while the + flow is open.
+  // the add-subtask form (the + flow) hangs after the LAST subtask row — or
+  // right under the parent while it has none visible yet.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
     if (card.parent) {
-      return <div className="subtask-indent">{node}</div>;
+      const wrapped = <div className="subtask-indent">{node}</div>;
+      const subs = childrenOf.get(card.parent) ?? [];
+      const parent = cardsById.get(card.parent);
+      if (
+        addingSub === card.parent &&
+        parent &&
+        subs[subs.length - 1]?.itemId === card.itemId
+      ) {
+        return (
+          <>
+            {wrapped}
+            {subtaskAddForm(parent)}
+          </>
+        );
+      }
+      return wrapped;
     }
-    if (addingSub !== card.itemId) {
+    if (
+      addingSub !== card.itemId ||
+      (subsOpen(card.itemId) && (childrenOf.get(card.itemId) ?? []).length > 0)
+    ) {
       return node;
     }
     return (
       <>
         {node}
-        <div
-          className="subtask-add"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <AddCard
-            autoOpen
-            placeholder="Add a subtask…"
-            onCreate={(title) => handleCreateSubtask(card, title)}
-            onClosed={() => setAddingSub(null)}
-          />
-        </div>
+        {subtaskAddForm(card)}
       </>
     );
   };
