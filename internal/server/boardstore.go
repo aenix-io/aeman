@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -799,28 +800,118 @@ func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card boa
 	return nil
 }
 
+// Notes are write-behind like the field setters, with one extra wrinkle: a
+// note's real id is assigned upstream (a comment node id, or a draft body
+// line index), so the cached copy carries a synthetic ":wb:" id until the
+// queued write lands and the worker re-reads the card. Edits and deletes of
+// a note that is still synthetic resolve it upstream by its body at exec
+// time (FIFO guarantees the add was pushed first).
+
 func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.Card, text string) error {
-	if err := b.inner.AddNote(ctx, bd, card, text); err != nil {
-		return err
+	now := time.Now().UTC().Format(time.RFC3339)
+	note := board.Note{
+		ID:        card.ItemID + ":wb:" + now,
+		Body:      text,
+		CreatedAt: now,
+		Author:    board.ActorFrom(ctx),
+		Source:    "draft",
 	}
-	b.touched(ctx, bd, card.ItemID)
+	if !card.IsDraft {
+		note.Source = "comment"
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "", "add a note on "+cardRef(card), func(c *board.Card) {
+		for _, n := range c.Notes {
+			if n.ID == note.ID || (n.Body == note.Body && n.Author == note.Author) {
+				return
+			}
+		}
+		c.Notes = append(c.Notes, note)
+	}, func(ctx context.Context) error {
+		if err := b.inner.AddNote(ctx, bd, card, text); err != nil {
+			return err
+		}
+		// Swap the synthetic note for the real one (and its real id).
+		b.touched(ctx, bd, card.ItemID)
+		return nil
+	})
 	return nil
 }
 
 func (b *storeBackend) EditNote(ctx context.Context, bd board.Board, card board.Card, note board.Note, text string) error {
-	if err := b.inner.EditNote(ctx, bd, card, note, text); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "", "edit a note on "+cardRef(card), func(c *board.Card) {
+		for i := range c.Notes {
+			if c.Notes[i].ID == note.ID ||
+				(c.Notes[i].Body == note.Body && c.Notes[i].Author == note.Author) {
+				c.Notes[i].Body = text
+				return
+			}
+		}
+	}, func(ctx context.Context) error {
+		real, err := b.resolveNote(ctx, bd, card.ItemID, note)
+		if err != nil {
+			return err
+		}
+		if err := b.inner.EditNote(ctx, bd, card, real, text); err != nil {
+			return err
+		}
+		b.touched(ctx, bd, card.ItemID)
+		return nil
+	})
 	return nil
 }
 
 func (b *storeBackend) DeleteNote(ctx context.Context, bd board.Board, card board.Card, note board.Note) error {
-	if err := b.inner.DeleteNote(ctx, bd, card, note); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "", "delete a note on "+cardRef(card), func(c *board.Card) {
+		kept := c.Notes[:0]
+		removed := false
+		for _, n := range c.Notes {
+			if !removed && (n.ID == note.ID || (n.Body == note.Body && n.Author == note.Author)) {
+				removed = true
+				continue
+			}
+			kept = append(kept, n)
+		}
+		c.Notes = kept
+	}, func(ctx context.Context) error {
+		real, err := b.resolveNote(ctx, bd, card.ItemID, note)
+		if err != nil {
+			return err
+		}
+		if err := b.inner.DeleteNote(ctx, bd, card, real); err != nil {
+			return err
+		}
+		// Draft note ids are body line indexes: deleting a line shifts the
+		// ones after it, so re-sync the cached ids right away.
+		b.touched(ctx, bd, card.ItemID)
+		return nil
+	})
 	return nil
+}
+
+// resolveNote maps a still-synthetic (":wb:") note reference onto the real
+// upstream note by matching its body, taking the newest match. A real id
+// passes through untouched.
+func (b *storeBackend) resolveNote(ctx context.Context, bd board.Board, itemID string, note board.Note) (board.Note, error) {
+	if !strings.Contains(note.ID, ":wb:") {
+		return note, nil
+	}
+	cards, err := b.inner.LoadCards(ctx, bd, []string{itemID})
+	if err != nil {
+		return note, err
+	}
+	if len(cards) == 0 {
+		return note, fmt.Errorf("card %s not found upstream", itemID)
+	}
+	found := -1
+	for i, n := range cards[0].Notes {
+		if n.Body == note.Body && (note.Author == "" || n.Author == "" || n.Author == note.Author) {
+			found = i
+		}
+	}
+	if found < 0 {
+		return note, fmt.Errorf("the note was not found upstream")
+	}
+	return cards[0].Notes[found], nil
 }
 
 // The field setters below are write-behind: the cache changes (and watchers
