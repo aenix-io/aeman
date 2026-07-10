@@ -109,6 +109,13 @@ type boardEntry struct {
 	// touched within recentGrace are re-applied on top of every full reload.
 	recentCards map[string]time.Time
 	recentGone  map[string]time.Time
+	// pending is the write-behind queue: changes already live in this cache
+	// that GitHub has not confirmed yet (see writequeue.go). inflight is the
+	// op currently on the wire (still unconfirmed, so counters and reload
+	// replays include it); draining marks the background worker as running.
+	pending  []pendingOp
+	inflight *pendingOp
+	draining bool
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -398,23 +405,23 @@ func (s *boardStore) ClearPresence(key, clientID string) {
 	e.mu.Unlock()
 }
 
-// moveCardTo reorders the cached card to sit after afterID ("" = the top), so
-// snapshots keep serving the board in its real order after a move.
-func (e *boardEntry) moveCardTo(itemID, afterID string) {
+// moveCardAfter reorders cards so itemID sits after afterID ("" = the top),
+// keeping snapshots (and write-behind replays) in the board's real order.
+func moveCardAfter(cards []board.Card, itemID, afterID string) []board.Card {
 	idx := -1
-	for i := range e.board.Cards {
-		if e.board.Cards[i].ItemID == itemID {
+	for i := range cards {
+		if cards[i].ItemID == itemID {
 			idx = i
 			break
 		}
 	}
 	if idx < 0 {
-		return
+		return cards
 	}
-	card := e.board.Cards[idx]
-	rest := make([]board.Card, 0, len(e.board.Cards)-1)
-	rest = append(rest, e.board.Cards[:idx]...)
-	rest = append(rest, e.board.Cards[idx+1:]...)
+	card := cards[idx]
+	rest := make([]board.Card, 0, len(cards)-1)
+	rest = append(rest, cards[:idx]...)
+	rest = append(rest, cards[idx+1:]...)
 	pos := 0
 	if afterID != "" {
 		for i := range rest {
@@ -428,7 +435,7 @@ func (e *boardEntry) moveCardTo(itemID, afterID string) {
 	out = append(out, rest[:pos]...)
 	out = append(out, card)
 	out = append(out, rest[pos:]...)
-	e.board.Cards = out
+	return out
 }
 
 // upsertCard replaces the cached card with the same item id, or appends it.
@@ -509,6 +516,13 @@ func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, re
 		for _, entry := range e.presence {
 			sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: entry})
 		}
+	}
+	// Seed the unsynced-changes counter: a tab opened while the write-behind
+	// queue is non-empty must show the number right away.
+	if len(e.pending) > 0 {
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Queue", Object: map[string]int{
+			"pending": len(e.pending),
+		}})
 	}
 	e.mu.Unlock()
 	return sub, func() {
@@ -617,6 +631,15 @@ func (b *storeBackend) install(e *boardEntry, fresh board.Board, login string) b
 	hadOld := e.loaded
 	fresh = e.applyRecent(fresh)
 	e.board = fresh
+	// Replay the write-behind queue on top (the in-flight op first): these
+	// changes are live in the cache but not confirmed by GitHub yet, so a
+	// fresh load — which predates them — must not roll them back.
+	if e.inflight != nil {
+		e.inflight.apply(&e.board)
+	}
+	for _, op := range e.pending {
+		op.apply(&e.board)
+	}
 	e.loaded = true
 	e.loadedAt = time.Now()
 	e.markAuthed(login)
@@ -624,7 +647,7 @@ func (b *storeBackend) install(e *boardEntry, fresh board.Board, login string) b
 		e.diffNotify(old)
 	}
 	e.syncBroadcast()
-	return fresh
+	return e.board
 }
 
 // diffNotify announces everything a full reload changed against the previous
@@ -738,24 +761,41 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 
 // MoveCard applies the new position to the cached order (so lists keep the
 // board's real order) and announces the new Ordering to other clients — the
-// originator already reordered optimistically.
+// originator already reordered optimistically. The GitHub write is queued.
 func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
-	if err := b.inner.MoveCard(ctx, bd, card, afterID); err != nil {
-		return err
-	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
-	e.moveCardTo(card.ItemID, afterID)
+	e.board.Cards = moveCardAfter(e.board.Cards, card.ItemID, afterID)
 	e.orderingChanged(clientIDFrom(ctx))
 	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key:  "move:" + card.ItemID,
+		desc: "move " + cardRef(card),
+		apply: func(target *board.Board) {
+			target.Cards = moveCardAfter(target.Cards, card.ItemID, afterID)
+		},
+		exec: func(ctx context.Context) error {
+			return b.inner.MoveCard(ctx, bd, card, afterID)
+		},
+	})
 	return nil
 }
 
-func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card board.Card, e board.Event) error {
-	if err := b.inner.AppendEvent(ctx, bd, card, e); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card board.Card, ev board.Event) error {
+	// Synthesize a stable id for the cached copy (the real one appears on the
+	// next full read); the presence guard keeps the replayed append from
+	// duplicating the event once GitHub starts returning it.
+	ev.ID = card.ItemID + ":wb:" + ev.At + ":" + ev.Kind
+	b.mutateCard(ctx, bd, card.ItemID, "", "log a change on "+cardRef(card), func(c *board.Card) {
+		for _, x := range c.Events {
+			if x.Kind == ev.Kind && x.At == ev.At && x.From == ev.From && x.To == ev.To {
+				return
+			}
+		}
+		c.Events = append(c.Events, ev)
+	}, func(ctx context.Context) error {
+		return b.inner.AppendEvent(ctx, bd, card, ev)
+	})
 	return nil
 }
 
@@ -783,115 +823,136 @@ func (b *storeBackend) DeleteNote(ctx context.Context, bd board.Board, card boar
 	return nil
 }
 
+// The field setters below are write-behind: the cache changes (and watchers
+// hear about it) immediately, the GitHub write is queued — see writequeue.go.
+
 func (b *storeBackend) SetDescription(ctx context.Context, bd board.Board, card board.Card, description string) error {
-	if err := b.inner.SetDescription(ctx, bd, card, description); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "description", "edit the description of "+cardRef(card), func(c *board.Card) {
+		c.Description = description
+	}, func(ctx context.Context) error {
+		return b.inner.SetDescription(ctx, bd, card, description)
+	})
 	return nil
 }
 
 func (b *storeBackend) RenameCard(ctx context.Context, bd board.Board, card board.Card, title string) error {
-	if err := b.inner.RenameCard(ctx, bd, card, title); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "title", "rename "+cardRef(card), func(c *board.Card) {
+		c.Title = title
+	}, func(ctx context.Context) error {
+		return b.inner.RenameCard(ctx, bd, card, title)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetStage(ctx context.Context, bd board.Board, card board.Card, stage board.StageKey) error {
-	if err := b.inner.SetStage(ctx, bd, card, stage); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "stage", "set the stage on "+cardRef(card), func(c *board.Card) {
+		c.Stage = stage
+	}, func(ctx context.Context) error {
+		return b.inner.SetStage(ctx, bd, card, stage)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetProgress(ctx context.Context, bd board.Board, card board.Card, progress int) error {
-	if err := b.inner.SetProgress(ctx, bd, card, progress); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "progress", "set progress on "+cardRef(card), func(c *board.Card) {
+		c.Progress = progress
+	}, func(ctx context.Context) error {
+		return b.inner.SetProgress(ctx, bd, card, progress)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetZone(ctx context.Context, bd board.Board, card board.Card, zone board.ZoneKey) error {
-	if err := b.inner.SetZone(ctx, bd, card, zone); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "zone", "move "+cardRef(card)+" to another zone", func(c *board.Card) {
+		c.Zone = zone
+	}, func(ctx context.Context) error {
+		return b.inner.SetZone(ctx, bd, card, zone)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetDay(ctx context.Context, bd board.Board, card board.Card, day string) error {
-	if err := b.inner.SetDay(ctx, bd, card, day); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "day", "set the end date on "+cardRef(card), func(c *board.Card) {
+		c.Day = day
+	}, func(ctx context.Context) error {
+		return b.inner.SetDay(ctx, bd, card, day)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetStart(ctx context.Context, bd board.Board, card board.Card, date string) error {
-	if err := b.inner.SetStart(ctx, bd, card, date); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "start", "set the start date on "+cardRef(card), func(c *board.Card) {
+		c.StartDate = date
+	}, func(ctx context.Context) error {
+		return b.inner.SetStart(ctx, bd, card, date)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetSprintStart(ctx context.Context, bd board.Board, card board.Card, date string) error {
-	if err := b.inner.SetSprintStart(ctx, bd, card, date); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "sprint-start", "move "+cardRef(card)+" to another sprint", func(c *board.Card) {
+		c.SprintStart = date
+	}, func(ctx context.Context) error {
+		return b.inner.SetSprintStart(ctx, bd, card, date)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetPlan(ctx context.Context, bd board.Board, card board.Card, plan board.PlanBand) error {
-	if err := b.inner.SetPlan(ctx, bd, card, plan); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "plan", "set the plan band on "+cardRef(card), func(c *board.Card) {
+		c.Plan = plan
+	}, func(ctx context.Context) error {
+		return b.inner.SetPlan(ctx, bd, card, plan)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
-	if err := b.inner.SetWeek(ctx, bd, card, week); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "week", "move "+cardRef(card)+" to another week", func(c *board.Card) {
+		c.Week = week
+	}, func(ctx context.Context) error {
+		return b.inner.SetWeek(ctx, bd, card, week)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
-	if err := b.inner.SetTeam(ctx, bd, card, team); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "team", "move "+cardRef(card)+" to another team", func(c *board.Card) {
+		c.Team = team
+	}, func(ctx context.Context) error {
+		return b.inner.SetTeam(ctx, bd, card, team)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetAssignee(ctx context.Context, bd board.Board, card board.Card, login string) error {
-	if err := b.inner.SetAssignee(ctx, bd, card, login); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "assignee", "reassign "+cardRef(card), func(c *board.Card) {
+		if login == "" {
+			c.Assignees = nil
+		} else {
+			c.Assignees = []string{login}
+		}
+	}, func(ctx context.Context) error {
+		return b.inner.SetAssignee(ctx, bd, card, login)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetReviewOf(ctx context.Context, bd board.Board, card board.Card, reviewOf string) error {
-	if err := b.inner.SetReviewOf(ctx, bd, card, reviewOf); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "review-of", "relink the review "+cardRef(card), func(c *board.Card) {
+		c.ReviewOf = reviewOf
+	}, func(ctx context.Context) error {
+		return b.inner.SetReviewOf(ctx, bd, card, reviewOf)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetReviewRound(ctx context.Context, bd board.Board, card board.Card, round int) error {
-	if err := b.inner.SetReviewRound(ctx, bd, card, round); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "review-round", "bump the review round on "+cardRef(card), func(c *board.Card) {
+		c.ReviewRound = round
+	}, func(ctx context.Context) error {
+		return b.inner.SetReviewRound(ctx, bd, card, round)
+	})
 	return nil
 }
 
@@ -906,13 +967,11 @@ func (b *storeBackend) ResolveIssueRef(ctx context.Context, link board.Link) (bo
 }
 
 // SetSprintState updates the cached pointer in place when the team's
-// sprint-state card already exists (its id is stable), announces the Sprint
-// change and re-diffs scoped memberships. A first pointer creates a state card
-// whose id the cache does not know, so that path reloads the board first.
+// sprint-state card already exists (its id is stable) and queues the GitHub
+// write — this is what makes Carry Over instant. A first pointer creates a
+// state card whose id the cache does not know, so that (rare) path stays
+// synchronous and reloads the board.
 func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team, current, previous string) error {
-	if err := b.inner.SetSprintState(ctx, bd, team, current, previous); err != nil {
-		return err
-	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	st, had := e.board.SprintStates[team]
@@ -921,8 +980,30 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 		e.board.SprintStates[team] = st
 		e.sprintChanged(clientIDFrom(ctx), team)
 		e.mu.Unlock()
+		label := team
+		if label == "" {
+			label = "no team"
+		}
+		b.enqueue(ctx, e, pendingOp{
+			key:  "sprint:" + team,
+			desc: "advance the «" + label + "» sprint",
+			apply: func(target *board.Board) {
+				if s, ok := target.SprintStates[team]; ok {
+					s.Current, s.Previous = current, previous
+					target.SprintStates[team] = s
+				}
+			},
+			exec: func(ctx context.Context) error {
+				return b.inner.SetSprintState(ctx, bd, team, current, previous)
+			},
+		})
 		return nil
 	}
+	e.mu.Unlock()
+	if err := b.inner.SetSprintState(ctx, bd, team, current, previous); err != nil {
+		return err
+	}
+	e.mu.Lock()
 	e.loaded = false
 	e.mu.Unlock()
 	if _, err := b.LoadBoard(ctx, bd.Owner, bd.Number); err == nil {
