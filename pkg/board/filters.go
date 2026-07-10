@@ -13,6 +13,11 @@ func TeamGrid(b Board, team, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
+		// Subtasks are never placed on their own: they ride with their parent
+		// (the API layer appends the children of every delivered parent).
+		if c.Parent != "" {
+			continue
+		}
 		if c.Team != team {
 			continue
 		}
@@ -72,7 +77,11 @@ func MeView(b Board, user, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
-		if user != "" && !slices.Contains(c.Assignees, user) {
+		// Subtasks are never listed on their own; they ride with their parent.
+		if c.Parent != "" {
+			continue
+		}
+		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {
 			continue
 		}
 		// A deferred / future-scheduled card (startDate past today) is hidden
@@ -172,4 +181,15 @@ func planShowsInWeekAt(c Card, week, today string) bool {
 		started = c.SprintStart
 	}
 	return started != "" && c.Week > week && MondayOf(started) <= week
+}
+
+// childAssigned reports whether any subtask of a card is assigned to user —
+// the personal board shows the parent when the person owns only a subtask.
+func childAssigned(b Board, itemID, user string) bool {
+	for _, c := range b.Cards {
+		if c.Parent == itemID && slices.Contains(c.Assignees, user) {
+			return true
+		}
+	}
+	return false
 }

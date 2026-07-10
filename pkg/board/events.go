@@ -46,6 +46,7 @@ const (
 	EventWeek            = "week"
 	EventPlanBand        = "plan-band"
 	EventReviewRound     = "review-round"
+	EventParent          = "parent"
 )
 
 // DateRange renders a start..end pair for a dates event value ("" parts kept
