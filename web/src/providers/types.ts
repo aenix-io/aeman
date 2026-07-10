@@ -92,6 +92,8 @@ export interface NewCardInput {
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
   reviewOf?: string | null;
+  /** Group the new card as a subtask of this card on create. */
+  parent?: string | null;
   /** Force the team's sprint pointer to (re)start on the card's day. */
   startNewSprint?: boolean;
   /** Schedule the card for its day without joining any sprint (a "next

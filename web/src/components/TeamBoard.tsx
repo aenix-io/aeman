@@ -1077,12 +1077,11 @@ export function TeamBoard({
         zone: parent.zone ?? "gray",
         start: selectedDate,
         day: selectedDate,
+        parent: parent.itemId,
       })
-      .then((c) => provider.patchCard(board, c.itemId, { parent: parent.itemId }))
       .then((c) => {
         removeCard(tempId);
         addCard(c);
-        reload();
       })
       .catch((err: unknown) => {
         removeCard(tempId);
@@ -1373,6 +1372,18 @@ export function TeamBoard({
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
+      return;
+    }
+    // A subtask has no sprint history of its own: the × deletes it outright,
+    // gone from under its parent immediately.
+    if (card.parent) {
+      removeCard(card.itemId);
+      void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
+        if (!isGone(err)) {
+          onError(errMessage(err));
+          reload();
+        }
+      });
       return;
     }
     let rollback: () => void;
