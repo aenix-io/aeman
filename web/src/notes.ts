@@ -13,3 +13,13 @@ export function mergeNotes(server: Note[], local: Note[] | undefined): Note[] {
   );
   return extras.length ? [...server, ...extras] : server;
 }
+
+/** sameNotes reports whether two note lists are content-identical (same ids
+ *  and bodies in the same order) — used to skip no-op state updates. */
+export function sameNotes(a: Note[] | undefined, b: Note[]): boolean {
+  const x = a ?? [];
+  return (
+    x.length === b.length &&
+    x.every((n, i) => n.id === b[i].id && n.body === b[i].body)
+  );
+}

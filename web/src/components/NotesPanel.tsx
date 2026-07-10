@@ -340,6 +340,7 @@ export function NotesPanel({
   // In "by card" grouping, selecting a card scrolls its group into view within
   // the list (only the list scrolls, not the page), so the card you picked on
   // the board lines up with its notes.
+  const scrolledTo = useRef<string | null>(null);
   useEffect(() => {
     if (
       pane !== "log" ||
@@ -350,11 +351,18 @@ export function NotesPanel({
     ) {
       return;
     }
+    // Scroll only when the SELECTION changes — the feed itself changes on
+    // every added note, and chasing it would yank the list around while the
+    // user is typing.
+    if (scrolledTo.current === selectedCard.itemId) {
+      return;
+    }
     const list = listRef.current;
     const target = list.querySelector<HTMLElement>(
       `[data-card-id="${selectedCard.itemId}"]`,
     );
     if (target) {
+      scrolledTo.current = selectedCard.itemId;
       list.scrollTop +=
         target.getBoundingClientRect().top - list.getBoundingClientRect().top - 8;
     }
