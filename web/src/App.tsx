@@ -267,12 +267,27 @@ export function App() {
   // weekly plan. activeKey / watchKey are stable serialisations used to
   // re-fetch and re-subscribe only when the selection actually changes.
   const activeQueries = useMemo(
-    () => viewQueries(view, selectedDate, teamFilter ?? roster, viewAs ?? undefined),
+    // No filter means ALL: the roster's teams plus the no-team group, so an
+    // unfiltered Team board misses nothing (the client filter mirrors this —
+    // teamFilter === null passes every card).
+    () =>
+      viewQueries(
+        view,
+        selectedDate,
+        teamFilter ?? [...new Set([...roster, ""])],
+        viewAs ?? undefined,
+      ),
     [view, selectedDate, teamFilter, roster, viewAs],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   const watchSel = useMemo(
-    () => watchQuery(view, selectedDate, teamFilter ?? roster, viewAs ?? undefined),
+    () =>
+      watchQuery(
+        view,
+        selectedDate,
+        teamFilter ?? [...new Set([...roster, ""])],
+        viewAs ?? undefined,
+      ),
     [view, selectedDate, teamFilter, roster, viewAs],
   );
   const watchKey = queryString(watchSel);
