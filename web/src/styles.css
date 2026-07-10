@@ -3038,6 +3038,11 @@ button.card-age {
   border-left: none;
 }
 
+/* Subtask rows under a weekly-plan parent taken into work dim with it. */
+.subtask-indent-taken .card {
+  opacity: 0.7;
+}
+
 /* A drag hovering a card's vertical middle band retargets the drop to "group
    as a subtask": the target card highlights in place. */
 .card.card-group-target {
