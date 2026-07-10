@@ -247,6 +247,27 @@ export function SortableBoard<Meta>({
   // a card across the board does not flip into grouping mode in passing.
   const bandTarget = useRef<string | null>(null);
   const bandSince = useRef(0);
+  // Indent-based nesting arms only after the drag has PARKED on its current
+  // slot for a moment — a fast diagonal drop can carry a stray indent, and it
+  // must not adopt a parent in passing. Reordering inside the card's own
+  // block never waits.
+  const slotArmed = useRef(false);
+  const slotTimer = useRef<number | null>(null);
+  const [, bumpRender] = useState(0);
+  const disarmSlot = () => {
+    if (slotTimer.current !== null) {
+      window.clearTimeout(slotTimer.current);
+      slotTimer.current = null;
+    }
+    slotArmed.current = false;
+  };
+  const armSlotSoon = () => {
+    disarmSlot();
+    slotTimer.current = window.setTimeout(() => {
+      slotArmed.current = true;
+      bumpRender((x) => x + 1); // the placeholder indent preview appears now
+    }, 300);
+  };
 
   // The groups actually rendered: local working copy while dragging, else props.
   const view: LocalGroups<Meta> = useMemo(() => {
@@ -360,13 +381,14 @@ export function SortableBoard<Meta>({
       // only be one of them — the dedent gesture exists on the last slot only.
       target = cardById.get(below.parent);
     } else if (above.parent) {
-      // The last slot of a block: the held indent decides.
-      if (indentOn) {
+      // The last slot of a block: the held indent decides. Joining a FOREIGN
+      // block also needs the slot to have been parked on for a moment.
+      if (indentOn && (above.parent === active.parent || slotArmed.current)) {
         target = cardById.get(above.parent);
       }
-    } else if (indentOn && indentAsserted.current) {
-      // A NEW parent (no visible block below it) takes a deliberate gesture:
-      // the seeded indent of a dragged subtask is not enough.
+    } else if (indentOn && indentAsserted.current && slotArmed.current) {
+      // A NEW parent (no visible block below it) takes a deliberate gesture
+      // held in place — a fast drop in passing stays at the main level.
       target = above;
     }
     if (!target || target.itemId === active.itemId) {
@@ -436,6 +458,7 @@ export function SortableBoard<Meta>({
     indentFlipAt.current = null;
     indentAsserted.current = false;
     bandTarget.current = null;
+    armSlotSoon();
     setIndentOn(seed);
     if (isExternal(id)) {
       return; // external draggables don't reshuffle the grid's working copy
@@ -485,6 +508,8 @@ export function SortableBoard<Meta>({
   const handleOver = (e: DragOverEvent) => {
     const { active, over } = e;
     const overRaw = over ? String(over.id) : null;
+    // The slot changed: indent-based nesting re-arms after a fresh pause.
+    armSlotSoon();
     // Report the card the drag would group under so the board highlights it.
     if (onHoverCard) {
       if (overRaw?.startsWith("grp:")) {
@@ -579,6 +604,7 @@ export function SortableBoard<Meta>({
     indentFlipAt.current = null;
     indentAsserted.current = false;
     bandTarget.current = null;
+    disarmSlot();
     setIndentOn(false);
     onHoverCard?.(null);
   };
