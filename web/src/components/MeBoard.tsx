@@ -13,7 +13,7 @@ import {
   registerPendingCard,
 } from "../api/pending";
 import { isWorkable } from "../stages";
-import { mergeNotes } from "../notes";
+import { mergeNotes, sameNotes } from "../notes";
 import type {
   Board,
   Card as CardModel,
@@ -843,7 +843,7 @@ export function MeBoard({
     void provider
       .addNote(board, uid, text)
       .then((notes) =>
-        patchCard(uid, (c) => ({ notes: mergeNotes(notes, c.notes) })),
+        patchCard(uid, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
       )
       .catch(fail);
   };
@@ -857,7 +857,7 @@ export function MeBoard({
     void provider
       .editNote(board, card.itemId, note.id, text)
       .then((notes) =>
-        patchCard(card.itemId, (c) => ({ notes: mergeNotes(notes, c.notes) })),
+        patchCard(card.itemId, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
       )
       .catch(fail);
   };
@@ -869,7 +869,7 @@ export function MeBoard({
     void provider
       .deleteNote(board, card.itemId, note.id)
       .then((notes) =>
-        patchCard(card.itemId, (c) => ({ notes: mergeNotes(notes, c.notes) })),
+        patchCard(card.itemId, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
       )
       .catch(fail);
   };

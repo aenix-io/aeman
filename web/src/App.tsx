@@ -131,7 +131,22 @@ export function App() {
   );
   // Server-side writes not yet confirmed by GitHub (the write-behind queue),
   // fed by Queue watch frames; shown as a small counter that trends to zero.
+  // Frames arrive on every enqueue/drain step — a rapid burst of edits would
+  // re-render the whole app dozens of times — so the badge updates at most a
+  // few times a second (trailing debounce keeps the final value accurate).
   const [pendingSync, setPendingSync] = useState(0);
+  const pendingSyncNext = useRef(0);
+  const pendingSyncTimer = useRef<number | null>(null);
+  const queuePendingSync = useCallback((n: number) => {
+    pendingSyncNext.current = n;
+    if (pendingSyncTimer.current !== null) {
+      return;
+    }
+    pendingSyncTimer.current = window.setTimeout(() => {
+      pendingSyncTimer.current = null;
+      setPendingSync(pendingSyncNext.current);
+    }, 300);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
@@ -422,14 +437,21 @@ export function App() {
         if (!cur) {
           return cur;
         }
-        return {
-          ...cur,
-          cards: cur.cards.map((c) =>
-            c.itemId === itemId
-              ? { ...c, ...(typeof patch === "function" ? patch(c) : patch) }
-              : c,
-          ),
-        };
+        // An empty patch (an updater deciding nothing changed) keeps the
+        // exact same state object, so React bails out of the re-render.
+        let changed = false;
+        const cards = cur.cards.map((c) => {
+          if (c.itemId !== itemId) {
+            return c;
+          }
+          const p = typeof patch === "function" ? patch(c) : patch;
+          if (!p || Object.keys(p).length === 0) {
+            return c;
+          }
+          changed = true;
+          return { ...c, ...p };
+        });
+        return changed ? { ...cur, cards } : cur;
       });
     },
     [],
@@ -510,7 +532,7 @@ export function App() {
       // The write-behind queue's depth: changes applied everywhere but not
       // yet confirmed by GitHub.
       if (frame.kind === "Queue") {
-        setPendingSync((frame.object as { pending?: number })?.pending ?? 0);
+        queuePendingSync((frame.object as { pending?: number })?.pending ?? 0);
         return;
       }
       // A write GitHub finally rejected: the board has been rolled back to
@@ -589,7 +611,7 @@ export function App() {
       // A fresh connection replays the presence and queue snapshots; drop
       // stale marks (the queue may have drained while we were away).
       setPresenceMap({});
-      setPendingSync(0);
+      queuePendingSync(0);
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       // Scope the watch to the active view: Me watches its day selection, Team
       // watches every card of the teams it shows (grid + weekly plan). A card
@@ -635,6 +657,7 @@ export function App() {
     removeCard,
     patchCard,
     reorderCards,
+    queuePendingSync,
   ]);
 
   const onError = useCallback((message: string) => setError(message), []);
