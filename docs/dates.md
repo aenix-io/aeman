@@ -161,9 +161,13 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
   0–90%. The final done / 100% is always a human decision on the parent, and a
   card **cannot be done while it has open subtasks**.
 - **Grouping** a card under a parent syncs it into the parent's sprint
-  (`sprintStart` copied) and clears its own plan slot; a **weekly-plan card
-  dropped onto a grid card** hands its plan slot to the parent instead (the
-  parent replaces it in the Weekly panel) — so plan bands never show subtasks.
+  (`sprintStart` copied), moves it onto the **parent's team**, and clears its
+  own plan slot; a **weekly-plan card dropped onto a grid card** hands its
+  plan slot to the parent instead (the parent replaces it in the Weekly
+  panel) — so plan bands never show subtasks.
+- A subtask's team always follows its parent: changing the parent's team
+  cascades to its subtasks (sprint pointer included), and a direct team change
+  on a subtask snaps back to the parent's team.
 - **Carry Over orients by the parent**: an unfinished parent that carries
   drags **all** its subtasks into the new sprint — even finished ones, and even
   ones whose own team/dates would not qualify (they ride along). Subtasks whose
