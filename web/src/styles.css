@@ -3007,6 +3007,12 @@ button.card-age {
   border-left: 2px solid var(--line);
 }
 
+/* The base card is a fixed 500px; inside the 24px subtask indent that would
+   push the right edge past the parent's, so the indent takes it back. */
+.subtask-indent .card {
+  width: 476px;
+}
+
 .subtask-add {
   margin-bottom: 4px;
 }
