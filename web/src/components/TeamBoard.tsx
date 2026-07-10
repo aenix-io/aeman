@@ -806,12 +806,40 @@ export function TeamBoard({
           handleGroup(card, groupUnder); // regroup under another weekly parent
           return;
         }
-        if (!groupUnder) {
-          return; // a subtask cannot become a plan card: stay grouped
-        }
-        // Reorder within the own block, anchored on the final sibling order.
         const entry = g.find((x) => x.ids.includes(`plan:${card.itemId}`));
         const ids = (entry?.ids ?? []).map((id) => id.replace(/^plan:/, ""));
+        if (!groupUnder) {
+          // Pulled out INSIDE the weekly panel: the subtask becomes a plan
+          // card of the dropped band in its own right, keeping its slot.
+          const parentCard = card.parent ? cardsById.get(card.parent) : undefined;
+          const week = parentCard?.week ?? currentWeek;
+          const prev: Partial<CardModel> = {
+            parent: card.parent,
+            plan: card.plan,
+            week: card.week,
+          };
+          patchCard(card.itemId, {
+            parent: undefined,
+            plan: toMeta.band,
+            week,
+          });
+          void provider
+            .patchCard(board, card.itemId, {
+              parent: "",
+              plan: { band: toMeta.band, week },
+            })
+            .then((c) => {
+              addCard(c);
+              reorderPlanCards(c, ids);
+              reload();
+            })
+            .catch((err: unknown) => {
+              patchCard(card.itemId, prev);
+              onError(errMessage(err));
+            });
+          return;
+        }
+        // Reorder within the own block, anchored on the final sibling order.
         const idx = ids.indexOf(card.itemId);
         const above = idx > 0 ? cardsById.get(ids[idx - 1]) : undefined;
         const below =
