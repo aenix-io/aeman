@@ -1834,7 +1834,7 @@ button.card-age {
 
 /* ---- notes panel ---- */
 .notes {
-  width: 300px;
+  width: 380px;
   flex: none;
   border-left: 1px solid var(--line);
   background: var(--notes-bg);
@@ -1879,6 +1879,10 @@ button.card-age {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The two control clusters wrap onto a second row instead of overlapping
+     when the pane is narrow. */
+  flex-wrap: wrap;
+  row-gap: 4px;
   gap: 8px;
   padding: 8px 12px;
   font-size: 12px;

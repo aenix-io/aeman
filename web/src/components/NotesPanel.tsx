@@ -351,7 +351,12 @@ export function NotesPanel({
     if (collapsed) {
       return;
     }
-    const view = `${pane}:${group}:${selectedCard?.itemId ?? ""}`;
+    // The selected card matters for the Card pane's view identity only; in
+    // the day log a selection change belongs to scroll-to-selected below.
+    const view =
+      pane === "card"
+        ? `card:${selectedCard?.itemId ?? ""}`
+        : `log:${group}`;
     const fresh = lastFeedView.current !== view;
     lastFeedView.current = view;
     const stick = (el: HTMLDivElement | null) => {
@@ -363,12 +368,7 @@ export function NotesPanel({
         el.scrollTop = el.scrollHeight;
       }
     };
-    if (pane === "card") {
-      stick(cardFeedRef.current);
-    } else if (group === "time") {
-      // The by-card grouping has its own scroll-to-selected behaviour below.
-      stick(listRef.current);
-    }
+    stick(pane === "card" ? cardFeedRef.current : listRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pane, group, collapsed, selectedCard?.itemId, feed.length, cardFeed.length]);
   useEffect(() => {
