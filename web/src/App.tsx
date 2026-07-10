@@ -481,6 +481,28 @@ export function App() {
     });
   }, []);
 
+  // Swap an optimistic card for its server twin IN PLACE, so a burst of
+  // creates keeps its visual order (append-on-ack would reshuffle them).
+  const replaceCard = useCallback((itemId: string, card: CardModel) => {
+    setBoard((cur) => {
+      if (!cur) {
+        return cur;
+      }
+      if (!cur.cards.some((c) => c.itemId === itemId)) {
+        const exists = cur.cards.some((c) => c.itemId === card.itemId);
+        return exists
+          ? cur
+          : { ...cur, cards: [...cur.cards, card] };
+      }
+      return {
+        ...cur,
+        cards: cur.cards
+          .filter((c) => c.itemId !== card.itemId || c.itemId === itemId)
+          .map((c) => (c.itemId === itemId ? card : c)),
+      };
+    });
+  }, []);
+
   const removeCard = useCallback((itemId: string) => {
     setBoard((cur) =>
       cur ? { ...cur, cards: cur.cards.filter((c) => c.itemId !== itemId) } : cur,
@@ -888,6 +910,7 @@ export function App() {
             onRenameTeam={renameTeam}
             patchCard={patchCard}
             addCard={addCard}
+            replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
             reload={reload}
@@ -919,6 +942,7 @@ export function App() {
             onReorderTeams={reorderTeams}
             patchCard={patchCard}
             addCard={addCard}
+            replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
             presence={presence}
