@@ -527,7 +527,18 @@ export function App() {
         ...cur,
         cards: cur.cards
           .filter((c) => c.itemId !== card.itemId || c.itemId === itemId)
-          .map((c) => (c.itemId === itemId ? card : c)),
+          .map((c) => {
+            if (c.itemId === itemId) {
+              return card;
+            }
+            // Optimistic subtasks created under the tmp id follow the swap,
+            // or they would orphan (and their rows flicker away) until their
+            // own acks land.
+            if (c.parent === itemId) {
+              return { ...c, parent: card.itemId };
+            }
+            return c;
+          }),
       };
     });
   }, []);
