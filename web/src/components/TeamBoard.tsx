@@ -1006,33 +1006,35 @@ export function TeamBoard({
     />
   );
 
-  // The add-subtask row at the end of an expanded list: a "+ add" button
-  // that expands into the title input — already open when the + flow is on.
-  const subtaskAddForm = (parent: CardModel, open: boolean): ReactNode => (
+  // The inline add-subtask form (the + flow), indented like a subtask row.
+  const subtaskAddForm = (parent: CardModel): ReactNode => (
     <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
       <AddCard
-        key={open ? "adding" : "idle"}
-        autoOpen={open}
+        autoOpen
         placeholder="Add a subtask…"
         onCreate={(title) => handleCreateSubtask(parent, title)}
-        onClosed={open ? () => setAddingSub(null) : undefined}
+        onClosed={() => setAddingSub(null)}
       />
     </div>
   );
 
-  // Wraps a rendered card: subtask rows are indented under their parent, an
-  // expanded list always ends with the "+ add" row, and a parent with no
-  // visible subtasks grows the form right under itself while the + flow is on.
+  // Wraps a rendered card: subtask rows are indented under their parent, and
+  // the add-subtask form (the + flow) hangs after the LAST subtask row — or
+  // right under the parent while it has none visible yet.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
     if (card.parent) {
       const wrapped = <div className="subtask-indent">{node}</div>;
       const subs = childrenOf.get(card.parent) ?? [];
       const parent = cardsById.get(card.parent);
-      if (parent && subs[subs.length - 1]?.itemId === card.itemId) {
+      if (
+        addingSub === card.parent &&
+        parent &&
+        subs[subs.length - 1]?.itemId === card.itemId
+      ) {
         return (
           <>
             {wrapped}
-            {subtaskAddForm(parent, addingSub === card.parent)}
+            {subtaskAddForm(parent)}
           </>
         );
       }
@@ -1047,7 +1049,7 @@ export function TeamBoard({
     return (
       <>
         {node}
-        {subtaskAddForm(card, true)}
+        {subtaskAddForm(card)}
       </>
     );
   };
@@ -1076,28 +1078,71 @@ export function TeamBoard({
   const loadCardLinks = (card: CardModel) =>
     provider.listLinks(board, card.itemId);
 
+  // Mirror the server's derived-progress rule (board.DerivedProgress) so a
+  // parent's bar moves the instant a subtask's does; the server converges it.
+  const syncParentBar = (child: CardModel, childValue: number) => {
+    if (!child.parent) {
+      return;
+    }
+    const parent = cardsById.get(child.parent);
+    if (!parent || isComplete(parent)) {
+      return;
+    }
+    const kids = board.cards.filter((c) => c.parent === child.parent);
+    if (kids.length === 0) {
+      return;
+    }
+    const sum = kids.reduce(
+      (acc, k) =>
+        acc +
+        (k.itemId === child.itemId
+          ? childValue
+          : isComplete(k)
+            ? 100
+            : k.progress ?? 0),
+      0,
+    );
+    const derived = Math.floor((sum * 90) / (kids.length * 100));
+    if (derived !== (parent.progress ?? 0)) {
+      patchCard(parent.itemId, { progress: derived });
+    }
+  };
+
   const handleProgress = (card: CardModel, raw: number) => {
-    const value =
+    let value =
       card.stage === "review" || card.stage === "locked"
         ? Math.min(90, Math.max(10, raw))
         : raw;
+    // A parent's bar cannot be dragged to done while subtasks are open (the
+    // server guard); it tops out at 90 until every subtask is closed.
+    if (
+      value >= 100 &&
+      board.cards.some((k) => k.parent === card.itemId && !isComplete(k))
+    ) {
+      value = 90;
+    }
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
     if (value < 100 && card.stage === "done") {
       patch.stage = undefined;
     }
     patchCard(card.itemId, patch);
+    syncParentBar(card, value);
     void provider
       .patchCard(board, card.itemId, { progress: value })
       .then((updated) => {
         addCard(updated);
-        // A review card's progress drives the original's stage server-side.
-        if (card.reviewOf) {
+        // A review card's progress drives the original's stage server-side,
+        // and a subtask's drives its parent's derived bar.
+        if (card.reviewOf || card.parent) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
@@ -1122,6 +1167,7 @@ export function TeamBoard({
       patch.progress = Math.min(90, Math.max(10, card.progress ?? 0));
     }
     patchCard(card.itemId, patch);
+    syncParentBar(card, stage === "done" ? 100 : patch.progress ?? card.progress ?? 0);
     const leavingReview = card.stage === "review" && stage !== "review";
     // Entering review re-review reactivates a completed linked review card
     // server-side (progress → 0, round bumped); re-list so it converges.
@@ -1131,12 +1177,20 @@ export function TeamBoard({
       .patchCard(board, card.itemId, { stage: stage ?? "" })
       .then((updated) => {
         addCard(updated);
-        if (leavingReview || (enteringReview && hasLinkedReview) || card.reviewOf) {
+        if (
+          leavingReview ||
+          (enteringReview && hasLinkedReview) ||
+          card.reviewOf ||
+          card.parent
+        ) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
@@ -1154,16 +1208,20 @@ export function TeamBoard({
     }
     const prev: Partial<CardModel> = { stage: card.stage, progress: card.progress };
     patchCard(card.itemId, { stage: undefined, progress: value });
+    syncParentBar(card, value);
     void provider
       .setInProgress(board, card.itemId)
       .then((updated) => {
         addCard(updated);
-        if (card.stage === "review" || card.reviewOf) {
+        if (card.stage === "review" || card.reviewOf || card.parent) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
