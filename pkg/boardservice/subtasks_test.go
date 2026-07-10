@@ -209,3 +209,53 @@ func TestSetTeamOnSubtaskFollowsParent(t *testing.T) {
 		t.Fatalf("subtask team = %q, want to stay the parent's alpha", f.get("c").Team)
 	}
 }
+
+func TestGroupingUnfinishedCardReopensDoneParent(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha", Stage: board.StageDone, Progress: 100},
+		{ItemID: "done-child", Team: "alpha", Parent: "p", Progress: 100},
+		{ItemID: "c", Team: "alpha", Progress: 40},
+	}, nil)
+	if err := f2svc(f).SetParent(ctx, "acme", 1, "c", "p"); err != nil {
+		t.Fatal(err)
+	}
+	// Done cannot stand on top of open subtasks: the parent reopened and its
+	// bar derives again — (100 + 40) * 90 / 200 = 63.
+	if f.get("p").Stage != board.StageNone {
+		t.Fatalf("parent stage = %q, want cleared", f.get("p").Stage)
+	}
+	if f.get("p").Progress != 63 {
+		t.Fatalf("parent progress = %d, want 63", f.get("p").Progress)
+	}
+}
+
+func TestGroupingFinishedCardKeepsParentDone(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha", Stage: board.StageDone, Progress: 100},
+		{ItemID: "c", Team: "alpha", Stage: board.StageDone, Progress: 100},
+	}, nil)
+	if err := f2svc(f).SetParent(ctx, "acme", 1, "c", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("p").Stage != board.StageDone || f.get("p").Progress != 100 {
+		t.Fatalf("parent = stage %q progress %d, want done/100 untouched",
+			f.get("p").Stage, f.get("p").Progress)
+	}
+}
+
+func TestReopeningSubtaskReopensDoneParent(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha", Stage: board.StageDone, Progress: 100},
+		{ItemID: "c", Team: "alpha", Parent: "p", Progress: 100},
+	}, nil)
+	if err := f2svc(f).SetProgress(ctx, "acme", 1, "c", 50); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("p").Stage != board.StageNone {
+		t.Fatalf("parent stage = %q, want cleared", f.get("p").Stage)
+	}
+	// 50 * 90 / 100 = 45.
+	if f.get("p").Progress != 45 {
+		t.Fatalf("parent progress = %d, want 45", f.get("p").Progress)
+	}
+}

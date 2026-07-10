@@ -972,11 +972,22 @@ func (s *Service) SetInProgress(ctx context.Context, owner string, project int, 
 			return err
 		}
 	}
+	if newProgress != card.Progress {
+		if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
+			return err
+		}
+	}
+	// A subtask's state feeds its parent's derived progress (and reopens a
+	// done parent — in-progress means the group has open work again).
+	if card.Parent != "" {
+		child := card
+		child.Stage, child.Progress = newStage, newProgress
+		if err := s.syncParentProgress(ctx, b, card.Parent, &child, ""); err != nil {
+			return err
+		}
+	}
 	if newProgress == card.Progress {
 		return nil
-	}
-	if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
-		return err
 	}
 	return s.syncReviewLink(ctx, b, card, newProgress)
 }
