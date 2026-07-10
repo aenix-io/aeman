@@ -324,6 +324,7 @@ type createCardRequest struct {
 		Week string `json:"week"`
 	} `json:"plan"`
 	ReviewOf       string `json:"reviewOf"`
+	Parent         string `json:"parent"`
 	StartNewSprint *bool  `json:"startNewSprint"`
 	// NoSprint schedules the card for its day without joining any sprint (a
 	// "next sprint" create); the next carry-over to reach its day adopts it.
@@ -355,6 +356,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		Start:          in.Dates.Start,
 		SprintStart:    in.Dates.Sprint,
 		ReviewOf:       in.ReviewOf,
+		Parent:         in.Parent,
 		StartNewSprint: in.StartNewSprint,
 		NoSprint:       in.NoSprint,
 	}
@@ -395,6 +397,8 @@ type cardPatch struct {
 	Dates       *datesPatch `json:"dates"`
 	Plan        *planPatch  `json:"plan"`
 	ReviewOf    *string     `json:"reviewOf"`
+	// Parent groups the card as a subtask under another card ("" ungroups).
+	Parent *string `json:"parent"`
 }
 
 // datesPatch is the spec.dates fragment of a card patch.
@@ -485,6 +489,12 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Plan != nil {
 		if !s.applyPlanPatch(w, r, svc, owner, project, uid, p.Plan) {
+			return
+		}
+	}
+	if p.Parent != nil {
+		if err := svc.SetParent(ctx, owner, project, uid, *p.Parent); err != nil {
+			s.apiError(w, err)
 			return
 		}
 	}
@@ -1022,7 +1032,10 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),
 		errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
-		errors.Is(err, boardservice.ErrNoteTooLong):
+		errors.Is(err, boardservice.ErrNoteTooLong),
+		errors.Is(err, boardservice.ErrSubtaskDepth),
+		errors.Is(err, boardservice.ErrParentNotFound),
+		errors.Is(err, boardservice.ErrOpenSubtasks):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

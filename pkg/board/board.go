@@ -112,6 +112,10 @@ type Card struct {
 	Week string   `json:"week,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf string `json:"reviewOf,omitempty"`
+	// Parent, on a subtask, is the itemId of the card it belongs to ("" = a
+	// top-level card). Subtasks are one level deep: a parent cannot itself be
+	// a subtask, and a card with subtasks cannot become one.
+	Parent string `json:"parent,omitempty"`
 	// ReviewRound counts a review card's review rounds. A card sent back for
 	// another review after already passing starts round 2, 3, … The first
 	// review is implicit and left at 0 (round 1 is not shown).
@@ -143,6 +147,7 @@ type CreateInput struct {
 	Assignee    string   `json:"assignee,omitempty"`
 	Team        string   `json:"team,omitempty"`
 	ReviewOf    string   `json:"reviewOf,omitempty"`
+	Parent      string   `json:"parent,omitempty"`
 	Plan        PlanBand `json:"plan,omitempty"`
 	Week        string   `json:"week,omitempty"`
 }

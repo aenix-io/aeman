@@ -148,6 +148,42 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
 - Recurrent plan cards are **excluded from the weekly progress bar**: it
   describes the week's one-off work only.
 
+### Subtasks (grouped cards)
+- A card with a **parent** (the `Parent` text field, one level deep) is a
+  **subtask**: it never appears as a row of its own in Team/Me — the views
+  deliver it alongside its parent and the UI nests it under the parent's
+  expandable list. The Me team-focus filter applies to subtask rows too.
+- A subtask is a normal card in every other way: own description, own log and
+  notes, own stage/progress, own assignee. It can be pulled back out as a
+  standalone card at any time (clear the parent).
+- **Derived progress**: while a card has subtasks its bar derives from them —
+  the average of the subtasks' effective progress (done = 100) scaled into
+  0–90%. The final done / 100% is always a human decision on the parent, and a
+  card **cannot be done while it has open subtasks**.
+- **Grouping** a card under a parent syncs it into the parent's sprint
+  (`sprintStart` copied), moves it onto the **parent's team**, and clears its
+  own plan slot; a **weekly-plan card dropped onto a grid card** hands its
+  plan slot to the parent instead (the parent replaces it in the Weekly
+  panel) — subtasks are never plan cards themselves, though an expanded
+  weekly parent shows its subtask rows nested under it.
+- A subtask's team always follows its parent: changing the parent's team
+  cascades to its subtasks (sprint pointer included), and a direct team change
+  on a subtask snaps back to the parent's team.
+- **Deleting a parent releases its subtasks**: they are work items in their
+  own right, so they return to the board as standalone cards (team, sprint and
+  dates kept) instead of being deleted or orphaned with the parent.
+- **Carry Over orients by the parent**: an unfinished parent that carries
+  drags its **open** subtasks into the new sprint (even ones whose own
+  team/dates would not qualify — they ride along). A **completed** subtask
+  stays in the sprint it was finished in — it keeps showing on that sprint's
+  days under the parent, and the parent's derived bar still counts it
+  (DerivedProgress scans all children regardless of sprint). Subtasks whose
+  parent does not carry stay put; subtasks are never selected on their own.
+- A subtask **scheduled for the future** (startDate past today — the calendar
+  or defer) is hidden under its parent until its day arrives, like any
+  deferred card; the next Carry Over drags it (it is open) but the future
+  startDate keeps hiding it until the day comes.
+
 ### Calendar (explicit dates)
 - The date picker on a card moves its **real dates**: `startDate = start` and
   `day = end` — a genuine relocation (no history kept, unlike defer). The card

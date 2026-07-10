@@ -330,3 +330,96 @@ func TestReloadReplaysPending(t *testing.T) {
 		}
 	}
 }
+
+// wbBodyBackend extends wbBackend with the one-shot draft body writer, so the
+// store's DeltaFIFO body merge kicks in.
+type wbBodyBackend struct {
+	wbBackend
+	bodyGate  chan struct{}
+	syncCalls int
+	lastDesc  string
+	lastNotes []board.Note
+	lastEvs   []board.Event
+}
+
+func (w *wbBodyBackend) SyncDraftBody(_ context.Context, _ board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error) {
+	if w.bodyGate != nil {
+		<-w.bodyGate
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.syncCalls++
+	w.lastDesc = description
+	w.lastNotes = append([]board.Note(nil), notes...)
+	w.lastEvs = append([]board.Event(nil), events...)
+	return notes, events, nil
+}
+
+// Rapid body-affecting changes on one draft card — notes, an event line, a
+// description edit — merge into coalesced body writes carrying the final
+// state, instead of one racing read-modify-write per change.
+func TestWriteBehindMergesDraftBodyOps(t *testing.T) {
+	fixture := watchBoard()
+	fixture.Cards[0].IsDraft = true
+	fixture.Cards[0].ContentID = "D_1"
+	inner := &wbBodyBackend{
+		wbBackend: wbBackend{board: fixture},
+		bodyGate:  make(chan struct{}),
+	}
+	store := newBoardStore()
+	be := &storeBackend{inner: inner, store: store}
+	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := store.entry("acme/1")
+	card := bd.Cards[0]
+
+	// First write goes on the wire (gated); everything after coalesces into
+	// ONE queued body op.
+	if err := be.AddNote(context.Background(), bd, card, "first"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "first body write in flight", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.inflight != nil
+	})
+	for _, text := range []string{"second", "third"} {
+		if err := be.AddNote(context.Background(), bd, card, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := be.AppendEvent(context.Background(), bd, card, board.Event{
+		Kind: board.EventParent, To: "big card", At: "2026-01-10T10:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := be.SetDescription(context.Background(), bd, card, "the plan"); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	queued := len(e.pending)
+	e.mu.Unlock()
+	if queued != 1 {
+		t.Fatalf("queued ops = %d, want 1 (merged body op)", queued)
+	}
+
+	close(inner.bodyGate)
+	waitFor(t, "queue drain", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.unsynced() == 0
+	})
+	inner.mu.Lock()
+	calls, desc := inner.syncCalls, inner.lastDesc
+	notes := len(inner.lastNotes)
+	evs := len(inner.lastEvs)
+	inner.mu.Unlock()
+	if calls != 2 {
+		t.Fatalf("SyncDraftBody calls = %d, want 2 (in-flight + merged)", calls)
+	}
+	if desc != "the plan" || notes != 3 || evs != 1 {
+		t.Fatalf("final body write: desc=%q notes=%d events=%d; want the plan/3/1", desc, notes, evs)
+	}
+}

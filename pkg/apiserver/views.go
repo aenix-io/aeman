@@ -138,10 +138,71 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 		out = append(out, c)
 	}
+	out = withSubtasks(b, out, sel)
 	if sel.IncludeReviews && (sel.View == "me" || sel.View == "team") {
 		out = withLinkedReviews(b, out)
 	}
 	return out
+}
+
+// withSubtasks appends the subtasks of every delivered parent, so a view is
+// self-contained for a client nesting them under their cards. The me/all team
+// gate and the focus filter apply to subtasks the same way they apply to
+// top-level cards, and on the day views (team/me) a subtask keeps its own
+// day visibility: scheduled for the future it stays hidden until its day,
+// and finished in an earlier sprint it stays on that sprint's days.
+func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
+	present := make(map[string]bool, len(out))
+	for _, c := range out {
+		present[c.ItemID] = true
+	}
+	extra := map[string][]board.Card{}
+	for _, c := range b.Cards {
+		if c.Parent == "" || !present[c.Parent] || present[c.ItemID] {
+			continue
+		}
+		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
+			continue
+		}
+		if sel.Focus && !board.Workable(c) {
+			continue
+		}
+		if (sel.View == "team" || sel.View == "me") && !subtaskOnDay(b, c, sel.Day) {
+			continue
+		}
+		extra[c.Parent] = append(extra[c.Parent], c)
+		present[c.ItemID] = true
+	}
+	if len(extra) == 0 {
+		return out
+	}
+	// Children slot in right AFTER their parent, so the list order a client
+	// installs wholesale still matches the board order — appended tails would
+	// reshuffle rows on every refetch.
+	merged := make([]board.Card, 0, len(out))
+	for _, c := range out {
+		merged = append(merged, c)
+		merged = append(merged, extra[c.ItemID]...)
+	}
+	return merged
+}
+
+// subtaskOnDay reports whether a subtask belongs on a day view: hidden while
+// deferred to the future (startDate past today, day not reached), and — once
+// left behind by a carry-over (a done subtask stays in the sprint it was
+// finished in) — shown only on days its own sprint was active, mirroring the
+// sprint-span rule of MeView.
+func subtaskOnDay(b board.Board, c board.Card, day string) bool {
+	today := board.TodayIso()
+	if c.StartDate != "" && c.StartDate > today && day < c.StartDate {
+		return false
+	}
+	if c.SprintStart != "" {
+		if as := board.ActiveSprint(b, c.Team, day); as != "" && as > c.SprintStart {
+			return false
+		}
+	}
+	return true
 }
 
 // withLinkedReviews appends each card's linked review card (reviewOf == its id),

@@ -252,6 +252,14 @@ func (f *fakeBackend) SetAssignee(_ context.Context, _ board.Board, card board.C
 	return nil
 }
 
+func (f *fakeBackend) SetParent(_ context.Context, _ board.Board, card board.Card, parent string) error {
+	f.rec("SetParent %s %s", card.ItemID, parent)
+	if c := f.get(card.ItemID); c != nil {
+		c.Parent = parent
+	}
+	return nil
+}
+
 func (f *fakeBackend) SetReviewOf(_ context.Context, _ board.Board, card board.Card, reviewOf string) error {
 	f.rec("SetReviewOf %s %s", card.ItemID, reviewOf)
 	if c := f.get(card.ItemID); c != nil {

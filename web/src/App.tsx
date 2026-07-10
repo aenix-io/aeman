@@ -29,6 +29,7 @@ const LS_PROJECT = "aeman.project";
 const LS_VIEW = "aeman.view";
 const LS_TEAM_ROSTER = "aeman.teamRoster";
 const LS_TEAM_FILTER = "aeman.teamFilter";
+const LS_VIEW_AS = "aeman.viewAs";
 
 function readView(): ViewMode {
   const raw = localStorage.getItem(LS_VIEW);
@@ -111,7 +112,20 @@ export function App() {
   // "View as" impersonation on the Me board — lifted here because the Me fetch
   // must carry the impersonated user explicitly (the server otherwise resolves
   // the caller's own login).
-  const [viewAs, setViewAs] = useState<string | null>(null);
+  // Persisted: an impersonating lead refreshing the page stays on the same
+  // person's board (a card just created for them would otherwise "vanish"
+  // when the view silently snapped back to the lead's own).
+  const [viewAs, setViewAs] = useState<string | null>(
+    () => localStorage.getItem(LS_VIEW_AS) || null,
+  );
+  const setViewAsPersisted = useCallback((login: string | null) => {
+    setViewAs(login);
+    if (login) {
+      localStorage.setItem(LS_VIEW_AS, login);
+    } else {
+      localStorage.removeItem(LS_VIEW_AS);
+    }
+  }, []);
   const [users, setUsers] = useState<Record<string, GhUser>>({});
   const fetchedUsers = useRef<Set<string>>(new Set());
   // Count of in-flight data loads (initial load + per-view card fetches);
@@ -253,12 +267,27 @@ export function App() {
   // weekly plan. activeKey / watchKey are stable serialisations used to
   // re-fetch and re-subscribe only when the selection actually changes.
   const activeQueries = useMemo(
-    () => viewQueries(view, selectedDate, teamFilter ?? roster, viewAs ?? undefined),
+    // No filter means ALL: the roster's teams plus the no-team group, so an
+    // unfiltered Team board misses nothing (the client filter mirrors this —
+    // teamFilter === null passes every card).
+    () =>
+      viewQueries(
+        view,
+        selectedDate,
+        teamFilter ?? [...new Set([...roster, ""])],
+        viewAs ?? undefined,
+      ),
     [view, selectedDate, teamFilter, roster, viewAs],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   const watchSel = useMemo(
-    () => watchQuery(view, selectedDate, teamFilter ?? roster, viewAs ?? undefined),
+    () =>
+      watchQuery(
+        view,
+        selectedDate,
+        teamFilter ?? [...new Set([...roster, ""])],
+        viewAs ?? undefined,
+      ),
     [view, selectedDate, teamFilter, roster, viewAs],
   );
   const watchKey = queryString(watchSel);
@@ -477,6 +506,39 @@ export function App() {
                 : c,
             )
           : [...cur.cards, card],
+      };
+    });
+  }, []);
+
+  // Swap an optimistic card for its server twin IN PLACE, so a burst of
+  // creates keeps its visual order (append-on-ack would reshuffle them).
+  const replaceCard = useCallback((itemId: string, card: CardModel) => {
+    setBoard((cur) => {
+      if (!cur) {
+        return cur;
+      }
+      if (!cur.cards.some((c) => c.itemId === itemId)) {
+        const exists = cur.cards.some((c) => c.itemId === card.itemId);
+        return exists
+          ? cur
+          : { ...cur, cards: [...cur.cards, card] };
+      }
+      return {
+        ...cur,
+        cards: cur.cards
+          .filter((c) => c.itemId !== card.itemId || c.itemId === itemId)
+          .map((c) => {
+            if (c.itemId === itemId) {
+              return card;
+            }
+            // Optimistic subtasks created under the tmp id follow the swap,
+            // or they would orphan (and their rows flicker away) until their
+            // own acks land.
+            if (c.parent === itemId) {
+              return { ...c, parent: card.itemId };
+            }
+            return c;
+          }),
       };
     });
   }, []);
@@ -876,7 +938,7 @@ export function App() {
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
             viewAs={viewAs}
-            onViewAs={setViewAs}
+            onViewAs={setViewAsPersisted}
             provider={provider}
             me={config?.login ?? ""}
             users={users}
@@ -888,6 +950,7 @@ export function App() {
             onRenameTeam={renameTeam}
             patchCard={patchCard}
             addCard={addCard}
+            replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
             reload={reload}
@@ -919,6 +982,7 @@ export function App() {
             onReorderTeams={reorderTeams}
             patchCard={patchCard}
             addCard={addCard}
+            replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
             presence={presence}

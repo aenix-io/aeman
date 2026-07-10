@@ -1834,7 +1834,7 @@ button.card-age {
 
 /* ---- notes panel ---- */
 .notes {
-  width: 300px;
+  width: 380px;
   flex: none;
   border-left: 1px solid var(--line);
   background: var(--notes-bg);
@@ -1879,6 +1879,10 @@ button.card-age {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The two control clusters wrap onto a second row instead of overlapping
+     when the pane is narrow. */
+  flex-wrap: wrap;
+  row-gap: 4px;
   gap: 8px;
   padding: 8px 12px;
   font-size: 12px;
@@ -2990,4 +2994,64 @@ button.card-age {
 .note-author {
   color: var(--faint);
   font-size: 11px;
+}
+
+/* ---- Subtasks: indented rows under their parent card ---- */
+
+/* A subtask renders as a normal sortable row, shifted under its parent with a
+   guide line; the inline add-subtask form (the + flow) shares the indent. */
+.subtask-indent,
+.subtask-add {
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+}
+
+/* The base card is a fixed 500px; inside the 24px subtask indent that would
+   push the right edge past the parent's, so the indent takes it back. */
+.subtask-indent .card {
+  width: 476px;
+}
+
+.subtask-add {
+  margin-bottom: 4px;
+}
+
+/* The disclosure chevron before a parent card's title. */
+.card-subs-toggle {
+  flex: none;
+  width: 14px;
+  margin-left: -2px;
+}
+
+/* The Notion-style tuck-in preview: while a drop would group the dragged card
+   under the one above, its placeholder slides to the subtask indent. */
+.sortable-card {
+  transition: margin-left 120ms ease;
+}
+
+.sortable-card-nested {
+  margin-left: 14px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+}
+
+/* The placeholder's indent is driven by the drop preview above, not by the
+   dragged card's current parent — a subtask headed out previews flush left. */
+.sortable-card-placeholder .subtask-indent {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+}
+
+/* Subtask rows under a weekly-plan parent taken into work dim with it. */
+.subtask-indent-taken .card {
+  opacity: 0.7;
+}
+
+/* A drag hovering a card's vertical middle band retargets the drop to "group
+   as a subtask": the target card highlights in place. */
+.card.card-group-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
 }
