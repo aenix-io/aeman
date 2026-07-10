@@ -999,8 +999,6 @@ export function TeamBoard({
   // own subtasks) — the middle-band group drop only offers valid targets.
   const canGroup = (active: CardModel, target: CardModel) =>
     !target.parent &&
-    // An optimistic (not yet saved) card has no server id to group under.
-    !target.itemId.startsWith("tmp-") &&
     target.itemId !== active.parent &&
     !(childrenOf.get(active.itemId) ?? []).length;
 
@@ -1033,7 +1031,7 @@ export function TeamBoard({
   // Group a dropped card as a subtask; the server enforces depth and moves a
   // weekly card's plan slot onto the parent (which replaces it in the plan).
   const handleGroup = (card: CardModel, parentId: string) => {
-    if (card.itemId === parentId || card.parent === parentId || card.itemId.startsWith("tmp-")) {
+    if (card.itemId === parentId || card.parent === parentId) {
       return;
     }
     const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
@@ -1056,10 +1054,6 @@ export function TeamBoard({
   // zone). An optimistic copy shows at the end of the list instantly; the
   // server card replaces it.
   const handleCreateSubtask = (parent: CardModel, title: string) => {
-    if (parent.itemId.startsWith("tmp-")) {
-      onError("The card is still saving — add subtasks in a second.");
-      return;
-    }
     const tempId = `tmp-${new Date().toISOString()}`;
     addCard({
       itemId: tempId,
