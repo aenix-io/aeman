@@ -1514,12 +1514,21 @@ func (s *Service) DeleteCard(ctx context.Context, owner string, project int, ite
 	return s.deleteWithCascade(ctx, b, card)
 }
 
-// deleteWithCascade deletes a card and any review card linked to it.
+// deleteWithCascade deletes a card and any review card linked to it. The
+// card's subtasks are RELEASED, not deleted: they are work items in their own
+// right, so they return to the board as standalone cards (keeping their team,
+// sprint and dates) instead of vanishing as orphans of a gone parent.
 func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card board.Card) error {
 	if reviewCard, ok := findReviewCard(b, card.ItemID); ok {
 		if err := s.backend.DeleteCard(ctx, b, reviewCard); err != nil {
 			return err
 		}
+	}
+	for _, c := range board.Children(b, card.ItemID) {
+		if err := s.backend.SetParent(ctx, b, c, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, c, board.EventParent, card.Title, "")
 	}
 	return s.backend.DeleteCard(ctx, b, card)
 }

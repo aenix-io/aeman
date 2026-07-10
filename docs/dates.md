@@ -169,6 +169,9 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
 - A subtask's team always follows its parent: changing the parent's team
   cascades to its subtasks (sprint pointer included), and a direct team change
   on a subtask snaps back to the parent's team.
+- **Deleting a parent releases its subtasks**: they are work items in their
+  own right, so they return to the board as standalone cards (team, sprint and
+  dates kept) instead of being deleted or orphaned with the parent.
 - **Carry Over orients by the parent**: an unfinished parent that carries
   drags **all** its subtasks into the new sprint — even finished ones, and even
   ones whose own team/dates would not qualify (they ride along). Subtasks whose
