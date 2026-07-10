@@ -71,6 +71,14 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 			return err
 		}
 	}
+	// A subtask always belongs to its parent's team.
+	if card.Team != p.Team {
+		if err := s.backend.SetTeam(ctx, b, card, p.Team); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventTeam, card.Team, p.Team)
+		card.Team = p.Team
+	}
 	// The subtask rides its parent's sprint from now on.
 	if card.SprintStart != p.SprintStart {
 		if err := s.backend.SetSprintStart(ctx, b, card, p.SprintStart); err != nil {
