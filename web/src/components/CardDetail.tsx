@@ -15,7 +15,10 @@ interface CardDetailProps {
   provider: Provider;
   onClose: () => void;
   reload: () => void;
-  patchCard: (itemId: string, patch: Partial<CardModel>) => void;
+  patchCard: (
+    itemId: string,
+    patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
+  ) => void;
 }
 
 /** CardDetail is a centered modal for editing a card's title and details. */
