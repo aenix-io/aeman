@@ -1430,10 +1430,20 @@ export function TeamBoard({
         if (linkedReview) {
           removeCard(linkedReview.itemId);
         }
+        // The server releases the subtasks (they return standalone, keeping
+        // their zone and slot); mirror it locally so they don't vanish while
+        // the delete round-trips.
+        const freed = board.cards.filter((c) => c.parent === card.itemId);
+        for (const c of freed) {
+          patchCard(c.itemId, { parent: undefined });
+        }
         rollback = () => {
           addCard(card);
           if (linkedReview) {
             addCard(linkedReview);
+          }
+          for (const c of freed) {
+            patchCard(c.itemId, { parent: card.itemId });
           }
         };
       }

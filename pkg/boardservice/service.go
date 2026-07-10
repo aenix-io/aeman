@@ -283,6 +283,9 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	}
 	if err == nil && args.Parent != "" {
 		if perr := s.SetParent(ctx, owner, project, card.ItemID, args.Parent); perr != nil {
+			// The card exists but could not be grouped: remove it rather than
+			// leave an unparented twin the caller never sees.
+			_ = s.deleteWithCascade(ctx, b, card)
 			return card, perr
 		}
 		card.Parent = args.Parent
@@ -734,9 +737,13 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			return err
 		}
 		if c.Day != "" && c.Day != prev {
-			return s.backend.SetDay(ctx, b, c, prev)
+			if err := s.backend.SetDay(ctx, b, c, prev); err != nil {
+				return err
+			}
 		}
-		return nil
+		// The demoted card keeps living in the previous sprint — its subtasks
+		// ride along, staying nested under it there.
+		return s.syncChildrenSprint(ctx, b, c.ItemID, prev)
 	}
 	return s.deleteWithCascade(ctx, b, c)
 }

@@ -782,6 +782,13 @@ export function MeBoard({
     if (linkedReview) {
       removeCard(linkedReview.itemId);
     }
+    // The server releases the subtasks (they return standalone); mirror it
+    // locally so they don't vanish while the delete round-trips.
+    for (const c of board.cards) {
+      if (c.parent === card.itemId) {
+        patchCard(c.itemId, { parent: undefined });
+      }
+    }
     void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
       if (isGone(err)) {
         return;
