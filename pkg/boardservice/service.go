@@ -1579,6 +1579,7 @@ func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card boa
 			return err
 		}
 	}
+	anchor := card.ItemID
 	for _, c := range board.Children(b, card.ItemID) {
 		if err := s.backend.SetParent(ctx, b, c, ""); err != nil {
 			return err
@@ -1590,6 +1591,13 @@ func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card boa
 				return err
 			}
 			s.logEvent(ctx, b, c, board.EventAssignee, "", card.Assignees[0])
+		}
+		// Slide the freed card into the parent's slot (a subtask grouped by
+		// drag kept its old project position, which may be anywhere); chained
+		// anchors keep the children in their nested order. Best-effort: a
+		// misplaced row beats a failed delete.
+		if err := s.backend.MoveCard(ctx, b, c, anchor); err == nil {
+			anchor = c.ItemID
 		}
 		s.logEvent(ctx, b, c, board.EventParent, card.Title, "")
 	}

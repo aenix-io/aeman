@@ -1469,6 +1469,22 @@ export function TeamBoard({
               : {}),
           });
         }
+        if (freed.length > 0) {
+          // The freed rows take the parent's slot, in their nested order.
+          const freedIds = new Set(freed.map((c) => c.itemId));
+          const order: string[] = [];
+          for (const c of board.cards) {
+            if (freedIds.has(c.itemId)) {
+              continue;
+            }
+            if (c.itemId === card.itemId) {
+              order.push(...freed.map((f) => f.itemId));
+              continue;
+            }
+            order.push(c.itemId);
+          }
+          reorderCards(order);
+        }
         rollback = () => {
           addCard(card);
           if (linkedReview) {
