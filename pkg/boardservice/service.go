@@ -451,8 +451,8 @@ func (s *Service) reseedRecurrent(ctx context.Context, b board.Board, c board.Ca
 	if err := s.backend.SetStage(ctx, b, created, board.StageRecurrent); err != nil {
 		return err
 	}
-	if c.Description != "" {
-		return s.backend.SetDescription(ctx, b, created, c.Description)
+	if desc := board.StripEventLines(c.Description); desc != "" {
+		return s.backend.SetDescription(ctx, b, created, desc)
 	}
 	return nil
 }
@@ -1133,10 +1133,11 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 	}
 	// The review card carries a copy of the original's description, so the
 	// reviewer sees the same context (and its links). A one-time copy at
-	// create — the reviewer may edit their own copy freely afterwards.
-	if card.Description != "" {
-		if setErr := s.backend.SetDescription(ctx, b, created, card.Description); setErr == nil {
-			created.Description = card.Description
+	// create — the reviewer may edit their own copy freely afterwards. Event
+	// lines that leaked into the original's description are not context.
+	if desc := board.StripEventLines(card.Description); desc != "" {
+		if setErr := s.backend.SetDescription(ctx, b, created, desc); setErr == nil {
+			created.Description = desc
 		}
 	}
 	// Put the original on review (ApplyStage also drops a 100% card to 90%).
@@ -1305,6 +1306,9 @@ func (s *Service) Rename(ctx context.Context, owner string, project int, itemID,
 // the linked counterpart — editing the original updates its review card and
 // vice versa, so both always show the same context. Notes stay per-card.
 func (s *Service) SetDescription(ctx context.Context, owner string, project int, itemID, description string) error {
+	// Machine event-log lines are never legitimate description prose; strip
+	// them so a copied-back visible text cannot bake the log into the body.
+	description = board.StripEventLines(description)
 	if utf8.RuneCountInString(description) > MaxDescriptionLen {
 		return ErrDescriptionTooLong
 	}
