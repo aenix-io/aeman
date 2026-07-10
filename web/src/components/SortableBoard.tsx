@@ -381,10 +381,21 @@ export function SortableBoard<Meta>({
       // only be one of them — the dedent gesture exists on the last slot only.
       target = cardById.get(below.parent);
     } else if (above.parent) {
-      // The last slot of a block: the held indent decides. Joining a FOREIGN
-      // block also needs the slot to have been parked on for a moment.
-      if (indentOn && (above.parent === active.parent || slotArmed.current)) {
+      if (above.parent === active.parent) {
+        // The own block's last slot: a subtask STAYS a subtask by default —
+        // leaving takes the flush-left gesture parked on the slot a moment.
+        if (indentOn || !slotArmed.current) {
+          target = cardById.get(above.parent);
+        }
+      } else if (indentOn && slotArmed.current) {
+        // A foreign block's last slot: joining takes a parked indent.
         target = cardById.get(above.parent);
+      }
+    } else if (above.itemId === active.parent) {
+      // Right under the own parent (the card is its only visible subtask):
+      // grouped by default, the same deliberate gesture to leave.
+      if (indentOn || !slotArmed.current) {
+        target = above;
       }
     } else if (indentOn && indentAsserted.current && slotArmed.current) {
       // A NEW parent (no visible block below it) takes a deliberate gesture
