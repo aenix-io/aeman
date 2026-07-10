@@ -385,10 +385,7 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	}
 	// Subtasks ride with their carried parent - even completed ones, and
 	// whatever team they belong to; the parent's team drives the sprint.
-	followers := make([]board.Card, 0)
-	for _, p := range carry {
-		followers = append(followers, board.Children(b, p.ItemID)...)
-	}
+	followers := carryFollowers(b, carry)
 	carry = append(carry, followers...)
 	rep := CarryReport{Carried: len(carry) - len(followers), Reseeded: len(reseed)}
 	if dryRun {
@@ -746,6 +743,24 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 		return s.syncChildrenSprint(ctx, b, c.ItemID, prev)
 	}
 	return s.deleteWithCascade(ctx, b, c)
+}
+
+// carryFollowers collects the subtasks that ride a carried parent into the
+// new sprint: the OPEN ones. A completed subtask stays in the sprint it was
+// finished in — the parent's derived bar still counts it (DerivedProgress
+// scans ALL children), so the progress carries even though the done row
+// stays behind on the old day.
+func carryFollowers(b board.Board, carry []board.Card) []board.Card {
+	followers := make([]board.Card, 0)
+	for _, p := range carry {
+		for _, c := range board.Children(b, p.ItemID) {
+			if board.Complete(c.Stage, c.Progress) {
+				continue
+			}
+			followers = append(followers, c)
+		}
+	}
+	return followers
 }
 
 // LinkResolver resolves a GitHub issue/PR link to its live title and state.

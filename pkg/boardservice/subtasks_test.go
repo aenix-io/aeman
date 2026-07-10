@@ -118,9 +118,10 @@ func TestCarryOverDragsSubtasksWithParent(t *testing.T) {
 	today := board.TodayIso()
 	f := newFake([]board.Card{
 		{ItemID: "p", Team: "alpha", SprintStart: old},
-		// A done subtask still rides with its parent.
+		// A done subtask stays in the sprint it was finished in; the parent's
+		// derived bar still counts it.
 		{ItemID: "c1", Team: "alpha", Parent: "p", SprintStart: old, Stage: board.StageDone, Progress: 100},
-		// A subtask of ANOTHER team rides too - the parent's team drives.
+		// An open subtask of ANOTHER team rides too - the parent's team drives.
 		{ItemID: "c2", Team: "beta", Parent: "p", SprintStart: old, Progress: 20},
 		// A subtask whose parent is NOT carried (done parent) stays put.
 		{ItemID: "q", Team: "alpha", SprintStart: old, Stage: board.StageDone, Progress: 100},
@@ -133,10 +134,14 @@ func TestCarryOverDragsSubtasksWithParent(t *testing.T) {
 	if rep.Carried != 1 {
 		t.Fatalf("Carried = %d, want 1 (the parent; followers not counted)", rep.Carried)
 	}
-	for _, id := range []string{"p", "c1", "c2"} {
+	for _, id := range []string{"p", "c2"} {
 		if f.get(id).SprintStart != today {
 			t.Fatalf("%s not carried: %+v", id, f.get(id))
 		}
+	}
+	// The done subtask stays behind in the closing sprint.
+	if f.get("c1").SprintStart != old {
+		t.Fatalf("done subtask carried: %+v", f.get("c1"))
 	}
 	// The hanging subtask (its own team, done parent) stays.
 	if f.get("c3").SprintStart != old {
