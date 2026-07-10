@@ -282,3 +282,16 @@ func TestDeleteParentReleasesSubtasks(t *testing.T) {
 		}
 	}
 }
+
+func TestParentSprintChangeDragsSubtasks(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha", SprintStart: "2026-01-10"},
+		{ItemID: "c", Team: "alpha", Parent: "p", SprintStart: "2026-01-10"},
+	}, nil)
+	if err := f2svc(f).SetSprintStart(ctx, "acme", 1, "p", "2026-01-03"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c").SprintStart != "2026-01-03" {
+		t.Fatalf("subtask sprint = %q, want dragged to 2026-01-03", f.get("c").SprintStart)
+	}
+}

@@ -651,6 +651,22 @@ func (s *Service) SetDates(ctx context.Context, owner string, project int, itemI
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(start, end))
 	s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, sprint)
+	return s.syncChildrenSprint(ctx, b, c.ItemID, sprint)
+}
+
+// syncChildrenSprint drags a card's subtasks onto its (re)assigned sprint: a
+// subtask rides its parent, so a parent moved to another sprint must not
+// leave its children stranded in the old one.
+func (s *Service) syncChildrenSprint(ctx context.Context, b board.Board, parentID, sprint string) error {
+	for _, c := range board.Children(b, parentID) {
+		if c.SprintStart == sprint {
+			continue
+		}
+		if err := s.backend.SetSprintStart(ctx, b, c, sprint); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, sprint)
+	}
 	return nil
 }
 
@@ -1052,7 +1068,7 @@ func (s *Service) SetSprintStart(ctx context.Context, owner string, project int,
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventSprint, card.SprintStart, date)
-	return nil
+	return s.syncChildrenSprint(ctx, b, card.ItemID, date)
 }
 
 // SetPlan sets a card's weekly-plan band (plan = "" clears it).
