@@ -567,7 +567,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		}
 	}
 	for _, tf := range []struct{ role, value string }{
-		{"team", in.Team}, {"reviewOf", in.ReviewOf},
+		{"team", in.Team}, {"reviewOf", in.ReviewOf}, {"parent", in.Parent},
 	} {
 		if tf.value == "" {
 			continue
@@ -610,6 +610,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		Week:        in.Week,
 		Team:        in.Team,
 		ReviewOf:    in.ReviewOf,
+		Parent:      in.Parent,
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }

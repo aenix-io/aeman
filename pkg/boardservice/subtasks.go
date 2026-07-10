@@ -92,12 +92,16 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 			return err
 		}
 	}
-	if err := s.backend.SetParent(ctx, b, card, parent); err != nil {
-		return err
+	if card.Parent != parent {
+		if err := s.backend.SetParent(ctx, b, card, parent); err != nil {
+			return err
+		}
 	}
 	// The log keeps titles, not item ids — readable for humans and agents.
+	// A card born parented (create with parent) has card.Parent == parent
+	// already: that is a fresh grouping, not a move.
 	oldTitle := ""
-	if card.Parent != "" {
+	if card.Parent != "" && card.Parent != parent {
 		if op, ok := findCard(b, card.Parent); ok {
 			oldTitle = op.Title
 			s.logEvent(ctx, b, op, board.EventSubtask, card.Title, "")

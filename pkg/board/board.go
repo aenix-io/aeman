@@ -147,6 +147,7 @@ type CreateInput struct {
 	Assignee    string   `json:"assignee,omitempty"`
 	Team        string   `json:"team,omitempty"`
 	ReviewOf    string   `json:"reviewOf,omitempty"`
+	Parent      string   `json:"parent,omitempty"`
 	Plan        PlanBand `json:"plan,omitempty"`
 	Week        string   `json:"week,omitempty"`
 }

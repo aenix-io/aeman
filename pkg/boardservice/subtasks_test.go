@@ -338,3 +338,24 @@ func TestDeleteParentReleasedChildInheritsAssignee(t *testing.T) {
 		t.Fatalf("released c2 assignees = %v, want its own eve kept", got)
 	}
 }
+
+func TestSmartRemoveCreatedTodayDeletesForReal(t *testing.T) {
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha", StartDate: today, SprintStart: today, Assignees: []string{"bob"}},
+		{ItemID: "c", Team: "alpha", Parent: "p", StartDate: today, SprintStart: today},
+	}, map[string]board.SprintState{
+		"alpha": {Current: today, Previous: "2026-01-03"},
+	})
+	if err := f2svc(f).Remove(ctx, "acme", 1, "p", "grid"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("p") != nil {
+		t.Fatalf("created-today parent demoted instead of deleted: %+v", f.get("p"))
+	}
+	// The child is released in place with the parent's person.
+	c := f.get("c")
+	if c == nil || c.Parent != "" || len(c.Assignees) != 1 || c.Assignees[0] != "bob" {
+		t.Fatalf("released child = %+v, want standalone with bob", c)
+	}
+}

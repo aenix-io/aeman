@@ -266,6 +266,19 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 			sprint = cur
 		}
 	}
+	// A subtask create is validated BEFORE the card exists and the card is
+	// born already parented — a create-then-group pair would broadcast (and
+	// persist) a parentless instant that watchers and mid-sync reloads see as
+	// a stray top-level card.
+	if args.Parent != "" {
+		p, ok := findCard(b, args.Parent)
+		if !ok || p.Title == board.SprintStateTitle {
+			return board.Card{}, ErrParentNotFound
+		}
+		if p.Parent != "" {
+			return board.Card{}, ErrSubtaskDepth
+		}
+	}
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
@@ -276,6 +289,7 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		Assignee:    args.Assignee,
 		Team:        args.Team,
 		ReviewOf:    args.ReviewOf,
+		Parent:      args.Parent,
 	})
 	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 	if err == nil {
@@ -283,8 +297,8 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	}
 	if err == nil && args.Parent != "" {
 		if perr := s.SetParent(ctx, owner, project, card.ItemID, args.Parent); perr != nil {
-			// The card exists but could not be grouped: remove it rather than
-			// leave an unparented twin the caller never sees.
+			// The card exists but could not finish grouping: remove it rather
+			// than leave a half-grouped twin behind.
 			_ = s.deleteWithCascade(ctx, b, card)
 			return card, perr
 		}
@@ -726,7 +740,10 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 	}
 	cur := board.CurrentSprint(b, c.Team)
 	prev := board.PreviousSprint(b, c.Team)
-	if c.SprintStart != "" && cur != "" && c.SprintStart == cur && prev != "" && prev < cur {
+	// A card created today (start = today) has no sprint history worth
+	// keeping: the x deletes it for real instead of demoting.
+	if c.SprintStart != "" && cur != "" && c.SprintStart == cur && prev != "" && prev < cur &&
+		c.StartDate != board.TodayIso() {
 		if err := s.backend.SetStart(ctx, b, c, prev); err != nil {
 			return err
 		}
