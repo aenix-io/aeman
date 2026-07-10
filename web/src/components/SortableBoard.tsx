@@ -70,6 +70,11 @@ interface SortableBoardProps<Meta> {
   externalCards?: Map<string, CardModel>;
   /** Commit a drop of an external (extra) draggable onto an over id. */
   onExternalDrop?: (card: CardModel, overId: string | null) => void;
+  /** Commit a drop into a card's subtask area (over id "sub:<parentId>"). */
+  onGroupDrop?: (card: CardModel, parentId: string) => void;
+  /** Fires with the card id the drag is hovering (null when it leaves) — the
+   *  board uses it to dwell-open that card's subtask drop area. */
+  onHoverCard?: (cardId: string | null) => void;
   /** Optional class wrapping the laid-out groups (e.g. a horizontal scroller). */
   scrollClassName?: string;
 }
@@ -166,6 +171,8 @@ export function SortableBoard<Meta>({
   children,
   externalCards,
   onExternalDrop,
+  onGroupDrop,
+  onHoverCard,
   scrollClassName,
 }: SortableBoardProps<Meta>) {
   const sensors = useSensors(
@@ -224,11 +231,27 @@ export function SortableBoard<Meta>({
 
   const handleOver = (e: DragOverEvent) => {
     const { active, over } = e;
+    const overRaw = over ? String(over.id) : null;
+    // Report which card the drag hovers (a card id or a sub: area) so the
+    // board can dwell-open its subtask drop area.
+    if (onHoverCard) {
+      if (overRaw === null) {
+        onHoverCard(null);
+      } else if (overRaw.startsWith("sub:")) {
+        onHoverCard(overRaw.slice(4));
+      } else {
+        const overCard = cardById.get(overRaw);
+        onHoverCard(overCard && overRaw !== String(active.id) ? overCard.itemId : null);
+      }
+    }
     if (!over || isExternal(String(active.id))) {
       return;
     }
     const activeKey = String(active.id);
     const overKey = String(over.id);
+    if (overKey.startsWith("sub:")) {
+      return; // grouping target: no reshuffle preview
+    }
     setLocal((cur) => {
       if (!cur) {
         return cur;
@@ -258,6 +281,17 @@ export function SortableBoard<Meta>({
 
   const handleEnd = (e: DragEndEvent) => {
     const activeKey = String(e.active.id);
+    onHoverCard?.(null);
+    const overRaw = e.over ? String(e.over.id) : null;
+    if (overRaw?.startsWith("sub:") && !isExternal(activeKey)) {
+      const card = cardById.get(activeKey);
+      const parentId = overRaw.slice(4);
+      if (card && card.itemId !== parentId) {
+        onGroupDrop?.(card, parentId);
+      }
+      reset();
+      return;
+    }
     if (isExternal(activeKey)) {
       const ext = externalCards?.get(activeKey);
       if (ext) {

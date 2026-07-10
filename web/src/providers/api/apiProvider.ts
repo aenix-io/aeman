@@ -142,6 +142,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
   if (patch.reviewOf !== undefined) {
     body.reviewOf = patch.reviewOf;
   }
+  if (patch.parent !== undefined) {
+    body.parent = patch.parent;
+  }
   return body;
 }
 

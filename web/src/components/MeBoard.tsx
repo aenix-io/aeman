@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
   type Ref,
 } from "react";
 import {
@@ -33,6 +34,7 @@ import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
+import { Subtasks } from "./Subtasks";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface MeBoardProps {
@@ -135,6 +137,12 @@ export function MeBoard({
   // that can be worked on right now — drops locked/review/done. Ephemeral,
   // resets to off on reload, like the team-focus eye.
   const [focus, setFocus] = useState(false);
+  // Subtask lists open per parent card; a drag dwelling over a card opens its
+  // drop area temporarily (dwellSub) until the pointer leaves it.
+  const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set());
+  const [dwellSub, setDwellSub] = useState<string | null>(null);
+  const dwellTimer = useRef<number | null>(null);
+  const dwellFor = useRef<string | null>(null);
   // Impersonate: view (and act on) the board as another person.
   const impersonated = viewAs;
   const setImpersonated = onViewAs;
@@ -191,11 +199,21 @@ export function MeBoard({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [board.members, board.cards, me]);
 
-  // My cards (any day); when me is empty, everyone's.
-  const mine = useMemo(
-    () => board.cards.filter((c) => (viewMe ? c.assignees.includes(viewMe) : true)),
-    [board.cards, viewMe],
-  );
+  // My cards (any day); when me is empty, everyone's. A parent counts as mine
+  // when any of its subtasks is mine, and a delivered parent brings all its
+  // subtasks along (mirrors MeView + withSubtasks server-side).
+  const mine = useMemo(() => {
+    if (!viewMe) {
+      return board.cards;
+    }
+    const owned = new Set<string>();
+    for (const c of board.cards) {
+      if (c.assignees.includes(viewMe)) {
+        owned.add(c.parent ?? c.itemId);
+      }
+    }
+    return board.cards.filter((c) => owned.has(c.parent ?? c.itemId));
+  }, [board.cards, viewMe]);
 
   // In Me a card shows when it belongs to the sprint that was active on the viewed
   // day (activeSprint) and its scheduled day has arrived (startDate empty or on or
@@ -205,6 +223,10 @@ export function MeBoard({
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
+        // Subtasks render nested under their parent, never as zone rows.
+        if (c.parent) {
+          return false;
+        }
         if (focus && !isWorkable(c)) {
           return false;
         }
@@ -383,6 +405,129 @@ export function MeBoard({
   // Resolve a card's description links (GitHub refs get titles) for the menu.
   const loadCardLinks = (card: CardModel) =>
     provider.listLinks(board, card.itemId);
+
+  // Subtasks grouped by parent. The Me board's team-focus filter applies to
+  // subtask rows the same way it applies to cards.
+  const childrenOf = useMemo(() => {
+    const m = new Map<string, CardModel[]>();
+    for (const c of mine) {
+      if (!c.parent) {
+        continue;
+      }
+      if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
+        continue;
+      }
+      const list = m.get(c.parent) ?? [];
+      list.push(c);
+      m.set(c.parent, list);
+    }
+    return m;
+  }, [mine, teamFocus, teamFilter]);
+
+  const subsOpen = (id: string) => expandedSubs.has(id) || dwellSub === id;
+
+  const toggleSubs = (id: string) =>
+    setExpandedSubs((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+
+  // A drag dwelling over a card opens its subtask drop area; leaving closes it.
+  const handleHoverCard = (id: string | null) => {
+    if (dwellFor.current === id) {
+      return;
+    }
+    dwellFor.current = id;
+    if (dwellTimer.current !== null) {
+      window.clearTimeout(dwellTimer.current);
+      dwellTimer.current = null;
+    }
+    if (id === null) {
+      setDwellSub(null);
+      return;
+    }
+    dwellTimer.current = window.setTimeout(() => setDwellSub(id), 500);
+  };
+
+  // Space expands/collapses the selected card's subtask list.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== " " || !selectedCardId) {
+        return;
+      }
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
+        return;
+      }
+      if (!(childrenOf.get(selectedCardId) ?? []).length) {
+        return;
+      }
+      e.preventDefault();
+      toggleSubs(selectedCardId);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCardId, childrenOf]);
+
+  // Group a dropped card as a subtask; the server enforces depth and moves a
+  // weekly card's plan slot onto the parent (which replaces it in the plan).
+  const handleGroup = (card: CardModel, parentId: string) => {
+    if (card.itemId === parentId || card.parent === parentId || card.itemId.startsWith("tmp-")) {
+      return;
+    }
+    const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
+    patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    setExpandedSubs((cur) => new Set(cur).add(parentId));
+    void provider
+      .patchCard(board, card.itemId, { parent: parentId })
+      .then((c) => {
+        addCard(c);
+        reload();
+      })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  // Pull a subtask back out as a standalone card.
+  const handleUngroup = (card: CardModel) => {
+    const prev = card.parent;
+    patchCard(card.itemId, { parent: undefined });
+    void provider
+      .patchCard(board, card.itemId, { parent: "" })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { parent: prev });
+        onError(errMessage(err));
+      });
+  };
+
+  // Create a card directly as a subtask (inherits the parent's team and zone,
+  // assigned to the viewer so it stays on this board).
+  const handleCreateSubtask = (parent: CardModel, title: string) => {
+    void provider
+      .createCard(board, {
+        title,
+        team: parent.team ?? null,
+        zone: parent.zone ?? "gray",
+        start: selectedDate,
+        day: selectedDate,
+        assigneeLogin: viewMe || null,
+      })
+      .then((c) => provider.patchCard(board, c.itemId, { parent: parent.itemId }))
+      .then((c) => {
+        addCard(c);
+        reload();
+      })
+      .catch((err: unknown) => onError(errMessage(err)));
+  };
 
   const handleProgress = (card: CardModel, raw: number) => {
     const value =
@@ -899,6 +1044,58 @@ export function MeBoard({
       });
   };
 
+  // renderMeCard is the zone-band card used both for top-level rows and for
+  // subtask rows (a subtask works exactly like any card).
+  const renderMeCard = (card: CardModel): ReactNode => (
+    <Card
+      card={card}
+      onLoadLinks={loadCardLinks}
+      selected={card.itemId === selectedCardId}
+      onSelect={(c) => setSelectedCardId(c.itemId)}
+      onProgress={handleProgress}
+      onDelete={handleDelete}
+      onStage={handleStage}
+      onInProgress={handleInProgress}
+      onRename={handleRename}
+      onOpen={onOpen}
+      teams={teams}
+      people={people}
+      users={users}
+      onSetTeam={handleSetTeam}
+      hasLinkedReview={reviewedItemIds.has(card.itemId)}
+      counterpartAssignees={counterpartAssigneesFor(card)}
+      onSetReviewAssignee={handleSetReviewAssignee}
+      asOf={selectedDate}
+      dimAvatar={teamFilter === null || !teamFilter.includes(card.team ?? "")}
+      subCount={(childrenOf.get(card.itemId) ?? []).length}
+      expanded={subsOpen(card.itemId)}
+      onToggleExpand={(c) => toggleSubs(c.itemId)}
+      onAddSubtask={(c) => {
+        setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+      }}
+    />
+  );
+
+  // Wraps a rendered card with its subtask list when open. Subtask rows are
+  // full cards (same flow as any card) plus an ungroup control.
+  const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
+    if (card.parent || !subsOpen(card.itemId)) {
+      return node;
+    }
+    return (
+      <>
+        {node}
+        <Subtasks
+          parent={card}
+          subs={childrenOf.get(card.itemId) ?? []}
+          renderChild={(c) => renderMeCard(c)}
+          onUngroup={handleUngroup}
+          onCreate={(title) => handleCreateSubtask(card, title)}
+        />
+      </>
+    );
+  };
+
   return (
     <div className="me">
       <div className="board-toolbar">
@@ -1026,31 +1223,9 @@ export function MeBoard({
             <SortableBoard<MeMeta>
               groups={groups}
               onDrop={handleDrop}
-              renderCard={(card) => (
-                <Card
-                  card={card}
-                  onLoadLinks={loadCardLinks}
-                  selected={card.itemId === selectedCardId}
-                  onSelect={(c) => setSelectedCardId(c.itemId)}
-                  onProgress={handleProgress}
-                  onDelete={handleDelete}
-                  onStage={handleStage}
-                  onInProgress={handleInProgress}
-                  onRename={handleRename}
-                  onOpen={onOpen}
-                  teams={teams}
-                  people={people}
-                  users={users}
-                  onSetTeam={handleSetTeam}
-                  hasLinkedReview={reviewedItemIds.has(card.itemId)}
-                  counterpartAssignees={counterpartAssigneesFor(card)}
-                  onSetReviewAssignee={handleSetReviewAssignee}
-                  asOf={selectedDate}
-                  dimAvatar={
-                    teamFilter === null || !teamFilter.includes(card.team ?? "")
-                  }
-                />
-              )}
+              onGroupDrop={handleGroup}
+              onHoverCard={handleHoverCard}
+              renderCard={(card) => withSubs(card, renderMeCard(card))}
               renderOverlay={(card) => (
                 <Card
                   card={card}
