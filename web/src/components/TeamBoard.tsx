@@ -810,9 +810,13 @@ export function TeamBoard({
         const ids = (entry?.ids ?? []).map((id) => id.replace(/^plan:/, ""));
         if (!groupUnder) {
           // Pulled out INSIDE the weekly panel: the subtask becomes a plan
-          // card of the dropped band in its own right, keeping its slot.
+          // card of the dropped band in its own right, keeping its slot. A
+          // GRID parent's subtask has no business here — it snaps back.
           const parentCard = card.parent ? cardsById.get(card.parent) : undefined;
-          const week = parentCard?.week ?? currentWeek;
+          if (!parentCard?.plan) {
+            return;
+          }
+          const week = parentCard.week ?? currentWeek;
           const prev: Partial<CardModel> = {
             parent: card.parent,
             plan: card.plan,
@@ -881,11 +885,9 @@ export function TeamBoard({
         // Take a grid card into the weekly plan; it stays on the board.
         takeIntoPlan(card, toMeta.band);
       }
-      if (!card.parent || toMeta.kind !== "cell") {
-        return;
-      }
-      // A subtask pulled from a weekly block into a grid cell falls through:
-      // it works like any grid drop (ungroup or regroup by slot).
+      // A subtask never leaves the weekly panel for the day grid by drag:
+      // dedent it within the band to make it a plan card first.
+      return;
     }
     if (toMeta.kind !== "cell") {
       return; // narrows the type: everything below places into a grid cell
