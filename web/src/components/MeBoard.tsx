@@ -555,12 +555,11 @@ export function MeBoard({
         start: selectedDate,
         day: selectedDate,
         assigneeLogin: viewMe || null,
+        parent: parent.itemId,
       })
-      .then((c) => provider.patchCard(board, c.itemId, { parent: parent.itemId }))
       .then((c) => {
         removeCard(tempId);
         addCard(c);
-        reload();
       })
       .catch((err: unknown) => {
         removeCard(tempId);

@@ -165,7 +165,9 @@ type CreateCardArgs struct {
 	Plan board.PlanBand
 	Week string
 	// ReviewOf marks the new card as the review of the given item.
-	ReviewOf       string
+	ReviewOf string
+	// Parent groups the new card as a subtask of the given item on create.
+	Parent         string
 	StartNewSprint *bool
 	// NoSprint schedules the card for its day without joining any sprint — a
 	// "next sprint" create: the card lives on its own day only until the first
@@ -278,6 +280,12 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 	if err == nil {
 		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+	}
+	if err == nil && args.Parent != "" {
+		if perr := s.SetParent(ctx, owner, project, card.ItemID, args.Parent); perr != nil {
+			return card, perr
+		}
+		card.Parent = args.Parent
 	}
 	return card, err
 }

@@ -189,6 +189,7 @@ export const apiProvider: Provider = {
       zone: semanticZone(input.zone),
       assignees: input.assigneeLogin ? [input.assigneeLogin] : [],
       reviewOf: input.reviewOf ?? "",
+      parent: input.parent ?? "",
     };
     // Plan cards carry no dates (they live in the weekly bands); day cards pass
     // their start/end and the server joins (or records) the sprint itself.
