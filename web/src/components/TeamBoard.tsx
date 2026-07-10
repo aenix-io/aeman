@@ -1078,7 +1078,7 @@ export function TeamBoard({
       itemId: tempId,
       title,
       isDraft: true,
-      assignees: [],
+      assignees: parent.assignees.slice(0, 1),
       zone: parent.zone ?? "gray",
       team: parent.team,
       parent: parent.itemId,
@@ -1093,6 +1093,9 @@ export function TeamBoard({
       zone: parent.zone ?? "gray",
       start: selectedDate,
       day: selectedDate,
+      // The subtask starts with the parent's person (still reassignable), so
+      // it lives in the parent's grid cell if it ever stands alone.
+      assigneeLogin: parent.assignees[0] ?? null,
       parent: parent.itemId,
     });
     // Mutations fired against the tmp id (a quick reorder, a rename) wait in
@@ -1457,7 +1460,12 @@ export function TeamBoard({
         // the delete round-trips.
         const freed = board.cards.filter((c) => c.parent === card.itemId);
         for (const c of freed) {
-          patchCard(c.itemId, { parent: undefined });
+          patchCard(c.itemId, {
+            parent: undefined,
+            ...(c.assignees.length === 0 && card.assignees.length > 0
+              ? { assignees: card.assignees.slice(0, 1) }
+              : {}),
+          });
         }
         rollback = () => {
           addCard(card);
