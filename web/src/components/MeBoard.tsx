@@ -795,12 +795,26 @@ export function MeBoard({
     if (linkedReview) {
       removeCard(linkedReview.itemId);
     }
-    // The server releases the subtasks (they return standalone); mirror it
-    // locally so they don't vanish while the delete round-trips.
-    for (const c of board.cards) {
-      if (c.parent === card.itemId) {
-        patchCard(c.itemId, { parent: undefined });
+    // The server releases the subtasks (they return standalone, sliding into
+    // the parent's slot); mirror both locally while the delete round-trips.
+    const freed = board.cards.filter((c) => c.parent === card.itemId);
+    for (const c of freed) {
+      patchCard(c.itemId, { parent: undefined });
+    }
+    if (freed.length > 0) {
+      const freedIds = new Set(freed.map((c) => c.itemId));
+      const order: string[] = [];
+      for (const c of board.cards) {
+        if (freedIds.has(c.itemId)) {
+          continue;
+        }
+        if (c.itemId === card.itemId) {
+          order.push(...freed.map((f) => f.itemId));
+          continue;
+        }
+        order.push(c.itemId);
       }
+      reorderCards(order);
     }
     void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
       if (isGone(err)) {
