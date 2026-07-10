@@ -766,7 +766,7 @@ export function TeamBoard({
     fromMeta,
     toMeta,
     groups: g,
-    indented,
+    groupUnder,
   }: DropResult<TeamMeta>) => {
     // Drops that involve a weekly-plan band.
     if (fromMeta.kind === "band" || toMeta.kind === "band") {
@@ -796,33 +796,10 @@ export function TeamBoard({
       return;
     }
 
-    // From here both ends are grid cells. Where the card landed decides its
-    // grouping: between subtasks it keeps (or adopts) their parent; right
-    // under an expanded parent it tucks in only when dropped with a rightward
-    // indent (the Notion cue); anywhere else it is a standalone cell card.
-    const entry = g.find((x) => x.ids.includes(card.itemId));
-    const ids = entry?.ids ?? [];
-    const idx = ids.indexOf(card.itemId);
-    const above = idx > 0 ? cardsById.get(ids[idx - 1]) : undefined;
-    let parentTo: string | null = null;
-    if (above?.parent) {
-      parentTo = above.parent;
-    } else if (
-      above &&
-      indented &&
-      subsOpen(above.itemId) &&
-      (childrenOf.get(above.itemId) ?? []).length > 0
-    ) {
-      parentTo = above.itemId;
-    }
-    const parentCard = parentTo ? cardsById.get(parentTo) : undefined;
-    if (
-      parentTo &&
-      parentTo !== (card.parent ?? null) &&
-      (!parentCard || !canGroup(card, parentCard))
-    ) {
-      parentTo = null;
-    }
+    // From here both ends are grid cells. The board committed exactly what
+    // the placeholder previewed: groupUnder is the already-validated parent
+    // to nest under (null = standalone).
+    const parentTo = groupUnder;
     const parentChanged = (card.parent ?? "") !== (parentTo ?? "");
 
     // 1) Optimistic local state first. A grouped card is not cell-placed, so
@@ -1029,35 +1006,33 @@ export function TeamBoard({
     />
   );
 
-  // The inline add-subtask form (the + flow), indented like a subtask row.
-  const subtaskAddForm = (parent: CardModel): ReactNode => (
+  // The add-subtask row at the end of an expanded list: a "+ add" button
+  // that expands into the title input — already open when the + flow is on.
+  const subtaskAddForm = (parent: CardModel, open: boolean): ReactNode => (
     <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
       <AddCard
-        autoOpen
+        key={open ? "adding" : "idle"}
+        autoOpen={open}
         placeholder="Add a subtask…"
         onCreate={(title) => handleCreateSubtask(parent, title)}
-        onClosed={() => setAddingSub(null)}
+        onClosed={open ? () => setAddingSub(null) : undefined}
       />
     </div>
   );
 
-  // Wraps a rendered card: subtask rows are indented under their parent, and
-  // the add-subtask form (the + flow) hangs after the LAST subtask row — or
-  // right under the parent while it has none visible yet.
+  // Wraps a rendered card: subtask rows are indented under their parent, an
+  // expanded list always ends with the "+ add" row, and a parent with no
+  // visible subtasks grows the form right under itself while the + flow is on.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
     if (card.parent) {
       const wrapped = <div className="subtask-indent">{node}</div>;
       const subs = childrenOf.get(card.parent) ?? [];
       const parent = cardsById.get(card.parent);
-      if (
-        addingSub === card.parent &&
-        parent &&
-        subs[subs.length - 1]?.itemId === card.itemId
-      ) {
+      if (parent && subs[subs.length - 1]?.itemId === card.itemId) {
         return (
           <>
             {wrapped}
-            {subtaskAddForm(parent)}
+            {subtaskAddForm(parent, addingSub === card.parent)}
           </>
         );
       }
@@ -1072,7 +1047,7 @@ export function TeamBoard({
     return (
       <>
         {node}
-        {subtaskAddForm(card)}
+        {subtaskAddForm(card, true)}
       </>
     );
   };
