@@ -546,7 +546,9 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 			return board.Card{}, err
 		}
 		if option := domainOptionForZone(field, in.Zone); option != "" {
-			if err := c.setSingleSelect(ctx, b.ID, item.ID, field.ID, option); err != nil {
+			if err := c.retryResolve(ctx, func() error {
+				return c.setSingleSelect(ctx, b.ID, item.ID, field.ID, option)
+			}); err != nil {
 				return board.Card{}, err
 			}
 		}
@@ -561,8 +563,10 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		if err != nil {
 			return board.Card{}, err
 		}
-		if err := c.graphql(ctx, setDateMutation,
-			map[string]any{"project": b.ID, "item": item.ID, "field": field.ID, "value": df.value}, nil); err != nil {
+		if err := c.retryResolve(ctx, func() error {
+			return c.graphql(ctx, setDateMutation,
+				map[string]any{"project": b.ID, "item": item.ID, "field": field.ID, "value": df.value}, nil)
+		}); err != nil {
 			return board.Card{}, err
 		}
 	}
@@ -576,8 +580,10 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		if err != nil {
 			return board.Card{}, err
 		}
-		if err := c.graphql(ctx, setTextMutation,
-			map[string]any{"project": b.ID, "item": item.ID, "field": field.ID, "value": tf.value}, nil); err != nil {
+		if err := c.retryResolve(ctx, func() error {
+			return c.graphql(ctx, setTextMutation,
+				map[string]any{"project": b.ID, "item": item.ID, "field": field.ID, "value": tf.value}, nil)
+		}); err != nil {
 			return board.Card{}, err
 		}
 	}
@@ -587,7 +593,9 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 			return board.Card{}, err
 		}
 		if option := domainOptionByName(field, string(in.Plan)); option != "" {
-			if err := c.setSingleSelect(ctx, b.ID, item.ID, field.ID, option); err != nil {
+			if err := c.retryResolve(ctx, func() error {
+				return c.setSingleSelect(ctx, b.ID, item.ID, field.ID, option)
+			}); err != nil {
 				return board.Card{}, err
 			}
 		}
