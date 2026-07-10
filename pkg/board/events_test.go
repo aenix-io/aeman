@@ -111,3 +111,18 @@ func TestPlanShowsInWeekAt(t *testing.T) {
 		}
 	}
 }
+
+// StripEventLines removes machine event-log lines from description text while
+// leaving prose — including dated-looking checklist lines — untouched.
+func TestStripEventLines(t *testing.T) {
+	in := "- [2026-07-06T08:02:07Z] :: progress | bob | 0 | 20\n" +
+		"a real line\n" +
+		"- [x] checkbox stays\n" +
+		"- [2026-07-07T06:02:40Z] :: sprint | bob | a | b"
+	if got := StripEventLines(in); got != "a real line\n- [x] checkbox stays" {
+		t.Fatalf("StripEventLines = %q", got)
+	}
+	if got := StripEventLines("plain text"); got != "plain text" {
+		t.Fatalf("plain text changed: %q", got)
+	}
+}

@@ -94,3 +94,27 @@ func TestParseNotesPrefersComments(t *testing.T) {
 		t.Fatalf("notes = %+v", notes)
 	}
 }
+
+// Event lines stranded above the log marker (an old migration's leftovers, or
+// a description write that baked them in) are log entries, not description.
+func TestParseDraftBodyMigratesStrandedEventLines(t *testing.T) {
+	body := "- [2026-07-06T08:02:07Z] :: progress | bob | 0 | 20\n" +
+		"real description line\n" +
+		"- [x] a checklist item stays\n" +
+		"\n<!-- aeman:log -->\n" +
+		"- [2026-07-07T05:56:09Z] a note\n" +
+		"- [2026-07-07T08:02:42Z] :: sprint | bob | 2026-07-06 | 2026-07-07"
+	desc, notes := domainParseDraftBody(body, "I_1")
+	if desc != "real description line\n- [x] a checklist item stays" {
+		t.Fatalf("description = %q", desc)
+	}
+	var eventBodies []string
+	for _, n := range notes {
+		if len(n.Body) >= 3 && n.Body[:3] == ":: " {
+			eventBodies = append(eventBodies, n.Body)
+		}
+	}
+	if len(eventBodies) != 2 {
+		t.Fatalf("migrated events = %v, want 2 (the stranded one and the logged one)", eventBodies)
+	}
+}

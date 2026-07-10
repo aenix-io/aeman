@@ -142,7 +142,27 @@ func domainParseDraftBody(body, itemID string) (string, []board.Note) {
 		return "", nil
 	}
 	if idx := strings.Index(body, domainLogMarker); idx >= 0 {
-		return strings.TrimSpace(body[:idx]), domainParseNoteLines(body[idx+len(domainLogMarker):], itemID)
+		notes := domainParseNoteLines(body[idx+len(domainLogMarker):], itemID)
+		// Machine event lines stranded ABOVE the marker (left there by an old
+		// log migration, or baked in by a description write before writes were
+		// sanitized) belong to the log, not the description. Only exact event
+		// lines move — a prose line that merely looks dated (a checklist item,
+		// say) stays where the person wrote it.
+		var descLines []string
+		for i, line := range strings.Split(body[:idx], "\n") {
+			m := draftNoteRe.FindStringSubmatch(strings.TrimSpace(line))
+			if m != nil && strings.HasPrefix(m[2], ":: ") {
+				notes = append(notes, board.Note{
+					ID:        fmt.Sprintf("%s:h%d", itemID, i),
+					Body:      m[2],
+					CreatedAt: m[1],
+					Source:    "draft",
+				})
+				continue
+			}
+			descLines = append(descLines, line)
+		}
+		return strings.TrimSpace(strings.Join(descLines, "\n")), notes
 	}
 	// Legacy bodies without a marker: treat note-shaped lines as the log.
 	var descLines []string
