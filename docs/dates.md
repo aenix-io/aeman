@@ -173,9 +173,16 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
   own right, so they return to the board as standalone cards (team, sprint and
   dates kept) instead of being deleted or orphaned with the parent.
 - **Carry Over orients by the parent**: an unfinished parent that carries
-  drags **all** its subtasks into the new sprint — even finished ones, and even
-  ones whose own team/dates would not qualify (they ride along). Subtasks whose
-  parent does **not** carry stay put; subtasks are never selected on their own.
+  drags its **open** subtasks into the new sprint (even ones whose own
+  team/dates would not qualify — they ride along). A **completed** subtask
+  stays in the sprint it was finished in — it keeps showing on that sprint's
+  days under the parent, and the parent's derived bar still counts it
+  (DerivedProgress scans all children regardless of sprint). Subtasks whose
+  parent does not carry stay put; subtasks are never selected on their own.
+- A subtask **scheduled for the future** (startDate past today — the calendar
+  or defer) is hidden under its parent until its day arrives, like any
+  deferred card; the next Carry Over drags it (it is open) but the future
+  startDate keeps hiding it until the day comes.
 
 ### Calendar (explicit dates)
 - The date picker on a card moves its **real dates**: `startDate = start` and
