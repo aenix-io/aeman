@@ -1016,14 +1016,26 @@ export function MeBoard({
     );
     reorderCards(order);
 
-    // 2) Persist in the background; revert via reload() on any error.
+    // 2) Persist in the background; revert via reload() on any error. The
+    // move anchors on a neighbour from the card's OWN group: the flattened
+    // cross-group order is a view artefact, and a card landing first in its
+    // group would otherwise anchor on another group's tail — a card whose
+    // global position may be past the visible neighbour below.
+    const entryIds = g.find((x) => x.ids.includes(card.itemId))?.ids ?? [];
+    const at = entryIds.indexOf(card.itemId);
     const afterId = afterIdFor(order, card.itemId);
     void (async () => {
       try {
         if (Object.keys(patch).length > 0) {
           await provider.patchCard(board, card.itemId, patch);
         }
-        await provider.moveCard(board, card.itemId, afterId);
+        if (at > 0) {
+          await provider.moveCard(board, card.itemId, entryIds[at - 1]);
+        } else if (at === 0 && entryIds.length > 1) {
+          await provider.moveCardBefore(board, card.itemId, entryIds[1]);
+        } else {
+          await provider.moveCard(board, card.itemId, afterId);
+        }
         if (parentChanged) {
           reload();
         }
