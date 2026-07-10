@@ -690,6 +690,27 @@ export function TeamBoard({
 
   const subsOpen = (id: string) => expandedSubs.has(id);
 
+  // A drag parked on a collapsed parent unfolds it so the drop target is
+  // visible; when the drag leaves, it folds back (manual expands stay).
+  const autoExpanded = useRef<string | null>(null);
+  useEffect(() => {
+    const id = groupHover;
+    const prev = autoExpanded.current;
+    if (prev && prev !== id) {
+      autoExpanded.current = null;
+      setExpandedSubs((cur) => {
+        const next = new Set(cur);
+        next.delete(prev);
+        return next;
+      });
+    }
+    if (id && (childrenOf.get(id) ?? []).length > 0 && !expandedSubs.has(id)) {
+      autoExpanded.current = id;
+      setExpandedSubs((cur) => new Set(cur).add(id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupHover]);
+
   const cellCards = (engineer: string, zone: ZoneKey): CardModel[] =>
     filteredCards.filter((c) => {
       // Cards without a zone fall into gray, matching the Me board.
@@ -728,7 +749,11 @@ export function TeamBoard({
       out.push({
         key: bandKey(band),
         meta: { kind: "band", band },
-        cards: weekly[band],
+        // An expanded weekly parent shows its subtask rows nested under it
+        // (they are not plan cards — they just ride along visibly).
+        cards: weekly[band].flatMap((c) =>
+          subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
+        ),
       });
     }
     return out;
@@ -812,6 +837,7 @@ export function TeamBoard({
       if (parentTo) {
         optimistic.plan = undefined;
         optimistic.week = undefined;
+        autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
       }
     }
@@ -919,6 +945,7 @@ export function TeamBoard({
     }
     const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
     patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
       .patchCard(board, card.itemId, { parent: parentId })
@@ -1934,7 +1961,7 @@ export function TeamBoard({
         renderCard={(card, group) =>
           withSubs(
             card,
-            group.meta.kind === "band" ? (
+            group.meta.kind === "band" && !card.parent ? (
             <Card
               card={card}
               selectedBy={selectedByFor(card)}
@@ -1961,6 +1988,13 @@ export function TeamBoard({
               weekMode
               onSetWeek={handleSetWeek}
               dimAvatar
+              subCount={(childrenOf.get(card.itemId) ?? []).length}
+              expanded={subsOpen(card.itemId)}
+              onToggleExpand={(c) => toggleSubs(c.itemId)}
+              onAddSubtask={(c) => {
+                setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+                setAddingSub(c.itemId);
+              }}
               groupTarget={groupHover === card.itemId}
             />
             ) : (

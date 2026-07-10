@@ -164,7 +164,8 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
   (`sprintStart` copied), moves it onto the **parent's team**, and clears its
   own plan slot; a **weekly-plan card dropped onto a grid card** hands its
   plan slot to the parent instead (the parent replaces it in the Weekly
-  panel) — so plan bands never show subtasks.
+  panel) — subtasks are never plan cards themselves, though an expanded
+  weekly parent shows its subtask rows nested under it.
 - A subtask's team always follows its parent: changing the parent's team
   cascades to its subtasks (sprint pointer included), and a direct team change
   on a subtask snaps back to the parent's team.
