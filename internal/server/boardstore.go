@@ -719,6 +719,10 @@ func (b *storeBackend) LoadCards(ctx context.Context, bd board.Board, ids []stri
 
 // touched reloads the one card a mutation changed, updates the cache and emits a
 // MODIFIED event. Reload failures are swallowed: the periodic re-list reconciles.
+// The write-behind queue (in-flight op included) is replayed on top of the fresh
+// copy: this refresh runs while later queued writes to the same card may exist
+// (rapid note adds), and the upstream copy predates them — without the replay
+// their changes would vanish from the cache until the queue drains.
 func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID string) {
 	cards, err := b.inner.LoadCards(ctx, bd, []string{itemID})
 	if err != nil || len(cards) == 0 {
@@ -728,8 +732,19 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.upsertCard(card)
+	if e.inflight != nil {
+		e.inflight.apply(&e.board)
+	}
+	for _, op := range e.pending {
+		op.apply(&e.board)
+	}
 	e.markRecent(card.ItemID)
-	e.cardChanged(clientIDFrom(ctx), card, "MODIFIED")
+	for i := range e.board.Cards {
+		if e.board.Cards[i].ItemID == itemID {
+			e.cardChanged(clientIDFrom(ctx), e.board.Cards[i], "MODIFIED")
+			break
+		}
+	}
 	e.mu.Unlock()
 }
 

@@ -37,6 +37,20 @@ func (w *wbBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, 
 	return b, nil
 }
 
+func (w *wbBackend) LoadCards(_ context.Context, _ board.Board, ids []string) ([]board.Card, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []board.Card
+	for _, c := range w.board.Cards {
+		for _, id := range ids {
+			if c.ItemID == id {
+				out = append(out, c)
+			}
+		}
+	}
+	return out, nil
+}
+
 func (w *wbBackend) SetProgress(_ context.Context, _ board.Board, _ board.Card, _ int) error {
 	if w.gate != nil {
 		<-w.gate
@@ -215,6 +229,73 @@ func TestWriteBehindFailureRollsBack(t *testing.T) {
 	}
 	if !sawError {
 		t.Fatal("no SyncError frame reached the watcher")
+	}
+}
+
+// The single-card refresh after a note write must replay the queue too: with
+// several rapid note adds in flight, the upstream copy read back after the
+// first write predates the rest — without the replay they vanish from the
+// cache (and every open tab) until the queue drains.
+func TestTouchedPreservesQueuedNotes(t *testing.T) {
+	inner := &wbBackend{board: watchBoard()}
+	store := newBoardStore()
+	be := &storeBackend{inner: inner, store: store}
+	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := store.entry("acme/1")
+
+	// Two note adds still queued (their writes have not reached upstream).
+	for _, text := range []string{"w", "e"} {
+		note := board.Note{ID: "c1:wb:" + text, Body: text, Source: "draft"}
+		e.mu.Lock()
+		e.pending = append(e.pending, pendingOp{
+			desc: "add a note",
+			apply: func(target *board.Board) {
+				for i := range target.Cards {
+					if target.Cards[i].ItemID != "c1" {
+						continue
+					}
+					for _, n := range target.Cards[i].Notes {
+						if n.ID == note.ID {
+							return
+						}
+					}
+					target.Cards[i].Notes = append(target.Cards[i].Notes, note)
+				}
+			},
+			exec: func(context.Context) error { return nil },
+		})
+		e.mu.Unlock()
+	}
+	e.mu.Lock()
+	for _, op := range e.pending {
+		op.apply(&e.board)
+	}
+	e.mu.Unlock()
+
+	// Upstream has only the first, already-written note ("q"): the refresh
+	// after its write must not erase the queued w/e from the cache.
+	upstream := watchBoard()
+	upstream.Cards[0].Notes = []board.Note{{ID: "c1:0", Body: "q", Source: "draft"}}
+	inner.mu.Lock()
+	inner.board = upstream
+	inner.mu.Unlock()
+	be.touched(context.Background(), bd, "c1")
+
+	e.mu.Lock()
+	var bodies []string
+	for _, c := range e.board.Cards {
+		if c.ItemID == "c1" {
+			for _, n := range c.Notes {
+				bodies = append(bodies, n.Body)
+			}
+		}
+	}
+	e.mu.Unlock()
+	if len(bodies) != 3 || bodies[0] != "q" || bodies[1] != "w" || bodies[2] != "e" {
+		t.Fatalf("cached notes after refresh = %v, want [q w e]", bodies)
 	}
 }
 

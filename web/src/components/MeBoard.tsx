@@ -13,6 +13,7 @@ import {
   registerPendingCard,
 } from "../api/pending";
 import { isWorkable } from "../stages";
+import { mergeNotes } from "../notes";
 import type {
   Board,
   Card as CardModel,
@@ -55,7 +56,10 @@ interface MeBoardProps {
   onAddTeam: (team: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
-  patchCard: (itemId: string, patch: Partial<CardModel>) => void;
+  patchCard: (
+    itemId: string,
+    patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
+  ) => void;
   addCard: (card: CardModel) => void;
   removeCard: (itemId: string) => void;
   reorderCards: (orderedItemIds: string[]) => void;
@@ -829,34 +833,44 @@ export function MeBoard({
       source: selectedCard.isDraft ? "draft" : "comment",
     };
     const uid = selectedCard.itemId;
-    patchCard(uid, {
-      notes: [...(selectedCard.notes ?? []), optimistic],
-    });
+    // Functional updates: rapid Enter-Enter-Enter adds must each build on the
+    // card's CURRENT notes, not on this render's stale copy. The server's
+    // response list is merged the same way — it may predate optimistic notes
+    // added after this request left, and must not wipe them.
+    patchCard(uid, (c) => ({
+      notes: [...(c.notes ?? []), optimistic],
+    }));
     void provider
       .addNote(board, uid, text)
-      .then((notes) => patchCard(uid, { notes }))
+      .then((notes) =>
+        patchCard(uid, (c) => ({ notes: mergeNotes(notes, c.notes) })),
+      )
       .catch(fail);
   };
 
   const handleEditNote = (note: Note, card: CardModel, text: string) => {
-    patchCard(card.itemId, {
-      notes: (card.notes ?? []).map((n) =>
+    patchCard(card.itemId, (c) => ({
+      notes: (c.notes ?? []).map((n) =>
         n.id === note.id ? { ...n, body: text } : n,
       ),
-    });
+    }));
     void provider
       .editNote(board, card.itemId, note.id, text)
-      .then((notes) => patchCard(card.itemId, { notes }))
+      .then((notes) =>
+        patchCard(card.itemId, (c) => ({ notes: mergeNotes(notes, c.notes) })),
+      )
       .catch(fail);
   };
 
   const handleDeleteNote = (note: Note, card: CardModel) => {
-    patchCard(card.itemId, {
-      notes: (card.notes ?? []).filter((n) => n.id !== note.id),
-    });
+    patchCard(card.itemId, (c) => ({
+      notes: (c.notes ?? []).filter((n) => n.id !== note.id),
+    }));
     void provider
       .deleteNote(board, card.itemId, note.id)
-      .then((notes) => patchCard(card.itemId, { notes }))
+      .then((notes) =>
+        patchCard(card.itemId, (c) => ({ notes: mergeNotes(notes, c.notes) })),
+      )
       .catch(fail);
   };
 
