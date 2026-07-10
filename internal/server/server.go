@@ -197,6 +197,13 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		// Flush the write-behind queue (in-flight op included) on its own
+		// generous budget first — a restart must not silently drop changes
+		// users already saw applied. The container's stop grace period has to
+		// exceed drain + shutdown.
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		s.store.waitDrained(drainCtx)
+		drainCancel()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, type AppConfig } from "./api/client";
-import { apiProvider, setStaleListener } from "./providers/api/apiProvider";
+import { apiProvider } from "./providers/api/apiProvider";
 import {
   resourceToCard,
   sprintStateFrom,
@@ -18,6 +18,7 @@ import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
 import { queryString, viewQueries, watchQuery } from "./viewquery";
 import { todayIso } from "./date";
+import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
@@ -128,28 +129,9 @@ export function App() {
     },
     [beginLoad, endLoad],
   );
-  // A response served from a stale snapshot means the server is revalidating
-  // in the background: hold the progress bar until its Sync watch frame lands
-  // (one hold per revalidation; a failsafe timer releases a missed frame).
-  const revalTimer = useRef<number | null>(null);
-  const releaseReval = useCallback(() => {
-    if (revalTimer.current !== null) {
-      window.clearTimeout(revalTimer.current);
-      revalTimer.current = null;
-      endLoad();
-    }
-  }, [endLoad]);
-  const holdReval = useCallback(() => {
-    if (revalTimer.current !== null) {
-      return;
-    }
-    beginLoad();
-    revalTimer.current = window.setTimeout(releaseReval, 30_000);
-  }, [beginLoad, releaseReval]);
-  useEffect(() => {
-    setStaleListener(holdReval);
-    return () => setStaleListener(null);
-  }, [holdReval]);
+  // Server-side writes not yet confirmed by GitHub (the write-behind queue),
+  // fed by Queue watch frames; shown as a small counter that trends to zero.
+  const [pendingSync, setPendingSync] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
@@ -428,17 +410,30 @@ export function App() {
     }
   }, [board, doLoad]);
 
-  const patchCard = useCallback((itemId: string, patch: Partial<CardModel>) => {
-    setBoard((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      return {
-        ...cur,
-        cards: cur.cards.map((c) => (c.itemId === itemId ? { ...c, ...patch } : c)),
-      };
-    });
-  }, []);
+  // patch is a plain partial, or an updater computing one from the card's
+  // CURRENT state — rapid successive changes (notes typed Enter-Enter-Enter)
+  // must not base themselves on a stale render's copy.
+  const patchCard = useCallback(
+    (
+      itemId: string,
+      patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
+    ) => {
+      setBoard((cur) => {
+        if (!cur) {
+          return cur;
+        }
+        return {
+          ...cur,
+          cards: cur.cards.map((c) =>
+            c.itemId === itemId
+              ? { ...c, ...(typeof patch === "function" ? patch(c) : patch) }
+              : c,
+          ),
+        };
+      });
+    },
+    [],
+  );
 
   // addCard upserts by item id: the watch stream may deliver a created card
   // before (or after) the creator's own response lands, so both paths must
@@ -507,10 +502,22 @@ export function App() {
     let closed = false;
     let retry: number | undefined;
     const applyFrame = (frame: WatchFrame) => {
-      // The server finished a full board reload: any stale snapshot this tab
-      // was served has been reconciled by the frames before this one.
+      // Sync marks a finished server-side reload; the diff already arrived as
+      // ordinary events, so there is nothing left to do here.
       if (frame.kind === "Sync") {
-        releaseReval();
+        return;
+      }
+      // The write-behind queue's depth: changes applied everywhere but not
+      // yet confirmed by GitHub.
+      if (frame.kind === "Queue") {
+        setPendingSync((frame.object as { pending?: number })?.pending ?? 0);
+        return;
+      }
+      // A write GitHub finally rejected: the board has been rolled back to
+      // the server's reloaded state; surface what was lost.
+      if (frame.kind === "SyncError") {
+        const msg = (frame.object as { message?: string })?.message;
+        setError(msg || "a change could not be written to GitHub");
         return;
       }
       if (!frame.object) {
@@ -531,7 +538,14 @@ export function App() {
         if (existing?.notes !== undefined) {
           void provider
             .listLog({ owner: watchOwner, number: watchProject }, card.itemId)
-            .then(({ notes, events }) => patchCard(card.itemId, { notes, events }))
+            .then(({ notes, events }) =>
+              // Merge, don't replace: the response may predate a local
+              // optimistic note added while it was in flight.
+              patchCard(card.itemId, (c) => ({
+                notes: mergeNotes(notes, c.notes),
+                events,
+              })),
+            )
             .catch(() => {});
         }
         return;
@@ -572,8 +586,10 @@ export function App() {
       }
     };
     const connect = () => {
-      // A fresh connection replays the presence snapshot; drop stale marks.
+      // A fresh connection replays the presence and queue snapshots; drop
+      // stale marks (the queue may have drained while we were away).
       setPresenceMap({});
+      setPendingSync(0);
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       // Scope the watch to the active view: Me watches its day selection, Team
       // watches every card of the teams it shows (grid + weekly plan). A card
@@ -619,7 +635,6 @@ export function App() {
     removeCard,
     patchCard,
     reorderCards,
-    releaseReval,
   ]);
 
   const onError = useCallback((message: string) => setError(message), []);
@@ -776,6 +791,30 @@ export function App() {
           </>
         )}
 
+        {pendingSync > 0 && (
+          <span
+            className="sync-badge"
+            title={`${pendingSync} change(s) applied but not yet written to GitHub`}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 2v6h-6" />
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M3 22v-6h6" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
+            {pendingSync}
+          </span>
+        )}
         <div className="segmented" role="tablist" aria-label="View">
           <button
             type="button"

@@ -30,16 +30,6 @@ import type {
   ZoneKey,
 } from "../types";
 
-// staleListener is notified whenever a response was served from a stale board
-// snapshot (X-Aeman-Stale): the server is revalidating in the background and
-// will close with a Sync watch frame — the App holds its progress bar between
-// the two.
-let staleListener: (() => void) | null = null;
-
-export function setStaleListener(fn: (() => void) | null): void {
-  staleListener = fn;
-}
-
 // api issues a request against /api/v1 for a given board. It carries the board
 // identity as query parameters (?owner=&project=) so the server resolves the
 // right board, sets a JSON content type when there is a body, and on a non-2xx
@@ -65,9 +55,6 @@ async function api<T>(
     init.body = JSON.stringify(body);
   }
   const res = await fetch(url, init);
-  if (res.headers.get("X-Aeman-Stale") === "true") {
-    staleListener?.();
-  }
   if (!res.ok) {
     let msg = res.statusText;
     try {
