@@ -166,3 +166,46 @@ func TestSetParentMoveBetweenParentsResyncsBoth(t *testing.T) {
 		t.Fatalf("new parent progress = %d, want 72", f.get("p2").Progress)
 	}
 }
+
+func TestSetParentAdoptsParentTeam(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha"},
+		{ItemID: "c", Team: "beta", Progress: 40},
+	}, nil)
+	if err := f2svc(f).SetParent(ctx, "acme", 1, "c", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c").Team != "alpha" {
+		t.Fatalf("subtask team = %q, want the parent's alpha", f.get("c").Team)
+	}
+}
+
+func TestSetTeamCascadesToSubtasks(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha"},
+		{ItemID: "c", Team: "alpha", Parent: "p"},
+	}, map[string]board.SprintState{"beta": {Current: "2026-01-05"}})
+	if err := f2svc(f).SetTeam(ctx, "acme", 1, "p", "beta", ""); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("p").Team != "beta" || f.get("c").Team != "beta" {
+		t.Fatalf("teams = %q/%q, want beta/beta", f.get("p").Team, f.get("c").Team)
+	}
+	if f.get("c").SprintStart != f.get("p").SprintStart {
+		t.Fatalf("subtask sprint %q != parent sprint %q",
+			f.get("c").SprintStart, f.get("p").SprintStart)
+	}
+}
+
+func TestSetTeamOnSubtaskFollowsParent(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha"},
+		{ItemID: "c", Team: "alpha", Parent: "p"},
+	}, nil)
+	if err := f2svc(f).SetTeam(ctx, "acme", 1, "c", "gamma", ""); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c").Team != "alpha" {
+		t.Fatalf("subtask team = %q, want to stay the parent's alpha", f.get("c").Team)
+	}
+}

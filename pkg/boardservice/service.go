@@ -1309,6 +1309,13 @@ func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID
 	if err != nil {
 		return err
 	}
+	// A subtask always belongs to its parent's team: a direct change follows
+	// the parent instead of drifting away from it.
+	if card.Parent != "" {
+		if p, ok := findCard(b, card.Parent); ok {
+			team = p.Team
+		}
+	}
 	if day == "" {
 		day = board.TodayIso()
 	}
@@ -1316,10 +1323,26 @@ func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID
 	if sprintStart == "" {
 		sprintStart = day
 	}
-	if err := s.backend.SetTeam(ctx, b, card, team); err != nil {
+	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
 		return err
 	}
-	s.logEvent(ctx, b, card, board.EventTeam, card.Team, team)
+	// The team travels with the whole group: subtasks follow their parent.
+	for _, c := range board.Children(b, card.ItemID) {
+		if err := s.setTeamOne(ctx, b, c, team, sprintStart); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setTeamOne moves a single card to a team + sprint, logging what changed.
+func (s *Service) setTeamOne(ctx context.Context, b board.Board, card board.Card, team, sprintStart string) error {
+	if card.Team != team {
+		if err := s.backend.SetTeam(ctx, b, card, team); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventTeam, card.Team, team)
+	}
 	if sprintStart != card.SprintStart {
 		if err := s.backend.SetSprintStart(ctx, b, card, sprintStart); err != nil {
 			return err
