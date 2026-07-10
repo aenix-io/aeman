@@ -253,7 +253,7 @@ func TestOrderingEvent(t *testing.T) {
 	defer cancel()
 
 	e.mu.Lock()
-	e.moveCardTo("c2", "")
+	e.board.Cards = moveCardAfter(e.board.Cards, "c2", "")
 	e.orderingChanged("")
 	e.mu.Unlock()
 

@@ -199,6 +199,9 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		// Give the write-behind queue a moment to reach GitHub — a restart
+		// must not silently drop changes users already saw applied.
+		s.store.waitDrained(shutdownCtx)
 		return httpServer.Shutdown(shutdownCtx)
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
