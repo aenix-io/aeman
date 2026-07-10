@@ -259,3 +259,26 @@ func TestReopeningSubtaskReopensDoneParent(t *testing.T) {
 		t.Fatalf("parent progress = %d, want 45", f.get("p").Progress)
 	}
 }
+
+func TestDeleteParentReleasesSubtasks(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Title: "big", Team: "alpha"},
+		{ItemID: "c1", Team: "alpha", Parent: "p"},
+		{ItemID: "c2", Team: "alpha", Parent: "p"},
+	}, nil)
+	if err := f2svc(f).DeleteCard(ctx, "acme", 1, "p"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("p") != nil {
+		t.Fatal("parent still on the board")
+	}
+	for _, id := range []string{"c1", "c2"} {
+		c := f.get(id)
+		if c == nil {
+			t.Fatalf("%s was deleted with its parent", id)
+		}
+		if c.Parent != "" {
+			t.Fatalf("%s still points at the deleted parent", id)
+		}
+	}
+}
