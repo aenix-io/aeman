@@ -978,9 +978,9 @@ export function Card({
           aria-valuemin={0}
           aria-valuemax={100}
           onClick={(e) => e.stopPropagation()}
-          onPointerDown={(subCount ?? 0) > 0 ? undefined : onHandleDown}
-          onPointerMove={(subCount ?? 0) > 0 ? undefined : onHandleMove}
-          onPointerUp={(subCount ?? 0) > 0 ? undefined : onHandleUp}
+          onPointerDown={onHandleDown}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleUp}
         />
       </div>
     </div>
