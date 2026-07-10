@@ -539,7 +539,7 @@ export function Card({
         >
           ×
         </button>
-        {onAddSubtask && !card.parent && !card.itemId.startsWith("tmp-") && (
+        {onAddSubtask && !card.parent && (
           <button
             type="button"
             className="card-action card-hoveronly card-subs-add"
