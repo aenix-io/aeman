@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -260,6 +260,56 @@ export function SortableBoard<Meta>({
     }));
   }, [local, groups]);
 
+  // Mid-drag board changes — an auto-expanded parent's subtasks appearing, a
+  // watch update — reconcile INTO the working copy: new ids slot in after
+  // their nearest fresh predecessor, vanished ids drop out, and the active
+  // placeholder keeps its previewed position.
+  useEffect(() => {
+    setLocal((cur) => {
+      if (!cur) {
+        return cur;
+      }
+      const fresh = groups.map((g) => ({
+        key: g.key,
+        ids: g.cards.map((c) => idOf(c, g)),
+      }));
+      const freshAll = new Set(fresh.flatMap((g) => g.ids));
+      const next = cur.map((g) => ({ ...g, ids: [...g.ids] }));
+      let changed = false;
+      for (const g of next) {
+        const kept = g.ids.filter((id) => freshAll.has(id) || id === activeId);
+        if (kept.length !== g.ids.length) {
+          g.ids = kept;
+          changed = true;
+        }
+      }
+      const has = (id: string) => next.some((g) => g.ids.includes(id));
+      for (const f of fresh) {
+        const target = next.find((g) => g.key === f.key);
+        if (!target) {
+          continue;
+        }
+        f.ids.forEach((id, i) => {
+          if (has(id)) {
+            return;
+          }
+          let at = -1;
+          for (let j = i - 1; j >= 0; j--) {
+            const k = target.ids.indexOf(f.ids[j]);
+            if (k !== -1) {
+              at = k;
+              break;
+            }
+          }
+          target.ids.splice(at + 1, 0, id);
+          changed = true;
+        });
+      }
+      return changed ? next : cur;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups]);
+
   // Fast id → card lookup across every group (active card may move containers).
   const cardById = useMemo(() => {
     const m = new Map<string, CardModel>();
@@ -465,8 +515,18 @@ export function SortableBoard<Meta>({
         }
         const next = cur.map((g) => ({ ...g, ids: [...g.ids] }));
         next[from].ids = next[from].ids.filter((x) => x !== activeKey);
-        const at = next[to].ids.indexOf(targetId);
-        next[to].ids.splice(at + 1, 0, activeKey);
+        // The card lands at the END of the target's list, so the placeholder
+        // previews after its last visible subtask, not squeezed in first.
+        const targetItem = cardById.get(targetId)?.itemId ?? "";
+        let at = next[to].ids.indexOf(targetId) + 1;
+        while (at < next[to].ids.length) {
+          const c = cardById.get(next[to].ids[at]);
+          if (!c || c.parent !== targetItem) {
+            break;
+          }
+          at++;
+        }
+        next[to].ids.splice(at, 0, activeKey);
         return next;
       });
       return;

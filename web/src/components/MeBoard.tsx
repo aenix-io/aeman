@@ -432,6 +432,28 @@ export function MeBoard({
 
   const subsOpen = (id: string) => expandedSubs.has(id);
 
+  // A drag parked on a collapsed parent unfolds it so the drop target is
+  // visible; when the drag leaves, it folds back (manual expands stay).
+  const autoExpanded = useRef<string | null>(null);
+  useEffect(() => {
+    const id = groupHover;
+    const prev = autoExpanded.current;
+    if (prev && prev !== id) {
+      autoExpanded.current = null;
+      setExpandedSubs((cur) => {
+        const next = new Set(cur);
+        next.delete(prev);
+        return next;
+      });
+    }
+    if (id && (childrenOf.get(id) ?? []).length > 0 && !expandedSubs.has(id)) {
+      autoExpanded.current = id;
+      setExpandedSubs((cur) => new Set(cur).add(id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupHover]);
+
+
   const toggleSubs = (id: string) =>
     setExpandedSubs((cur) => {
       const next = new Set(cur);
@@ -489,6 +511,7 @@ export function MeBoard({
     }
     const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
     patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
       .patchCard(board, card.itemId, { parent: parentId })
@@ -976,6 +999,7 @@ export function MeBoard({
       if (parentTo) {
         optimistic.plan = undefined;
         optimistic.week = undefined;
+        autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
       }
     }
