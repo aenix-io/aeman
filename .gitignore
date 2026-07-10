@@ -29,3 +29,6 @@ web/dist/*
 *.swp
 .idea/
 .vscode/
+
+# Claude Code (worktrees, session state)
+.claude/
