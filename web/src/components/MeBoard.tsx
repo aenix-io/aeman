@@ -562,6 +562,23 @@ export function MeBoard({
       sprintStart: parent.sprintStart,
       progress: 0,
     });
+    // The parent's derived bar counts the newcomer at 0% right away
+    // (mirrors the server's syncParentProgress — including reopening a
+    // complete parent, since the fresh subtask is open work).
+    const kids = board.cards.filter((c) => c.parent === parent.itemId);
+    const sum = kids.reduce(
+      (acc, k) => acc + (isComplete(k) ? 100 : k.progress ?? 0),
+      0,
+    );
+    const derived = Math.floor((sum * 90) / ((kids.length + 1) * 100));
+    const reopen = isComplete(parent);
+    if (derived !== (parent.progress ?? 0) || reopen) {
+      patchCard(parent.itemId, {
+        progress: derived,
+        ...(reopen ? { stage: undefined } : {}),
+      });
+    }
+
     const created = provider.createCard(board, {
       title,
       team: parent.team ?? null,
