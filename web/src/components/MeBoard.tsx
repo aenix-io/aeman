@@ -18,6 +18,7 @@ import { mergeNotes, sameNotes } from "../notes";
 import type {
   Board,
   Card as CardModel,
+  CardPatch,
   Note,
   Provider,
   StageKey,
@@ -33,13 +34,7 @@ import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
-import {
-  SortableBoard,
-  type BoardGroup,
-  type DropResult,
-  type SubtaskDropTarget,
-} from "./SortableBoard";
-import { Subtasks } from "./Subtasks";
+import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface MeBoardProps {
@@ -451,48 +446,11 @@ export function MeBoard({
     target.itemId !== active.parent &&
     !(childrenOf.get(active.itemId) ?? []).length;
 
-  // itemId → subtask card: the rows draggable from inside expanded lists.
-  const subCards = useMemo(() => {
-    const m = new Map<string, CardModel>();
-    for (const c of board.cards) {
-      if (c.parent) {
-        m.set(c.itemId, c);
-      }
-    }
-    return m;
-  }, [board.cards]);
-
-  // A dragged subtask row: regroup under another card, reorder before a
-  // sibling, or pull it out of the group into the dropped zone.
-  const handleSubtaskDrop = (card: CardModel, target: SubtaskDropTarget<MeMeta>) => {
-    if (target.kind === "parent") {
-      handleGroup(card, target.parentId);
-      return;
-    }
-    if (target.kind === "before") {
-      const other = subCards.get(target.beforeId);
-      if (!other || other.itemId === card.itemId || other.parent !== card.parent) {
-        return;
-      }
-      void provider
-        .moveCardBefore(board, card.itemId, target.beforeId)
-        .then(reload)
-        .catch((err: unknown) => onError(errMessage(err)));
-      return;
-    }
-    const prev: Partial<CardModel> = { parent: card.parent, zone: card.zone };
-    patchCard(card.itemId, { parent: undefined, zone: target.meta.zone });
-    void provider
-      .patchCard(board, card.itemId, { parent: "", zone: target.meta.zone })
-      .then((c) => {
-        addCard(c);
-        reload();
-      })
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
+  // itemId → card, for resolving a drop's neighbours.
+  const cardsById = useMemo(
+    () => new Map(board.cards.map((c) => [c.itemId, c])),
+    [board.cards],
+  );
 
   // Space expands/collapses the selected card's subtask list.
   useEffect(() => {
@@ -532,19 +490,6 @@ export function MeBoard({
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
-
-  // Pull a subtask back out as a standalone card.
-  const handleUngroup = (card: CardModel) => {
-    const prev = card.parent;
-    patchCard(card.itemId, { parent: undefined });
-    void provider
-      .patchCard(board, card.itemId, { parent: "" })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, { parent: prev });
         onError(errMessage(err));
       });
   };
@@ -846,14 +791,19 @@ export function MeBoard({
   };
 
   // The 4 sortable groups: one per zone, in ZONE_ORDER (top → bottom).
+  // An expanded parent's subtasks follow it as indented rows of the same zone
+  // band (a subtask has no zone placement of its own).
   const groups = useMemo<BoardGroup<MeMeta>[]>(
     () =>
       ZONE_ORDER.map((zone) => ({
         key: zone,
         meta: { zone },
-        cards: byZone[zone],
+        cards: byZone[zone].flatMap((c) =>
+          subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
+        ),
       })),
-    [byZone],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [byZone, childrenOf, expandedSubs],
   );
 
   // Keyboard navigation over the visible day list (zone bands top to bottom):
@@ -924,12 +874,54 @@ export function MeBoard({
     return () => window.removeEventListener("keydown", onKey);
   }, [flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
 
-  const handleDrop = ({ card, fromMeta, toMeta, groups: g }: DropResult<MeMeta>) => {
-    const zoneChanged = fromMeta.zone !== toMeta.zone;
+  const handleDrop = ({ card, toMeta, groups: g, indented }: DropResult<MeMeta>) => {
+    // Where the card landed decides its grouping: between subtasks it keeps
+    // (or adopts) their parent; right under an expanded parent it tucks in
+    // only when dropped with a rightward indent (the Notion cue), else it
+    // lands standalone below the group; anywhere else it is a zone card.
+    const entry = g.find((x) => x.ids.includes(card.itemId));
+    const ids = entry?.ids ?? [];
+    const idx = ids.indexOf(card.itemId);
+    const above = idx > 0 ? cardsById.get(ids[idx - 1]) : undefined;
+    let parentTo: string | null = null;
+    if (above?.parent) {
+      parentTo = above.parent;
+    } else if (
+      above &&
+      indented &&
+      subsOpen(above.itemId) &&
+      (childrenOf.get(above.itemId) ?? []).length > 0
+    ) {
+      parentTo = above.itemId;
+    }
+    const parentCard = parentTo ? cardsById.get(parentTo) : undefined;
+    if (
+      parentTo &&
+      parentTo !== (card.parent ?? null) &&
+      (!parentCard || !canGroup(card, parentCard))
+    ) {
+      parentTo = null;
+    }
+    const parentChanged = (card.parent ?? "") !== (parentTo ?? "");
 
     // 1) Optimistic local state first.
-    if (zoneChanged) {
-      patchCard(card.itemId, { zone: toMeta.zone });
+    const optimistic: Partial<CardModel> = {};
+    const patch: CardPatch = {};
+    if (parentChanged) {
+      optimistic.parent = parentTo ?? undefined;
+      patch.parent = parentTo ?? "";
+      if (parentTo) {
+        optimistic.plan = undefined;
+        optimistic.week = undefined;
+        setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
+      }
+    }
+    if (!parentTo && (card.zone ?? "gray") !== toMeta.zone) {
+      optimistic.zone = toMeta.zone;
+      patch.zone = toMeta.zone;
+    }
+    if (Object.keys(optimistic).length > 0) {
+      patchCard(card.itemId, optimistic);
     }
     const order = globalOrderFromGroups(
       board,
@@ -941,10 +933,13 @@ export function MeBoard({
     const afterId = afterIdFor(order, card.itemId);
     void (async () => {
       try {
-        if (zoneChanged) {
-          await provider.patchCard(board, card.itemId, { zone: toMeta.zone });
+        if (Object.keys(patch).length > 0) {
+          await provider.patchCard(board, card.itemId, patch);
         }
         await provider.moveCard(board, card.itemId, afterId);
+        if (parentChanged) {
+          reload();
+        }
       } catch (err: unknown) {
         onError(errMessage(err));
         reload();
@@ -1118,34 +1113,29 @@ export function MeBoard({
     />
   );
 
-  // Wraps a rendered card with its subtask list when open. Subtask rows are
-  // full cards (same flow as any card) plus an ungroup control.
+  // Wraps a rendered card: subtask rows are indented under their parent, and
+  // the parent grows an inline add-subtask form while the + flow is open.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
-    if (card.parent || !subsOpen(card.itemId)) {
+    if (card.parent) {
+      return <div className="subtask-indent">{node}</div>;
+    }
+    if (addingSub !== card.itemId) {
       return node;
     }
     return (
       <>
         {node}
-        <Subtasks
-          parent={card}
-          subs={childrenOf.get(card.itemId) ?? []}
-          renderChild={(c) => renderMeCard(c)}
-          onUngroup={handleUngroup}
-          onCreate={(title) => handleCreateSubtask(card, title)}
-          adding={addingSub === card.itemId}
-          onAddingDone={(created) => {
-            setAddingSub(null);
-            // Nothing was created into an otherwise empty list: fold it back.
-            if (!created && !(childrenOf.get(card.itemId) ?? []).length) {
-              setExpandedSubs((cur) => {
-                const next = new Set(cur);
-                next.delete(card.itemId);
-                return next;
-              });
-            }
-          }}
-        />
+        <div
+          className="subtask-add"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <AddCard
+            autoOpen
+            placeholder="Add a subtask…"
+            onCreate={(title) => handleCreateSubtask(card, title)}
+            onClosed={() => setAddingSub(null)}
+          />
+        </div>
       </>
     );
   };
@@ -1280,8 +1270,6 @@ export function MeBoard({
               onGroupDrop={handleGroup}
               onHoverCard={setGroupHover}
               canGroup={canGroup}
-              subtaskCards={subCards}
-              onSubtaskDrop={handleSubtaskDrop}
               renderCard={(card) => withSubs(card, renderMeCard(card))}
               renderOverlay={(card) => (
                 <Card

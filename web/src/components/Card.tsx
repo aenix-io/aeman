@@ -465,6 +465,34 @@ export function Card({
       onDoubleClick={() => onOpen(card)}
       title={card.title}
     >
+      {(subCount ?? 0) > 0 && onToggleExpand && (
+        <button
+          type="button"
+          className="card-action card-subs-toggle"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleExpand(card);
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse subtasks" : "Expand subtasks"}
+          title={`${subCount} subtask(s) — Space toggles`}
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {expanded ? <path d="m6 9 6 6 6-6" /> : <path d="m9 18 6-6-6-6" />}
+          </svg>
+        </button>
+      )}
       {editing ? (
         <input
           type="text"
@@ -511,7 +539,7 @@ export function Card({
         >
           ×
         </button>
-        {(subCount ?? 0) === 0 && onAddSubtask && (
+        {onAddSubtask && !card.parent && (
           <button
             type="button"
             className="card-action card-hoveronly card-subs-add"
@@ -519,6 +547,7 @@ export function Card({
               e.stopPropagation();
               onAddSubtask(card);
             }}
+            onDoubleClick={(e) => e.stopPropagation()}
             aria-label="Add a subtask"
             title="Add a subtask"
           >
@@ -526,33 +555,6 @@ export function Card({
           </button>
         )}
         {!stageVisible && stageControl}
-        {(subCount ?? 0) > 0 && onToggleExpand && (
-          <button
-            type="button"
-            className={`card-action card-subs-toggle${expanded ? " card-subs-toggle-on" : ""}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleExpand(card);
-            }}
-            aria-expanded={expanded}
-            aria-label={expanded ? "Collapse subtasks" : "Expand subtasks"}
-            title={`${subCount} subtask(s) — Space toggles`}
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              {expanded ? <path d="m18 15-6-6-6 6" /> : <path d="m6 9 6 6 6-6" />}
-            </svg>
-          </button>
-        )}
         {localLinks.length > 0 && (
           <div className="card-links" ref={linksRef}>
             <button

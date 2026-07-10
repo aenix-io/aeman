@@ -81,6 +81,12 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventParent, card.Parent, parent)
+	// Moving between parents: the old parent's derived bar loses this child.
+	if card.Parent != "" && card.Parent != parent {
+		if err := s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID); err != nil {
+			return err
+		}
+	}
 	child := card
 	child.Parent = parent
 	return s.syncParentProgress(ctx, b, parent, &child, "")

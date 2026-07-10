@@ -32,14 +32,8 @@ import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { TeamsModal } from "./TeamsModal";
-import { Subtasks } from "./Subtasks";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
-import {
-  SortableBoard,
-  type BoardGroup,
-  type DropResult,
-  type SubtaskDropTarget,
-} from "./SortableBoard";
+import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
 interface TeamBoardProps {
@@ -680,6 +674,22 @@ export function TeamBoard({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [board.cards, me]);
 
+  // Subtasks grouped by parent, from the full card state (children are
+  // delivered alongside their parents by the view).
+  const childrenOf = useMemo(() => {
+    const m = new Map<string, CardModel[]>();
+    for (const c of board.cards) {
+      if (c.parent) {
+        const list = m.get(c.parent) ?? [];
+        list.push(c);
+        m.set(c.parent, list);
+      }
+    }
+    return m;
+  }, [board.cards]);
+
+  const subsOpen = (id: string) => expandedSubs.has(id);
+
   const cellCards = (engineer: string, zone: ZoneKey): CardModel[] =>
     filteredCards.filter((c) => {
       // Cards without a zone fall into gray, matching the Me board.
@@ -706,7 +716,11 @@ export function TeamBoard({
         out.push({
           key: cellKey(engineer, zone),
           meta: { kind: "cell", engineer, zone },
-          cards: cellCards(engineer, zone),
+          // An expanded parent's subtasks follow it as indented rows of the
+          // same cell (a subtask has no cell placement of its own).
+          cards: cellCards(engineer, zone).flatMap((c) =>
+            subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
+          ),
         });
       }
     }
@@ -719,7 +733,7 @@ export function TeamBoard({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredCards, orderedEngineers, weekly]);
+  }, [filteredCards, orderedEngineers, weekly, childrenOf, expandedSubs]);
 
   // Reorder a subset of cards (a band's plan cards) within the global card order
   // and persist the dragged card's new position.
@@ -752,9 +766,13 @@ export function TeamBoard({
     fromMeta,
     toMeta,
     groups: g,
+    indented,
   }: DropResult<TeamMeta>) => {
     // Drops that involve a weekly-plan band.
     if (fromMeta.kind === "band" || toMeta.kind === "band") {
+      if (card.parent) {
+        return; // a subtask never lands in (or leaves for) the weekly plan
+      }
       if (fromMeta.kind === "band" && toMeta.kind === "cell") {
         // Take the plan card into work, in the dropped cell's zone.
         takePlanCard(card, toMeta.engineer, toMeta.zone);
@@ -778,20 +796,65 @@ export function TeamBoard({
       return;
     }
 
-    // From here both ends are grid cells.
-    const zoneChanged = fromMeta.zone !== toMeta.zone;
-    const engineerChanged = fromMeta.engineer !== toMeta.engineer;
+    // From here both ends are grid cells. Where the card landed decides its
+    // grouping: between subtasks it keeps (or adopts) their parent; right
+    // under an expanded parent it tucks in only when dropped with a rightward
+    // indent (the Notion cue); anywhere else it is a standalone cell card.
+    const entry = g.find((x) => x.ids.includes(card.itemId));
+    const ids = entry?.ids ?? [];
+    const idx = ids.indexOf(card.itemId);
+    const above = idx > 0 ? cardsById.get(ids[idx - 1]) : undefined;
+    let parentTo: string | null = null;
+    if (above?.parent) {
+      parentTo = above.parent;
+    } else if (
+      above &&
+      indented &&
+      subsOpen(above.itemId) &&
+      (childrenOf.get(above.itemId) ?? []).length > 0
+    ) {
+      parentTo = above.itemId;
+    }
+    const parentCard = parentTo ? cardsById.get(parentTo) : undefined;
+    if (
+      parentTo &&
+      parentTo !== (card.parent ?? null) &&
+      (!parentCard || !canGroup(card, parentCard))
+    ) {
+      parentTo = null;
+    }
+    const parentChanged = (card.parent ?? "") !== (parentTo ?? "");
 
-    // 1) Optimistic local state first.
-    if (zoneChanged || engineerChanged) {
-      const patch: Partial<CardModel> = {};
-      if (zoneChanged) {
+    // 1) Optimistic local state first. A grouped card is not cell-placed, so
+    // zone/assignee only apply to standalone drops (including a pull-out).
+    const optimistic: Partial<CardModel> = {};
+    const patch: CardPatch = {};
+    if (parentChanged) {
+      optimistic.parent = parentTo ?? undefined;
+      patch.parent = parentTo ?? "";
+      if (parentTo) {
+        optimistic.plan = undefined;
+        optimistic.week = undefined;
+        setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
+      }
+    }
+    if (!parentTo) {
+      if ((card.zone ?? "gray") !== toMeta.zone) {
+        optimistic.zone = toMeta.zone;
         patch.zone = toMeta.zone;
       }
-      if (engineerChanged) {
-        patch.assignees = toMeta.engineer ? [toMeta.engineer] : [];
+      const wantAssignees = toMeta.engineer ? [toMeta.engineer] : [];
+      const sameAssignees =
+        card.assignees.length === wantAssignees.length &&
+        card.assignees.every((a, i) => a === wantAssignees[i]);
+      // Keep multi-assignee cards intact on a plain reorder within the cell.
+      if (!sameAssignees && (parentChanged || fromMeta.engineer !== toMeta.engineer)) {
+        optimistic.assignees = wantAssignees;
+        patch.assignees = wantAssignees;
       }
-      patchCard(card.itemId, patch);
+    }
+    if (Object.keys(optimistic).length > 0) {
+      patchCard(card.itemId, optimistic);
     }
     const order = globalOrderFromGroups(
       board,
@@ -803,17 +866,13 @@ export function TeamBoard({
     const afterId = afterIdFor(order, card.itemId);
     void (async () => {
       try {
-        if (zoneChanged || engineerChanged) {
-          const patch: CardPatch = {};
-          if (zoneChanged) {
-            patch.zone = toMeta.zone;
-          }
-          if (engineerChanged) {
-            patch.assignees = toMeta.engineer ? [toMeta.engineer] : [];
-          }
+        if (Object.keys(patch).length > 0) {
           await provider.patchCard(board, card.itemId, patch);
         }
         await provider.moveCard(board, card.itemId, afterId);
+        if (parentChanged) {
+          reload();
+        }
       } catch (err: unknown) {
         onError(errMessage(err));
         reload();
@@ -828,22 +887,6 @@ export function TeamBoard({
   // Who has this card selected in their Me view right now. Own selections
   // from another window count too — the map only ever carries OTHER tabs'
   // marks (this tab's watch echo is suppressed), so nothing self-duplicates.
-  // Subtasks grouped by parent, from the full card state (children are
-  // delivered alongside their parents by the view).
-  const childrenOf = useMemo(() => {
-    const m = new Map<string, CardModel[]>();
-    for (const c of board.cards) {
-      if (c.parent) {
-        const list = m.get(c.parent) ?? [];
-        list.push(c);
-        m.set(c.parent, list);
-      }
-    }
-    return m;
-  }, [board.cards]);
-
-  const subsOpen = (id: string) => expandedSubs.has(id);
-
   const toggleSubs = (id: string) =>
     setExpandedSubs((cur) => {
       const next = new Set(cur);
@@ -863,64 +906,11 @@ export function TeamBoard({
     target.itemId !== active.parent &&
     !(childrenOf.get(active.itemId) ?? []).length;
 
-  // itemId → subtask card: the rows draggable from inside expanded lists.
-  const subCards = useMemo(() => {
-    const m = new Map<string, CardModel>();
-    for (const c of board.cards) {
-      if (c.parent) {
-        m.set(c.itemId, c);
-      }
-    }
-    return m;
-  }, [board.cards]);
-
-  // A dragged subtask row: regroup under another card, reorder before a
-  // sibling, or pull it out of the group into the dropped grid cell.
-  const handleSubtaskDrop = (card: CardModel, target: SubtaskDropTarget<TeamMeta>) => {
-    if (target.kind === "parent") {
-      handleGroup(card, target.parentId);
-      return;
-    }
-    if (target.kind === "before") {
-      const other = subCards.get(target.beforeId);
-      if (!other || other.itemId === card.itemId || other.parent !== card.parent) {
-        return;
-      }
-      void provider
-        .moveCardBefore(board, card.itemId, target.beforeId)
-        .then(reload)
-        .catch((err: unknown) => onError(errMessage(err)));
-      return;
-    }
-    if (target.meta.kind !== "cell") {
-      return; // a subtask never lands in the weekly plan
-    }
-    const prev: Partial<CardModel> = {
-      parent: card.parent,
-      zone: card.zone,
-      assignees: card.assignees,
-    };
-    const patch: CardPatch = { parent: "", zone: target.meta.zone };
-    const optimistic: Partial<CardModel> = {
-      parent: undefined,
-      zone: target.meta.zone,
-    };
-    if (target.meta.engineer !== (card.assignees[0] ?? "")) {
-      patch.assignees = target.meta.engineer ? [target.meta.engineer] : [];
-      optimistic.assignees = patch.assignees;
-    }
-    patchCard(card.itemId, optimistic);
-    void provider
-      .patchCard(board, card.itemId, patch)
-      .then((c) => {
-        addCard(c);
-        reload();
-      })
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
+  // itemId → card, for resolving a drop's neighbours.
+  const cardsById = useMemo(
+    () => new Map(board.cards.map((c) => [c.itemId, c])),
+    [board.cards],
+  );
 
   // Space expands/collapses the selected card's subtask list.
   useEffect(() => {
@@ -959,19 +949,6 @@ export function TeamBoard({
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
-
-  // Pull a subtask back out as a standalone card.
-  const handleUngroup = (card: CardModel) => {
-    const prev = card.parent;
-    patchCard(card.itemId, { parent: undefined });
-    void provider
-      .patchCard(board, card.itemId, { parent: "" })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, { parent: prev });
         onError(errMessage(err));
       });
   };
@@ -1032,34 +1009,29 @@ export function TeamBoard({
     />
   );
 
-  // Wraps a rendered card with its subtask list when open. Subtask rows are
-  // full cards (same flow as any card) plus an ungroup control.
+  // Wraps a rendered card: subtask rows are indented under their parent, and
+  // the parent grows an inline add-subtask form while the + flow is open.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
-    if (card.parent || !subsOpen(card.itemId)) {
+    if (card.parent) {
+      return <div className="subtask-indent">{node}</div>;
+    }
+    if (addingSub !== card.itemId) {
       return node;
     }
     return (
       <>
         {node}
-        <Subtasks
-          parent={card}
-          subs={childrenOf.get(card.itemId) ?? []}
-          renderChild={(c) => renderGridCard(c)}
-          onUngroup={handleUngroup}
-          onCreate={(title) => handleCreateSubtask(card, title)}
-          adding={addingSub === card.itemId}
-          onAddingDone={(created) => {
-            setAddingSub(null);
-            // Nothing was created into an otherwise empty list: fold it back.
-            if (!created && !(childrenOf.get(card.itemId) ?? []).length) {
-              setExpandedSubs((cur) => {
-                const next = new Set(cur);
-                next.delete(card.itemId);
-                return next;
-              });
-            }
-          }}
-        />
+        <div
+          className="subtask-add"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <AddCard
+            autoOpen
+            placeholder="Add a subtask…"
+            onCreate={(title) => handleCreateSubtask(card, title)}
+            onClosed={() => setAddingSub(null)}
+          />
+        </div>
       </>
     );
   };
@@ -1879,8 +1851,6 @@ export function TeamBoard({
         onGroupDrop={handleGroup}
         onHoverCard={setGroupHover}
         canGroup={canGroup}
-        subtaskCards={subCards}
-        onSubtaskDrop={handleSubtaskDrop}
         renderCard={(card, group) =>
           withSubs(
             card,
@@ -1911,13 +1881,6 @@ export function TeamBoard({
               weekMode
               onSetWeek={handleSetWeek}
               dimAvatar
-              subCount={(childrenOf.get(card.itemId) ?? []).length}
-              expanded={subsOpen(card.itemId)}
-              onToggleExpand={(c) => toggleSubs(c.itemId)}
-              onAddSubtask={(c) => {
-                setExpandedSubs((cur) => new Set(cur).add(c.itemId));
-                setAddingSub(c.itemId);
-              }}
               groupTarget={groupHover === card.itemId}
             />
             ) : (
