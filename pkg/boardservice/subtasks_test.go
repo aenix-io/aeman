@@ -321,3 +321,20 @@ func TestSmartRemoveDemoteDragsSubtasks(t *testing.T) {
 		t.Fatalf("subtask parent = %q, want kept", f.get("c").Parent)
 	}
 }
+
+func TestDeleteParentReleasedChildInheritsAssignee(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "p", Title: "big", Team: "alpha", Assignees: []string{"bob"}},
+		{ItemID: "c1", Team: "alpha", Parent: "p"},
+		{ItemID: "c2", Team: "alpha", Parent: "p", Assignees: []string{"eve"}},
+	}, nil)
+	if err := f2svc(f).DeleteCard(ctx, "acme", 1, "p"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get("c1").Assignees; len(got) != 1 || got[0] != "bob" {
+		t.Fatalf("released c1 assignees = %v, want the parent's bob", got)
+	}
+	if got := f.get("c2").Assignees; len(got) != 1 || got[0] != "eve" {
+		t.Fatalf("released c2 assignees = %v, want its own eve kept", got)
+	}
+}

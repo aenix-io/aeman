@@ -1566,6 +1566,14 @@ func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card boa
 		if err := s.backend.SetParent(ctx, b, c, ""); err != nil {
 			return err
 		}
+		// An unassigned subtask takes the parent's person, so on the Team
+		// grid it surfaces in the cell the parent stood in, not in Unassigned.
+		if len(c.Assignees) == 0 && len(card.Assignees) > 0 {
+			if err := s.backend.SetAssignee(ctx, b, c, card.Assignees[0]); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, c, board.EventAssignee, "", card.Assignees[0])
+		}
 		s.logEvent(ctx, b, c, board.EventParent, card.Title, "")
 	}
 	return s.backend.DeleteCard(ctx, b, card)
