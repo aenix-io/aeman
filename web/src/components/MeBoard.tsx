@@ -860,6 +860,31 @@ export function MeBoard({
       .catch(fail);
   };
 
+  // Saves the Card pane's in-place description edit. The description
+  // live-syncs with the linked counterpart (original <-> review card)
+  // server-side; mirror it locally, since our own watch echo is suppressed
+  // (same as CardDetail's save).
+  const handleSetDescription = (card: CardModel, text: string) => {
+    const counterpart = board.cards.find((c) =>
+      card.reviewOf ? c.itemId === card.reviewOf : c.reviewOf === card.itemId,
+    );
+    patchCard(card.itemId, { description: text });
+    if (counterpart) {
+      patchCard(counterpart.itemId, { description: text });
+    }
+    void provider
+      .patchCard(board, card.itemId, { description: text })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, { description: card.description ?? "" });
+        if (counterpart) {
+          patchCard(counterpart.itemId, {
+            description: counterpart.description ?? "",
+          });
+        }
+        fail(err);
+      });
+  };
+
   return (
     <div className="me">
       <div className="board-toolbar">
@@ -1073,6 +1098,7 @@ export function MeBoard({
           onAddNote={handleAddNote}
           onEditNote={handleEditNote}
           onDeleteNote={handleDeleteNote}
+          onSetDescription={handleSetDescription}
           collapsed={notesCollapsed}
           onToggleCollapse={toggleNotesCollapsed}
         />
