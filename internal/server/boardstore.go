@@ -1044,6 +1044,15 @@ func (b *storeBackend) SetAssignee(ctx context.Context, bd board.Board, card boa
 	return nil
 }
 
+func (b *storeBackend) SetParent(ctx context.Context, bd board.Board, card board.Card, parent string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "parent", "regroup "+cardRef(card), func(c *board.Card) {
+		c.Parent = parent
+	}, func(ctx context.Context) error {
+		return b.inner.SetParent(ctx, bd, card, parent)
+	})
+	return nil
+}
+
 func (b *storeBackend) SetReviewOf(ctx context.Context, bd board.Board, card board.Card, reviewOf string) error {
 	b.mutateCard(ctx, bd, card.ItemID, "review-of", "relink the review "+cardRef(card), func(c *board.Card) {
 		c.ReviewOf = reviewOf

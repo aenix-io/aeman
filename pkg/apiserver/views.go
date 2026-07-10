@@ -138,8 +138,34 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 		out = append(out, c)
 	}
+	out = withSubtasks(b, out, sel)
 	if sel.IncludeReviews && (sel.View == "me" || sel.View == "team") {
 		out = withLinkedReviews(b, out)
+	}
+	return out
+}
+
+// withSubtasks appends the subtasks of every delivered parent, so a view is
+// self-contained for a client nesting them under their cards. The me/all team
+// gate and the focus filter apply to subtasks the same way they apply to
+// top-level cards.
+func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
+	present := make(map[string]bool, len(out))
+	for _, c := range out {
+		present[c.ItemID] = true
+	}
+	for _, c := range b.Cards {
+		if c.Parent == "" || !present[c.Parent] || present[c.ItemID] {
+			continue
+		}
+		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
+			continue
+		}
+		if sel.Focus && !board.Workable(c) {
+			continue
+		}
+		out = append(out, c)
+		present[c.ItemID] = true
 	}
 	return out
 }
