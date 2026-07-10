@@ -243,10 +243,12 @@ export function SortableBoard<Meta>({
   const [indentOn, setIndentOn] = useState(false);
   const indentOnRef = useRef(false);
   const indentFlipAt = useRef<number | null>(null);
-  // Whether the indent was actively asserted during THIS drag (a real
-  // rightward crossing) — a subtask's seeded indent keeps it in its own
-  // block, but never nests it under a NEW parent by default.
-  const indentAsserted = useRef(false);
+  // The two STRONG horizontal gestures, far past the ordinary indent band:
+  // dragging well LEFT of the rows is the only way a subtask leaves its
+  // group, and dragging well RIGHT of a card is the only way to open a NEW
+  // group (a collapsed or childless parent). Distance is the guard.
+  const strongDedent = useRef(false);
+  const strongNest = useRef(false);
   // The middle-band tuck-in needs a short dwell before it arms, so sweeping
   // a card across the board does not flip into grouping mode in passing.
   const bandTarget = useRef<string | null>(null);
@@ -388,6 +390,8 @@ export function SortableBoard<Meta>({
     if (!above || !active) {
       return null;
     }
+    // The exit gesture: dragged FAR left of the rows and parked there.
+    const leaving = strongDedent.current && slotArmed.current;
     let target: CardModel | undefined;
     if (below?.parent) {
       // Strictly inside a block: subtasks continue below, so the slot can
@@ -395,9 +399,9 @@ export function SortableBoard<Meta>({
       target = cardById.get(below.parent);
     } else if (above.parent) {
       if (above.parent === active.parent) {
-        // The own block's last slot: a subtask STAYS a subtask by default —
-        // leaving takes the flush-left gesture parked on the slot a moment.
-        if (indentOn || !slotArmed.current) {
+        // The own block's last slot: a subtask STAYS a subtask unless it is
+        // pulled far left and parked — distance is the exit guard.
+        if (!leaving) {
           target = cardById.get(above.parent);
         }
       } else if (indentOn && slotArmed.current && overRow.current) {
@@ -407,26 +411,19 @@ export function SortableBoard<Meta>({
       }
     } else if (above.itemId === active.parent) {
       // Right under the own parent (the card is its only visible subtask):
-      // grouped by default, the same deliberate gesture to leave.
-      if (indentOn || !slotArmed.current) {
+      // grouped unless pulled far left and parked, like the block's last slot.
+      if (!leaving) {
         target = above;
       }
-    } else if (
-      indentOn &&
-      indentAsserted.current &&
-      slotArmed.current &&
-      overRow.current
-    ) {
-      // A NEW parent (no visible block below it) takes a deliberate gesture
-      // held in place over the rows — a fast drop in passing, or one hanging
-      // in the empty space below a list, stays at the main level.
+    } else if (strongNest.current && slotArmed.current && overRow.current) {
+      // A NEW parent (a collapsed or childless card) opens only for the
+      // far-right gesture held in place over the rows — the first subtask is
+      // a deliberate act, not a passing indent.
       target = above;
     }
-    // A dragged subtask that still HOLDS its indent never ungroups: a slot
-    // past the block's edge (or above the parent) alone is not the exit —
-    // leaving takes the deliberate flush-left gesture. It snaps back to its
-    // own parent instead.
-    if (!target && active.parent && indentOn) {
+    // A dragged subtask never ungroups without the exit gesture: wherever
+    // the slot slid, it snaps back to its own parent.
+    if (!target && active.parent && !leaving) {
       target = cardById.get(active.parent);
     }
     if (!target || target.itemId === active.itemId) {
@@ -495,7 +492,8 @@ export function SortableBoard<Meta>({
     const seed = !!cardById.get(id)?.parent;
     indentOnRef.current = seed;
     indentFlipAt.current = null;
-    indentAsserted.current = false;
+    strongDedent.current = false;
+    strongNest.current = false;
     bandTarget.current = null;
     armSlotSoon();
     setIndentOn(seed);
@@ -518,6 +516,16 @@ export function SortableBoard<Meta>({
       return;
     }
     const offset = translated.left - overRect.left;
+    // The strong gestures flip on distance alone (with their own hysteresis):
+    // far left (-16px past the row edge) is the leave-the-group gesture, far
+    // right (+56px) is the open-a-new-group gesture.
+    const dedent = strongDedent.current ? offset < -8 : offset < -16;
+    const nest = strongNest.current ? offset > 40 : offset > 56;
+    if (dedent !== strongDedent.current || nest !== strongNest.current) {
+      strongDedent.current = dedent;
+      strongNest.current = nest;
+      bumpRender((x) => x + 1);
+    }
     const cur = indentOnRef.current;
     // Hysteresis: enter the nest level past the indent (26px), leave it only
     // well before (12px); the band in between is sticky.
@@ -538,9 +546,6 @@ export function SortableBoard<Meta>({
     }
     indentFlipAt.current = null;
     indentOnRef.current = want;
-    if (want) {
-      indentAsserted.current = true; // a real rightward crossing, not a seed
-    }
     setIndentOn(want);
   };
 
@@ -644,7 +649,8 @@ export function SortableBoard<Meta>({
     setNestUnder(null);
     indentOnRef.current = false;
     indentFlipAt.current = null;
-    indentAsserted.current = false;
+    strongDedent.current = false;
+    strongNest.current = false;
     bandTarget.current = null;
     overRow.current = false;
     disarmSlot();
