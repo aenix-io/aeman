@@ -115,9 +115,13 @@ function SortableCard({
   });
   // The dragged item stays put as a dashed gap (the DragOverlay shows the lift);
   // only the OTHER items get the sortable shift transform so they push apart.
+  // dnd-kit's inline transition would override the stylesheet's margin-left
+  // one (the tuck-in slide), so the two are merged here.
   const style = {
     transform: isDragging ? undefined : CSS.Translate.toString(transform),
-    transition,
+    transition: transition
+      ? `${transition}, margin-left 120ms ease`
+      : undefined,
   };
   return (
     <div
