@@ -669,8 +669,15 @@ export function MeBoard({
       stage: card.stage,
       progress: card.progress,
     };
+    // Done on a recurrent card completes the iteration but keeps the
+    // recurrence (mirrors the server): only the progress fills.
     const patch: Partial<CardModel> = {
-      stage: stage === "done" ? undefined : stage ?? undefined,
+      stage:
+        stage === "done"
+          ? card.stage === "recurrent"
+            ? "recurrent"
+            : undefined
+          : stage ?? undefined,
     };
     if (stage === "done") {
       patch.progress = 100;
