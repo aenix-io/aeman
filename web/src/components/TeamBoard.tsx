@@ -436,6 +436,7 @@ export function TeamBoard({
         }
         // Swap in place: append-on-ack would reshuffle a quick burst of adds.
         replaceCard(tempId, card);
+        migrateCardId(tempId, card.itemId);
       })
       .catch((err: unknown) => {
         consumePendingCancel(tempId);
@@ -693,6 +694,24 @@ export function TeamBoard({
   }, [board.cards]);
 
   const subsOpen = (id: string) => expandedSubs.has(id);
+
+  // A create ack swaps the optimistic tmp id for the real one; UI state keyed
+  // by the tmp id (selection, expanded lists, an open add-subtask form) must
+  // follow, or the + flow collapses mid-typing.
+  const migrateCardId = (tempId: string, realId: string) => {
+    setSelectedCardId((cur) => (cur === tempId ? realId : cur));
+    setExpandedSubs((cur) => {
+      if (!cur.has(tempId)) {
+        return cur;
+      }
+      const next = new Set(cur);
+      next.delete(tempId);
+      next.add(realId);
+      return next;
+    });
+    setAddingSub((cur) => (cur === tempId ? realId : cur));
+  };
+
 
   // A drag parked on a collapsed parent unfolds it so the drop target is
   // visible; when the drag leaves, it folds back (manual expands stay).
@@ -1087,6 +1106,7 @@ export function TeamBoard({
           return;
         }
         replaceCard(tempId, c);
+        migrateCardId(tempId, c.itemId);
       })
       .catch((err: unknown) => {
         removeCard(tempId);
@@ -1805,6 +1825,7 @@ export function TeamBoard({
         }
         // Swap in place: append-on-ack would reshuffle a quick burst of adds.
         replaceCard(tempId, card);
+        migrateCardId(tempId, card.itemId);
         if (firstSprint) {
           reload();
         }
