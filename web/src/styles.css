@@ -3024,6 +3024,14 @@ button.card-age {
   margin-left: 22px;
 }
 
+/* The placeholder's indent is driven by the drop preview above, not by the
+   dragged card's current parent — a subtask headed out previews flush left. */
+.sortable-card-placeholder .subtask-indent {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+}
+
 /* A drag hovering a card's vertical middle band retargets the drop to "group
    as a subtask": the target card highlights in place. */
 .card.card-group-target {

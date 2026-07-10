@@ -254,6 +254,38 @@ export function SortableBoard<Meta>({
   const findGroupIndex = (work: LocalGroups<Meta>, id: string): number =>
     work.findIndex((g) => g.ids.includes(id) || g.key === id);
 
+  // Whether the active placeholder previews at the subtask indent: the drop
+  // would nest it — a middle band is hovered (nestUnder), or its slot in the
+  // working copy sits right below a subtask row (it would join those
+  // siblings). The card's own parent is deliberately ignored: a subtask
+  // dragged towards a top-level slot previews flush, ready to pull out.
+  const placeholderNested = useMemo(() => {
+    if (!activeId || !local) {
+      return false;
+    }
+    if (nestUnder !== null) {
+      return true;
+    }
+    const entry = local.find((g) => g.ids.includes(activeId));
+    if (!entry) {
+      return false;
+    }
+    const idx = entry.ids.indexOf(activeId);
+    const above = idx > 0 ? cardById.get(entry.ids[idx - 1]) : undefined;
+    if (!above?.parent) {
+      return false;
+    }
+    const active = cardById.get(activeId);
+    if (!active) {
+      return false;
+    }
+    if (active.parent === above.parent) {
+      return true; // staying among its own siblings
+    }
+    const parentCard = cardById.get(above.parent);
+    return !canGroup || !parentCard || canGroup(active, parentCard);
+  }, [activeId, local, nestUnder, cardById, canGroup]);
+
   // closestCorners with a grouping band: while the dragged card's centre is
   // over the vertical middle of another card, the drop retargets to that
   // card's grp: droppable — dropping there groups the card as its subtask.
@@ -472,7 +504,7 @@ export function SortableBoard<Meta>({
         group={group}
         ids={entry.ids}
         activeId={activeId}
-        nestedId={nestUnder !== null ? activeId : null}
+        nestedId={placeholderNested ? activeId : null}
         cardById={cardById}
         groupable={!!onGroupDrop}
         renderGroup={renderGroup}
