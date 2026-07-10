@@ -64,6 +64,7 @@ export interface CardResource {
     dates?: { start?: string; end?: string; sprint?: string };
     plan?: { band?: string; week?: string };
     reviewOf?: string;
+    parent?: string;
   };
   status?: {
     complete?: boolean;
@@ -164,6 +165,7 @@ export function resourceToCard(res: CardResource): Card {
     stage: spec.stage ? STAGE_KEYS[spec.stage] : undefined,
     team: spec.team || undefined,
     reviewOf: spec.reviewOf || undefined,
+    parent: spec.parent || undefined,
     reviewRound: res.status?.reviewRound,
     day: dates.end || undefined,
     startDate: dates.start || undefined,

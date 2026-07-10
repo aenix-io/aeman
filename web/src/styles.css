@@ -2991,3 +2991,96 @@ button.card-age {
   color: var(--faint);
   font-size: 11px;
 }
+
+/* ---- Subtasks: the grouped-card list under an expanded parent ---- */
+
+/* The list is indented under its parent with a guide line, and doubles as the
+   drop area that groups a dragged card (droppable id sub:<parentId>). It keeps
+   a small minimum height so an empty list is still a droppable target. */
+.subtasks {
+  margin: 2px 0 4px 14px;
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 26px;
+  border-radius: 0 6px 6px 0;
+}
+
+.subtasks-over {
+  background: var(--hover-overlay-soft);
+  border-left-color: var(--accent);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+.subtasks-empty {
+  color: var(--faint);
+  font-size: 11px;
+  padding: 4px 2px;
+}
+
+.subtask-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.subtask-row > .subtask-card {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The pull-back-out arrow sits outside the card, aligned with its first row;
+   it shows on row hover only (mirrors the card's own hover actions). */
+.subtask-out {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 5px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden;
+}
+
+.subtask-row:hover .subtask-out {
+  visibility: visible;
+}
+
+.subtask-out:hover {
+  background: var(--hover-overlay);
+  color: var(--fg);
+}
+
+/* The expand toggle is a small always-visible square; the hover + (add the
+   first subtask) mirrors it. Both read as squares against the round actions. */
+.card-subs-toggle,
+.card-action.card-subs-add {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg-soft);
+  color: var(--muted);
+  align-self: center;
+}
+
+.card-subs-toggle:hover,
+.card-action.card-subs-add:hover {
+  border-color: var(--muted);
+  background: var(--hover-overlay);
+  color: var(--fg);
+}
+
+.card-subs-toggle-on {
+  color: var(--fg);
+  border-color: var(--muted);
+}
