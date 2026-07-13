@@ -1,18 +1,44 @@
-/** todayIso returns today's date as a local yyyy-mm-dd string. */
-export function todayIso(): string {
-  const now = new Date();
-  const off = now.getTimezoneOffset();
-  return new Date(now.getTime() - off * 60_000).toISOString().slice(0, 10);
+// The board's days live in ONE time zone for every user (the server's
+// AEMAN_TZ, delivered via /api/config): without it a user east of the server
+// crosses their local midnight and starts seeing deferred "tomorrow" cards on
+// today's board. Unset = the browser's own zone (single-zone teams).
+let boardTz: string | undefined;
+
+/** setBoardTimezone installs the board's day zone (an IANA name, "" = local). */
+export function setBoardTimezone(tz: string | undefined): void {
+  boardTz = tz && tz !== "Local" ? tz : undefined;
 }
 
-/** localDateIso returns the local yyyy-mm-dd date for an ISO timestamp. */
+// en-CA formats as yyyy-mm-dd; an invalid zone falls back to the browser's.
+function dayInBoardZone(d: Date): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: boardTz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  }
+}
+
+/** todayIso returns today's date as a yyyy-mm-dd string in the BOARD zone. */
+export function todayIso(): string {
+  return dayInBoardZone(new Date());
+}
+
+/** localDateIso returns the board-zone yyyy-mm-dd date for an ISO timestamp. */
 export function localDateIso(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) {
     return "";
   }
-  const off = d.getTimezoneOffset();
-  return new Date(d.getTime() - off * 60_000).toISOString().slice(0, 10);
+  return dayInBoardZone(d);
 }
 
 /** activeOnDay is true when `day` falls within a card's visible span. The span

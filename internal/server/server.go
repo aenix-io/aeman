@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/aenix-org/aeman/internal/ghcli"
+	"github.com/aenix-org/aeman/pkg/board"
 	"github.com/aenix-org/aeman/pkg/boardservice"
 	"github.com/aenix-org/aeman/web"
 )
@@ -304,6 +305,9 @@ type configResponse struct {
 	DefaultOwner   string `json:"defaultOwner,omitempty"`
 	DefaultProject int    `json:"defaultProject,omitempty"`
 	LockBoard      bool   `json:"lockBoard"`
+	// Tz is the board's day time zone (IANA name): the SPA computes "today"
+	// in it so every user sees the same board day.
+	Tz string `json:"tz"`
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -312,6 +316,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		DefaultOwner:   s.opts.DefaultOwner,
 		DefaultProject: s.opts.DefaultProject,
 		LockBoard:      s.opts.LockBoard,
+		Tz:             board.LocationName(),
 	}
 	if s.auth != nil {
 		resp.Mode = "oauth"

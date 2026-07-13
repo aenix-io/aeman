@@ -25,6 +25,9 @@ export interface AppConfig {
   defaultProject?: number;
   /** Pin the UI to defaultOwner/defaultProject and hide the board picker. */
   lockBoard?: boolean;
+  /** The board's day time zone (IANA name): "today" is computed in it so
+   *  every user sees the same board day. "Local" = server-local, unset zone. */
+  tz?: string;
 }
 
 export async function fetchConfig(): Promise<AppConfig> {
