@@ -182,7 +182,9 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
 - A subtask **scheduled for the future** (startDate past today — the calendar
   or defer) is hidden under its parent until its day arrives, like any
   deferred card; the next Carry Over drags it (it is open) but the future
-  startDate keeps hiding it until the day comes.
+  startDate keeps hiding it until the day comes. The hiding is the CLIENT's
+  rendering rule — the views deliver ALL of a parent's subtasks, so the
+  client's derived-progress math always matches the server's.
 
 ### Calendar (explicit dates)
 - The date picker on a card moves its **real dates**: `startDate = start` and

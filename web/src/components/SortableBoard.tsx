@@ -43,6 +43,10 @@ export interface DropResult<Meta> {
    *  the placeholder previewed it (indent level, Todoist-style), or null for
    *  a standalone drop. */
   groupUnder: string | null;
+  /** True when groupUnder came purely from the slot position (inside a
+   *  block) with no held gesture — a band drop treats that as aiming at the
+   *  PLAN, not at the block. */
+  groupPositional: boolean;
 }
 
 interface SortableBoardProps<Meta> {
@@ -369,12 +373,15 @@ export function SortableBoard<Meta>({
   //  - below the LAST subtask of a block, or below any plain card, the indent
   //    decides — held to the right nests, flush left stays standalone.
   // The drop commits exactly this resolution, so the preview never lies.
-  const nestPreview = (work: LocalGroups<Meta> | null): string | null => {
+  const nestPreview = (
+    work: LocalGroups<Meta> | null,
+  ): { id: string; positional: boolean } | null => {
     if (!activeId || !work) {
       return null;
     }
     if (nestUnder !== null) {
-      return cardById.get(nestUnder)?.itemId ?? null;
+      const t = cardById.get(nestUnder)?.itemId;
+      return t ? { id: t, positional: false } : null;
     }
     const entry = work.find((g) => g.ids.includes(activeId));
     if (!entry) {
@@ -393,10 +400,12 @@ export function SortableBoard<Meta>({
     // The exit gesture: dragged FAR left of the rows and parked there.
     const leaving = strongDedent.current && slotArmed.current;
     let target: CardModel | undefined;
+    let positional = false;
     if (below?.parent) {
       // Strictly inside a block: subtasks continue below, so the slot can
       // only be one of them — the dedent gesture exists on the last slot only.
       target = cardById.get(below.parent);
+      positional = !indentOn;
     } else if (above.parent) {
       if (above.parent === active.parent) {
         // The own block's last slot: a subtask STAYS a subtask unless it is
@@ -430,12 +439,12 @@ export function SortableBoard<Meta>({
       return null;
     }
     if (active.parent === target.itemId) {
-      return target.itemId; // staying among its own siblings
+      return { id: target.itemId, positional }; // staying among its siblings
     }
     if (canGroup && !canGroup(active, target)) {
       return null;
     }
-    return target.itemId;
+    return { id: target.itemId, positional };
   };
 
   // closestCorners with a grouping band: while the dragged card's centre is
@@ -720,12 +729,14 @@ export function SortableBoard<Meta>({
       return;
     }
 
+    const nest = nestPreview(next);
     onDrop({
       card,
       fromMeta: fromGroup.meta,
       toMeta: toEntry.meta,
       groups: next.map((g) => ({ meta: g.meta, ids: g.ids })),
-      groupUnder: nestPreview(next),
+      groupUnder: nest?.id ?? null,
+      groupPositional: nest?.positional ?? false,
     });
     reset();
   };
@@ -737,6 +748,7 @@ export function SortableBoard<Meta>({
   // The placeholder previews at the indent exactly when the drop would nest.
   const nestPreviewId =
     activeId !== null && nestPreview(local) !== null ? activeId : null;
+
 
   // Render each group as a node, keyed by group.key, so a custom layout can
   // arrange them (Team groups cells into engineer columns); default is flat.
