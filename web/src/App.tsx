@@ -17,7 +17,7 @@ import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
 import { queryString, viewQueries, watchQuery } from "./viewquery";
-import { todayIso } from "./date";
+import { todayIso, setBoardTimezone } from "./date";
 import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
@@ -197,6 +197,9 @@ export function App() {
           return;
         }
         setConfig(cfg);
+        // The board's "today" runs in the server's zone for everyone.
+        setBoardTimezone(cfg.tz);
+        setSelectedDate(todayIso());
         setOwner((cur) => cur || cfg.defaultOwner || "");
         setProject((cur) => cur || (cfg.defaultProject ? String(cfg.defaultProject) : ""));
       })

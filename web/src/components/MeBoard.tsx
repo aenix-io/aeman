@@ -417,10 +417,29 @@ export function MeBoard({
 
   // Subtasks grouped by parent. The Me board's team-focus filter applies to
   // subtask rows the same way it applies to cards.
+  // Mirrors the server's subtaskOnDay: a subtask keeps its own day
+  // visibility even though it rides its parent — deferred to the future it
+  // hides until its day, and one left behind in an earlier sprint stays on
+  // that sprint's days. Without this an acked defer (addCard) would put the
+  // row right back under the parent on today's board.
+  const subtaskOnDay = (c: CardModel): boolean => {
+    const today = todayIso();
+    if (c.startDate && c.startDate > today && selectedDate < c.startDate) {
+      return false;
+    }
+    if (c.sprintStart) {
+      const as = activeSprint(board, c.team ?? null, selectedDate);
+      if (as && as > c.sprintStart) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   const childrenOf = useMemo(() => {
     const m = new Map<string, CardModel[]>();
     for (const c of mine) {
-      if (!c.parent) {
+      if (!c.parent || !subtaskOnDay(c)) {
         continue;
       }
       if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
@@ -431,7 +450,8 @@ export function MeBoard({
       m.set(c.parent, list);
     }
     return m;
-  }, [mine, teamFocus, teamFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mine, teamFocus, teamFilter, selectedDate, board]);
 
   const subsOpen = (id: string) => expandedSubs.has(id);
 
