@@ -681,17 +681,37 @@ export function TeamBoard({
 
   // Subtasks grouped by parent, from the full card state (children are
   // delivered alongside their parents by the view).
+  // Mirrors the server's subtaskOnDay: a subtask keeps its own day
+  // visibility even though it rides its parent — deferred to the future it
+  // hides until its day, and one left behind in an earlier sprint stays on
+  // that sprint's days. Without this an acked defer (addCard) would put the
+  // row right back under the parent on today's board.
+  const subtaskOnDay = (c: CardModel): boolean => {
+    const today = todayIso();
+    if (c.startDate && c.startDate > today && selectedDate < c.startDate) {
+      return false;
+    }
+    if (c.sprintStart) {
+      const as = activeSprint(board, c.team ?? null, selectedDate);
+      if (as && as > c.sprintStart) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   const childrenOf = useMemo(() => {
     const m = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (c.parent) {
+      if (c.parent && subtaskOnDay(c)) {
         const list = m.get(c.parent) ?? [];
         list.push(c);
         m.set(c.parent, list);
       }
     }
     return m;
-  }, [board.cards]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.cards, selectedDate, board]);
 
   const subsOpen = (id: string) => expandedSubs.has(id);
 
