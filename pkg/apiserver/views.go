@@ -148,9 +148,11 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 // withSubtasks appends the subtasks of every delivered parent, so a view is
 // self-contained for a client nesting them under their cards. The me/all team
 // gate and the focus filter apply to subtasks the same way they apply to
-// top-level cards, and on the day views (team/me) a subtask keeps its own
-// day visibility: scheduled for the future it stays hidden until its day,
-// and finished in an earlier sprint it stays on that sprint's days.
+// top-level cards. ALL of a parent's subtasks are delivered — per-day
+// visibility (a deferred subtask hiding until its day, a done one staying on
+// its old sprint's days) is the CLIENT's rendering rule: the client needs the
+// full set anyway, or its optimistic derived-progress math diverges from the
+// server's and the parent's bar jumps on every reload.
 func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 	present := make(map[string]bool, len(out))
 	for _, c := range out {
@@ -165,9 +167,6 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 			continue
 		}
 		if sel.Focus && !board.Workable(c) {
-			continue
-		}
-		if (sel.View == "team" || sel.View == "me") && !subtaskOnDay(b, c, sel.Day) {
 			continue
 		}
 		extra[c.Parent] = append(extra[c.Parent], c)
@@ -185,24 +184,6 @@ func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
 		merged = append(merged, extra[c.ItemID]...)
 	}
 	return merged
-}
-
-// subtaskOnDay reports whether a subtask belongs on a day view: hidden while
-// deferred to the future (startDate past today, day not reached), and — once
-// left behind by a carry-over (a done subtask stays in the sprint it was
-// finished in) — shown only on days its own sprint was active, mirroring the
-// sprint-span rule of MeView.
-func subtaskOnDay(b board.Board, c board.Card, day string) bool {
-	today := board.TodayIso()
-	if c.StartDate != "" && c.StartDate > today && day < c.StartDate {
-		return false
-	}
-	if c.SprintStart != "" {
-		if as := board.ActiveSprint(b, c.Team, day); as != "" && as > c.SprintStart {
-			return false
-		}
-	}
-	return true
 }
 
 // withLinkedReviews appends each card's linked review card (reviewOf == its id),

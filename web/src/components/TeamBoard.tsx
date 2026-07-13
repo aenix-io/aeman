@@ -853,12 +853,15 @@ export function TeamBoard({
     toMeta,
     groups: g,
     groupUnder,
+    groupPositional,
   }: DropResult<TeamMeta>) => {
     // Drops that involve a weekly-plan band.
     if (fromMeta.kind === "band" || toMeta.kind === "band") {
-      // A drop whose slot nests it under a weekly parent groups it — the
-      // server hands a plan card's slot to the parent (SetParent).
-      if (!card.parent && toMeta.kind === "band" && groupUnder) {
+      // A drop whose slot nests it under a weekly parent groups it — but
+      // ONLY as a held gesture (indent / middle-band dwell): a band drop
+      // that merely lands inside an expanded block aims at the PLAN, and
+      // silently grouping it was how "take into plan" seemed broken.
+      if (!card.parent && toMeta.kind === "band" && groupUnder && !groupPositional) {
         handleGroup(card, groupUnder);
         return;
       }
