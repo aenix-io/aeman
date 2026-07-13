@@ -399,8 +399,12 @@ export function MeBoard({
       .catch(() => {});
   };
 
+  // Subtasks are selectable rows too but never appear in myCards: fall back
+  // to the full board state so the notes composer works on them.
   const selectedCard =
-    myCards.find((c) => c.itemId === selectedCardId) ?? null;
+    myCards.find((c) => c.itemId === selectedCardId) ??
+    board.cards.find((c) => c.itemId === selectedCardId && c.parent) ??
+    null;
 
   const fail = (err: unknown) => {
     onError(err instanceof Error ? err.message : String(err));
