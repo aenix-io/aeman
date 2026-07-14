@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,6 +119,9 @@ type boardEntry struct {
 	pending  []pendingOp
 	inflight *pendingOp
 	draining bool
+	// recentMove is when a local reorder last touched this board: within
+	// recentGrace the cached order outweighs a fresh (possibly stale) read.
+	recentMove time.Time
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -167,17 +171,95 @@ func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
 		fresh.Cards = kept
 	}
 	if len(e.recentCards) > 0 {
-		have := map[string]bool{}
-		for _, c := range fresh.Cards {
-			have[c.ItemID] = true
+		// A recently-written card's CACHED copy outweighs the fresh read for
+		// the whole grace window: GitHub's read replicas lag its writes by
+		// seconds, so a revalidation right after the queue drained would
+		// otherwise install the pre-write values — the user's progress/stage
+		// silently rolled back, then came back on a later reload.
+		oldByID := make(map[string]board.Card, len(e.board.Cards))
+		for _, c := range e.board.Cards {
+			oldByID[c.ItemID] = c
 		}
-		for _, old := range e.board.Cards {
-			if _, recent := e.recentCards[old.ItemID]; recent && !have[old.ItemID] {
-				fresh.Cards = append(fresh.Cards, old)
+		have := map[string]bool{}
+		for i := range fresh.Cards {
+			have[fresh.Cards[i].ItemID] = true
+			if _, recent := e.recentCards[fresh.Cards[i].ItemID]; !recent {
+				continue
+			}
+			if old, ok := oldByID[fresh.Cards[i].ItemID]; ok {
+				fresh.Cards[i] = old
 			}
 		}
+		// A recent card the lagging read hasn't caught up with is restored
+		// AT ITS CACHED SLOT — right after the nearest cached predecessor the
+		// fresh read knows — not appended at the end: the append made every
+		// revalidation shortly after a create visibly throw the new card (and
+		// everything below it) to the bottom of the board.
+		pos := make(map[string]int, len(fresh.Cards))
+		for i, c := range fresh.Cards {
+			pos[c.ItemID] = i
+		}
+		for ci, old := range e.board.Cards {
+			if _, recent := e.recentCards[old.ItemID]; !recent || have[old.ItemID] {
+				continue
+			}
+			at := 0
+			for j := ci - 1; j >= 0; j-- {
+				if p, ok := pos[e.board.Cards[j].ItemID]; ok {
+					at = p + 1
+					break
+				}
+			}
+			fresh.Cards = append(fresh.Cards, board.Card{})
+			copy(fresh.Cards[at+1:], fresh.Cards[at:])
+			fresh.Cards[at] = old
+			have[old.ItemID] = true
+			for id, p := range pos {
+				if p >= at {
+					pos[id] = p + 1
+				}
+			}
+			pos[old.ItemID] = at
+		}
+	}
+	// The same lag rolls back the ORDER a local move just wrote: while a
+	// recent move is inside the grace window, the cached order wins for the
+	// cards both sides know; fresh-only cards keep their fetched positions.
+	if !e.recentMove.IsZero() && now.Sub(e.recentMove) <= recentGrace {
+		rank := make(map[string]int, len(e.board.Cards))
+		for i, c := range e.board.Cards {
+			rank[c.ItemID] = i
+		}
+		known := make([]board.Card, 0, len(fresh.Cards))
+		fixed := map[int]board.Card{}
+		for i, c := range fresh.Cards {
+			if _, ok := rank[c.ItemID]; ok {
+				known = append(known, c)
+			} else {
+				fixed[i] = c
+			}
+		}
+		sortCardsByRank(known, rank)
+		merged := make([]board.Card, 0, len(fresh.Cards))
+		ki := 0
+		for i := 0; i < len(fresh.Cards); i++ {
+			if c, ok := fixed[i]; ok {
+				merged = append(merged, c)
+				continue
+			}
+			merged = append(merged, known[ki])
+			ki++
+		}
+		fresh.Cards = merged
 	}
 	return fresh
+}
+
+// sortCardsByRank orders cards by their previous cache positions (stable).
+func sortCardsByRank(cards []board.Card, rank map[string]int) {
+	sort.SliceStable(cards, func(i, j int) bool {
+		return rank[cards[i].ItemID] < rank[cards[j].ItemID]
+	})
 }
 
 // cacheState grades a cache lookup: a fresh hit is served to anyone allowed,
@@ -732,6 +814,22 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	card := cards[0]
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	// Refresh, never resurrect: the card may have been deleted while this
+	// op drained, and GitHub's lagging read replicas can still return it —
+	// upserting would bring it back AND markRecent below would strip its
+	// recentGone protection, so the ghost then survives every reload for
+	// the whole grace window.
+	known := false
+	for i := range e.board.Cards {
+		if e.board.Cards[i].ItemID == card.ItemID {
+			known = true
+			break
+		}
+	}
+	if !known {
+		e.mu.Unlock()
+		return
+	}
 	e.upsertCard(card)
 	if e.inflight != nil {
 		e.inflight.apply(&e.board)
@@ -783,11 +881,13 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.board.Cards = moveCardAfter(e.board.Cards, card.ItemID, afterID)
+	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
 	e.mu.Unlock()
 	b.enqueue(ctx, e, pendingOp{
-		key:  "move:" + card.ItemID,
-		desc: "move " + cardRef(card),
+		key:    "move:" + card.ItemID,
+		itemID: card.ItemID,
+		desc:   "move " + cardRef(card),
 		apply: func(target *board.Board) {
 			target.Cards = moveCardAfter(target.Cards, card.ItemID, afterID)
 		},
