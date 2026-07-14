@@ -423,3 +423,49 @@ func TestWriteBehindMergesDraftBodyOps(t *testing.T) {
 		t.Fatalf("final body write: desc=%q notes=%d events=%d; want the plan/3/1", desc, notes, evs)
 	}
 }
+
+func (w *wbBackend) MoveCard(_ context.Context, _ board.Board, _ board.Card, _ string) error {
+	return nil
+}
+
+// A background revalidation that reads GitHub's lagging replicas must not
+// roll back writes the queue already confirmed: within the grace window the
+// cached field values and card order outweigh the stale fresh read.
+func TestRevalidateKeepsRecentWrites(t *testing.T) {
+	inner := &wbBackend{board: watchBoard()}
+	store := newBoardStore()
+	be := &storeBackend{inner: inner, store: store}
+	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := store.entry("acme/1")
+
+	// Confirmed writes: progress on c1, and c2 moved to the front.
+	if err := be.SetProgress(context.Background(), bd, bd.Cards[0], 80); err != nil {
+		t.Fatal(err)
+	}
+	if err := be.MoveCard(context.Background(), bd, bd.Cards[1], ""); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "queue drain", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.unsynced() == 0
+	})
+
+	// The fixture backend never mutated its stored board, so its next read
+	// IS the stale replica: progress 0, original order. Install it exactly
+	// like a background revalidation would.
+	stale, err := inner.LoadBoard(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := be.install(e, stale, "")
+	if got.Cards[0].ItemID != "c2" || got.Cards[1].ItemID != "c1" {
+		t.Fatalf("order rolled back: got %s, %s", got.Cards[0].ItemID, got.Cards[1].ItemID)
+	}
+	if p := got.Cards[1].Progress; p != 80 {
+		t.Fatalf("progress rolled back: got %d, want 80", p)
+	}
+}
