@@ -329,63 +329,6 @@ export function MeBoard({
     };
   }, [myCards, byZone]);
 
-  // Card item ids in board (display) order, for grouping notes by card.
-  const noteCardOrder = useMemo(
-    () => ZONE_ORDER.flatMap((z) => byZone[z].map((c) => c.itemId)),
-    [byZone],
-  );
-
-  const dayNotes = useMemo<DayNote[]>(() => {
-    const out: DayNote[] = [];
-    for (const card of myCards) {
-      for (const note of card.notes ?? []) {
-        if (localDateIso(note.createdAt) === selectedDate) {
-          out.push({ note, card });
-        }
-      }
-    }
-    out.sort((a, b) => a.note.createdAt.localeCompare(b.note.createdAt));
-    return out;
-  }, [myCards, selectedDate]);
-
-  // The day's recorded activity events, feeding the same panel as the notes.
-  const dayEvents = useMemo<DayEvent[]>(() => {
-    const out: DayEvent[] = [];
-    for (const card of myCards) {
-      for (const event of card.events ?? []) {
-        if (localDateIso(event.at) === selectedDate) {
-          out.push({ event, card });
-        }
-      }
-    }
-    out.sort((a, b) => a.event.at.localeCompare(b.event.at));
-    return out;
-  }, [myCards, selectedDate]);
-
-  // Notes and events live in the log subresource, not on the Card resource:
-  // lazily load them for the day's visible cards. A card's loaded notes are the
-  // "fetched" marker (mutations and the watch keep them fresh); a re-list
-  // clears them, so they refetch. A failed request stays marked, not retried.
-  const notesRequested = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    for (const c of myCards) {
-      if (
-        c.notes !== undefined ||
-        c.itemId.startsWith("tmp-") ||
-        notesRequested.current.has(c.itemId)
-      ) {
-        continue;
-      }
-      notesRequested.current.add(c.itemId);
-      void provider
-        .listLog(board, c.itemId)
-        .then(({ notes, events }) => {
-          notesRequested.current.delete(c.itemId);
-          patchCard(c.itemId, { notes, events });
-        })
-        .catch(() => {});
-    }
-  }, [myCards, board, provider, patchCard]);
 
   // Refresh a card's log after an own mutation: our watch echo is suppressed,
   // so the freshly recorded event won't stream back — refetch it.
@@ -456,6 +399,83 @@ export function MeBoard({
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mine, teamFocus, teamFilter, selectedDate, board]);
+
+  // The notes machinery sees subtasks too: they never render as zone rows,
+  // but their notes and events belong to the day's feed — and their logs must
+  // be fetched, or a note added to a subtask never shows up.
+  const notesCards = useMemo(() => {
+    const out: CardModel[] = [];
+    for (const c of myCards) {
+      out.push(c, ...(childrenOf.get(c.itemId) ?? []));
+    }
+    return out;
+  }, [myCards, childrenOf]);
+
+  // Card item ids in board (display) order, for grouping notes by card;
+  // subtasks group right after their parent.
+  const noteCardOrder = useMemo(
+    () =>
+      ZONE_ORDER.flatMap((z) =>
+        byZone[z].flatMap((c) => [
+          c.itemId,
+          ...(childrenOf.get(c.itemId) ?? []).map((s) => s.itemId),
+        ]),
+      ),
+    [byZone, childrenOf],
+  );
+
+  const dayNotes = useMemo<DayNote[]>(() => {
+    const out: DayNote[] = [];
+    for (const card of notesCards) {
+      for (const note of card.notes ?? []) {
+        if (localDateIso(note.createdAt) === selectedDate) {
+          out.push({ note, card });
+        }
+      }
+    }
+    out.sort((a, b) => a.note.createdAt.localeCompare(b.note.createdAt));
+    return out;
+  }, [notesCards, selectedDate]);
+
+  // The day's recorded activity events, feeding the same panel as the notes.
+  const dayEvents = useMemo<DayEvent[]>(() => {
+    const out: DayEvent[] = [];
+    for (const card of notesCards) {
+      for (const event of card.events ?? []) {
+        if (localDateIso(event.at) === selectedDate) {
+          out.push({ event, card });
+        }
+      }
+    }
+    out.sort((a, b) => a.event.at.localeCompare(b.event.at));
+    return out;
+  }, [notesCards, selectedDate]);
+
+  // Notes and events live in the log subresource, not on the Card resource:
+  // lazily load them for the day's visible cards. A card's loaded notes are the
+  // "fetched" marker (mutations and the watch keep them fresh); a re-list
+  // clears them, so they refetch. A failed request stays marked, not retried.
+  const notesRequested = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const c of notesCards) {
+      if (
+        c.notes !== undefined ||
+        c.itemId.startsWith("tmp-") ||
+        notesRequested.current.has(c.itemId)
+      ) {
+        continue;
+      }
+      notesRequested.current.add(c.itemId);
+      void provider
+        .listLog(board, c.itemId)
+        .then(({ notes, events }) => {
+          notesRequested.current.delete(c.itemId);
+          patchCard(c.itemId, { notes, events });
+        })
+        .catch(() => {});
+    }
+  }, [notesCards, board, provider, patchCard]);
+
 
   const subsOpen = (id: string) => expandedSubs.has(id);
 
