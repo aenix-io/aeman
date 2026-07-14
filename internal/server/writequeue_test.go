@@ -469,3 +469,41 @@ func TestRevalidateKeepsRecentWrites(t *testing.T) {
 		t.Fatalf("progress rolled back: got %d, want 80", p)
 	}
 }
+
+// A revalidation whose fresh read predates a just-created card must restore
+// it at its cached slot, not append it to the bottom of the board — the
+// append re-ordered everything below it on every reload right after a create.
+func TestRevalidateRestoresCreatedCardInPlace(t *testing.T) {
+	inner := &wbBackend{board: watchBoard()}
+	store := newBoardStore()
+	be := &storeBackend{inner: inner, store: store}
+	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
+		t.Fatal(err)
+	}
+	e := store.entry("acme/1")
+
+	// A card born between c1 and c2 (as CreateCard + the slotting move leave
+	// it), known to the recency guard.
+	e.mu.Lock()
+	cards := e.board.Cards
+	inserted := make([]board.Card, 0, len(cards)+1)
+	inserted = append(inserted, cards[0], board.Card{ItemID: "cNew", Team: "alpha"})
+	inserted = append(inserted, cards[1:]...)
+	e.board.Cards = inserted
+	e.markRecent("cNew")
+	e.mu.Unlock()
+
+	// The lagging replica still serves the board without the new card.
+	stale, err := inner.LoadBoard(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := be.install(e, stale, "")
+	ids := make([]string, len(got.Cards))
+	for i, c := range got.Cards {
+		ids[i] = c.ItemID
+	}
+	if len(ids) != 3 || ids[0] != "c1" || ids[1] != "cNew" || ids[2] != "c2" {
+		t.Fatalf("restored order = %v, want [c1 cNew c2]", ids)
+	}
+}

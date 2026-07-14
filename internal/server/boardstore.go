@@ -190,10 +190,36 @@ func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
 				fresh.Cards[i] = old
 			}
 		}
-		for _, old := range e.board.Cards {
-			if _, recent := e.recentCards[old.ItemID]; recent && !have[old.ItemID] {
-				fresh.Cards = append(fresh.Cards, old)
+		// A recent card the lagging read hasn't caught up with is restored
+		// AT ITS CACHED SLOT — right after the nearest cached predecessor the
+		// fresh read knows — not appended at the end: the append made every
+		// revalidation shortly after a create visibly throw the new card (and
+		// everything below it) to the bottom of the board.
+		pos := make(map[string]int, len(fresh.Cards))
+		for i, c := range fresh.Cards {
+			pos[c.ItemID] = i
+		}
+		for ci, old := range e.board.Cards {
+			if _, recent := e.recentCards[old.ItemID]; !recent || have[old.ItemID] {
+				continue
 			}
+			at := 0
+			for j := ci - 1; j >= 0; j-- {
+				if p, ok := pos[e.board.Cards[j].ItemID]; ok {
+					at = p + 1
+					break
+				}
+			}
+			fresh.Cards = append(fresh.Cards, board.Card{})
+			copy(fresh.Cards[at+1:], fresh.Cards[at:])
+			fresh.Cards[at] = old
+			have[old.ItemID] = true
+			for id, p := range pos {
+				if p >= at {
+					pos[id] = p + 1
+				}
+			}
+			pos[old.ItemID] = at
 		}
 	}
 	// The same lag rolls back the ORDER a local move just wrote: while a
