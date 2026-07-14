@@ -61,22 +61,17 @@ function writeStringList(key: string, value: string[]) {
 }
 
 // The team roster and filter are BOARD-scoped: loading board 37 must not
-// inherit board 36's teams. The bare legacy keys predate the scoping and seed
-// only the last-used board, so a freshly opened board starts clean.
+// inherit board 36's teams. The pre-scoping unscoped keys are ignored — they
+// can't be attributed to any particular board — so every board starts from
+// its own saved state (or clean).
 const scopedLS = (base: string, boardKey: string) => `${base}.${boardKey}`;
 
-function readRosterFor(boardKey: string, legacyOk: boolean): string[] {
-  return (
-    readStringList(scopedLS(LS_TEAM_ROSTER, boardKey)) ??
-    (legacyOk ? readStringList(LS_TEAM_ROSTER) : null) ??
-    []
-  );
+function readRosterFor(boardKey: string): string[] {
+  return readStringList(scopedLS(LS_TEAM_ROSTER, boardKey)) ?? [];
 }
 
-function readFilterFor(boardKey: string, legacyOk: boolean): string[] | null {
-  const v =
-    localStorage.getItem(scopedLS(LS_TEAM_FILTER, boardKey)) ??
-    (legacyOk ? localStorage.getItem(LS_TEAM_FILTER) : null);
+function readFilterFor(boardKey: string): string[] | null {
+  const v = localStorage.getItem(scopedLS(LS_TEAM_FILTER, boardKey));
   if (!v) {
     return null;
   }
@@ -84,7 +79,7 @@ function readFilterFor(boardKey: string, legacyOk: boolean): string[] | null {
     const arr: unknown = JSON.parse(v);
     return Array.isArray(arr) && arr.length ? (arr as string[]) : null;
   } catch {
-    return [v]; // legacy single-value filter
+    return null;
   }
 }
 
@@ -200,17 +195,16 @@ export function App() {
   // by hand; the filter is the subset of the roster currently shown (defaults
   // to everything). Both are seeded for the last-used board and swapped by
   // doLoad when another board is opened.
-  const initialBoardKeyRef = useRef(
+  const boardKeyRef = useRef(
     `${localStorage.getItem(LS_OWNER) ?? ""}/${localStorage.getItem(LS_PROJECT) ?? ""}`,
   );
-  const boardKeyRef = useRef(initialBoardKeyRef.current);
   const [addedTeams, setAddedTeams] = useState<string[]>(() =>
-    readRosterFor(boardKeyRef.current, true),
+    readRosterFor(boardKeyRef.current),
   );
   // Team filter: null = all, else the selected groups ("" = no-team). Multi-select
   // — Shift-click a chip to add/remove it.
   const [teamFilter, setTeamFilter] = useState<string[] | null>(() =>
-    readFilterFor(boardKeyRef.current, true),
+    readFilterFor(boardKeyRef.current),
   );
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
@@ -288,6 +282,29 @@ export function App() {
     }
     return out;
   }, [addedTeams, board]);
+
+  // A saved filter can outlive its teams (a team renamed away, or stale
+  // pre-scoping data): entries no team backs would silently blank the board,
+  // so prune them — and an emptied filter means "all" again. Gated on the
+  // loaded board matching boardKeyRef: mid-switch the roster still reflects
+  // the OLD board, and pruning the new board's filter against it would wipe
+  // a legitimate saved selection.
+  const loadedBoardKey = board ? `${board.owner}/${board.number}` : null;
+  useEffect(() => {
+    if (!loadedBoardKey || loadedBoardKey !== boardKeyRef.current) {
+      return;
+    }
+    setTeamFilter((cur) => {
+      if (!cur) {
+        return cur;
+      }
+      const next = cur.filter((t) => t === "" || roster.includes(t));
+      if (next.length === cur.length) {
+        return cur;
+      }
+      return next.length ? next : null;
+    });
+  }, [loadedBoardKey, roster]);
 
   // What the active board loads and watches: Me is personal (the server fills in
   // "who am I" unless view-as impersonates someone), Team names the teams it
@@ -376,8 +393,8 @@ export function App() {
       const boardKey = `${ownerArg}/${numberArg}`;
       if (boardKey !== boardKeyRef.current) {
         boardKeyRef.current = boardKey;
-        setAddedTeams(readRosterFor(boardKey, boardKey === initialBoardKeyRef.current));
-        setTeamFilter(readFilterFor(boardKey, boardKey === initialBoardKeyRef.current));
+        setAddedTeams(readRosterFor(boardKey));
+        setTeamFilter(readFilterFor(boardKey));
       }
       beginLoad();
       setError(null);
