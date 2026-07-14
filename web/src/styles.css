@@ -1987,6 +1987,7 @@ button.card-age {
 .notes-collapsed .notes-composer,
 .notes-collapsed .notes-desc,
 .notes-collapsed .notes-group-toggle,
+.notes-collapsed .notes-icon-seg,
 .notes-collapsed .notes-log-toggle {
   display: none;
 }
