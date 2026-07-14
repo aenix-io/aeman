@@ -828,7 +828,7 @@ export function App() {
         <header className="app-header">
           <div className="brand">
             <Logo className="brand-logo" />
-            <span className="version">v{config.version}</span>
+            <span className="version">{config.version}</span>
           </div>
         </header>
         <div className="signin">
@@ -850,7 +850,7 @@ export function App() {
       <header className="app-header">
         <div className="brand">
           <Logo className="brand-logo" />
-          {config && <span className="version">v{config.version}</span>}
+          {config && <span className="version">{config.version}</span>}
         </div>
         <div className="account">
           <AppearanceMenu
