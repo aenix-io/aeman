@@ -507,3 +507,38 @@ func TestRevalidateRestoresCreatedCardInPlace(t *testing.T) {
 		t.Fatalf("restored order = %v, want [c1 cNew c2]", ids)
 	}
 }
+
+// The single-card refresh after a note write must not resurrect a card
+// deleted while the op drained: GitHub's lagging replicas still return it,
+// and the old unconditional upsert also stripped its recentGone protection,
+// so the ghost survived every reload for the whole grace window.
+func TestTouchedSkipsDeletedCard(t *testing.T) {
+	inner := &wbBackend{board: watchBoard()}
+	store := newBoardStore()
+	be := &storeBackend{inner: inner, store: store}
+	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := store.entry("acme/1")
+
+	// The user deleted c1; the fixture backend (the "stale replica") still
+	// serves it to LoadCards.
+	e.mu.Lock()
+	e.removeCard("c1")
+	e.markGone("c1")
+	e.mu.Unlock()
+
+	be.touched(context.Background(), bd, "c1")
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, c := range e.board.Cards {
+		if c.ItemID == "c1" {
+			t.Fatal("touched resurrected the deleted card")
+		}
+	}
+	if _, gone := e.recentGone["c1"]; !gone {
+		t.Fatal("touched stripped the card's recentGone protection")
+	}
+}

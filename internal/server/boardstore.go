@@ -814,6 +814,22 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	card := cards[0]
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	// Refresh, never resurrect: the card may have been deleted while this
+	// op drained, and GitHub's lagging read replicas can still return it —
+	// upserting would bring it back AND markRecent below would strip its
+	// recentGone protection, so the ghost then survives every reload for
+	// the whole grace window.
+	known := false
+	for i := range e.board.Cards {
+		if e.board.Cards[i].ItemID == card.ItemID {
+			known = true
+			break
+		}
+	}
+	if !known {
+		e.mu.Unlock()
+		return
+	}
 	e.upsertCard(card)
 	if e.inflight != nil {
 		e.inflight.apply(&e.board)
