@@ -34,6 +34,12 @@ type pendingOp struct {
 	desc  string
 	apply func(bd *board.Board)
 	exec  func(ctx context.Context) error
+	// itemID names the card the op writes, so a FAILED write can drop that
+	// card's recent-guard before the rollback reload (or the guard would keep
+	// re-imposing the value GitHub just refused).
+	itemID string
+	// requeues counts fresh-node-lag retries (unresolved node, see drain).
+	requeues int
 }
 
 // queueBackoff is the wait between upstream retries (variable for tests).
@@ -98,10 +104,19 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		e.mu.Unlock()
 
 		err := execRetry(ctx, op)
-		// The target node is gone (deleted mid-queue) or still settling on
-		// GitHub's read path: the cache already reflects the user's intent,
-		// and rolling the whole board back over it would wipe fresher state.
+		// An unresolvable node id is either a target deleted mid-queue (drop
+		// the write: the cache already matches the user's intent) or a FRESH
+		// node GitHub's read path has not caught up with yet — requeue that
+		// with a longer pause instead of silently losing the write, or the
+		// order/fields roll back on the next full reload.
 		if ghprojects.IsUnresolvedNode(err) {
+			e.mu.Lock()
+			_, gone := e.recentGone[op.itemID]
+			if !gone && op.requeues < 3 {
+				op.requeues++
+				e.pending = append(e.pending, op)
+			}
+			e.mu.Unlock()
 			err = nil
 		}
 
@@ -112,6 +127,12 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		if err != nil {
 			e.syncError(fmt.Sprintf("%s failed: %v", op.desc, err))
 			e.loaded = false
+			// The failed write's card must NOT keep outweighing the reload:
+			// GitHub refused the value, so GitHub's truth wins for it.
+			if op.itemID != "" {
+				delete(e.recentCards, op.itemID)
+			}
+			e.recentMove = time.Time{}
 		}
 		e.mu.Unlock()
 		if err != nil {
@@ -209,7 +230,7 @@ func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID,
 	if kind != "" {
 		key = kind + ":" + itemID
 	}
-	b.enqueue(ctx, e, pendingOp{key: key, desc: desc, compose: compose, apply: apply, exec: exec})
+	b.enqueue(ctx, e, pendingOp{key: key, desc: desc, compose: compose, apply: apply, exec: exec, itemID: itemID})
 }
 
 // waitDrained blocks until every board's write-behind queue is empty or the
