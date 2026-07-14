@@ -60,6 +60,34 @@ function writeStringList(key: string, value: string[]) {
   }
 }
 
+// The team roster and filter are BOARD-scoped: loading board 37 must not
+// inherit board 36's teams. The bare legacy keys predate the scoping and seed
+// only the last-used board, so a freshly opened board starts clean.
+const scopedLS = (base: string, boardKey: string) => `${base}.${boardKey}`;
+
+function readRosterFor(boardKey: string, legacyOk: boolean): string[] {
+  return (
+    readStringList(scopedLS(LS_TEAM_ROSTER, boardKey)) ??
+    (legacyOk ? readStringList(LS_TEAM_ROSTER) : null) ??
+    []
+  );
+}
+
+function readFilterFor(boardKey: string, legacyOk: boolean): string[] | null {
+  const v =
+    localStorage.getItem(scopedLS(LS_TEAM_FILTER, boardKey)) ??
+    (legacyOk ? localStorage.getItem(LS_TEAM_FILTER) : null);
+  if (!v) {
+    return null;
+  }
+  try {
+    const arr: unknown = JSON.parse(v);
+    return Array.isArray(arr) && arr.length ? (arr as string[]) : null;
+  } catch {
+    return [v]; // legacy single-value filter
+  }
+}
+
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
@@ -167,26 +195,23 @@ export function App() {
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
 
-  // Team roster + filter, persisted in localStorage. The roster is the union of
-  // the teams found on the board and any teams the user has added by hand; the
-  // filter is the subset of the roster currently shown (defaults to everything).
-  const [addedTeams, setAddedTeams] = useState<string[]>(
-    () => readStringList(LS_TEAM_ROSTER) ?? [],
+  // Team roster + filter, persisted in localStorage PER BOARD. The roster is
+  // the union of the teams found on the board and any teams the user has added
+  // by hand; the filter is the subset of the roster currently shown (defaults
+  // to everything). Both are seeded for the last-used board and swapped by
+  // doLoad when another board is opened.
+  const initialBoardKeyRef = useRef(
+    `${localStorage.getItem(LS_OWNER) ?? ""}/${localStorage.getItem(LS_PROJECT) ?? ""}`,
+  );
+  const boardKeyRef = useRef(initialBoardKeyRef.current);
+  const [addedTeams, setAddedTeams] = useState<string[]>(() =>
+    readRosterFor(boardKeyRef.current, true),
   );
   // Team filter: null = all, else the selected groups ("" = no-team). Multi-select
   // — Shift-click a chip to add/remove it.
-  const [teamFilter, setTeamFilter] = useState<string[] | null>(() => {
-    const v = localStorage.getItem(LS_TEAM_FILTER);
-    if (!v) {
-      return null;
-    }
-    try {
-      const arr: unknown = JSON.parse(v);
-      return Array.isArray(arr) && arr.length ? (arr as string[]) : null;
-    } catch {
-      return [v]; // legacy single-value filter
-    }
-  });
+  const [teamFilter, setTeamFilter] = useState<string[] | null>(() =>
+    readFilterFor(boardKeyRef.current, true),
+  );
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
   useEffect(() => {
@@ -298,7 +323,7 @@ export function App() {
   // Reorder the whole roster (from the manage dialog) and persist the order.
   const reorderTeams = useCallback((ordered: string[]) => {
     setAddedTeams(ordered);
-    writeStringList(LS_TEAM_ROSTER, ordered);
+    writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), ordered);
   }, []);
 
   const addTeam = useCallback((team: string) => {
@@ -311,7 +336,7 @@ export function App() {
         return cur;
       }
       const next = [...cur, t];
-      writeStringList(LS_TEAM_ROSTER, next);
+      writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
       return next;
     });
   }, []);
@@ -319,7 +344,7 @@ export function App() {
   const removeTeam = useCallback((team: string) => {
     setAddedTeams((cur) => {
       const next = cur.filter((t) => t !== team);
-      writeStringList(LS_TEAM_ROSTER, next);
+      writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
       return next;
     });
     // Drop the removed team from the filter (clearing it if it becomes empty).
@@ -332,17 +357,28 @@ export function App() {
     });
   }, []);
 
-  // Persist the filter whenever it changes (null means "all", we store nothing).
+  // Persist the filter whenever it changes (null means "all", we store
+  // nothing). boardKeyRef is updated synchronously by doLoad before the
+  // swapped-in filter state lands, so the write always hits the right board.
   useEffect(() => {
+    const key = scopedLS(LS_TEAM_FILTER, boardKeyRef.current);
     if (teamFilter === null) {
-      localStorage.removeItem(LS_TEAM_FILTER);
+      localStorage.removeItem(key);
     } else {
-      localStorage.setItem(LS_TEAM_FILTER, JSON.stringify(teamFilter));
+      localStorage.setItem(key, JSON.stringify(teamFilter));
     }
   }, [teamFilter]);
 
   const doLoad = useCallback(
     async (ownerArg: string, numberArg: number) => {
+      // Another board: swap in ITS saved roster and filter before anything
+      // renders, so board 36's teams never leak into board 37's view.
+      const boardKey = `${ownerArg}/${numberArg}`;
+      if (boardKey !== boardKeyRef.current) {
+        boardKeyRef.current = boardKey;
+        setAddedTeams(readRosterFor(boardKey, boardKey === initialBoardKeyRef.current));
+        setTeamFilter(readFilterFor(boardKey, boardKey === initialBoardKeyRef.current));
+      }
       beginLoad();
       setError(null);
       try {
@@ -736,7 +772,7 @@ export function App() {
       }
       setAddedTeams((cur) => {
         const next = [...new Set(cur.map((x) => (x === from ? t : x)))];
-        writeStringList(LS_TEAM_ROSTER, next);
+        writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
         return next;
       });
       setTeamFilter((cur) =>
