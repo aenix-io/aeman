@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/ghprojects"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // *ghprojects.Client must satisfy Backend structurally (no boardservice import in
@@ -1349,12 +1349,12 @@ func TestCreateCardFromPullURLUnresolved(t *testing.T) {
 	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	svc := New(fake)
 	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
-		Team: "alpha", Title: "https://github.com/aenix-org/cozyportal/pull/1234",
+		Team: "alpha", Title: "https://github.com/acme/webapp/pull/1234",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.Title != "Pull: aenix-org/cozyportal#1234" {
+	if card.Title != "Pull: acme/webapp#1234" {
 		t.Fatalf("title = %q, want the pull fallback label", card.Title)
 	}
 }

@@ -8,8 +8,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aenix-org/aeman/pkg/boardservice"
-	"github.com/aenix-org/aeman/pkg/mcpserver"
+	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/mcpserver"
 )
 
 // mcpTokenCtxKey carries the caller's GitHub token down to the tool handlers'

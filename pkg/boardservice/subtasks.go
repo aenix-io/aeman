@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // ErrSubtaskDepth is returned when grouping would nest deeper than one level:
