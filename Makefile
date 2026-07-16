@@ -2,7 +2,7 @@ BINARY := aeman
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-REGISTRY ?= ghcr.io/aenix-org
+REGISTRY ?= ghcr.io/aenix-io
 IMAGE_TAG ?= latest
 NAMESPACE ?= aenix-aeman
 RELEASE ?= aeman

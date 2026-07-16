@@ -3,4 +3,4 @@ name: aeman
 description: A short-term planning system for engineering teams on top of GitHub Projects v2
 type: application
 version: 0.1.0
-appVersion: "0.5.0"
+appVersion: "0.8.0"
