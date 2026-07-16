@@ -327,7 +327,7 @@ func TestLoadBoardOrgMissingProject(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client := New("test-token", WithEndpoint(srv.URL))
-	_, err := client.LoadProjectBoard(context.Background(), "aenix-org", 999999)
+	_, err := client.LoadProjectBoard(context.Background(), "acme", 999999)
 	if !errors.Is(err, ErrBoardNotFound) {
 		t.Fatalf("err = %v, want ErrBoardNotFound", err)
 	}

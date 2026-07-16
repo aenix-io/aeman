@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aenix-org/aeman/internal/ghcli"
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/boardservice"
-	"github.com/aenix-org/aeman/web"
+	"github.com/aenix-io/aeman/internal/ghcli"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/web"
 )
 
 // githubAPIBase is the upstream the proxy forwards GitHub requests to.

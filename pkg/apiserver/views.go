@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // Selector scopes a card LIST or watch subscription. View selectors reproduce

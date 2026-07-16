@@ -28,12 +28,12 @@ import (
 	"log"
 	"os"
 
-	"github.com/aenix-org/aeman/pkg/mcpserver"
+	"github.com/aenix-io/aeman/pkg/mcpserver"
 )
 
 func main() {
 	srv := mcpserver.New(mcpserver.Config{
-		Owner:   "aenix-org",
+		Owner:   "acme",
 		Project: 37,
 		Version: "my-mcp-0.1",
 		// The token never leaves this process: the backend talks to
@@ -59,14 +59,14 @@ client := ghprojects.New(os.Getenv("GITHUB_TOKEN"))
 svc := boardservice.New(client)
 
 // Everything the board can do, with admission applied:
-cards, _ := svc.Board(ctx, "aenix-org", 37)      // load
-_ = svc.Defer(ctx, "aenix-org", 37, uid, 1)      // the +1d rule, incl. same-day relocation
-_ = svc.Remove(ctx, "aenix-org", 37, uid, "grid") // demote / release / delete by board rules
-rep, _ := svc.CarryOver(ctx, "aenix-org", 37, "team", false)
+cards, _ := svc.Board(ctx, "acme", 37)      // load
+_ = svc.Defer(ctx, "acme", 37, uid, 1)      // the +1d rule, incl. same-day relocation
+_ = svc.Remove(ctx, "acme", 37, uid, "grid") // demote / release / delete by board rules
+rep, _ := svc.CarryOver(ctx, "acme", 37, "team", false)
 ```
 
 For read-side shapes (semantic zones, derived status, view selectors) use `pkg/apiserver`: `apiserver.CardResource`, `apiserver.FilterCards`, `apiserver.ListCards`.
 
 ## Versioning
 
-The module is pre-1.0: minor versions may move things around. Pin a tag (`go get github.com/aenix-org/aeman@vX.Y.Z`) and read the [behavior matrix](design/behavior-matrix.md) — it enumerates every rule the contract carries, with the test that pins it.
+The module is pre-1.0: minor versions may move things around. Pin a tag (`go get github.com/aenix-io/aeman@vX.Y.Z`) and read the [behavior matrix](design/behavior-matrix.md) — it enumerates every rule the contract carries, with the test that pins it.

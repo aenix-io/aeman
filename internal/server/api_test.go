@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aenix-org/aeman/pkg/apiserver"
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/boardservice"
-	"github.com/aenix-org/aeman/pkg/boardservice/boardservicetest"
+	"github.com/aenix-io/aeman/pkg/apiserver"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
 
 // apiServer wires an aeman Server whose /api/v1 board service is backed by the

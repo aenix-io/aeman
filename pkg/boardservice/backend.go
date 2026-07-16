@@ -8,7 +8,7 @@ package boardservice
 import (
 	"context"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // Backend abstracts the storage backend a board lives in (GitHub Projects v2
