@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/apiserver"
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/apiserver"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
 // watchFrame is one event on the watch stream: a typed change to a Card,
@@ -65,6 +69,19 @@ func clientIDFrom(ctx context.Context) string {
 // it from the backend, so edits made outside aeman eventually surface.
 const boardFreshFor = 30 * time.Second
 
+// boardStaleMax bounds how old a snapshot a read-only request may still be
+// served while the store revalidates in the background. Past it (the first
+// visit of the morning) the read blocks on a fresh load instead of flashing
+// hours-old state.
+const boardStaleMax = 10 * time.Minute
+
+// authFreshFor bounds how long a login's proven read access backs a fresh
+// cache hit. An older proof (up to boardStaleMax) degrades the hit to stale:
+// still served to read paths, while the background reload re-checks the
+// token — so access revoked on GitHub takes effect within boardStaleMax, and
+// within this window for callers that cannot accept stale data.
+const authFreshFor = 60 * time.Second
+
 // boardEntry is the cached board plus its watcher set for one owner/project.
 type boardEntry struct {
 	mu sync.Mutex
@@ -82,6 +99,12 @@ type boardEntry struct {
 	// view — ephemeral shared-cursor state, never persisted, cleared when the
 	// client's watch connection goes away.
 	presence map[string]presenceEntry
+	// authed records, per login, when that user's own GitHub token last proved
+	// it can read this board (a token-scoped backend load succeeded). The
+	// shared cache is keyed only by owner/project, so without this a warm board
+	// would be served to any signed-in user regardless of access; a cache hit
+	// is allowed only for a login that authorized within authFreshFor.
+	authed map[string]time.Time
 	// recentCards / recentGone guard the cache against GitHub's eventually
 	// consistent item list: a card created (or deleted) through aeman seconds
 	// ago may still be missing from (or present in) a fresh full load, and a
@@ -89,6 +112,16 @@ type boardEntry struct {
 	// touched within recentGrace are re-applied on top of every full reload.
 	recentCards map[string]time.Time
 	recentGone  map[string]time.Time
+	// pending is the write-behind queue: changes already live in this cache
+	// that GitHub has not confirmed yet (see writequeue.go). inflight is the
+	// op currently on the wire (still unconfirmed, so counters and reload
+	// replays include it); draining marks the background worker as running.
+	pending  []pendingOp
+	inflight *pendingOp
+	draining bool
+	// recentMove is when a local reorder last touched this board: within
+	// recentGrace the cached order outweighs a fresh (possibly stale) read.
+	recentMove time.Time
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -138,27 +171,165 @@ func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
 		fresh.Cards = kept
 	}
 	if len(e.recentCards) > 0 {
-		have := map[string]bool{}
-		for _, c := range fresh.Cards {
-			have[c.ItemID] = true
+		// A recently-written card's CACHED copy outweighs the fresh read for
+		// the whole grace window: GitHub's read replicas lag its writes by
+		// seconds, so a revalidation right after the queue drained would
+		// otherwise install the pre-write values — the user's progress/stage
+		// silently rolled back, then came back on a later reload.
+		oldByID := make(map[string]board.Card, len(e.board.Cards))
+		for _, c := range e.board.Cards {
+			oldByID[c.ItemID] = c
 		}
-		for _, old := range e.board.Cards {
-			if _, recent := e.recentCards[old.ItemID]; recent && !have[old.ItemID] {
-				fresh.Cards = append(fresh.Cards, old)
+		have := map[string]bool{}
+		for i := range fresh.Cards {
+			have[fresh.Cards[i].ItemID] = true
+			if _, recent := e.recentCards[fresh.Cards[i].ItemID]; !recent {
+				continue
+			}
+			if old, ok := oldByID[fresh.Cards[i].ItemID]; ok {
+				fresh.Cards[i] = old
 			}
 		}
+		// A recent card the lagging read hasn't caught up with is restored
+		// AT ITS CACHED SLOT — right after the nearest cached predecessor the
+		// fresh read knows — not appended at the end: the append made every
+		// revalidation shortly after a create visibly throw the new card (and
+		// everything below it) to the bottom of the board.
+		pos := make(map[string]int, len(fresh.Cards))
+		for i, c := range fresh.Cards {
+			pos[c.ItemID] = i
+		}
+		for ci, old := range e.board.Cards {
+			if _, recent := e.recentCards[old.ItemID]; !recent || have[old.ItemID] {
+				continue
+			}
+			at := 0
+			for j := ci - 1; j >= 0; j-- {
+				if p, ok := pos[e.board.Cards[j].ItemID]; ok {
+					at = p + 1
+					break
+				}
+			}
+			fresh.Cards = append(fresh.Cards, board.Card{})
+			copy(fresh.Cards[at+1:], fresh.Cards[at:])
+			fresh.Cards[at] = old
+			have[old.ItemID] = true
+			for id, p := range pos {
+				if p >= at {
+					pos[id] = p + 1
+				}
+			}
+			pos[old.ItemID] = at
+		}
+	}
+	// The same lag rolls back the ORDER a local move just wrote: while a
+	// recent move is inside the grace window, the cached order wins for the
+	// cards both sides know; fresh-only cards keep their fetched positions.
+	if !e.recentMove.IsZero() && now.Sub(e.recentMove) <= recentGrace {
+		rank := make(map[string]int, len(e.board.Cards))
+		for i, c := range e.board.Cards {
+			rank[c.ItemID] = i
+		}
+		known := make([]board.Card, 0, len(fresh.Cards))
+		fixed := map[int]board.Card{}
+		for i, c := range fresh.Cards {
+			if _, ok := rank[c.ItemID]; ok {
+				known = append(known, c)
+			} else {
+				fixed[i] = c
+			}
+		}
+		sortCardsByRank(known, rank)
+		merged := make([]board.Card, 0, len(fresh.Cards))
+		ki := 0
+		for i := 0; i < len(fresh.Cards); i++ {
+			if c, ok := fixed[i]; ok {
+				merged = append(merged, c)
+				continue
+			}
+			merged = append(merged, known[ki])
+			ki++
+		}
+		fresh.Cards = merged
 	}
 	return fresh
 }
 
-// fresh returns the cached board while it is loaded and within its TTL.
-func (e *boardEntry) fresh() (board.Board, bool) {
+// sortCardsByRank orders cards by their previous cache positions (stable).
+func sortCardsByRank(cards []board.Card, rank map[string]int) {
+	sort.SliceStable(cards, func(i, j int) bool {
+		return rank[cards[i].ItemID] < rank[cards[j].ItemID]
+	})
+}
+
+// cacheState grades a cache lookup: a fresh hit is served to anyone allowed,
+// a stale one only to read paths that revalidate in the background, a miss
+// always loads.
+type cacheState int
+
+const (
+	cacheMiss cacheState = iota
+	cacheStale
+	cacheFresh
+)
+
+// cached returns the board and how usable it is for this caller. cacheFresh
+// needs both the board within boardFreshFor and, for a named login (OAuth
+// multi-user mode; an empty login is the single local user, always allowed),
+// token-scoped access proven within authFreshFor. Past either TTL — but with
+// the board loaded and the login's proof both within boardStaleMax — the hit
+// degrades to cacheStale: read paths may serve it while a background reload
+// with the caller's own token refreshes the board AND re-proves their access,
+// so a revoked token stops refreshing its proof and hard-fails within
+// boardStaleMax. A login that never proved access always misses — the shared
+// cache is keyed only by owner/project, and this gate is what keeps one
+// user's warm board from leaking to another. multiUser forces the login check
+// even if a login somehow arrives empty, so an OAuth deployment never serves
+// the cache without a per-user authorization.
+func (e *boardEntry) cached(login string, multiUser bool) (board.Board, cacheState) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.loaded && time.Since(e.loadedAt) < boardFreshFor {
-		return e.board, true
+	if !e.loaded {
+		return board.Board{}, cacheMiss
 	}
-	return board.Board{}, false
+	age := time.Since(e.loadedAt)
+	if age >= boardStaleMax {
+		return board.Board{}, cacheMiss
+	}
+	authAge := time.Duration(0)
+	if multiUser || login != "" {
+		ts, ok := e.authed[login]
+		if login == "" || !ok {
+			return board.Board{}, cacheMiss
+		}
+		authAge = time.Since(ts)
+		if authAge >= boardStaleMax {
+			return board.Board{}, cacheMiss
+		}
+	}
+	if age >= boardFreshFor || authAge >= authFreshFor {
+		return e.board, cacheStale
+	}
+	return e.board, cacheFresh
+}
+
+// markAuthed records that a login's own token just proved read access, and
+// sweeps entries too old to back even a stale hit so the map tracks only
+// currently-active users. The caller holds e.mu.
+func (e *boardEntry) markAuthed(login string) {
+	if login == "" {
+		return
+	}
+	if e.authed == nil {
+		e.authed = map[string]time.Time{}
+	}
+	now := time.Now()
+	for l, ts := range e.authed {
+		if now.Sub(ts) >= boardStaleMax {
+			delete(e.authed, l)
+		}
+	}
+	e.authed[login] = now
 }
 
 // cardChanged fans one card change out to the subscriptions. The caller holds
@@ -318,23 +489,23 @@ func (s *boardStore) ClearPresence(key, clientID string) {
 	e.mu.Unlock()
 }
 
-// moveCardTo reorders the cached card to sit after afterID ("" = the top), so
-// snapshots keep serving the board in its real order after a move.
-func (e *boardEntry) moveCardTo(itemID, afterID string) {
+// moveCardAfter reorders cards so itemID sits after afterID ("" = the top),
+// keeping snapshots (and write-behind replays) in the board's real order.
+func moveCardAfter(cards []board.Card, itemID, afterID string) []board.Card {
 	idx := -1
-	for i := range e.board.Cards {
-		if e.board.Cards[i].ItemID == itemID {
+	for i := range cards {
+		if cards[i].ItemID == itemID {
 			idx = i
 			break
 		}
 	}
 	if idx < 0 {
-		return
+		return cards
 	}
-	card := e.board.Cards[idx]
-	rest := make([]board.Card, 0, len(e.board.Cards)-1)
-	rest = append(rest, e.board.Cards[:idx]...)
-	rest = append(rest, e.board.Cards[idx+1:]...)
+	card := cards[idx]
+	rest := make([]board.Card, 0, len(cards)-1)
+	rest = append(rest, cards[:idx]...)
+	rest = append(rest, cards[idx+1:]...)
 	pos := 0
 	if afterID != "" {
 		for i := range rest {
@@ -348,7 +519,7 @@ func (e *boardEntry) moveCardTo(itemID, afterID string) {
 	out = append(out, rest[:pos]...)
 	out = append(out, card)
 	out = append(out, rest[pos:]...)
-	e.board.Cards = out
+	return out
 }
 
 // upsertCard replaces the cached card with the same item id, or appends it.
@@ -430,6 +601,13 @@ func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, re
 			sub.send(watchFrame{Type: "MODIFIED", Kind: "Presence", Object: entry})
 		}
 	}
+	// Seed the unsynced-changes counter: a tab opened while the write-behind
+	// queue is non-empty must show the number right away.
+	if len(e.pending) > 0 {
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Queue", Object: map[string]int{
+			"pending": len(e.pending),
+		}})
+	}
 	e.mu.Unlock()
 	return sub, func() {
 		e.mu.Lock()
@@ -457,35 +635,164 @@ func (s *boardStore) reevaluateAll(key string) {
 type storeBackend struct {
 	inner boardservice.Backend
 	store *boardStore
+	// multiUser is set in OAuth mode, where each request carries a distinct
+	// user's token: a cache hit is then gated on that login having proven
+	// token-scoped access. Off in local-proxy mode (a single gh identity).
+	multiUser bool
 }
 
 var _ boardservice.Backend = (*storeBackend)(nil)
 
-// LoadBoard serves the cached board while it is fresh, otherwise reloads it from
-// the backend and caches it (single-flight: concurrent misses share one fetch).
-// External edits surface on the next reload.
+// LoadBoard serves the cached board while it is fresh. A stale-but-recent
+// board is still served instantly to read paths that opted in (staleControl in
+// ctx) while a background reload revalidates it — watchers then receive the
+// diff as ordinary events plus a Sync frame. Everything else (mutation reads,
+// cold or too-old caches, unauthorized logins) blocks on a fresh load
+// (single-flight: concurrent misses share one fetch).
 func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
 	e := b.store.entry(storeKey(owner, project))
-	if bd, ok := e.fresh(); ok {
+	login := board.ActorFrom(ctx)
+	bd, state := e.cached(login, b.multiUser)
+	if state == cacheFresh {
 		return bd, nil
+	}
+	if state == cacheStale {
+		if sc := staleControlFrom(ctx); sc != nil {
+			b.revalidate(ctx, e, owner, project)
+			sc.served.Store(true)
+			return bd, nil
+		}
 	}
 	e.loadMu.Lock()
 	defer e.loadMu.Unlock()
 	// A concurrent loader may have refreshed the cache while we waited.
-	if bd, ok := e.fresh(); ok {
+	if bd, state := e.cached(login, b.multiUser); state == cacheFresh {
 		return bd, nil
 	}
-	bd, err := b.inner.LoadBoard(ctx, owner, project)
+	// The token-scoped backend load is the authorization check: GitHub rejects a
+	// token that can't read this board, so reaching a cached result requires
+	// having passed it (recorded per login in install).
+	fresh, err := b.inner.LoadBoard(ctx, owner, project)
 	if err != nil {
 		return board.Board{}, err
 	}
+	return b.install(e, fresh, login), nil
+}
+
+// revalidate refreshes a stale cache in the background with the requesting
+// user's token (kept past the response via WithoutCancel). Single-flight: when
+// a load is already running its completion will broadcast, so this one backs
+// off instead of stacking a second upstream fetch.
+func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, owner string, project int) {
+	if !e.loadMu.TryLock() {
+		return
+	}
+	login := board.ActorFrom(ctx)
+	bctx := context.WithoutCancel(ctx)
+	go func() {
+		defer e.loadMu.Unlock()
+		fresh, err := b.inner.LoadBoard(bctx, owner, project)
+		if err != nil {
+			// The stale snapshot stays served; tell clients to drop their
+			// revalidation hold and let a later read retry.
+			e.mu.Lock()
+			e.syncBroadcast()
+			e.mu.Unlock()
+			return
+		}
+		b.install(e, fresh, login)
+	}()
+}
+
+// install replaces the cache with a freshly loaded board, records the loading
+// login's proven access, fans the diff against the previous snapshot out to
+// watchers as ordinary events, and closes with a Sync frame. Returns the
+// installed board (with recent local mutations re-applied).
+func (b *storeBackend) install(e *boardEntry, fresh board.Board, login string) board.Board {
 	e.mu.Lock()
-	bd = e.applyRecent(bd)
-	e.board = bd
+	defer e.mu.Unlock()
+	old := e.board
+	hadOld := e.loaded
+	fresh = e.applyRecent(fresh)
+	e.board = fresh
+	// Replay the write-behind queue on top (the in-flight op first): these
+	// changes are live in the cache but not confirmed by GitHub yet, so a
+	// fresh load — which predates them — must not roll them back.
+	if e.inflight != nil {
+		e.inflight.apply(&e.board)
+	}
+	for _, op := range e.pending {
+		op.apply(&e.board)
+	}
 	e.loaded = true
 	e.loadedAt = time.Now()
-	e.mu.Unlock()
-	return bd, nil
+	e.markAuthed(login)
+	if hadOld {
+		e.diffNotify(old)
+	}
+	e.syncBroadcast()
+	return e.board
+}
+
+// diffNotify announces everything a full reload changed against the previous
+// snapshot — external edits made outside aeman become watch events just like
+// aeman-mediated ones. The caller holds e.mu with the new board installed.
+func (e *boardEntry) diffNotify(old board.Board) {
+	oldByID := make(map[string]board.Card, len(old.Cards))
+	for _, c := range old.Cards {
+		oldByID[c.ItemID] = c
+	}
+	seen := make(map[string]bool, len(e.board.Cards))
+	for _, c := range e.board.Cards {
+		seen[c.ItemID] = true
+		prev, ok := oldByID[c.ItemID]
+		switch {
+		case !ok:
+			e.cardChanged("", c, "ADDED")
+		case !reflect.DeepEqual(prev, c):
+			e.cardChanged("", c, "MODIFIED")
+		}
+	}
+	for _, c := range old.Cards {
+		if !seen[c.ItemID] {
+			e.cardChanged("", c, "DELETED")
+		}
+	}
+	for team, st := range e.board.SprintStates {
+		if old.SprintStates[team] != st {
+			e.sprintChanged("", team)
+		}
+	}
+	for team := range old.SprintStates {
+		if _, ok := e.board.SprintStates[team]; !ok {
+			e.sprintChanged("", team)
+		}
+	}
+	orderChanged := len(old.Cards) != len(e.board.Cards)
+	if !orderChanged {
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID != old.Cards[i].ItemID {
+				orderChanged = true
+				break
+			}
+		}
+	}
+	if orderChanged {
+		e.orderingChanged("")
+	}
+}
+
+// syncBroadcast tells every watcher a full reload just finished. Clients that
+// were served a stale snapshot use it to drop their revalidation hold — the
+// data itself already arrived as the diff's ordinary events. The caller holds
+// e.mu.
+func (e *boardEntry) syncBroadcast() {
+	frame := watchFrame{Type: "MODIFIED", Kind: "Sync", Object: map[string]string{
+		"loadedAt": e.loadedAt.UTC().Format(time.RFC3339),
+	}}
+	for sub := range e.watchers {
+		sub.send(frame)
+	}
 }
 
 // LoadCards passes straight through: it is already a partial read.
@@ -495,6 +802,10 @@ func (b *storeBackend) LoadCards(ctx context.Context, bd board.Board, ids []stri
 
 // touched reloads the one card a mutation changed, updates the cache and emits a
 // MODIFIED event. Reload failures are swallowed: the periodic re-list reconciles.
+// The write-behind queue (in-flight op included) is replayed on top of the fresh
+// copy: this refresh runs while later queued writes to the same card may exist
+// (rapid note adds), and the upstream copy predates them — without the replay
+// their changes would vanish from the cache until the queue drains.
 func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID string) {
 	cards, err := b.inner.LoadCards(ctx, bd, []string{itemID})
 	if err != nil || len(cards) == 0 {
@@ -503,9 +814,36 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	card := cards[0]
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	// Refresh, never resurrect: the card may have been deleted while this
+	// op drained, and GitHub's lagging read replicas can still return it —
+	// upserting would bring it back AND markRecent below would strip its
+	// recentGone protection, so the ghost then survives every reload for
+	// the whole grace window.
+	known := false
+	for i := range e.board.Cards {
+		if e.board.Cards[i].ItemID == card.ItemID {
+			known = true
+			break
+		}
+	}
+	if !known {
+		e.mu.Unlock()
+		return
+	}
 	e.upsertCard(card)
+	if e.inflight != nil {
+		e.inflight.apply(&e.board)
+	}
+	for _, op := range e.pending {
+		op.apply(&e.board)
+	}
 	e.markRecent(card.ItemID)
-	e.cardChanged(clientIDFrom(ctx), card, "MODIFIED")
+	for i := range e.board.Cards {
+		if e.board.Cards[i].ItemID == itemID {
+			e.cardChanged(clientIDFrom(ctx), e.board.Cards[i], "MODIFIED")
+			break
+		}
+	}
 	e.mu.Unlock()
 }
 
@@ -538,160 +876,378 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 
 // MoveCard applies the new position to the cached order (so lists keep the
 // board's real order) and announces the new Ordering to other clients — the
-// originator already reordered optimistically.
+// originator already reordered optimistically. The GitHub write is queued.
 func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
-	if err := b.inner.MoveCard(ctx, bd, card, afterID); err != nil {
-		return err
-	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
-	e.moveCardTo(card.ItemID, afterID)
+	e.board.Cards = moveCardAfter(e.board.Cards, card.ItemID, afterID)
+	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
 	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key:    "move:" + card.ItemID,
+		itemID: card.ItemID,
+		desc:   "move " + cardRef(card),
+		apply: func(target *board.Board) {
+			target.Cards = moveCardAfter(target.Cards, card.ItemID, afterID)
+		},
+		exec: func(ctx context.Context) error {
+			return b.inner.MoveCard(ctx, bd, card, afterID)
+		},
+	})
 	return nil
 }
 
-func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card board.Card, e board.Event) error {
-	if err := b.inner.AppendEvent(ctx, bd, card, e); err != nil {
-		return err
+// draftBodySyncer is the one-shot draft-body writer the DeltaFIFO body merge
+// uses when the upstream backend supports it (ghprojects does; test fakes
+// without it fall back to per-op writes).
+type draftBodySyncer interface {
+	SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error)
+}
+
+// bodyMutate queues a draft card's body-affecting change (description, note,
+// event line) as ONE coalescing op per card (key "body:<id>"): the cache
+// changes immediately as usual, and the queued write pushes the card's FINAL
+// cached body state upstream in a single write — rapid note adds, description
+// edits and logged events on one card merge DeltaFIFO-style instead of racing
+// several read-modify-write cycles against the same draft body.
+func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card board.Card, desc string, fn func(c *board.Card), fallback func(ctx context.Context) error) {
+	syncer, ok := b.inner.(draftBodySyncer)
+	if !ok || !card.IsDraft {
+		b.mutateCard(ctx, bd, card.ItemID, "", desc, fn, fallback)
+		return
 	}
-	b.touched(ctx, bd, card.ItemID)
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	itemID := card.ItemID
+	exec := func(ctx context.Context) error {
+		e.mu.Lock()
+		var snap *board.Card
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID == itemID {
+				cp := e.board.Cards[i]
+				cp.Notes = append([]board.Note(nil), cp.Notes...)
+				cp.Events = append([]board.Event(nil), cp.Events...)
+				snap = &cp
+				break
+			}
+		}
+		e.mu.Unlock()
+		if snap == nil {
+			return nil // deleted meanwhile — nothing left to write
+		}
+		notes, events, err := syncer.SyncDraftBody(ctx, card, snap.Description, snap.Notes, snap.Events)
+		if err != nil {
+			return err
+		}
+		// The written body IS the canonical state: swap the cached log to it
+		// (real draft line-index ids included) and replay the still-pending
+		// deltas on top. No upstream re-read — right after a write it is
+		// often stale and would make fresh notes flicker away.
+		e.mu.Lock()
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID != itemID {
+				continue
+			}
+			e.board.Cards[i].Notes = notes
+			e.board.Cards[i].Events = events
+			if e.inflight != nil {
+				e.inflight.apply(&e.board)
+			}
+			for _, op := range e.pending {
+				op.apply(&e.board)
+			}
+			e.markRecent(itemID)
+			e.cardChanged("", e.board.Cards[i], "MODIFIED")
+			break
+		}
+		e.mu.Unlock()
+		return nil
+	}
+	b.mutateCardOp(ctx, bd, itemID, "body", desc, true, fn, exec)
+}
+
+// wbSeq makes synthetic (:wb:) ids unique: timestamps alone carry second
+// precision, so rapid same-second adds would collide and the id-dedupe in the
+// cache apply would silently swallow all but the first.
+var wbSeq atomic.Int64
+
+func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card board.Card, ev board.Event) error {
+	// Synthesize a stable id for the cached copy (the real one appears on the
+	// next full read); the presence guard keeps the replayed append from
+	// duplicating the event once GitHub starts returning it.
+	ev.ID = fmt.Sprintf("%s:wb:%s:%s:%d", card.ItemID, ev.At, ev.Kind, wbSeq.Add(1))
+	b.bodyMutate(ctx, bd, card, "log a change on "+cardRef(card), func(c *board.Card) {
+		for _, x := range c.Events {
+			if x.Kind == ev.Kind && x.At == ev.At && x.From == ev.From && x.To == ev.To {
+				return
+			}
+		}
+		c.Events = append(c.Events, ev)
+	}, func(ctx context.Context) error {
+		return b.inner.AppendEvent(ctx, bd, card, ev)
+	})
 	return nil
 }
+
+// Notes are write-behind like the field setters, with one extra wrinkle: a
+// note's real id is assigned upstream (a comment node id, or a draft body
+// line index), so the cached copy carries a synthetic ":wb:" id until the
+// queued write lands and the worker re-reads the card. Edits and deletes of
+// a note that is still synthetic resolve it upstream by its body at exec
+// time (FIFO guarantees the add was pushed first).
 
 func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.Card, text string) error {
-	if err := b.inner.AddNote(ctx, bd, card, text); err != nil {
-		return err
+	now := time.Now().UTC().Format(time.RFC3339)
+	note := board.Note{
+		ID:        fmt.Sprintf("%s:wb:%s:%d", card.ItemID, now, wbSeq.Add(1)),
+		Body:      text,
+		CreatedAt: now,
+		Author:    board.ActorFrom(ctx),
+		Source:    "draft",
 	}
-	b.touched(ctx, bd, card.ItemID)
+	if !card.IsDraft {
+		note.Source = "comment"
+	}
+	b.bodyMutate(ctx, bd, card, "add a note on "+cardRef(card), func(c *board.Card) {
+		for _, n := range c.Notes {
+			if n.ID == note.ID || (n.Body == note.Body && n.Author == note.Author) {
+				return
+			}
+		}
+		c.Notes = append(c.Notes, note)
+	}, func(ctx context.Context) error {
+		if err := b.inner.AddNote(ctx, bd, card, text); err != nil {
+			return err
+		}
+		// Swap the synthetic note for the real one (and its real id).
+		b.touched(ctx, bd, card.ItemID)
+		return nil
+	})
 	return nil
 }
 
 func (b *storeBackend) EditNote(ctx context.Context, bd board.Board, card board.Card, note board.Note, text string) error {
-	if err := b.inner.EditNote(ctx, bd, card, note, text); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.bodyMutate(ctx, bd, card, "edit a note on "+cardRef(card), func(c *board.Card) {
+		for i := range c.Notes {
+			if c.Notes[i].ID == note.ID ||
+				(c.Notes[i].Body == note.Body && c.Notes[i].Author == note.Author) {
+				c.Notes[i].Body = text
+				return
+			}
+		}
+	}, func(ctx context.Context) error {
+		real, err := b.resolveNote(ctx, bd, card.ItemID, note)
+		if err != nil {
+			return err
+		}
+		if err := b.inner.EditNote(ctx, bd, card, real, text); err != nil {
+			return err
+		}
+		b.touched(ctx, bd, card.ItemID)
+		return nil
+	})
 	return nil
 }
 
 func (b *storeBackend) DeleteNote(ctx context.Context, bd board.Board, card board.Card, note board.Note) error {
-	if err := b.inner.DeleteNote(ctx, bd, card, note); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.bodyMutate(ctx, bd, card, "delete a note on "+cardRef(card), func(c *board.Card) {
+		kept := c.Notes[:0]
+		removed := false
+		for _, n := range c.Notes {
+			if !removed && (n.ID == note.ID || (n.Body == note.Body && n.Author == note.Author)) {
+				removed = true
+				continue
+			}
+			kept = append(kept, n)
+		}
+		c.Notes = kept
+	}, func(ctx context.Context) error {
+		real, err := b.resolveNote(ctx, bd, card.ItemID, note)
+		if err != nil {
+			return err
+		}
+		if err := b.inner.DeleteNote(ctx, bd, card, real); err != nil {
+			return err
+		}
+		// Draft note ids are body line indexes: deleting a line shifts the
+		// ones after it, so re-sync the cached ids right away.
+		b.touched(ctx, bd, card.ItemID)
+		return nil
+	})
 	return nil
 }
 
-func (b *storeBackend) SetDescription(ctx context.Context, bd board.Board, card board.Card, description string) error {
-	if err := b.inner.SetDescription(ctx, bd, card, description); err != nil {
-		return err
+// resolveNote maps a still-synthetic (":wb:") note reference onto the real
+// upstream note by matching its body, taking the newest match. A real id
+// passes through untouched.
+func (b *storeBackend) resolveNote(ctx context.Context, bd board.Board, itemID string, note board.Note) (board.Note, error) {
+	if !strings.Contains(note.ID, ":wb:") {
+		return note, nil
 	}
-	b.touched(ctx, bd, card.ItemID)
+	cards, err := b.inner.LoadCards(ctx, bd, []string{itemID})
+	if err != nil {
+		return note, err
+	}
+	if len(cards) == 0 {
+		return note, fmt.Errorf("card %s not found upstream", itemID)
+	}
+	found := -1
+	for i, n := range cards[0].Notes {
+		if n.Body == note.Body && (note.Author == "" || n.Author == "" || n.Author == note.Author) {
+			found = i
+		}
+	}
+	if found < 0 {
+		return note, fmt.Errorf("the note was not found upstream")
+	}
+	return cards[0].Notes[found], nil
+}
+
+// The field setters below are write-behind: the cache changes (and watchers
+// hear about it) immediately, the GitHub write is queued — see writequeue.go.
+
+func (b *storeBackend) SetDescription(ctx context.Context, bd board.Board, card board.Card, description string) error {
+	apply := func(c *board.Card) {
+		c.Description = description
+	}
+	exec := func(ctx context.Context) error {
+		return b.inner.SetDescription(ctx, bd, card, description)
+	}
+	if card.IsDraft {
+		b.bodyMutate(ctx, bd, card, "edit the description of "+cardRef(card), apply, exec)
+		return nil
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "description", "edit the description of "+cardRef(card), apply, exec)
 	return nil
 }
 
 func (b *storeBackend) RenameCard(ctx context.Context, bd board.Board, card board.Card, title string) error {
-	if err := b.inner.RenameCard(ctx, bd, card, title); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "title", "rename "+cardRef(card), func(c *board.Card) {
+		c.Title = title
+	}, func(ctx context.Context) error {
+		return b.inner.RenameCard(ctx, bd, card, title)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetStage(ctx context.Context, bd board.Board, card board.Card, stage board.StageKey) error {
-	if err := b.inner.SetStage(ctx, bd, card, stage); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "stage", "set the stage on "+cardRef(card), func(c *board.Card) {
+		c.Stage = stage
+	}, func(ctx context.Context) error {
+		return b.inner.SetStage(ctx, bd, card, stage)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetProgress(ctx context.Context, bd board.Board, card board.Card, progress int) error {
-	if err := b.inner.SetProgress(ctx, bd, card, progress); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "progress", "set progress on "+cardRef(card), func(c *board.Card) {
+		c.Progress = progress
+	}, func(ctx context.Context) error {
+		return b.inner.SetProgress(ctx, bd, card, progress)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetZone(ctx context.Context, bd board.Board, card board.Card, zone board.ZoneKey) error {
-	if err := b.inner.SetZone(ctx, bd, card, zone); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "zone", "move "+cardRef(card)+" to another zone", func(c *board.Card) {
+		c.Zone = zone
+	}, func(ctx context.Context) error {
+		return b.inner.SetZone(ctx, bd, card, zone)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetDay(ctx context.Context, bd board.Board, card board.Card, day string) error {
-	if err := b.inner.SetDay(ctx, bd, card, day); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "day", "set the end date on "+cardRef(card), func(c *board.Card) {
+		c.Day = day
+	}, func(ctx context.Context) error {
+		return b.inner.SetDay(ctx, bd, card, day)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetStart(ctx context.Context, bd board.Board, card board.Card, date string) error {
-	if err := b.inner.SetStart(ctx, bd, card, date); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "start", "set the start date on "+cardRef(card), func(c *board.Card) {
+		c.StartDate = date
+	}, func(ctx context.Context) error {
+		return b.inner.SetStart(ctx, bd, card, date)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetSprintStart(ctx context.Context, bd board.Board, card board.Card, date string) error {
-	if err := b.inner.SetSprintStart(ctx, bd, card, date); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "sprint-start", "move "+cardRef(card)+" to another sprint", func(c *board.Card) {
+		c.SprintStart = date
+	}, func(ctx context.Context) error {
+		return b.inner.SetSprintStart(ctx, bd, card, date)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetPlan(ctx context.Context, bd board.Board, card board.Card, plan board.PlanBand) error {
-	if err := b.inner.SetPlan(ctx, bd, card, plan); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "plan", "set the plan band on "+cardRef(card), func(c *board.Card) {
+		c.Plan = plan
+	}, func(ctx context.Context) error {
+		return b.inner.SetPlan(ctx, bd, card, plan)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
-	if err := b.inner.SetWeek(ctx, bd, card, week); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "week", "move "+cardRef(card)+" to another week", func(c *board.Card) {
+		c.Week = week
+	}, func(ctx context.Context) error {
+		return b.inner.SetWeek(ctx, bd, card, week)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
-	if err := b.inner.SetTeam(ctx, bd, card, team); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "team", "move "+cardRef(card)+" to another team", func(c *board.Card) {
+		c.Team = team
+	}, func(ctx context.Context) error {
+		return b.inner.SetTeam(ctx, bd, card, team)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetAssignee(ctx context.Context, bd board.Board, card board.Card, login string) error {
-	if err := b.inner.SetAssignee(ctx, bd, card, login); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "assignee", "reassign "+cardRef(card), func(c *board.Card) {
+		if login == "" {
+			c.Assignees = nil
+		} else {
+			c.Assignees = []string{login}
+		}
+	}, func(ctx context.Context) error {
+		return b.inner.SetAssignee(ctx, bd, card, login)
+	})
+	return nil
+}
+
+func (b *storeBackend) SetParent(ctx context.Context, bd board.Board, card board.Card, parent string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "parent", "regroup "+cardRef(card), func(c *board.Card) {
+		c.Parent = parent
+	}, func(ctx context.Context) error {
+		return b.inner.SetParent(ctx, bd, card, parent)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetReviewOf(ctx context.Context, bd board.Board, card board.Card, reviewOf string) error {
-	if err := b.inner.SetReviewOf(ctx, bd, card, reviewOf); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "review-of", "relink the review "+cardRef(card), func(c *board.Card) {
+		c.ReviewOf = reviewOf
+	}, func(ctx context.Context) error {
+		return b.inner.SetReviewOf(ctx, bd, card, reviewOf)
+	})
 	return nil
 }
 
 func (b *storeBackend) SetReviewRound(ctx context.Context, bd board.Board, card board.Card, round int) error {
-	if err := b.inner.SetReviewRound(ctx, bd, card, round); err != nil {
-		return err
-	}
-	b.touched(ctx, bd, card.ItemID)
+	b.mutateCard(ctx, bd, card.ItemID, "review-round", "bump the review round on "+cardRef(card), func(c *board.Card) {
+		c.ReviewRound = round
+	}, func(ctx context.Context) error {
+		return b.inner.SetReviewRound(ctx, bd, card, round)
+	})
 	return nil
 }
 
@@ -706,13 +1262,11 @@ func (b *storeBackend) ResolveIssueRef(ctx context.Context, link board.Link) (bo
 }
 
 // SetSprintState updates the cached pointer in place when the team's
-// sprint-state card already exists (its id is stable), announces the Sprint
-// change and re-diffs scoped memberships. A first pointer creates a state card
-// whose id the cache does not know, so that path reloads the board first.
+// sprint-state card already exists (its id is stable) and queues the GitHub
+// write — this is what makes Carry Over instant. A first pointer creates a
+// state card whose id the cache does not know, so that (rare) path stays
+// synchronous and reloads the board.
 func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team, current, previous string) error {
-	if err := b.inner.SetSprintState(ctx, bd, team, current, previous); err != nil {
-		return err
-	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	st, had := e.board.SprintStates[team]
@@ -721,8 +1275,30 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 		e.board.SprintStates[team] = st
 		e.sprintChanged(clientIDFrom(ctx), team)
 		e.mu.Unlock()
+		label := team
+		if label == "" {
+			label = "no team"
+		}
+		b.enqueue(ctx, e, pendingOp{
+			key:  "sprint:" + team,
+			desc: "advance the «" + label + "» sprint",
+			apply: func(target *board.Board) {
+				if s, ok := target.SprintStates[team]; ok {
+					s.Current, s.Previous = current, previous
+					target.SprintStates[team] = s
+				}
+			},
+			exec: func(ctx context.Context) error {
+				return b.inner.SetSprintState(ctx, bd, team, current, previous)
+			},
+		})
 		return nil
 	}
+	e.mu.Unlock()
+	if err := b.inner.SetSprintState(ctx, bd, team, current, previous); err != nil {
+		return err
+	}
+	e.mu.Lock()
 	e.loaded = false
 	e.mu.Unlock()
 	if _, err := b.LoadBoard(ctx, bd.Owner, bd.Number); err == nil {

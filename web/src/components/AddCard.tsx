@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { teamColor } from "../avatar";
+import { Dropdown } from "./Dropdown";
 
 interface AddCardProps {
   onCreate: (title: string, team?: string | null) => void;
@@ -11,6 +12,10 @@ interface AddCardProps {
   /** Offer the "no team" option; when false, the picker defaults to the first
    *  team instead of "no team". */
   allowNoTeam?: boolean;
+  /** Start with the form already open (input focused). */
+  autoOpen?: boolean;
+  /** The form closed; created reports whether a card was submitted. */
+  onClosed?: (created: boolean) => void;
 }
 
 /** AddCard expands into a title input with an integrated team picker. */
@@ -20,26 +25,30 @@ export function AddCard({
   teams,
   forcedTeam,
   allowNoTeam = true,
+  autoOpen,
+  onClosed,
 }: AddCardProps) {
   // With "no team" disabled the picker starts on the first team, so a filtered
   // create lands on a real team by default instead of "no team".
   const defaultTeam =
     allowNoTeam || !teams || teams.length === 0 ? null : teams[0];
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen ?? false);
   const [value, setValue] = useState("");
   const [team, setTeam] = useState<string | null>(defaultTeam);
   const [menuOpen, setMenuOpen] = useState(false);
   const formRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const teamRef = useRef<HTMLDivElement | null>(null);
 
   // The team picker is shown only when a roster is supplied and no team is forced.
   const showPicker = forcedTeam === undefined && teams !== undefined;
 
-  const close = () => {
+  const close = (created: boolean) => {
     setOpen(false);
     setValue("");
     setTeam(defaultTeam);
     setMenuOpen(false);
+    onClosed?.(created);
   };
 
   const submit = () => {
@@ -47,7 +56,7 @@ export function AddCard({
     if (title) {
       onCreate(title, forcedTeam !== undefined ? forcedTeam : team);
     }
-    close();
+    close(Boolean(title));
   };
 
   // A live ref so the outside-click handler always sees the latest input.
@@ -61,7 +70,13 @@ export function AddCard({
       return;
     }
     const onDocDown = (e: MouseEvent) => {
-      if (formRef.current && !formRef.current.contains(e.target as Node)) {
+      const t = e.target as Element;
+      // The team menu is portalled to <body> (so overflow ancestors cannot
+      // clip it) — a click inside it is part of the form, not an outside save.
+      if (t.closest?.(".add-card-team-menu")) {
+        return;
+      }
+      if (formRef.current && !formRef.current.contains(t)) {
         submitRef.current();
       }
     };
@@ -105,12 +120,12 @@ export function AddCard({
           if (e.key === "Enter") {
             submit();
           } else if (e.key === "Escape") {
-            close();
+            close(false);
           }
         }}
       />
       {showPicker && (
-        <div className="add-card-team">
+        <div className="add-card-team" ref={teamRef}>
           <button
             type="button"
             className="add-card-team-btn"
@@ -123,30 +138,33 @@ export function AddCard({
             <span className="add-card-team-label">{team ?? "no team"}</span>
             <span className="add-card-team-caret">▾</span>
           </button>
-          {menuOpen && (
-            <div className="add-card-team-menu">
-              {allowNoTeam && (
-                <button
-                  type="button"
-                  className="add-card-team-item"
-                  onClick={() => pickTeam(null)}
-                >
-                  no team
-                </button>
-              )}
-              {(teams ?? []).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className="add-card-team-item"
-                  onClick={() => pickTeam(t)}
-                >
-                  <span className="team-dot" style={{ background: teamColor(t) }} />
-                  {t}
-                </button>
-              ))}
-            </div>
-          )}
+          <Dropdown
+            open={menuOpen}
+            anchorRef={teamRef}
+            onClose={() => setMenuOpen(false)}
+            className="add-card-team-menu"
+          >
+            {allowNoTeam && (
+              <button
+                type="button"
+                className="add-card-team-item"
+                onClick={() => pickTeam(null)}
+              >
+                no team
+              </button>
+            )}
+            {(teams ?? []).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className="add-card-team-item"
+                onClick={() => pickTeam(t)}
+              >
+                <span className="team-dot" style={{ background: teamColor(t) }} />
+                {t}
+              </button>
+            ))}
+          </Dropdown>
         </div>
       )}
     </div>

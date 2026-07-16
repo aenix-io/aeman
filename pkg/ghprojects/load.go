@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // LoadBoard loads a project board and maps it into the domain board.Board the
@@ -142,7 +142,27 @@ func domainParseDraftBody(body, itemID string) (string, []board.Note) {
 		return "", nil
 	}
 	if idx := strings.Index(body, domainLogMarker); idx >= 0 {
-		return strings.TrimSpace(body[:idx]), domainParseNoteLines(body[idx+len(domainLogMarker):], itemID)
+		notes := domainParseNoteLines(body[idx+len(domainLogMarker):], itemID)
+		// Machine event lines stranded ABOVE the marker (left there by an old
+		// log migration, or baked in by a description write before writes were
+		// sanitized) belong to the log, not the description. Only exact event
+		// lines move — a prose line that merely looks dated (a checklist item,
+		// say) stays where the person wrote it.
+		var descLines []string
+		for i, line := range strings.Split(body[:idx], "\n") {
+			m := draftNoteRe.FindStringSubmatch(strings.TrimSpace(line))
+			if m != nil && strings.HasPrefix(m[2], ":: ") {
+				notes = append(notes, board.Note{
+					ID:        fmt.Sprintf("%s:h%d", itemID, i),
+					Body:      m[2],
+					CreatedAt: m[1],
+					Source:    "draft",
+				})
+				continue
+			}
+			descLines = append(descLines, line)
+		}
+		return strings.TrimSpace(strings.Join(descLines, "\n")), notes
 	}
 	// Legacy bodies without a marker: treat note-shaped lines as the log.
 	var descLines []string
@@ -291,6 +311,8 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		card.Team = v.Text
 	case roles.ReviewOf != nil && id == roles.ReviewOf.ID && v.Text != "":
 		card.ReviewOf = v.Text
+	case roles.Parent != nil && id == roles.Parent.ID && v.Text != "":
+		card.Parent = v.Text
 	case roles.ReviewRound != nil && id == roles.ReviewRound.ID && v.Number != nil:
 		card.ReviewRound = int(*v.Number)
 	}
@@ -312,6 +334,7 @@ type domainFieldRoles struct {
 	Stage       *board.ProjectField
 	Team        *board.ProjectField
 	ReviewOf    *board.ProjectField
+	Parent      *board.ProjectField
 	ReviewRound *board.ProjectField
 }
 
@@ -319,18 +342,19 @@ type domainFieldRoles struct {
 // fill it. It mirrors ALIASES in web/src/providers/fields.ts (Stage is its own
 // role here, distinct from the default Status field).
 var domainRoleAliases = map[string][]string{
-	"zone":        {"zone", "priority zone", "зона"},
-	"progress":    {"progress", "readiness", "% done", "percent", "готовность"},
-	"day":         {"day", "date", "due date", "due", "finish", "finish date", "день", "дата"},
-	"start":       {"start", "start date", "начало", "старт"},
-	"sprintStart": {"sprint start", "sprintstart", "спринт старт"},
-	"sprint":      {"sprint", "iteration", "спринт", "итерация"},
-	"status":      {"status", "статус"},
-	"plan":        {"plan", "план"},
-	"week":        {"week", "неделя"},
-	"stage":       {"stage", "состояние"},
-	"team":        {"team", "команда"},
+	"zone":        {"zone", "priority zone"},
+	"progress":    {"progress", "readiness", "% done", "percent"},
+	"day":         {"day", "date", "due date", "due", "finish", "finish date"},
+	"start":       {"start", "start date"},
+	"sprintStart": {"sprint start", "sprintstart"},
+	"sprint":      {"sprint", "iteration"},
+	"status":      {"status"},
+	"plan":        {"plan"},
+	"week":        {"week"},
+	"stage":       {"stage"},
+	"team":        {"team"},
 	"reviewOf":    {"review of", "reviewof"},
+	"parent":      {"parent"},
 	"reviewRound": {"review round", "reviewround"},
 }
 
@@ -365,6 +389,8 @@ func domainRoles(fields []board.ProjectField) domainFieldRoles {
 			r.Team = f
 		case r.ReviewOf == nil && domainMatchesAlias("reviewOf", name):
 			r.ReviewOf = f
+		case r.Parent == nil && domainMatchesAlias("parent", name):
+			r.Parent = f
 		case r.ReviewRound == nil && domainMatchesAlias("reviewRound", name):
 			r.ReviewRound = f
 		}
@@ -399,6 +425,8 @@ func (r domainFieldRoles) get(role string) *board.ProjectField {
 		return r.Team
 	case "reviewOf":
 		return r.ReviewOf
+	case "parent":
+		return r.Parent
 	case "reviewRound":
 		return r.ReviewRound
 	default:

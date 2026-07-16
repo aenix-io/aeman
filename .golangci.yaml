@@ -46,4 +46,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/aenix-org/aeman
+        - github.com/aenix-io/aeman

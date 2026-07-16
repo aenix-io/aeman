@@ -13,6 +13,11 @@ func TeamGrid(b Board, team, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
+		// Subtasks are never placed on their own: they ride with their parent
+		// (the API layer appends the children of every delivered parent).
+		if c.Parent != "" {
+			continue
+		}
 		if c.Team != team {
 			continue
 		}
@@ -72,7 +77,11 @@ func MeView(b Board, user, day string) []Card {
 	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
-		if user != "" && !slices.Contains(c.Assignees, user) {
+		// Subtasks are never listed on their own; they ride with their parent.
+		if c.Parent != "" {
+			continue
+		}
+		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {
 			continue
 		}
 		// A deferred / future-scheduled card (startDate past today) is hidden
@@ -91,6 +100,17 @@ func MeView(b Board, user, day string) []Card {
 			continue
 		}
 		as := ActiveSprint(b, c.Team, day)
+		// A sprint-less day card (a "next sprint" create) stays visible from its
+		// scheduled day on — the sprint gate below would otherwise hide it right
+		// when its day arrives, until a carry-over adopts it into a sprint. Only
+		// cards scheduled into the sprint active on the viewed day (or later)
+		// qualify: an old sprint-less stray stays on its own past days instead
+		// of resurfacing on today's board.
+		if c.SprintStart == "" && c.Plan == PlanNone && c.StartDate != "" &&
+			c.StartDate <= day && c.StartDate >= as {
+			out = append(out, c)
+			continue
+		}
 		// A card shows on every day of the sprints it spans — from the one it
 		// started in up to the sprint it now belongs to — so a carried-over card
 		// still appears on the previous sprint's days it came from.
@@ -161,4 +181,15 @@ func planShowsInWeekAt(c Card, week, today string) bool {
 		started = c.SprintStart
 	}
 	return started != "" && c.Week > week && MondayOf(started) <= week
+}
+
+// childAssigned reports whether any subtask of a card is assigned to user —
+// the personal board shows the parent when the person owns only a subtask.
+func childAssigned(b Board, itemID, user string) bool {
+	for _, c := range b.Cards {
+		if c.Parent == itemID && slices.Contains(c.Assignees, user) {
+			return true
+		}
+	}
+	return false
 }

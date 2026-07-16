@@ -23,7 +23,7 @@ Generate a client secret. Keep the **Client ID** and **Client secret**.
 ## 3. Configure and run
 
 ```sh
-git clone https://github.com/aenix-org/aeman.git
+git clone https://github.com/aenix-io/aeman.git
 cd aeman
 cp .env.example .env
 # fill AEMAN_GITHUB_CLIENT_ID / _SECRET, AEMAN_BASE_URL, AEMAN_DOMAIN
@@ -37,7 +37,7 @@ Caddy issues the certificate on first start (needs DNS + ports 80/443 already in
 To pin every visitor to a single project and hide the board picker, set in `.env`:
 
 ```sh
-AEMAN_OWNER=aenix-org
+AEMAN_OWNER=acme
 AEMAN_PROJECT=37
 AEMAN_LOCK_BOARD=true
 ```
@@ -46,7 +46,7 @@ A user whose token can't read that board sees an access-denied screen rather tha
 
 ## Notes
 
-- **Sessions** are persisted to `AEMAN_SESSION_FILE` on the `aeman_sessions` volume, so restarts and redeploys keep users signed in. Unset the variable for in-memory sessions (lost on restart). Classic OAuth App tokens don't expire, so there is nothing to refresh; a session simply lasts up to 14 days.
+- **Sessions & the session store.** `AEMAN_SESSION_FILE` (on the `aeman_sessions` volume) always persists the dynamic MCP client registry. Sessions — the GitHub tokens — are written there only when `AEMAN_SESSION_KEY` is set, encrypted with it (AES-256-GCM); then restarts and redeploys keep users signed in and MCP tokens live. Without the key, sessions stay in memory and a restart signs everyone out — no plaintext token ever touches disk either way. Keep the key stable (changing or losing it just signs everyone out) and store it outside the session volume so a leak of that volume alone exposes nothing. Classic OAuth App tokens don't expire, so a session simply lasts up to 14 days.
 - **Scopes:** `AEMAN_SCOPES` defaults to `repo project` (Projects v2 + issues).
 - **Cert storage:** the `caddy_data` volume persists issued certificates across restarts.
 - **Local gh mode is unchanged:** without the `AEMAN_GITHUB_*` env vars the binary still runs as a single-user local tool using `gh auth token`.

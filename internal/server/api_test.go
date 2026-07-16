@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aenix-org/aeman/pkg/apiserver"
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/boardservice"
-	"github.com/aenix-org/aeman/pkg/boardservice/boardservicetest"
+	"github.com/aenix-io/aeman/pkg/apiserver"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
 
 // apiServer wires an aeman Server whose /api/v1 board service is backed by the
@@ -572,5 +572,37 @@ func TestAPICardLogUnifiedFeed(t *testing.T) {
 	}
 	if list.Items[1].Type != "event" || list.Items[1].Kind != "progress" || list.Items[1].Actor != "kvaps" {
 		t.Fatalf("second item = %+v", list.Items[1])
+	}
+}
+
+// Presence is attributed to the caller's authenticated identity, not a
+// client-supplied login: a signed-in user cannot make a card show as selected
+// by someone else.
+func TestPresenceUsesAuthenticatedLogin(t *testing.T) {
+	fake := boardservicetest.New(nil, nil)
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) {
+		return "tok", "realuser", nil
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/presence?owner=acme&project=1",
+		strings.NewReader(`{"login":"victim","card":"c1"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Aeman-Client", "tab-1")
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	e := srv.store.entry(storeKey("acme", 1))
+	e.mu.Lock()
+	got := e.presence["tab-1"]
+	e.mu.Unlock()
+	if got.Login != "realuser" {
+		t.Fatalf("presence login = %q, want the authenticated realuser (body spoof ignored)", got.Login)
+	}
+	if got.Card != "c1" {
+		t.Fatalf("presence card = %q, want c1", got.Card)
 	}
 }

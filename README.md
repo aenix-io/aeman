@@ -7,7 +7,7 @@
 
 # aeman
 
-Day-to-day project management for teams, with **GitHub Projects v2 as the storage** — aeman has no database of its own. The whole thing ships as one self-contained Go binary: an embedded React SPA (via `go:embed`), a JSON REST API, a WebSocket **watch** stream that keeps every open board updated live, and an MCP server for AI agents — all driving the same board service, with GitHub as the single source of truth.
+A short-term planning system for engineering teams — it keeps engineers focused, runs daily sprints, and makes unplanned work visible. **GitHub Projects v2 is the storage**, so aeman has no database of its own. The whole thing ships as one self-contained Go binary: an embedded React SPA (via `go:embed`), a JSON REST API, a WebSocket **watch** stream that keeps every open board updated live, and an MCP server for AI agents — all driving the same board service, with GitHub as the single source of truth.
 
 ## Concept
 

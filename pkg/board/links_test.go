@@ -7,15 +7,15 @@ import (
 
 func TestExtractLinksClassifiesAndOrders(t *testing.T) {
 	desc := "See https://example.com/docs first.\n" +
-		"Fix: https://github.com/aenix-org/aeman/issues/12, then\n" +
-		"review https://github.com/aenix-org/aeman/pull/34#discussion_r1 and\n" +
+		"Fix: https://github.com/acme/webapp/issues/12, then\n" +
+		"review https://github.com/acme/webapp/pull/34#discussion_r1 and\n" +
 		"read http://blog.example.com/post."
 	got := ExtractLinks(desc)
 	want := []Link{
-		{URL: "https://github.com/aenix-org/aeman/issues/12", Kind: "issue",
-			Owner: "aenix-org", Repo: "aeman", Number: 12},
-		{URL: "https://github.com/aenix-org/aeman/pull/34#discussion_r1", Kind: "pull",
-			Owner: "aenix-org", Repo: "aeman", Number: 34},
+		{URL: "https://github.com/acme/webapp/issues/12", Kind: "issue",
+			Owner: "acme", Repo: "webapp", Number: 12},
+		{URL: "https://github.com/acme/webapp/pull/34#discussion_r1", Kind: "pull",
+			Owner: "acme", Repo: "webapp", Number: 34},
 		{URL: "https://example.com/docs", Kind: "link"},
 		{URL: "http://blog.example.com/post", Kind: "link"},
 	}
@@ -50,6 +50,22 @@ func TestParseGitHubRef(t *testing.T) {
 	} {
 		if _, ok := ParseGitHubRef(raw); ok {
 			t.Fatalf("%q must not parse as a GitHub ref", raw)
+		}
+	}
+}
+
+func TestFallbackTitle(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com/acme/webapp/issues/1060": "Issue: acme/webapp#1060",
+		"https://github.com/acme/repo/pull/34":       "Pull: acme/repo#34",
+	}
+	for url, want := range cases {
+		ref, ok := ParseGitHubRef(url)
+		if !ok {
+			t.Fatalf("%s did not parse as a ref", url)
+		}
+		if got := ref.FallbackTitle(); got != want {
+			t.Errorf("FallbackTitle(%s) = %q, want %q", url, got, want)
 		}
 	}
 }

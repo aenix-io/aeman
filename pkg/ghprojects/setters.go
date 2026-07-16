@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // domainFieldCache memoises fields the domain setters lazily create, keyed by
@@ -74,6 +74,7 @@ var domainFieldSpecs = map[string]domainFieldSpec{
 	"week":        {name: "Week", dataType: "DATE"},
 	"team":        {name: "Team", dataType: "TEXT"},
 	"reviewOf":    {name: "Review Of", dataType: "TEXT"},
+	"parent":      {name: "Parent", dataType: "TEXT"},
 	"reviewRound": {name: "Review Round", dataType: "NUMBER"},
 }
 
@@ -449,6 +450,11 @@ func (c *Client) setDomainText(ctx context.Context, b board.Board, card board.Ca
 		map[string]any{"project": b.ID, "item": card.ItemID, "field": field.ID, "value": value}, nil)
 }
 
+// SetParent sets (or clears) the parent link making a card a subtask.
+func (c *Client) SetParent(ctx context.Context, b board.Board, card board.Card, parent string) error {
+	return c.setDomainText(ctx, b, card, "parent", parent)
+}
+
 // SetAssignee replaces the card's assignee with login (empty clears it).
 func (c *Client) SetAssignee(ctx context.Context, _ board.Board, card board.Card, login string) error {
 	return c.setAssignee(ctx, card.IsDraft, card.ContentID, card.Assignees, login)
@@ -540,7 +546,9 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 			return board.Card{}, err
 		}
 		if option := domainOptionForZone(field, in.Zone); option != "" {
-			if err := c.setSingleSelect(ctx, b.ID, item.ID, field.ID, option); err != nil {
+			if err := c.retryResolve(ctx, func() error {
+				return c.setSingleSelect(ctx, b.ID, item.ID, field.ID, option)
+			}); err != nil {
 				return board.Card{}, err
 			}
 		}
@@ -555,13 +563,15 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		if err != nil {
 			return board.Card{}, err
 		}
-		if err := c.graphql(ctx, setDateMutation,
-			map[string]any{"project": b.ID, "item": item.ID, "field": field.ID, "value": df.value}, nil); err != nil {
+		if err := c.retryResolve(ctx, func() error {
+			return c.graphql(ctx, setDateMutation,
+				map[string]any{"project": b.ID, "item": item.ID, "field": field.ID, "value": df.value}, nil)
+		}); err != nil {
 			return board.Card{}, err
 		}
 	}
 	for _, tf := range []struct{ role, value string }{
-		{"team", in.Team}, {"reviewOf", in.ReviewOf},
+		{"team", in.Team}, {"reviewOf", in.ReviewOf}, {"parent", in.Parent},
 	} {
 		if tf.value == "" {
 			continue
@@ -570,8 +580,10 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		if err != nil {
 			return board.Card{}, err
 		}
-		if err := c.graphql(ctx, setTextMutation,
-			map[string]any{"project": b.ID, "item": item.ID, "field": field.ID, "value": tf.value}, nil); err != nil {
+		if err := c.retryResolve(ctx, func() error {
+			return c.graphql(ctx, setTextMutation,
+				map[string]any{"project": b.ID, "item": item.ID, "field": field.ID, "value": tf.value}, nil)
+		}); err != nil {
 			return board.Card{}, err
 		}
 	}
@@ -581,7 +593,9 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 			return board.Card{}, err
 		}
 		if option := domainOptionByName(field, string(in.Plan)); option != "" {
-			if err := c.setSingleSelect(ctx, b.ID, item.ID, field.ID, option); err != nil {
+			if err := c.retryResolve(ctx, func() error {
+				return c.setSingleSelect(ctx, b.ID, item.ID, field.ID, option)
+			}); err != nil {
 				return board.Card{}, err
 			}
 		}
@@ -604,6 +618,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		Week:        in.Week,
 		Team:        in.Team,
 		ReviewOf:    in.ReviewOf,
+		Parent:      in.Parent,
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }

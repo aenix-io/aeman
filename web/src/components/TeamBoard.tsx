@@ -4,6 +4,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type ReactNode,
   type Ref,
 } from "react";
 import {
@@ -30,6 +32,7 @@ import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { TeamsModal } from "./TeamsModal";
+import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
@@ -51,11 +54,18 @@ interface TeamBoardProps {
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
   onReorderTeams: (ordered: string[]) => void;
-  patchCard: (itemId: string, patch: Partial<CardModel>) => void;
+  patchCard: (
+    itemId: string,
+    patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
+  ) => void;
   addCard: (card: CardModel) => void;
+  /** Swap an optimistic card for its server twin in place (keeps the slot). */
+  replaceCard: (itemId: string, card: CardModel) => void;
   removeCard: (itemId: string) => void;
   reorderCards: (orderedItemIds: string[]) => void;
   reload: () => void;
+  /** Wraps a slow server call so the App's progress bar shows while it runs. */
+  track: <T>(p: Promise<T>) => Promise<T>;
   /** Other users' live selections (login -> card uid) shown as avatars. */
   presence?: Record<string, string>;
   onError: (message: string) => void;
@@ -101,9 +111,11 @@ export function TeamBoard({
   onReorderTeams,
   patchCard,
   addCard,
+  replaceCard,
   removeCard,
   reorderCards,
   reload,
+  track,
   presence,
   onError,
   onOpen,
@@ -113,6 +125,21 @@ export function TeamBoard({
   const sprintRef = useRef<HTMLDivElement | null>(null);
   const [carryWeekOpen, setCarryWeekOpen] = useState(false);
   const carryWeekRef = useRef<HTMLDivElement | null>(null);
+  // Subtask UI state: manually expanded parents, the card a drag would group
+  // under (its middle band is hovered — the card highlights), and the parent
+  // whose add-subtask form is open (the + button flow).
+  const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set());
+  const [groupHover, setGroupHover] = useState<string | null>(null);
+  const [addingSub, setAddingSub] = useState<string | null>(null);
+  // A create on a day ahead of the team's current sprint waits here for the
+  // lead's current-vs-next-sprint choice (null = no dialog open).
+  const [sprintChoice, setSprintChoice] = useState<{
+    engineer: string;
+    zone: ZoneKey;
+    title: string;
+    team: string | null;
+    sprint: string;
+  } | null>(null);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     try {
       const v = localStorage.getItem("aeman.columnOrder");
@@ -198,6 +225,10 @@ export function TeamBoard({
   const filteredCards = useMemo(
     () =>
       inFilter.filter((c) => {
+        // Subtasks render nested under their parent, never as grid rows.
+        if (c.parent) {
+          return false;
+        }
         const today = todayIso();
         // A card with an end date spans a range: it shows on every day from its
         // start through its end (the calendar sets start…end).
@@ -397,13 +428,15 @@ export function TeamBoard({
     );
     void creating
       .then((card) => {
-        removeCard(tempId);
         if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
           void provider.deleteCard(board, card.itemId).catch(() => undefined);
           return;
         }
-        addCard(card);
+        // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        replaceCard(tempId, card);
+        migrateCardId(tempId, card.itemId);
       })
       .catch((err: unknown) => {
         consumePendingCancel(tempId);
@@ -422,7 +455,7 @@ export function TeamBoard({
     void (async () => {
       let rep: CarryReport;
       try {
-        rep = await provider.carryWeek(board, team, currentWeek, true);
+        rep = await track(provider.carryWeek(board, team, currentWeek, true));
       } catch (err: unknown) {
         onError(errMessage(err));
         return;
@@ -464,7 +497,7 @@ export function TeamBoard({
         }
       }
       try {
-        await provider.carryWeek(board, team, currentWeek);
+        await track(provider.carryWeek(board, team, currentWeek));
       } catch (err: unknown) {
         onError(errMessage(err));
       }
@@ -628,9 +661,9 @@ export function TeamBoard({
     [teamFilter, roster],
   );
 
-  // "No team" is offered like any other team: only when it is explicitly
-  // filtered in (or nothing is filtered at all).
-  const pickerNoTeam = teamFilter === null || teamFilter.includes("");
+  // "No team" is offered only when the no-team group is actually displayed
+  // on the board — a card created into a hidden group would just vanish.
+  const pickerNoTeam = (teamFilter ?? roster).includes("");
 
   // People to offer when reassigning a card: everyone seen on the board, me first.
   const people = useMemo(() => {
@@ -645,6 +678,99 @@ export function TeamBoard({
     }
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [board.cards, me]);
+
+  // Subtasks grouped by parent, from the full card state (children are
+  // delivered alongside their parents by the view).
+  // Mirrors the server's subtaskOnDay: a subtask keeps its own day
+  // visibility even though it rides its parent — deferred to the future it
+  // hides until its day, and one left behind in an earlier sprint stays on
+  // that sprint's days. Without this an acked defer (addCard) would put the
+  // row right back under the parent on today's board.
+  const subtaskOnDay = (c: CardModel): boolean => {
+    const today = todayIso();
+    if (c.startDate && c.startDate > today && selectedDate < c.startDate) {
+      return false;
+    }
+    if (c.sprintStart) {
+      const as = activeSprint(board, c.team ?? null, selectedDate);
+      if (as && as > c.sprintStart) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const childrenOf = useMemo(() => {
+    const m = new Map<string, CardModel[]>();
+    for (const c of board.cards) {
+      if (c.parent && subtaskOnDay(c)) {
+        const list = m.get(c.parent) ?? [];
+        list.push(c);
+        m.set(c.parent, list);
+      }
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.cards, selectedDate, board]);
+
+  const subsOpen = (id: string) => expandedSubs.has(id);
+
+  // A parent dragged with its list open folds for the flight (the whole
+  // block moving with the ghost is unwieldy) and unfolds where it lands.
+  const foldedForDrag = useRef<string | null>(null);
+  const handleDragActive = (id: string | null) => {
+    if (id && expandedSubs.has(id)) {
+      foldedForDrag.current = id;
+      setExpandedSubs((cur) => {
+        const next = new Set(cur);
+        next.delete(id);
+        return next;
+      });
+    } else if (id === null && foldedForDrag.current) {
+      const back = foldedForDrag.current;
+      foldedForDrag.current = null;
+      setExpandedSubs((cur) => new Set(cur).add(back));
+    }
+  };
+
+  // A create ack swaps the optimistic tmp id for the real one; UI state keyed
+  // by the tmp id (selection, expanded lists, an open add-subtask form) must
+  // follow, or the + flow collapses mid-typing.
+  const migrateCardId = (tempId: string, realId: string) => {
+    setSelectedCardId((cur) => (cur === tempId ? realId : cur));
+    setExpandedSubs((cur) => {
+      if (!cur.has(tempId)) {
+        return cur;
+      }
+      const next = new Set(cur);
+      next.delete(tempId);
+      next.add(realId);
+      return next;
+    });
+    setAddingSub((cur) => (cur === tempId ? realId : cur));
+  };
+
+
+  // A drag parked on a collapsed parent unfolds it so the drop target is
+  // visible; when the drag leaves, it folds back (manual expands stay).
+  const autoExpanded = useRef<string | null>(null);
+  useEffect(() => {
+    const id = groupHover;
+    const prev = autoExpanded.current;
+    if (prev && prev !== id) {
+      autoExpanded.current = null;
+      setExpandedSubs((cur) => {
+        const next = new Set(cur);
+        next.delete(prev);
+        return next;
+      });
+    }
+    if (id && (childrenOf.get(id) ?? []).length > 0 && !expandedSubs.has(id)) {
+      autoExpanded.current = id;
+      setExpandedSubs((cur) => new Set(cur).add(id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupHover]);
 
   const cellCards = (engineer: string, zone: ZoneKey): CardModel[] =>
     filteredCards.filter((c) => {
@@ -672,7 +798,11 @@ export function TeamBoard({
         out.push({
           key: cellKey(engineer, zone),
           meta: { kind: "cell", engineer, zone },
-          cards: cellCards(engineer, zone),
+          // An expanded parent's subtasks follow it as indented rows of the
+          // same cell (a subtask has no cell placement of its own).
+          cards: cellCards(engineer, zone).flatMap((c) =>
+            subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
+          ),
         });
       }
     }
@@ -680,12 +810,16 @@ export function TeamBoard({
       out.push({
         key: bandKey(band),
         meta: { kind: "band", band },
-        cards: weekly[band],
+        // An expanded weekly parent shows its subtask rows nested under it
+        // (they are not plan cards — they just ride along visibly).
+        cards: weekly[band].flatMap((c) =>
+          subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
+        ),
       });
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredCards, orderedEngineers, weekly]);
+  }, [filteredCards, orderedEngineers, weekly, childrenOf, expandedSubs]);
 
   // Reorder a subset of cards (a band's plan cards) within the global card order
   // and persist the dragged card's new position.
@@ -718,12 +852,86 @@ export function TeamBoard({
     fromMeta,
     toMeta,
     groups: g,
+    groupUnder,
+    groupPositional,
   }: DropResult<TeamMeta>) => {
     // Drops that involve a weekly-plan band.
     if (fromMeta.kind === "band" || toMeta.kind === "band") {
-      if (fromMeta.kind === "band" && toMeta.kind === "cell") {
+      // A drop whose slot nests it under a weekly parent groups it — but
+      // ONLY as a held gesture (indent / middle-band dwell): a band drop
+      // that merely lands inside an expanded block aims at the PLAN, and
+      // silently grouping it was how "take into plan" seemed broken.
+      if (!card.parent && toMeta.kind === "band" && groupUnder && !groupPositional) {
+        handleGroup(card, groupUnder);
+        return;
+      }
+      if (card.parent && toMeta.kind === "band") {
+        if (groupUnder && groupUnder !== card.parent) {
+          handleGroup(card, groupUnder); // regroup under another weekly parent
+          return;
+        }
+        const entry = g.find((x) => x.ids.includes(`plan:${card.itemId}`));
+        const ids = (entry?.ids ?? []).map((id) => id.replace(/^plan:/, ""));
+        if (!groupUnder) {
+          // Pulled out INSIDE the weekly panel: the subtask becomes a plan
+          // card of the dropped band in its own right, keeping its slot. A
+          // GRID parent's subtask has no business here — it snaps back.
+          const parentCard = card.parent ? cardsById.get(card.parent) : undefined;
+          if (!parentCard?.plan) {
+            return;
+          }
+          const week = parentCard.week ?? currentWeek;
+          const prev: Partial<CardModel> = {
+            parent: card.parent,
+            plan: card.plan,
+            week: card.week,
+          };
+          patchCard(card.itemId, {
+            parent: undefined,
+            plan: toMeta.band,
+            week,
+          });
+          void provider
+            .patchCard(board, card.itemId, {
+              parent: "",
+              plan: { band: toMeta.band, week },
+            })
+            .then((c) => {
+              addCard(c);
+              reorderPlanCards(c, ids);
+              reload();
+            })
+            .catch((err: unknown) => {
+              patchCard(card.itemId, prev);
+              onError(errMessage(err));
+            });
+          return;
+        }
+        // Reorder within the own block, anchored on the final sibling order.
+        const idx = ids.indexOf(card.itemId);
+        const above = idx > 0 ? cardsById.get(ids[idx - 1]) : undefined;
+        const below =
+          idx >= 0 && idx + 1 < ids.length
+            ? cardsById.get(ids[idx + 1])
+            : undefined;
+        const persist =
+          above && above.parent === card.parent
+            ? provider.moveCard(board, card.itemId, above.itemId)
+            : below && below.parent === card.parent
+              ? provider.moveCardBefore(board, card.itemId, below.itemId)
+              : null;
+        void persist
+          ?.then(reload)
+          .catch((err: unknown) => {
+            onError(errMessage(err));
+            reload();
+          });
+        return;
+      }
+      if (!card.parent && fromMeta.kind === "band" && toMeta.kind === "cell") {
         // Take the plan card into work, in the dropped cell's zone.
         takePlanCard(card, toMeta.engineer, toMeta.zone);
+        return;
       } else if (fromMeta.kind === "band" && toMeta.kind === "band") {
         if (toMeta.band !== fromMeta.band) {
           handleSetPlan(card, toMeta.band);
@@ -737,27 +945,60 @@ export function TeamBoard({
             entry.ids.map((id) => id.replace(/^plan:/, "")),
           );
         }
-      } else if (fromMeta.kind === "cell" && toMeta.kind === "band") {
+      } else if (!card.parent && fromMeta.kind === "cell" && toMeta.kind === "band") {
         // Take a grid card into the weekly plan; it stays on the board.
         takeIntoPlan(card, toMeta.band);
       }
+      // A subtask never leaves the weekly panel for the day grid by drag:
+      // dedent it within the band to make it a plan card first.
       return;
     }
+    if (toMeta.kind !== "cell") {
+      return; // narrows the type: everything below places into a grid cell
+    }
 
-    // From here both ends are grid cells.
-    const zoneChanged = fromMeta.zone !== toMeta.zone;
-    const engineerChanged = fromMeta.engineer !== toMeta.engineer;
+    // From here both ends are grid cells. The board committed exactly what
+    // the placeholder previewed: groupUnder is the already-validated parent
+    // to nest under (null = standalone).
+    const parentTo = groupUnder;
+    const parentChanged = (card.parent ?? "") !== (parentTo ?? "");
 
-    // 1) Optimistic local state first.
-    if (zoneChanged || engineerChanged) {
-      const patch: Partial<CardModel> = {};
-      if (zoneChanged) {
+    // 1) Optimistic local state first. A grouped card is not cell-placed, so
+    // zone/assignee only apply to standalone drops (including a pull-out).
+    const optimistic: Partial<CardModel> = {};
+    const patch: CardPatch = {};
+    if (parentChanged) {
+      optimistic.parent = parentTo ?? undefined;
+      patch.parent = parentTo ?? "";
+      if (parentTo) {
+        optimistic.plan = undefined;
+        optimistic.week = undefined;
+        autoExpanded.current = null; // the drop keeps the target unfolded
+        setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
+      }
+    }
+    if (!parentTo) {
+      if ((card.zone ?? "gray") !== toMeta.zone) {
+        optimistic.zone = toMeta.zone;
         patch.zone = toMeta.zone;
       }
-      if (engineerChanged) {
-        patch.assignees = toMeta.engineer ? [toMeta.engineer] : [];
+      const wantAssignees = toMeta.engineer ? [toMeta.engineer] : [];
+      const sameAssignees =
+        card.assignees.length === wantAssignees.length &&
+        card.assignees.every((a, i) => a === wantAssignees[i]);
+      // Keep multi-assignee cards intact on a plain reorder within the cell.
+      if (
+        !sameAssignees &&
+        (parentChanged ||
+          fromMeta.kind !== "cell" ||
+          fromMeta.engineer !== toMeta.engineer)
+      ) {
+        optimistic.assignees = wantAssignees;
+        patch.assignees = wantAssignees;
       }
-      patchCard(card.itemId, patch);
+    }
+    if (Object.keys(optimistic).length > 0) {
+      patchCard(card.itemId, optimistic);
     }
     const order = globalOrderFromGroups(
       board,
@@ -765,21 +1006,29 @@ export function TeamBoard({
     );
     reorderCards(order);
 
-    // 2) Persist in the background; revert via reload() on any error.
+    // 2) Persist in the background; revert via reload() on any error. The
+    // move anchors on a neighbour from the card's OWN cell: the flattened
+    // cross-group order is a view artefact, and a card landing first in its
+    // cell would otherwise anchor on another cell's tail — a card whose
+    // global position may be past the visible neighbour below.
+    const entryIds = g.find((x) => x.ids.includes(card.itemId))?.ids ?? [];
+    const at = entryIds.indexOf(card.itemId);
     const afterId = afterIdFor(order, card.itemId);
     void (async () => {
       try {
-        if (zoneChanged || engineerChanged) {
-          const patch: CardPatch = {};
-          if (zoneChanged) {
-            patch.zone = toMeta.zone;
-          }
-          if (engineerChanged) {
-            patch.assignees = toMeta.engineer ? [toMeta.engineer] : [];
-          }
+        if (Object.keys(patch).length > 0) {
           await provider.patchCard(board, card.itemId, patch);
         }
-        await provider.moveCard(board, card.itemId, afterId);
+        if (at > 0) {
+          await provider.moveCard(board, card.itemId, entryIds[at - 1]);
+        } else if (at === 0 && entryIds.length > 1) {
+          await provider.moveCardBefore(board, card.itemId, entryIds[1]);
+        } else {
+          await provider.moveCard(board, card.itemId, afterId);
+        }
+        if (parentChanged) {
+          reload();
+        }
       } catch (err: unknown) {
         onError(errMessage(err));
         reload();
@@ -794,12 +1043,247 @@ export function TeamBoard({
   // Who has this card selected in their Me view right now. Own selections
   // from another window count too — the map only ever carries OTHER tabs'
   // marks (this tab's watch echo is suppressed), so nothing self-duplicates.
+  const toggleSubs = (id: string) =>
+    setExpandedSubs((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+
+  // A card may take the dragged card as a subtask unless depth would exceed
+  // one level (the target is already a subtask, or the dragged card has its
+  // own subtasks) — the middle-band group drop only offers valid targets.
+  const canGroup = (active: CardModel, target: CardModel) =>
+    !target.parent &&
+    target.itemId !== active.parent &&
+    !(childrenOf.get(active.itemId) ?? []).length;
+
+  // itemId → card, for resolving a drop's neighbours.
+  const cardsById = useMemo(
+    () => new Map(board.cards.map((c) => [c.itemId, c])),
+    [board.cards],
+  );
+
+  // Space expands/collapses the selected card's subtask list.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== " " || !selectedCardId) {
+        return;
+      }
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
+        return;
+      }
+      if (!(childrenOf.get(selectedCardId) ?? []).length) {
+        return;
+      }
+      e.preventDefault();
+      toggleSubs(selectedCardId);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectedCardId, childrenOf]);
+
+  // Group a dropped card as a subtask; the server enforces depth and moves a
+  // weekly card's plan slot onto the parent (which replaces it in the plan).
+  const handleGroup = (card: CardModel, parentId: string) => {
+    if (card.itemId === parentId || card.parent === parentId) {
+      return;
+    }
+    const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
+    patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    autoExpanded.current = null; // the drop keeps the target unfolded
+    setExpandedSubs((cur) => new Set(cur).add(parentId));
+    void provider
+      .patchCard(board, card.itemId, { parent: parentId })
+      .then((c) => {
+        addCard(c);
+        reload();
+      })
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  // Create a card directly as a subtask (inherits the parent's team and
+  // zone). An optimistic copy shows at the end of the list instantly; the
+  // server card replaces it.
+  const handleCreateSubtask = (parent: CardModel, title: string) => {
+    const tempId = `tmp-${new Date().toISOString()}`;
+    addCard({
+      itemId: tempId,
+      title,
+      isDraft: true,
+      assignees: parent.assignees.slice(0, 1),
+      zone: parent.zone ?? "gray",
+      team: parent.team,
+      parent: parent.itemId,
+      startDate: selectedDate,
+      day: selectedDate,
+      sprintStart: parent.sprintStart,
+      progress: 0,
+    });
+    // The parent's derived bar counts the newcomer at 0% right away
+    // (mirrors the server's syncParentProgress — including reopening a
+    // complete parent, since the fresh subtask is open work).
+    const kids = board.cards.filter((c) => c.parent === parent.itemId);
+    const sum = kids.reduce(
+      (acc, k) => acc + (isComplete(k) ? 100 : k.progress ?? 0),
+      0,
+    );
+    const derived = Math.floor((sum * 90) / ((kids.length + 1) * 100));
+    const reopen = isComplete(parent);
+    if (derived !== (parent.progress ?? 0) || reopen) {
+      patchCard(parent.itemId, {
+        progress: derived,
+        ...(reopen ? { stage: undefined } : {}),
+      });
+    }
+
+    const created = provider.createCard(board, {
+      title,
+      team: parent.team ?? null,
+      zone: parent.zone ?? "gray",
+      start: selectedDate,
+      day: selectedDate,
+      // The subtask starts with the parent's person (still reassignable), so
+      // it lives in the parent's grid cell if it ever stands alone.
+      assigneeLogin: parent.assignees[0] ?? null,
+      parent: parent.itemId,
+    });
+    // Mutations fired against the tmp id (a quick reorder, a rename) wait in
+    // the pending registry for the real uid instead of erroring out.
+    registerPendingCard(tempId, created.then((c) => c.itemId));
+    created
+      .then((c) => {
+        if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
+          void provider.deleteCard(board, c.itemId).catch(() => {});
+          return;
+        }
+        replaceCard(tempId, c);
+        migrateCardId(tempId, c.itemId);
+      })
+      .catch((err: unknown) => {
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
+  };
+
+  // renderGridCard is the grid-variant card used both for top-level rows and
+  // for subtask rows (a subtask works exactly like any card).
+  const renderGridCard = (card: CardModel): ReactNode => (
+    <Card
+      card={card}
+      selectedBy={selectedByFor(card)}
+      onLoadLinks={loadCardLinks}
+      selected={card.itemId === selectedCardId}
+      onSelect={(c) => setSelectedCardId(c.itemId)}
+      onProgress={handleProgress}
+      onDelete={handleGridDelete}
+      onStage={handleStage}
+      onInProgress={handleInProgress}
+      onRename={handleRename}
+      onOpen={onOpen}
+      teams={roster}
+      people={people}
+      users={users}
+      onSetTeam={handleSetTeam}
+      onSetAssignee={handleSetAssignee}
+      hasLinkedReview={reviewedItemIds.has(card.itemId)}
+      counterpartAssignees={counterpartAssigneesFor(card)}
+      onSetReviewAssignee={handleSetReviewAssignee}
+      asOf={selectedDate}
+      onSetDates={handleSetDates}
+      onDefer={handleDefer}
+      dimAvatar
+      subCount={(childrenOf.get(card.itemId) ?? []).length}
+      expanded={subsOpen(card.itemId)}
+      onToggleExpand={(c) => toggleSubs(c.itemId)}
+      onAddSubtask={(c) => {
+        setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+        setAddingSub(c.itemId);
+      }}
+      groupTarget={groupHover === card.itemId}
+    />
+  );
+
+  // The inline add-subtask form (the + flow), indented like a subtask row.
+  const subtaskAddForm = (parent: CardModel): ReactNode => (
+    <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
+      <AddCard
+        autoOpen
+        placeholder="Add a subtask…"
+        onCreate={(title) => handleCreateSubtask(parent, title)}
+        onClosed={() => setAddingSub(null)}
+      />
+    </div>
+  );
+
+  // Wraps a rendered card: subtask rows are indented under their parent, and
+  // the add-subtask form (the + flow) hangs after the LAST subtask row — or
+  // right under the parent while it has none visible yet.
+  const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
+    if (card.parent) {
+      const par = cardsById.get(card.parent);
+      // Under a taken weekly parent the subtask rows dim with it.
+      const dim = !!par?.plan && (par?.assignees.length ?? 0) > 0;
+      const wrapped = (
+        <div className={`subtask-indent${dim ? " subtask-indent-taken" : ""}`}>
+          {node}
+        </div>
+      );
+      const subs = childrenOf.get(card.parent) ?? [];
+      const parent = cardsById.get(card.parent);
+      if (
+        addingSub === card.parent &&
+        parent &&
+        subs[subs.length - 1]?.itemId === card.itemId
+      ) {
+        return (
+          <>
+            {wrapped}
+            {subtaskAddForm(parent)}
+          </>
+        );
+      }
+      return wrapped;
+    }
+    if (
+      addingSub !== card.itemId ||
+      (subsOpen(card.itemId) && (childrenOf.get(card.itemId) ?? []).length > 0)
+    ) {
+      return node;
+    }
+    return (
+      <>
+        {node}
+        {subtaskAddForm(card)}
+      </>
+    );
+  };
+
   const selectedByFor = (card: CardModel): string[] | undefined => {
     if (!presence) {
       return undefined;
     }
     const logins = Object.entries(presence)
-      .filter(([, uid]) => uid === card.itemId)
+      .filter(([, uid]) => {
+        if (uid === card.itemId) {
+          return true;
+        }
+        // A collapsed parent wears its subtasks' presence; expanded, the marks
+        // sit on the subtask rows themselves.
+        if (!card.parent && !subsOpen(card.itemId)) {
+          return (childrenOf.get(card.itemId) ?? []).some((c) => c.itemId === uid);
+        }
+        return false;
+      })
       .map(([login]) => login);
     return logins.length > 0 ? logins : undefined;
   };
@@ -808,28 +1292,71 @@ export function TeamBoard({
   const loadCardLinks = (card: CardModel) =>
     provider.listLinks(board, card.itemId);
 
+  // Mirror the server's derived-progress rule (board.DerivedProgress) so a
+  // parent's bar moves the instant a subtask's does; the server converges it.
+  const syncParentBar = (child: CardModel, childValue: number) => {
+    if (!child.parent) {
+      return;
+    }
+    const parent = cardsById.get(child.parent);
+    if (!parent || isComplete(parent)) {
+      return;
+    }
+    const kids = board.cards.filter((c) => c.parent === child.parent);
+    if (kids.length === 0) {
+      return;
+    }
+    const sum = kids.reduce(
+      (acc, k) =>
+        acc +
+        (k.itemId === child.itemId
+          ? childValue
+          : isComplete(k)
+            ? 100
+            : k.progress ?? 0),
+      0,
+    );
+    const derived = Math.floor((sum * 90) / (kids.length * 100));
+    if (derived !== (parent.progress ?? 0)) {
+      patchCard(parent.itemId, { progress: derived });
+    }
+  };
+
   const handleProgress = (card: CardModel, raw: number) => {
-    const value =
+    let value =
       card.stage === "review" || card.stage === "locked"
         ? Math.min(90, Math.max(10, raw))
         : raw;
+    // A parent's bar cannot be dragged to done while subtasks are open (the
+    // server guard); it tops out at 90 until every subtask is closed.
+    if (
+      value >= 100 &&
+      board.cards.some((k) => k.parent === card.itemId && !isComplete(k))
+    ) {
+      value = 90;
+    }
     const prev: Partial<CardModel> = { progress: card.progress, stage: card.stage };
     const patch: Partial<CardModel> = { progress: value };
     if (value < 100 && card.stage === "done") {
       patch.stage = undefined;
     }
     patchCard(card.itemId, patch);
+    syncParentBar(card, value);
     void provider
       .patchCard(board, card.itemId, { progress: value })
       .then((updated) => {
         addCard(updated);
-        // A review card's progress drives the original's stage server-side.
-        if (card.reviewOf) {
+        // A review card's progress drives the original's stage server-side,
+        // and a subtask's drives its parent's derived bar.
+        if (card.reviewOf || card.parent) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
@@ -843,8 +1370,15 @@ export function TeamBoard({
       stage: card.stage,
       progress: card.progress,
     };
+    // Done on a recurrent card completes the iteration but keeps the
+    // recurrence (mirrors the server): only the progress fills.
     const patch: Partial<CardModel> = {
-      stage: stage === "done" ? undefined : stage ?? undefined,
+      stage:
+        stage === "done"
+          ? card.stage === "recurrent"
+            ? "recurrent"
+            : undefined
+          : stage ?? undefined,
     };
     if (stage === "done") {
       patch.progress = 100;
@@ -854,6 +1388,7 @@ export function TeamBoard({
       patch.progress = Math.min(90, Math.max(10, card.progress ?? 0));
     }
     patchCard(card.itemId, patch);
+    syncParentBar(card, stage === "done" ? 100 : patch.progress ?? card.progress ?? 0);
     const leavingReview = card.stage === "review" && stage !== "review";
     // Entering review re-review reactivates a completed linked review card
     // server-side (progress → 0, round bumped); re-list so it converges.
@@ -863,12 +1398,20 @@ export function TeamBoard({
       .patchCard(board, card.itemId, { stage: stage ?? "" })
       .then((updated) => {
         addCard(updated);
-        if (leavingReview || (enteringReview && hasLinkedReview) || card.reviewOf) {
+        if (
+          leavingReview ||
+          (enteringReview && hasLinkedReview) ||
+          card.reviewOf ||
+          card.parent
+        ) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
@@ -886,16 +1429,20 @@ export function TeamBoard({
     }
     const prev: Partial<CardModel> = { stage: card.stage, progress: card.progress };
     patchCard(card.itemId, { stage: undefined, progress: value });
+    syncParentBar(card, value);
     void provider
       .setInProgress(board, card.itemId)
       .then((updated) => {
         addCard(updated);
-        if (card.stage === "review" || card.reviewOf) {
+        if (card.stage === "review" || card.reviewOf || card.parent) {
           reload();
         }
       })
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
+        if (card.parent) {
+          reload(); // the parent's optimistic derived bar needs the truth back
+        }
         onError(errMessage(err));
       });
   };
@@ -927,12 +1474,26 @@ export function TeamBoard({
       removeCard(card.itemId);
       return;
     }
+    // A subtask has no sprint history of its own: the × deletes it outright,
+    // gone from under its parent immediately.
+    if (card.parent) {
+      removeCard(card.itemId);
+      void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
+        if (!isGone(err)) {
+          onError(errMessage(err));
+          reload();
+        }
+      });
+      return;
+    }
     let rollback: () => void;
     if (!card.plan) {
       const cur = currentSprint(board, card.team ?? null);
       const prevSprint = previousSprintFor(card);
       const inCurrent = !!card.sprintStart && !!cur && card.sprintStart === cur;
-      if (inCurrent && cur && prevSprint && prevSprint < cur) {
+      // A card created today has no sprint history worth keeping: delete for
+      // real instead of demoting (mirrors boardservice.Remove).
+      if (inCurrent && cur && prevSprint && prevSprint < cur && card.startDate !== todayIso()) {
         // Demote to the previous sprint, all dates pulled along (the end date
         // too, or the [start…end] range would keep the card on its old day).
         const prev: Partial<CardModel> = {
@@ -961,10 +1522,41 @@ export function TeamBoard({
         if (linkedReview) {
           removeCard(linkedReview.itemId);
         }
+        // The server releases the subtasks (they return standalone, keeping
+        // their zone and slot); mirror it locally so they don't vanish while
+        // the delete round-trips.
+        const freed = board.cards.filter((c) => c.parent === card.itemId);
+        for (const c of freed) {
+          patchCard(c.itemId, {
+            parent: undefined,
+            ...(c.assignees.length === 0 && card.assignees.length > 0
+              ? { assignees: card.assignees.slice(0, 1) }
+              : {}),
+          });
+        }
+        if (freed.length > 0) {
+          // The freed rows take the parent's slot, in their nested order.
+          const freedIds = new Set(freed.map((c) => c.itemId));
+          const order: string[] = [];
+          for (const c of board.cards) {
+            if (freedIds.has(c.itemId)) {
+              continue;
+            }
+            if (c.itemId === card.itemId) {
+              order.push(...freed.map((f) => f.itemId));
+              continue;
+            }
+            order.push(c.itemId);
+          }
+          reorderCards(order);
+        }
         rollback = () => {
           addCard(card);
           if (linkedReview) {
             addCard(linkedReview);
+          }
+          for (const c of freed) {
+            patchCard(c.itemId, { parent: card.itemId });
           }
         };
       }
@@ -1281,9 +1873,10 @@ export function TeamBoard({
     team: string | null,
     startDate: string,
     day: string,
+    noSprint = false,
   ) => {
     const sprint = currentSprint(board, team);
-    const firstSprint = sprint === null;
+    const firstSprint = !noSprint && sprint === null;
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
@@ -1293,7 +1886,7 @@ export function TeamBoard({
       zone,
       day,
       startDate,
-      sprintStart: sprint ?? startDate,
+      sprintStart: noSprint ? undefined : (sprint ?? startDate),
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
       description: "",
@@ -1307,6 +1900,7 @@ export function TeamBoard({
       start: startDate,
       assigneeLogin: engineer || null,
       team,
+      noSprint: noSprint || undefined,
     });
     registerPendingCard(
       tempId,
@@ -1314,13 +1908,15 @@ export function TeamBoard({
     );
     void creating
       .then((card) => {
-        removeCard(tempId);
         if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
           void provider.deleteCard(board, card.itemId).catch(() => undefined);
           return;
         }
-        addCard(card);
+        // Swap in place: append-on-ack would reshuffle a quick burst of adds.
+        replaceCard(tempId, card);
+        migrateCardId(tempId, card.itemId);
         if (firstSprint) {
           reload();
         }
@@ -1334,13 +1930,22 @@ export function TeamBoard({
 
   // Creating a Team card is scheduled for the viewed day as a one-day range —
   // a backdated create with day = today would stretch onto today's board. The
-  // sprint join (and the first-sprint record) happens server-side.
+  // sprint join (and the first-sprint record) happens server-side. A day ahead
+  // of the team's current sprint is ambiguous — a later day of the running
+  // sprint (two-day sprints) or the next one (daily sprints)? Only the lead
+  // knows, so ask; "next sprint" creates the card without a sprint and the
+  // next carry over to reach its day adopts it.
   const handleCreate = (
     engineer: string,
     zone: ZoneKey,
     title: string,
     team?: string | null,
   ) => {
+    const sprint = currentSprint(board, team ?? null);
+    if (sprint !== null && selectedDate > sprint) {
+      setSprintChoice({ engineer, zone, title, team: team ?? null, sprint });
+      return;
+    }
     createTeamCard(
       engineer,
       zone,
@@ -1370,7 +1975,7 @@ export function TeamBoard({
     }
     let rep: CarryReport;
     try {
-      rep = await provider.carryOver(board, team, true);
+      rep = await track(provider.carryOver(board, team, true));
     } catch (err: unknown) {
       onError(errMessage(err));
       return;
@@ -1388,18 +1993,26 @@ export function TeamBoard({
     // advanced sprint and blank the board. Only the closing (current) sprint's
     // unfinished cards carry, mirroring boardservice.CarryOver.
     for (const c of board.cards) {
-      if (
-        (team === null ? c.team == null : c.team === team) &&
+      const sameTeam = team === null ? c.team == null : c.team === team;
+      if (!sameTeam || isComplete(c) || c.itemId.startsWith("tmp-")) {
+        continue;
+      }
+      // Sprint-less day cards scheduled past the closing sprint whose day has
+      // arrived ("next sprint" creates) are adopted by the sprint being
+      // started, mirroring CarryOver; older sprint-less strays stay put.
+      const adopted =
+        !c.sprintStart &&
+        !c.plan &&
+        !!c.startDate &&
         !!old &&
-        c.sprintStart === old &&
-        !isComplete(c) &&
-        !c.itemId.startsWith("tmp-")
-      ) {
+        c.startDate > old &&
+        c.startDate <= today;
+      if (adopted || (!!old && c.sprintStart === old)) {
         patchCard(c.itemId, { sprintStart: today });
       }
     }
     try {
-      await provider.carryOver(board, team);
+      await track(provider.carryOver(board, team));
     } catch (err: unknown) {
       onError(errMessage(err));
     }
@@ -1577,8 +2190,14 @@ export function TeamBoard({
           g.meta.kind === "band" ? `plan:${c.itemId}` : c.itemId
         }
         onDrop={handleDrop}
+        onGroupDrop={handleGroup}
+        onHoverCard={setGroupHover}
+        onDragActiveCard={handleDragActive}
+        canGroup={canGroup}
         renderCard={(card, group) =>
-          group.meta.kind === "band" ? (
+          withSubs(
+            card,
+            group.meta.kind === "band" ? (
             <Card
               card={card}
               selectedBy={selectedByFor(card)}
@@ -1586,7 +2205,7 @@ export function TeamBoard({
               selected={card.itemId === selectedCardId}
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
-              onDelete={removeFromPlan}
+              onDelete={card.parent ? handleGridDelete : removeFromPlan}
               onStage={handleStage}
               onInProgress={handleInProgress}
               onRename={handleRename}
@@ -1605,33 +2224,18 @@ export function TeamBoard({
               weekMode
               onSetWeek={handleSetWeek}
               dimAvatar
+              subCount={(childrenOf.get(card.itemId) ?? []).length}
+              expanded={subsOpen(card.itemId)}
+              onToggleExpand={(c) => toggleSubs(c.itemId)}
+              onAddSubtask={(c) => {
+                setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+                setAddingSub(c.itemId);
+              }}
+              groupTarget={groupHover === card.itemId}
             />
-          ) : (
-            <Card
-              card={card}
-              selectedBy={selectedByFor(card)}
-              onLoadLinks={loadCardLinks}
-              selected={card.itemId === selectedCardId}
-              onSelect={(c) => setSelectedCardId(c.itemId)}
-              onProgress={handleProgress}
-              onDelete={handleGridDelete}
-              onStage={handleStage}
-              onInProgress={handleInProgress}
-              onRename={handleRename}
-              onOpen={onOpen}
-              teams={roster}
-              people={people}
-              users={users}
-              onSetTeam={handleSetTeam}
-              onSetAssignee={handleSetAssignee}
-              hasLinkedReview={reviewedItemIds.has(card.itemId)}
-              counterpartAssignees={counterpartAssigneesFor(card)}
-              onSetReviewAssignee={handleSetReviewAssignee}
-              asOf={selectedDate}
-              onSetDates={handleSetDates}
-              onDefer={handleDefer}
-              dimAvatar
-            />
+            ) : (
+              renderGridCard(card)
+            ),
           )
         }
           renderOverlay={(card) => (
@@ -1678,11 +2282,15 @@ export function TeamBoard({
               <div
                 ref={dropRef as Ref<HTMLDivElement>}
                 className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
-                style={{ background: def.background, borderLeftColor: def.accent }}
+                style={
+                  {
+                    background: def.background,
+                    borderLeftColor: def.accent,
+                    "--zone-accent": def.accent,
+                  } as CSSProperties
+                }
               >
-                <span className="zone-spine" style={{ color: def.accent }}>
-                  {def.spine}
-                </span>
+                <span className="zone-spine">{def.spine}</span>
                 <div className="zone-cards">
                   {body}
                   <AddCard
@@ -1877,6 +2485,25 @@ export function TeamBoard({
           onRemove={onRemoveTeam}
           onReorder={onReorderTeams}
           onClose={() => setTeamsModalOpen(false)}
+        />
+      )}
+      {sprintChoice && (
+        <SprintChoiceDialog
+          title={sprintChoice.title}
+          day={selectedDate}
+          sprint={sprintChoice.sprint}
+          onClose={() => setSprintChoice(null)}
+          onSubmit={(noSprint) =>
+            createTeamCard(
+              sprintChoice.engineer,
+              sprintChoice.zone,
+              sprintChoice.title,
+              sprintChoice.team,
+              selectedDate,
+              selectedDate,
+              noSprint,
+            )
+          }
         />
       )}
     </div>

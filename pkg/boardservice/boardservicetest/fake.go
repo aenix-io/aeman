@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
 // Backend is an in-memory boardservice.Backend. It logs every call and mutates
@@ -115,7 +115,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Team: in.Team, ReviewOf: in.ReviewOf,
-		Assignees: []string{},
+		Parent: in.Parent, Assignees: []string{},
 	}
 	if in.Assignee != "" {
 		card.Assignees = []string{in.Assignee}
@@ -306,6 +306,15 @@ func (f *Backend) SetAssignee(_ context.Context, _ board.Board, card board.Card,
 		} else {
 			c.Assignees = []string{login}
 		}
+	}
+	return nil
+}
+
+// SetParent sets a card's parent link.
+func (f *Backend) SetParent(_ context.Context, _ board.Board, card board.Card, parent string) error {
+	f.rec("SetParent %s %s", card.ItemID, parent)
+	if c := f.Card(card.ItemID); c != nil {
+		c.Parent = parent
 	}
 	return nil
 }

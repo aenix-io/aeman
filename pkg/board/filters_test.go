@@ -88,6 +88,12 @@ func meBoard() Board {
 		{ItemID: "uold", Assignees: []string{"u"}, Team: "A", StartDate: "2026-06-10", SprintStart: "2026-06-10"},
 		// Assigned to u but never placed in a sprint — must never show.
 		{ItemID: "u3", Assignees: []string{"u"}, Team: "A"},
+		// A "next sprint" create: sprint-less but scheduled — shows from its
+		// day on until a carry-over adopts it into a sprint.
+		{ItemID: "unext", Assignees: []string{"u"}, Team: "A", StartDate: "2026-06-27"},
+		// An old sprint-less stray, scheduled before the tracked sprints: it
+		// stays on its own past days and never resurfaces on current ones.
+		{ItemID: "ustray", Assignees: []string{"u"}, Team: "A", StartDate: "2026-06-15"},
 		// Someone else's current-sprint card.
 		{ItemID: "u4", Assignees: []string{"v"}, Team: "A", StartDate: "2026-06-26", SprintStart: "2026-06-26"},
 	})
@@ -101,9 +107,11 @@ func TestMeView(t *testing.T) {
 		want      []string
 	}{
 		{"current-sprint card shows on its sprint day", "u", "2026-06-26", []string{"u1"}},
-		{"deferred current-sprint card appears once its day arrives", "u", "2026-06-28", []string{"u1", "ufuture"}},
+		{"sprint-less scheduled card shows from its day on", "u", "2026-06-27", []string{"u1", "unext"}},
+		{"deferred current-sprint card appears once its day arrives", "u", "2026-06-28", []string{"u1", "ufuture", "unext"}},
 		{"rolling back shows the previous sprint, hides the current", "u", "2026-06-22", []string{"uprev"}},
-		{"before the previous sprint nothing shows", "u", "2026-06-19", []string{}},
+		{"an old sprint-less stray lives on its own past days only", "u", "2026-06-19", []string{"ustray"}},
+		{"before the stray's day nothing shows", "u", "2026-06-14", []string{}},
 		{"empty user sees everyone in the active sprint", "", "2026-06-26", []string{"u1", "u4"}},
 	}
 	for _, c := range cases {

@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // ErrCardNotFound is returned when an item id is not on the loaded board.
@@ -30,6 +30,14 @@ const MaxDescriptionLen = 16384
 
 // ErrDescriptionTooLong is returned when a description exceeds MaxDescriptionLen.
 var ErrDescriptionTooLong = fmt.Errorf("description is too long (max %d characters)", MaxDescriptionLen)
+
+// MaxNoteLen caps a single work note (in runes). A note is a short comment,
+// not a document — and notes share the same ~64K draft body as the description
+// and event log, so one oversized note would crowd out the rest.
+const MaxNoteLen = 4096
+
+// ErrNoteTooLong is returned when a note exceeds MaxNoteLen.
+var ErrNoteTooLong = fmt.Errorf("note is too long (max %d characters)", MaxNoteLen)
 
 // Service performs aeman's board actions. It is stateless: every method loads
 // the board through the backend, computes the change with internal/board logic,
@@ -157,8 +165,15 @@ type CreateCardArgs struct {
 	Plan board.PlanBand
 	Week string
 	// ReviewOf marks the new card as the review of the given item.
-	ReviewOf       string
+	ReviewOf string
+	// Parent groups the new card as a subtask of the given item on create.
+	Parent         string
 	StartNewSprint *bool
+	// NoSprint schedules the card for its day without joining any sprint — a
+	// "next sprint" create: the card lives on its own day only until the first
+	// carry-over whose day has reached the card's start adopts it into the
+	// sprint it opens.
+	NoSprint bool
 }
 
 // CreateCard creates a card with two dates: StartDate (its scheduled day) is the
@@ -175,14 +190,18 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	}
 	// A title that is nothing but a GitHub issue/PR URL turns into that item's
 	// real title, with the link moved into the description — a one-time
-	// resolution at create, never re-synced. Resolution failures (no access,
-	// dead link) keep the URL as the title.
+	// resolution at create, never re-synced. The URL is always filed in the
+	// body, and the title defaults to a readable "Issue: owner/repo#N" /
+	// "Pull: owner/repo#N": when resolution fails (no repo access on a private
+	// repo, dead link) the card stays usable — a bare URL as the title, or a
+	// content-less item that never renders, is what left cards invisible.
 	var linkDescription string
 	if ref, ok := board.ParseGitHubRef(strings.TrimSpace(args.Title)); ok {
+		linkDescription = ref.URL
+		args.Title = ref.FallbackTitle()
 		if resolver, hasResolver := s.backend.(LinkResolver); hasResolver {
 			if resolved, err := resolver.ResolveIssueRef(ctx, ref); err == nil && resolved.Title != "" {
 				args.Title = resolved.Title
-				linkDescription = ref.URL
 			}
 		}
 	}
@@ -221,24 +240,44 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	} else if day == "" {
 		day = start
 	}
-	cur := board.CurrentSprint(b, args.Team)
-	startNew := cur == ""
-	if args.StartNewSprint != nil {
-		startNew = *args.StartNewSprint || cur == ""
-	}
 	sprint := args.SprintStart
-	if startNew {
-		// Record the new sprint and have the card join it (previous = the old
-		// current, which is "" when the team had no sprint yet — matching the
-		// frontend's setSprintState(team, day, null)).
-		if sprint == "" {
-			sprint = day
+	if args.NoSprint {
+		// A "next sprint" create: the card is scheduled for its day but joins
+		// no sprint (and starts none) — the first carry-over whose day reaches
+		// the card's start adopts it into the sprint it opens.
+		sprint = ""
+	} else {
+		cur := board.CurrentSprint(b, args.Team)
+		startNew := cur == ""
+		if args.StartNewSprint != nil {
+			startNew = *args.StartNewSprint || cur == ""
 		}
-		if err := s.backend.SetSprintState(ctx, b, args.Team, sprint, cur); err != nil {
-			return board.Card{}, err
+		if startNew {
+			// Record the new sprint and have the card join it (previous = the old
+			// current, which is "" when the team had no sprint yet — matching the
+			// frontend's setSprintState(team, day, null)).
+			if sprint == "" {
+				sprint = day
+			}
+			if err := s.backend.SetSprintState(ctx, b, args.Team, sprint, cur); err != nil {
+				return board.Card{}, err
+			}
+		} else if sprint == "" {
+			sprint = cur
 		}
-	} else if sprint == "" {
-		sprint = cur
+	}
+	// A subtask create is validated BEFORE the card exists and the card is
+	// born already parented — a create-then-group pair would broadcast (and
+	// persist) a parentless instant that watchers and mid-sync reloads see as
+	// a stray top-level card.
+	if args.Parent != "" {
+		p, ok := findCard(b, args.Parent)
+		if !ok || p.Title == board.SprintStateTitle {
+			return board.Card{}, ErrParentNotFound
+		}
+		if p.Parent != "" {
+			return board.Card{}, ErrSubtaskDepth
+		}
 	}
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
@@ -250,10 +289,20 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		Assignee:    args.Assignee,
 		Team:        args.Team,
 		ReviewOf:    args.ReviewOf,
+		Parent:      args.Parent,
 	})
 	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 	if err == nil {
 		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+	}
+	if err == nil && args.Parent != "" {
+		if perr := s.SetParent(ctx, owner, project, card.ItemID, args.Parent); perr != nil {
+			// The card exists but could not finish grouping: remove it rather
+			// than leave a half-grouped twin behind.
+			_ = s.deleteWithCascade(ctx, b, card)
+			return card, perr
+		}
+		card.Parent = args.Parent
 	}
 	return card, err
 }
@@ -301,7 +350,27 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 	// finished recurrent card stays behind and reseeds a fresh copy instead.
 	var carry, reseed, relocate []board.Card
 	for _, c := range b.Cards {
-		if c.Team != team || old == "" || c.SprintStart != old {
+		// A subtask is never carried on its own - it rides with its parent
+		// (below), whatever team either of them belongs to.
+		if c.Parent != "" {
+			continue
+		}
+		if c.Team != team {
+			continue
+		}
+		// Adopt sprint-less day cards whose scheduled day has arrived (a "next
+		// sprint" create): they join the sprint this carry-over opens, which is
+		// what "the next sprint" meant when they were created. Only cards
+		// scheduled PAST the closing sprint qualify — an old sprint-less stray
+		// (a report card, a pre-sprint legacy card) is not this sprint's work
+		// and must not be dragged in.
+		if c.SprintStart == "" && c.Plan == board.PlanNone && c.StartDate != "" &&
+			old != "" && c.StartDate > old &&
+			c.StartDate <= today && !board.Complete(c.Stage, c.Progress) {
+			carry = append(carry, c)
+			continue
+		}
+		if old == "" || c.SprintStart != old {
 			continue
 		}
 		if c.Stage == board.StageRecurrent && c.Progress >= 100 {
@@ -328,7 +397,11 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		}
 		carry = append(carry, c)
 	}
-	rep := CarryReport{Carried: len(carry), Reseeded: len(reseed)}
+	// Subtasks ride with their carried parent - even completed ones, and
+	// whatever team they belong to; the parent's team drives the sprint.
+	followers := carryFollowers(b, carry)
+	carry = append(carry, followers...)
+	rep := CarryReport{Carried: len(carry) - len(followers), Reseeded: len(reseed)}
 	if dryRun {
 		return rep, nil
 	}
@@ -412,8 +485,8 @@ func (s *Service) reseedRecurrent(ctx context.Context, b board.Board, c board.Ca
 	if err := s.backend.SetStage(ctx, b, created, board.StageRecurrent); err != nil {
 		return err
 	}
-	if c.Description != "" {
-		return s.backend.SetDescription(ctx, b, created, c.Description)
+	if desc := board.StripEventLines(c.Description); desc != "" {
+		return s.backend.SetDescription(ctx, b, created, desc)
 	}
 	return nil
 }
@@ -592,6 +665,22 @@ func (s *Service) SetDates(ctx context.Context, owner string, project int, itemI
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(start, end))
 	s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, sprint)
+	return s.syncChildrenSprint(ctx, b, c.ItemID, sprint)
+}
+
+// syncChildrenSprint drags a card's subtasks onto its (re)assigned sprint: a
+// subtask rides its parent, so a parent moved to another sprint must not
+// leave its children stranded in the old one.
+func (s *Service) syncChildrenSprint(ctx context.Context, b board.Board, parentID, sprint string) error {
+	for _, c := range board.Children(b, parentID) {
+		if c.SprintStart == sprint {
+			continue
+		}
+		if err := s.backend.SetSprintStart(ctx, b, c, sprint); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, sprint)
+	}
 	return nil
 }
 
@@ -651,7 +740,10 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 	}
 	cur := board.CurrentSprint(b, c.Team)
 	prev := board.PreviousSprint(b, c.Team)
-	if c.SprintStart != "" && cur != "" && c.SprintStart == cur && prev != "" && prev < cur {
+	// A card created today (start = today) has no sprint history worth
+	// keeping: the x deletes it for real instead of demoting.
+	if c.SprintStart != "" && cur != "" && c.SprintStart == cur && prev != "" && prev < cur &&
+		c.StartDate != board.TodayIso() {
 		if err := s.backend.SetStart(ctx, b, c, prev); err != nil {
 			return err
 		}
@@ -659,11 +751,33 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			return err
 		}
 		if c.Day != "" && c.Day != prev {
-			return s.backend.SetDay(ctx, b, c, prev)
+			if err := s.backend.SetDay(ctx, b, c, prev); err != nil {
+				return err
+			}
 		}
-		return nil
+		// The demoted card keeps living in the previous sprint — its subtasks
+		// ride along, staying nested under it there.
+		return s.syncChildrenSprint(ctx, b, c.ItemID, prev)
 	}
 	return s.deleteWithCascade(ctx, b, c)
+}
+
+// carryFollowers collects the subtasks that ride a carried parent into the
+// new sprint: the OPEN ones. A completed subtask stays in the sprint it was
+// finished in — the parent's derived bar still counts it (DerivedProgress
+// scans ALL children), so the progress carries even though the done row
+// stays behind on the old day.
+func carryFollowers(b board.Board, carry []board.Card) []board.Card {
+	followers := make([]board.Card, 0)
+	for _, p := range carry {
+		for _, c := range board.Children(b, p.ItemID) {
+			if board.Complete(c.Stage, c.Progress) {
+				continue
+			}
+			followers = append(followers, c)
+		}
+	}
+	return followers
 }
 
 // LinkResolver resolves a GitHub issue/PR link to its live title and state.
@@ -777,10 +891,41 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 	if stage == board.StageRecurrent && card.ReviewOf != "" {
 		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)
 	}
+	// Closing the parent is the human's final call - made only once every
+	// subtask is done.
+	if stage == board.StageDone && board.OpenChildren(b, card.ItemID) {
+		return ErrOpenSubtasks
+	}
+	// Done on a RECURRENT card completes this iteration without shedding the
+	// recurrence: progress fills to 100 (complete for carry-over/reseed) and
+	// the recurrent marker stays for the next round.
+	if stage == board.StageDone && card.Stage == board.StageRecurrent {
+		if card.Progress != 100 {
+			if err := s.backend.SetProgress(ctx, b, card, 100); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, card, board.EventProgress,
+				strconv.Itoa(card.Progress), "100")
+		}
+		if card.Parent != "" {
+			child := card
+			child.Progress = 100
+			return s.syncParentProgress(ctx, b, card.Parent, &child, "")
+		}
+		return nil
+	}
 	if err := s.applyStage(ctx, b, card, stage); err != nil {
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventStage, string(card.Stage), string(stage))
+	// A subtask's completion state feeds its parent's derived progress.
+	if card.Parent != "" {
+		child := card
+		child.Stage, child.Progress = board.ApplyStage(stage, card.Progress)
+		if err := s.syncParentProgress(ctx, b, card.Parent, &child, ""); err != nil {
+			return err
+		}
+	}
 	// Leaving review cancels the unfinished linked review card.
 	if card.Stage == board.StageReview && stage != board.StageReview {
 		return s.cancelLinkedReview(ctx, b, card)
@@ -862,6 +1007,11 @@ func (s *Service) SetProgress(ctx context.Context, owner string, project int, it
 	if err != nil {
 		return err
 	}
+	// 100% completes a stageless card; the parent's final 100 waits for
+	// every subtask to be done first.
+	if raw >= 100 && board.OpenChildren(b, card.ItemID) {
+		return ErrOpenSubtasks
+	}
 	newStage, newProgress := board.ApplyProgress(card.Stage, raw)
 	if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
 		return err
@@ -870,6 +1020,14 @@ func (s *Service) SetProgress(ctx context.Context, owner string, project int, it
 		strconv.Itoa(card.Progress), strconv.Itoa(newProgress))
 	if newStage != card.Stage {
 		if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
+			return err
+		}
+	}
+	// A subtask's progress feeds its parent's derived progress.
+	if card.Parent != "" {
+		child := card
+		child.Stage, child.Progress = newStage, newProgress
+		if err := s.syncParentProgress(ctx, b, card.Parent, &child, ""); err != nil {
 			return err
 		}
 	}
@@ -895,11 +1053,22 @@ func (s *Service) SetInProgress(ctx context.Context, owner string, project int, 
 			return err
 		}
 	}
+	if newProgress != card.Progress {
+		if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
+			return err
+		}
+	}
+	// A subtask's state feeds its parent's derived progress (and reopens a
+	// done parent — in-progress means the group has open work again).
+	if card.Parent != "" {
+		child := card
+		child.Stage, child.Progress = newStage, newProgress
+		if err := s.syncParentProgress(ctx, b, card.Parent, &child, ""); err != nil {
+			return err
+		}
+	}
 	if newProgress == card.Progress {
 		return nil
-	}
-	if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
-		return err
 	}
 	return s.syncReviewLink(ctx, b, card, newProgress)
 }
@@ -956,7 +1125,7 @@ func (s *Service) SetSprintStart(ctx context.Context, owner string, project int,
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventSprint, card.SprintStart, date)
-	return nil
+	return s.syncChildrenSprint(ctx, b, card.ItemID, date)
 }
 
 // SetPlan sets a card's weekly-plan band (plan = "" clears it).
@@ -1044,22 +1213,27 @@ func (s *Service) syncReviewLink(ctx context.Context, b board.Board, card board.
 // --- Review linkage --------------------------------------------------------
 
 // SendToReview creates a linked review card for a reviewer (in the original's
-// zone/team) and puts the original on the review stage, returning the review
-// card. day = "" is today. It mirrors handleSendToReview in TeamBoard.tsx.
-func (s *Service) SendToReview(ctx context.Context, owner string, project int, itemID, reviewer, day string) (board.Card, error) {
+// team) and puts the original on the review stage, returning the review card.
+// day = "" is today. zone places the review card explicitly — the Me board
+// sends the reviewer's copy to their unplanned zone — while "" keeps the
+// original's zone (the Team board's and MCP's behaviour). It mirrors
+// handleSendToReview in TeamBoard.tsx / MeBoard.tsx.
+func (s *Service) SendToReview(ctx context.Context, owner string, project int, itemID, reviewer, day string, zone board.ZoneKey) (board.Card, error) {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return board.Card{}, err
 	}
-	return s.sendToReview(ctx, b, card, reviewer, day)
+	return s.sendToReview(ctx, b, card, reviewer, day, zone)
 }
 
 // sendToReview is the create-review-card half of SendToReview over a loaded board.
-func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Card, reviewer, day string) (board.Card, error) {
+func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Card, reviewer, day string, zone board.ZoneKey) (board.Card, error) {
 	if day == "" {
 		day = board.TodayIso()
 	}
-	zone := card.Zone
+	if zone == "" {
+		zone = card.Zone
+	}
 	if zone == "" {
 		zone = board.ZoneGray
 	}
@@ -1089,10 +1263,11 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 	}
 	// The review card carries a copy of the original's description, so the
 	// reviewer sees the same context (and its links). A one-time copy at
-	// create — the reviewer may edit their own copy freely afterwards.
-	if card.Description != "" {
-		if setErr := s.backend.SetDescription(ctx, b, created, card.Description); setErr == nil {
-			created.Description = card.Description
+	// create — the reviewer may edit their own copy freely afterwards. Event
+	// lines that leaked into the original's description are not context.
+	if desc := board.StripEventLines(card.Description); desc != "" {
+		if setErr := s.backend.SetDescription(ctx, b, created, desc); setErr == nil {
+			created.Description = desc
 		}
 	}
 	// Put the original on review (ApplyStage also drops a 100% card to 90%).
@@ -1105,16 +1280,18 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 }
 
 // ReassignReviewer points a card's linked review card at another reviewer, or
-// sends the card to review when it has none yet (day = "" is today). It mirrors
+// sends the card to review when it has none yet (day = "" is today). zone
+// places a newly created review card like SendToReview's ("" = the original's
+// zone); an existing review card is never moved. It mirrors
 // handleSetReviewAssignee (non-null login) in TeamBoard.tsx.
-func (s *Service) ReassignReviewer(ctx context.Context, owner string, project int, itemID, reviewer, day string) error {
+func (s *Service) ReassignReviewer(ctx context.Context, owner string, project int, itemID, reviewer, day string, zone board.ZoneKey) error {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
 	}
 	reviewCard, ok := findReviewCard(b, card.ItemID)
 	if !ok {
-		_, err := s.sendToReview(ctx, b, card, reviewer, day)
+		_, err := s.sendToReview(ctx, b, card, reviewer, day, zone)
 		return err
 	}
 	// Re-review: sending an already-passed card back to the SAME reviewer
@@ -1153,7 +1330,7 @@ func (s *Service) ReassignReviewer(ctx context.Context, owner string, project in
 	if err := s.backend.SetReviewOf(ctx, b, reviewCard, ""); err != nil {
 		return err
 	}
-	_, err = s.sendToReview(ctx, b, card, reviewer, day)
+	_, err = s.sendToReview(ctx, b, card, reviewer, day, zone)
 	return err
 }
 
@@ -1224,6 +1401,13 @@ func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID
 	if err != nil {
 		return err
 	}
+	// A subtask always belongs to its parent's team: a direct change follows
+	// the parent instead of drifting away from it.
+	if card.Parent != "" {
+		if p, ok := findCard(b, card.Parent); ok {
+			team = p.Team
+		}
+	}
 	if day == "" {
 		day = board.TodayIso()
 	}
@@ -1231,10 +1415,26 @@ func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID
 	if sprintStart == "" {
 		sprintStart = day
 	}
-	if err := s.backend.SetTeam(ctx, b, card, team); err != nil {
+	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
 		return err
 	}
-	s.logEvent(ctx, b, card, board.EventTeam, card.Team, team)
+	// The team travels with the whole group: subtasks follow their parent.
+	for _, c := range board.Children(b, card.ItemID) {
+		if err := s.setTeamOne(ctx, b, c, team, sprintStart); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// setTeamOne moves a single card to a team + sprint, logging what changed.
+func (s *Service) setTeamOne(ctx context.Context, b board.Board, card board.Card, team, sprintStart string) error {
+	if card.Team != team {
+		if err := s.backend.SetTeam(ctx, b, card, team); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventTeam, card.Team, team)
+	}
 	if sprintStart != card.SprintStart {
 		if err := s.backend.SetSprintStart(ctx, b, card, sprintStart); err != nil {
 			return err
@@ -1259,6 +1459,9 @@ func (s *Service) Rename(ctx context.Context, owner string, project int, itemID,
 // the linked counterpart — editing the original updates its review card and
 // vice versa, so both always show the same context. Notes stay per-card.
 func (s *Service) SetDescription(ctx context.Context, owner string, project int, itemID, description string) error {
+	// Machine event-log lines are never legitimate description prose; strip
+	// them so a copied-back visible text cannot bake the log into the body.
+	description = board.StripEventLines(description)
 	if utf8.RuneCountInString(description) > MaxDescriptionLen {
 		return ErrDescriptionTooLong
 	}
@@ -1302,6 +1505,9 @@ func findNote(card board.Card, noteID string) (board.Note, bool) {
 // EditNote rewrites one of a card's work notes (ErrNoteNotFound when the note id
 // is not on the card).
 func (s *Service) EditNote(ctx context.Context, owner string, project int, itemID, noteID, text string) error {
+	if utf8.RuneCountInString(text) > MaxNoteLen {
+		return ErrNoteTooLong
+	}
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
@@ -1329,6 +1535,9 @@ func (s *Service) DeleteNote(ctx context.Context, owner string, project int, ite
 
 // AddNote appends a work note to a card.
 func (s *Service) AddNote(ctx context.Context, owner string, project int, itemID, text string) error {
+	if utf8.RuneCountInString(text) > MaxNoteLen {
+		return ErrNoteTooLong
+	}
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
@@ -1378,12 +1587,37 @@ func (s *Service) DeleteCard(ctx context.Context, owner string, project int, ite
 	return s.deleteWithCascade(ctx, b, card)
 }
 
-// deleteWithCascade deletes a card and any review card linked to it.
+// deleteWithCascade deletes a card and any review card linked to it. The
+// card's subtasks are RELEASED, not deleted: they are work items in their own
+// right, so they return to the board as standalone cards (keeping their team,
+// sprint and dates) instead of vanishing as orphans of a gone parent.
 func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card board.Card) error {
 	if reviewCard, ok := findReviewCard(b, card.ItemID); ok {
 		if err := s.backend.DeleteCard(ctx, b, reviewCard); err != nil {
 			return err
 		}
+	}
+	anchor := card.ItemID
+	for _, c := range board.Children(b, card.ItemID) {
+		if err := s.backend.SetParent(ctx, b, c, ""); err != nil {
+			return err
+		}
+		// An unassigned subtask takes the parent's person, so on the Team
+		// grid it surfaces in the cell the parent stood in, not in Unassigned.
+		if len(c.Assignees) == 0 && len(card.Assignees) > 0 {
+			if err := s.backend.SetAssignee(ctx, b, c, card.Assignees[0]); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, c, board.EventAssignee, "", card.Assignees[0])
+		}
+		// Slide the freed card into the parent's slot (a subtask grouped by
+		// drag kept its old project position, which may be anywhere); chained
+		// anchors keep the children in their nested order. Best-effort: a
+		// misplaced row beats a failed delete.
+		if err := s.backend.MoveCard(ctx, b, c, anchor); err == nil {
+			anchor = c.ItemID
+		}
+		s.logEvent(ctx, b, c, board.EventParent, card.Title, "")
 	}
 	return s.backend.DeleteCard(ctx, b, card)
 }

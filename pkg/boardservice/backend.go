@@ -8,7 +8,7 @@ package boardservice
 import (
 	"context"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // Backend abstracts the storage backend a board lives in (GitHub Projects v2
@@ -58,6 +58,8 @@ type Backend interface {
 	SetWeek(ctx context.Context, b board.Board, card board.Card, week string) error
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	SetAssignee(ctx context.Context, b board.Board, card board.Card, login string) error
+	// SetParent sets or clears ("") the parent link making a card a subtask.
+	SetParent(ctx context.Context, b board.Board, card board.Card, parent string) error
 	SetReviewOf(ctx context.Context, b board.Board, card board.Card, reviewOf string) error
 	SetReviewRound(ctx context.Context, b board.Board, card board.Card, round int) error
 

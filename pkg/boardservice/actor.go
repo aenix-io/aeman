@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // WithActor returns a context carrying the acting user's GitHub login. The

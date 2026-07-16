@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/aenix-org/aeman/pkg/apiserver"
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/boardservice"
-	"github.com/aenix-org/aeman/pkg/ghprojects"
+	"github.com/aenix-io/aeman/pkg/apiserver"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // errMissingBoard is returned when neither query parameters nor server defaults
@@ -181,7 +181,7 @@ func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) 
 	if err != nil {
 		return nil, err
 	}
-	return boardservice.New(&storeBackend{inner: client, store: s.store}), nil
+	return boardservice.New(&storeBackend{inner: client, store: s.store, multiUser: s.auth != nil}), nil
 }
 
 // service resolves the board reference and builds the per-request board service.
@@ -324,7 +324,11 @@ type createCardRequest struct {
 		Week string `json:"week"`
 	} `json:"plan"`
 	ReviewOf       string `json:"reviewOf"`
+	Parent         string `json:"parent"`
 	StartNewSprint *bool  `json:"startNewSprint"`
+	// NoSprint schedules the card for its day without joining any sprint (a
+	// "next sprint" create); the next carry-over to reach its day adopts it.
+	NoSprint bool `json:"noSprint"`
 }
 
 func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +356,9 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		Start:          in.Dates.Start,
 		SprintStart:    in.Dates.Sprint,
 		ReviewOf:       in.ReviewOf,
+		Parent:         in.Parent,
 		StartNewSprint: in.StartNewSprint,
+		NoSprint:       in.NoSprint,
 	}
 	if len(in.Assignees) > 0 {
 		args.Assignee = in.Assignees[0]
@@ -391,6 +397,8 @@ type cardPatch struct {
 	Dates       *datesPatch `json:"dates"`
 	Plan        *planPatch  `json:"plan"`
 	ReviewOf    *string     `json:"reviewOf"`
+	// Parent groups the card as a subtask under another card ("" ungroups).
+	Parent *string `json:"parent"`
 }
 
 // datesPatch is the spec.dates fragment of a card patch.
@@ -481,6 +489,12 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Plan != nil {
 		if !s.applyPlanPatch(w, r, svc, owner, project, uid, p.Plan) {
+			return
+		}
+	}
+	if p.Parent != nil {
+		if err := svc.SetParent(ctx, owner, project, uid, *p.Parent); err != nil {
+			s.apiError(w, err)
 			return
 		}
 	}
@@ -651,12 +665,19 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Reviewer string `json:"reviewer"`
 		Day      string `json:"day"`
+		// Zone places the review card explicitly (the Me board sends it to the
+		// reviewer's unplanned zone); empty keeps the original's zone.
+		Zone string `json:"zone"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
 	if in.Reviewer == "" {
 		writeJSONError(w, http.StatusUnprocessableEntity, "reviewer is required")
+		return
+	}
+	zone, ok := parseZone(w, in.Zone)
+	if !ok {
 		return
 	}
 	svc, owner, project, ok := s.service(w, r)
@@ -672,7 +693,7 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range b.Cards {
 		if c.ReviewOf == uid {
-			if err := svc.ReassignReviewer(ctx, owner, project, uid, in.Reviewer, in.Day); err != nil {
+			if err := svc.ReassignReviewer(ctx, owner, project, uid, in.Reviewer, in.Day, zone); err != nil {
 				s.apiError(w, err)
 				return
 			}
@@ -680,7 +701,7 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	review, err := svc.SendToReview(ctx, owner, project, uid, in.Reviewer, in.Day)
+	review, err := svc.SendToReview(ctx, owner, project, uid, in.Reviewer, in.Day, zone)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -920,8 +941,7 @@ func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
 // (X-Aeman-Client) keys it, so a closed tab clears its own mark.
 func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Login string `json:"login"`
-		Card  string `json:"card"`
+		Card string `json:"card"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
@@ -935,7 +955,11 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 		return
 	}
-	s.store.SetPresence(storeKey(owner, project), clientIDFrom(r.Context()), in.Login, in.Card)
+	// The broadcast login is the caller's authenticated identity (stamped by
+	// actorMiddleware), not a client-supplied value — otherwise any signed-in
+	// user could show a chosen card as selected by someone else.
+	login := board.ActorFrom(r.Context())
+	s.store.SetPresence(storeKey(owner, project), clientIDFrom(r.Context()), login, in.Card)
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 }
 
@@ -1007,7 +1031,11 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 		writeJSONError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),
 		errors.Is(err, boardservice.ErrInvalidStage),
-		errors.Is(err, boardservice.ErrDescriptionTooLong):
+		errors.Is(err, boardservice.ErrDescriptionTooLong),
+		errors.Is(err, boardservice.ErrNoteTooLong),
+		errors.Is(err, boardservice.ErrSubtaskDepth),
+		errors.Is(err, boardservice.ErrParentNotFound),
+		errors.Is(err, boardservice.ErrOpenSubtasks):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

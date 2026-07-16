@@ -46,6 +46,8 @@ const (
 	EventWeek            = "week"
 	EventPlanBand        = "plan-band"
 	EventReviewRound     = "review-round"
+	EventParent          = "parent"
+	EventSubtask         = "subtask"
 )
 
 // DateRange renders a start..end pair for a dates event value ("" parts kept
@@ -116,6 +118,30 @@ func ParseEventBody(body string) (Event, bool) {
 // noteAuthorRe extracts an "@login: " author prefix from a draft note body —
 // the attribution AddNote writes for the acting user.
 var noteAuthorRe = regexp.MustCompile(`^@([A-Za-z0-9][A-Za-z0-9-]*): ?`)
+
+// eventLineRe matches a whole event log line ("- [ts] :: kind | ...."): the
+// dated-line header followed by the machine event prefix. Nothing a person
+// writes as prose - the ":: " marker is aeman's own.
+var eventLineRe = regexp.MustCompile(`^[-*]?\s*\[[^\]]+\]\s*` + regexp.QuoteMeta(eventPrefix))
+
+// StripEventLines drops machine event-log lines from a description text.
+// Descriptions occasionally get them baked in - an agent copying a card's
+// visible text back, a description synced from a card whose body was damaged
+// by an old log migration - and they are never legitimate prose, so every
+// description write runs through this.
+func StripEventLines(text string) string {
+	if !strings.Contains(text, eventPrefix) {
+		return text
+	}
+	var kept []string
+	for _, line := range strings.Split(text, "\n") {
+		if eventLineRe.MatchString(strings.TrimSpace(line)) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
 
 // RenderNoteBody prepends the author attribution to a note body for storage
 // in the draft log ("@login: text"); an empty author stores the bare text.

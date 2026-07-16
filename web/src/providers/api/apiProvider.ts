@@ -27,6 +27,7 @@ import type {
   NewCardInput,
   Note,
   Provider,
+  ZoneKey,
 } from "../types";
 
 // api issues a request against /api/v1 for a given board. It carries the board
@@ -141,6 +142,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
   if (patch.reviewOf !== undefined) {
     body.reviewOf = patch.reviewOf;
   }
+  if (patch.parent !== undefined) {
+    body.parent = patch.parent;
+  }
   return body;
 }
 
@@ -185,6 +189,8 @@ export const apiProvider: Provider = {
       zone: semanticZone(input.zone),
       assignees: input.assigneeLogin ? [input.assigneeLogin] : [],
       reviewOf: input.reviewOf ?? "",
+      // A parent may still be an optimistic tmp id: wait for the real uid.
+      parent: input.parent ? await resolveCardId(input.parent) : "",
     };
     // Plan cards carry no dates (they live in the weekly bands); day cards pass
     // their start/end and the server joins (or records) the sprint itself.
@@ -197,6 +203,9 @@ export const apiProvider: Provider = {
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;
     }
+    if (input.noSprint) {
+      body.noSprint = true;
+    }
     return cardFrom(board, "POST", "/cards", body);
   },
 
@@ -206,6 +215,10 @@ export const apiProvider: Provider = {
     patch: CardPatch,
   ): Promise<Card> {
     uid = await resolveCardId(uid);
+    if (patch.parent) {
+      // Grouping under a just-created card: wait for its real uid.
+      patch = { ...patch, parent: await resolveCardId(patch.parent) };
+    }
     return cardFrom(board, "PATCH", `/cards/${uid}`, patchBody(patch));
   },
 
@@ -258,11 +271,13 @@ export const apiProvider: Provider = {
     uid: string,
     reviewer: string,
     day?: string,
+    zone?: ZoneKey,
   ): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom(board, "POST", `/cards/${uid}/actions/send-to-review`, {
       reviewer,
       day: day ?? "",
+      zone: zone ? semanticZone(zone) : "",
     });
   },
 

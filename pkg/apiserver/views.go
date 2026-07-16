@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // Selector scopes a card LIST or watch subscription. View selectors reproduce
@@ -138,10 +138,52 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 		out = append(out, c)
 	}
+	out = withSubtasks(b, out, sel)
 	if sel.IncludeReviews && (sel.View == "me" || sel.View == "team") {
 		out = withLinkedReviews(b, out)
 	}
 	return out
+}
+
+// withSubtasks appends the subtasks of every delivered parent, so a view is
+// self-contained for a client nesting them under their cards. The me/all team
+// gate and the focus filter apply to subtasks the same way they apply to
+// top-level cards. ALL of a parent's subtasks are delivered — per-day
+// visibility (a deferred subtask hiding until its day, a done one staying on
+// its old sprint's days) is the CLIENT's rendering rule: the client needs the
+// full set anyway, or its optimistic derived-progress math diverges from the
+// server's and the parent's bar jumps on every reload.
+func withSubtasks(b board.Board, out []board.Card, sel Selector) []board.Card {
+	present := make(map[string]bool, len(out))
+	for _, c := range out {
+		present[c.ItemID] = true
+	}
+	extra := map[string][]board.Card{}
+	for _, c := range b.Cards {
+		if c.Parent == "" || !present[c.Parent] || present[c.ItemID] {
+			continue
+		}
+		if (sel.View == "me" || sel.View == "" || sel.View == "all") && !teamInSet(c.Team, sel.Team) {
+			continue
+		}
+		if sel.Focus && !board.Workable(c) {
+			continue
+		}
+		extra[c.Parent] = append(extra[c.Parent], c)
+		present[c.ItemID] = true
+	}
+	if len(extra) == 0 {
+		return out
+	}
+	// Children slot in right AFTER their parent, so the list order a client
+	// installs wholesale still matches the board order — appended tails would
+	// reshuffle rows on every refetch.
+	merged := make([]board.Card, 0, len(out))
+	for _, c := range out {
+		merged = append(merged, c)
+		merged = append(merged, extra[c.ItemID]...)
+	}
+	return merged
 }
 
 // withLinkedReviews appends each card's linked review card (reviewOf == its id),

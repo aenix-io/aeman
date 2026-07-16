@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/ghprojects"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // *ghprojects.Client must satisfy Backend structurally (no boardservice import in
@@ -252,6 +252,14 @@ func (f *fakeBackend) SetAssignee(_ context.Context, _ board.Board, card board.C
 	return nil
 }
 
+func (f *fakeBackend) SetParent(_ context.Context, _ board.Board, card board.Card, parent string) error {
+	f.rec("SetParent %s %s", card.ItemID, parent)
+	if c := f.get(card.ItemID); c != nil {
+		c.Parent = parent
+	}
+	return nil
+}
+
 func (f *fakeBackend) SetReviewOf(_ context.Context, _ board.Board, card board.Card, reviewOf string) error {
 	f.rec("SetReviewOf %s %s", card.ItemID, reviewOf)
 	if c := f.get(card.ItemID); c != nil {
@@ -349,6 +357,36 @@ func TestCreateCardForceNewSprintDemotesCurrent(t *testing.T) {
 	}
 }
 
+func TestCreateCardNextSprint(t *testing.T) {
+	f := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
+	// A "next sprint" create: scheduled for its day, joins no sprint and never
+	// touches the pointer — the next carry-over to reach the day adopts it.
+	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", Day: "2026-06-21", NoSprint: true}); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetSprintState") != 0 {
+		t.Fatalf("a no-sprint create must not touch the pointer; log=%v", f.log)
+	}
+	if f.creates[0].Start != "2026-06-21" || f.creates[0].SprintStart != "" {
+		t.Fatalf("want Start 2026-06-21 / no SprintStart; got %+v", f.creates[0])
+	}
+}
+
+func TestCreateCardNoSprintSkipsFirstSprintRecord(t *testing.T) {
+	f := newFake(nil, nil)
+	// Even a team with no sprint yet must not have one started by a
+	// "next sprint" create.
+	if _, err := f2svc(f).CreateCard(ctx, "acme", 1, CreateCardArgs{Team: "alpha", Title: "task", NoSprint: true}); err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetSprintState") != 0 {
+		t.Fatalf("a no-sprint create must not record a first sprint; log=%v", f.log)
+	}
+	if f.creates[0].SprintStart != "" {
+		t.Fatalf("create input = %+v", f.creates[0])
+	}
+}
+
 // --- CarryOver -------------------------------------------------------------
 
 func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
@@ -382,6 +420,42 @@ func TestCarryOverAdvancesAndCarriesUnfinished(t *testing.T) {
 	}
 	if f.get("c5").SprintStart != "2027-01-01" {
 		t.Fatalf("future-dated c5 should not carry: %+v", f.get("c5"))
+	}
+}
+
+func TestCarryOverAdoptsSprintlessDayCards(t *testing.T) {
+	old := "2026-01-01"
+	today := board.TodayIso()
+	f := newFake([]board.Card{
+		// A "next sprint" create whose day has arrived: adopted.
+		{ItemID: "n1", Team: "alpha", StartDate: today},
+		// Still ahead of today: stays sprint-less for a later carry-over.
+		{ItemID: "n2", Team: "alpha", StartDate: "2999-01-01"},
+		// A finished sprint-less card is not work to adopt.
+		{ItemID: "n3", Team: "alpha", StartDate: today, Stage: board.StageDone},
+		// A plan card without dates has no sprint by design.
+		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: "2026-01-05"},
+		// Another team's sprint-less card is not this carry-over's business.
+		{ItemID: "n4", Team: "beta", StartDate: today},
+		// An old sprint-less stray (scheduled before the closing sprint even
+		// started — a report card, a legacy card) is not this sprint's work.
+		{ItemID: "n5", Team: "alpha", StartDate: "2025-12-15"},
+	}, map[string]board.SprintState{"alpha": {Current: old}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.count("SetSprintStart") != 1 || !f.saw(fmt.Sprintf("SetSprintStart n1 %s", today)) {
+		t.Fatalf("only n1 should be adopted; log=%v", f.log)
+	}
+	if rep.Carried != 1 {
+		t.Fatalf("Carried = %d, want 1", rep.Carried)
+	}
+	if f.get("n2").SprintStart != "" || f.get("n3").SprintStart != "" {
+		t.Fatalf("future/finished sprint-less cards must stay: %+v %+v", f.get("n2"), f.get("n3"))
+	}
+	if f.get("n5").SprintStart != "" {
+		t.Fatalf("a pre-sprint stray must not be adopted: %+v", f.get("n5"))
 	}
 }
 
@@ -516,7 +590,7 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "orig", Title: "ship it", Team: "alpha", Zone: board.ZoneRed, Progress: 100}},
 		map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
 	day := "2026-06-25"
-	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "carol", day)
+	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "carol", day, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,6 +598,8 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	if in.Title != "review: ship it" || in.Assignee != "carol" || in.ReviewOf != "orig" {
 		t.Fatalf("review create input = %+v", in)
 	}
+	// Without an explicit zone the review card inherits the original's (the
+	// Team board's behaviour).
 	if in.Zone != board.ZoneRed || in.Team != "alpha" || in.Start != day || in.SprintStart != "2026-06-20" {
 		t.Fatalf("review create input = %+v", in)
 	}
@@ -536,12 +612,25 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	}
 }
 
+// The Me board sends the review card to the reviewer's unplanned zone
+// explicitly: for the reviewer it is work that popped up during the day.
+func TestSendToReviewWithExplicitZone(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "orig", Title: "ship it", Team: "alpha", Zone: board.ZoneRed}},
+		map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
+	if _, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "carol", "2026-06-25", board.ZoneYellow); err != nil {
+		t.Fatal(err)
+	}
+	if f.creates[0].Zone != board.ZoneYellow {
+		t.Fatalf("review create input = %+v", f.creates[0])
+	}
+}
+
 func TestReassignReviewerOnExistingReview(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Title: "x"},
 		{ItemID: "rev", ReviewOf: "orig", Assignees: []string{"carol"}},
 	}, nil)
-	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "dave", ""); err != nil {
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "dave", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("CreateCard") != 0 {
@@ -554,7 +643,7 @@ func TestReassignReviewerOnExistingReview(t *testing.T) {
 
 func TestReassignReviewerWithoutReviewSendsToReview(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "orig", Title: "x", Team: "alpha"}}, nil)
-	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "dave", "2026-06-25"); err != nil {
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "dave", "2026-06-25", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("CreateCard") != 1 || f.creates[0].Assignee != "dave" || f.creates[0].ReviewOf != "orig" {
@@ -1232,7 +1321,9 @@ func TestCreateCardFromGitHubURL(t *testing.T) {
 	}
 }
 
-// Create-by-URL degrades gracefully: an unresolvable link keeps the URL title.
+// Create-by-URL degrades gracefully: an unresolvable link (no repo access on a
+// private repo) still yields a usable card — a readable "Issue: owner/repo#N"
+// title, with the source URL filed in the body — instead of a bare-URL title.
 func TestCreateCardFromURLUnresolved(t *testing.T) {
 	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	svc := New(fake)
@@ -1242,11 +1333,29 @@ func TestCreateCardFromURLUnresolved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.Title != "https://github.com/acme/private/issues/9" {
-		t.Fatalf("title = %q", card.Title)
+	if card.Title != "Issue: acme/private#9" {
+		t.Fatalf("title = %q, want the fallback label", card.Title)
 	}
-	if fake.count("SetDescription") != 0 {
-		t.Fatal("no description for an unresolved link")
+	if card.Description != "https://github.com/acme/private/issues/9" {
+		t.Fatalf("the source URL must be filed in the body, got %q", card.Description)
+	}
+	if fake.count("SetDescription") != 1 {
+		t.Fatal("the URL should have been written to the description")
+	}
+}
+
+// A PR URL falls back to a "Pull: owner/repo#N" label.
+func TestCreateCardFromPullURLUnresolved(t *testing.T) {
+	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	svc := New(fake)
+	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+		Team: "alpha", Title: "https://github.com/acme/webapp/pull/1234",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Title != "Pull: acme/webapp#1234" {
+		t.Fatalf("title = %q, want the pull fallback label", card.Title)
 	}
 }
 
@@ -1258,7 +1367,7 @@ func TestSendToReviewCopiesDescription(t *testing.T) {
 			Description: "context: https://github.com/acme/repo/issues/5"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	svc := New(fake)
-	review, err := svc.SendToReview(context.Background(), "acme", 1, "c1", "lllamnyp", "2026-06-21")
+	review, err := svc.SendToReview(context.Background(), "acme", 1, "c1", "lllamnyp", "2026-06-21", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1332,7 +1441,7 @@ func TestReassignWorkedReviewerSpawnsNewCard(t *testing.T) {
 		{ItemID: "orig", Team: "alpha", Title: "Work", Stage: board.StageReview, Progress: 50},
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 40, Assignees: []string{"old"}},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
-	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10"); err != nil {
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !f.saw("SetReviewOf rev ") {
@@ -1352,7 +1461,7 @@ func TestReassignUntouchedReviewerInPlace(t *testing.T) {
 		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Assignees: []string{"old"}},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
-	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10"); err != nil {
+	if err := f2svc(f).ReassignReviewer(ctx, "acme", 1, "orig", "new", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.creates) != 0 || !f.saw("SetAssignee rev new") {
@@ -1415,7 +1524,7 @@ func TestReReviewReactivatesReviewCard(t *testing.T) {
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"}},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
 	svc := f2svc(f)
-	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10"); err != nil {
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	orig := f.get("orig")
@@ -1428,7 +1537,7 @@ func TestReReviewReactivatesReviewCard(t *testing.T) {
 	}
 	// A second re-review advances to round 3.
 	f.get("rev").Progress = 100
-	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10"); err != nil {
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "bob", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	if r := f.get("rev"); r.ReviewRound != 3 || r.Progress != 0 {
@@ -1444,7 +1553,7 @@ func TestReReviewDifferentReviewerDoesNotReactivate(t *testing.T) {
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig", Progress: 100, Assignees: []string{"bob"}},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-10", ItemID: "s1"}})
 	svc := f2svc(f)
-	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "carol", "2026-01-10"); err != nil {
+	if err := svc.ReassignReviewer(ctx, "acme", 1, "orig", "carol", "2026-01-10", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !f.saw("SetReviewOf rev ") {
@@ -1498,7 +1607,7 @@ func TestSendToReviewUsesOriginalSprint(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Team: "alpha", Title: "Work", SprintStart: "2026-01-01"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-08", ItemID: "s1"}})
-	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "bob", "2026-01-08")
+	rev, err := f2svc(f).SendToReview(ctx, "acme", 1, "orig", "bob", "2026-01-08", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1709,7 +1818,7 @@ func TestReviewCycleRecordsEvents(t *testing.T) {
 	svc := f2svc(f)
 	actx := WithActor(ctx, "kvaps")
 
-	rev, err := svc.SendToReview(actx, "acme", 1, "orig", "lllamnyp", today)
+	rev, err := svc.SendToReview(actx, "acme", 1, "orig", "lllamnyp", today, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1971,14 +2080,15 @@ func TestLogEventRetriesTransientFailures(t *testing.T) {
 func TestDescriptionLengthLimit(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha"}}, nil)
 	svc := f2svc(f)
-	long := strings.Repeat("ы", MaxDescriptionLen+1)
+	// A multi-byte rune (3 bytes) verifies the cap counts runes, not bytes.
+	long := strings.Repeat("€", MaxDescriptionLen+1)
 	if err := svc.SetDescription(ctx, "acme", 1, "c1", long); !errors.Is(err, ErrDescriptionTooLong) {
 		t.Fatalf("err = %v, want ErrDescriptionTooLong", err)
 	}
 	if f.count("SetDescription") != 0 {
 		t.Fatal("nothing must be written on rejection")
 	}
-	if err := svc.SetDescription(ctx, "acme", 1, "c1", strings.Repeat("ы", MaxDescriptionLen)); err != nil {
+	if err := svc.SetDescription(ctx, "acme", 1, "c1", strings.Repeat("€", MaxDescriptionLen)); err != nil {
 		t.Fatalf("at the limit must pass: %v", err)
 	}
 }
@@ -2008,5 +2118,26 @@ func TestMoveCardBefore(t *testing.T) {
 		if !f.saw(want) {
 			t.Errorf("%s: want %q; log=%v", tc.name, want, f.log)
 		}
+	}
+}
+
+// A note over the cap is rejected before anything is written — add and edit
+// alike — mirroring the description guard.
+func TestNoteLengthLimit(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha",
+		Notes: []board.Note{{ID: "n1", Body: "hi"}}}}, nil)
+	svc := f2svc(f)
+	long := strings.Repeat("x", MaxNoteLen+1)
+	if err := svc.AddNote(ctx, "acme", 1, "c1", long); !errors.Is(err, ErrNoteTooLong) {
+		t.Fatalf("AddNote err = %v, want ErrNoteTooLong", err)
+	}
+	if err := svc.EditNote(ctx, "acme", 1, "c1", "n1", long); !errors.Is(err, ErrNoteTooLong) {
+		t.Fatalf("EditNote err = %v, want ErrNoteTooLong", err)
+	}
+	if f.count("AddNote") != 0 || f.count("EditNote") != 0 {
+		t.Fatal("nothing must be written on rejection")
+	}
+	if err := svc.AddNote(ctx, "acme", 1, "c1", strings.Repeat("x", MaxNoteLen)); err != nil {
+		t.Fatalf("at the limit must pass: %v", err)
 	}
 }

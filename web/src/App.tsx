@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, type AppConfig } from "./api/client";
 import { apiProvider } from "./providers/api/apiProvider";
 import {
@@ -17,7 +17,10 @@ import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
 import { queryString, viewQueries, watchQuery } from "./viewquery";
-import { todayIso } from "./date";
+import { todayIso, setBoardTimezone } from "./date";
+import { mergeNotes } from "./notes";
+import { AppearanceMenu } from "./components/AppearanceMenu";
+import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
 type ViewMode = "me" | "team";
 
@@ -26,6 +29,7 @@ const LS_PROJECT = "aeman.project";
 const LS_VIEW = "aeman.view";
 const LS_TEAM_ROSTER = "aeman.teamRoster";
 const LS_TEAM_FILTER = "aeman.teamFilter";
+const LS_VIEW_AS = "aeman.viewAs";
 
 function readView(): ViewMode {
   const raw = localStorage.getItem(LS_VIEW);
@@ -56,6 +60,29 @@ function writeStringList(key: string, value: string[]) {
   }
 }
 
+// The team roster and filter are BOARD-scoped: loading board 37 must not
+// inherit board 36's teams. The pre-scoping unscoped keys are ignored — they
+// can't be attributed to any particular board — so every board starts from
+// its own saved state (or clean).
+const scopedLS = (base: string, boardKey: string) => `${base}.${boardKey}`;
+
+function readRosterFor(boardKey: string): string[] {
+  return readStringList(scopedLS(LS_TEAM_ROSTER, boardKey)) ?? [];
+}
+
+function readFilterFor(boardKey: string): string[] | null {
+  const v = localStorage.getItem(scopedLS(LS_TEAM_FILTER, boardKey));
+  if (!v) {
+    return null;
+  }
+  try {
+    const arr: unknown = JSON.parse(v);
+    return Array.isArray(arr) && arr.length ? (arr as string[]) : null;
+  } catch {
+    return null;
+  }
+}
+
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
@@ -82,6 +109,25 @@ export function App() {
   );
   const [view, setView] = useState<ViewMode>(readView);
 
+  // Appearance (theme mode + colour palette). Applied to <html> so the CSS
+  // theme/palette overrides repaint the app; persisted in localStorage like the
+  // app's other UI prefs. useLayoutEffect (not useEffect) so the attributes land
+  // before the browser paints — otherwise a returning user on a non-default
+  // appearance gets one frame of the default look on every load. When the mode
+  // is "system" we also follow live OS light/dark changes.
+  const [appearance, setAppearance] = useState<Appearance>(() => readAppearance(localStorage));
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => applyAppearance(document.documentElement, appearance, mq.matches);
+    apply();
+    persistAppearance(localStorage, appearance);
+    if (appearance.mode !== "system") {
+      return;
+    }
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [appearance]);
+
   const [board, setBoard] = useState<Board | null>(null);
   // The viewed day, shared by both boards and driving the lazy view fetch and
   // the scoped watch. Lifted out of the boards so the App owns what to load.
@@ -89,36 +135,77 @@ export function App() {
   // "View as" impersonation on the Me board — lifted here because the Me fetch
   // must carry the impersonated user explicitly (the server otherwise resolves
   // the caller's own login).
-  const [viewAs, setViewAs] = useState<string | null>(null);
+  // Persisted: an impersonating lead refreshing the page stays on the same
+  // person's board (a card just created for them would otherwise "vanish"
+  // when the view silently snapped back to the lead's own).
+  const [viewAs, setViewAs] = useState<string | null>(
+    () => localStorage.getItem(LS_VIEW_AS) || null,
+  );
+  const setViewAsPersisted = useCallback((login: string | null) => {
+    setViewAs(login);
+    if (login) {
+      localStorage.setItem(LS_VIEW_AS, login);
+    } else {
+      localStorage.removeItem(LS_VIEW_AS);
+    }
+  }, []);
   const [users, setUsers] = useState<Record<string, GhUser>>({});
   const fetchedUsers = useRef<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
+  // Count of in-flight data loads (initial load + per-view card fetches);
+  // any of them showing keeps the top progress bar visible.
+  const [pendingLoads, setPendingLoads] = useState(0);
+  const loading = pendingLoads > 0;
+  const beginLoad = useCallback(() => setPendingLoads((n) => n + 1), []);
+  const endLoad = useCallback(() => setPendingLoads((n) => n - 1), []);
+  // Boards wrap their slow server calls (carry over etc.) with this so the
+  // progress bar covers the operation itself, not just the refetch after it.
+  const trackLoad = useCallback(
+    <T,>(p: Promise<T>): Promise<T> => {
+      beginLoad();
+      return p.finally(endLoad);
+    },
+    [beginLoad, endLoad],
+  );
+  // Server-side writes not yet confirmed by GitHub (the write-behind queue),
+  // fed by Queue watch frames; shown as a small counter that trends to zero.
+  // Frames arrive on every enqueue/drain step — a rapid burst of edits would
+  // re-render the whole app dozens of times — so the badge updates at most a
+  // few times a second (trailing debounce keeps the final value accurate).
+  const [pendingSync, setPendingSync] = useState(0);
+  const pendingSyncNext = useRef(0);
+  const pendingSyncTimer = useRef<number | null>(null);
+  const queuePendingSync = useCallback((n: number) => {
+    pendingSyncNext.current = n;
+    if (pendingSyncTimer.current !== null) {
+      return;
+    }
+    pendingSyncTimer.current = window.setTimeout(() => {
+      pendingSyncTimer.current = null;
+      setPendingSync(pendingSyncNext.current);
+    }, 300);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
 
-  // Team roster + filter, persisted in localStorage. The roster is the union of
-  // the teams found on the board and any teams the user has added by hand; the
-  // filter is the subset of the roster currently shown (defaults to everything).
-  const [addedTeams, setAddedTeams] = useState<string[]>(
-    () => readStringList(LS_TEAM_ROSTER) ?? [],
+  // Team roster + filter, persisted in localStorage PER BOARD. The roster is
+  // the union of the teams found on the board and any teams the user has added
+  // by hand; the filter is the subset of the roster currently shown (defaults
+  // to everything). Both are seeded for the last-used board and swapped by
+  // doLoad when another board is opened.
+  const boardKeyRef = useRef(
+    `${localStorage.getItem(LS_OWNER) ?? ""}/${localStorage.getItem(LS_PROJECT) ?? ""}`,
+  );
+  const [addedTeams, setAddedTeams] = useState<string[]>(() =>
+    readRosterFor(boardKeyRef.current),
   );
   // Team filter: null = all, else the selected groups ("" = no-team). Multi-select
   // — Shift-click a chip to add/remove it.
-  const [teamFilter, setTeamFilter] = useState<string[] | null>(() => {
-    const v = localStorage.getItem(LS_TEAM_FILTER);
-    if (!v) {
-      return null;
-    }
-    try {
-      const arr: unknown = JSON.parse(v);
-      return Array.isArray(arr) && arr.length ? (arr as string[]) : null;
-    } catch {
-      return [v]; // legacy single-value filter
-    }
-  });
+  const [teamFilter, setTeamFilter] = useState<string[] | null>(() =>
+    readFilterFor(boardKeyRef.current),
+  );
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
   useEffect(() => {
@@ -129,6 +216,9 @@ export function App() {
           return;
         }
         setConfig(cfg);
+        // The board's "today" runs in the server's zone for everyone.
+        setBoardTimezone(cfg.tz);
+        setSelectedDate(todayIso());
         setOwner((cur) => cur || cfg.defaultOwner || "");
         setProject((cur) => cur || (cfg.defaultProject ? String(cfg.defaultProject) : ""));
       })
@@ -193,18 +283,56 @@ export function App() {
     return out;
   }, [addedTeams, board]);
 
+  // A saved filter can outlive its teams (a team renamed away, or stale
+  // pre-scoping data): entries no team backs would silently blank the board,
+  // so prune them — and an emptied filter means "all" again. Gated on the
+  // loaded board matching boardKeyRef: mid-switch the roster still reflects
+  // the OLD board, and pruning the new board's filter against it would wipe
+  // a legitimate saved selection.
+  const loadedBoardKey = board ? `${board.owner}/${board.number}` : null;
+  useEffect(() => {
+    if (!loadedBoardKey || loadedBoardKey !== boardKeyRef.current) {
+      return;
+    }
+    setTeamFilter((cur) => {
+      if (!cur) {
+        return cur;
+      }
+      const next = cur.filter((t) => t === "" || roster.includes(t));
+      if (next.length === cur.length) {
+        return cur;
+      }
+      return next.length ? next : null;
+    });
+  }, [loadedBoardKey, roster]);
+
   // What the active board loads and watches: Me is personal (the server fills in
   // "who am I" unless view-as impersonates someone), Team names the teams it
   // shows (the filter, or the whole roster) and loads the day grid PLUS the
   // weekly plan. activeKey / watchKey are stable serialisations used to
   // re-fetch and re-subscribe only when the selection actually changes.
   const activeQueries = useMemo(
-    () => viewQueries(view, selectedDate, teamFilter ?? roster, viewAs ?? undefined),
+    // No filter means ALL: the roster's teams plus the no-team group, so an
+    // unfiltered Team board misses nothing (the client filter mirrors this —
+    // teamFilter === null passes every card).
+    () =>
+      viewQueries(
+        view,
+        selectedDate,
+        teamFilter ?? [...new Set([...roster, ""])],
+        viewAs ?? undefined,
+      ),
     [view, selectedDate, teamFilter, roster, viewAs],
   );
   const activeKey = activeQueries.map(queryString).join("|");
   const watchSel = useMemo(
-    () => watchQuery(view, selectedDate, teamFilter ?? roster, viewAs ?? undefined),
+    () =>
+      watchQuery(
+        view,
+        selectedDate,
+        teamFilter ?? [...new Set([...roster, ""])],
+        viewAs ?? undefined,
+      ),
     [view, selectedDate, teamFilter, roster, viewAs],
   );
   const watchKey = queryString(watchSel);
@@ -212,7 +340,7 @@ export function App() {
   // Reorder the whole roster (from the manage dialog) and persist the order.
   const reorderTeams = useCallback((ordered: string[]) => {
     setAddedTeams(ordered);
-    writeStringList(LS_TEAM_ROSTER, ordered);
+    writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), ordered);
   }, []);
 
   const addTeam = useCallback((team: string) => {
@@ -225,7 +353,7 @@ export function App() {
         return cur;
       }
       const next = [...cur, t];
-      writeStringList(LS_TEAM_ROSTER, next);
+      writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
       return next;
     });
   }, []);
@@ -233,7 +361,7 @@ export function App() {
   const removeTeam = useCallback((team: string) => {
     setAddedTeams((cur) => {
       const next = cur.filter((t) => t !== team);
-      writeStringList(LS_TEAM_ROSTER, next);
+      writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
       return next;
     });
     // Drop the removed team from the filter (clearing it if it becomes empty).
@@ -246,18 +374,29 @@ export function App() {
     });
   }, []);
 
-  // Persist the filter whenever it changes (null means "all", we store nothing).
+  // Persist the filter whenever it changes (null means "all", we store
+  // nothing). boardKeyRef is updated synchronously by doLoad before the
+  // swapped-in filter state lands, so the write always hits the right board.
   useEffect(() => {
+    const key = scopedLS(LS_TEAM_FILTER, boardKeyRef.current);
     if (teamFilter === null) {
-      localStorage.removeItem(LS_TEAM_FILTER);
+      localStorage.removeItem(key);
     } else {
-      localStorage.setItem(LS_TEAM_FILTER, JSON.stringify(teamFilter));
+      localStorage.setItem(key, JSON.stringify(teamFilter));
     }
   }, [teamFilter]);
 
   const doLoad = useCallback(
     async (ownerArg: string, numberArg: number) => {
-      setLoading(true);
+      // Another board: swap in ITS saved roster and filter before anything
+      // renders, so board 36's teams never leak into board 37's view.
+      const boardKey = `${ownerArg}/${numberArg}`;
+      if (boardKey !== boardKeyRef.current) {
+        boardKeyRef.current = boardKey;
+        setAddedTeams(readRosterFor(boardKey));
+        setTeamFilter(readFilterFor(boardKey));
+      }
+      beginLoad();
       setError(null);
       try {
         // Identity + sprints AND the active view's cards together, swapped in
@@ -274,10 +413,10 @@ export function App() {
       } catch (err: unknown) {
         setError(errMessage(err));
       } finally {
-        setLoading(false);
+        endLoad();
       }
     },
-    [provider],
+    [provider, beginLoad, endLoad],
   );
 
   // Load the active view's cards whenever the selection (view/day/teams) changes
@@ -293,6 +432,7 @@ export function App() {
     }
     let cancelled = false;
     const addr = { owner: bOwner, number: bNumber };
+    beginLoad();
     Promise.all(activeQueriesRef.current.map((q) => provider.listCards(addr, q)))
       .then((lists) => {
         if (cancelled) {
@@ -304,11 +444,12 @@ export function App() {
         if (!cancelled) {
           setError(errMessage(err));
         }
-      });
+      })
+      .finally(endLoad);
     return () => {
       cancelled = true;
     };
-  }, [bOwner, bNumber, activeKey, provider]);
+  }, [bOwner, bNumber, activeKey, provider, beginLoad, endLoad]);
 
   // Locked board: auto-load the pinned project once authenticated. A user whose
   // token can't read it just gets a load error (the access-denied placeholder).
@@ -369,17 +510,37 @@ export function App() {
     }
   }, [board, doLoad]);
 
-  const patchCard = useCallback((itemId: string, patch: Partial<CardModel>) => {
-    setBoard((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      return {
-        ...cur,
-        cards: cur.cards.map((c) => (c.itemId === itemId ? { ...c, ...patch } : c)),
-      };
-    });
-  }, []);
+  // patch is a plain partial, or an updater computing one from the card's
+  // CURRENT state — rapid successive changes (notes typed Enter-Enter-Enter)
+  // must not base themselves on a stale render's copy.
+  const patchCard = useCallback(
+    (
+      itemId: string,
+      patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
+    ) => {
+      setBoard((cur) => {
+        if (!cur) {
+          return cur;
+        }
+        // An empty patch (an updater deciding nothing changed) keeps the
+        // exact same state object, so React bails out of the re-render.
+        let changed = false;
+        const cards = cur.cards.map((c) => {
+          if (c.itemId !== itemId) {
+            return c;
+          }
+          const p = typeof patch === "function" ? patch(c) : patch;
+          if (!p || Object.keys(p).length === 0) {
+            return c;
+          }
+          changed = true;
+          return { ...c, ...p };
+        });
+        return changed ? { ...cur, cards } : cur;
+      });
+    },
+    [],
+  );
 
   // addCard upserts by item id: the watch stream may deliver a created card
   // before (or after) the creator's own response lands, so both paths must
@@ -401,6 +562,39 @@ export function App() {
                 : c,
             )
           : [...cur.cards, card],
+      };
+    });
+  }, []);
+
+  // Swap an optimistic card for its server twin IN PLACE, so a burst of
+  // creates keeps its visual order (append-on-ack would reshuffle them).
+  const replaceCard = useCallback((itemId: string, card: CardModel) => {
+    setBoard((cur) => {
+      if (!cur) {
+        return cur;
+      }
+      if (!cur.cards.some((c) => c.itemId === itemId)) {
+        const exists = cur.cards.some((c) => c.itemId === card.itemId);
+        return exists
+          ? cur
+          : { ...cur, cards: [...cur.cards, card] };
+      }
+      return {
+        ...cur,
+        cards: cur.cards
+          .filter((c) => c.itemId !== card.itemId || c.itemId === itemId)
+          .map((c) => {
+            if (c.itemId === itemId) {
+              return card;
+            }
+            // Optimistic subtasks created under the tmp id follow the swap,
+            // or they would orphan (and their rows flicker away) until their
+            // own acks land.
+            if (c.parent === itemId) {
+              return { ...c, parent: card.itemId };
+            }
+            return c;
+          }),
       };
     });
   }, []);
@@ -448,6 +642,24 @@ export function App() {
     let closed = false;
     let retry: number | undefined;
     const applyFrame = (frame: WatchFrame) => {
+      // Sync marks a finished server-side reload; the diff already arrived as
+      // ordinary events, so there is nothing left to do here.
+      if (frame.kind === "Sync") {
+        return;
+      }
+      // The write-behind queue's depth: changes applied everywhere but not
+      // yet confirmed by GitHub.
+      if (frame.kind === "Queue") {
+        queuePendingSync((frame.object as { pending?: number })?.pending ?? 0);
+        return;
+      }
+      // A write GitHub finally rejected: the board has been rolled back to
+      // the server's reloaded state; surface what was lost.
+      if (frame.kind === "SyncError") {
+        const msg = (frame.object as { message?: string })?.message;
+        setError(msg || "a change could not be written to GitHub");
+        return;
+      }
       if (!frame.object) {
         return;
       }
@@ -466,7 +678,14 @@ export function App() {
         if (existing?.notes !== undefined) {
           void provider
             .listLog({ owner: watchOwner, number: watchProject }, card.itemId)
-            .then(({ notes, events }) => patchCard(card.itemId, { notes, events }))
+            .then(({ notes, events }) =>
+              // Merge, don't replace: the response may predate a local
+              // optimistic note added while it was in flight.
+              patchCard(card.itemId, (c) => ({
+                notes: mergeNotes(notes, c.notes),
+                events,
+              })),
+            )
             .catch(() => {});
         }
         return;
@@ -507,8 +726,10 @@ export function App() {
       }
     };
     const connect = () => {
-      // A fresh connection replays the presence snapshot; drop stale marks.
+      // A fresh connection replays the presence and queue snapshots; drop
+      // stale marks (the queue may have drained while we were away).
       setPresenceMap({});
+      queuePendingSync(0);
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       // Scope the watch to the active view: Me watches its day selection, Team
       // watches every card of the teams it shows (grid + weekly plan). A card
@@ -554,6 +775,7 @@ export function App() {
     removeCard,
     patchCard,
     reorderCards,
+    queuePendingSync,
   ]);
 
   const onError = useCallback((message: string) => setError(message), []);
@@ -567,7 +789,7 @@ export function App() {
       }
       setAddedTeams((cur) => {
         const next = [...new Set(cur.map((x) => (x === from ? t : x)))];
-        writeStringList(LS_TEAM_ROSTER, next);
+        writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
         return next;
       });
       setTeamFilter((cur) =>
@@ -606,7 +828,7 @@ export function App() {
         <header className="app-header">
           <div className="brand">
             <Logo className="brand-logo" />
-            <span className="version">v{config.version}</span>
+            <span className="version">{config.version}</span>
           </div>
         </header>
         <div className="signin">
@@ -622,26 +844,25 @@ export function App() {
 
   return (
     <div className="app">
+      {loading && (
+        <div className="loading-bar" role="progressbar" aria-label="Loading data" />
+      )}
       <header className="app-header">
         <div className="brand">
           <Logo className="brand-logo" />
-          {config && <span className="version">v{config.version}</span>}
+          {config && <span className="version">{config.version}</span>}
         </div>
         <div className="account">
-          {config?.login ? (
-            <span className="login">@{config.login}</span>
-          ) : (
-            <span className="login login-anon">not signed in</span>
-          )}
-          {config?.mode === "oauth" && config.authenticated && (
-            <a
-              className="login-logout"
-              href={config.logoutUrl ?? "/auth/logout"}
-              title="Sign out"
-            >
-              sign out
-            </a>
-          )}
+          <AppearanceMenu
+            login={config?.login ?? null}
+            appearance={appearance}
+            onChange={setAppearance}
+            logoutUrl={
+              config?.mode === "oauth" && config.authenticated
+                ? (config.logoutUrl ?? "/auth/logout")
+                : null
+            }
+          />
         </div>
       </header>
 
@@ -711,6 +932,30 @@ export function App() {
           </>
         )}
 
+        {pendingSync > 0 && (
+          <span
+            className="sync-badge"
+            title={`${pendingSync} change(s) applied but not yet written to GitHub`}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 2v6h-6" />
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M3 22v-6h6" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
+            {pendingSync}
+          </span>
+        )}
         <div className="segmented" role="tablist" aria-label="View">
           <button
             type="button"
@@ -749,7 +994,7 @@ export function App() {
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
             viewAs={viewAs}
-            onViewAs={setViewAs}
+            onViewAs={setViewAsPersisted}
             provider={provider}
             me={config?.login ?? ""}
             users={users}
@@ -761,6 +1006,7 @@ export function App() {
             onRenameTeam={renameTeam}
             patchCard={patchCard}
             addCard={addCard}
+            replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
             reload={reload}
@@ -792,10 +1038,12 @@ export function App() {
             onReorderTeams={reorderTeams}
             patchCard={patchCard}
             addCard={addCard}
+            replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
             presence={presence}
             reload={reload}
+            track={trackLoad}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
           />

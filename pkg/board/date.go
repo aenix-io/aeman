@@ -7,8 +7,31 @@ const isoLayout = "2006-01-02"
 
 // TodayIso returns today's date as a local yyyy-mm-dd string. It mirrors todayIso
 // in web/src/date.ts.
+// boardLocation is the time zone the BOARD's days live in — one zone for
+// every user and the server, or a Moscow teammate crossing their local
+// midnight starts seeing "tomorrow's" cards while the lead is still on
+// today's board. Defaults to the server's local zone; SetLocation installs
+// the configured one (AEMAN_TZ).
+var boardLocation = time.Local
+
+// SetLocation installs the board time zone (name per IANA, e.g.
+// "Europe/Berlin"). An unknown name is reported and leaves the zone as-is.
+func SetLocation(name string) error {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return err
+	}
+	boardLocation = loc
+	return nil
+}
+
+// LocationName reports the installed board time zone (IANA name or "Local").
+func LocationName() string {
+	return boardLocation.String()
+}
+
 func TodayIso() string {
-	return time.Now().Format(isoLayout)
+	return time.Now().In(boardLocation).Format(isoLayout)
 }
 
 // LocalDateIso returns the local yyyy-mm-dd date for an ISO timestamp, or "" when
@@ -18,7 +41,7 @@ func LocalDateIso(iso string) string {
 	if !ok {
 		return ""
 	}
-	return t.In(time.Local).Format(isoLayout)
+	return t.In(boardLocation).Format(isoLayout)
 }
 
 // ActiveOnDay reports whether `day` falls within a card's [start, finish] range.

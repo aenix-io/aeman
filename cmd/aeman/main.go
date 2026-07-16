@@ -17,13 +17,15 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // board timezone by name works even in scratch containers
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aenix-org/aeman/internal/ghcli"
-	"github.com/aenix-org/aeman/internal/server"
-	"github.com/aenix-org/aeman/pkg/boardservice"
-	"github.com/aenix-org/aeman/pkg/mcpserver"
+	"github.com/aenix-io/aeman/internal/ghcli"
+	"github.com/aenix-io/aeman/internal/server"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/mcpserver"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
@@ -37,6 +39,14 @@ func main() {
 }
 
 func run(args []string) error {
+	// The board's days live in ONE time zone for every user (AEMAN_TZ, IANA
+	// name): without it a teammate east of the server crosses their local
+	// midnight and starts seeing deferred "tomorrow" cards on today's board.
+	if tz := os.Getenv("AEMAN_TZ"); tz != "" {
+		if err := board.SetLocation(tz); err != nil {
+			return fmt.Errorf("AEMAN_TZ: %w", err)
+		}
+	}
 	if len(args) == 0 {
 		usage()
 		return nil
@@ -102,6 +112,7 @@ func runServe(args []string) error {
 			BaseURL:      baseURL,
 			Scopes:       os.Getenv("AEMAN_SCOPES"),
 			SessionFile:  os.Getenv("AEMAN_SESSION_FILE"),
+			SessionKey:   os.Getenv("AEMAN_SESSION_KEY"),
 		}
 	}
 

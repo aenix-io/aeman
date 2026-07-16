@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"slices"
@@ -40,6 +41,7 @@ func (s *Server) registerOAuthServer(mux *http.ServeMux) {
 	mux.HandleFunc("/.well-known/oauth-authorization-server", a.handleAuthServerMetadata)
 	mux.HandleFunc("/oauth/register", a.handleRegister)
 	mux.HandleFunc("/oauth/authorize", a.handleAuthorize)
+	mux.HandleFunc("/oauth/consent", a.handleConsent)
 	mux.HandleFunc("/oauth/token", a.handleToken)
 }
 
@@ -89,6 +91,11 @@ func (a *authManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusMethodNotAllowed, "invalid_request", "method not allowed")
 		return
 	}
+	if !a.registerLimiter.allow(clientIP(r)) {
+		writeOAuthError(w, http.StatusTooManyRequests, "temporarily_unavailable",
+			"registration rate limit exceeded; try again shortly")
+		return
+	}
 	var meta oauthex.ClientRegistrationMetadata
 	if err := json.NewDecoder(r.Body).Decode(&meta); err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "invalid JSON body")
@@ -98,8 +105,25 @@ func (a *authManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", "redirect_uris is required")
 		return
 	}
+	// Only https (remote clients) or loopback http (local MCP clients, RFC 8252)
+	// may be registered: this blocks javascript:/data: and cleartext redirects
+	// to arbitrary hosts that would leak an authorization code.
+	for _, uri := range meta.RedirectURIs {
+		if !isAllowedRedirect(uri) {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_redirect_uri",
+				"redirect_uris must be https or loopback http")
+			return
+		}
+	}
 	clientID := randToken()
 	a.mu.Lock()
+	a.pruneClientsLocked()
+	if len(a.clients) >= maxClients {
+		a.mu.Unlock()
+		writeOAuthError(w, http.StatusServiceUnavailable, "temporarily_unavailable",
+			"client registry is full; try again later")
+		return
+	}
 	a.clients[clientID] = oauthClient{redirectURIs: append([]string(nil), meta.RedirectURIs...)}
 	a.saveLocked()
 	a.mu.Unlock()
@@ -172,11 +196,13 @@ func (a *authManager) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	state := randToken()
 	a.mu.Lock()
+	a.pruneEphemeralLocked()
 	a.pendingAuth[state] = pendingAuth{
 		clientID:      clientID,
 		redirectURI:   redirectURI,
 		codeChallenge: challenge,
 		clientState:   clientState,
+		created:       time.Now(),
 	}
 	a.mu.Unlock()
 
@@ -189,8 +215,11 @@ func (a *authManager) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMCPCallback resumes an MCP authorization after GitHub redirects back: it
-// exchanges the GitHub code for a token, opens a session, mints a single-use MCP
-// code and bounces the browser back to the client's redirect_uri.
+// exchanges the GitHub code for the acting user's token and reads their login.
+// A loopback redirect (the code can only reach the initiator's own machine, so
+// there is nothing to phish) completes immediately; any other redirect target
+// is first put to the user on an explicit consent screen, so a phished
+// authorize link cannot silently hand an authorization code to a remote host.
 func (a *authManager) handleMCPCallback(w http.ResponseWriter, r *http.Request, p pendingAuth) {
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -210,6 +239,17 @@ func (a *authManager) handleMCPCallback(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	if isLoopbackRedirect(p.redirectURI) {
+		a.completeMCPAuth(w, r, ghToken, login, p)
+		return
+	}
+	a.promptConsent(w, ghToken, login, p)
+}
+
+// completeMCPAuth opens the session, mints a single-use MCP authorization code
+// and bounces the browser back to the client's redirect_uri. It runs only for a
+// loopback redirect or after the user approves the consent screen.
+func (a *authManager) completeMCPAuth(w http.ResponseWriter, r *http.Request, ghToken, login string, p pendingAuth) {
 	now := time.Now()
 	sid := randToken()
 	mcpCode := randToken()
@@ -238,6 +278,76 @@ func (a *authManager) handleMCPCallback(w http.ResponseWriter, r *http.Request, 
 	}
 	dest.RawQuery = rq.Encode()
 	http.Redirect(w, r, dest.String(), http.StatusFound)
+}
+
+// promptConsent stashes the resolved authorization and renders the approval
+// screen, binding it to this browser via a cookie so only the user who just
+// authenticated can approve (and a cross-site POST, which drops the Lax cookie,
+// cannot).
+func (a *authManager) promptConsent(w http.ResponseWriter, ghToken, login string, p pendingAuth) {
+	consentID := randToken()
+	browserToken := randToken()
+	a.mu.Lock()
+	a.pruneEphemeralLocked()
+	a.pendingConsent[consentID] = pendingConsent{
+		ghToken:       ghToken,
+		login:         login,
+		clientID:      p.clientID,
+		redirectURI:   p.redirectURI,
+		codeChallenge: p.codeChallenge,
+		clientState:   p.clientState,
+		browserToken:  browserToken,
+		expiry:        time.Now().Add(consentTTL),
+	}
+	a.mu.Unlock()
+	a.setCookie(w, consentCookie, browserToken, int(consentTTL/time.Second))
+	renderConsentPage(w, consentID, login, p.clientID, p.redirectURI)
+}
+
+// handleConsent finalizes an MCP authorization the user approved (or aborts the
+// one they denied). It requires the consent id from the form to match the
+// browser cookie set by promptConsent, so a forged or cross-site submission —
+// which cannot carry the Lax cookie — is rejected.
+func (a *authManager) handleConsent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	_ = r.ParseForm()
+	consentID := r.PostFormValue("consent_id")
+	approve := r.PostFormValue("action") == "approve"
+
+	cookie, err := r.Cookie(consentCookie)
+	a.setCookie(w, consentCookie, "", -1)
+
+	a.mu.Lock()
+	pc, ok := a.pendingConsent[consentID]
+	if ok {
+		delete(a.pendingConsent, consentID)
+	}
+	a.mu.Unlock()
+
+	if !ok || time.Now().After(pc.expiry) {
+		writeJSONError(w, http.StatusBadRequest, "consent request expired or unknown")
+		return
+	}
+	if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(pc.browserToken)) != 1 {
+		writeJSONError(w, http.StatusBadRequest, "consent does not match this browser")
+		return
+	}
+
+	p := pendingAuth{
+		clientID:      pc.clientID,
+		redirectURI:   pc.redirectURI,
+		codeChallenge: pc.codeChallenge,
+		clientState:   pc.clientState,
+	}
+	if !approve {
+		a.log.Info("mcp authorization denied by user", "login", pc.login, "client_id", pc.clientID)
+		a.redirectError(w, r, pc.redirectURI, pc.clientState, "access_denied", "user denied the request")
+		return
+	}
+	a.completeMCPAuth(w, r, pc.ghToken, pc.login, p)
 }
 
 // handleToken redeems an MCP authorization code for an access token. The token
@@ -407,4 +517,88 @@ func isLoopbackRedirect(raw string) bool {
 	}
 	host := u.Hostname()
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+// isAllowedRedirect reports whether a redirect URI may be registered: https to
+// any host (remote clients) or loopback http (local MCP clients). This rejects
+// javascript:/data: and cleartext http to arbitrary hosts, either of which
+// would leak an authorization code.
+func isAllowedRedirect(raw string) bool {
+	if isLoopbackRedirect(raw) {
+		return true
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != ""
+}
+
+// pruneEphemeralLocked sweeps every short-lived authorization map — abandoned
+// authorize flows, expired codes, and un-answered consents — so none of them
+// can accumulate in memory. Caller holds a.mu.
+func (a *authManager) pruneEphemeralLocked() {
+	now := time.Now()
+	for state, p := range a.pendingAuth {
+		if now.Sub(p.created) > pendingAuthTTL {
+			delete(a.pendingAuth, state)
+		}
+	}
+	for code, c := range a.authCodes {
+		if now.After(c.expiry) {
+			delete(a.authCodes, code)
+		}
+	}
+	for id, pc := range a.pendingConsent {
+		if now.After(pc.expiry) {
+			delete(a.pendingConsent, id)
+		}
+	}
+}
+
+// pruneClientsLocked makes room in the dynamic client registry when it is at
+// capacity by evicting one entry; an evicted client simply re-registers on its
+// next use. Caller holds a.mu.
+func (a *authManager) pruneClientsLocked() {
+	for len(a.clients) >= maxClients {
+		for id := range a.clients {
+			delete(a.clients, id)
+			break
+		}
+	}
+}
+
+// renderConsentPage writes the MCP authorization approval screen. Every
+// interpolated value is HTML-escaped: redirect_uri and client_id come from the
+// (attacker-controllable) authorize request, and login from GitHub.
+func renderConsentPage(w http.ResponseWriter, consentID, login, clientID, redirectURI string) {
+	page := `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize MCP access — aeman</title>
+<style>
+  body{font:15px/1.5 system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1.25rem;color:#1a1a1a}
+  h1{font-size:1.3rem}
+  .card{border:1px solid #e2e2e2;border-radius:10px;padding:1.25rem 1.5rem;margin:1.5rem 0}
+  dl{display:grid;grid-template-columns:auto 1fr;gap:.4rem 1rem;margin:0}
+  dt{color:#666}
+  dd{margin:0;word-break:break-all;font-family:ui-monospace,monospace;font-size:.9rem}
+  .warn{background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:.75rem 1rem;font-size:.9rem}
+  .row{display:flex;gap:.75rem;margin-top:1.5rem}
+  button{font:inherit;padding:.6rem 1.2rem;border-radius:8px;border:1px solid #ccc;cursor:pointer}
+  .approve{background:#1f6feb;color:#fff;border-color:#1f6feb}
+</style></head><body>
+<h1>Authorize MCP access</h1>
+<p>An application wants to connect to aeman as <strong>@` + html.EscapeString(login) + `</strong> using your GitHub access.</p>
+<div class="card"><dl>
+  <dt>Client</dt><dd>` + html.EscapeString(clientID) + `</dd>
+  <dt>Redirects to</dt><dd>` + html.EscapeString(redirectURI) + `</dd>
+</dl></div>
+<p class="warn">Only approve if you started this from a tool you trust and recognize the address above. Approving lets it act on your GitHub projects.</p>
+<form method="POST" action="/oauth/consent" class="row">
+  <input type="hidden" name="consent_id" value="` + html.EscapeString(consentID) + `">
+  <button class="approve" type="submit" name="action" value="approve">Approve</button>
+  <button type="submit" name="action" value="deny">Deny</button>
+</form>
+</body></html>`
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(page))
 }
