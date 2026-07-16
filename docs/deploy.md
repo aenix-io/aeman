@@ -23,7 +23,7 @@ Generate a client secret. Keep the **Client ID** and **Client secret**.
 ## 3. Configure and run
 
 ```sh
-git clone https://github.com/aenix-org/aeman.git
+git clone https://github.com/aenix-io/aeman.git
 cd aeman
 cp .env.example .env
 # fill AEMAN_GITHUB_CLIENT_ID / _SECRET, AEMAN_BASE_URL, AEMAN_DOMAIN
@@ -37,7 +37,7 @@ Caddy issues the certificate on first start (needs DNS + ports 80/443 already in
 To pin every visitor to a single project and hide the board picker, set in `.env`:
 
 ```sh
-AEMAN_OWNER=aenix-org
+AEMAN_OWNER=acme
 AEMAN_PROJECT=37
 AEMAN_LOCK_BOARD=true
 ```

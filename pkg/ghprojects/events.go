@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // eventLogCap bounds a card's stored event log: the oldest events beyond it

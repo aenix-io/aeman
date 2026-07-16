@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/ghprojects"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // The write-behind queue: a mutation is applied to the shared board cache

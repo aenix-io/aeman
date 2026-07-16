@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 func TestSetParentGroupsAndSyncsSprint(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // domainFieldCache memoises fields the domain setters lazily create, keyed by
