@@ -1,4 +1,4 @@
-module github.com/aenix-org/aeman
+module github.com/aenix-io/aeman
 
 go 1.26
 

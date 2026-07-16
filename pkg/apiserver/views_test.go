@@ -3,7 +3,7 @@ package apiserver
 import (
 	"testing"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 func TestWithSubtasksDeliversAllChildren(t *testing.T) {

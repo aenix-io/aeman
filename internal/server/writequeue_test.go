@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aenix-org/aeman/pkg/board"
-	"github.com/aenix-org/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
 // wbBackend is an inner backend for write-behind tests: LoadBoard serves a

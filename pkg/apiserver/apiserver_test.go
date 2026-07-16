@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 func testBoard() board.Board {

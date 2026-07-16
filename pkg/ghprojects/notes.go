@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aenix-org/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // draftBody fetches a draft issue's current markdown body.
