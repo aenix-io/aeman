@@ -113,6 +113,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
   if (patch.progress !== undefined) {
     body.progress = patch.progress;
   }
+  if (patch.recurrence !== undefined) {
+    body.recurrence = patch.recurrence;
+  }
   if (patch.stage !== undefined) {
     body.stage = patch.stage;
   }
