@@ -57,6 +57,8 @@ type Backend interface {
 	SetPlan(ctx context.Context, b board.Board, card board.Card, plan board.PlanBand) error
 	SetWeek(ctx context.Context, b board.Board, card board.Card, week string) error
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
+	// SetRecurrence sets a recurrent card's reseed cycle ("" = every sprint).
+	SetRecurrence(ctx context.Context, b board.Board, card board.Card, cycle string) error
 	SetAssignee(ctx context.Context, b board.Board, card board.Card, login string) error
 	// SetParent sets or clears ("") the parent link making a card a subtask.
 	SetParent(ctx context.Context, b board.Board, card board.Card, parent string) error

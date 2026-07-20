@@ -297,6 +297,15 @@ func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, tea
 	return nil
 }
 
+// SetRecurrence sets a recurrent card's reseed cycle.
+func (f *Backend) SetRecurrence(_ context.Context, _ board.Board, card board.Card, cycle string) error {
+	f.rec("SetRecurrence %s %s", card.ItemID, cycle)
+	if c := f.Card(card.ItemID); c != nil {
+		c.Recurrence = cycle
+	}
+	return nil
+}
+
 // SetAssignee replaces a card's assignee.
 func (f *Backend) SetAssignee(_ context.Context, _ board.Board, card board.Card, login string) error {
 	f.rec("SetAssignee %s %s", card.ItemID, login)

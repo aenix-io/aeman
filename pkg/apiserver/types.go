@@ -69,16 +69,19 @@ type CardPlan struct {
 
 // CardSpec is the user's intent — everything an edit can change.
 type CardSpec struct {
-	Title       string    `json:"title"`
-	Description string    `json:"description,omitempty"`
-	Team        string    `json:"team,omitempty"`
-	Zone        string    `json:"zone,omitempty"`
-	Assignees   []string  `json:"assignees"`
-	Progress    int       `json:"progress"`
-	Stage       string    `json:"stage,omitempty"`
-	Dates       CardDates `json:"dates"`
-	Plan        *CardPlan `json:"plan,omitempty"`
-	ReviewOf    string    `json:"reviewOf,omitempty"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Team        string   `json:"team,omitempty"`
+	Zone        string   `json:"zone,omitempty"`
+	Assignees   []string `json:"assignees"`
+	Progress    int      `json:"progress"`
+	Stage       string   `json:"stage,omitempty"`
+	// Recurrence, on a recurrent card, is its reseed cycle: "" = every
+	// sprint, "week" / "month" = once the interval has elapsed.
+	Recurrence string    `json:"recurrence,omitempty"`
+	Dates      CardDates `json:"dates"`
+	Plan       *CardPlan `json:"plan,omitempty"`
+	ReviewOf   string    `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the uid of the card it is grouped under.
 	Parent string `json:"parent,omitempty"`
 }
@@ -179,6 +182,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Assignees:   append([]string{}, c.Assignees...),
 		Progress:    c.Progress,
 		Stage:       string(c.Stage),
+		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,

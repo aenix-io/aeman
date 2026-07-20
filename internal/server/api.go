@@ -387,16 +387,18 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 // cardPatch is the PATCH /cards/{uid} body: only present fields are applied,
 // so absent and empty are different things (empty clears).
 type cardPatch struct {
-	Title       *string     `json:"title"`
-	Description *string     `json:"description"`
-	Team        *string     `json:"team"`
-	Zone        *string     `json:"zone"`
-	Assignees   *[]string   `json:"assignees"`
-	Progress    *int        `json:"progress"`
-	Stage       *string     `json:"stage"`
-	Dates       *datesPatch `json:"dates"`
-	Plan        *planPatch  `json:"plan"`
-	ReviewOf    *string     `json:"reviewOf"`
+	Title       *string   `json:"title"`
+	Description *string   `json:"description"`
+	Team        *string   `json:"team"`
+	Zone        *string   `json:"zone"`
+	Assignees   *[]string `json:"assignees"`
+	Progress    *int      `json:"progress"`
+	Stage       *string   `json:"stage"`
+	// Recurrence is a recurrent card's reseed cycle ("", "week", "month").
+	Recurrence *string     `json:"recurrence"`
+	Dates      *datesPatch `json:"dates"`
+	Plan       *planPatch  `json:"plan"`
+	ReviewOf   *string     `json:"reviewOf"`
 	// Parent groups the card as a subtask under another card ("" ungroups).
 	Parent *string `json:"parent"`
 }
@@ -472,6 +474,12 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := svc.SetStage(ctx, owner, project, uid, stage); err != nil {
+			s.apiError(w, err)
+			return
+		}
+	}
+	if p.Recurrence != nil {
+		if err := svc.SetRecurrence(ctx, owner, project, uid, *p.Recurrence); err != nil {
 			s.apiError(w, err)
 			return
 		}

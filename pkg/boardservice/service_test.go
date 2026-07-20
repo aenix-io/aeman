@@ -240,6 +240,14 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
+func (f *fakeBackend) SetRecurrence(_ context.Context, _ board.Board, card board.Card, cycle string) error {
+	f.rec("SetRecurrence %s %s", card.ItemID, cycle)
+	if c := f.get(card.ItemID); c != nil {
+		c.Recurrence = cycle
+	}
+	return nil
+}
+
 func (f *fakeBackend) SetAssignee(_ context.Context, _ board.Board, card board.Card, login string) error {
 	f.rec("SetAssignee %s %s", card.ItemID, login)
 	if c := f.get(card.ItemID); c != nil {
@@ -2139,5 +2147,138 @@ func TestNoteLengthLimit(t *testing.T) {
 	}
 	if err := svc.AddNote(ctx, "acme", 1, "c1", strings.Repeat("x", MaxNoteLen)); err != nil {
 		t.Fatalf("at the limit must pass: %v", err)
+	}
+}
+
+// A weekly recurrent card finished in the closing sprint does NOT reseed the
+// next morning — it rests until a carry-over reaches its due day.
+func TestCarryOverWeeklyRecurrenceRests(t *testing.T) {
+	today := board.TodayIso()
+	old := board.AddDays(today, -1) // closing sprint = yesterday
+	f := newFake([]board.Card{
+		{ItemID: "w1", Team: "alpha", SprintStart: old, Stage: board.StageRecurrent,
+			Progress: 100, Recurrence: board.RecurrenceWeek, Title: "weekly report"},
+	}, map[string]board.SprintState{"alpha": {Current: old}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Reseeded != 0 || len(f.creates) != 0 {
+		t.Fatalf("not-due weekly card must rest; rep=%+v creates=%v", rep, f.creates)
+	}
+	if f.get("w1").SprintStart != old {
+		t.Fatalf("resting card must stay put: %+v", f.get("w1"))
+	}
+}
+
+// Once the interval has elapsed, a resting weekly/monthly card is reseeded even
+// though its sprint is long past the one being closed — and the fresh copy
+// carries the cycle.
+func TestCarryOverWeeklyRecurrenceReseedsWhenDue(t *testing.T) {
+	today := board.TodayIso()
+	anchor := board.AddDays(today, -7) // bound a week ago -> due today
+	old := board.AddDays(today, -1)
+	f := newFake([]board.Card{
+		{ItemID: "w1", Team: "alpha", SprintStart: anchor, Stage: board.StageRecurrent,
+			Progress: 100, Recurrence: board.RecurrenceWeek, Title: "weekly report"},
+	}, map[string]board.SprintState{"alpha": {Current: old}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Reseeded != 1 || len(f.creates) != 1 {
+		t.Fatalf("due weekly card must reseed; rep=%+v creates=%v log=%v", rep, f.creates, f.log)
+	}
+	in := f.creates[0]
+	if in.Title != "weekly report" || in.SprintStart != today {
+		t.Fatalf("reseed input = %+v", in)
+	}
+	carried := false
+	for _, l := range f.log {
+		if strings.HasPrefix(l, "SetRecurrence new") && strings.HasSuffix(l, " week") {
+			carried = true
+		}
+	}
+	if !carried {
+		t.Fatalf("the copy must carry the cycle; log=%v", f.log)
+	}
+}
+
+// A backdated, still-unfinished monthly card (the "recurs on the 1st" calendar
+// flow) also reseeds when due — completion is not required for cycle cards
+// that already fell off the board.
+func TestCarryOverMonthlyRecurrenceBackdated(t *testing.T) {
+	today := board.TodayIso()
+	anchor := board.AddDays(today, -31) // over a calendar month ago
+	old := board.AddDays(today, -1)
+	f := newFake([]board.Card{
+		{ItemID: "m1", Team: "alpha", SprintStart: anchor, Stage: board.StageRecurrent,
+			Progress: 0, Recurrence: board.RecurrenceMonth, Title: "monthly invoice"},
+	}, map[string]board.SprintState{"alpha": {Current: old}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Reseeded != 1 || len(f.creates) != 1 {
+		t.Fatalf("due monthly card must reseed; rep=%+v log=%v", rep, f.log)
+	}
+}
+
+// A due resting card with a FRESHER copy on the board (same team+title, later
+// sprint) was already reseeded by a past carry-over: reruns must not duplicate.
+func TestCarryOverRecurrenceNoDuplicateReseed(t *testing.T) {
+	today := board.TodayIso()
+	anchor := board.AddDays(today, -14)
+	newer := board.AddDays(today, -7)
+	old := board.AddDays(today, -1)
+	f := newFake([]board.Card{
+		{ItemID: "w1", Team: "alpha", SprintStart: anchor, Stage: board.StageRecurrent,
+			Progress: 100, Recurrence: board.RecurrenceWeek, Title: "weekly report"},
+		{ItemID: "w2", Team: "alpha", SprintStart: newer, Stage: board.StageRecurrent,
+			Progress: 100, Recurrence: board.RecurrenceWeek, Title: "weekly report"},
+	}, map[string]board.SprintState{"alpha": {Current: old}})
+	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only w2 (the newest) is a legitimate reseed source; w1 is history.
+	if rep.Reseeded != 1 || len(f.creates) != 1 {
+		t.Fatalf("exactly one reseed expected; rep=%+v creates=%v", rep, f.creates)
+	}
+}
+
+// Leaving the recurrent stage sheds the cycle, so a stale hidden marker can
+// never resurrect the card at some future carry-over.
+func TestStageChangeShedsRecurrence(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", Stage: board.StageRecurrent,
+			Recurrence: board.RecurrenceMonth, Progress: 40},
+	}, nil)
+	if err := f2svc(f).SetStage(ctx, "acme", 1, "c1", board.StageLocked); err != nil {
+		t.Fatal(err)
+	}
+	if !f.saw("SetRecurrence c1 ") {
+		t.Fatalf("cycle must be cleared on leaving recurrent; log=%v", f.log)
+	}
+}
+
+// SetRecurrence validates the cycle and requires the recurrent stage.
+func TestSetRecurrenceValidation(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", Stage: board.StageRecurrent},
+		{ItemID: "c2", Team: "alpha"},
+	}, nil)
+	svc := f2svc(f)
+	if err := svc.SetRecurrence(ctx, "acme", 1, "c1", "week"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c1").Recurrence != "week" {
+		t.Fatalf("cycle not stored: %+v", f.get("c1"))
+	}
+	if err := svc.SetRecurrence(ctx, "acme", 1, "c1", "yearly"); err == nil {
+		t.Fatal("unknown cycle must be rejected")
+	}
+	if err := svc.SetRecurrence(ctx, "acme", 1, "c2", "week"); err == nil {
+		t.Fatal("cycle on a non-recurrent card must be rejected")
 	}
 }

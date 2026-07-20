@@ -23,7 +23,11 @@ interface CardProps {
   onSelect: (card: CardModel) => void;
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
-  onStage: (card: CardModel, stage: StageKey | null) => void;
+  onStage: (
+    card: CardModel,
+    stage: StageKey | null,
+    recurrence?: "" | "week" | "month",
+  ) => void;
   /** Pick the implicit "In Progress" status: clears the stage and clamps the
    *  card's progress into [10, 90]. */
   onInProgress: (card: CardModel) => void;
@@ -139,6 +143,10 @@ export function Card({
   const ref = ticket(card);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [recOpen, setRecOpen] = useState(false);
+  // The cycle submenu opens to the right; near the viewport edge it flips
+  // left so it never clips off-screen.
+  const [recLeft, setRecLeft] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card.title);
   const [dragValue, setDragValue] = useState<number | null>(null);
@@ -242,7 +250,21 @@ export function Card({
   const pickStage = (e: React.MouseEvent<HTMLButtonElement>, stage: StageKey | null) => {
     e.stopPropagation();
     setMenuOpen(false);
+    setRecOpen(false);
     onStage(card, stage);
+  };
+
+  // The recurrent cycle picker: Recurrent expands a submenu on the right —
+  // every sprint (the default), weekly or monthly. Picking a cycle sets the
+  // stage and the cycle together.
+  const pickRecurrence = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    cycle: "" | "week" | "month",
+  ) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    setRecOpen(false);
+    onStage(card, "recurrent", cycle);
   };
 
   const pickInProgress = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -359,7 +381,11 @@ export function Card({
           card.stage === "review"
             ? "On review"
             : card.stage === "recurrent"
-              ? "Recurrent"
+              ? card.recurrence === "week"
+                ? "Recurrent (weekly)"
+                : card.recurrence === "month"
+                  ? "Recurrent (monthly)"
+                  : "Recurrent"
               : card.stage === "locked"
                 ? "Locked"
                 : "Status"
@@ -435,7 +461,65 @@ export function Card({
           // A review card is auxiliary: it cannot be put on the "review" stage
           // itself, nor made "recurrent" (a repeating task makes no sense for a
           // one-off review).
-          (stage === "review" || stage === "recurrent") && card.reviewOf ? null : (
+          (stage === "review" || stage === "recurrent") && card.reviewOf ? null : stage ===
+            "recurrent" ? (
+            // Recurrent expands a cycle submenu on the right: every sprint
+            // (the default, plain click), weekly or monthly.
+            <div
+              key={stage}
+              className="card-stage-rec"
+              onMouseEnter={(e) => {
+                setRecLeft(
+                  e.currentTarget.getBoundingClientRect().right + 130 >
+                    window.innerWidth,
+                );
+                setRecOpen(true);
+              }}
+              onMouseLeave={() => setRecOpen(false)}
+            >
+              <button
+                type="button"
+                className={`card-stage-item${card.stage === "recurrent" ? " card-stage-item-active" : ""}`}
+                onClick={(e) => pickRecurrence(e, "")}
+              >
+                <span
+                  className="card-stage-dot"
+                  style={{ background: STAGES[stage].color }}
+                />
+                {STAGES[stage].label}
+                <span className="card-stage-sub-arrow" aria-hidden="true">
+                  ▸
+                </span>
+              </button>
+              {recOpen && (
+                <div
+                  className={`card-stage-submenu${recLeft ? " card-stage-submenu-left" : ""}`}
+                >
+                  {(
+                    [
+                      ["", "Every sprint"],
+                      ["week", "Weekly"],
+                      ["month", "Monthly"],
+                    ] as const
+                  ).map(([cycle, label]) => (
+                    <button
+                      key={cycle || "sprint"}
+                      type="button"
+                      className={`card-stage-item${
+                        card.stage === "recurrent" &&
+                        (card.recurrence ?? "") === cycle
+                          ? " card-stage-item-active"
+                          : ""
+                      }`}
+                      onClick={(e) => pickRecurrence(e, cycle)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
             <button
               key={stage}
               type="button"

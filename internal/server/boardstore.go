@@ -1211,6 +1211,15 @@ func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.C
 	return nil
 }
 
+func (b *storeBackend) SetRecurrence(ctx context.Context, bd board.Board, card board.Card, cycle string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "recurrence", "set the recurrence of "+cardRef(card), func(c *board.Card) {
+		c.Recurrence = cycle
+	}, func(ctx context.Context) error {
+		return b.inner.SetRecurrence(ctx, bd, card, cycle)
+	})
+	return nil
+}
+
 func (b *storeBackend) SetAssignee(ctx context.Context, bd board.Board, card board.Card, login string) error {
 	b.mutateCard(ctx, bd, card.ItemID, "assignee", "reassign "+cardRef(card), func(c *board.Card) {
 		if login == "" {

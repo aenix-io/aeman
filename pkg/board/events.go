@@ -48,6 +48,7 @@ const (
 	EventReviewRound     = "review-round"
 	EventParent          = "parent"
 	EventSubtask         = "subtask"
+	EventRecurrence      = "recurrence"
 )
 
 // DateRange renders a start..end pair for a dates event value ("" parts kept

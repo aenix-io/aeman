@@ -116,6 +116,10 @@ type Card struct {
 	// top-level card). Subtasks are one level deep: a parent cannot itself be
 	// a subtask, and a card with subtasks cannot become one.
 	Parent string `json:"parent,omitempty"`
+	// Recurrence is a recurrent card's reseed cycle: "" = every sprint (the
+	// default), "week" / "month" = only once that interval has elapsed since
+	// the sprint the card is bound to (see RecurrenceDue).
+	Recurrence string `json:"recurrence,omitempty"`
 	// ReviewRound counts a review card's review rounds. A card sent back for
 	// another review after already passing starts round 2, 3, … The first
 	// review is implicit and left at 0 (round 1 is not shown).

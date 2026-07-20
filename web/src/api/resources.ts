@@ -61,6 +61,7 @@ export interface CardResource {
     assignees?: string[];
     progress?: number;
     stage?: string;
+    recurrence?: string;
     dates?: { start?: string; end?: string; sprint?: string };
     plan?: { band?: string; week?: string };
     reviewOf?: string;
@@ -167,6 +168,7 @@ export function resourceToCard(res: CardResource): Card {
     reviewOf: spec.reviewOf || undefined,
     parent: spec.parent || undefined,
     reviewRound: res.status?.reviewRound,
+    recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
