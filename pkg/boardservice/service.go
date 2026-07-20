@@ -327,28 +327,15 @@ type CarryReport struct {
 	Reseeded int `json:"reseeded"`
 }
 
-// CarryOver advances a team's sprint to today (the old current becomes previous)
-// and pulls its unfinished cards forward. It mirrors startSprint in TeamBoard.tsx:
-// idempotent (a no-op when the sprint is already today's), and it always advances
-// even with nothing to carry. team = "" is the no-team group. With dryRun the
-// would-be counts are reported and nothing is written.
-func (s *Service) CarryOver(ctx context.Context, owner string, project int, team string, dryRun bool) (CarryReport, error) {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
-	if err != nil {
-		return CarryReport{}, err
-	}
-	old := board.CurrentSprint(b, team)
-	today := board.TodayIso()
-	if old == today {
-		// Already on today's sprint: re-advancing would overwrite previous.
-		return CarryReport{}, nil
-	}
+// selectCarry partitions a team's cards for a carry-over closing sprint old
+// and opening today: cards to carry forward, finished recurrent cards to
+// reseed, and completed review cards to pin back to the closing sprint.
+func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocate []board.Card) {
 	// Carry only the unfinished cards of the sprint being closed (sprintStart ==
 	// the old current pointer). A card that is NOT on today's sprint — demoted
 	// back to an earlier one, or simply old — stays where it is, so removing a
 	// card from the current sprint is final and it never boomerangs back. A
 	// finished recurrent card stays behind and reseeds a fresh copy instead.
-	var carry, reseed, relocate []board.Card
 	for _, c := range b.Cards {
 		// A subtask is never carried on its own - it rides with its parent
 		// (below), whatever team either of them belongs to.
@@ -370,11 +357,26 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 			carry = append(carry, c)
 			continue
 		}
+		// A weekly/monthly recurrent card RESTS outside the current cycle: a
+		// finished (or deliberately backdated) one sits in a past sprint until
+		// the interval elapses, then the carry-over that reaches its due day
+		// reseeds it. A newer copy (same team+title, later sprint) means it
+		// was already reseeded — skip, so reruns never duplicate.
+		if c.Recurrence != "" && c.Stage == board.StageRecurrent && c.SprintStart != old {
+			if board.RecurrenceDue(c, today) && !hasNewerRecurrent(b, c) {
+				reseed = append(reseed, c)
+			}
+			continue
+		}
 		if old == "" || c.SprintStart != old {
 			continue
 		}
 		if c.Stage == board.StageRecurrent && c.Progress >= 100 {
-			reseed = append(reseed, c)
+			// A cycle card finished in the closing sprint reseeds only when
+			// its week/month has elapsed; until then it stays behind, resting.
+			if board.RecurrenceDue(c, today) {
+				reseed = append(reseed, c)
+			}
 			continue
 		}
 		if board.Complete(c.Stage, c.Progress) {
@@ -397,6 +399,26 @@ func (s *Service) CarryOver(ctx context.Context, owner string, project int, team
 		}
 		carry = append(carry, c)
 	}
+	return carry, reseed, relocate
+}
+
+// CarryOver advances a team's sprint to today (the old current becomes previous)
+// and pulls its unfinished cards forward. It mirrors startSprint in TeamBoard.tsx:
+// idempotent (a no-op when the sprint is already today's), and it always advances
+// even with nothing to carry. team = "" is the no-team group. With dryRun the
+// would-be counts are reported and nothing is written.
+func (s *Service) CarryOver(ctx context.Context, owner string, project int, team string, dryRun bool) (CarryReport, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return CarryReport{}, err
+	}
+	old := board.CurrentSprint(b, team)
+	today := board.TodayIso()
+	if old == today {
+		// Already on today's sprint: re-advancing would overwrite previous.
+		return CarryReport{}, nil
+	}
+	carry, reseed, relocate := selectCarry(b, team, old, today)
 	// Subtasks ride with their carried parent - even completed ones, and
 	// whatever team they belong to; the parent's team drives the sprint.
 	followers := carryFollowers(b, carry)
@@ -485,10 +507,57 @@ func (s *Service) reseedRecurrent(ctx context.Context, b board.Board, c board.Ca
 	if err := s.backend.SetStage(ctx, b, created, board.StageRecurrent); err != nil {
 		return err
 	}
+	if c.Recurrence != "" {
+		if err := s.backend.SetRecurrence(ctx, b, created, c.Recurrence); err != nil {
+			return err
+		}
+	}
 	if desc := board.StripEventLines(c.Description); desc != "" {
 		return s.backend.SetDescription(ctx, b, created, desc)
 	}
 	return nil
+}
+
+// SetRecurrence sets a recurrent card's reseed cycle: "" (every sprint, the
+// default), "week" or "month". Only cards on the recurrent stage carry a
+// cycle — the stage menu is the only path here, and applyStage sheds the
+// cycle when the stage changes.
+func (s *Service) SetRecurrence(ctx context.Context, owner string, project int, itemID, cycle string) error {
+	if !board.ValidRecurrence(cycle) {
+		return fmt.Errorf("%w: unknown recurrence %q (\"\" | week | month)", ErrInvalidStage, cycle)
+	}
+	b, c, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	if c.Recurrence == cycle {
+		return nil
+	}
+	if cycle != "" && c.Stage != board.StageRecurrent {
+		return fmt.Errorf("%w: a recurrence cycle needs the recurrent stage", ErrInvalidStage)
+	}
+	if err := s.backend.SetRecurrence(ctx, b, c, cycle); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, c, board.EventRecurrence, c.Recurrence, cycle)
+	return nil
+}
+
+// hasNewerRecurrent reports whether the board holds a fresher copy of a
+// resting weekly/monthly recurrent card: same team and title, still on the
+// recurrent stage, bound to a later sprint. Its presence means a past
+// carry-over already reseeded this card — the old one is history.
+func hasNewerRecurrent(b board.Board, c board.Card) bool {
+	for _, o := range b.Cards {
+		if o.ItemID == c.ItemID {
+			continue
+		}
+		if o.Team == c.Team && o.Title == c.Title &&
+			o.Stage == board.StageRecurrent && o.SprintStart > c.SprintStart {
+			return true
+		}
+	}
+	return false
 }
 
 // setSprintStartRetry sets a card's Sprint Start, retrying a few times with
@@ -990,6 +1059,15 @@ func (s *Service) applyStage(ctx context.Context, b board.Board, card board.Card
 	newStage, newProgress := board.ApplyStage(stage, card.Progress)
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 		return err
+	}
+	// Leaving the recurrent stage sheds the cycle: a stale hidden "monthly"
+	// marker on a now-ordinary card would resurrect it at some future
+	// carry-over.
+	if newStage != board.StageRecurrent && card.Recurrence != "" {
+		if err := s.backend.SetRecurrence(ctx, b, card, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventRecurrence, card.Recurrence, "")
 	}
 	if newProgress != card.Progress {
 		if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {

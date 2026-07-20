@@ -67,6 +67,7 @@ var domainFieldSpecs = map[string]domainFieldSpec{
 	"day":         {name: "Day", dataType: "DATE"},
 	"start":       {name: "Start", dataType: "DATE"},
 	"sprintStart": {name: "Sprint Start", dataType: "DATE"},
+	"recurrence":  {name: "Recurrence", dataType: "TEXT"},
 	"plan": {name: "Plan", options: []domainSelectOption{
 		{"Wed", "BLUE", "By Wednesday"},
 		{"Fri", "PURPLE", "By Friday"},
@@ -430,6 +431,11 @@ func (c *Client) setDomainDate(ctx context.Context, b board.Board, card board.Ca
 // SetTeam sets (or clears) the card's team label.
 func (c *Client) SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error {
 	return c.setDomainText(ctx, b, card, "team", team)
+}
+
+// SetRecurrence sets (or clears) a recurrent card's reseed cycle.
+func (c *Client) SetRecurrence(ctx context.Context, b board.Board, card board.Card, cycle string) error {
+	return c.setDomainText(ctx, b, card, "recurrence", cycle)
 }
 
 // SetReviewOf sets (or clears) the review-of link on a review card.

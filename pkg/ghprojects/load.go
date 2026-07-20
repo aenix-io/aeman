@@ -315,6 +315,8 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		card.Parent = v.Text
 	case roles.ReviewRound != nil && id == roles.ReviewRound.ID && v.Number != nil:
 		card.ReviewRound = int(*v.Number)
+	case roles.Recurrence != nil && id == roles.Recurrence.ID && v.Text != "":
+		card.Recurrence = v.Text
 	}
 }
 
@@ -336,6 +338,7 @@ type domainFieldRoles struct {
 	ReviewOf    *board.ProjectField
 	Parent      *board.ProjectField
 	ReviewRound *board.ProjectField
+	Recurrence  *board.ProjectField
 }
 
 // domainRoleAliases maps each role to the field names (case-insensitive) that
@@ -356,6 +359,7 @@ var domainRoleAliases = map[string][]string{
 	"reviewOf":    {"review of", "reviewof"},
 	"parent":      {"parent"},
 	"reviewRound": {"review round", "reviewround"},
+	"recurrence":  {"recurrence", "recur"},
 }
 
 // domainRoles maps the board's fields onto the typed roles by name.
@@ -393,6 +397,8 @@ func domainRoles(fields []board.ProjectField) domainFieldRoles {
 			r.Parent = f
 		case r.ReviewRound == nil && domainMatchesAlias("reviewRound", name):
 			r.ReviewRound = f
+		case r.Recurrence == nil && domainMatchesAlias("recurrence", name):
+			r.Recurrence = f
 		}
 	}
 	return r
@@ -429,6 +435,8 @@ func (r domainFieldRoles) get(role string) *board.ProjectField {
 		return r.Parent
 	case "reviewRound":
 		return r.ReviewRound
+	case "recurrence":
+		return r.Recurrence
 	default:
 		return nil
 	}

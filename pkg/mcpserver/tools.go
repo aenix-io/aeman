@@ -218,6 +218,7 @@ type updateCardInput struct {
 	Assignee    *string `json:"assignee,omitempty" jsonschema:"GitHub login; empty unassigns"`
 	Progress    *int    `json:"progress,omitempty" jsonschema:"readiness percentage 0..100"`
 	Stage       *string `json:"stage,omitempty" jsonschema:"locked, review, recurrent or done; empty clears it"`
+	Recurrence  *string `json:"recurrence,omitempty" jsonschema:"reseed cycle of a recurrent card: empty = every sprint (default), week or month = reseeded by carry-over only once that interval has elapsed since the card's sprint"`
 	Start       *string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd, calendar semantics: the card rejoins the sprint active on it; empty clears the dates"`
 	End         *string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
@@ -282,6 +283,11 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 	}
 	if in.Stage != nil {
 		if err := svc.SetStage(ctx, owner, project, in.UID, board.StageKey(*in.Stage)); err != nil {
+			return err
+		}
+	}
+	if in.Recurrence != nil {
+		if err := svc.SetRecurrence(ctx, owner, project, in.UID, *in.Recurrence); err != nil {
 			return err
 		}
 	}

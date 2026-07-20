@@ -3056,3 +3056,37 @@ button.card-age {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
+
+/* The Recurrent item's cycle submenu: expands to the right of the stage menu
+   (every sprint / weekly / monthly). The wrapper keeps hover alive across the
+   gap between the row and the flyout. */
+.card-stage-rec {
+  position: relative;
+}
+
+.card-stage-sub-arrow {
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.card-stage-submenu {
+  position: absolute;
+  left: 100%;
+  top: -4px;
+  min-width: 110px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-stage-submenu-left {
+  left: auto;
+  right: 100%;
+}
