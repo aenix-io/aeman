@@ -743,10 +743,15 @@ export function MeBoard({
   // knocks a full review/locked card to 90, and cancels the linked review card
   // when the original leaves review. The optimistic patch mirrors the local
   // effects; the re-list converges the linked-card cascade.
-  const handleStage = (card: CardModel, stage: StageKey | null) => {
+  const handleStage = (
+    card: CardModel,
+    stage: StageKey | null,
+    recurrence?: "" | "week" | "month",
+  ) => {
     const prev: Partial<CardModel> = {
       stage: card.stage,
       progress: card.progress,
+      recurrence: card.recurrence,
     };
     // Done on a recurrent card completes the iteration but keeps the
     // recurrence (mirrors the server): only the progress fills.
@@ -758,6 +763,13 @@ export function MeBoard({
             : undefined
           : stage ?? undefined,
     };
+    // The recurrent picker carries the cycle; any other stage sheds it
+    // (mirrors the server's applyStage).
+    if (stage === "recurrent") {
+      patch.recurrence = recurrence ?? "";
+    } else if (stage !== "done" && card.recurrence) {
+      patch.recurrence = "";
+    }
     if (stage === "done") {
       patch.progress = 100;
     }
@@ -773,7 +785,10 @@ export function MeBoard({
     const enteringReview = stage === "review" && card.stage !== "review";
     const hasLinkedReview = board.cards.some((c) => c.reviewOf === card.itemId);
     void provider
-      .patchCard(board, card.itemId, { stage: stage ?? "" })
+      .patchCard(board, card.itemId, {
+        stage: stage ?? "",
+        ...(stage === "recurrent" ? { recurrence: recurrence ?? "" } : {}),
+      })
       .then((updated) => {
         addCard(updated);
         refreshLog(card.itemId);

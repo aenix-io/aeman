@@ -60,6 +60,8 @@ export interface Card {
   parent?: string;
   /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
   reviewRound?: number;
+  /** A recurrent card's reseed cycle: "" = every sprint, "week" | "month". */
+  recurrence?: string;
   /** ISO date (yyyy-mm-dd) the card is planned to finish/be due on. */
   day?: string;
   /** ISO date (yyyy-mm-dd) the card starts on (set at creation). */
@@ -147,6 +149,8 @@ export interface CardPatch {
   parent?: string;
   /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
   reviewRound?: number;
+  /** Recurrent card's reseed cycle: "" = every sprint, "week" | "month". */
+  recurrence?: string;
 }
 
 /** CarryReport is what a carry-over / carry-week pass did — or would do on a
