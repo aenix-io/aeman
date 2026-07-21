@@ -913,7 +913,13 @@ func (s *Server) handleCarryOver(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rep, err := svc.CarryOver(r.Context(), owner, project, in.Team, in.DryRun)
+	// The carry ops read the board through the SAME snapshot every other
+	// mutation already trusts: with write-behind the cache (queue replayed on
+	// top) IS the live truth, while a blocking GitHub reload here only adds
+	// seconds of latency and a chance to read a lagging replica. Stale-window
+	// semantics apply; a cold cache still loads.
+	ctx, _ := withStaleAllowed(r.Context())
+	rep, err := svc.CarryOver(ctx, owner, project, in.Team, in.DryRun)
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -934,7 +940,9 @@ func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rep, err := svc.CarryWeek(r.Context(), owner, project, in.Team, in.Week, in.DryRun)
+	// Same cached-snapshot read as carry-over (see handleCarryOver).
+	ctx, _ := withStaleAllowed(r.Context())
+	rep, err := svc.CarryWeek(ctx, owner, project, in.Team, in.Week, in.DryRun)
 	if err != nil {
 		s.apiError(w, err)
 		return
