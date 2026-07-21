@@ -7,8 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"strings"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
@@ -568,5 +571,55 @@ func TestCachedAuthz(t *testing.T) {
 	e.loadedAt = time.Now().Add(-boardStaleMax - time.Second)
 	if _, state := e.cached("alice", true); state != cacheMiss {
 		t.Fatal("past boardStaleMax the cache must miss regardless of authorization")
+	}
+}
+
+// failAfterFirstLoad serves one upstream board load, then hard-fails: a test
+// double for "GitHub is slow/unreachable right now".
+type failAfterFirstLoad struct {
+	*swrBackend
+	calls atomic.Int32
+}
+
+func (f *failAfterFirstLoad) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
+	if f.calls.Add(1) > 1 {
+		return board.Board{}, errors.New("upstream unavailable")
+	}
+	return f.swrBackend.LoadBoard(ctx, owner, project)
+}
+
+// Carry over must answer from the cached snapshot inside the stale window —
+// its blocking full-board reload was the whole wait behind the button. The
+// upstream here fails after the seeding load, so a 200 proves the handler
+// never blocked on a fresh read.
+func TestCarryOverServedFromSnapshot(t *testing.T) {
+	srv := newTestServer(t)
+	inner := &failAfterFirstLoad{swrBackend: &swrBackend{board: watchBoard()}}
+	srv.newService = func(*http.Request) (*boardservice.Service, error) {
+		return boardservice.New(&storeBackend{inner: inner, store: srv.store}), nil
+	}
+
+	// Seed the cache (the one allowed upstream load), then age it past the
+	// fresh TTL into the stale window.
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=all", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seed read: status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	e := srv.store.entry("acme/1")
+	e.mu.Lock()
+	e.loadedAt = time.Now().Add(-2 * boardFreshFor)
+	e.mu.Unlock()
+
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sprints/actions/carry-over?owner=acme&project=1",
+		strings.NewReader(`{"team":"alpha","dryRun":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	srv.handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("carry-over dry run blocked on the upstream: status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "carried") {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
 	}
 }
