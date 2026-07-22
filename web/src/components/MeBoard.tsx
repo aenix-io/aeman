@@ -72,6 +72,11 @@ interface MeBoardProps {
   onOpen: (card: CardModel) => void;
   /** Share the live selection with other boards ("" clears on deselect). */
   onPresence?: (card: string | null) => void;
+  /** Embedded pane mode (the personal pane beside the work board): no
+   *  toolbar (day nav / chips / view-as are owned by the work pane), no
+   *  notes panel (per-card logs stay reachable through the card detail),
+   *  no MCP link. Only the zone bands, the progress bar and the stats. */
+  embedded?: boolean;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -130,6 +135,7 @@ export function MeBoard({
   onError,
   onOpen,
   onPresence,
+  embedded = false,
 }: MeBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   // Broadcast the selection as shared presence: teammates' Team boards
@@ -457,6 +463,11 @@ export function MeBoard({
   // clears them, so they refetch. A failed request stays marked, not retried.
   const notesRequested = useRef<Set<string>>(new Set());
   useEffect(() => {
+    if (embedded) {
+      // No notes panel in the embedded pane — don't spend a log fetch per
+      // card; the card detail loads its own log on demand.
+      return;
+    }
     for (const c of notesCards) {
       if (
         c.notes !== undefined ||
@@ -474,7 +485,7 @@ export function MeBoard({
         })
         .catch(() => {});
     }
-  }, [notesCards, board, provider, patchCard]);
+  }, [embedded, notesCards, board, provider, patchCard]);
 
 
   const subsOpen = (id: string) => expandedSubs.has(id);
@@ -1407,7 +1418,8 @@ export function MeBoard({
   };
 
   return (
-    <div className="me">
+    <div className={`me${embedded ? " me-embedded" : ""}`}>
+      {!embedded && (
       <div className="board-toolbar">
         <div className="field field-inline">
           <span>Day</span>
@@ -1526,6 +1538,7 @@ export function MeBoard({
           </Dropdown>
         </div>
       </div>
+      )}
 
       <div className="me-panes">
         <div className="me-left">
@@ -1589,6 +1602,7 @@ export function MeBoard({
           </div>
         </div>
 
+        {!embedded && (
         <NotesPanel
           selectedDate={selectedDate}
           notes={dayNotes}
@@ -1603,6 +1617,7 @@ export function MeBoard({
           collapsed={notesCollapsed}
           onToggleCollapse={toggleNotesCollapsed}
         />
+        )}
       </div>
       <div className="me-day-progress" title={`${dayProgress}% done today`}>
         <div
@@ -1626,15 +1641,17 @@ export function MeBoard({
         <span className="me-day-stat">
           nice to have: {dayStats.green.done}/{dayStats.green.total}
         </span>
-        <button
-          type="button"
-          className="connect-link"
-          onClick={() => setConnectOpen(true)}
-        >
-          MCP / API
-        </button>
+        {!embedded && (
+          <button
+            type="button"
+            className="connect-link"
+            onClick={() => setConnectOpen(true)}
+          >
+            MCP / API
+          </button>
+        )}
       </div>
-      {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} />}
+      {connectOpen && !embedded && <ConnectDialog onClose={() => setConnectOpen(false)} />}
     </div>
   );
 }

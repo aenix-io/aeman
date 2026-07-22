@@ -170,3 +170,16 @@ plan progress (V2). Each is pinned by the 🆕 tests above.
 | R7 | Re-review pulls the review card into the original's current sprint and onto today (reappears in the new sprint) and bumps the round | boardservice.reactivateReviewCard | ✅ TestReReviewRelocatesToNewSprintWithCounter |
 | V1 | The Team board loads its day grid PLUS the weekly plan of the shown teams (view=weekly accepts a comma set); the plan panel renders from the same card set | apiserver weekly multi-team + App dual fetch | ✅ TestWeeklyViewMultiTeam / viewquery.test |
 | V2 | GET /board carries the people roster (members: every distinct assignee), so assign/review/view-as pickers work with per-view card loading; Me view-as sends the impersonated user explicitly | apiserver BoardResource + App viewAs | ✅ TestBoardResourceMembers / viewquery.test |
+
+## Personal board (docs/design/personal-board.md)
+
+| # | Rule | Where |
+|---|------|-------|
+| P1 | A personal pointer is per login; another login on the same browser sees no personal pane, chip or pointer | `web/src/personal.ts`, `personal.test.ts` |
+| P2 | The Me view shows the Personal pane only when: not impersonating (view-as off), a pointer is attached, and the personal board actually loaded | `App.tsx` (`personalReady`) |
+| P3 | A personal-board load failure surfaces as a dismissible warning and never blanks or errors the work board | `App.tsx` (`personalError`) |
+| P4 | The virtual Personal chip appears only for the owner with a loaded personal board; it cannot be renamed, removed, multi-selected or written to a card | `TeamChips.tsx` (`extraChip`), `TeamBoard.tsx` |
+| P5 | Team view in personal mode pins the filter to the no-team group: sprints, carry-over and the weekly plan run against the personal project's own state | `App.tsx` (personal `TeamBoard` props) |
+| P6 | Attaching the work board itself as personal is refused (owner case-insensitive) | `PersonalDialog.tsx`, `samePointer` |
+| P7 | Narrow Me view (≤820px) shows one pane; ‹ › switch Work ↔ Personal and clamp at the edges | `styles.css` `.me-split`, `personal.ts` panes |
+| P8 | Card detail, notes and log calls of a personal card go to the personal project (each board instance owns its address) | `App.tsx` (`detailData`), `useBoardData.ts` |

@@ -23,6 +23,10 @@ interface TeamChipsProps {
   /** Optional "workable now" toggle (Me board), shown right after the eye and
    *  of the same shape: hide locked / on-review / done cards. */
   focusToggle?: { on: boolean; onToggle: () => void };
+  /** Optional virtual chip appended after the real teams (the owner-only
+   *  "Personal" board switch). Not a team: it cannot be renamed, removed or
+   *  multi-selected, and it never reaches any card. */
+  extraChip?: { label: string; active: boolean; onToggle: () => void } | null;
 }
 
 /** TeamChips is a single-select row of team chips with add/remove/rename. */
@@ -39,6 +43,7 @@ export function TeamChips({
   onManage,
   filterToggle,
   focusToggle,
+  extraChip,
 }: TeamChipsProps) {
   const [adding, setAdding] = useState(false);
   const [addValue, setAddValue] = useState("");
@@ -157,6 +162,25 @@ export function TeamChips({
               title="Cards with no team"
             >
               <span className="team-chip-name team-col-unassigned">No team</span>
+            </button>
+          </span>
+        )}
+        {extraChip && (
+          <span
+            className={`team-chip team-filter-chip team-chip-personal${extraChip.active ? "" : " team-filter-chip-off"}`}
+          >
+            <button
+              type="button"
+              className="team-chip-toggle"
+              onClick={extraChip.onToggle}
+              aria-pressed={extraChip.active}
+              title={
+                extraChip.active
+                  ? "Back to the team board"
+                  : "Your personal board — visible only to you"
+              }
+            >
+              <span className="team-chip-name">{extraChip.label}</span>
             </button>
           </span>
         )}

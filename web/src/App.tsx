@@ -1,26 +1,25 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { clientId, fetchConfig, type AppConfig } from "./api/client";
+import { fetchConfig, type AppConfig } from "./api/client";
 import { apiProvider } from "./providers/api/apiProvider";
-import {
-  resourceToCard,
-  sprintStateFrom,
-  type CardResource,
-  type OrderingResource,
-  type SprintResource,
-  type WatchFrame,
-  type PresenceResource,
-} from "./api/resources";
-import type { Board, Card as CardModel } from "./providers/types";
+import type { Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { CardDetail } from "./components/CardDetail";
+import { PersonalDialog } from "./components/PersonalDialog";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
 import { queryString, viewQueries, watchQuery } from "./viewquery";
 import { todayIso, setBoardTimezone } from "./date";
-import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
+import { useBoardData } from "./useBoardData";
+import {
+  clearPersonalBoard,
+  readPersonalBoard,
+  savePersonalBoard,
+  type MePane,
+  type PersonalPointer,
+} from "./personal";
 
 type ViewMode = "me" | "team";
 
@@ -30,6 +29,7 @@ const LS_VIEW = "aeman.view";
 const LS_TEAM_ROSTER = "aeman.teamRoster";
 const LS_TEAM_FILTER = "aeman.teamFilter";
 const LS_VIEW_AS = "aeman.viewAs";
+const LS_PERSONAL_TEAM = "aeman.personalTeam";
 
 function readView(): ViewMode {
   const raw = localStorage.getItem(LS_VIEW);
@@ -86,19 +86,6 @@ function readFilterFor(boardKey: string): string[] | null {
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
-// mergeCardLists flattens a view's lists (e.g. the Team grid + its weekly
-// plan), deduping by item id; board order within each list is preserved.
-function mergeCardLists(lists: CardModel[][]): CardModel[] {
-  const seen = new Set<string>();
-  return lists.flat().filter((c) => {
-    if (seen.has(c.itemId)) {
-      return false;
-    }
-    seen.add(c.itemId);
-    return true;
-  });
-}
-
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
@@ -128,7 +115,6 @@ export function App() {
     return () => mq.removeEventListener("change", apply);
   }, [appearance]);
 
-  const [board, setBoard] = useState<Board | null>(null);
   // The viewed day, shared by both boards and driving the lazy view fetch and
   // the scoped watch. Lifted out of the boards so the App owns what to load.
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
@@ -166,29 +152,13 @@ export function App() {
     },
     [beginLoad, endLoad],
   );
-  // Server-side writes not yet confirmed by GitHub (the write-behind queue),
-  // fed by Queue watch frames; shown as a small counter that trends to zero.
-  // Frames arrive on every enqueue/drain step — a rapid burst of edits would
-  // re-render the whole app dozens of times — so the badge updates at most a
-  // few times a second (trailing debounce keeps the final value accurate).
-  const [pendingSync, setPendingSync] = useState(0);
-  const pendingSyncNext = useRef(0);
-  const pendingSyncTimer = useRef<number | null>(null);
-  const queuePendingSync = useCallback((n: number) => {
-    pendingSyncNext.current = n;
-    if (pendingSyncTimer.current !== null) {
-      return;
-    }
-    pendingSyncTimer.current = window.setTimeout(() => {
-      pendingSyncTimer.current = null;
-      setPendingSync(pendingSyncNext.current);
-    }, 300);
-  }, []);
   const [error, setError] = useState<string | null>(null);
-  // Live selections of other users (login -> card uid), fed by Presence
-  // watch frames; purely ephemeral shared-cursor state.
-  const [presence, setPresenceMap] = useState<Record<string, string>>({});
-  const [detailCard, setDetailCard] = useState<CardModel | null>(null);
+  // A failing personal board must never take down the work board: its
+  // problems land in this separate, dismissible warning instead of `error`.
+  const [personalError, setPersonalError] = useState<string | null>(null);
+  // Which board the open card-detail dialog belongs to: mutations and log
+  // fetches from the dialog must hit the card's own project.
+  const [detail, setDetail] = useState<{ card: CardModel; src: "work" | "personal" } | null>(null);
 
   // Team roster + filter, persisted in localStorage PER BOARD. The roster is
   // the union of the teams found on the board and any teams the user has added
@@ -206,6 +176,50 @@ export function App() {
   const [teamFilter, setTeamFilter] = useState<string[] | null>(() =>
     readFilterFor(boardKeyRef.current),
   );
+
+  // ------------------------------------------------------------ personal board
+  // The pointer to the user's own private project, per login (see personal.ts).
+  const login = config?.login ?? "";
+  const [personalPtr, setPersonalPtr] = useState<PersonalPointer | null>(null);
+  useEffect(() => {
+    setPersonalPtr(login ? readPersonalBoard(localStorage, login) : null);
+  }, [login]);
+  const [personalOpen, setPersonalOpen] = useState(false);
+  // Which Me pane is active on narrow screens (wide shows both side by side).
+  const [mePane, setMePane] = useState<MePane>("work");
+  // Team view pointed at the personal board (the virtual "Personal" chip).
+  const [personalTeam, setPersonalTeam] = useState<boolean>(
+    () => localStorage.getItem(LS_PERSONAL_TEAM) === "1",
+  );
+  const setPersonalTeamPersisted = useCallback((on: boolean) => {
+    setPersonalTeam(on);
+    if (on) {
+      localStorage.setItem(LS_PERSONAL_TEAM, "1");
+    } else {
+      localStorage.removeItem(LS_PERSONAL_TEAM);
+    }
+  }, []);
+
+  const attachPersonal = useCallback(
+    (ptr: PersonalPointer) => {
+      if (!login) {
+        return;
+      }
+      savePersonalBoard(localStorage, login, ptr);
+      setPersonalPtr(ptr);
+      setPersonalError(null);
+    },
+    [login],
+  );
+  const detachPersonal = useCallback(() => {
+    if (login) {
+      clearPersonalBoard(localStorage, login);
+    }
+    setPersonalPtr(null);
+    setPersonalTeamPersisted(false);
+    setMePane("work");
+    setPersonalError(null);
+  }, [login, setPersonalTeamPersisted]);
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
   useEffect(() => {
@@ -258,10 +272,117 @@ export function App() {
   }, []);
 
   const provider = apiProvider;
+  const onError = useCallback((message: string) => setError(message), []);
+  const onPersonalError = useCallback(
+    (message: string) => setPersonalError(message),
+    [],
+  );
+
+  // ------------------------------------------------------- the two board slots
+  // The work board and the personal board are two independent instances of the
+  // same machinery: each has its own state, its own scoped watch socket, its
+  // own server address — so every mutation, note and log call naturally hits
+  // the right project without any per-card routing.
+
+  const workRef = useRef<ReturnType<typeof useBoardData> | null>(null);
 
   // The roster: user-arranged teams first (in their saved order), then any team
   // present on the board that isn't in that list yet. No alphabetical sort, so a
-  // hand-picked order sticks.
+  // hand-picked order sticks. (Depends on work.board; declared after the hook.)
+
+  // What the work board loads and watches: Me is personal (the server fills in
+  // "who am I" unless view-as impersonates someone), Team names the teams it
+  // shows (the filter, or the whole roster) and loads the day grid PLUS the
+  // weekly plan. The keys are stable serialisations used to re-fetch and
+  // re-subscribe only when the selection actually changes.
+  const [rosterForQueries, setRosterForQueries] = useState<string[]>([]);
+  const activeQueries = useMemo(
+    // No filter means ALL: the roster's teams plus the no-team group, so an
+    // unfiltered Team board misses nothing (the client filter mirrors this —
+    // teamFilter === null passes every card).
+    () =>
+      viewQueries(
+        view,
+        selectedDate,
+        teamFilter ?? [...new Set([...rosterForQueries, ""])],
+        viewAs ?? undefined,
+      ),
+    [view, selectedDate, teamFilter, rosterForQueries, viewAs],
+  );
+  const activeKey = activeQueries.map(queryString).join("|");
+  const watchSel = useMemo(
+    () =>
+      watchQuery(
+        view,
+        selectedDate,
+        teamFilter ?? [...new Set([...rosterForQueries, ""])],
+        viewAs ?? undefined,
+      ),
+    [view, selectedDate, teamFilter, rosterForQueries, viewAs],
+  );
+  const watchKey = queryString(watchSel);
+
+  const work = useBoardData({
+    provider,
+    queries: activeQueries,
+    queriesKey: activeKey,
+    watchKey,
+    onError,
+    beginLoad,
+    endLoad,
+  });
+  workRef.current = work;
+  const board = work.board;
+
+  // The personal board always loads the me view of the selected day; when the
+  // Team view is pointed at it (the "Personal" chip), it loads the team grid +
+  // weekly plan of its no-team group instead. viewAs never applies: another
+  // person's personal board is not reachable by design.
+  const personalActiveView: ViewMode =
+    view === "team" && personalTeam ? "team" : "me";
+  const personalQueries = useMemo(
+    () => viewQueries(personalActiveView, selectedDate, [""]),
+    [personalActiveView, selectedDate],
+  );
+  const personalKey = personalQueries.map(queryString).join("|");
+  const personalWatchKey = queryString(
+    watchQuery(personalActiveView, selectedDate, [""]),
+  );
+
+  const personal = useBoardData({
+    provider,
+    queries: personalQueries,
+    queriesKey: personalKey,
+    watchKey: personalWatchKey,
+    onError: onPersonalError,
+    beginLoad,
+    endLoad,
+  });
+
+  // (Re)load the personal board when attached; drop it when detached. A load
+  // failure detaches nothing — the pointer survives a flaky morning — but the
+  // pane renders only from a successfully loaded board.
+  const personalAddr = personalPtr
+    ? `${personalPtr.owner}/${personalPtr.number}`
+    : null;
+  const personalLoad = personal.load;
+  const personalReset = personal.reset;
+  useEffect(() => {
+    if (!personalAddr || !login) {
+      personalReset();
+      return;
+    }
+    const [pOwner, pNumber] = [
+      personalAddr.slice(0, personalAddr.lastIndexOf("/")),
+      Number(personalAddr.slice(personalAddr.lastIndexOf("/") + 1)),
+    ];
+    personalLoad(pOwner, pNumber).catch((err: unknown) => {
+      setPersonalError(
+        `personal board: ${errMessage(err)} — the work board is unaffected`,
+      );
+    });
+  }, [personalAddr, login, personalLoad, personalReset]);
+
   const roster = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -282,6 +403,16 @@ export function App() {
     }
     return out;
   }, [addedTeams, board]);
+  // The queries above need the roster but are declared before the hook that
+  // yields the board it derives from; mirror it into state (stable-keyed, so
+  // no refetch loops).
+  useEffect(() => {
+    setRosterForQueries((cur) =>
+      cur.length === roster.length && cur.every((t, i) => t === roster[i])
+        ? cur
+        : roster,
+    );
+  }, [roster]);
 
   // A saved filter can outlive its teams (a team renamed away, or stale
   // pre-scoping data): entries no team backs would silently blank the board,
@@ -305,37 +436,6 @@ export function App() {
       return next.length ? next : null;
     });
   }, [loadedBoardKey, roster]);
-
-  // What the active board loads and watches: Me is personal (the server fills in
-  // "who am I" unless view-as impersonates someone), Team names the teams it
-  // shows (the filter, or the whole roster) and loads the day grid PLUS the
-  // weekly plan. activeKey / watchKey are stable serialisations used to
-  // re-fetch and re-subscribe only when the selection actually changes.
-  const activeQueries = useMemo(
-    // No filter means ALL: the roster's teams plus the no-team group, so an
-    // unfiltered Team board misses nothing (the client filter mirrors this —
-    // teamFilter === null passes every card).
-    () =>
-      viewQueries(
-        view,
-        selectedDate,
-        teamFilter ?? [...new Set([...roster, ""])],
-        viewAs ?? undefined,
-      ),
-    [view, selectedDate, teamFilter, roster, viewAs],
-  );
-  const activeKey = activeQueries.map(queryString).join("|");
-  const watchSel = useMemo(
-    () =>
-      watchQuery(
-        view,
-        selectedDate,
-        teamFilter ?? [...new Set([...roster, ""])],
-        viewAs ?? undefined,
-      ),
-    [view, selectedDate, teamFilter, roster, viewAs],
-  );
-  const watchKey = queryString(watchSel);
 
   // Reorder the whole roster (from the manage dialog) and persist the order.
   const reorderTeams = useCallback((ordered: string[]) => {
@@ -396,60 +496,15 @@ export function App() {
         setAddedTeams(readRosterFor(boardKey));
         setTeamFilter(readFilterFor(boardKey));
       }
-      beginLoad();
       setError(null);
       try {
-        // Identity + sprints AND the active view's cards together, swapped in
-        // as one board: a reload() must never leave the board empty while the
-        // cards are still in flight (loadBoard itself carries no cards).
-        const addr = { owner: ownerArg, number: numberArg };
-        const [loaded, lists] = await Promise.all([
-          provider.loadBoard(ownerArg, numberArg),
-          Promise.all(
-            activeQueriesRef.current.map((q) => provider.listCards(addr, q)),
-          ),
-        ]);
-        setBoard({ ...loaded, cards: mergeCardLists(lists) });
+        await work.load(ownerArg, numberArg);
       } catch (err: unknown) {
         setError(errMessage(err));
-      } finally {
-        endLoad();
       }
     },
-    [provider, beginLoad, endLoad],
+    [work],
   );
-
-  // Load the active view's cards whenever the selection (view/day/teams) changes
-  // or the board is (re)loaded. loadBoard brings only identity + sprints; the
-  // cards for one view arrive here, so the UI holds just what it shows.
-  const activeQueriesRef = useRef(activeQueries);
-  activeQueriesRef.current = activeQueries;
-  const bOwner = board?.owner;
-  const bNumber = board?.number;
-  useEffect(() => {
-    if (!bOwner || bNumber == null) {
-      return;
-    }
-    let cancelled = false;
-    const addr = { owner: bOwner, number: bNumber };
-    beginLoad();
-    Promise.all(activeQueriesRef.current.map((q) => provider.listCards(addr, q)))
-      .then((lists) => {
-        if (cancelled) {
-          return;
-        }
-        setBoard((cur) => (cur ? { ...cur, cards: mergeCardLists(lists) } : cur));
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(errMessage(err));
-        }
-      })
-      .finally(endLoad);
-    return () => {
-      cancelled = true;
-    };
-  }, [bOwner, bNumber, activeKey, provider, beginLoad, endLoad]);
 
   // Locked board: auto-load the pinned project once authenticated. A user whose
   // token can't read it just gets a load error (the access-denied placeholder).
@@ -469,14 +524,13 @@ export function App() {
     }
   }, [config, doLoad]);
 
-  // Fetch GitHub name + avatar for any assignee not looked up yet. Watching the
-  // board also covers people newly assigned to a card during the session.
+  // Fetch GitHub name + avatar for any assignee not looked up yet — across
+  // BOTH boards. Watching them also covers people newly assigned during the
+  // session.
+  const personalBoard = personal.board;
   useEffect(() => {
-    if (!board) {
-      return;
-    }
     const todo: string[] = [];
-    for (const c of board.cards) {
+    for (const c of [...(board?.cards ?? []), ...(personalBoard?.cards ?? [])]) {
       for (const a of c.assignees) {
         if (a && !fetchedUsers.current.has(a)) {
           fetchedUsers.current.add(a);
@@ -490,7 +544,7 @@ export function App() {
     void fetchUsers(todo)
       .then((u) => setUsers((cur) => ({ ...cur, ...u })))
       .catch(() => {});
-  }, [board]);
+  }, [board, personalBoard]);
 
   const handleLoad = () => {
     const trimmedOwner = owner.trim();
@@ -503,282 +557,6 @@ export function App() {
     localStorage.setItem(LS_PROJECT, String(number));
     void doLoad(trimmedOwner, number);
   };
-
-  const reload = useCallback(() => {
-    if (board) {
-      void doLoad(board.owner, board.number);
-    }
-  }, [board, doLoad]);
-
-  // patch is a plain partial, or an updater computing one from the card's
-  // CURRENT state — rapid successive changes (notes typed Enter-Enter-Enter)
-  // must not base themselves on a stale render's copy.
-  const patchCard = useCallback(
-    (
-      itemId: string,
-      patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
-    ) => {
-      setBoard((cur) => {
-        if (!cur) {
-          return cur;
-        }
-        // An empty patch (an updater deciding nothing changed) keeps the
-        // exact same state object, so React bails out of the re-render.
-        let changed = false;
-        const cards = cur.cards.map((c) => {
-          if (c.itemId !== itemId) {
-            return c;
-          }
-          const p = typeof patch === "function" ? patch(c) : patch;
-          if (!p || Object.keys(p).length === 0) {
-            return c;
-          }
-          changed = true;
-          return { ...c, ...p };
-        });
-        return changed ? { ...cur, cards } : cur;
-      });
-    },
-    [],
-  );
-
-  // addCard upserts by item id: the watch stream may deliver a created card
-  // before (or after) the creator's own response lands, so both paths must
-  // converge on a single copy instead of appending twice. Locally-loaded notes
-  // survive the upsert — Card resources never carry notes (they live in the
-  // notes subresource).
-  const addCard = useCallback((card: CardModel) => {
-    setBoard((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      const exists = cur.cards.some((c) => c.itemId === card.itemId);
-      return {
-        ...cur,
-        cards: exists
-          ? cur.cards.map((c) =>
-              c.itemId === card.itemId
-                ? { ...card, notes: card.notes ?? c.notes }
-                : c,
-            )
-          : [...cur.cards, card],
-      };
-    });
-  }, []);
-
-  // Swap an optimistic card for its server twin IN PLACE, so a burst of
-  // creates keeps its visual order (append-on-ack would reshuffle them).
-  const replaceCard = useCallback((itemId: string, card: CardModel) => {
-    setBoard((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      if (!cur.cards.some((c) => c.itemId === itemId)) {
-        const exists = cur.cards.some((c) => c.itemId === card.itemId);
-        return exists
-          ? cur
-          : { ...cur, cards: [...cur.cards, card] };
-      }
-      return {
-        ...cur,
-        cards: cur.cards
-          .filter((c) => c.itemId !== card.itemId || c.itemId === itemId)
-          .map((c) => {
-            if (c.itemId === itemId) {
-              return card;
-            }
-            // Optimistic subtasks created under the tmp id follow the swap,
-            // or they would orphan (and their rows flicker away) until their
-            // own acks land.
-            if (c.parent === itemId) {
-              return { ...c, parent: card.itemId };
-            }
-            return c;
-          }),
-      };
-    });
-  }, []);
-
-  const removeCard = useCallback((itemId: string) => {
-    setBoard((cur) =>
-      cur ? { ...cur, cards: cur.cards.filter((c) => c.itemId !== itemId) } : cur,
-    );
-  }, []);
-
-  // Reorder board.cards to match orderedIds. Cards whose ids are not listed keep
-  // their relative order and are appended after the explicitly ordered ones.
-  const reorderCards = useCallback((orderedIds: string[]) => {
-    setBoard((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      const rank = new Map(orderedIds.map((id, i) => [id, i]));
-      const ranked = cur.cards
-        .filter((c) => rank.has(c.itemId))
-        .sort((a, b) => rank.get(a.itemId)! - rank.get(b.itemId)!);
-      const rest = cur.cards.filter((c) => !rank.has(c.itemId));
-      return { ...cur, cards: [...ranked, ...rest] };
-    });
-  }, []);
-
-  // Live updates: the server pushes resource events over an unscoped WebSocket
-  // watch (Kubernetes style). We LIST via loadBoard, then mirror the ADDED /
-  // MODIFIED / DELETED frames: Card frames upsert/remove by uid, Sprint frames
-  // update the team's pointer, Ordering frames re-sort the local cards. On a
-  // socket drop we re-LIST after reconnecting to reconcile anything missed.
-  // Refs keep the socket from being rebuilt on every board change.
-  const reloadRef = useRef(reload);
-  reloadRef.current = reload;
-  const boardRef = useRef(board);
-  boardRef.current = board;
-  const boardLoaded = board !== null;
-  const watchOwner = board?.owner;
-  const watchProject = board?.number;
-  useEffect(() => {
-    if (!boardLoaded || !watchOwner || watchProject == null) {
-      return;
-    }
-    let socket: WebSocket | null = null;
-    let closed = false;
-    let retry: number | undefined;
-    const applyFrame = (frame: WatchFrame) => {
-      // Sync marks a finished server-side reload; the diff already arrived as
-      // ordinary events, so there is nothing left to do here.
-      if (frame.kind === "Sync") {
-        return;
-      }
-      // The write-behind queue's depth: changes applied everywhere but not
-      // yet confirmed by GitHub.
-      if (frame.kind === "Queue") {
-        queuePendingSync((frame.object as { pending?: number })?.pending ?? 0);
-        return;
-      }
-      // A write GitHub finally rejected: the board has been rolled back to
-      // the server's reloaded state; surface what was lost.
-      if (frame.kind === "SyncError") {
-        const msg = (frame.object as { message?: string })?.message;
-        setError(msg || "a change could not be written to GitHub");
-        return;
-      }
-      if (!frame.object) {
-        return;
-      }
-      if (frame.kind === "Card") {
-        const card = resourceToCard(frame.object as CardResource);
-        if (frame.type === "DELETED") {
-          removeCard(card.itemId);
-          return;
-        }
-        // Note/event changes arrive as plain card changes, and the resource
-        // carries neither: refetch the log when this card's was already loaded.
-        const existing = boardRef.current?.cards.find(
-          (c) => c.itemId === card.itemId,
-        );
-        addCard(card);
-        if (existing?.notes !== undefined) {
-          void provider
-            .listLog({ owner: watchOwner, number: watchProject }, card.itemId)
-            .then(({ notes, events }) =>
-              // Merge, don't replace: the response may predate a local
-              // optimistic note added while it was in flight.
-              patchCard(card.itemId, (c) => ({
-                notes: mergeNotes(notes, c.notes),
-                events,
-              })),
-            )
-            .catch(() => {});
-        }
-        return;
-      }
-      if (frame.kind === "Sprint") {
-        const sprint = frame.object as SprintResource;
-        setBoard((cur) =>
-          cur
-            ? {
-                ...cur,
-                sprintStates: {
-                  ...cur.sprintStates,
-                  [sprint.metadata.team ?? ""]: sprintStateFrom(sprint),
-                },
-              }
-            : cur,
-        );
-        return;
-      }
-      if (frame.kind === "Ordering") {
-        reorderCards((frame.object as OrderingResource).spec.uids);
-        return;
-      }
-      if (frame.kind === "Presence") {
-        const { login, card } = frame.object as PresenceResource;
-        if (!login) {
-          return;
-        }
-        setPresenceMap((cur) => {
-          const next = { ...cur };
-          if (card) {
-            next[login] = card;
-          } else {
-            delete next[login];
-          }
-          return next;
-        });
-      }
-    };
-    const connect = () => {
-      // A fresh connection replays the presence and queue snapshots; drop
-      // stale marks (the queue may have drained while we were away).
-      setPresenceMap({});
-      queuePendingSync(0);
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // Scope the watch to the active view: Me watches its day selection, Team
-      // watches every card of the teams it shows (grid + weekly plan). A card
-      // entering the selection arrives as ADDED, one leaving as DELETED.
-      // ?client= keeps our own mutations from echoing back. Re-subscribes when
-      // watchKey changes (a dep below).
-      const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
-        watchOwner,
-      )}&project=${watchProject}&client=${clientId}&${watchKey}`;
-      socket = new WebSocket(url);
-      socket.addEventListener("message", (e) => {
-        let frame: WatchFrame;
-        try {
-          frame = JSON.parse(e.data as string) as WatchFrame;
-        } catch {
-          return;
-        }
-        applyFrame(frame);
-      });
-      socket.addEventListener("close", () => {
-        if (closed) {
-          return;
-        }
-        retry = window.setTimeout(() => {
-          reloadRef.current();
-          connect();
-        }, 3000);
-      });
-    };
-    connect();
-    return () => {
-      closed = true;
-      window.clearTimeout(retry);
-      socket?.close();
-    };
-  }, [
-    boardLoaded,
-    watchOwner,
-    watchProject,
-    watchKey,
-    provider,
-    addCard,
-    removeCard,
-    patchCard,
-    reorderCards,
-    queuePendingSync,
-  ]);
-
-  const onError = useCallback((message: string) => setError(message), []);
 
   // Rename a team everywhere: the roster, the filter, and every card using it.
   const renameTeam = useCallback(
@@ -795,7 +573,7 @@ export function App() {
       setTeamFilter((cur) =>
         cur === null ? cur : cur.map((k) => (k === from ? t : k)),
       );
-      setBoard((cur) => {
+      work.setBoard((cur) => {
         if (!cur) {
           return cur;
         }
@@ -804,7 +582,7 @@ export function App() {
             void provider
               .patchCard(cur, card.itemId, { team: t })
               .catch((err: unknown) => {
-                patchCard(card.itemId, { team: from });
+                workRef.current?.patchCard(card.itemId, { team: from });
                 setError(errMessage(err));
               });
           }
@@ -815,11 +593,27 @@ export function App() {
         };
       });
     },
-    [patchCard, provider],
+    [provider, work],
   );
 
   const showTokenWarning =
     config !== null && !config.tokenAvailable && !tokenWarningDismissed;
+
+  const pendingSync = work.pendingSync + personal.pendingSync;
+
+  // The personal side renders only for the owner themselves: never while
+  // impersonating (another person's personal board is not ours to show), and
+  // only once its board actually loaded.
+  const personalReady = !viewAs && personalPtr !== null && personalBoard !== null;
+  const personalTeamActive = view === "team" && personalTeam && personalReady;
+
+  const detailData = detail
+    ? detail.src === "personal" && personalBoard
+      ? { board: personalBoard, api: personal }
+      : board
+        ? { board, api: work }
+        : null
+    : null;
 
   // OAuth mode: gate the whole UI behind a GitHub sign-in.
   if (config && config.mode === "oauth" && !config.authenticated) {
@@ -897,6 +691,20 @@ export function App() {
         </div>
       )}
 
+      {personalError && (
+        <div className="banner banner-warning" role="alert">
+          <span>{personalError}</span>
+          <button
+            type="button"
+            className="banner-close"
+            onClick={() => setPersonalError(null)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <div className="toolbar">
         {!config?.lockBoard && (
           <>
@@ -956,6 +764,20 @@ export function App() {
             {pendingSync}
           </span>
         )}
+        {login !== "" && (
+          <button
+            type="button"
+            className={`btn personal-btn${personalPtr ? " personal-btn-attached" : ""}`}
+            onClick={() => setPersonalOpen(true)}
+            title={
+              personalPtr
+                ? `Personal board: ${personalPtr.owner}/${personalPtr.number}`
+                : "Attach a personal board (visible only to you)"
+            }
+          >
+            Personal{personalPtr ? "" : "…"}
+          </button>
+        )}
         <div className="segmented" role="tablist" aria-label="View">
           <button
             type="button"
@@ -989,39 +811,103 @@ export function App() {
           </p>
         )}
         {board && view === "me" && (
-          <MeBoard
-            board={board}
-            selectedDate={selectedDate}
-            onSelectDate={setSelectedDate}
-            viewAs={viewAs}
-            onViewAs={setViewAsPersisted}
-            provider={provider}
-            me={config?.login ?? ""}
-            users={users}
-            teams={roster}
-            teamFilter={teamFilter}
-            onSetFilter={setTeamFilter}
-            onAddTeam={addTeam}
-            onRemoveTeam={removeTeam}
-            onRenameTeam={renameTeam}
-            patchCard={patchCard}
-            addCard={addCard}
-            replaceCard={replaceCard}
-            removeCard={removeCard}
-            reorderCards={reorderCards}
-            reload={reload}
-            onError={onError}
-            onOpen={(c) => setDetailCard(c)}
-            onPresence={(card) => {
-              if (board && config?.login) {
-                void provider
-                  .setPresence(board, config.login, card)
-                  .catch(() => {});
-              }
-            }}
-          />
+          <div
+            className={`me-split${personalReady ? " me-split-dual" : ""}${
+              mePane === "personal" ? " me-split-personal" : ""
+            }`}
+          >
+            {personalReady && (
+              <div className="pane-switch" role="tablist" aria-label="Board pane">
+                <button
+                  type="button"
+                  className="day-arrow"
+                  onClick={() => setMePane("work")}
+                  disabled={mePane === "work"}
+                  aria-label="Show work tasks"
+                >
+                  ‹
+                </button>
+                <span className="pane-switch-title">
+                  {mePane === "work" ? "Work" : "Personal"}
+                </span>
+                <button
+                  type="button"
+                  className="day-arrow"
+                  onClick={() => setMePane("personal")}
+                  disabled={mePane === "personal"}
+                  aria-label="Show personal tasks"
+                >
+                  ›
+                </button>
+              </div>
+            )}
+            <div className="me-pane me-pane-work">
+              {personalReady && <div className="pane-title">Work</div>}
+              <MeBoard
+                board={board}
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                viewAs={viewAs}
+                onViewAs={setViewAsPersisted}
+                provider={provider}
+                me={config?.login ?? ""}
+                users={users}
+                teams={roster}
+                teamFilter={teamFilter}
+                onSetFilter={setTeamFilter}
+                onAddTeam={addTeam}
+                onRemoveTeam={removeTeam}
+                onRenameTeam={renameTeam}
+                patchCard={work.patchCard}
+                addCard={work.addCard}
+                replaceCard={work.replaceCard}
+                removeCard={work.removeCard}
+                reorderCards={work.reorderCards}
+                reload={work.reload}
+                onError={onError}
+                onOpen={(c) => setDetail({ card: c, src: "work" })}
+                onPresence={(card) => {
+                  if (board && config?.login) {
+                    void provider
+                      .setPresence(board, config.login, card)
+                      .catch(() => {});
+                  }
+                }}
+              />
+            </div>
+            {personalReady && personalBoard && (
+              <div className="me-pane me-pane-personal">
+                <div className="pane-title">Personal</div>
+                <MeBoard
+                  board={personalBoard}
+                  selectedDate={selectedDate}
+                  onSelectDate={setSelectedDate}
+                  viewAs={null}
+                  onViewAs={() => {}}
+                  provider={provider}
+                  me={config?.login ?? ""}
+                  users={users}
+                  teams={[]}
+                  teamFilter={null}
+                  onSetFilter={() => {}}
+                  onAddTeam={() => {}}
+                  onRemoveTeam={() => {}}
+                  onRenameTeam={() => {}}
+                  patchCard={personal.patchCard}
+                  addCard={personal.addCard}
+                  replaceCard={personal.replaceCard}
+                  removeCard={personal.removeCard}
+                  reorderCards={personal.reorderCards}
+                  reload={personal.reload}
+                  onError={onPersonalError}
+                  onOpen={(c) => setDetail({ card: c, src: "personal" })}
+                  embedded
+                />
+              </div>
+            )}
+          </div>
         )}
-        {board && view === "team" && (
+        {board && view === "team" && !personalTeamActive && (
           <TeamBoard
             board={board}
             selectedDate={selectedDate}
@@ -1036,31 +922,83 @@ export function App() {
             onRemoveTeam={removeTeam}
             onRenameTeam={renameTeam}
             onReorderTeams={reorderTeams}
-            patchCard={patchCard}
-            addCard={addCard}
-            replaceCard={replaceCard}
-            removeCard={removeCard}
-            reorderCards={reorderCards}
-            presence={presence}
-            reload={reload}
+            patchCard={work.patchCard}
+            addCard={work.addCard}
+            replaceCard={work.replaceCard}
+            removeCard={work.removeCard}
+            reorderCards={work.reorderCards}
+            presence={work.presence}
+            reload={work.reload}
             track={trackLoad}
             onError={onError}
-            onOpen={(c) => setDetailCard(c)}
+            onOpen={(c) => setDetail({ card: c, src: "work" })}
+            personalChip={
+              personalReady
+                ? {
+                    active: false,
+                    onToggle: () => setPersonalTeamPersisted(true),
+                  }
+                : null
+            }
+          />
+        )}
+        {view === "team" && personalTeamActive && personalBoard && (
+          <TeamBoard
+            board={personalBoard}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            provider={provider}
+            me={config?.login ?? ""}
+            users={users}
+            roster={[]}
+            teamFilter={[""]}
+            onSetFilter={() => {}}
+            onAddTeam={() => {}}
+            onRemoveTeam={() => {}}
+            onRenameTeam={() => {}}
+            onReorderTeams={() => {}}
+            patchCard={personal.patchCard}
+            addCard={personal.addCard}
+            replaceCard={personal.replaceCard}
+            removeCard={personal.removeCard}
+            reorderCards={personal.reorderCards}
+            presence={personal.presence}
+            reload={personal.reload}
+            track={trackLoad}
+            onError={onPersonalError}
+            onOpen={(c) => setDetail({ card: c, src: "personal" })}
+            personalChip={{
+              active: true,
+              onToggle: () => setPersonalTeamPersisted(false),
+            }}
           />
         )}
       </main>
 
-      {board && detailCard && (
+      {detailData && detail && (
         <CardDetail
-          card={board.cards.find((c) => c.itemId === detailCard.itemId) ?? detailCard}
-          board={board}
+          card={
+            detailData.board.cards.find((c) => c.itemId === detail.card.itemId) ??
+            detail.card
+          }
+          board={detailData.board}
           provider={provider}
-          onClose={() => setDetailCard(null)}
-          reload={reload}
-          patchCard={patchCard}
+          onClose={() => setDetail(null)}
+          reload={detailData.api.reload}
+          patchCard={detailData.api.patchCard}
         />
       )}
 
+      {personalOpen && login && (
+        <PersonalDialog
+          login={login}
+          current={personalPtr}
+          workBoard={board ? { owner: board.owner, number: board.number } : null}
+          onAttach={attachPersonal}
+          onDetach={detachPersonal}
+          onClose={() => setPersonalOpen(false)}
+        />
+      )}
     </div>
   );
 }

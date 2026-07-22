@@ -66,6 +66,9 @@ interface TeamBoardProps {
   reload: () => void;
   /** Wraps a slow server call so the App's progress bar shows while it runs. */
   track: <T>(p: Promise<T>) => Promise<T>;
+  /** The owner-only virtual "Personal" chip: null hides it; active means this
+   *  TeamBoard instance is already pointed at the personal board. */
+  personalChip?: { active: boolean; onToggle: () => void } | null;
   /** Other users' live selections (login -> card uid) shown as avatars. */
   presence?: Record<string, string>;
   onError: (message: string) => void;
@@ -116,6 +119,7 @@ export function TeamBoard({
   reorderCards,
   reload,
   track,
+  personalChip,
   presence,
   onError,
   onOpen,
@@ -2077,9 +2081,14 @@ export function TeamBoard({
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
-          noTeamChip={board.cards.some((c) => !c.team)}
+          noTeamChip={!personalChip?.active && board.cards.some((c) => !c.team)}
           canManage={false}
-          onManage={() => setTeamsModalOpen(true)}
+          onManage={personalChip?.active ? undefined : () => setTeamsModalOpen(true)}
+          extraChip={
+            personalChip
+              ? { label: "Personal", active: personalChip.active, onToggle: personalChip.onToggle }
+              : null
+          }
         />
 
         <button
