@@ -170,3 +170,19 @@ plan progress (V2). Each is pinned by the 🆕 tests above.
 | R7 | Re-review pulls the review card into the original's current sprint and onto today (reappears in the new sprint) and bumps the round | boardservice.reactivateReviewCard | ✅ TestReReviewRelocatesToNewSprintWithCounter |
 | V1 | The Team board loads its day grid PLUS the weekly plan of the shown teams (view=weekly accepts a comma set); the plan panel renders from the same card set | apiserver weekly multi-team + App dual fetch | ✅ TestWeeklyViewMultiTeam / viewquery.test |
 | V2 | GET /board carries the people roster (members: every distinct assignee), so assign/review/view-as pickers work with per-view card loading; Me view-as sends the impersonated user explicitly | apiserver BoardResource + App viewAs | ✅ TestBoardResourceMembers / viewquery.test |
+
+## Personal board (docs/design/personal-board.md)
+
+| # | Rule | Where | Test |
+|---|------|-------|------|
+| P1 | A personal pointer is per login; another login on the same browser sees no personal pane, chip or pointer | `web/src/personal.ts` | ✅ `personal.test.ts` "round-trips per login" |
+| P2 | Everything personal (pane, chip, load) is gated on: not lock-board, not impersonating, pointer attached, board loaded | `personalPaneVisible`, `App.tsx` (`personalReady`) | ✅ `personal.test.ts` "personalPaneVisible" |
+| P2a | Lock-board mode disables the personal board entirely — the server would pin the request to the work project and personal cards would land on the shared board | `personalPaneVisible`, `App.tsx` (load gate + hidden button) | ✅ `personal.test.ts` "never in lock-board mode" |
+| P3 | A personal-board load failure surfaces as a dismissible warning and never blanks or errors the work board | `App.tsx` (`personalError`) | manual (App wiring; no component harness in repo) |
+| P4 | The virtual Personal chip appears only for the owner with a loaded personal board; it cannot be renamed, removed, multi-selected or written to a card | `TeamChips.tsx` (`extraChip`), `TeamBoard.tsx` | manual (render-only chip, no handlers to misfire) |
+| P5 | Team view in personal mode pins the filter to the no-team group: sprints, carry-over and the weekly plan run against the personal project's own state | `App.tsx` (personal `TeamBoard` props) | covered by existing TeamBoard behaviour over `sprintStates[""]` |
+| P6 | The same project can never be both boards: the dialog refuses attaching the work board, and loading the personal project as work detaches the pointer with a warning | `PersonalDialog.tsx`, `App.tsx` `doLoad` | ✅ `personal.test.ts` "samePointer" |
+| P7 | Narrow Me view (≤820px) shows one pane; ‹ › switch Work ↔ Personal via `prevPane`/`nextPane` and clamp at the edges | `styles.css` `.me-split`, `App.tsx` arrows | ✅ `personal.test.ts` "arrows clamp" |
+| P8 | Card detail, notes and log calls of a personal card go to the personal project; a personal detail never falls back to the work board | `App.tsx` (`detailData`), `useBoardData.ts` | manual (App wiring) |
+| P9 | One keyboard owner per view: the embedded pane never binds global keys, and a pane hidden by the narrow switcher ignores them — Shift+Arrow can never reorder two projects at once | `MeBoard.tsx` (embedded + offsetParent guards) | verified live (ArrowDown selects in work pane only) |
+| P10 | A load superseded by reset() or a newer load() never lands: detach or repoint while a slow load is in flight cannot resurrect a stale board or its watch socket | `useBoardData.ts` (`loadGen`) | manual (race; guarded by generation counter) |

@@ -66,6 +66,9 @@ interface TeamBoardProps {
   reload: () => void;
   /** Wraps a slow server call so the App's progress bar shows while it runs. */
   track: <T>(p: Promise<T>) => Promise<T>;
+  /** The owner-only virtual "Personal" chip: null hides it; active means this
+   *  TeamBoard instance is already pointed at the personal board. */
+  personalChip?: { active: boolean; onToggle: () => void } | null;
   /** Other users' live selections (login -> card uid) shown as avatars. */
   presence?: Record<string, string>;
   onError: (message: string) => void;
@@ -116,6 +119,7 @@ export function TeamBoard({
   reorderCards,
   reload,
   track,
+  personalChip,
   presence,
   onError,
   onOpen,
@@ -140,9 +144,16 @@ export function TeamBoard({
     team: string | null;
     sprint: string;
   } | null>(null);
+  // The hand-picked column order is BOARD-scoped: with the personal board a
+  // second TeamBoard instance is a normal scenario, and a shuffle there must
+  // not overwrite the work board's order. The pre-scoping global key is read
+  // once as a fallback so existing users keep their arrangement.
+  const columnOrderKey = `aeman.columnOrder.${board.owner}/${board.number}`;
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     try {
-      const v = localStorage.getItem("aeman.columnOrder");
+      const v =
+        localStorage.getItem(columnOrderKey) ??
+        localStorage.getItem("aeman.columnOrder");
       return v ? (JSON.parse(v) as string[]) : [];
     } catch {
       return [];
@@ -190,8 +201,8 @@ export function TeamBoard({
 
   // Remember the hand-picked order of the people columns in the browser.
   useEffect(() => {
-    localStorage.setItem("aeman.columnOrder", JSON.stringify(columnOrder));
-  }, [columnOrder]);
+    localStorage.setItem(columnOrderKey, JSON.stringify(columnOrder));
+  }, [columnOrderKey, columnOrder]);
 
   useEffect(() => {
     if (!sprintMenuOpen) {
@@ -2077,9 +2088,14 @@ export function TeamBoard({
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
-          noTeamChip={board.cards.some((c) => !c.team)}
+          noTeamChip={!personalChip?.active && board.cards.some((c) => !c.team)}
           canManage={false}
-          onManage={() => setTeamsModalOpen(true)}
+          onManage={personalChip?.active ? undefined : () => setTeamsModalOpen(true)}
+          extraChip={
+            personalChip
+              ? { label: "Personal", active: personalChip.active, onToggle: personalChip.onToggle }
+              : null
+          }
         />
 
         <button

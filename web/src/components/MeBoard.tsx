@@ -72,6 +72,11 @@ interface MeBoardProps {
   onOpen: (card: CardModel) => void;
   /** Share the live selection with other boards ("" clears on deselect). */
   onPresence?: (card: string | null) => void;
+  /** Embedded pane mode (the personal pane beside the work board): no
+   *  toolbar (day nav / chips / view-as are owned by the work pane), no
+   *  notes panel (per-card logs stay reachable through the card detail),
+   *  no MCP link. Only the zone bands, the progress bar and the stats. */
+  embedded?: boolean;
 }
 
 /** Per-group metadata for the Me board: just the destination zone. */
@@ -130,8 +135,13 @@ export function MeBoard({
   onError,
   onOpen,
   onPresence,
+  embedded = false,
 }: MeBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // Root element, used by the global key handlers to check visibility: on
+  // narrow screens the pane switcher hides one pane with display:none, and a
+  // hidden board must not react to (or preventDefault) the keyboard.
+  const rootRef = useRef<HTMLDivElement | null>(null);
   // Broadcast the selection as shared presence: teammates' Team boards
   // highlight this card with our avatar. Cleared on deselect and unmount.
   useEffect(() => {
@@ -457,6 +467,11 @@ export function MeBoard({
   // clears them, so they refetch. A failed request stays marked, not retried.
   const notesRequested = useRef<Set<string>>(new Set());
   useEffect(() => {
+    if (embedded) {
+      // No notes panel in the embedded pane — don't spend a log fetch per
+      // card; the card detail loads its own log on demand.
+      return;
+    }
     for (const c of notesCards) {
       if (
         c.notes !== undefined ||
@@ -474,7 +489,7 @@ export function MeBoard({
         })
         .catch(() => {});
     }
-  }, [notesCards, board, provider, patchCard]);
+  }, [embedded, notesCards, board, provider, patchCard]);
 
 
   const subsOpen = (id: string) => expandedSubs.has(id);
@@ -564,8 +579,19 @@ export function MeBoard({
   );
 
   // Space expands/collapses the selected card's subtask list.
+  // Global key handlers are the WORK pane's: with two MeBoards mounted, both
+  // binding window keys would drive selection — and Shift+Arrow reorders! —
+  // on BOTH projects at once. The embedded (personal) pane is mouse/touch
+  // only; the work pane additionally ignores keys while hidden by the
+  // narrow-mode pane switcher.
   useEffect(() => {
+    if (embedded) {
+      return;
+    }
     const onKey = (e: KeyboardEvent) => {
+      if (rootRef.current?.offsetParent === null) {
+        return; // pane is display:none (narrow mode, other pane active)
+      }
       if (e.key !== " " || !selectedCardId) {
         return;
       }
@@ -582,7 +608,7 @@ export function MeBoard({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCardId, childrenOf]);
+  }, [embedded, selectedCardId, childrenOf]);
 
   // Group a dropped card as a subtask; the server enforces depth and moves a
   // weekly card's plan slot onto the parent (which replaces it in the plan).
@@ -1065,7 +1091,13 @@ export function MeBoard({
   // deselects. Ignored while typing in an input.
   const flatCards = useMemo(() => groups.flatMap((g) => g.cards), [groups]);
   useEffect(() => {
+    if (embedded) {
+      return; // see the Space handler above: one keyboard owner per view
+    }
     const onKey = (e: KeyboardEvent) => {
+      if (rootRef.current?.offsetParent === null) {
+        return;
+      }
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -1126,7 +1158,7 @@ export function MeBoard({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
+  }, [embedded, flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
 
   const handleDrop = ({ card, toMeta, groups: g, groupUnder }: DropResult<MeMeta>) => {
     // The board committed exactly what the placeholder previewed: groupUnder
@@ -1407,7 +1439,8 @@ export function MeBoard({
   };
 
   return (
-    <div className="me">
+    <div ref={rootRef} className={`me${embedded ? " me-embedded" : ""}`}>
+      {!embedded && (
       <div className="board-toolbar">
         <div className="field field-inline">
           <span>Day</span>
@@ -1526,6 +1559,7 @@ export function MeBoard({
           </Dropdown>
         </div>
       </div>
+      )}
 
       <div className="me-panes">
         <div className="me-left">
@@ -1589,6 +1623,7 @@ export function MeBoard({
           </div>
         </div>
 
+        {!embedded && (
         <NotesPanel
           selectedDate={selectedDate}
           notes={dayNotes}
@@ -1603,6 +1638,7 @@ export function MeBoard({
           collapsed={notesCollapsed}
           onToggleCollapse={toggleNotesCollapsed}
         />
+        )}
       </div>
       <div className="me-day-progress" title={`${dayProgress}% done today`}>
         <div
@@ -1626,15 +1662,17 @@ export function MeBoard({
         <span className="me-day-stat">
           nice to have: {dayStats.green.done}/{dayStats.green.total}
         </span>
-        <button
-          type="button"
-          className="connect-link"
-          onClick={() => setConnectOpen(true)}
-        >
-          MCP / API
-        </button>
+        {!embedded && (
+          <button
+            type="button"
+            className="connect-link"
+            onClick={() => setConnectOpen(true)}
+          >
+            MCP / API
+          </button>
+        )}
       </div>
-      {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} />}
+      {connectOpen && !embedded && <ConnectDialog onClose={() => setConnectOpen(false)} />}
     </div>
   );
 }

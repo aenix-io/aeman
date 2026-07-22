@@ -3090,3 +3090,103 @@ button.card-age {
   left: auto;
   right: 100%;
 }
+
+/* ------------------------------------------------------------------ personal */
+/* The Me view splits into two panes when a personal board is attached: Work
+   (the full MeBoard with toolbar and notes) and Personal (an embedded MeBoard:
+   zone bands + stats only). Wide screens show them side by side; narrow ones
+   show one at a time with the ‹ › switcher. */
+.me-split {
+  display: flex;
+  flex-direction: column;
+}
+.me-split-dual {
+  flex-direction: row;
+  gap: 16px;
+  align-items: flex-start;
+}
+.me-split-dual .me-pane {
+  min-width: 0;
+}
+.me-split-dual .me-pane-work {
+  flex: 3;
+}
+.me-split-dual .me-pane-personal {
+  flex: 2;
+}
+.pane-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #888);
+  margin: 0 0 6px 2px;
+}
+/* The embedded pane starts level with the work pane's zone bands, not its
+   toolbar — the title compensates for the missing toolbar row on wide
+   screens (visually aligned by flex-start + its own title). */
+.me-embedded .me-panes {
+  margin-top: 0;
+}
+.pane-switch {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.pane-switch-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  min-width: 5.5em;
+  text-align: center;
+}
+.team-chip-personal .team-chip-name::before {
+  content: "🔒 ";
+  font-size: 0.85em;
+}
+.personal-btn-attached {
+  border-color: var(--accent, #6a5acd);
+}
+.personal-modal .personal-cmd {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--code-bg, rgba(127, 127, 127, 0.12));
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+.personal-modal .personal-hint {
+  margin-top: 0;
+}
+.personal-modal .personal-problem {
+  color: var(--danger, #c0392b);
+  margin: 6px 0 0;
+}
+.personal-modal .personal-detach {
+  margin-right: auto;
+}
+
+/* Narrow screens: one pane at a time, switched by the ‹ › bar. The breakpoint
+   matches .me-panes' own stacking point. */
+@media (max-width: 820px) {
+  .me-split-dual {
+    flex-direction: column;
+  }
+  .me-split-dual .pane-switch {
+    display: flex;
+  }
+  .me-split-dual .pane-title {
+    display: none;
+  }
+  .me-split-dual .me-pane-personal {
+    display: none;
+  }
+  .me-split-dual.me-split-personal .me-pane-personal {
+    display: block;
+  }
+  .me-split-dual.me-split-personal .me-pane-work {
+    display: none;
+  }
+}
