@@ -124,6 +124,22 @@ describe("white label on solid accent/danger fills", () => {
   }
 });
 
+// A finished bar must be tellable from an in-progress one in every cell: the
+// palettes separate the pair by luminance within one hue family (the channel
+// that survives every CVD axis), so hold them to a minimum contrast between
+// each other AND keep the deeper done fill visible on the card background.
+describe("done vs in-progress bar separation", () => {
+  for (const [name, sels] of Object.entries(cell)) {
+    it(`${name}: --stage-done and --bar-default stay distinct`, () => {
+      const done = resolve("--stage-done", sels);
+      const bar = resolve("--bar-default", sels);
+      expect(done).not.toBe(bar);
+      expect(contrast(done, bar)).toBeGreaterThanOrEqual(1.5);
+      expect(contrast(done, resolve("--bg", sels))).toBeGreaterThanOrEqual(3.0);
+    });
+  }
+});
+
 // The spine label is the only text that sits on a zone fill; in the CVD palettes
 // and dark mode it is painted --fg, and must stay readable on every zone.
 describe("zone spine contrast where the spine is --fg", () => {
