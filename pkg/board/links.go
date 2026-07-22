@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -40,32 +41,123 @@ func (l Link) FallbackTitle() string {
 
 var urlPattern = regexp.MustCompile(`https?://[^\s<>"'\)\]]+`)
 
-// ExtractLinks finds every URL in a free-form description, classifies GitHub
-// issue/PR links, dedupes, and orders the result the way the UI lists it:
-// GitHub references first (in order of appearance), plain links after.
+// shorthandPattern is the GitHub cross-reference shorthand: owner/repo#123.
+// Boundaries are validated separately (shorthandBounded) — RE2 has no
+// lookbehind, and "a/b/c#1" or a URL tail must not produce a phantom ref.
+var shorthandPattern = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.\-]+#[0-9]+`)
+
+// ExtractLinks finds every link in a free-form description — full URLs and
+// GitHub owner/repo#number shorthands — classifies GitHub issue/PR references,
+// dedupes (a shorthand and a full URL of the same item are one link), and
+// orders the result the way the UI lists it: GitHub references first (in
+// order of appearance), plain links after.
 func ExtractLinks(description string) []Link {
-	var refs, plain []Link
-	seen := map[string]bool{}
-	for _, raw := range urlPattern.FindAllString(description, -1) {
-		u := strings.TrimRight(raw, ".,;:!?")
-		if seen[u] {
+	type match struct {
+		pos  int
+		link Link
+	}
+	var matches []match
+	urlSpans := urlPattern.FindAllStringIndex(description, -1)
+	for _, sp := range urlSpans {
+		raw := strings.TrimRight(description[sp[0]:sp[1]], ".,;:!?")
+		matches = append(matches, match{sp[0], classifyLink(raw)})
+	}
+	inURL := func(i int) bool {
+		for _, sp := range urlSpans {
+			if i >= sp[0] && i < sp[1] {
+				return true
+			}
+		}
+		return false
+	}
+	for _, sp := range shorthandPattern.FindAllStringIndex(description, -1) {
+		if inURL(sp[0]) || !shorthandBounded(description, sp[0], sp[1]) {
 			continue
 		}
-		seen[u] = true
-		link := classifyLink(u)
-		if link.IsGitHubRef() {
-			refs = append(refs, link)
+		if link, ok := classifyShorthand(description[sp[0]:sp[1]]); ok {
+			matches = append(matches, match{sp[0], link})
+		}
+	}
+	sort.SliceStable(matches, func(i, j int) bool { return matches[i].pos < matches[j].pos })
+	var refs, plain []Link
+	seen := map[string]bool{}
+	for _, m := range matches {
+		key := m.link.URL
+		if m.link.IsGitHubRef() {
+			// A shorthand and a full URL of the same item must collapse into
+			// one entry, whatever their URL spelling (/issues/ vs /pull/).
+			key = fmt.Sprintf("%s/%s#%d", m.link.Owner, m.link.Repo, m.link.Number)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if m.link.IsGitHubRef() {
+			refs = append(refs, m.link)
 		} else {
-			plain = append(plain, link)
+			plain = append(plain, m.link)
 		}
 	}
 	return append(refs, plain...)
 }
 
-// ParseGitHubRef parses a GitHub issue/PR URL. ok is false for anything else.
+// shorthandBounded checks a shorthand match stands on its own: not glued to a
+// preceding path/word (a/b/c#1, user@repo/x#2) and not running into trailing
+// word characters (#1465abc).
+func shorthandBounded(s string, start, end int) bool {
+	if start > 0 {
+		switch prev := s[start-1]; {
+		case prev == '/' || prev == '.' || prev == '-' || prev == '_' || prev == '#' || prev == '@':
+			return false
+		case prev >= 'a' && prev <= 'z', prev >= 'A' && prev <= 'Z', prev >= '0' && prev <= '9':
+			return false
+		}
+	}
+	if end < len(s) {
+		switch next := s[end]; {
+		case next == '_':
+			return false
+		case next >= 'a' && next <= 'z', next >= 'A' && next <= 'Z', next >= '0' && next <= '9':
+			return false
+		}
+	}
+	return true
+}
+
+// classifyShorthand parses owner/repo#number into an addressable GitHub ref.
+// The kind starts as "issue" — the live resolver corrects it to "pull" when
+// the number turns out to be a pull request (GitHub redirects either URL).
+func classifyShorthand(raw string) (Link, bool) {
+	slash := strings.IndexByte(raw, '/')
+	hash := strings.IndexByte(raw, '#')
+	if slash <= 0 || hash <= slash+1 {
+		return Link{}, false
+	}
+	n, err := strconv.Atoi(raw[hash+1:])
+	if err != nil || n <= 0 {
+		return Link{}, false
+	}
+	owner, repo := raw[:slash], raw[slash+1:hash]
+	return Link{
+		URL:    fmt.Sprintf("https://github.com/%s/%s/issues/%d", owner, repo, n),
+		Kind:   "issue",
+		Owner:  owner,
+		Repo:   repo,
+		Number: n,
+	}, true
+}
+
+// ParseGitHubRef parses a GitHub issue/PR reference — a full URL or the
+// owner/repo#number shorthand. ok is false for anything else.
 func ParseGitHubRef(raw string) (link Link, ok bool) {
 	link = classifyLink(raw)
-	return link, link.IsGitHubRef()
+	if link.IsGitHubRef() {
+		return link, true
+	}
+	if sp := shorthandPattern.FindStringIndex(raw); sp != nil && sp[0] == 0 && sp[1] == len(raw) {
+		return classifyShorthand(raw)
+	}
+	return link, false
 }
 
 // classifyLink recognises github.com/{owner}/{repo}/issues|pull/{n} (an
