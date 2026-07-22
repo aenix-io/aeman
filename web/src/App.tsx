@@ -375,19 +375,30 @@ export function App() {
   const personalLoad = personal.load;
   const personalReset = personal.reset;
   useEffect(() => {
+    // Reset FIRST, on every pointer change — not only on detach. Without this
+    // a failed load of a NEW pointer leaves the PREVIOUS board's state alive:
+    // the pane keeps rendering (and mutating!) the old project while the
+    // toolbar already names the new one. Found by live testing (attach #1,
+    // repoint to a nonexistent #99: the #1 pane survived the failure).
+    personalReset();
     if (!personalAddr || !login || config?.lockBoard) {
-      personalReset();
       return;
     }
     const [pOwner, pNumber] = [
       personalAddr.slice(0, personalAddr.lastIndexOf("/")),
       Number(personalAddr.slice(personalAddr.lastIndexOf("/") + 1)),
     ];
+    let cancelled = false;
     personalLoad(pOwner, pNumber).catch((err: unknown) => {
-      setPersonalError(
-        `personal board: ${errMessage(err)} — the work board is unaffected`,
-      );
+      if (!cancelled) {
+        setPersonalError(
+          `personal board: ${errMessage(err)} — the work board is unaffected`,
+        );
+      }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [personalAddr, login, config?.lockBoard, personalLoad, personalReset]);
 
   const roster = useMemo(() => {
