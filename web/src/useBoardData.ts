@@ -213,8 +213,16 @@ export function useBoardData({
   const queriesRef = useRef(queries);
   queriesRef.current = queries;
 
+  // Load generation: every load() supersedes the previous one, and reset()
+  // supersedes them all. Without this a SLOW load that resolves after a
+  // reset (personal board detached) or after a newer load (pointer repointed
+  // A→B with A's response arriving last) would setBoard the stale result —
+  // resurrecting a board the UI no longer points at, socket and all.
+  const loadGen = useRef(0);
+
   const load = useCallback(
     async (owner: string, number: number) => {
+      const gen = ++loadGen.current;
       beginLoad();
       try {
         // Identity + sprints AND the active view's cards together, swapped in
@@ -225,7 +233,9 @@ export function useBoardData({
           provider.loadBoard(owner, number),
           Promise.all(queriesRef.current.map((q) => provider.listCards(addr, q))),
         ]);
-        setBoard({ ...loaded, cards: mergeCardLists(lists) });
+        if (loadGen.current === gen) {
+          setBoard({ ...loaded, cards: mergeCardLists(lists) });
+        }
       } finally {
         endLoad();
       }
@@ -245,6 +255,7 @@ export function useBoardData({
   }, [load, onError]);
 
   const reset = useCallback(() => {
+    loadGen.current++; // orphan any in-flight load's eventual result
     setBoard(null);
     setPresenceMap({});
     // Kill any in-flight queue-badge debounce too: a detach with writes still
