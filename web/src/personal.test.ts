@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clearPersonalBoard,
   nextPane,
+  personalPaneVisible,
   prevPane,
   readPersonalBoard,
   samePointer,
@@ -82,5 +83,32 @@ describe("pane switcher", () => {
     expect(nextPane("personal")).toBe("personal");
     expect(prevPane("personal")).toBe("work");
     expect(prevPane("work")).toBe("work");
+  });
+});
+
+describe("personalPaneVisible (the single gate)", () => {
+  const ptr = { owner: "alice", number: 3 };
+  it("visible only for the owner with a loaded board", () => {
+    expect(
+      personalPaneVisible({ lockBoard: false, viewAs: null, pointer: ptr, boardLoaded: true }),
+    ).toBe(true);
+  });
+  it("never while impersonating", () => {
+    expect(
+      personalPaneVisible({ lockBoard: false, viewAs: "bob", pointer: ptr, boardLoaded: true }),
+    ).toBe(false);
+  });
+  it("never in lock-board mode — the server would pin the request to the work project", () => {
+    expect(
+      personalPaneVisible({ lockBoard: true, viewAs: null, pointer: ptr, boardLoaded: true }),
+    ).toBe(false);
+  });
+  it("not before the board loads, not without a pointer", () => {
+    expect(
+      personalPaneVisible({ lockBoard: false, viewAs: null, pointer: ptr, boardLoaded: false }),
+    ).toBe(false);
+    expect(
+      personalPaneVisible({ lockBoard: false, viewAs: null, pointer: null, boardLoaded: true }),
+    ).toBe(false);
   });
 });

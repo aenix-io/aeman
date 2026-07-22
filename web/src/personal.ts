@@ -82,6 +82,23 @@ export function samePointer(
   );
 }
 
+// personalPaneVisible is the single gate for everything personal in the UI
+// (the Me pane, the virtual Team chip): only for the owner themselves (never
+// while impersonating), only when a pointer is attached, only when the board
+// actually loaded — and never in lock-board mode, where the server pins every
+// request to the locked project and would silently serve the WORK board in
+// the personal slot (see docs/design/personal-board.md, "lock-board mode").
+export function personalPaneVisible(args: {
+  lockBoard: boolean;
+  viewAs: string | null;
+  pointer: PersonalPointer | null;
+  boardLoaded: boolean;
+}): boolean {
+  return (
+    !args.lockBoard && !args.viewAs && args.pointer !== null && args.boardLoaded
+  );
+}
+
 // nextPane / prevPane implement the narrow-screen ‹ › switcher: two panes,
 // arrows clamp at the edges (no wrap — matching the day-nav arrows' feel of
 // a bounded strip rather than a carousel).

@@ -15,7 +15,11 @@ import { applyAppearance, persistAppearance, readAppearance, type Appearance } f
 import { useBoardData } from "./useBoardData";
 import {
   clearPersonalBoard,
+  nextPane,
+  personalPaneVisible,
+  prevPane,
   readPersonalBoard,
+  samePointer,
   savePersonalBoard,
   type MePane,
   type PersonalPointer,
@@ -219,6 +223,9 @@ export function App() {
     setPersonalTeamPersisted(false);
     setMePane("work");
     setPersonalError(null);
+    // An open personal card detail must not outlive its board (its mutations
+    // would have nowhere correct to go).
+    setDetail((cur) => (cur?.src === "personal" ? null : cur));
   }, [login, setPersonalTeamPersisted]);
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
@@ -368,7 +375,7 @@ export function App() {
   const personalLoad = personal.load;
   const personalReset = personal.reset;
   useEffect(() => {
-    if (!personalAddr || !login) {
+    if (!personalAddr || !login || config?.lockBoard) {
       personalReset();
       return;
     }
@@ -381,7 +388,7 @@ export function App() {
         `personal board: ${errMessage(err)} — the work board is unaffected`,
       );
     });
-  }, [personalAddr, login, personalLoad, personalReset]);
+  }, [personalAddr, login, config?.lockBoard, personalLoad, personalReset]);
 
   const roster = useMemo(() => {
     const seen = new Set<string>();
@@ -496,6 +503,25 @@ export function App() {
         setAddedTeams(readRosterFor(boardKey));
         setTeamFilter(readFilterFor(boardKey));
       }
+      // The same project must never be both boards at once (two instances on
+      // one project double every card and cross-route mutations). The dialog
+      // refuses the work board; this covers the other direction — loading the
+      // personal project AS the work board detaches the pointer, loudly.
+      setPersonalPtr((ptr) => {
+        if (ptr && samePointer(ptr, { owner: ownerArg, number: numberArg })) {
+          if (login) {
+            clearPersonalBoard(localStorage, login);
+          }
+          setPersonalTeamPersisted(false);
+          setMePane("work");
+          setDetail((cur) => (cur?.src === "personal" ? null : cur));
+          setPersonalError(
+            "The personal board was detached: you loaded the same project as the work board.",
+          );
+          return null;
+        }
+        return ptr;
+      });
       setError(null);
       try {
         await work.load(ownerArg, numberArg);
@@ -596,20 +622,38 @@ export function App() {
     [provider, work],
   );
 
+  // The pre-refactor reload went through doLoad and cleared the error banner;
+  // keep that contract for the components' retry paths.
+  const workReload = useCallback(() => {
+    setError(null);
+    work.reload();
+  }, [work]);
+  const personalReload = useCallback(() => {
+    setPersonalError(null);
+    personal.reload();
+  }, [personal]);
+
   const showTokenWarning =
     config !== null && !config.tokenAvailable && !tokenWarningDismissed;
 
   const pendingSync = work.pendingSync + personal.pendingSync;
 
-  // The personal side renders only for the owner themselves: never while
-  // impersonating (another person's personal board is not ours to show), and
-  // only once its board actually loaded.
-  const personalReady = !viewAs && personalPtr !== null && personalBoard !== null;
+  // The single gate for everything personal (see personal.ts for why
+  // lock-board is part of it: the server would pin the request to the work
+  // project and silently serve it in the personal slot).
+  const personalReady = personalPaneVisible({
+    lockBoard: config?.lockBoard ?? false,
+    viewAs,
+    pointer: personalPtr,
+    boardLoaded: personalBoard !== null,
+  });
   const personalTeamActive = view === "team" && personalTeam && personalReady;
 
   const detailData = detail
-    ? detail.src === "personal" && personalBoard
-      ? { board: personalBoard, api: personal }
+    ? detail.src === "personal"
+      ? personalBoard
+        ? { board: personalBoard, api: personal }
+        : null // never route a personal card's dialog at the work board
       : board
         ? { board, api: work }
         : null
@@ -764,7 +808,7 @@ export function App() {
             {pendingSync}
           </span>
         )}
-        {login !== "" && (
+        {login !== "" && !config?.lockBoard && (
           <button
             type="button"
             className={`btn personal-btn${personalPtr ? " personal-btn-attached" : ""}`}
@@ -821,7 +865,7 @@ export function App() {
                 <button
                   type="button"
                   className="day-arrow"
-                  onClick={() => setMePane("work")}
+                  onClick={() => setMePane(prevPane)}
                   disabled={mePane === "work"}
                   aria-label="Show work tasks"
                 >
@@ -833,7 +877,7 @@ export function App() {
                 <button
                   type="button"
                   className="day-arrow"
-                  onClick={() => setMePane("personal")}
+                  onClick={() => setMePane(nextPane)}
                   disabled={mePane === "personal"}
                   aria-label="Show personal tasks"
                 >
@@ -863,7 +907,7 @@ export function App() {
                 replaceCard={work.replaceCard}
                 removeCard={work.removeCard}
                 reorderCards={work.reorderCards}
-                reload={work.reload}
+                reload={workReload}
                 onError={onError}
                 onOpen={(c) => setDetail({ card: c, src: "work" })}
                 onPresence={(card) => {
@@ -898,7 +942,7 @@ export function App() {
                   replaceCard={personal.replaceCard}
                   removeCard={personal.removeCard}
                   reorderCards={personal.reorderCards}
-                  reload={personal.reload}
+                  reload={personalReload}
                   onError={onPersonalError}
                   onOpen={(c) => setDetail({ card: c, src: "personal" })}
                   embedded
@@ -928,7 +972,7 @@ export function App() {
             removeCard={work.removeCard}
             reorderCards={work.reorderCards}
             presence={work.presence}
-            reload={work.reload}
+            reload={workReload}
             track={trackLoad}
             onError={onError}
             onOpen={(c) => setDetail({ card: c, src: "work" })}
@@ -963,7 +1007,7 @@ export function App() {
             removeCard={personal.removeCard}
             reorderCards={personal.reorderCards}
             presence={personal.presence}
-            reload={personal.reload}
+            reload={personalReload}
             track={trackLoad}
             onError={onPersonalError}
             onOpen={(c) => setDetail({ card: c, src: "personal" })}
@@ -984,7 +1028,7 @@ export function App() {
           board={detailData.board}
           provider={provider}
           onClose={() => setDetail(null)}
-          reload={detailData.api.reload}
+          reload={detail.src === "personal" ? personalReload : workReload}
           patchCard={detailData.api.patchCard}
         />
       )}

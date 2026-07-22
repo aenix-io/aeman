@@ -135,21 +135,28 @@ copy+close).
 
 - **uid collisions**: not possible by construction — the two boards' cards
   never share a list or a component instance.
-- **lock-board mode**: the lock pins the *work* board picker; the personal
-  attachment is orthogonal and stays available (it cannot change the pinned
-  board).
+- **lock-board mode**: the personal board is DISABLED. The server pins every
+  request's owner/project to the locked board (`internal/server/api.go
+  boardRef`), so a "personal" request would silently be served the WORK
+  project — cards meant to be private would land on the shared board. Until
+  the server can whitelist user-owned refs under lock, the UI hides the
+  feature entirely (`personalPaneVisible`). Follow-up: a server-side
+  `@me`-style allowance.
 - **Personal board load failure** (deleted project, revoked scope): the work
   board must render as if no personal board were attached, plus a dismissible
   warning; a broken personal pointer must never take down the Me view.
 - **Same project attached as both work and personal**: rejected in the setup
-  dialog (identical `owner/number`).
+  dialog, and covered from the other side too — loading the personal project
+  AS the work board detaches the pointer with a visible warning (`doLoad`).
 - **Watch reconnects** are independent per socket; a personal-stream outage
   does not stall work-board liveness.
 
 ## Tests
 
-- `web/src/personal.test.ts` — pointer persistence per login, tag/route
-  helpers, merge with provenance, pane-state transitions (vitest).
-- Component-level behaviours covered through the pure helpers they delegate to
-  (the repo's existing pattern: logic in `*.ts`, thin components).
-- Behaviour rows in `docs/design/behavior-matrix.md`.
+- `web/src/personal.test.ts` — pointer persistence per login (incl. corrupt
+  values), the work-board guard, the pane-switcher clamps, and
+  `personalPaneVisible` (owner-only / view-as / lock-board / not-loaded).
+- Component-level behaviours delegate to those pure helpers (the repo's
+  pattern: logic in `*.ts`, thin components); the App wires arrows and pane
+  gating through them, so the tests exercise the shipped paths.
+- Behaviour rows P1–P8 in `docs/design/behavior-matrix.md` with their tests.

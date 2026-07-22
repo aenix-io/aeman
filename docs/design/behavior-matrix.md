@@ -173,13 +173,14 @@ plan progress (V2). Each is pinned by the 🆕 tests above.
 
 ## Personal board (docs/design/personal-board.md)
 
-| # | Rule | Where |
-|---|------|-------|
-| P1 | A personal pointer is per login; another login on the same browser sees no personal pane, chip or pointer | `web/src/personal.ts`, `personal.test.ts` |
-| P2 | The Me view shows the Personal pane only when: not impersonating (view-as off), a pointer is attached, and the personal board actually loaded | `App.tsx` (`personalReady`) |
-| P3 | A personal-board load failure surfaces as a dismissible warning and never blanks or errors the work board | `App.tsx` (`personalError`) |
-| P4 | The virtual Personal chip appears only for the owner with a loaded personal board; it cannot be renamed, removed, multi-selected or written to a card | `TeamChips.tsx` (`extraChip`), `TeamBoard.tsx` |
-| P5 | Team view in personal mode pins the filter to the no-team group: sprints, carry-over and the weekly plan run against the personal project's own state | `App.tsx` (personal `TeamBoard` props) |
-| P6 | Attaching the work board itself as personal is refused (owner case-insensitive) | `PersonalDialog.tsx`, `samePointer` |
-| P7 | Narrow Me view (≤820px) shows one pane; ‹ › switch Work ↔ Personal and clamp at the edges | `styles.css` `.me-split`, `personal.ts` panes |
-| P8 | Card detail, notes and log calls of a personal card go to the personal project (each board instance owns its address) | `App.tsx` (`detailData`), `useBoardData.ts` |
+| # | Rule | Where | Test |
+|---|------|-------|------|
+| P1 | A personal pointer is per login; another login on the same browser sees no personal pane, chip or pointer | `web/src/personal.ts` | ✅ `personal.test.ts` "round-trips per login" |
+| P2 | Everything personal (pane, chip, load) is gated on: not lock-board, not impersonating, pointer attached, board loaded | `personalPaneVisible`, `App.tsx` (`personalReady`) | ✅ `personal.test.ts` "personalPaneVisible" |
+| P2a | Lock-board mode disables the personal board entirely — the server would pin the request to the work project and personal cards would land on the shared board | `personalPaneVisible`, `App.tsx` (load gate + hidden button) | ✅ `personal.test.ts` "never in lock-board mode" |
+| P3 | A personal-board load failure surfaces as a dismissible warning and never blanks or errors the work board | `App.tsx` (`personalError`) | manual (App wiring; no component harness in repo) |
+| P4 | The virtual Personal chip appears only for the owner with a loaded personal board; it cannot be renamed, removed, multi-selected or written to a card | `TeamChips.tsx` (`extraChip`), `TeamBoard.tsx` | manual (render-only chip, no handlers to misfire) |
+| P5 | Team view in personal mode pins the filter to the no-team group: sprints, carry-over and the weekly plan run against the personal project's own state | `App.tsx` (personal `TeamBoard` props) | covered by existing TeamBoard behaviour over `sprintStates[""]` |
+| P6 | The same project can never be both boards: the dialog refuses attaching the work board, and loading the personal project as work detaches the pointer with a warning | `PersonalDialog.tsx`, `App.tsx` `doLoad` | ✅ `personal.test.ts` "samePointer" |
+| P7 | Narrow Me view (≤820px) shows one pane; ‹ › switch Work ↔ Personal via `prevPane`/`nextPane` and clamp at the edges | `styles.css` `.me-split`, `App.tsx` arrows | ✅ `personal.test.ts` "arrows clamp" |
+| P8 | Card detail, notes and log calls of a personal card go to the personal project; a personal detail never falls back to the work board | `App.tsx` (`detailData`), `useBoardData.ts` | manual (App wiring) |

@@ -144,9 +144,16 @@ export function TeamBoard({
     team: string | null;
     sprint: string;
   } | null>(null);
+  // The hand-picked column order is BOARD-scoped: with the personal board a
+  // second TeamBoard instance is a normal scenario, and a shuffle there must
+  // not overwrite the work board's order. The pre-scoping global key is read
+  // once as a fallback so existing users keep their arrangement.
+  const columnOrderKey = `aeman.columnOrder.${board.owner}/${board.number}`;
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     try {
-      const v = localStorage.getItem("aeman.columnOrder");
+      const v =
+        localStorage.getItem(columnOrderKey) ??
+        localStorage.getItem("aeman.columnOrder");
       return v ? (JSON.parse(v) as string[]) : [];
     } catch {
       return [];
@@ -194,8 +201,8 @@ export function TeamBoard({
 
   // Remember the hand-picked order of the people columns in the browser.
   useEffect(() => {
-    localStorage.setItem("aeman.columnOrder", JSON.stringify(columnOrder));
-  }, [columnOrder]);
+    localStorage.setItem(columnOrderKey, JSON.stringify(columnOrder));
+  }, [columnOrderKey, columnOrder]);
 
   useEffect(() => {
     if (!sprintMenuOpen) {

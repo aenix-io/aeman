@@ -247,6 +247,14 @@ export function useBoardData({
   const reset = useCallback(() => {
     setBoard(null);
     setPresenceMap({});
+    // Kill any in-flight queue-badge debounce too: a detach with writes still
+    // draining must not leave a phantom pending counter behind.
+    if (pendingSyncTimer.current !== null) {
+      window.clearTimeout(pendingSyncTimer.current);
+      pendingSyncTimer.current = null;
+    }
+    pendingSyncNext.current = 0;
+    setPendingSync(0);
   }, []);
 
   // Load the active view's cards whenever the selection (view/day/teams)
