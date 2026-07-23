@@ -183,6 +183,10 @@ type Board struct {
 	Cards  []Card         `json:"cards"`
 	// SprintStates maps each team key ("" = the no-team group) to its pointer.
 	SprintStates map[string]SprintState `json:"sprintStates"`
+	// TeamOrder lists the SprintStates keys in board order — the position of
+	// each team's hidden sprint-state card on the project. That position IS
+	// the team order every client shares (reordering teams moves the card).
+	TeamOrder []string `json:"teamOrder,omitempty"`
 }
 
 // NewBoard builds a Board snapshot from a board's fields and full card list,
@@ -196,12 +200,19 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 		Cards:        make([]Card, 0, len(cards)),
 		SprintStates: map[string]SprintState{},
 	}
+	seen := map[string]bool{}
 	for _, c := range cards {
 		if c.Title == SprintStateTitle {
 			b.SprintStates[c.Team] = SprintState{
 				Current:  c.SprintStart,
 				Previous: c.StartDate,
 				ItemID:   c.ItemID,
+			}
+			// Duplicate sprint-state cards for one team keep the first
+			// position they appeared at.
+			if !seen[c.Team] {
+				seen[c.Team] = true
+				b.TeamOrder = append(b.TeamOrder, c.Team)
 			}
 			continue
 		}

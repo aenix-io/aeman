@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -2280,5 +2281,56 @@ func TestSetRecurrenceValidation(t *testing.T) {
 	}
 	if err := svc.SetRecurrence(ctx, "acme", 1, "c2", "week"); err == nil {
 		t.Fatal("cycle on a non-recurrent card must be rejected")
+	}
+}
+
+// ReorderTeams moves the hidden sprint-state cards into the given sequence —
+// the shared, server-side team order.
+func TestReorderTeamsMovesSprintStates(t *testing.T) {
+	f := newFake(nil, map[string]board.SprintState{
+		"alpha": {Current: "2026-01-01", ItemID: "s-alpha"},
+		"beta":  {Current: "2026-01-01", ItemID: "s-beta"},
+		"gamma": {Current: "2026-01-01", ItemID: "s-gamma"},
+	})
+	if err := f2svc(f).ReorderTeams(ctx, "acme", 1, []string{"gamma", "alpha", "beta"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"MoveCard s-gamma after=",
+		"MoveCard s-alpha after=s-gamma",
+		"MoveCard s-beta after=s-alpha",
+	}
+	got := []string{}
+	for _, l := range f.log {
+		if strings.HasPrefix(l, "MoveCard") {
+			got = append(got, l)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("moves = %v, want %v", got, want)
+	}
+}
+
+// DeleteTeam removes the sprint-state card — but never while cards still use
+// the team, and quietly succeeds when there is no pointer to delete.
+func TestDeleteTeamGuardsAndDeletes(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha"},
+	}, map[string]board.SprintState{
+		"alpha": {Current: "2026-01-01", ItemID: "s-alpha"},
+		"beta":  {Current: "2026-01-01", ItemID: "s-beta"},
+	})
+	svc := f2svc(f)
+	if err := svc.DeleteTeam(ctx, "acme", 1, "alpha"); !errors.Is(err, ErrTeamInUse) {
+		t.Fatalf("in-use team must be protected, got %v", err)
+	}
+	if err := svc.DeleteTeam(ctx, "acme", 1, "beta"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.saw("DeleteCard s-beta") {
+		t.Fatalf("sprint-state not deleted; log=%v", f.log)
+	}
+	if err := svc.DeleteTeam(ctx, "acme", 1, "ghost"); err != nil {
+		t.Fatalf("pointer-less team must be a no-op success, got %v", err)
 	}
 }
