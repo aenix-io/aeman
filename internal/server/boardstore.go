@@ -869,9 +869,61 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 	e.mu.Lock()
 	e.removeCard(card.ItemID)
 	e.markGone(card.ItemID)
+	// A deleted sprint-state card takes its team with it: drop the cached
+	// pointer and the team's order slot so /board reads and watchers see the
+	// team gone immediately, not after the next revalidation.
+	for team, st := range e.board.SprintStates {
+		if st.ItemID != card.ItemID {
+			continue
+		}
+		delete(e.board.SprintStates, team)
+		e.board.TeamOrder = removeString(e.board.TeamOrder, team)
+		e.sprintChanged(clientIDFrom(ctx), team)
+		break
+	}
 	e.cardChanged(clientIDFrom(ctx), card, "DELETED")
 	e.mu.Unlock()
 	return nil
+}
+
+// removeString drops the first occurrence of v from list, in place.
+func removeString(list []string, v string) []string {
+	for i, s := range list {
+		if s == v {
+			return append(list[:i], list[i+1:]...)
+		}
+	}
+	return list
+}
+
+// teamOfSprintState finds the team whose sprint-state card has the item id.
+func teamOfSprintState(states map[string]board.SprintState, itemID string) (string, bool) {
+	for team, st := range states {
+		if st.ItemID == itemID {
+			return team, true
+		}
+	}
+	return "", false
+}
+
+// moveTeamAfter re-slots team in the order list after the team owning the
+// afterID sprint-state card ("" or unknown = to the front).
+func moveTeamAfter(order []string, states map[string]board.SprintState, team, afterID string) []string {
+	order = removeString(append([]string(nil), order...), team)
+	at := 0
+	if afterTeam, ok := teamOfSprintState(states, afterID); ok {
+		for i, t := range order {
+			if t == afterTeam {
+				at = i + 1
+				break
+			}
+		}
+	}
+	out := make([]string, 0, len(order)+1)
+	out = append(out, order[:at]...)
+	out = append(out, team)
+	out = append(out, order[at:]...)
+	return out
 }
 
 // MoveCard applies the new position to the cached order (so lists keep the
@@ -881,6 +933,11 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	e.board.Cards = moveCardAfter(e.board.Cards, card.ItemID, afterID)
+	// Moving a sprint-state card is a TEAM reorder: mirror it onto the cached
+	// TeamOrder so /board reads agree with the new order immediately.
+	if team, ok := teamOfSprintState(e.board.SprintStates, card.ItemID); ok {
+		e.board.TeamOrder = moveTeamAfter(e.board.TeamOrder, e.board.SprintStates, team, afterID)
+	}
 	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
 	e.mu.Unlock()
