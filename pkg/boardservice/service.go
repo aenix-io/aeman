@@ -23,6 +23,10 @@ var ErrNoteNotFound = errors.New("note not found")
 // card cannot be made recurrent (a review is one-off, not a repeating task).
 var ErrInvalidStage = errors.New("invalid stage for this card")
 
+// ErrTeamInUse is returned when deleting a team that still has cards on the
+// board — the caller must reassign or delete them first.
+var ErrTeamInUse = errors.New("team still has cards")
+
 // MaxDescriptionLen caps a card description (in runes). The description shares
 // a draft card's body with the note and event logs, and GitHub caps the body
 // at ~64K — an oversized description would break log appends.
@@ -325,6 +329,58 @@ func (s *Service) withLinkDescription(ctx context.Context, b board.Board, card b
 type CarryReport struct {
 	Carried  int `json:"carried"`
 	Reseeded int `json:"reseeded"`
+}
+
+// ReorderTeams applies a shared team order by moving the hidden sprint-state
+// cards into the given sequence on the project — the board position of those
+// cards IS the team order every client reads back (Board.TeamOrder). Teams
+// without a sprint pointer are skipped; teams missing from the list keep
+// their positions after the reordered ones.
+func (s *Service) ReorderTeams(ctx context.Context, owner string, project int, teams []string) error {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	prev := ""
+	for _, team := range teams {
+		st, ok := b.SprintStates[team]
+		if !ok || st.ItemID == "" {
+			continue
+		}
+		stub := board.Card{ItemID: st.ItemID, Title: board.SprintStateTitle, Team: team}
+		if err := s.backend.MoveCard(ctx, b, stub, prev); err != nil {
+			return err
+		}
+		prev = st.ItemID
+	}
+	return nil
+}
+
+// DeleteTeam removes a team from the board by deleting its hidden sprint-state
+// card. A team still referenced by cards is protected (ErrTeamInUse): deleting
+// its pointer would orphan them silently. A team with no pointer has nothing
+// server-side to delete — that is a no-op success, the client just drops its
+// local entry.
+func (s *Service) DeleteTeam(ctx context.Context, owner string, project int, team string) error {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	inUse := 0
+	for _, c := range b.Cards {
+		if c.Team == team {
+			inUse++
+		}
+	}
+	if inUse > 0 {
+		return fmt.Errorf("%w: %d card(s) still on %q — reassign or delete them first", ErrTeamInUse, inUse, team)
+	}
+	st, ok := b.SprintStates[team]
+	if !ok || st.ItemID == "" {
+		return nil
+	}
+	stub := board.Card{ItemID: st.ItemID, Title: board.SprintStateTitle, Team: team}
+	return s.backend.DeleteCard(ctx, b, stub)
 }
 
 // selectCarry partitions a team's cards for a carry-over closing sprint old

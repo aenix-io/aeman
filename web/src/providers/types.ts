@@ -223,6 +223,10 @@ export interface Provider {
     week: string,
     dryRun?: boolean,
   ): Promise<CarryReport>;
+  /** Apply a shared team order (moves the hidden sprint-state cards). */
+  reorderTeams(board: BoardAddr, teams: string[]): Promise<void>;
+  /** Delete a team's sprint pointer; rejects while cards still use the team. */
+  deleteTeam(board: BoardAddr, team: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). */
   setSprintState(
     board: BoardAddr,

@@ -325,6 +325,14 @@ export const apiProvider: Provider = {
     });
   },
 
+  async reorderTeams(board: BoardAddr, teams: string[]): Promise<void> {
+    await api(board, "POST", "/sprints/actions/reorder-teams", { teams });
+  },
+
+  async deleteTeam(board: BoardAddr, team: string): Promise<void> {
+    await api(board, "POST", "/sprints/actions/delete-team", { team });
+  },
+
   async carryWeek(
     board: BoardAddr,
     team: string | null,

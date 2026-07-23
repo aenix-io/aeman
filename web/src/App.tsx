@@ -265,16 +265,17 @@ export function App() {
   const roster = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const t of addedTeams) {
-      if (!seen.has(t)) {
+    // The board's own teams come FIRST, in the server-side order (the
+    // sprint-state cards' positions) — shared by everyone, on every device.
+    for (const t of board?.teams ?? []) {
+      if (t && !seen.has(t)) {
         seen.add(t);
         out.push(t);
       }
     }
-    // The board's own roster (teams with a sprint pointer) is the source of
-    // truth — cards now load one view at a time, so we can't infer teams from
-    // them. Any team present on the loaded cards is folded in as a fallback.
-    for (const t of [...(board?.teams ?? []), ...(board?.cards ?? []).map((c) => c.team ?? "")]) {
+    // Hand-added drafts (no sprint pointer yet) follow in their local order,
+    // then any team present only on loaded cards as a fallback.
+    for (const t of [...addedTeams, ...(board?.cards ?? []).map((c) => c.team ?? "")]) {
       if (t && !seen.has(t)) {
         seen.add(t);
         out.push(t);
@@ -337,11 +338,31 @@ export function App() {
   );
   const watchKey = queryString(watchSel);
 
-  // Reorder the whole roster (from the manage dialog) and persist the order.
-  const reorderTeams = useCallback((ordered: string[]) => {
-    setAddedTeams(ordered);
-    writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), ordered);
-  }, []);
+  // Reorder the whole roster (from the manage dialog). Teams the server knows
+  // (sprint pointer) get the order pushed to the board itself — their hidden
+  // sprint-state cards are moved, so the order is shared by the whole team.
+  // Hand-added drafts keep their relative order locally as before.
+  const reorderTeams = useCallback(
+    (ordered: string[]) => {
+      setAddedTeams(ordered);
+      writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), ordered);
+      const cur = board;
+      if (!cur) {
+        return;
+      }
+      const server = ordered.filter((t) => cur.teams.includes(t));
+      if (server.length < 2) {
+        return;
+      }
+      setBoard((b) => (b ? { ...b, teams: server } : b));
+      void provider.reorderTeams(cur, server).catch((err: unknown) => {
+        // Keep the optimistic order on screen; the next reload converges it
+        // back to the server's truth if the write really failed.
+        setError(errMessage(err));
+      });
+    },
+    [board, provider],
+  );
 
   const addTeam = useCallback((team: string) => {
     const t = team.trim();
@@ -358,21 +379,52 @@ export function App() {
     });
   }, []);
 
-  const removeTeam = useCallback((team: string) => {
-    setAddedTeams((cur) => {
-      const next = cur.filter((t) => t !== team);
-      writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
-      return next;
-    });
-    // Drop the removed team from the filter (clearing it if it becomes empty).
-    setTeamFilter((cur) => {
-      if (cur === null) {
-        return cur;
+  const removeTeam = useCallback(
+    (team: string) => {
+      const dropLocal = () => {
+        setAddedTeams((cur) => {
+          const next = cur.filter((t) => t !== team);
+          writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
+          return next;
+        });
+        // Drop the removed team from the filter (clearing it if it becomes empty).
+        setTeamFilter((cur) => {
+          if (cur === null) {
+            return cur;
+          }
+          const next = cur.filter((k) => k !== team);
+          return next.length ? next : null;
+        });
+      };
+      const cur = board;
+      if (!cur || !cur.teams.includes(team)) {
+        // A hand-added draft lives only in this browser.
+        dropLocal();
+        return;
       }
-      const next = cur.filter((k) => k !== team);
-      return next.length ? next : null;
-    });
-  }, []);
+      // A board-backed team is deleted on the server (its hidden sprint-state
+      // card goes away); the server refuses while cards still use the team,
+      // and that message is the user's answer.
+      void provider
+        .deleteTeam(cur, team)
+        .then(() => {
+          dropLocal();
+          setBoard((b) =>
+            b
+              ? {
+                  ...b,
+                  teams: b.teams.filter((t) => t !== team),
+                  sprintStates: Object.fromEntries(
+                    Object.entries(b.sprintStates).filter(([k]) => k !== team),
+                  ),
+                }
+              : b,
+          );
+        })
+        .catch((err: unknown) => setError(errMessage(err)));
+    },
+    [board, provider],
+  );
 
   // Persist the filter whenever it changes (null means "all", we store
   // nothing). boardKeyRef is updated synchronously by doLoad before the

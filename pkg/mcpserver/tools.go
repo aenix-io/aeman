@@ -164,7 +164,7 @@ func (h *server) getCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef
 type createCardInput struct {
 	boardRef
 	Title    string `json:"title" jsonschema:"card title (required)"`
-	Team     string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group"`
+	Team     string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group. MUST be one of the board's EXISTING team keys — read them from get_board metadata.teams and map the user's wording onto an existing key, across languages and case ('маркетинг', 'the marketing team' -> existing 'marketing'). A value not in that list silently CREATES a new team with its own sprint pointer — a heavyweight, unusual action: only pass a new key when the user explicitly asks to create a new team"`
 	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"GitHub login to assign"`
 	Start    string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today"`
@@ -213,7 +213,7 @@ type updateCardInput struct {
 	cardRef
 	Title       *string `json:"title,omitempty" jsonschema:"new title"`
 	Description *string `json:"description,omitempty" jsonschema:"the card's shared free-form body (what the whole team sees; live-syncs onto the linked review card) — the right place for review or handoff context, and for reference links: include related open PRs and issues in free form as FULL URLs or owner/repo#123 shorthands (encouraged — links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links); empty clears it"`
-	Team        *string `json:"team,omitempty" jsonschema:"team to move to (joins its current sprint); empty is the no-team group"`
+	Team        *string `json:"team,omitempty" jsonschema:"team to move to (joins its current sprint); empty is the no-team group. MUST be an EXISTING team key from get_board metadata.teams — map the user's wording onto an existing key, across languages and case; an unknown value silently CREATES a new team (heavyweight, unusual) — only on an explicit request for a brand-new team"`
 	Zone        *string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave; empty clears it"`
 	Assignee    *string `json:"assignee,omitempty" jsonschema:"GitHub login; empty unassigns"`
 	Progress    *int    `json:"progress,omitempty" jsonschema:"readiness percentage 0..100"`
@@ -497,7 +497,7 @@ func (h *server) releaseFromPlan(ctx context.Context, _ *mcp.CallToolRequest, in
 // carryOverInput names a team for the sprint carry-over.
 type carryOverInput struct {
 	boardRef
-	Team   string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
+	Team   string `json:"team,omitempty" jsonschema:"EXISTING team key from get_board metadata.teams; empty is the no-team group. Carrying an unknown team quietly bootstraps a sprint pointer for it — never invent a key here"`
 	DryRun bool   `json:"dryRun,omitempty" jsonschema:"report the would-be counts without changing anything"`
 }
 
@@ -516,7 +516,7 @@ func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in carry
 // carryWeekInput names a team and target week for the weekly carry.
 type carryWeekInput struct {
 	boardRef
-	Team   string `json:"team,omitempty" jsonschema:"team key; empty is the no-team group"`
+	Team   string `json:"team,omitempty" jsonschema:"EXISTING team key from get_board metadata.teams; empty is the no-team group. Carrying an unknown team quietly bootstraps a sprint pointer for it — never invent a key here"`
 	Week   string `json:"week,omitempty" jsonschema:"target week Monday as yyyy-mm-dd; defaults to the current week"`
 	DryRun bool   `json:"dryRun,omitempty" jsonschema:"report the would-be counts without changing anything"`
 }
