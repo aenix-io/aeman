@@ -77,6 +77,8 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v1/sprints", s.handlePatchSprint)
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-over", s.handleCarryOver)
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-week", s.handleCarryWeek)
+	mux.HandleFunc("POST /api/v1/sprints/actions/reorder-teams", s.handleReorderTeams)
+	mux.HandleFunc("POST /api/v1/sprints/actions/delete-team", s.handleDeleteTeam)
 	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
@@ -129,6 +131,8 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"GET", "/api/v1/sprints", "Per-team sprint pointers"},
 			{"PATCH", "/api/v1/sprints", "Set a team's sprint pointer directly ({team, current, previous})"},
 			{"POST", "/api/v1/sprints/actions/carry-over", "Advance a team's sprint to today, carry unfinished ({team, dryRun})"},
+			{"POST", "/api/v1/sprints/actions/reorder-teams", "Apply a shared team order (moves the hidden sprint-state cards; body {teams:[...]})"},
+			{"POST", "/api/v1/sprints/actions/delete-team", "Delete a team's sprint pointer; refused while cards still use the team (body {team})"},
 			{"POST", "/api/v1/sprints/actions/carry-week", "Pull unfinished plan cards into the week ({team, week, dryRun})"},
 			{"GET", "/api/v1/ordering", "The board-level manual card order"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
@@ -950,6 +954,49 @@ func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rep)
 }
 
+// handleReorderTeams applies a shared team order: the hidden sprint-state
+// cards are moved into the given sequence, so every client reads the same
+// order back from the board metadata.
+func (s *Server) handleReorderTeams(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Teams []string `json:"teams"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	// Same cached-snapshot read as carry-over (see handleCarryOver).
+	ctx, _ := withStaleAllowed(r.Context())
+	if err := svc.ReorderTeams(ctx, owner, project, in.Teams); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleDeleteTeam deletes a team's hidden sprint-state card. A team that
+// still has cards is protected server-side (422).
+func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Team string `json:"team"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteTeam(r.Context(), owner, project, in.Team); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // --- Shared helpers ----------------------------------------------------------------
 
 // handleSetPresence records the caller's live Me-view selection — ephemeral
@@ -1051,7 +1098,8 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 		errors.Is(err, boardservice.ErrNoteTooLong),
 		errors.Is(err, boardservice.ErrSubtaskDepth),
 		errors.Is(err, boardservice.ErrParentNotFound),
-		errors.Is(err, boardservice.ErrOpenSubtasks):
+		errors.Is(err, boardservice.ErrOpenSubtasks),
+		errors.Is(err, boardservice.ErrTeamInUse):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

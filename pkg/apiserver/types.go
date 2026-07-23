@@ -269,11 +269,25 @@ func OrderingResource(b board.Board) Ordering {
 
 // BoardResource is the read-only board identity resource.
 func BoardResource(b board.Board) BoardInfo {
+	// Teams come out in BOARD order (the sprint-state cards' positions — the
+	// shared, server-side team order); stragglers the order does not know
+	// (defensive: map entries without an order slot) append sorted.
 	teams := make([]string, 0, len(b.SprintStates))
-	for t := range b.SprintStates {
-		teams = append(teams, t)
+	inOrder := map[string]bool{}
+	for _, t := range b.TeamOrder {
+		if _, ok := b.SprintStates[t]; ok && !inOrder[t] {
+			inOrder[t] = true
+			teams = append(teams, t)
+		}
 	}
-	sortStrings(teams)
+	rest := make([]string, 0)
+	for t := range b.SprintStates {
+		if !inOrder[t] {
+			rest = append(rest, t)
+		}
+	}
+	sortStrings(rest)
+	teams = append(teams, rest...)
 	seen := map[string]bool{}
 	members := []string{}
 	for _, c := range b.Cards {

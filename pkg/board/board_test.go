@@ -68,3 +68,18 @@ func mustMarshal(t *testing.T, v any) []byte {
 	}
 	return data
 }
+
+// NewBoard records the sprint-state cards' board positions as the shared team
+// order (duplicates keep their first slot).
+func TestNewBoardTeamOrder(t *testing.T) {
+	b := NewBoard(nil, []Card{
+		{ItemID: "s1", Title: SprintStateTitle, Team: "gamma", SprintStart: "2026-01-01"},
+		{ItemID: "c1", Team: "alpha"},
+		{ItemID: "s2", Title: SprintStateTitle, Team: "alpha", SprintStart: "2026-01-01"},
+		{ItemID: "s3", Title: SprintStateTitle, Team: "gamma", SprintStart: "2026-01-02"},
+	})
+	want := []string{"gamma", "alpha"}
+	if len(b.TeamOrder) != 2 || b.TeamOrder[0] != want[0] || b.TeamOrder[1] != want[1] {
+		t.Fatalf("TeamOrder = %v, want %v", b.TeamOrder, want)
+	}
+}
