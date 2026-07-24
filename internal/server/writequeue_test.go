@@ -23,6 +23,7 @@ type wbBackend struct {
 	progressCalls        int
 	gate                 chan struct{} // nil = no gating
 	fail                 bool
+	sprintWrites         []string
 }
 
 func (w *wbBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
@@ -540,5 +541,56 @@ func TestTouchedSkipsDeletedCard(t *testing.T) {
 	}
 	if _, gone := e.recentGone["c1"]; !gone {
 		t.Fatal("touched stripped the card's recentGone protection")
+	}
+}
+
+func (w *wbBackend) SetSprintState(_ context.Context, b board.Board, team, current, previous string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.sprintWrites = append(w.sprintWrites, team+"@"+b.SprintStates[team].ItemID+" "+current+"/"+previous)
+	return nil
+}
+
+// A queued sprint-pointer write must resolve the sprint-state card at WRITE
+// time from the live cache — the enqueue-era snapshot may point at a card
+// that a fresher load replaced (the duplicate-scatter incident).
+func TestSprintStateWriteResolvesLive(t *testing.T) {
+	inner := &wbBackend{board: watchBoard(), gate: make(chan struct{})}
+	store := newBoardStore()
+	be := &storeBackend{inner: inner, store: store}
+	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := store.entry("acme/1")
+
+	// Hold the queue on a gated op so the sprint write stays queued while the
+	// cache moves under it.
+	if err := be.SetProgress(context.Background(), bd, bd.Cards[0], 40); err != nil {
+		t.Fatal(err)
+	}
+	// Enqueue the pointer roll with the CURRENT snapshot (sprint-state s1)...
+	if err := be.SetSprintState(context.Background(), bd, "alpha", "2026-01-11", "2026-01-10"); err != nil {
+		t.Fatal(err)
+	}
+	// ...then the cache learns the team's card is really s1-NEW (a fresher
+	// load replaced the duplicate) before the queue drains.
+	e.mu.Lock()
+	st := e.board.SprintStates["alpha"]
+	st.ItemID = "s1-new"
+	e.board.SprintStates["alpha"] = st
+	e.mu.Unlock()
+
+	close(inner.gate)
+	waitFor(t, "queue drain", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.unsynced() == 0
+	})
+	inner.mu.Lock()
+	writes := append([]string(nil), inner.sprintWrites...)
+	inner.mu.Unlock()
+	if len(writes) != 1 || writes[0] != "alpha@s1-new 2026-01-11/2026-01-10" {
+		t.Fatalf("sprint write = %v, want the LIVE card s1-new", writes)
 	}
 }
