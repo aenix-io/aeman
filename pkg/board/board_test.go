@@ -83,3 +83,28 @@ func TestNewBoardTeamOrder(t *testing.T) {
 		t.Fatalf("TeamOrder = %v, want %v", b.TeamOrder, want)
 	}
 }
+
+// Duplicate sprint-state cards must resolve to a DETERMINISTIC winner — the
+// oldest card — whatever their board positions; the pointer must not
+// flip-flop between duplicates as positions churn.
+func TestNewBoardDuplicateSprintStateWinner(t *testing.T) {
+	dup := Card{ItemID: "s-new", Title: SprintStateTitle, Team: "alpha",
+		SprintStart: "2026-07-23", StartDate: "2026-07-22", CreatedAt: "2026-07-21T14:25:44Z"}
+	orig := Card{ItemID: "s-old", Title: SprintStateTitle, Team: "alpha",
+		SprintStart: "2026-07-21", StartDate: "2026-07-20", CreatedAt: "2026-06-29T09:49:52Z"}
+
+	// Whichever order the board lists them in, the older card wins.
+	for name, cards := range map[string][]Card{
+		"orig first": {orig, dup},
+		"dup first":  {dup, orig},
+	} {
+		b := NewBoard(nil, cards)
+		st := b.SprintStates["alpha"]
+		if st.ItemID != "s-old" || st.Current != "2026-07-21" {
+			t.Fatalf("%s: winner = %+v, want the oldest card s-old", name, st)
+		}
+		if len(b.TeamOrder) != 1 || b.TeamOrder[0] != "alpha" {
+			t.Fatalf("%s: TeamOrder = %v", name, b.TeamOrder)
+		}
+	}
+}

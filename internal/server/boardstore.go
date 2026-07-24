@@ -1355,7 +1355,19 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 				}
 			},
 			exec: func(ctx context.Context) error {
-				return b.inner.SetSprintState(ctx, bd, team, current, previous)
+				// The queue can drain long after enqueue: resolve the team's
+				// sprint-state card AT WRITE TIME from the live cache, not
+				// from the enqueue-era snapshot — a stale snapshot pointing
+				// at a missing card is how duplicate sprint-state cards were
+				// born (and how pointer writes scattered between them).
+				ref := bd
+				e.mu.Lock()
+				ref.SprintStates = map[string]board.SprintState{}
+				if live, ok := e.board.SprintStates[team]; ok {
+					ref.SprintStates[team] = live
+				}
+				e.mu.Unlock()
+				return b.inner.SetSprintState(ctx, ref, team, current, previous)
 			},
 		})
 		return nil
