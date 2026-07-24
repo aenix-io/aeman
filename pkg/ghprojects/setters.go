@@ -636,6 +636,17 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 func (c *Client) SetSprintState(ctx context.Context, b board.Board, team, current, previous string) error {
 	itemID := b.SprintStates[team].ItemID
 	if itemID == "" {
+		// Never create off a snapshot's absence alone: a stale or partial
+		// snapshot missing the team's pointer is how duplicate sprint-state
+		// cards are born. Re-read the live project and only create when the
+		// card is confirmed missing there too.
+		if b.Owner != "" && b.Number > 0 {
+			if fresh, err := c.LoadBoard(ctx, b.Owner, b.Number); err == nil {
+				itemID = fresh.SprintStates[team].ItemID
+			}
+		}
+	}
+	if itemID == "" {
 		var created struct {
 			AddProjectV2DraftIssue struct {
 				ProjectItem struct {

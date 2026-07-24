@@ -201,15 +201,17 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 		SprintStates: map[string]SprintState{},
 	}
 	seen := map[string]bool{}
+	winners := map[string]Card{}
 	for _, c := range cards {
 		if c.Title == SprintStateTitle {
-			b.SprintStates[c.Team] = SprintState{
-				Current:  c.SprintStart,
-				Previous: c.StartDate,
-				ItemID:   c.ItemID,
+			// Duplicate sprint-state cards happen (a bootstrap raced a stale
+			// snapshot); the winner must be DETERMINISTIC or the pointer
+			// flip-flops between duplicates as board positions churn — the
+			// oldest card wins, ties broken by item id.
+			if prev, ok := winners[c.Team]; !ok || olderSprintState(c, prev) {
+				winners[c.Team] = c
 			}
-			// Duplicate sprint-state cards for one team keep the first
-			// position they appeared at.
+			// Duplicates keep the first position they appeared at.
 			if !seen[c.Team] {
 				seen[c.Team] = true
 				b.TeamOrder = append(b.TeamOrder, c.Team)
@@ -218,5 +220,22 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 		}
 		b.Cards = append(b.Cards, c)
 	}
+	for team, c := range winners {
+		b.SprintStates[team] = SprintState{
+			Current:  c.SprintStart,
+			Previous: c.StartDate,
+			ItemID:   c.ItemID,
+		}
+	}
 	return b
+}
+
+// olderSprintState reports whether a is the older sprint-state card: earlier
+// CreatedAt, ties (and hand-built snapshots without timestamps) broken by the
+// smaller item id.
+func olderSprintState(a, b Card) bool {
+	if a.CreatedAt != b.CreatedAt {
+		return a.CreatedAt < b.CreatedAt
+	}
+	return a.ItemID < b.ItemID
 }
