@@ -36,6 +36,29 @@ export function extractLinks(description: string): CardLink[] {
   return [...refs, ...plain];
 }
 
+const SHORTHAND = /^([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9_.-]+)#([0-9]+)$/;
+
+/** optimisticTitle is what a card typed as a bare GitHub reference should read
+ *  the instant it appears, before the server's background resolve renames it
+ *  to the item's real title: the same readable "Pull: owner/repo#N" label the
+ *  server falls back to (mirrors board.Link.FallbackTitle). Anything that is
+ *  not a bare reference is the user's own wording and is left untouched. */
+export function optimisticTitle(raw: string): string {
+  const text = raw.trim();
+  const short = SHORTHAND.exec(text);
+  if (short) {
+    // A shorthand carries no issue/pull distinction; the server resolves it,
+    // and until then "Issue:" is the neutral label it also starts from.
+    return `Issue: ${short[1]}/${short[2]}#${short[3]}`;
+  }
+  const link = classifyLink(text);
+  if (link.kind === "link" || !link.owner || !link.repo || !link.number) {
+    return raw;
+  }
+  const kind = link.kind === "pull" ? "Pull" : "Issue";
+  return `${kind}: ${link.owner}/${link.repo}#${link.number}`;
+}
+
 /** classifyLink recognises github.com/{owner}/{repo}/issues|pull/{n}. */
 function classifyLink(url: string): CardLink {
   const link: CardLink = { url, kind: "link" };

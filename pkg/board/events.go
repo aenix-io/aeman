@@ -78,6 +78,24 @@ func ActorFrom(ctx context.Context) string {
 	return login
 }
 
+// unattributedKey marks a context whose changes belong to no single client:
+// work the server does on its own behalf (a background title resolve), which
+// every watcher — the originating tab included — must be told about.
+type unattributedKey struct{}
+
+// Unattributed marks ctx as carrying server-side work with no originating
+// client, so watch frames reach everyone instead of being echo-suppressed
+// against whoever happened to trigger it.
+func Unattributed(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unattributedKey{}, true)
+}
+
+// IsUnattributed reports whether ctx was marked by Unattributed.
+func IsUnattributed(ctx context.Context) bool {
+	on, _ := ctx.Value(unattributedKey{}).(bool)
+	return on
+}
+
 // eventPrefix marks a log-line body as a machine event rather than a work
 // note. Parsers treat any log line whose body starts with it as an Event.
 const eventPrefix = ":: "

@@ -442,10 +442,19 @@ func TestAPICreateCardFromGitHubURL(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
+	// The create answers instantly under the readable fallback — it must not
+	// block on GitHub — and the real title arrives from the background
+	// resolve, which reaches every watcher (see boardservice.resolveTitleAsync).
 	c := decodeCard(t, rec)
-	if c.Spec.Title != "feat: warp drive" || c.Spec.Description != "https://github.com/acme/repo/pull/7" {
+	if c.Spec.Title != "Pull: acme/repo#7" || c.Spec.Description != "https://github.com/acme/repo/pull/7" {
 		t.Fatalf("card = %+v", c.Spec)
 	}
+	uid := c.Metadata.UID
+	waitFor(t, "the background resolve to rename the card", func() bool {
+		rec := do(t, srv, http.MethodGet, "/api/v1/cards/"+uid+"?owner=acme&project=1", "")
+		return rec.Code == http.StatusOK &&
+			decodeCard(t, rec).Spec.Title == "feat: warp drive"
+	})
 }
 
 func TestAPIRecurrentOnReviewCardRejected(t *testing.T) {
