@@ -1315,6 +1315,7 @@ func TestCreateCardFromGitHubURL(t *testing.T) {
 			URL: "https://github.com/acme/repo/pull/7", Kind: "pull",
 			Owner: "acme", Repo: "repo", Number: 7, Title: "feat: warp drive", State: "open"},
 	}
+	defer inlineSpawn(t)()
 	svc := New(fake)
 	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
 		Team: "alpha", Title: "  https://github.com/acme/repo/pull/7 ",
@@ -1322,11 +1323,64 @@ func TestCreateCardFromGitHubURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if card.Title != "feat: warp drive" {
-		t.Fatalf("title = %q", card.Title)
+	// The create answers at once under the readable fallback — it never waits
+	// on GitHub — and the background resolve renames the card afterwards.
+	if card.Title != "Pull: acme/repo#7" {
+		t.Fatalf("create should answer under the fallback, got %q", card.Title)
+	}
+	if !fake.saw("RenameCard " + card.ItemID) {
+		t.Fatalf("the background resolve must rename the card; log=%v", fake.log)
+	}
+	if got := fake.get(card.ItemID).Title; got != "feat: warp drive" {
+		t.Fatalf("resolved title = %q", got)
 	}
 	if !fake.saw("SetDescription " + card.ItemID + " https://github.com/acme/repo/pull/7") {
 		t.Fatal("description must carry the source link")
+	}
+}
+
+// inlineSpawn makes the background title resolve run inline for the duration
+// of a test, and returns the restore func.
+func inlineSpawn(t *testing.T) func() {
+	t.Helper()
+	old := spawn
+	spawn = func(fn func()) { fn() }
+	return func() { spawn = old }
+}
+
+// A person retitling the card before the resolve lands keeps their words: the
+// background rename only replaces the untouched fallback.
+func TestCreateCardFromURLKeepsUserRename(t *testing.T) {
+	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	fake.refs = map[string]board.Link{
+		"https://github.com/acme/repo/pull/7": {
+			URL: "https://github.com/acme/repo/pull/7", Kind: "pull",
+			Owner: "acme", Repo: "repo", Number: 7, Title: "feat: warp drive", State: "open"},
+	}
+	// Retitle the card the moment it exists, before the resolve runs.
+	old := spawn
+	spawn = func(fn func()) {
+		for i := range fake.b.Cards {
+			if fake.b.Cards[i].Title == "Pull: acme/repo#7" {
+				fake.b.Cards[i].Title = "my own words"
+			}
+		}
+		fn()
+	}
+	defer func() { spawn = old }()
+
+	svc := New(fake)
+	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+		Team: "alpha", Title: "https://github.com/acme/repo/pull/7",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.get(card.ItemID).Title; got != "my own words" {
+		t.Fatalf("a user rename must survive the resolve, got %q", got)
+	}
+	if fake.saw("RenameCard " + card.ItemID) {
+		t.Fatalf("the resolve must not rename a retitled card; log=%v", fake.log)
 	}
 }
 

@@ -1,3 +1,4 @@
+import { optimisticTitle } from "../links";
 import {
   Fragment,
   useEffect,
@@ -407,7 +408,9 @@ export function TeamBoard({
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
-      title,
+      // A bare GitHub reference reads as its readable label at once; the
+      // server's background resolve renames it to the real title shortly.
+      title: optimisticTitle(title),
       isDraft: true,
       assignees: [],
       plan,
@@ -1119,7 +1122,7 @@ export function TeamBoard({
     const tempId = `tmp-${new Date().toISOString()}`;
     addCard({
       itemId: tempId,
-      title,
+      title: optimisticTitle(title),
       isDraft: true,
       assignees: parent.assignees.slice(0, 1),
       zone: parent.zone ?? "gray",
@@ -1765,7 +1768,9 @@ export function TeamBoard({
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
-      title,
+      // A bare GitHub reference reads as its readable label at once; the
+      // server's background resolve renames it to the real title shortly.
+      title: optimisticTitle(title),
       isDraft: true,
       assignees: [reviewerLogin],
       zone,
@@ -1897,7 +1902,9 @@ export function TeamBoard({
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
-      title,
+      // A bare GitHub reference reads as its readable label at once; the
+      // server's background resolve renames it to the real title shortly.
+      title: optimisticTitle(title),
       isDraft: true,
       assignees: engineer ? [engineer] : [],
       zone,
