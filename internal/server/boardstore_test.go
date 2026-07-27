@@ -623,3 +623,17 @@ func TestCarryOverServedFromSnapshot(t *testing.T) {
 		t.Fatalf("unexpected body: %s", rec.Body.String())
 	}
 }
+
+// Server-side work on nobody's behalf — the background title resolve after a
+// create-by-URL — must reach EVERY watcher, the tab that triggered the create
+// included. Echo-suppressing it against that client is what left the raw URL
+// on screen until a reload.
+func TestUnattributedWorkIsNotEchoSuppressed(t *testing.T) {
+	withClient := withClientID(context.Background(), "tab-1")
+	if got := clientIDFrom(withClient); got != "tab-1" {
+		t.Fatalf("a client's own change keeps its origin, got %q", got)
+	}
+	if got := clientIDFrom(board.Unattributed(withClient)); got != "" {
+		t.Fatalf("unattributed work must carry no origin, got %q", got)
+	}
+}

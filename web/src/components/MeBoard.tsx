@@ -1,3 +1,4 @@
+import { optimisticTitle } from "../links";
 import {
   useCallback,
   useEffect,
@@ -613,7 +614,7 @@ export function MeBoard({
     const tempId = `tmp-${new Date().toISOString()}`;
     addCard({
       itemId: tempId,
-      title,
+      title: optimisticTitle(title),
       isDraft: true,
       assignees: viewMe ? [viewMe] : [],
       zone: parent.zone ?? "gray",
@@ -1007,7 +1008,9 @@ export function MeBoard({
     const tempId = `tmp-${new Date().toISOString()}`;
     const optimistic: CardModel = {
       itemId: tempId,
-      title,
+      // A bare GitHub reference reads as its readable label at once; the
+      // server's background resolve renames it to the real title shortly.
+      title: optimisticTitle(title),
       isDraft: true,
       assignees: [reviewerLogin],
       zone,
@@ -1199,7 +1202,9 @@ export function MeBoard({
     const firstSprint = sprint === null;
     const optimistic: CardModel = {
       itemId: tempId,
-      title,
+      // A bare GitHub reference reads as its readable label at once; the
+      // server's background resolve renames it to the real title shortly.
+      title: optimisticTitle(title),
       isDraft: true,
       assignees: viewMe ? [viewMe] : [],
       zone,
