@@ -238,17 +238,19 @@ export function TeamBoard({
           c.day >= c.startDate &&
           selectedDate >= c.startDate &&
           selectedDate <= c.day;
-        // A deferred / future-scheduled card (startDate past today) lives on its
-        // own day (or range), and its past sprint day keeps it as history; it is
-        // hidden everywhere else until that day arrives.
+        // A deferred / future-scheduled card (startDate past today) lives on
+        // its own day (or range), and a CLOSED sprint's day keeps it as
+        // history; it is hidden everywhere else until that day arrives. The
+        // team's CURRENT sprint is never history: deferring is precisely the
+        // act of taking the card out of the sprint in progress, so it must
+        // leave that day at once (mirrors board.TeamGrid).
         if (c.startDate && c.startDate > today) {
-          return (
-            selectedDate === c.startDate ||
-            inRange ||
-            (!!c.sprintStart &&
-              selectedDate === c.sprintStart &&
-              c.sprintStart < today)
-          );
+          const pastSprintDay =
+            !!c.sprintStart &&
+            selectedDate === c.sprintStart &&
+            c.sprintStart < today &&
+            c.sprintStart !== currentSprint(board, c.team ?? null);
+          return selectedDate === c.startDate || inRange || pastSprintDay;
         }
         if (c.sprintStart === selectedDate) {
           return true;
