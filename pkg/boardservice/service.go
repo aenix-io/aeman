@@ -199,15 +199,17 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	// "Pull: owner/repo#N": when resolution fails (no repo access on a private
 	// repo, dead link) the card stays usable — a bare URL as the title, or a
 	// content-less item that never renders, is what left cards invisible.
+	// Resolving the ref costs a GitHub round trip (seconds), and blocking the
+	// create on it left the raw URL sitting in the UI all that time. Create at
+	// once under the readable fallback and fetch the real title in the
+	// background (resolveTitleAsync), which renames the card — unless the
+	// person retitled it first.
 	var linkDescription string
+	var pendingRef *board.Link
 	if ref, ok := board.ParseGitHubRef(strings.TrimSpace(args.Title)); ok {
 		linkDescription = ref.URL
 		args.Title = ref.FallbackTitle()
-		if resolver, hasResolver := s.backend.(LinkResolver); hasResolver {
-			if resolved, err := resolver.ResolveIssueRef(ctx, ref); err == nil && resolved.Title != "" {
-				args.Title = resolved.Title
-			}
-		}
+		pendingRef = &ref
 	}
 	// A weekly-plan card lives in the plan bands, not on the day boards: it gets
 	// no dates and joins no sprint. It mirrors handleCreatePlan in TeamBoard.tsx.
@@ -227,6 +229,7 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		})
 		card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 		if err == nil {
+			s.resolveTitleAsync(ctx, b, card, pendingRef)
 			s.logEvent(ctx, b, card, board.EventCreated, "", "")
 		}
 		return card, err
@@ -298,6 +301,7 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 	if err == nil {
 		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+		s.resolveTitleAsync(ctx, b, card, pendingRef)
 	}
 	if err == nil && args.Parent != "" {
 		if perr := s.SetParent(ctx, owner, project, card.ItemID, args.Parent); perr != nil {
@@ -309,6 +313,55 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		card.Parent = args.Parent
 	}
 	return card, err
+}
+
+// spawn runs background work. Tests replace it to run inline so the
+// asynchronous title resolve is deterministic.
+var spawn = func(fn func()) { go fn() }
+
+// asyncResolveTimeout bounds a background title resolve; GitHub occasionally
+// takes seconds, but a create must never leave work hanging indefinitely.
+const asyncResolveTimeout = 30 * time.Second
+
+// resolveTitleAsync fetches a create-by-URL card's real title in the
+// background and renames the card to it. The create itself already returned
+// under the readable "Issue: owner/repo#N" fallback, so nobody waits on
+// GitHub. Two guards: the rename is skipped when the person (or an agent)
+// retitled the card meanwhile — their words win over ours — and the work is
+// marked unattributed so the watch frame reaches the creating tab too,
+// instead of being echo-suppressed into invisibility.
+func (s *Service) resolveTitleAsync(ctx context.Context, b board.Board, card board.Card, ref *board.Link) {
+	if ref == nil {
+		return
+	}
+	resolver, ok := s.backend.(LinkResolver)
+	if !ok {
+		return
+	}
+	fallback := ref.FallbackTitle()
+	link := *ref
+	itemID := card.ItemID
+	// Detached from the request: the response is already on its way out, but
+	// the caller's values (token, actor) must survive.
+	bg := board.Unattributed(context.WithoutCancel(ctx))
+	spawn(func() {
+		ctx, cancel := context.WithTimeout(bg, asyncResolveTimeout)
+		defer cancel()
+		resolved, err := resolver.ResolveIssueRef(ctx, link)
+		if err != nil || resolved.Title == "" || resolved.Title == fallback {
+			return
+		}
+		fresh, cerr := s.backend.LoadBoard(ctx, b.Owner, b.Number)
+		if cerr != nil {
+			return
+		}
+		current, found := findCard(fresh, itemID)
+		// Gone, or retitled by a human while we were away: leave it alone.
+		if !found || current.Title != fallback {
+			return
+		}
+		_ = s.backend.RenameCard(ctx, fresh, current, resolved.Title)
+	})
 }
 
 // withLinkDescription moves the source URL of a create-by-URL card into its

@@ -61,6 +61,12 @@ func withClientID(ctx context.Context, id string) context.Context {
 }
 
 func clientIDFrom(ctx context.Context) string {
+	// Server-side work on nobody's behalf (a background title resolve) must
+	// reach every watcher, including the tab that triggered the create — an
+	// echo-suppressed rename would sit unseen until a reload.
+	if board.IsUnattributed(ctx) {
+		return ""
+	}
 	id, _ := ctx.Value(clientIDCtxKey{}).(string)
 	return id
 }
