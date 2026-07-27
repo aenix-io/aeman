@@ -159,3 +159,46 @@ func TestWeeklyPlan(t *testing.T) {
 		})
 	}
 }
+
+// Deferring a card takes it out of the sprint in progress at once — even when
+// that sprint opened days ago (no carry-over since), so its start day is in
+// the past. A genuinely CLOSED sprint's day still keeps the card as history.
+func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
+	today := TodayIso()
+	current := AddDays(today, -3) // sprint opened three days ago, still current
+	previous := AddDays(today, -6)
+	deferred := Card{
+		ItemID: "c1", Team: "alpha",
+		StartDate:   AddDays(today, 7), // deferred a week out
+		Day:         current,           // stale end date, as Defer leaves it
+		SprintStart: current,
+	}
+	b := Board{
+		Cards: []Card{deferred},
+		SprintStates: map[string]SprintState{
+			"alpha": {Current: current, Previous: previous},
+		},
+	}
+	if got := TeamGrid(b, "alpha", current); len(got) != 0 {
+		t.Fatalf("deferred card must leave the current sprint day, got %+v", got)
+	}
+	if got := TeamGrid(b, "alpha", today); len(got) != 0 {
+		t.Fatalf("deferred card must not show on today, got %+v", got)
+	}
+	if got := TeamGrid(b, "alpha", deferred.StartDate); len(got) != 1 {
+		t.Fatalf("deferred card must show on its own future day, got %+v", got)
+	}
+
+	// The same card bound to a CLOSED sprint keeps that day as history.
+	past := deferred
+	past.SprintStart = previous
+	hist := Board{
+		Cards: []Card{past},
+		SprintStates: map[string]SprintState{
+			"alpha": {Current: current, Previous: previous},
+		},
+	}
+	if got := TeamGrid(hist, "alpha", previous); len(got) != 1 {
+		t.Fatalf("a closed sprint's day must keep the card as history, got %+v", got)
+	}
+}
