@@ -26,10 +26,15 @@ func TeamGrid(b Board, team, day string) []Card {
 		inRange := c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
 			day >= c.StartDate && day <= c.Day
 		// A deferred / future-scheduled card (startDate past today) lives on its
-		// own day (or range), and its past sprint day keeps it as history; it is
-		// hidden everywhere else until that day arrives.
+		// own day (or range), and a CLOSED sprint's day keeps it as history; it
+		// is hidden everywhere else until that day arrives. The team's CURRENT
+		// sprint is never history: deferring a card is precisely the act of
+		// taking it out of the sprint in progress, so it must leave that day at
+		// once — even when the sprint opened days ago (no carry-over since).
 		if c.StartDate != "" && c.StartDate > today {
-			if day == c.StartDate || inRange || (c.SprintStart != "" && day == c.SprintStart && c.SprintStart < today) {
+			pastSprintDay := c.SprintStart != "" && day == c.SprintStart &&
+				c.SprintStart < today && c.SprintStart != CurrentSprint(b, c.Team)
+			if day == c.StartDate || inRange || pastSprintDay {
 				out = append(out, c)
 			}
 			continue
