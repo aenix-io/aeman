@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,10 @@ var _ Backend = (*ghprojects.Client)(nil)
 // fakeBackend implements Backend over an in-memory board, logging every call and
 // mutating its board so the service's views reflect the result.
 type fakeBackend struct {
+	// mu guards every field: the service runs background goroutines (the
+	// async title resolve, carry-over sprint writes), so the fake is hit
+	// concurrently with the test's assertions.
+	mu      sync.Mutex
 	refs    map[string]board.Link
 	b       board.Board
 	log     []string
@@ -37,6 +42,8 @@ func newFake(cards []board.Card, states map[string]board.SprintState) *fakeBacke
 func (f *fakeBackend) rec(format string, a ...any) { f.log = append(f.log, fmt.Sprintf(format, a...)) }
 
 func (f *fakeBackend) saw(s string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	for _, e := range f.log {
 		if e == s {
 			return true
@@ -46,6 +53,8 @@ func (f *fakeBackend) saw(s string) bool {
 }
 
 func (f *fakeBackend) count(prefix string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	n := 0
 	for _, e := range f.log {
 		if strings.HasPrefix(e, prefix) {
@@ -65,6 +74,8 @@ func (f *fakeBackend) get(itemID string) *board.Card {
 }
 
 func (f *fakeBackend) ResolveIssueRef(_ context.Context, link board.Link) (board.Link, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("ResolveIssueRef %s", link.URL)
 	resolved, ok := f.refs[link.URL]
 	if !ok {
@@ -74,6 +85,8 @@ func (f *fakeBackend) ResolveIssueRef(_ context.Context, link board.Link) (board
 }
 
 func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("LoadBoard")
 	cards := make([]board.Card, len(f.b.Cards))
 	copy(cards, f.b.Cards)
@@ -85,6 +98,8 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 }
 
 func (f *fakeBackend) LoadCards(_ context.Context, _ board.Board, ids []string) ([]board.Card, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("LoadCards")
 	want := make(map[string]bool, len(ids))
 	for _, id := range ids {
@@ -100,6 +115,8 @@ func (f *fakeBackend) LoadCards(_ context.Context, _ board.Board, ids []string) 
 }
 
 func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.CreateInput) (board.Card, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
@@ -117,6 +134,8 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 }
 
 func (f *fakeBackend) DeleteCard(_ context.Context, _ board.Board, card board.Card) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("DeleteCard %s", card.ItemID)
 	out := f.b.Cards[:0]
 	for _, c := range f.b.Cards {
@@ -129,11 +148,15 @@ func (f *fakeBackend) DeleteCard(_ context.Context, _ board.Board, card board.Ca
 }
 
 func (f *fakeBackend) MoveCard(_ context.Context, _ board.Board, card board.Card, afterID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("MoveCard %s after=%s", card.ItemID, afterID)
 	return nil
 }
 
 func (f *fakeBackend) AppendEvent(_ context.Context, _ board.Board, card board.Card, e board.Event) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("AppendEvent %s %s %s->%s", card.ItemID, e.Kind, e.From, e.To)
 	if c := f.get(card.ItemID); c != nil {
 		c.Events = append(c.Events, e)
@@ -142,26 +165,36 @@ func (f *fakeBackend) AppendEvent(_ context.Context, _ board.Board, card board.C
 }
 
 func (f *fakeBackend) AddNote(_ context.Context, _ board.Board, card board.Card, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("AddNote %s %s", card.ItemID, text)
 	return nil
 }
 
 func (f *fakeBackend) EditNote(_ context.Context, _ board.Board, card board.Card, note board.Note, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("EditNote %s %s %s", card.ItemID, note.ID, text)
 	return nil
 }
 
 func (f *fakeBackend) DeleteNote(_ context.Context, _ board.Board, card board.Card, note board.Note) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("DeleteNote %s %s", card.ItemID, note.ID)
 	return nil
 }
 
 func (f *fakeBackend) SetDescription(_ context.Context, _ board.Board, card board.Card, description string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetDescription %s %s", card.ItemID, description)
 	return nil
 }
 
 func (f *fakeBackend) RenameCard(_ context.Context, _ board.Board, card board.Card, title string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("RenameCard %s", card.ItemID)
 	if c := f.get(card.ItemID); c != nil {
 		c.Title = title
@@ -170,6 +203,8 @@ func (f *fakeBackend) RenameCard(_ context.Context, _ board.Board, card board.Ca
 }
 
 func (f *fakeBackend) SetStage(_ context.Context, _ board.Board, card board.Card, stage board.StageKey) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetStage %s %s", card.ItemID, stage)
 	if c := f.get(card.ItemID); c != nil {
 		c.Stage = stage
@@ -178,6 +213,8 @@ func (f *fakeBackend) SetStage(_ context.Context, _ board.Board, card board.Card
 }
 
 func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.Card, progress int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetProgress %s %d", card.ItemID, progress)
 	if c := f.get(card.ItemID); c != nil {
 		c.Progress = progress
@@ -186,6 +223,8 @@ func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.C
 }
 
 func (f *fakeBackend) SetZone(_ context.Context, _ board.Board, card board.Card, zone board.ZoneKey) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetZone %s %s", card.ItemID, zone)
 	if c := f.get(card.ItemID); c != nil {
 		c.Zone = zone
@@ -194,6 +233,8 @@ func (f *fakeBackend) SetZone(_ context.Context, _ board.Board, card board.Card,
 }
 
 func (f *fakeBackend) SetDay(_ context.Context, _ board.Board, card board.Card, day string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetDay %s %s", card.ItemID, day)
 	if c := f.get(card.ItemID); c != nil {
 		c.Day = day
@@ -202,6 +243,8 @@ func (f *fakeBackend) SetDay(_ context.Context, _ board.Board, card board.Card, 
 }
 
 func (f *fakeBackend) SetStart(_ context.Context, _ board.Board, card board.Card, date string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetStart %s %s", card.ItemID, date)
 	if c := f.get(card.ItemID); c != nil {
 		c.StartDate = date
@@ -210,6 +253,8 @@ func (f *fakeBackend) SetStart(_ context.Context, _ board.Board, card board.Card
 }
 
 func (f *fakeBackend) SetSprintStart(_ context.Context, _ board.Board, card board.Card, date string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetSprintStart %s %s", card.ItemID, date)
 	if c := f.get(card.ItemID); c != nil {
 		c.SprintStart = date
@@ -218,6 +263,8 @@ func (f *fakeBackend) SetSprintStart(_ context.Context, _ board.Board, card boar
 }
 
 func (f *fakeBackend) SetPlan(_ context.Context, _ board.Board, card board.Card, plan board.PlanBand) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetPlan %s %s", card.ItemID, plan)
 	if c := f.get(card.ItemID); c != nil {
 		c.Plan = plan
@@ -226,6 +273,8 @@ func (f *fakeBackend) SetPlan(_ context.Context, _ board.Board, card board.Card,
 }
 
 func (f *fakeBackend) SetWeek(_ context.Context, _ board.Board, card board.Card, week string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetWeek %s %s", card.ItemID, week)
 	if c := f.get(card.ItemID); c != nil {
 		c.Week = week
@@ -234,6 +283,8 @@ func (f *fakeBackend) SetWeek(_ context.Context, _ board.Board, card board.Card,
 }
 
 func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card, team string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetTeam %s %s", card.ItemID, team)
 	if c := f.get(card.ItemID); c != nil {
 		c.Team = team
@@ -242,6 +293,8 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 }
 
 func (f *fakeBackend) SetRecurrence(_ context.Context, _ board.Board, card board.Card, cycle string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetRecurrence %s %s", card.ItemID, cycle)
 	if c := f.get(card.ItemID); c != nil {
 		c.Recurrence = cycle
@@ -250,6 +303,8 @@ func (f *fakeBackend) SetRecurrence(_ context.Context, _ board.Board, card board
 }
 
 func (f *fakeBackend) SetAssignee(_ context.Context, _ board.Board, card board.Card, login string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetAssignee %s %s", card.ItemID, login)
 	if c := f.get(card.ItemID); c != nil {
 		if login == "" {
@@ -262,6 +317,8 @@ func (f *fakeBackend) SetAssignee(_ context.Context, _ board.Board, card board.C
 }
 
 func (f *fakeBackend) SetParent(_ context.Context, _ board.Board, card board.Card, parent string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetParent %s %s", card.ItemID, parent)
 	if c := f.get(card.ItemID); c != nil {
 		c.Parent = parent
@@ -270,6 +327,8 @@ func (f *fakeBackend) SetParent(_ context.Context, _ board.Board, card board.Car
 }
 
 func (f *fakeBackend) SetReviewOf(_ context.Context, _ board.Board, card board.Card, reviewOf string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetReviewOf %s %s", card.ItemID, reviewOf)
 	if c := f.get(card.ItemID); c != nil {
 		c.ReviewOf = reviewOf
@@ -278,6 +337,8 @@ func (f *fakeBackend) SetReviewOf(_ context.Context, _ board.Board, card board.C
 }
 
 func (f *fakeBackend) SetReviewRound(_ context.Context, _ board.Board, card board.Card, round int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetReviewRound %s %d", card.ItemID, round)
 	if c := f.get(card.ItemID); c != nil {
 		c.ReviewRound = round
@@ -286,6 +347,8 @@ func (f *fakeBackend) SetReviewRound(_ context.Context, _ board.Board, card boar
 }
 
 func (f *fakeBackend) SetSprintState(_ context.Context, _ board.Board, team, current, previous string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.rec("SetSprintState %s cur=%s prev=%s", team, current, previous)
 	st := f.b.SprintStates[team]
 	st.Current = current
