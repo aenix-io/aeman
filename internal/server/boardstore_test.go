@@ -531,45 +531,49 @@ func TestStaleHeaderOnAPIRead(t *testing.T) {
 
 // cached gates a hit on load freshness AND, in multi-user mode, the caller's
 // proven access: a fresh hit needs both within their fresh TTLs, an older
-// board or proof (each up to boardStaleMax) degrades to a stale hit, and a
-// login that never proved access — or nothing within boardStaleMax — misses.
-// Local single-user mode (empty login, multiUser=false) skips the login gate.
+// board or proof (each up to boardStaleMax) degrades to a stale hit. A login
+// that never proved access — or whose proof aged past boardStaleMax — gets
+// cacheUnauthed: no board (nothing may be served before proof), but the
+// caller knows a cheap access probe can admit it without a full load. Local
+// single-user mode (empty login, multiUser=false) skips the login gate.
 func TestCachedAuthz(t *testing.T) {
 	e := &boardEntry{loaded: true, loadedAt: time.Now()}
-	if _, state := e.cached("", false); state != cacheFresh {
+	if _, state, _ := e.cached("", false); state != cacheFresh {
 		t.Fatal("local single-user mode should serve the fresh cache")
 	}
-	if _, state := e.cached("alice", true); state != cacheMiss {
-		t.Fatal("multi-user: unauthorized login must miss the cache")
+	if bd, state, _ := e.cached("alice", true); state != cacheUnauthed || bd.ID != "" || len(bd.Cards) != 0 {
+		t.Fatal("multi-user: unauthorized login must get cacheUnauthed and NO board")
 	}
 	e.markAuthed("alice")
-	if _, state := e.cached("alice", true); state != cacheFresh {
-		t.Fatal("multi-user: authorized login must hit the fresh cache")
+	if _, state, reproof := e.cached("alice", true); state != cacheFresh || reproof {
+		t.Fatal("multi-user: authorized login must hit the fresh cache, no re-proof")
 	}
-	if _, state := e.cached("", true); state != cacheMiss {
+	if _, state, _ := e.cached("", true); state != cacheMiss {
 		t.Fatal("multi-user: an empty login must never hit the cache")
 	}
 	e.loadedAt = time.Now().Add(-2 * boardFreshFor)
-	if _, state := e.cached("alice", true); state != cacheStale {
+	if _, state, _ := e.cached("alice", true); state != cacheStale {
 		t.Fatal("past the fresh TTL an authorized login must get a stale hit")
 	}
-	if _, state := e.cached("mallory", true); state != cacheMiss {
+	if bd, state, _ := e.cached("mallory", true); state != cacheUnauthed || bd.ID != "" {
 		t.Fatal("a stale hit must still require per-login authorization")
 	}
-	// A fresh board with an aging proof degrades the same way: the background
-	// reload re-checks the token instead of blocking the read on it.
+	// A fresh board with an aging proof is still served fresh — blocking (or
+	// degrading) the read on the token re-check was what forced a full reload
+	// per user per minute — but the reproof flag tells the caller to re-prove
+	// the token with a background probe.
 	e.loadedAt = time.Now()
 	e.authed["alice"] = time.Now().Add(-2 * authFreshFor)
-	if _, state := e.cached("alice", true); state != cacheStale {
-		t.Fatal("an aged authorization must degrade a fresh board to a stale hit")
+	if _, state, reproof := e.cached("alice", true); state != cacheFresh || !reproof {
+		t.Fatal("an aged authorization must serve fresh WITH the reproof flag")
 	}
 	e.authed["alice"] = time.Now().Add(-boardStaleMax - time.Second)
-	if _, state := e.cached("alice", true); state != cacheMiss {
-		t.Fatal("an authorization older than boardStaleMax must miss")
+	if _, state, _ := e.cached("alice", true); state != cacheUnauthed {
+		t.Fatal("an authorization older than boardStaleMax must re-prove (cacheUnauthed)")
 	}
 	e.markAuthed("alice")
 	e.loadedAt = time.Now().Add(-boardStaleMax - time.Second)
-	if _, state := e.cached("alice", true); state != cacheMiss {
+	if _, state, _ := e.cached("alice", true); state != cacheMiss {
 		t.Fatal("past boardStaleMax the cache must miss regardless of authorization")
 	}
 }
@@ -635,5 +639,157 @@ func TestUnattributedWorkIsNotEchoSuppressed(t *testing.T) {
 	}
 	if got := clientIDFrom(board.Unattributed(withClient)); got != "" {
 		t.Fatalf("unattributed work must carry no origin, got %q", got)
+	}
+}
+
+// probedBackend is an authzBackend that also offers the cheap access probe,
+// with its own counter and verdict so tests can tell the two apart.
+type probedBackend struct {
+	authzBackend
+	probes    int
+	probeDeny bool
+}
+
+func (p *probedBackend) CheckBoardAccess(_ context.Context, _ string, _ int) error {
+	p.probes++
+	if p.probeDeny {
+		return errors.New("github: not authorized")
+	}
+	return nil
+}
+
+// A second authorized user reaching a warm cache pays one cheap access probe,
+// not the full multi-page board load — that full reload on every >10-minute
+// break is exactly the 20-30s first-open hang this path removes.
+func TestBoardCacheProbeAdmitsSecondUser(t *testing.T) {
+	store := newBoardStore()
+
+	alice := &probedBackend{}
+	aliceBE := &storeBackend{inner: alice, store: store, multiUser: true}
+	bob := &probedBackend{}
+	bobBE := &storeBackend{inner: bob, store: store, multiUser: true}
+
+	aliceCtx := board.WithActor(context.Background(), "alice")
+	bobCtx := board.WithActor(context.Background(), "bob")
+
+	// Alice's first read pays the full load and warms the cache.
+	if _, err := aliceBE.LoadBoard(aliceCtx, "acme", 1); err != nil {
+		t.Fatalf("alice load: %v", err)
+	}
+	// Bob arrives at the warm cache without any proof of access: one probe,
+	// zero full loads, and he is served.
+	if _, err := bobBE.LoadBoard(bobCtx, "acme", 1); err != nil {
+		t.Fatalf("bob load: %v", err)
+	}
+	if bob.probes != 1 {
+		t.Fatalf("bob probes = %d, want 1", bob.probes)
+	}
+	if bob.loads != 0 {
+		t.Fatalf("bob full loads = %d, want 0 (the probe must admit him)", bob.loads)
+	}
+	// Bob again right away: his proof is recorded, not even a probe now.
+	if _, err := bobBE.LoadBoard(bobCtx, "acme", 1); err != nil {
+		t.Fatalf("bob second load: %v", err)
+	}
+	if bob.probes != 1 || bob.loads != 0 {
+		t.Fatalf("bob after markAuthed: probes=%d loads=%d, want 1/0", bob.probes, bob.loads)
+	}
+}
+
+// A denied user's probe failure must NOT admit them: the request falls through
+// to their own token-scoped load, which surfaces the real authorization error.
+func TestBoardCacheProbeDeniedFallsThrough(t *testing.T) {
+	store := newBoardStore()
+
+	alice := &probedBackend{}
+	aliceBE := &storeBackend{inner: alice, store: store, multiUser: true}
+	mallory := &probedBackend{probeDeny: true}
+	mallory.deny = true
+	malloryBE := &storeBackend{inner: mallory, store: store, multiUser: true}
+
+	if _, err := aliceBE.LoadBoard(board.WithActor(context.Background(), "alice"), "acme", 1); err != nil {
+		t.Fatalf("alice load: %v", err)
+	}
+	if _, err := malloryBE.LoadBoard(board.WithActor(context.Background(), "mallory"), "acme", 1); err == nil {
+		t.Fatal("mallory read a board she cannot access (probe admitted her)")
+	}
+	if mallory.probes != 1 {
+		t.Fatalf("mallory probes = %d, want 1", mallory.probes)
+	}
+	if mallory.loads != 1 {
+		t.Fatalf("mallory full loads = %d, want 1 (the denied probe must not short-circuit the real check)", mallory.loads)
+	}
+}
+
+// warmBackend counts loads atomically: the warmer hits it from a background
+// goroutine while the test polls the counter.
+type warmBackend struct {
+	boardservice.Backend // nil: only LoadBoard is exercised
+	loads                atomic.Int64
+}
+
+func (w *warmBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
+	w.loads.Add(1)
+	return board.Board{Owner: "acme", Number: 1}, nil
+}
+
+// The background warmer keeps a board's cache refreshed on its own while the
+// board has watchers (open tabs) or was read within warmIdleFor — so no
+// interactive read ever pays the full cold load — and stops polling GitHub
+// once neither holds.
+func TestBoardCacheWarmerFollowsWatchers(t *testing.T) {
+	store := newBoardStore()
+	store.warmEvery = 10 * time.Millisecond
+	store.warmIdleEvery = 10 * time.Millisecond
+	inner := &warmBackend{}
+	be := &storeBackend{inner: inner, store: store}
+
+	_, unsubscribe := store.subscribe(storeKey("acme", 1), "tab-1", nil, map[string]bool{"cards": true})
+
+	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	base := inner.loads.Load()
+
+	// The warmer must refresh on its own, with no further requests.
+	deadline := time.Now().Add(2 * time.Second)
+	for inner.loads.Load() < base+2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := inner.loads.Load(); got < base+2 {
+		t.Fatalf("warmer never refreshed: loads = %d, want >= %d", got, base+2)
+	}
+
+	// Watchers gone but the board was just read: the warmer keeps going —
+	// this is the overnight window that makes the next morning's open warm.
+	unsubscribe()
+	base = inner.loads.Load()
+	deadline = time.Now().Add(2 * time.Second)
+	for inner.loads.Load() < base+2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := inner.loads.Load(); got < base+2 {
+		t.Fatalf("warmer must outlive the watchers within warmIdleFor: loads = %d, want >= %d", got, base+2)
+	}
+
+	// No watchers AND the last read has aged out: the warmer must wind down.
+	e := store.entry(storeKey("acme", 1))
+	e.mu.Lock()
+	e.lastRead = time.Now().Add(-warmIdleFor - time.Minute)
+	e.mu.Unlock()
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		e.mu.Lock()
+		warming := e.warming
+		e.mu.Unlock()
+		if !warming {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	settled := inner.loads.Load()
+	time.Sleep(60 * time.Millisecond)
+	if got := inner.loads.Load(); got != settled {
+		t.Fatalf("warmer kept polling an idle, watcher-less board: %d -> %d", settled, got)
 	}
 }
