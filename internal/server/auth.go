@@ -342,6 +342,30 @@ func (a *authManager) session(r *http.Request) (oauthSession, bool) {
 	return s, true
 }
 
+// sessionID returns the caller's session cookie value ("" when absent). It
+// does not validate the session — pair it with sessionAlive.
+func (a *authManager) sessionID(r *http.Request) string {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return ""
+	}
+	return c.Value
+}
+
+// sessionAlive reports whether sid still maps to a live, unexpired session.
+// The board warmer polls it each tick so a captured token stops being used
+// once its owner's session ends (logout or TTL) — not merely when GitHub
+// finally rejects the token.
+func (a *authManager) sessionAlive(sid string) bool {
+	if sid == "" {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s, ok := a.sessions[sid]
+	return ok && time.Since(s.created) <= sessionTTL
+}
+
 func (a *authManager) setCookie(w http.ResponseWriter, name, value string, maxAge int) {
 	// Secure is driven by the public scheme: true behind the HTTPS proxy
 	// (Cloudflare), false only for plain-HTTP local testing.

@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sort"
 	"strconv"
@@ -15,6 +17,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // watchFrame is one event on the watch stream: a typed change to a Card,
@@ -71,9 +74,14 @@ func clientIDFrom(ctx context.Context) string {
 	return id
 }
 
-// boardFreshFor bounds how long a cached board is served before a read reloads
-// it from the backend, so edits made outside aeman eventually surface.
-const boardFreshFor = 30 * time.Second
+// boardFreshFor bounds how long a cached board is served before a read
+// questions it. It matches the background warmer's watched cadence
+// (boardStore.warmEvery): the warmer refreshes the cache from GitHub on that
+// rhythm, so in the steady state interactive reads AND mutations land on a
+// fresh cache instead of re-paying the multi-page load themselves — the
+// pre-warmer value of 30s made every mutation outside a narrow window block
+// on a full reload. Edits made outside aeman surface within one warmer tick.
+const boardFreshFor = 3 * time.Minute
 
 // boardStaleMax bounds how old a snapshot a read-only request may still be
 // served while the store revalidates in the background. Past it (the first
@@ -131,11 +139,32 @@ type boardEntry struct {
 	// warming marks the background cache warmer as running for this entry, so
 	// repeated loads do not stack a second one.
 	warming bool
-	// lastRead is when a request last read this board (cache hit or load).
-	// The warmer keeps refreshing a watcher-less board for warmIdleFor past
-	// it, so the first open of the morning finds the cache warm even though
-	// every laptop — and its watch connection — slept through the night.
+	// warmSrc is what the warmer refreshes the board with: the client (and
+	// session-liveness check) of the most recent request whose own full load
+	// succeeded. Rotated on every such load, so the warmer migrates to the
+	// freshest token instead of riding whoever happened to start it.
+	warmSrc *warmSource
+	// lastRead is when a request was last SERVED this board (cache hit or
+	// load) — stamped only on success, so an unauthorized caller cannot
+	// extend the warm window of a board it may not read. The warmer keeps
+	// refreshing a watcher-less board for warmIdleFor past it, so the first
+	// open of the morning finds the cache warm even though every laptop —
+	// and its watch connection — slept through the night.
 	lastRead time.Time
+	// reproving guards the async access re-proof so a burst of reads (one
+	// card panel fires several GETs) probes GitHub once per login, not once
+	// per request.
+	reproving map[string]bool
+}
+
+// warmSource is the identity the background warmer loads with: a per-request
+// backend client (carrying that user's token), an optional liveness check
+// bound to the owning session (nil = always alive, the local single-user
+// mode), and the login for logging.
+type warmSource struct {
+	inner boardservice.Backend
+	alive func() bool
+	login string
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -291,66 +320,74 @@ const (
 	cacheFresh
 )
 
-// cached returns the board and how usable it is for this caller. cacheFresh
-// needs both the board within boardFreshFor and, for a named login (OAuth
-// multi-user mode; an empty login is the single local user, always allowed),
-// token-scoped access proven within authFreshFor. Past either TTL — but with
-// the board loaded and the login's proof both within boardStaleMax — the hit
-// degrades to cacheStale: read paths may serve it while a background reload
-// with the caller's own token refreshes the board AND re-proves their access,
-// so a revoked token stops refreshing its proof and hard-fails within
-// boardStaleMax. A login that never proved access always misses — the shared
-// cache is keyed only by owner/project, and this gate is what keeps one
-// user's warm board from leaking to another. multiUser forces the login check
-// even if a login somehow arrives empty, so an OAuth deployment never serves
-// the cache without a per-user authorization.
-func (e *boardEntry) cached(login string, multiUser bool) (board.Board, cacheState) {
+// cached returns the board, how usable it is for this caller, and whether
+// the caller's access proof wants a background re-proof. The board dimension
+// alone grades the hit: within boardFreshFor it is cacheFresh, past that (up
+// to boardStaleMax) cacheStale — read paths may serve a stale hit while a
+// background reload revalidates it. The login dimension gates independently:
+// for a named login (OAuth multi-user mode; an empty login is the single
+// local user, always allowed), token-scoped access must have been proven
+// within boardStaleMax — never proven, or proven too long ago, is
+// cacheUnauthed with NO board: the shared cache is keyed only by
+// owner/project, and this gate is what keeps one user's warm board from
+// leaking to another. A proof merely older than authFreshFor does not block
+// the hit — it sets reproof, and the caller re-proves the token with a cheap
+// background probe (a failed probe drops the proof; the boardStaleMax ceiling
+// bounds how long a revoked token can ride the cache either way, exactly as
+// it always did). multiUser forces the login check even if a login somehow
+// arrives empty, so an OAuth deployment never serves the cache without a
+// per-user authorization.
+func (e *boardEntry) cached(login string, multiUser bool) (board.Board, cacheState, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if !e.loaded {
-		return board.Board{}, cacheMiss
+		return board.Board{}, cacheMiss, false
 	}
 	age := time.Since(e.loadedAt)
 	if age >= boardStaleMax {
-		return board.Board{}, cacheMiss
+		return board.Board{}, cacheMiss, false
 	}
-	authAge := time.Duration(0)
+	reproof := false
 	if multiUser || login != "" {
 		if login == "" {
 			// No login to credit a probe to — only a full token-scoped load
 			// can serve this caller.
-			return board.Board{}, cacheMiss
+			return board.Board{}, cacheMiss, false
 		}
 		ts, ok := e.authed[login]
 		if !ok {
-			return board.Board{}, cacheUnauthed
+			return board.Board{}, cacheUnauthed, false
 		}
-		authAge = time.Since(ts)
+		authAge := time.Since(ts)
 		if authAge >= boardStaleMax {
-			return board.Board{}, cacheUnauthed
+			return board.Board{}, cacheUnauthed, false
 		}
+		reproof = authAge >= authFreshFor
 	}
-	if age >= boardFreshFor || authAge >= authFreshFor {
-		return e.board, cacheStale
+	if age >= boardFreshFor {
+		return e.board, cacheStale, reproof
 	}
-	return e.board, cacheFresh
+	return e.board, cacheFresh, reproof
 }
 
 // markAuthed records that a login's own token just proved read access, and
 // sweeps entries too old to back even a stale hit so the map tracks only
 // currently-active users. The caller holds e.mu.
 func (e *boardEntry) markAuthed(login string) {
-	if login == "" {
-		return
-	}
-	if e.authed == nil {
-		e.authed = map[string]time.Time{}
-	}
+	// Sweep before the empty-login return: the warmer's installs (login "")
+	// are the most frequent caller, and without this the sweep would only run
+	// on the rarer user-driven full loads.
 	now := time.Now()
 	for l, ts := range e.authed {
 		if now.Sub(ts) >= boardStaleMax {
 			delete(e.authed, l)
 		}
+	}
+	if login == "" {
+		return
+	}
+	if e.authed == nil {
+		e.authed = map[string]time.Time{}
 	}
 	e.authed[login] = now
 }
@@ -573,16 +610,35 @@ func (e *boardEntry) removeCard(itemID string) {
 type boardStore struct {
 	mu      sync.Mutex
 	entries map[string]*boardEntry
-	// warmEvery is the background warmer's refresh cadence (see ensureWarm).
-	// It must sit well under boardStaleMax so a watched board never ages past
-	// the stale ceiling — past which every read blocks on the full multi-page
-	// GitHub load — while staying coarse enough that a large board costs only
-	// a handful of GraphQL pages per cycle. Set at construction; tests shrink it.
-	warmEvery time.Duration
+	// warmEvery is the warmer's cadence while the board has watchers (open
+	// tabs): it equals boardFreshFor, so an actively watched board is always
+	// fresh and neither reads nor mutations ever block on the full multi-page
+	// GitHub load. warmIdleEvery is the watcher-less cadence (the overnight
+	// window): slower to spare the captured token, but still under
+	// boardStaleMax so the morning's first read gets an instantly served
+	// stale hit instead of a cold load. Set at construction; tests shrink them.
+	warmEvery     time.Duration
+	warmIdleEvery time.Duration
+	// log receives warmer lifecycle events (start/stop and on whose token it
+	// runs). Nil-safe via logger().
+	log *slog.Logger
+}
+
+// logger returns the store's logger, or a discard logger when none was wired
+// (tests).
+func (s *boardStore) logger() *slog.Logger {
+	if s.log != nil {
+		return s.log
+	}
+	return slog.New(slog.DiscardHandler)
 }
 
 func newBoardStore() *boardStore {
-	return &boardStore{entries: map[string]*boardEntry{}, warmEvery: 3 * time.Minute}
+	return &boardStore{
+		entries:       map[string]*boardEntry{},
+		warmEvery:     boardFreshFor,
+		warmIdleEvery: 8 * time.Minute,
+	}
 }
 
 func storeKey(owner string, project int) string {
@@ -668,6 +724,11 @@ type storeBackend struct {
 	// user's token: a cache hit is then gated on that login having proven
 	// token-scoped access. Off in local-proxy mode (a single gh identity).
 	multiUser bool
+	// warmAlive reports whether the session behind this request's token is
+	// still live; the warmer polls it so a captured token stops being used
+	// once its owner logs out or the session expires. Nil in local-proxy mode
+	// (the gh identity has no session to outlive).
+	warmAlive func() bool
 }
 
 var _ boardservice.Backend = (*storeBackend)(nil)
@@ -681,54 +742,70 @@ var _ boardservice.Backend = (*storeBackend)(nil)
 func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
 	e := b.store.entry(storeKey(owner, project))
 	login := board.ActorFrom(ctx)
-	e.mu.Lock()
-	e.lastRead = time.Now()
-	e.mu.Unlock()
-	bd, state := e.cached(login, b.multiUser)
+	bd, state, reproof := e.cached(login, b.multiUser)
 	if state == cacheFresh {
+		if reproof {
+			b.reproveAsync(ctx, e, owner, project, login)
+		}
+		b.markRead(e)
 		return bd, nil
 	}
 	if state == cacheStale {
 		if sc := staleControlFrom(ctx); sc != nil {
+			// The background revalidation re-proves the caller's token too
+			// (install records the login), so no separate probe is needed.
 			b.revalidate(ctx, e, owner, project)
 			sc.served.Store(true)
+			b.markRead(e)
 			return bd, nil
 		}
 	}
 	// The board is warm — only this login has no (recent enough) proof its
 	// token can read it. Proving that costs one tiny GraphQL probe, not the
 	// multi-page load below: without this, every engineer coming back from a
-	// >10-minute break personally re-paid the full board fetch (~2s per 100
-	// cards) just to be let into a cache their teammates kept warm.
+	// break personally re-paid the full board fetch (~2s per 100 cards) just
+	// to be let into a cache their teammates kept warm.
+	probeFailed := false
 	if state == cacheUnauthed && login != "" {
-		if prober, ok := b.inner.(accessProber); ok {
-			if err := prober.CheckBoardAccess(ctx, owner, project); err == nil {
-				e.mu.Lock()
-				e.markAuthed(login)
-				e.mu.Unlock()
-				bd, state := e.cached(login, b.multiUser)
-				if state == cacheFresh {
+		bd, st, ok := b.admitByProbe(ctx, e, owner, project, login)
+		probeFailed = !ok
+		if ok {
+			if st == cacheFresh {
+				b.markRead(e)
+				return bd, nil
+			}
+			if st == cacheStale {
+				if sc := staleControlFrom(ctx); sc != nil {
+					b.revalidate(ctx, e, owner, project)
+					sc.served.Store(true)
+					b.markRead(e)
 					return bd, nil
 				}
-				if state == cacheStale {
-					if sc := staleControlFrom(ctx); sc != nil {
-						b.revalidate(ctx, e, owner, project)
-						sc.served.Store(true)
-						return bd, nil
-					}
-				}
-				// A path that cannot take stale data falls through to the
-				// full load below.
 			}
-			// A failed probe falls through too: the full load surfaces the
-			// real error (no access, rate limit, network) to the caller.
+			// A path that cannot take stale data falls through to the full
+			// load below.
 		}
+		// A failed probe falls through too: the full load surfaces the real
+		// error (no access, rate limit, network) to the caller.
 	}
 	e.loadMu.Lock()
 	defer e.loadMu.Unlock()
-	// A concurrent loader may have refreshed the cache while we waited.
-	if bd, state := e.cached(login, b.multiUser); state == cacheFresh {
+	// A concurrent loader — the warmer included — may have refreshed the
+	// cache while we waited on loadMu; a mutation that queued behind the
+	// warmer's reload must ride that result (proving its own access by probe
+	// when needed — but not re-asking after a probe that just failed) instead
+	// of re-paying the full load.
+	if bd, st, rp := e.cached(login, b.multiUser); st == cacheFresh {
+		if rp {
+			b.reproveAsync(ctx, e, owner, project, login)
+		}
+		b.markRead(e)
 		return bd, nil
+	} else if st == cacheUnauthed && login != "" && !probeFailed {
+		if bd, st2, ok := b.admitByProbe(ctx, e, owner, project, login); ok && st2 == cacheFresh {
+			b.markRead(e)
+			return bd, nil
+		}
 	}
 	// The token-scoped backend load is the authorization check: GitHub rejects a
 	// token that can't read this board, so reaching a cached result requires
@@ -738,7 +815,9 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		return board.Board{}, err
 	}
 	installed := b.install(e, fresh, login)
+	b.setWarmSrc(e, login)
 	b.ensureWarm(e, owner, project)
+	b.markRead(e)
 	return installed, nil
 }
 
@@ -747,6 +826,73 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 // implements it with a single project-id query.
 type accessProber interface {
 	CheckBoardAccess(ctx context.Context, owner string, project int) error
+}
+
+// markRead stamps the entry as served. Only successful serves count: an
+// unauthorized caller must not be able to extend the warm window.
+func (b *storeBackend) markRead(e *boardEntry) {
+	e.mu.Lock()
+	e.lastRead = time.Now()
+	e.mu.Unlock()
+}
+
+// admitByProbe re-proves login's access with the cheap probe and, on success,
+// records it and returns the resulting cache state. ok=false means the probe
+// was unavailable or failed — the caller falls back to the full load.
+func (b *storeBackend) admitByProbe(ctx context.Context, e *boardEntry, owner string, project int, login string) (board.Board, cacheState, bool) {
+	prober, hasProbe := b.inner.(accessProber)
+	if !hasProbe || login == "" {
+		return board.Board{}, cacheMiss, false
+	}
+	if err := prober.CheckBoardAccess(ctx, owner, project); err != nil {
+		return board.Board{}, cacheMiss, false
+	}
+	e.mu.Lock()
+	e.markAuthed(login)
+	e.mu.Unlock()
+	bd, state, _ := e.cached(login, b.multiUser)
+	return bd, state, true
+}
+
+// reproveAsync refreshes an aging access proof in the background: the read was
+// already served (the proof is inside boardStaleMax), so the caller must not
+// wait on GitHub. A probe that positively reports no access drops the proof —
+// the next read gates hard on cacheUnauthed; a transient failure leaves the
+// proof aging toward the boardStaleMax ceiling, exactly as the old
+// revalidation-based re-proof did. Deduplicated per login so a burst of GETs
+// probes once.
+func (b *storeBackend) reproveAsync(ctx context.Context, e *boardEntry, owner string, project int, login string) {
+	prober, ok := b.inner.(accessProber)
+	if !ok || login == "" {
+		return
+	}
+	e.mu.Lock()
+	if e.reproving == nil {
+		e.reproving = map[string]bool{}
+	}
+	if e.reproving[login] {
+		e.mu.Unlock()
+		return
+	}
+	e.reproving[login] = true
+	e.mu.Unlock()
+	bg := context.WithoutCancel(ctx)
+	go func() {
+		ctx, cancel := context.WithTimeout(bg, 30*time.Second)
+		defer cancel()
+		err := prober.CheckBoardAccess(ctx, owner, project)
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		delete(e.reproving, login)
+		switch {
+		case err == nil:
+			e.markAuthed(login)
+		case errors.Is(err, ghprojects.ErrBoardNotFound):
+			// Access is positively gone (revoked, or the board vanished):
+			// drop the proof so the next read gates on cacheUnauthed.
+			delete(e.authed, login)
+		}
+	}()
 }
 
 // revalidate refreshes a stale cache in the background with the requesting
@@ -771,6 +917,7 @@ func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, owner stri
 			return
 		}
 		b.install(e, fresh, login)
+		b.setWarmSrc(e, login)
 		b.ensureWarm(e, owner, project)
 	}()
 }
@@ -782,53 +929,134 @@ func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, owner stri
 // traffic within a day.
 const warmIdleFor = 16 * time.Hour
 
-// ensureWarm keeps a board's cache from ever crossing boardStaleMax while
+// warmLoadTimeout bounds one warm refresh: a dozen-page board at GitHub's
+// worst is minutes, and the warmer holds loadMu for the duration.
+const warmLoadTimeout = 5 * time.Minute
+
+// warmMaxFails is how many consecutive failed refreshes the warmer tolerates
+// before giving up. Transient upstream errors (a 502 at 02:00) just skip a
+// tick — the cadence itself is the backoff — but a persistently failing
+// source (a revoked token answering 401 forever) must not poll GitHub all
+// night.
+const warmMaxFails = 5
+
+// setWarmSrc rotates the warmer's identity to the calling request: its
+// backend client (token), its session-liveness check, and its login. Called
+// on every successful user-driven full load, so the warmer always rides the
+// freshest token instead of whoever happened to start it.
+func (b *storeBackend) setWarmSrc(e *boardEntry, login string) {
+	// In multi-user mode only a session-bound client may power the warmer: a
+	// token with no liveness check (an MCP request's, or a stray empty login)
+	// would keep being used with nothing to ever stop it.
+	if b.multiUser && (b.warmAlive == nil || login == "") {
+		return
+	}
+	e.mu.Lock()
+	e.warmSrc = &warmSource{inner: b.inner, alive: b.warmAlive, login: login}
+	e.mu.Unlock()
+}
+
+// ensureWarm keeps a board's cache from ever crossing boardFreshFor while
 // anyone plausibly needs it: while the entry has watchers (every open tab
-// holds a watch connection) and for warmIdleFor past the last read, a
-// background loop refreshes the cache on the token of the request that
-// started it. Without this the first person to open aeman after a quiet
-// stretch — every morning, after every lunch — ate a 20-30s cold load; with
-// it that load happens off-request. It also REPLACES the per-tab revalidation
-// the watch ping used to kick every 30s: one 3-minute server-side loop per
-// board instead of a near-continuous full reload per open tab.
+// holds a watch connection) it refreshes every warmEvery (= boardFreshFor, so
+// watched boards are always fresh and mutations never block on a full load),
+// and for warmIdleFor past the last read it keeps a watcher-less board under
+// boardStaleMax at the slower warmIdleEvery — carrying the cache through the
+// night so the first open of the morning is served instantly. It REPLACES the
+// per-tab revalidation the watch ping used to kick every 30s: one server-side
+// loop per board instead of a near-continuous full reload per open tab.
 //
-// The loop stops when neither condition holds or a refresh fails (an expired
-// or revoked token must not keep polling GitHub); the next user-driven load
-// restarts it on a current token. Single-flight per entry via e.warming.
+// Each tick re-reads e.warmSrc, so the loop migrates to the most recent
+// loader's token and stops when that source's session is gone (logout, TTL) —
+// a captured token must not outlive its owner's session. Transient refresh
+// failures skip a tick (broadcasting a Sync so stale-read holds release, as
+// revalidate does); warmMaxFails consecutive failures, or a positive
+// access-gone answer, end the loop. The next user-driven load restarts it.
+// Single-flight per entry via e.warming.
 func (b *storeBackend) ensureWarm(e *boardEntry, owner string, project int) {
 	e.mu.Lock()
-	if e.warming {
+	if e.warming || e.warmSrc == nil {
 		e.mu.Unlock()
 		return
 	}
 	e.warming = true
 	e.mu.Unlock()
-	inner := b.inner
-	every := b.store.warmEvery
+	store := b.store
+	key := storeKey(owner, project)
 	go func() {
+		// Safety net for panics only: regular exits clear the flag inside the
+		// same critical section as their decision and set cleared, so this
+		// defer cannot race a successor loop that took the flag in between.
+		cleared := false
 		defer func() {
+			if cleared {
+				return
+			}
 			e.mu.Lock()
 			e.warming = false
 			e.mu.Unlock()
 		}()
+		fails := 0
 		for {
+			e.mu.Lock()
+			watched := len(e.watchers) > 0
+			e.mu.Unlock()
+			every := store.warmEvery
+			if !watched {
+				every = store.warmIdleEvery
+			}
 			time.Sleep(every)
+
 			e.mu.Lock()
 			wanted := len(e.watchers) > 0 || time.Since(e.lastRead) < warmIdleFor
-			e.mu.Unlock()
-			if !wanted {
+			src := e.warmSrc
+			alive := src != nil && (src.alive == nil || src.alive())
+			if !wanted || !alive {
+				e.warming = false
+				e.mu.Unlock()
+				cleared = true
+				if !alive && wanted {
+					login := ""
+					if src != nil {
+						login = src.login
+					}
+					store.logger().Info("board warmer stopped: source session ended",
+						"board", key, "login", login)
+				}
 				return
 			}
+			e.mu.Unlock()
+
 			e.loadMu.Lock()
-			fresh, err := inner.LoadBoard(context.Background(), owner, project)
+			lctx, cancel := context.WithTimeout(context.Background(), warmLoadTimeout)
+			fresh, err := src.inner.LoadBoard(lctx, owner, project)
+			cancel()
 			if err == nil {
 				// No login: a warm refresh keeps the board current but must
 				// not vouch for anyone's access.
 				b.install(e, fresh, "")
+				fails = 0
 			}
 			e.loadMu.Unlock()
 			if err != nil {
-				return
+				fails++
+				e.mu.Lock()
+				// Same contract as a failed revalidation: clients holding a
+				// stale-read revalidation hold get their Sync.
+				e.syncBroadcast()
+				gone := errors.Is(err, ghprojects.ErrBoardNotFound)
+				if gone || fails >= warmMaxFails {
+					e.warming = false
+					e.mu.Unlock()
+					cleared = true
+					store.logger().Warn("board warmer stopped",
+						"board", key, "login", src.login, "err", err,
+						"consecutiveFails", fails, "accessGone", gone)
+					return
+				}
+				e.mu.Unlock()
+				store.logger().Warn("board warm refresh failed; retrying next tick",
+					"board", key, "login", src.login, "err", err, "consecutiveFails", fails)
 			}
 		}
 	}()
