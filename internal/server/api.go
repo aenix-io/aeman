@@ -185,7 +185,16 @@ func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) 
 	if err != nil {
 		return nil, err
 	}
-	return boardservice.New(&storeBackend{inner: client, store: s.store, multiUser: s.auth != nil}), nil
+	be := &storeBackend{inner: client, store: s.store, multiUser: s.auth != nil}
+	if s.auth != nil {
+		// Bind the request's token to its session, so a warmer that later
+		// rides this client stops once the session ends (logout or TTL).
+		if sid := s.auth.sessionID(r); sid != "" {
+			auth := s.auth
+			be.warmAlive = func() bool { return auth.sessionAlive(sid) }
+		}
+	}
+	return boardservice.New(be), nil
 }
 
 // service resolves the board reference and builds the per-request board service.

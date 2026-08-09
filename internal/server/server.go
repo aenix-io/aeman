@@ -99,6 +99,7 @@ func New(opts Options) (*Server, error) {
 	s.apiTokens = s.tokenForRequest
 	s.newService = s.defaultService
 	s.store = newBoardStore()
+	s.store.log = s.log
 	if opts.Auth != nil {
 		s.auth = newAuthManager(*opts.Auth, opts.Logger)
 	}

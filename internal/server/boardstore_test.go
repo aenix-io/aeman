@@ -538,40 +538,42 @@ func TestStaleHeaderOnAPIRead(t *testing.T) {
 // single-user mode (empty login, multiUser=false) skips the login gate.
 func TestCachedAuthz(t *testing.T) {
 	e := &boardEntry{loaded: true, loadedAt: time.Now()}
-	if _, state := e.cached("", false); state != cacheFresh {
+	if _, state, _ := e.cached("", false); state != cacheFresh {
 		t.Fatal("local single-user mode should serve the fresh cache")
 	}
-	if bd, state := e.cached("alice", true); state != cacheUnauthed || bd.ID != "" || len(bd.Cards) != 0 {
+	if bd, state, _ := e.cached("alice", true); state != cacheUnauthed || bd.ID != "" || len(bd.Cards) != 0 {
 		t.Fatal("multi-user: unauthorized login must get cacheUnauthed and NO board")
 	}
 	e.markAuthed("alice")
-	if _, state := e.cached("alice", true); state != cacheFresh {
-		t.Fatal("multi-user: authorized login must hit the fresh cache")
+	if _, state, reproof := e.cached("alice", true); state != cacheFresh || reproof {
+		t.Fatal("multi-user: authorized login must hit the fresh cache, no re-proof")
 	}
-	if _, state := e.cached("", true); state != cacheMiss {
+	if _, state, _ := e.cached("", true); state != cacheMiss {
 		t.Fatal("multi-user: an empty login must never hit the cache")
 	}
 	e.loadedAt = time.Now().Add(-2 * boardFreshFor)
-	if _, state := e.cached("alice", true); state != cacheStale {
+	if _, state, _ := e.cached("alice", true); state != cacheStale {
 		t.Fatal("past the fresh TTL an authorized login must get a stale hit")
 	}
-	if bd, state := e.cached("mallory", true); state != cacheUnauthed || bd.ID != "" {
+	if bd, state, _ := e.cached("mallory", true); state != cacheUnauthed || bd.ID != "" {
 		t.Fatal("a stale hit must still require per-login authorization")
 	}
-	// A fresh board with an aging proof degrades the same way: the background
-	// reload re-checks the token instead of blocking the read on it.
+	// A fresh board with an aging proof is still served fresh — blocking (or
+	// degrading) the read on the token re-check was what forced a full reload
+	// per user per minute — but the reproof flag tells the caller to re-prove
+	// the token with a background probe.
 	e.loadedAt = time.Now()
 	e.authed["alice"] = time.Now().Add(-2 * authFreshFor)
-	if _, state := e.cached("alice", true); state != cacheStale {
-		t.Fatal("an aged authorization must degrade a fresh board to a stale hit")
+	if _, state, reproof := e.cached("alice", true); state != cacheFresh || !reproof {
+		t.Fatal("an aged authorization must serve fresh WITH the reproof flag")
 	}
 	e.authed["alice"] = time.Now().Add(-boardStaleMax - time.Second)
-	if _, state := e.cached("alice", true); state != cacheUnauthed {
+	if _, state, _ := e.cached("alice", true); state != cacheUnauthed {
 		t.Fatal("an authorization older than boardStaleMax must re-prove (cacheUnauthed)")
 	}
 	e.markAuthed("alice")
 	e.loadedAt = time.Now().Add(-boardStaleMax - time.Second)
-	if _, state := e.cached("alice", true); state != cacheMiss {
+	if _, state, _ := e.cached("alice", true); state != cacheMiss {
 		t.Fatal("past boardStaleMax the cache must miss regardless of authorization")
 	}
 }
@@ -738,6 +740,7 @@ func (w *warmBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 func TestBoardCacheWarmerFollowsWatchers(t *testing.T) {
 	store := newBoardStore()
 	store.warmEvery = 10 * time.Millisecond
+	store.warmIdleEvery = 10 * time.Millisecond
 	inner := &warmBackend{}
 	be := &storeBackend{inner: inner, store: store}
 
