@@ -111,11 +111,10 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
-			// Keep the shared cache warm while anyone is watching: a stale
-			// cache revalidates in the background (single-flight, stale-
-			// allowed), so user fetches land fresh — no progress bar — and
-			// external GitHub edits keep arriving as ordinary diff events.
-			go func() { _, _ = svc.Board(warmCtx, owner, project) }()
+			// Cache freshness is the store's warmer's job now (ensureWarm):
+			// one server-side reload loop per board, instead of every open
+			// tab kicking a stale revalidation — a near-continuous full
+			// GitHub reload on a multi-page board — from its ping ticker.
 		}
 	}
 }
