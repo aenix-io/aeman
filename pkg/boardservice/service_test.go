@@ -2451,3 +2451,52 @@ func TestDeleteTeamGuardsAndDeletes(t *testing.T) {
 		t.Fatalf("pointer-less team must be a no-op success, got %v", err)
 	}
 }
+
+// Scheduling a card into the future parks it off the board until that day.
+// No sprint exists for a future day yet — sprints are daily and created as
+// they start — so the card keeps the team's current sprint in its dates and a
+// carry-over adopts it when the day arrives. Reported as issue #82: the
+// dates look wrong, but the card must simply be absent from the current
+// sprint's board until its day.
+func TestSetDatesFutureDayKeepsCurrentSprintAndLeavesTheBoard(t *testing.T) {
+	today := board.TodayIso()
+	current := board.AddDays(today, -2) // the sprint in progress, opened earlier
+	future := board.AddDays(today, 26)
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", StartDate: today, Day: today, SprintStart: current, Assignees: []string{"ann"}},
+	}, map[string]board.SprintState{"alpha": {Current: current, ItemID: "s1"}})
+	svc := New(fake)
+
+	if err := svc.SetDates(context.Background(), "acme", 1, "c1", future, future); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.get("c1")
+	if got.StartDate != future {
+		t.Fatalf("start = %q, want %q", got.StartDate, future)
+	}
+	if got.SprintStart != current {
+		t.Fatalf("sprint = %q, want the team's current sprint %q: no future sprint exists yet",
+			got.SprintStart, current)
+	}
+
+	// The point of the dates: the card is gone from the sprint in progress —
+	// on its own day and on today — and returns on the day it was scheduled for.
+	b, err := svc.Board(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, day := range []string{current, today} {
+		if got := board.TeamGrid(b, "alpha", day); len(got) != 0 {
+			t.Fatalf("a future-dated card must leave the board on %s, got %+v", day, got)
+		}
+		if got := board.MeView(b, "ann", day); len(got) != 0 {
+			t.Fatalf("a future-dated card must leave the Me board on %s, got %+v", day, got)
+		}
+	}
+	if got := board.TeamGrid(b, "alpha", future); len(got) != 1 {
+		t.Fatalf("the card must show on its scheduled day, got %+v", got)
+	}
+	if got := board.MeView(b, "ann", future); len(got) != 1 {
+		t.Fatalf("the card must show on its scheduled day in Me, got %+v", got)
+	}
+}
