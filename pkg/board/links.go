@@ -41,6 +41,14 @@ func (l Link) FallbackTitle() string {
 
 var urlPattern = regexp.MustCompile(`https?://[^\s<>"'\)\]]+`)
 
+// urlTrailing is the punctuation stripped off a matched URL's tail. Beyond
+// sentence punctuation it covers markdown emphasis, because descriptions are
+// written in markdown and a bolded link — **https://…/pull/1360** — otherwise
+// keeps the asterisks and stops being recognised as a GitHub reference: it
+// degrades to a plain link with no title, no state, no dedupe against the
+// same item written as a shorthand. Matches GFM's autolink rule.
+const urlTrailing = ".,;:!?*_~`"
+
 // shorthandPattern is the GitHub cross-reference shorthand: owner/repo#123.
 // Boundaries are validated separately (shorthandBounded) — RE2 has no
 // lookbehind, and "a/b/c#1" or a URL tail must not produce a phantom ref.
@@ -59,7 +67,7 @@ func ExtractLinks(description string) []Link {
 	var matches []match
 	urlSpans := urlPattern.FindAllStringIndex(description, -1)
 	for _, sp := range urlSpans {
-		raw := strings.TrimRight(description[sp[0]:sp[1]], ".,;:!?")
+		raw := strings.TrimRight(description[sp[0]:sp[1]], urlTrailing)
 		matches = append(matches, match{sp[0], classifyLink(raw)})
 	}
 	inURL := func(i int) bool {

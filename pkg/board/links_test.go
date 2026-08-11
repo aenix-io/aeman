@@ -109,3 +109,50 @@ func TestParseGitHubRefShorthand(t *testing.T) {
 		t.Fatal("plain text must not parse")
 	}
 }
+
+// Descriptions are markdown, so a link is often written bolded or italic.
+// The emphasis markers must not become part of the URL: a **-wrapped PR link
+// used to degrade into a plain link — no title, no state, no dedupe against
+// the same item written as a shorthand. Reported on a real card carrying
+// "- Backend: **https://github.com/acme/repo/pull/1360** (`branch`)".
+func TestExtractLinksStripsMarkdownEmphasis(t *testing.T) {
+	desc := "- Backend: **https://github.com/acme/repo/pull/1360** (`fix/x`).\n" +
+		"- UI: **https://github.com/acme/repo-ui/pull/432** done.\n" +
+		"- italic _https://github.com/acme/repo/issues/7_ and ~~https://github.com/acme/repo/pull/8~~\n"
+	got := ExtractLinks(desc)
+	want := []Link{
+		{URL: "https://github.com/acme/repo/pull/1360", Kind: "pull", Owner: "acme", Repo: "repo", Number: 1360},
+		{URL: "https://github.com/acme/repo-ui/pull/432", Kind: "pull", Owner: "acme", Repo: "repo-ui", Number: 432},
+		{URL: "https://github.com/acme/repo/issues/7", Kind: "issue", Owner: "acme", Repo: "repo", Number: 7},
+		{URL: "https://github.com/acme/repo/pull/8", Kind: "pull", Owner: "acme", Repo: "repo", Number: 8},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d links, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i].URL != w.URL || got[i].Kind != w.Kind || got[i].Number != w.Number {
+			t.Fatalf("link %d = %+v, want %+v", i, got[i], w)
+		}
+	}
+}
+
+// A bolded URL and the same item as a shorthand are one link, not two: the
+// dedupe key only matches once the asterisks are off the URL.
+func TestExtractLinksDedupesEmphasisedURLAgainstShorthand(t *testing.T) {
+	got := ExtractLinks("**https://github.com/acme/repo/pull/12** — see acme/repo#12")
+	if len(got) != 1 {
+		t.Fatalf("got %d links, want 1: %+v", len(got), got)
+	}
+	if got[0].URL != "https://github.com/acme/repo/pull/12" || got[0].Kind != "pull" {
+		t.Fatalf("link = %+v", got[0])
+	}
+}
+
+// Trailing characters that are legitimately part of a path stay put — only a
+// URL's tail is trimmed, and only of emphasis/sentence punctuation.
+func TestExtractLinksKeepsInnerPunctuation(t *testing.T) {
+	got := ExtractLinks("https://example.com/a_b/c~d/e*f?q=1&x=2")
+	if len(got) != 1 || got[0].URL != "https://example.com/a_b/c~d/e*f?q=1&x=2" {
+		t.Fatalf("inner punctuation must survive, got %+v", got)
+	}
+}
