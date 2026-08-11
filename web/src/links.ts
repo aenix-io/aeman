@@ -18,6 +18,13 @@ export interface CardLink {
 
 const URL_PATTERN = /https?:\/\/[^\s<>"'\)\]]+/g;
 
+/** Punctuation stripped off a matched URL's tail. Beyond sentence
+ *  punctuation it covers markdown emphasis: descriptions are markdown, and a
+ *  bolded link — **https://…/pull/1360** — would otherwise keep the asterisks
+ *  and stop being recognised as a GitHub reference. Mirrors urlTrailing in
+ *  pkg/board/links.go (GFM's autolink rule). */
+const URL_TRAILING = /[.,;:!?*_~`]+$/;
+
 /** extractLinks finds every URL in a description, classifies GitHub issue/PR
  * links, dedupes, and orders GitHub references first, plain links after. */
 export function extractLinks(description: string): CardLink[] {
@@ -25,7 +32,7 @@ export function extractLinks(description: string): CardLink[] {
   const plain: CardLink[] = [];
   const seen = new Set<string>();
   for (const raw of description.match(URL_PATTERN) ?? []) {
-    const url = raw.replace(/[.,;:!?]+$/, "");
+    const url = raw.replace(URL_TRAILING, "");
     if (seen.has(url)) {
       continue;
     }
