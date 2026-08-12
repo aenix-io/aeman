@@ -248,7 +248,17 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		day = start
 	}
 	sprint := args.SprintStart
-	if args.NoSprint {
+	// A card scheduled for a FUTURE day is a "next sprint" create by another
+	// name: the sprint for that day does not exist yet (sprints are daily and
+	// open as they start), so joining today's sprint would only park the card
+	// in a sprint it will never be worked in — dragged forward by every daily
+	// carry-over, its dates reading "current sprint" the whole time. Leave it
+	// sprint-less and let the carry-over that reaches its day adopt it, which
+	// is exactly what NoSprint does. An explicit sprint (or an explicit
+	// start-a-new-sprint) still wins: the caller said what they wanted.
+	futureDay := start != "" && start > board.TodayIso() &&
+		args.SprintStart == "" && args.StartNewSprint == nil
+	if args.NoSprint || futureDay {
 		// A "next sprint" create: the card is scheduled for its day but joins
 		// no sprint (and starts none) — the first carry-over whose day reaches
 		// the card's start adopts it into the sprint it opens.
@@ -826,9 +836,17 @@ func (s *Service) SetDates(ctx context.Context, owner string, project int, itemI
 	}
 	sprint := ""
 	if start != "" {
-		sprint = board.ActiveSprint(b, c.Team, start)
-		if sprint == "" {
-			sprint = start
+		// Moving a card to a FUTURE day parks it: no sprint covers that day
+		// yet, and pinning it to today's sprint would keep it riding every
+		// daily carry-over while it waits. Sprint-less is the state the
+		// carry-over that reaches its day knows how to adopt.
+		if start > board.TodayIso() {
+			sprint = ""
+		} else {
+			sprint = board.ActiveSprint(b, c.Team, start)
+			if sprint == "" {
+				sprint = start
+			}
 		}
 	}
 	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
