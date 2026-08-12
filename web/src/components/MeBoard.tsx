@@ -1210,7 +1210,11 @@ export function MeBoard({
       zone,
       day: selectedDate,
       startDate: selectedDate,
-      sprintStart: sprint ?? selectedDate,
+      // Creating on a future day (the date picker walked forward) joins no
+      // sprint — the carry-over reaching that day adopts the card
+      // (mirrors boardservice.CreateCard).
+      sprintStart:
+        selectedDate > todayIso() ? undefined : (sprint ?? selectedDate),
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
       description: "",
