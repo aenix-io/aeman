@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
-import { addDays, daysSince, todayIso, mondayOf } from "../date";
+import { addDays, daysSince, localDateIso, todayIso, mondayOf } from "../date";
 import { Dropdown } from "./Dropdown";
 import { extractLinks, type CardLink } from "../links";
 import { RangeCalendar } from "./RangeCalendar";
@@ -351,8 +351,17 @@ export function Card({
     : card.reviewOf
       ? "In implementation"
       : "On review";
+  // Age is "days on the board" (its own tooltip): a card scheduled ahead is
+  // NOT on the board while it waits, so the parked days must not count — a
+  // card created today for next month used to arrive already three weeks old
+  // and coloured as rotting. Count from whichever came later, its creation or
+  // the day it landed.
+  const ageFrom =
+    card.startDate && card.createdAt && card.startDate > localDateIso(card.createdAt)
+      ? card.startDate
+      : card.createdAt;
   const ageDays =
-    weekMode && card.assignees.length === 0 ? 0 : daysSince(card.createdAt, asOf);
+    weekMode && card.assignees.length === 0 ? 0 : daysSince(ageFrom, asOf);
 
   // The status control: an always-visible icon for review/locked/recurrent,
   // a hover-only flag otherwise. A staged card keeps it after the links icon

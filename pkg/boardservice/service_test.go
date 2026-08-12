@@ -2452,13 +2452,12 @@ func TestDeleteTeamGuardsAndDeletes(t *testing.T) {
 	}
 }
 
-// Scheduling a card into the future parks it off the board until that day.
-// No sprint exists for a future day yet — sprints are daily and created as
-// they start — so the card keeps the team's current sprint in its dates and a
-// carry-over adopts it when the day arrives. Reported as issue #82: the
-// dates look wrong, but the card must simply be absent from the current
-// sprint's board until its day.
-func TestSetDatesFutureDayKeepsCurrentSprintAndLeavesTheBoard(t *testing.T) {
+// Scheduling a card into the future parks it off the board until that day,
+// and it joins NO sprint while it waits: no sprint covers that day yet, and
+// pinning it to the sprint in progress only made it ride every daily
+// carry-over (issue #82, then reported again from the boards). The
+// carry-over that reaches its day adopts it.
+func TestSetDatesFutureDayParksTheCardOffTheBoard(t *testing.T) {
 	today := board.TodayIso()
 	current := board.AddDays(today, -2) // the sprint in progress, opened earlier
 	future := board.AddDays(today, 26)
@@ -2474,9 +2473,8 @@ func TestSetDatesFutureDayKeepsCurrentSprintAndLeavesTheBoard(t *testing.T) {
 	if got.StartDate != future {
 		t.Fatalf("start = %q, want %q", got.StartDate, future)
 	}
-	if got.SprintStart != current {
-		t.Fatalf("sprint = %q, want the team's current sprint %q: no future sprint exists yet",
-			got.SprintStart, current)
+	if got.SprintStart != "" {
+		t.Fatalf("sprint = %q, want none: no sprint covers a future day yet", got.SprintStart)
 	}
 
 	// The point of the dates: the card is gone from the sprint in progress —
@@ -2498,5 +2496,103 @@ func TestSetDatesFutureDayKeepsCurrentSprintAndLeavesTheBoard(t *testing.T) {
 	}
 	if got := board.MeView(b, "ann", future); len(got) != 1 {
 		t.Fatalf("the card must show on its scheduled day in Me, got %+v", got)
+	}
+}
+
+// A card scheduled for a future day must not join today's sprint. The sprint
+// for that day does not exist yet, so joining the current one only makes the
+// card ride every daily carry-over while it waits — its dates reading
+// "current sprint" the whole time, which is what colleagues reported. It
+// stays sprint-less until the carry-over that reaches its day adopts it.
+func TestCreateCardFutureDayJoinsNoSprint(t *testing.T) {
+	today := board.TodayIso()
+	future := board.AddDays(today, 20)
+	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+
+	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+		Team: "alpha", Title: "ship it", Start: future, Day: future,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.SprintStart != "" {
+		t.Fatalf("sprint = %q, want none: a future day has no sprint yet", card.SprintStart)
+	}
+	if card.StartDate != future {
+		t.Fatalf("start = %q, want %q", card.StartDate, future)
+	}
+
+	// Today's card is unaffected: it joins the sprint in progress.
+	now, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+		Team: "alpha", Title: "today's work", Start: today, Day: today,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if now.SprintStart != today {
+		t.Fatalf("a card for today must join the current sprint, got %q", now.SprintStart)
+	}
+}
+
+// An explicit sprint (or an explicit new sprint) still wins over the
+// future-day rule — the caller said what they wanted.
+func TestCreateCardFutureDayRespectsExplicitSprint(t *testing.T) {
+	today := board.TodayIso()
+	future := board.AddDays(today, 20)
+	fake := newFake(nil, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+
+	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+		Team: "alpha", Title: "pinned", Start: future, Day: future, SprintStart: today,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.SprintStart != today {
+		t.Fatalf("an explicit sprint must win, got %q", card.SprintStart)
+	}
+}
+
+// Rescheduling an existing card into the future parks it the same way, and
+// the carry-over that reaches its day is what puts it back in a sprint.
+func TestSetDatesIntoFutureLeavesTheSprint(t *testing.T) {
+	today := board.TodayIso()
+	future := board.AddDays(today, 9)
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Team: "alpha", StartDate: today, Day: today, SprintStart: today, Assignees: []string{"ann"}},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+
+	if err := svc.SetDates(context.Background(), "acme", 1, "c1", future, future); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.get("c1")
+	if got.SprintStart != "" {
+		t.Fatalf("sprint = %q, want none while the card waits for its day", got.SprintStart)
+	}
+
+	// The day arrives and a carry-over opens the sprint: the card is adopted.
+	b, err := svc.Board(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carry, _, _ := selectCarry(b, "alpha", today, future)
+	found := false
+	for _, c := range carry {
+		if c.ItemID == "c1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the carry-over reaching the card's day must adopt it into the sprint it opens")
+	}
+
+	// Moving it back to today rejoins the sprint in progress.
+	if err := svc.SetDates(context.Background(), "acme", 1, "c1", today, today); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.get("c1"); got.SprintStart != today {
+		t.Fatalf("back on today's board, sprint = %q, want %q", got.SprintStart, today)
 	}
 }
