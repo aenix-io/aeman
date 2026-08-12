@@ -1831,9 +1831,13 @@ export function TeamBoard({
     start: string | null,
     end: string | null,
   ) => {
-    const sprint = start
-      ? activeSprint(board, card.team ?? null, start) || start
-      : start;
+    // A future day has no sprint yet: the card waits sprint-less and the
+    // carry-over reaching its day adopts it (mirrors boardservice.SetDates).
+    const sprint = !start
+      ? start
+      : start > todayIso()
+        ? null
+        : activeSprint(board, card.team ?? null, start) || start;
     const prev = {
       startDate: card.startDate,
       sprintStart: card.sprintStart,
@@ -1910,7 +1914,13 @@ export function TeamBoard({
       zone,
       day,
       startDate,
-      sprintStart: noSprint ? undefined : (sprint ?? startDate),
+      // A card scheduled ahead joins no sprint: the sprint for that day does
+      // not exist yet, and the carry-over reaching its day adopts it
+      // (mirrors boardservice.CreateCard).
+      sprintStart:
+        noSprint || startDate > todayIso()
+          ? undefined
+          : (sprint ?? startDate),
       team: team ?? undefined,
       createdAt: new Date().toISOString(),
       description: "",
