@@ -1707,6 +1707,14 @@ button.card-age {
   justify-content: center;
 }
 
+/* The copy-id action is a word, not a glyph: smaller and bolder than the
+   symbol buttons beside it so it reads as a label at 18px. */
+.card-action-id {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
 .card-action:hover {
   background: var(--hover-overlay);
   color: var(--fg);

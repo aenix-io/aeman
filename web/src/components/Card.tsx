@@ -594,13 +594,13 @@ export function Card({
         {!card.itemId.startsWith("tmp-") && (
           <button
             type="button"
-            className="card-action card-hoveronly"
+            className="card-action card-action-id card-hoveronly"
             onClick={copyId}
             onDoubleClick={(e) => e.stopPropagation()}
             aria-label="Copy card id"
             title={copied ? "Copied" : "Copy card id"}
           >
-            {copied ? "✓" : "⧉"}
+            {copied ? "✓" : "ID"}
           </button>
         )}
         <button
