@@ -1707,6 +1707,14 @@ button.card-age {
   justify-content: center;
 }
 
+/* The copy-id action is a word, not a glyph: smaller and bolder than the
+   symbol buttons beside it so it reads as a label at 18px. */
+.card-action-id {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
 .card-action:hover {
   background: var(--hover-overlay);
   color: var(--fg);
@@ -1721,7 +1729,7 @@ button.card-age {
   margin-right: -3px;
 }
 
-/* Rename, delete, and the status flag (only on cards without a review/locked
+/* Copy-id, delete, and the status flag (only on cards without a review/locked
    state) appear on hover. Touch devices have no hover, so they stay hidden there
    and such cards are managed from the popup. The review/locked indicators carry
    no .card-hoveronly, so they always show. */
@@ -1793,17 +1801,6 @@ button.card-age {
   height: 9px;
   border-radius: 50%;
   flex: none;
-}
-
-.card-title-input {
-  flex: 1;
-  min-width: 0;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 1px 5px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
 }
 
 /* ---- add card ---- */

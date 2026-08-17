@@ -862,18 +862,6 @@ export function MeBoard({
       });
   };
 
-  const handleRename = (card: CardModel, title: string) => {
-    const prev = card.title;
-    patchCard(card.itemId, { title });
-    void provider
-      .patchCard(board, card.itemId, { title })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, { title: prev });
-        onError(errMessage(err));
-      });
-  };
-
   const handleDelete = (card: CardModel) => {
     // A just-created optimistic card has no server twin yet: drop it locally
     // (deleting it via the API would 404 and resurrect a phantom copy).
@@ -1345,7 +1333,6 @@ export function MeBoard({
       onDelete={handleDelete}
       onStage={handleStage}
       onInProgress={handleInProgress}
-      onRename={handleRename}
       onOpen={onOpen}
       teams={teams}
       people={people}
@@ -1557,7 +1544,6 @@ export function MeBoard({
                   onDelete={() => {}}
                   onStage={() => {}}
                   onInProgress={() => {}}
-                  onRename={() => {}}
                   onOpen={() => {}}
                 />
               )}

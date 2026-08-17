@@ -1193,7 +1193,6 @@ export function TeamBoard({
       onDelete={handleGridDelete}
       onStage={handleStage}
       onInProgress={handleInProgress}
-      onRename={handleRename}
       onOpen={onOpen}
       teams={roster}
       people={people}
@@ -1463,18 +1462,6 @@ export function TeamBoard({
         if (card.parent) {
           reload(); // the parent's optimistic derived bar needs the truth back
         }
-        onError(errMessage(err));
-      });
-  };
-
-  const handleRename = (card: CardModel, title: string) => {
-    const prev = card.title;
-    patchCard(card.itemId, { title });
-    void provider
-      .patchCard(board, card.itemId, { title })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, { title: prev });
         onError(errMessage(err));
       });
   };
@@ -2242,7 +2229,6 @@ export function TeamBoard({
               onDelete={card.parent ? handleGridDelete : removeFromPlan}
               onStage={handleStage}
               onInProgress={handleInProgress}
-              onRename={handleRename}
               onOpen={onOpen}
               teams={roster}
               people={people}
@@ -2283,7 +2269,6 @@ export function TeamBoard({
               onDelete={() => {}}
               onStage={() => {}}
               onInProgress={() => {}}
-              onRename={() => {}}
               onOpen={() => {}}
             />
           )}
