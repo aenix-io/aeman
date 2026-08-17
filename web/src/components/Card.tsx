@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
+import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { addDays, daysSince, localDateIso, todayIso, mondayOf } from "../date";
@@ -195,7 +196,22 @@ export function Card({
         : Math.min(90, Math.max(10, Math.round(shown / 10) * 10));
   const filled = dispPct / 10;
 
-  // Progress is changed only by dragging the handle, which snaps to 10% steps.
+  // Where a pointer at clientX lands on the 10% grid. review/locked cards are
+  // clamped to 10–90%; other cards span 0–100% (0% clears).
+  const valueAt = (clientX: number): number => {
+    const rect = barRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) {
+      return value;
+    }
+    return snapProgress(
+      (clientX - rect.left) / rect.width,
+      card.stage === "review" || card.stage === "locked",
+    );
+  };
+
+  // Progress moves only by dragging the handle. The bar itself stays inert on
+  // purpose: it runs the full width of the card, and a stray press while
+  // dragging cards around would silently rewrite someone's progress.
   const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
     e.preventDefault();
@@ -204,16 +220,10 @@ export function Card({
   };
 
   const onHandleMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragValue === null || !barRef.current) {
+    if (dragValue === null) {
       return;
     }
-    const rect = barRef.current.getBoundingClientRect();
-    const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
-    // review/locked are clamped to 10–90%; other cards span 0–100% (0% clears).
-    const locked = card.stage === "review" || card.stage === "locked";
-    const min = locked ? 10 : 0;
-    const max = locked ? 90 : 100;
-    const snapped = Math.min(max, Math.max(min, Math.round(frac * 10) * 10));
+    const snapped = valueAt(e.clientX);
     if (snapped !== dragValue) {
       setDragValue(snapped);
     }
@@ -1054,6 +1064,7 @@ export function Card({
           onPointerDown={onHandleDown}
           onPointerMove={onHandleMove}
           onPointerUp={onHandleUp}
+          onPointerCancel={onHandleUp}
         />
       </div>
     </div>
