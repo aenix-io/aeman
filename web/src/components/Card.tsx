@@ -31,7 +31,6 @@ interface CardProps {
   /** Pick the implicit "In Progress" status: clears the stage and clamps the
    *  card's progress into [10, 90]. */
   onInProgress: (card: CardModel) => void;
-  onRename: (card: CardModel, title: string) => void;
   onOpen: (card: CardModel) => void;
   /** Reassign the card's team / person from the avatar menu (when provided). */
   teams?: string[];
@@ -104,7 +103,6 @@ export function Card({
   onDelete,
   onStage,
   onInProgress,
-  onRename,
   onOpen,
   teams,
   people,
@@ -147,8 +145,7 @@ export function Card({
   // The cycle submenu opens to the right; near the viewport edge it flips
   // left so it never clips off-screen.
   const [recLeft, setRecLeft] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(card.title);
+  const [copied, setCopied] = useState(false);
   const [dragValue, setDragValue] = useState<number | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [personInput, setPersonInput] = useState("");
@@ -323,18 +320,19 @@ export function Card({
     onSetWeek?.(card, startVal || null);
   };
 
-  const startEdit = (e: React.MouseEvent<HTMLButtonElement>) => {
+  // The card's uid is what an agent needs to act on it (every MCP card tool
+  // takes it), so copying it is the one thing worth a click on the card
+  // itself — pasting it into a chat beats hunting for it in the API.
+  const copyId = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    setDraft(card.title);
-    setEditing(true);
-  };
-
-  const commitEdit = () => {
-    const next = draft.trim();
-    if (next && next !== card.title) {
-      onRename(card, next);
+    const p = navigator.clipboard?.writeText(card.itemId);
+    if (!p) {
+      return;
     }
-    setEditing(false);
+    void p.then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
   };
 
   // A plan card not yet taken into work hasn't started aging: show 0d. Once it
@@ -586,43 +584,25 @@ export function Card({
           </svg>
         </button>
       )}
-      {editing ? (
-        <input
-          type="text"
-          className="card-title-input"
-          autoFocus
-          value={draft}
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") {
-              commitEdit();
-            } else if (e.key === "Escape") {
-              setEditing(false);
-            }
-          }}
-          onBlur={() => setEditing(false)}
-        />
-      ) : (
-        <span className="card-title" title={card.title}>
-          {card.title}
-        </span>
-      )}
+      <span className="card-title" title={card.title}>
+        {card.title}
+      </span>
 
       {ref && <span className="card-ticket">{ref}</span>}
 
       <span className="card-actions" aria-hidden={false}>
-        <button
-          type="button"
-          className="card-action card-hoveronly"
-          onClick={startEdit}
-          aria-label="Rename card"
-          title="Rename"
-        >
-          ✎
-        </button>
+        {!card.itemId.startsWith("tmp-") && (
+          <button
+            type="button"
+            className="card-action card-hoveronly"
+            onClick={copyId}
+            onDoubleClick={(e) => e.stopPropagation()}
+            aria-label="Copy card id"
+            title={copied ? "Copied" : "Copy card id"}
+          >
+            {copied ? "✓" : "⧉"}
+          </button>
+        )}
         <button
           type="button"
           className="card-action card-hoveronly card-action-delete"
