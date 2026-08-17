@@ -1660,6 +1660,17 @@ button.card-age {
   touch-action: none;
 }
 
+/* The 11px dot is what people kept missing, so its press target grows well
+   past it — mostly sideways, the axis a pointer misses along, and down to the
+   card's edge (the dot already sits on it). Upward it stays shallow: the
+   actions row is just above, and .card-actions is raised over the handle so a
+   press there still reaches the buttons rather than starting a drag. */
+.card-bar-handle::before {
+  content: "";
+  position: absolute;
+  inset: -4px -11px 0;
+}
+
 .card:hover .card-bar-handle,
 .card-bar-handle-dragging {
   opacity: 1;
@@ -1689,6 +1700,11 @@ button.card-age {
   align-items: center;
   gap: 1px;
   flex: none;
+  /* Above the progress handle: at high percentages the handle sits right
+     under these buttons, and its enlarged press target must never swallow a
+     click meant for one of them. */
+  position: relative;
+  z-index: 4;
 }
 
 .card-action {
