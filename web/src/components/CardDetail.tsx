@@ -33,19 +33,67 @@ export function CardDetail({
   const [title, setTitle] = useState(card.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const [description, setDescription] = useState(card.description ?? "");
+  // dirty marks the draft as the user's: once they typed, nothing arriving
+  // from the board (a background re-list, the lazy body fetch, a watch frame)
+  // may overwrite it. bodyFailed gates Save when the body never arrived.
+  const [dirty, setDirty] = useState(false);
+  const [bodyFailed, setBodyFailed] = useState(false);
   const [log, setLog] = useState<{ notes: Note[]; events: CardEvent[] } | null>(
     null,
   );
   const [tab, setTab] = useState<"details" | "activity">("details");
+  const bodyLoaded = card.description !== undefined;
 
-  // Reset local edit state whenever a different card is opened.
+  // Reset local edit state ONLY when a different card is opened — the card
+  // object itself churns underneath the dialog (watch frames, re-lists, the
+  // body fetch below), and none of that may wipe what the user is typing.
   useEffect(() => {
     setTitle(card.title);
     setDescription(card.description ?? "");
+    setDirty(false);
+    setBodyFailed(false);
     setEditingTitle(false);
     setTab("details");
     setLog(null);
-  }, [card.itemId, card.title, card.description]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.itemId]);
+
+  // Listings are board rows without the body: fetch it when the dialog opens
+  // on one. The result lands in the board (so every pane agrees) and into the
+  // draft — unless the user already typed. A failure surfaces and keeps Save
+  // locked instead of silently offering to save "" over the real text.
+  useEffect(() => {
+    if (bodyLoaded || card.itemId.startsWith("tmp-")) {
+      return;
+    }
+    let dropped = false;
+    void provider
+      .getCard(board, card.itemId)
+      .then((full) => {
+        if (dropped) {
+          return;
+        }
+        patchCard(card.itemId, { description: full.description ?? "" });
+      })
+      .catch(() => {
+        if (!dropped) {
+          setBodyFailed(true);
+        }
+      });
+    return () => {
+      dropped = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.itemId, bodyLoaded]);
+
+  // The body arriving (or changing under an untouched dialog — a teammate
+  // edited it) refreshes the draft; a dirty draft is the user's and stays.
+  useEffect(() => {
+    if (!dirty && card.description !== undefined) {
+      setDescription(card.description);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.description]);
 
   // The card's full activity feed (events + notes) loads on demand — fetched
   // fresh every time the Activity tab is opened, so the timeline is current.
@@ -128,19 +176,27 @@ export function CardDetail({
     const counterpart = board.cards.find((c) =>
       card.reviewOf ? c.itemId === card.reviewOf : c.reviewOf === card.itemId,
     );
-    // Apply immediately and close; the backend runs in the background.
-    patchCard(card.itemId, { description: next });
+    // Apply immediately and close; the backend runs in the background. The
+    // stale server-derived linkRefs drop so the row falls back to parsing the
+    // new text — the links icon follows the edit. A failed write restores
+    // exactly what was there, including a counterpart body that was never
+    // loaded (undefined stays undefined — never invented as "empty").
+    patchCard(card.itemId, { description: next, linkRefs: undefined });
     if (counterpart) {
-      patchCard(counterpart.itemId, { description: next });
+      patchCard(counterpart.itemId, { description: next, linkRefs: undefined });
     }
     onClose();
     void provider
       .patchCard(board, card.itemId, { description: next })
       .catch((err: unknown) => {
-        patchCard(card.itemId, { description: card.description ?? "" });
+        patchCard(card.itemId, {
+          description: card.description,
+          linkRefs: card.linkRefs,
+        });
         if (counterpart) {
           patchCard(counterpart.itemId, {
-            description: counterpart.description ?? "",
+            description: counterpart.description,
+            linkRefs: counterpart.linkRefs,
           });
         }
         if (err instanceof Error) {
@@ -228,9 +284,19 @@ export function CardDetail({
               <textarea
                 className="modal-textarea"
                 value={description}
-                placeholder="Card details…"
+                placeholder={
+                  bodyLoaded || card.itemId.startsWith("tmp-")
+                    ? "Card details…"
+                    : bodyFailed
+                      ? "Failed to load the description — close and reopen to retry."
+                      : "Loading the description…"
+                }
                 maxLength={16384}
-                onChange={(e) => setDescription(e.target.value)}
+                disabled={!bodyLoaded && !card.itemId.startsWith("tmp-")}
+                onChange={(e) => {
+                  setDirty(true);
+                  setDescription(e.target.value);
+                }}
               />
             </label>
           </div>
@@ -282,7 +348,14 @@ export function CardDetail({
             Close
           </button>
           {tab === "details" && (
-            <button type="button" className="btn btn-primary" onClick={handleSave}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSave}
+              // Saving over a body that never arrived would write "" over the
+              // real text for everyone (and its review counterpart).
+              disabled={!bodyLoaded && !card.itemId.startsWith("tmp-")}
+            >
               Save
             </button>
           )}

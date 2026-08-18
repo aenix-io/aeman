@@ -496,10 +496,14 @@ export function MeBoard({
     void provider
       .getCard(board, c.itemId)
       .then((full) => {
-        bodyRequested.current.delete(c.itemId);
         patchCard(c.itemId, { description: full.description ?? "" });
       })
-      .catch(() => {});
+      .finally(() => {
+        // Cleared on failure too: re-selecting the card retries. This pane
+        // asserts "no description" when it has none — it must never keep
+        // asserting that because one request failed.
+        bodyRequested.current.delete(c.itemId);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCardId, board.cards]);
 
@@ -1329,17 +1333,24 @@ export function MeBoard({
     const counterpart = board.cards.find((c) =>
       card.reviewOf ? c.itemId === card.reviewOf : c.reviewOf === card.itemId,
     );
-    patchCard(card.itemId, { description: text });
+    // linkRefs are derived from the OLD body server-side; dropping them lets
+    // the row fall back to parsing the new text, so the links icon follows
+    // the edit instead of waiting for the next re-list.
+    patchCard(card.itemId, { description: text, linkRefs: undefined });
     if (counterpart) {
-      patchCard(counterpart.itemId, { description: text });
+      patchCard(counterpart.itemId, { description: text, linkRefs: undefined });
     }
     void provider
       .patchCard(board, card.itemId, { description: text })
       .catch((err: unknown) => {
-        patchCard(card.itemId, { description: card.description ?? "" });
+        patchCard(card.itemId, {
+          description: card.description,
+          linkRefs: card.linkRefs,
+        });
         if (counterpart) {
           patchCard(counterpart.itemId, {
-            description: counterpart.description ?? "",
+            description: counterpart.description,
+            linkRefs: counterpart.linkRefs,
           });
         }
         fail(err);
