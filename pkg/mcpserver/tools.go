@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -108,6 +109,8 @@ type listCardsInput struct {
 	Zone     string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
 	Focus    bool   `json:"focus,omitempty" jsonschema:"keep only cards workable right now — drops done, on-review and locked; use this to show what can be picked up and worked on here and now"`
+	Title    string `json:"title,omitempty" jsonschema:"case-insensitive substring filter on the card title — the cheap way to resolve a title someone mentioned to its uid: one call, a handful of rows"`
+	Full     bool   `json:"full,omitempty" jsonschema:"include each card's full description in the listing. Default false: a listing is the board's row view — title, team, zone, assignees, progress, stage, dates, link refs — and card bodies come from get_card. Set only when genuinely reading many descriptions at once (bulk analysis), not to inspect one card"`
 }
 
 func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listCardsInput) (*mcp.CallToolResult, apiserver.CardList, error) {
@@ -143,11 +146,28 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 		}
 		sel.Zone = &in.Zone
 	}
+	// The listing IS the board's row view; full=true opts a genuine bulk
+	// reader into card bodies. Agents read a board the way people do — rows
+	// first, then the detail pane (get_card) for the one card they act on.
+	if in.Full {
+		sel.Fields = "full"
+	}
 	b, err := svc.Board(ctx, owner, project)
 	if err != nil {
 		return nil, apiserver.CardList{}, err
 	}
-	return nil, apiserver.ListCards(b, sel), nil
+	list := apiserver.ListCards(b, sel)
+	if in.Title != "" {
+		needle := strings.ToLower(in.Title)
+		kept := list.Items[:0]
+		for _, c := range list.Items {
+			if strings.Contains(strings.ToLower(c.Spec.Title), needle) {
+				kept = append(kept, c)
+			}
+		}
+		list.Items = kept
+	}
+	return nil, list, nil
 }
 
 func (h *server) getCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {

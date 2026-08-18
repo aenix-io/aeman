@@ -478,6 +478,35 @@ export function MeBoard({
   }, [notesCards, board, provider, patchCard]);
 
 
+  // Listings are board rows without the body; the Card pane needs it, so the
+  // moment a card is selected without one, fetch it. An empty description
+  // answers as "" and settles the effect (undefined = not loaded).
+  const bodyRequested = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const c = selectedCardId ? cardsById.get(selectedCardId) : undefined;
+    if (
+      !c ||
+      c.description !== undefined ||
+      c.itemId.startsWith("tmp-") ||
+      bodyRequested.current.has(c.itemId)
+    ) {
+      return;
+    }
+    bodyRequested.current.add(c.itemId);
+    void provider
+      .getCard(board, c.itemId)
+      .then((full) => {
+        patchCard(c.itemId, { description: full.description ?? "" });
+      })
+      .finally(() => {
+        // Cleared on failure too: re-selecting the card retries. This pane
+        // asserts "no description" when it has none — it must never keep
+        // asserting that because one request failed.
+        bodyRequested.current.delete(c.itemId);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCardId, board.cards]);
+
   const subsOpen = (id: string) => expandedSubs.has(id);
 
   // A parent dragged with its list open folds for the flight (the whole
@@ -1304,17 +1333,24 @@ export function MeBoard({
     const counterpart = board.cards.find((c) =>
       card.reviewOf ? c.itemId === card.reviewOf : c.reviewOf === card.itemId,
     );
-    patchCard(card.itemId, { description: text });
+    // linkRefs are derived from the OLD body server-side; dropping them lets
+    // the row fall back to parsing the new text, so the links icon follows
+    // the edit instead of waiting for the next re-list.
+    patchCard(card.itemId, { description: text, linkRefs: undefined });
     if (counterpart) {
-      patchCard(counterpart.itemId, { description: text });
+      patchCard(counterpart.itemId, { description: text, linkRefs: undefined });
     }
     void provider
       .patchCard(board, card.itemId, { description: text })
       .catch((err: unknown) => {
-        patchCard(card.itemId, { description: card.description ?? "" });
+        patchCard(card.itemId, {
+          description: card.description,
+          linkRefs: card.linkRefs,
+        });
         if (counterpart) {
           patchCard(counterpart.itemId, {
-            description: counterpart.description ?? "",
+            description: counterpart.description,
+            linkRefs: counterpart.linkRefs,
           });
         }
         fail(err);

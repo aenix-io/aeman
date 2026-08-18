@@ -256,10 +256,12 @@ export function NotesPanel({
     setEditingDesc(false);
   }, [selectedId]);
   const startDescEdit = () => {
-    if (!selectedCard) {
+    // No editing before the body arrives (undefined = still loading): a draft
+    // seeded from a not-yet-loaded body would save "" over the real text.
+    if (!selectedCard || selectedCard.description === undefined) {
       return;
     }
-    setDescDraft(selectedCard.description ?? "");
+    setDescDraft(selectedCard.description);
     setEditingDesc(true);
   };
   const saveDescEdit = () => {
@@ -597,8 +599,12 @@ export function NotesPanel({
               type="button"
               className="notes-log-toggle"
               onClick={startDescEdit}
-              disabled={!selectedCard}
-              title="Edit the description"
+              disabled={!selectedCard || selectedCard.description === undefined}
+              title={
+                selectedCard && selectedCard.description === undefined
+                  ? "Loading the description…"
+                  : "Edit the description"
+              }
             >
               <PencilIcon />
             </button>
@@ -637,6 +643,9 @@ export function NotesPanel({
                 />
               ) : selectedCard.description ? (
                 <div className="notes-desc-body">{selectedCard.description}</div>
+              ) : selectedCard.description === undefined &&
+                !selectedCard.itemId.startsWith("tmp-") ? (
+                <p className="notes-empty">Loading the description…</p>
               ) : (
                 <p className="notes-empty">No description on this card.</p>
               )}
