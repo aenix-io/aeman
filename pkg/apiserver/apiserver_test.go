@@ -48,7 +48,7 @@ func TestCardResourceMapsEveryField(t *testing.T) {
 	}
 	if r.Spec.Title != "Wire the API" || r.Spec.Team != "alpha" ||
 		r.Spec.Zone != "urgent" || r.Spec.Progress != 40 || r.Spec.Stage != "review" ||
-		r.Spec.Description != "details" {
+		r.Spec.Description == nil || *r.Spec.Description != "details" {
 		t.Fatalf("spec = %+v", r.Spec)
 	}
 	if r.Spec.Dates != (CardDates{Start: "2026-01-10", End: "2026-01-12", Sprint: "2026-01-10"}) {

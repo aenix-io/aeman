@@ -54,8 +54,8 @@ func TestListCardsSummaryOmitsBodies(t *testing.T) {
 		t.Fatalf("items = %d", len(list.Items))
 	}
 	for _, it := range list.Items {
-		if it.Spec.Description != "" {
-			t.Fatalf("summary must not carry bodies, got %q on %s", it.Spec.Description, it.Metadata.UID)
+		if it.Spec.Description != nil {
+			t.Fatalf("summary must not carry bodies, got %q on %s", *it.Spec.Description, it.Metadata.UID)
 		}
 	}
 	links := list.Items[0].Status.Links
@@ -71,8 +71,11 @@ func TestListCardsSummaryOmitsBodies(t *testing.T) {
 
 	// fields=full opts a genuine bulk reader into complete cards.
 	full := ListCards(b, Selector{View: "all", Fields: "full"})
-	if full.Items[0].Spec.Description == "" {
+	if full.Items[0].Spec.Description == nil || *full.Items[0].Spec.Description == "" {
 		t.Fatal("fields=full must carry bodies")
+	}
+	if full.Items[1].Spec.Description == nil {
+		t.Fatal("a full resource carries the description even when empty — nil means NOT LOADED, and only summaries may say that")
 	}
 	if len(full.Items[0].Status.Links) != 2 {
 		t.Fatal("the full shape carries the derived refs too")
