@@ -38,3 +38,43 @@ func TestWithSubtasksDeliversAllChildren(t *testing.T) {
 		}
 	}
 }
+
+// A summary listing is the board-row shape: no card bodies, with the derived
+// link refs standing in so a row still knows it has links to show. This is
+// what both the SPA and MCP list by default — descriptions measured 76-84% of
+// day-view payloads and were unused by row rendering.
+func TestListCardsSummaryOmitsBodies(t *testing.T) {
+	b := board.Board{Cards: []board.Card{
+		{ItemID: "c1", Team: "alpha", Title: "with body",
+			Description: "see **https://github.com/acme/repo/pull/7** and https://example.com/doc"},
+		{ItemID: "c2", Team: "alpha", Title: "bare"},
+	}}
+	list := ListCards(b, Selector{View: "all"})
+	if len(list.Items) != 2 {
+		t.Fatalf("items = %d", len(list.Items))
+	}
+	for _, it := range list.Items {
+		if it.Spec.Description != "" {
+			t.Fatalf("summary must not carry bodies, got %q on %s", it.Spec.Description, it.Metadata.UID)
+		}
+	}
+	links := list.Items[0].Status.Links
+	if len(links) != 2 {
+		t.Fatalf("derived links = %+v, want the PR ref and the plain URL", links)
+	}
+	if links[0].Kind != "pull" || links[0].Number != 7 || links[0].Repo != "repo" {
+		t.Fatalf("first ref = %+v, want the resolved PR shorthand fields", links[0])
+	}
+	if links[1].Kind != "link" || links[1].URL != "https://example.com/doc" {
+		t.Fatalf("second ref = %+v", links[1])
+	}
+
+	// fields=full opts a genuine bulk reader into complete cards.
+	full := ListCards(b, Selector{View: "all", Fields: "full"})
+	if full.Items[0].Spec.Description == "" {
+		t.Fatal("fields=full must carry bodies")
+	}
+	if len(full.Items[0].Status.Links) != 2 {
+		t.Fatal("the full shape carries the derived refs too")
+	}
+}

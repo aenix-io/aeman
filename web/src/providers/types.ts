@@ -73,8 +73,14 @@ export interface Card {
   plan?: "wed" | "fri";
   /** ISO date (yyyy-mm-dd) of the plan week this card belongs to (weekly cycle). */
   week?: string;
-  /** Free-form card details (the body minus the appended action log). */
+  /** Free-form card details (the body minus the appended action log).
+   *  Undefined until loaded: listings are the board-row shape without the
+   *  body, and the boards fetch it when a card is selected or opened. */
   description?: string;
+  /** References extracted from the description server-side (unresolved: no
+   *  titles). Summary listings carry these INSTEAD of the description, so a
+   *  row shows its links icon without the body. */
+  linkRefs?: CardLink[];
   /** Work notes; undefined until loaded from the notes subresource. */
   notes?: Note[];
   /** Recorded activity events; undefined until loaded from the log subresource. */
@@ -170,6 +176,10 @@ export interface Provider {
   /** The cards of one view (GET /cards with a selector), so the UI loads only
    *  the active board — Me by default, a team's grid on demand. */
   listCards(board: BoardAddr, query: Record<string, string>): Promise<Card[]>;
+
+  /** Fetch one card in full — listings are the light board-row shape, and the
+   *  description is loaded here when a card is selected or opened. */
+  getCard(board: BoardAddr, uid: string): Promise<Card>;
   createCard(board: BoardAddr, input: NewCardInput): Promise<Card>;
   patchCard(board: BoardAddr, uid: string, patch: CardPatch): Promise<Card>;
   /** Hard delete; the server cascades to the linked review card. */
