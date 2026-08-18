@@ -478,6 +478,31 @@ export function MeBoard({
   }, [notesCards, board, provider, patchCard]);
 
 
+  // Listings are board rows without the body; the Card pane needs it, so the
+  // moment a card is selected without one, fetch it. An empty description
+  // answers as "" and settles the effect (undefined = not loaded).
+  const bodyRequested = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const c = selectedCardId ? cardsById.get(selectedCardId) : undefined;
+    if (
+      !c ||
+      c.description !== undefined ||
+      c.itemId.startsWith("tmp-") ||
+      bodyRequested.current.has(c.itemId)
+    ) {
+      return;
+    }
+    bodyRequested.current.add(c.itemId);
+    void provider
+      .getCard(board, c.itemId)
+      .then((full) => {
+        bodyRequested.current.delete(c.itemId);
+        patchCard(c.itemId, { description: full.description ?? "" });
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCardId, board.cards]);
+
   const subsOpen = (id: string) => expandedSubs.has(id);
 
   // A parent dragged with its list open folds for the flight (the whole

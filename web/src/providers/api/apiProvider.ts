@@ -176,6 +176,8 @@ export const apiProvider: Provider = {
     board: BoardAddr,
     query: Record<string, string>,
   ): Promise<Card[]> {
+    // Listings are board rows (the server-side default): card bodies live
+    // behind getCard, and status.links stands in for the row's links icon.
     const qs = Object.keys(query)
       .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`)
       .join("&");
@@ -183,6 +185,10 @@ export const apiProvider: Provider = {
     // the local copy sorted between re-lists.
     const cards = await api<CardListResource>(board, "GET", `/cards?${qs}`);
     return (cards.items ?? []).map(resourceToCard);
+  },
+
+  async getCard(board: BoardAddr, uid: string): Promise<Card> {
+    return cardFrom(board, "GET", `/cards/${await resolveCardId(uid)}`);
   },
 
   async createCard(board: BoardAddr, input: NewCardInput): Promise<Card> {

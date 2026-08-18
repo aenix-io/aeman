@@ -10,7 +10,7 @@ import {
   type WatchFrame,
   type PresenceResource,
 } from "./api/resources";
-import type { Board, Card as CardModel } from "./providers/types";
+import type { Board, Card as CardModel, Provider } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { CardDetail } from "./components/CardDetail";
@@ -97,6 +97,45 @@ function mergeCardLists(lists: CardModel[][]): CardModel[] {
     seen.add(c.itemId);
     return true;
   });
+}
+
+/** LazyCardBody fetches a card's description when the detail dialog opens on
+ *  a summary row (listings are board rows without the body). Renders nothing;
+ *  the fetched body lands via patchCard and flows into the open dialog. An
+ *  empty description answers as "" and settles the effect. */
+function LazyCardBody({
+  board,
+  uid,
+  provider,
+  patchCard,
+}: {
+  board: Board;
+  uid: string;
+  provider: Provider;
+  patchCard: (id: string, patch: Partial<CardModel>) => void;
+}) {
+  const card = board.cards.find((c) => c.itemId === uid);
+  const missing =
+    !!card && card.description === undefined && !uid.startsWith("tmp-");
+  useEffect(() => {
+    if (!missing) {
+      return;
+    }
+    let dropped = false;
+    void provider
+      .getCard(board, uid)
+      .then((full) => {
+        if (!dropped) {
+          patchCard(uid, { description: full.description ?? "" });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      dropped = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missing, uid]);
+  return null;
 }
 
 export function App() {
@@ -1102,6 +1141,14 @@ export function App() {
         )}
       </main>
 
+      {board && detailCard && (
+        <LazyCardBody
+          board={board}
+          uid={detailCard.itemId}
+          provider={provider}
+          patchCard={patchCard}
+        />
+      )}
       {board && detailCard && (
         <CardDetail
           card={board.cards.find((c) => c.itemId === detailCard.itemId) ?? detailCard}

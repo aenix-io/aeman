@@ -92,6 +92,20 @@ type CardStatus struct {
 	InProgress  bool   `json:"inProgress"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
+	// Links are the references extracted from the card's description —
+	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).
+	// They ride the status so a summary listing, which omits the description
+	// itself, still tells a row it has links to show.
+	Links []CardLinkRef `json:"links,omitempty"`
+}
+
+// CardLinkRef is one extracted reference: a GitHub issue/PR or a plain URL.
+type CardLinkRef struct {
+	Kind   string `json:"kind"`
+	URL    string `json:"url"`
+	Owner  string `json:"owner,omitempty"`
+	Repo   string `json:"repo,omitempty"`
+	Number int    `json:"number,omitempty"`
 }
 
 // Sprint is a team's sprint pointer as an API resource (name = the team key,
@@ -173,6 +187,16 @@ type WeeklySummary struct {
 
 // CardResource maps a domain card onto the API resource, deriving status from
 // the board (reviewedBy needs the linked review card's assignee).
+// CardSummaryResource is CardResource without the card body: the shape of a
+// board row. The description — often the bulk of a card's bytes, and unused
+// by row rendering — stays behind for GET /cards/{uid}; the derived link refs
+// in status keep the row's links indicator honest without it.
+func CardSummaryResource(b board.Board, c board.Card) Card {
+	res := CardResource(b, c)
+	res.Spec.Description = ""
+	return res
+}
+
 func CardResource(b board.Board, c board.Card) Card {
 	spec := CardSpec{
 		Title:       c.Title,
@@ -194,6 +218,11 @@ func CardResource(b board.Board, c board.Card) Card {
 		Complete:    board.Complete(c.Stage, c.Progress),
 		InProgress:  board.IsInProgress(c),
 		ReviewRound: c.ReviewRound,
+	}
+	for _, l := range board.ExtractLinks(c.Description) {
+		status.Links = append(status.Links, CardLinkRef{
+			Kind: l.Kind, URL: l.URL, Owner: l.Owner, Repo: l.Repo, Number: l.Number,
+		})
 	}
 	for _, r := range b.Cards {
 		if r.ReviewOf == c.ItemID && len(r.Assignees) > 0 &&
