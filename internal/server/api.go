@@ -109,9 +109,9 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
 			{"GET", "/api/v1/board", "Board identity and team roster"},
-			{"GET", "/api/v1/cards", "List cards; selectors: view=team|me|weekly, team, day, user, week, stage, zone, assignee"},
+			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|weekly, team, day, user, week, stage, zone, assignee, fields=full for complete cards"},
 			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint; plan cards via spec.plan)"},
-			{"GET", "/api/v1/cards/{uid}", "One card"},
+			{"GET", "/api/v1/cards/{uid}", "One card in full (the body lives here, not in listings)"},
 			{"PATCH", "/api/v1/cards/{uid}", "Edit spec fields; the server applies clamps, links and date rules"},
 			{"DELETE", "/api/v1/cards/{uid}", "Hard delete (cascades to the linked review card)"},
 			{"POST", "/api/v1/cards/{uid}/actions/remove", "The smart remove: demote, release or delete by board rules ({from: grid|plan})"},

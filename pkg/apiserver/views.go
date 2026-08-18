@@ -24,6 +24,11 @@ type Selector struct {
 	// Week is the plan week (a Monday) for the weekly view (defaults to the
 	// current week).
 	Week string
+	// Fields picks the resource shape a listing delivers. The default is the
+	// board row — no description, with the derived link refs in status
+	// standing in for it; a card's body is one GET /cards/{uid} away.
+	// "full" opts a genuine bulk reader into complete Cards.
+	Fields string
 	// Plain field selectors, applied on top of the view (or of all cards).
 	Stage    *string
 	Zone     *string
@@ -49,6 +54,15 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Assignee:       q.Get("assignee"),
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
+		Fields:         q.Get("fields"),
+	}
+	switch sel.Fields {
+	case "", "full", "summary":
+	default:
+		return Selector{}, fmt.Errorf("unknown fields %q (want summary or full)", sel.Fields)
+	}
+	if sel.Fields == "" {
+		sel.Fields = "summary"
 	}
 	if q.Has("stage") {
 		v := q.Get("stage")
@@ -221,9 +235,13 @@ func (s Selector) Matches(b board.Board, c board.Card) bool {
 // plus the weekly summary when the weekly view was selected.
 func ListCards(b board.Board, sel Selector) CardList {
 	cards := FilterCards(b, sel)
+	resource := CardSummaryResource
+	if sel.Fields == "full" {
+		resource = CardResource
+	}
 	items := make([]Card, 0, len(cards))
 	for _, c := range cards {
-		items = append(items, CardResource(b, c))
+		items = append(items, resource(b, c))
 	}
 	list := CardList{Kind: "CardList", Items: items}
 	if sel.View == "weekly" {

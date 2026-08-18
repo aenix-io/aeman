@@ -335,3 +335,37 @@ func TestMCPListDefaultsToMe(t *testing.T) {
 		t.Fatalf("view=all must list the whole board: %s", textOf(all))
 	}
 }
+
+// list_cards mirrors the board's row view: light rows by default (no bodies),
+// a title substring resolves a mentioned card to its uid in one call, and
+// full=true remains for genuine bulk reads. get_card stays the detail pane.
+func TestMCPListCardsRowsAndTitleFilter(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", Title: "Fix DRBD split-brain", Description: "long body https://github.com/acme/repo/pull/7"},
+		{ItemID: "c2", Team: "alpha", Title: "Renew TLS certificates", Description: "another body"},
+	}, nil)
+	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+
+	rows := textOf(call(t, cs, "list_cards", map[string]any{"view": "all"}))
+	if strings.Contains(rows, "long body") || strings.Contains(rows, "another body") {
+		t.Fatalf("rows must not carry bodies: %s", rows)
+	}
+	if !strings.Contains(rows, `"links"`) || !strings.Contains(rows, `"pull"`) {
+		t.Fatalf("rows must carry the derived link refs: %s", rows)
+	}
+
+	filtered := textOf(call(t, cs, "list_cards", map[string]any{"view": "all", "title": "drbd"}))
+	if !strings.Contains(filtered, "c1") || strings.Contains(filtered, "c2") {
+		t.Fatalf("title filter should keep exactly c1: %s", filtered)
+	}
+
+	full := textOf(call(t, cs, "list_cards", map[string]any{"view": "all", "full": true}))
+	if !strings.Contains(full, "long body") {
+		t.Fatalf("full=true must carry bodies: %s", full)
+	}
+
+	card := textOf(call(t, cs, "get_card", map[string]any{"uid": "c1"}))
+	if !strings.Contains(card, "long body") {
+		t.Fatalf("get_card is the detail pane, body missing: %s", card)
+	}
+}

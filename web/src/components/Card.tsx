@@ -158,9 +158,13 @@ export function Card({
   const [linksOpen, setLinksOpen] = useState(false);
   const [resolvedLinks, setResolvedLinks] = useState<CardLink[] | null>(null);
   const linksRef = useRef<HTMLDivElement | null>(null);
+  // Summary rows carry server-derived refs instead of the description;
+  // parsing the body is the fallback for cards that arrived in full (watch
+  // frames, mutation acks) before any refs field existed.
+  const localLinksSrc = card.linkRefs;
   const localLinks = useMemo(
-    () => extractLinks(card.description ?? ""),
-    [card.description],
+    () => localLinksSrc ?? extractLinks(card.description ?? ""),
+    [localLinksSrc, card.description],
   );
   const hasGitHubRefs = localLinks.some((l) => l.kind !== "link");
   const toggleLinks = (e: React.MouseEvent) => {

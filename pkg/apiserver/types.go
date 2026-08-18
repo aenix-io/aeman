@@ -69,8 +69,12 @@ type CardPlan struct {
 
 // CardSpec is the user's intent — everything an edit can change.
 type CardSpec struct {
-	Title       string   `json:"title"`
-	Description string   `json:"description,omitempty"`
+	Title string `json:"title"`
+	// Description is nil in a summary listing ("body not included" — the
+	// row shape) and always present, possibly empty, on a full resource.
+	// The distinction is the client's "loaded" marker: only nil means "go
+	// fetch the body", so an empty body never reads as a missing one.
+	Description *string  `json:"description,omitempty"`
 	Team        string   `json:"team,omitempty"`
 	Zone        string   `json:"zone,omitempty"`
 	Assignees   []string `json:"assignees"`
@@ -92,6 +96,24 @@ type CardStatus struct {
 	InProgress  bool   `json:"inProgress"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
+	// Links are the references extracted from the card's description —
+	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).
+	// They ride the status so a summary listing, which omits the description
+	// itself, still tells a row it has links to show.
+	Links []CardLinkRef `json:"links,omitempty"`
+}
+
+// maxStatusLinks bounds the derived refs a status carries; the full resolved
+// list is always available from GET /cards/{uid}/links.
+const maxStatusLinks = 50
+
+// CardLinkRef is one extracted reference: a GitHub issue/PR or a plain URL.
+type CardLinkRef struct {
+	Kind   string `json:"kind"`
+	URL    string `json:"url"`
+	Owner  string `json:"owner,omitempty"`
+	Repo   string `json:"repo,omitempty"`
+	Number int    `json:"number,omitempty"`
 }
 
 // Sprint is a team's sprint pointer as an API resource (name = the team key,
@@ -173,10 +195,21 @@ type WeeklySummary struct {
 
 // CardResource maps a domain card onto the API resource, deriving status from
 // the board (reviewedBy needs the linked review card's assignee).
+// CardSummaryResource is CardResource without the card body: the shape of a
+// board row. The description — often the bulk of a card's bytes, and unused
+// by row rendering — stays behind for GET /cards/{uid}; the derived link refs
+// in status keep the row's links indicator honest without it.
+func CardSummaryResource(b board.Board, c board.Card) Card {
+	res := CardResource(b, c)
+	res.Spec.Description = nil
+	return res
+}
+
 func CardResource(b board.Board, c board.Card) Card {
+	description := c.Description
 	spec := CardSpec{
 		Title:       c.Title,
-		Description: c.Description,
+		Description: &description,
 		Team:        c.Team,
 		Zone:        SemanticZone(c.Zone),
 		Assignees:   append([]string{}, c.Assignees...),
@@ -194,6 +227,17 @@ func CardResource(b board.Board, c board.Card) Card {
 		Complete:    board.Complete(c.Stage, c.Progress),
 		InProgress:  board.IsInProgress(c),
 		ReviewRound: c.ReviewRound,
+	}
+	for _, l := range board.ExtractLinks(c.Description) {
+		// A row needs an indicator and a menu, not an inventory: a
+		// pathological body of hundreds of URLs must not make the "light"
+		// row heavier than the description it replaced.
+		if len(status.Links) == maxStatusLinks {
+			break
+		}
+		status.Links = append(status.Links, CardLinkRef{
+			Kind: l.Kind, URL: l.URL, Owner: l.Owner, Repo: l.Repo, Number: l.Number,
+		})
 	}
 	for _, r := range b.Cards {
 		if r.ReviewOf == c.ItemID && len(r.Assignees) > 0 &&

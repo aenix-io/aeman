@@ -72,6 +72,13 @@ export interface CardResource {
     inProgress?: boolean;
     reviewedBy?: string;
     reviewRound?: number;
+    links?: {
+      kind: string;
+      url: string;
+      owner?: string;
+      repo?: string;
+      number?: number;
+    }[];
   };
 }
 
@@ -174,7 +181,18 @@ export function resourceToCard(res: CardResource): Card {
     sprintStart: dates.sprint || undefined,
     plan: band === "wed" || band === "fri" ? band : undefined,
     week: spec.plan?.week || undefined,
-    description: spec.description ?? "",
+    // A summary listing omits the body: description stays undefined ("not
+    // loaded") and the boards fetch it on selection. A full resource with a
+    // genuinely empty body also arrives undefined (the field is omitempty) —
+    // the lazy fetch then answers once with "" and settles it.
+    description: spec.description,
+    linkRefs: res.status?.links?.map((l) => ({
+      url: l.url,
+      kind: l.kind === "issue" || l.kind === "pull" ? l.kind : "link",
+      owner: l.owner,
+      repo: l.repo,
+      number: l.number,
+    })),
   };
 }
 

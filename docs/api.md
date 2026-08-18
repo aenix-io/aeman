@@ -31,7 +31,7 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | Method & path | Purpose |
 | --- | --- |
 | `GET /api/v1/board` | Board identity and the team roster. |
-| `GET /api/v1/cards` | LIST cards (selectors below), in board order. |
+| `GET /api/v1/cards` | LIST cards (selectors below), in board order. A listing is the **board-row shape**: no `spec.description` — `status.links` carries the refs extracted from it (capped at 50), and the body itself is one `GET /cards/{uid}` away. `?fields=full` opts a genuine bulk reader into complete cards. |
 | `POST /api/v1/cards` | Create a card (201). A title that is nothing but a GitHub issue/PR URL becomes that item's real title, with the link moved into the description (one-time, never re-synced). |
 | `GET /api/v1/cards/{uid}` | One card. |
 | `PATCH /api/v1/cards/{uid}` | Edit spec fields; only present fields apply, empty clears. |
@@ -85,7 +85,7 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
   },
   "spec": {
     "title": "Wire up the API",
-    "description": "Free-form details",
+    "description": "Free-form details — on full resources only: a LIST omits it (that IS the \"not loaded\" marker; a full resource always carries it, even empty)",
     "team": "platform",
     "zone": "urgent",
     "assignees": ["octocat"],
@@ -98,7 +98,10 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
   "status": {
     "complete": false,
     "inProgress": false,
-    "reviewedBy": "lllamnyp"
+    "reviewedBy": "lllamnyp",
+    "links": [
+      { "kind": "pull", "url": "https://github.com/acme/repo/pull/7", "owner": "acme", "repo": "repo", "number": 7 }
+    ]
   }
 }
 ```
@@ -106,7 +109,7 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
 - **Zones are semantic**: `urgent`, `unplanned`, `planned`, `niceToHave` (or empty). The UI's colours are presentation.
 - **`spec.dates`** is the date model of [dates.md](dates.md): `start` (the scheduled day), `end` (the visible range's end), `sprint` (sprint membership). PATCHing `dates.start` runs the calendar rule — the sprint follows the sprint that was active on the start day; patch only `dates.end` or `dates.sprint` for a granular change.
 - **`spec.stage`** is `locked`, `review`, `recurrent` or empty. Done is **derived** (`status.complete`): 100% with no stage. Patching `stage: "done"` clears the stage and fills 100%; review/locked clamp progress to [10, 90]. Taking a card off review cancels its unfinished linked review card server-side.
-- **`status`** is server-derived and read-only: `complete`, `inProgress`, and `reviewedBy` (the assignee of the unfinished linked review card).
+- **`status`** is server-derived and read-only: `complete`, `inProgress`, `reviewedBy` (the assignee of the unfinished linked review card), and `links` — the references extracted from the description (unresolved; `GET /cards/{uid}/links` resolves GitHub refs to live titles and states). `status.links` is what lets a listing drop the description without blinding a row's links indicator.
 
 ### LIST selectors
 
@@ -120,6 +123,7 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
 - Field selectors — `stage=`, `zone=`, `assignee=` — compose with a view or apply to all cards.
 - `focus=true` — keep only cards workable right now (drops done, on-review and locked); the "what can I pick up now" filter.
 - `reviews=true` — on a me/team view, append each card's linked review card so a client rendering the reviewer badge has it without a second request (the UI uses this; off by default so an agent's Me list isn't padded with review cards).
+- `fields=full` — complete cards with descriptions, for genuine bulk readers (analytics over card bodies). The default is the board-row shape: reading one card's body is `GET /cards/{uid}`, not a fatter list.
 - On the me / all lists, `team=` filters by a comma-separated set (`team=marketing,portal`) matching any of them.
 
 ### Live updates: list + watch
@@ -175,8 +179,8 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over?owner=acme
 | Tool | Purpose |
 | --- | --- |
 | `get_board` | Board identity and team roster. |
-| `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`, `focus`). No view defaults to your own Me board (who-am-i resolved server-side); `view=all` is the whole board, `view=team` the lead view. |
-| `get_card` / `list_notes` / `list_links` | One card; its notes; its description links (GitHub refs resolved with titles). |
+| `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`, `focus`). Returns board ROWS (no descriptions; `status.links` carries the extracted refs). `title=<substring>` resolves a card someone mentioned by name to its uid in one cheap call; `full=true` opts a bulk reader into complete cards. No view defaults to your own Me board (who-am-i resolved server-side); `view=all` is the whole board, `view=team` the lead view. |
+| `get_card` / `list_notes` / `list_links` | One card IN FULL — the detail pane, and the way to read a body after a `list_cards` row; its notes; its description links (GitHub refs resolved with titles). |
 | `list_log` | The card's activity feed: events (stage/progress/review/plan changes with actor) + notes, one chronological list — read a card's delta instead of asking for morning reports. |
 | `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). A title that is only a GitHub issue/PR URL is auto-filled from that item. |
 | `update_card` | The PATCH: only provided fields apply, empty clears. The `description` is the card's shared body — and the place for reference links: include full URLs of related open PRs/issues in free form (encouraged); they are surfaced on the card and GitHub refs resolve to live titles/states (`list_links`). |
