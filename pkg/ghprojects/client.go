@@ -26,6 +26,13 @@ var (
 	ErrFieldNotFound = errors.New("field not found")
 	// ErrNoContent is returned for operations needing an underlying issue/draft.
 	ErrNoContent = errors.New("card has no underlying issue")
+
+	// ErrBadCredentials is GitHub rejecting the caller's token (401/403). It
+	// is a distinct condition from a board or field being missing: the token
+	// stored for this user is dead — expired, revoked, or superseded — and no
+	// retry with it will ever work. Callers holding a session behind that
+	// token must drop it and make the user authorize again.
+	ErrBadCredentials = errors.New("github rejected the token")
 )
 
 // Doer is the subset of *http.Client used by the client, so tests can inject a
@@ -166,7 +173,7 @@ func (c *Client) graphql(ctx context.Context, query string, vars map[string]any,
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("github graphql: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("%w: HTTP %d: %s", ErrBadCredentials, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var envelope struct {

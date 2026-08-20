@@ -20,6 +20,7 @@ type Backend struct {
 	// goroutine (resolveTitleAsync), so the fake is hit concurrently with the
 	// test's own requests and assertions.
 	mu      sync.Mutex
+	loadErr error
 	refs    map[string]board.Link
 	board   board.Board
 	log     []string
@@ -109,11 +110,22 @@ func (f *Backend) Creates() []board.CreateInput {
 	return append([]board.CreateInput(nil), f.creates...)
 }
 
+// FailLoad makes every LoadBoard answer err — the seam for testing how the
+// server reacts to an upstream that refuses the caller (a dead token).
+func (f *Backend) FailLoad(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.loadErr = err
+}
+
 // LoadBoard returns a copy of the seeded board snapshot.
 func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("LoadBoard")
+	if f.loadErr != nil {
+		return board.Board{}, f.loadErr
+	}
 	cards := make([]board.Card, len(f.board.Cards))
 	copy(cards, f.board.Cards)
 	states := map[string]board.SprintState{}

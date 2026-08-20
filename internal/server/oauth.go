@@ -26,6 +26,11 @@ const authCodeTTL = 5 * time.Minute
 // reads it back from the per-request TokenInfo.
 const githubTokenExtraKey = "github_token"
 
+// sessionIDExtraKey carries the session id (= the MCP bearer token) alongside
+// it, so a handler that learns GitHub has rejected the token can drop that
+// exact session instead of leaving the client to retry a dead one forever.
+const sessionIDExtraKey = "aeman_session"
+
 // registerOAuthServer wires the OAuth 2.0 authorization-server endpoints that
 // front the MCP transport: metadata discovery, dynamic client registration, the
 // authorize redirect and the token endpoint. It is only mounted in OAuth mode.
@@ -435,7 +440,10 @@ func (a *authManager) verifyToken(_ context.Context, token string, _ *http.Reque
 	return &auth.TokenInfo{
 		UserID:     s.login,
 		Expiration: s.created.Add(sessionTTL),
-		Extra:      map[string]any{githubTokenExtraKey: s.token},
+		Extra: map[string]any{
+			githubTokenExtraKey: s.token,
+			sessionIDExtraKey:   token,
+		},
 	}, nil
 }
 
