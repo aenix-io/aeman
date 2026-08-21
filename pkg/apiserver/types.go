@@ -85,7 +85,10 @@ type CardSpec struct {
 	Recurrence string    `json:"recurrence,omitempty"`
 	Dates      CardDates `json:"dates"`
 	Plan       *CardPlan `json:"plan,omitempty"`
-	ReviewOf   string    `json:"reviewOf,omitempty"`
+	// Epic is the Plan-board column the card is filed under ("" = none); its
+	// Week is the row, and Dates span the weeks its slot stretches over.
+	Epic     string `json:"epic,omitempty"`
+	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the uid of the card it is grouped under.
 	Parent string `json:"parent,omitempty"`
 }
@@ -173,6 +176,8 @@ type BoardMetadata struct {
 	Title string   `json:"title,omitempty"`
 	URL   string   `json:"url,omitempty"`
 	Teams []string `json:"teams"`
+	// Epics lists the Plan board's columns, in board order.
+	Epics []string `json:"epics,omitempty"`
 	// Members is every distinct assignee on the board — the people roster for
 	// pickers (assign, review, view-as) now that clients load one view at a
 	// time and cannot derive it from the cards they hold.
@@ -217,6 +222,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Stage:       string(c.Stage),
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
+		Epic:        c.Epic,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 	}
@@ -345,7 +351,7 @@ func BoardResource(b board.Board) BoardInfo {
 	sortStrings(members)
 	return BoardInfo{
 		Kind:     "Board",
-		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams, Members: members},
+		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams, Epics: append([]string{}, b.Epics...), Members: members},
 	}
 }
 

@@ -79,6 +79,9 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-week", s.handleCarryWeek)
 	mux.HandleFunc("POST /api/v1/sprints/actions/reorder-teams", s.handleReorderTeams)
 	mux.HandleFunc("POST /api/v1/sprints/actions/delete-team", s.handleDeleteTeam)
+	mux.HandleFunc("POST /api/v1/epics", s.handleAddEpic)
+	mux.HandleFunc("POST /api/v1/epics/actions/delete-epic", s.handleDeleteEpic)
+	mux.HandleFunc("POST /api/v1/epics/actions/reorder-epics", s.handleReorderEpics)
 	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
@@ -408,10 +411,12 @@ type cardPatch struct {
 	Progress    *int      `json:"progress"`
 	Stage       *string   `json:"stage"`
 	// Recurrence is a recurrent card's reseed cycle ("", "week", "month").
-	Recurrence *string     `json:"recurrence"`
-	Dates      *datesPatch `json:"dates"`
-	Plan       *planPatch  `json:"plan"`
-	ReviewOf   *string     `json:"reviewOf"`
+	Recurrence *string `json:"recurrence"`
+	// Epic files the card under a Plan-board column ("" clears).
+	Epic     *string     `json:"epic"`
+	Dates    *datesPatch `json:"dates"`
+	Plan     *planPatch  `json:"plan"`
+	ReviewOf *string     `json:"reviewOf"`
 	// Parent groups the card as a subtask under another card ("" ungroups).
 	Parent *string `json:"parent"`
 }
@@ -457,6 +462,12 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Team != nil {
 		if err := svc.SetTeam(ctx, owner, project, uid, *p.Team, ""); err != nil {
+			s.apiError(w, err)
+			return
+		}
+	}
+	if p.Epic != nil {
+		if err := svc.SetEpic(ctx, owner, project, uid, *p.Epic); err != nil {
 			s.apiError(w, err)
 			return
 		}
@@ -1006,6 +1017,65 @@ func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleAddEpic declares a new Plan-board column (body {name}).
+func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.AddEpic(r.Context(), owner, project, in.Name); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+}
+
+// handleDeleteEpic removes an EMPTY epic column (422 while cards still sit
+// under it — orphaning planned work silently is the Plan board's own anti-goal).
+func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Epic string `json:"epic"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteEpic(r.Context(), owner, project, in.Epic); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleReorderEpics applies a shared column order (body {epics:[...]}),
+// moving the hidden epic-state cards the way reorder-teams moves sprint-state.
+func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Epics []string `json:"epics"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.ReorderEpics(r.Context(), owner, project, in.Epics); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // --- Shared helpers ----------------------------------------------------------------
 
 // handleSetPresence records the caller's live Me-view selection — ephemeral
@@ -1108,7 +1178,9 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 		errors.Is(err, boardservice.ErrSubtaskDepth),
 		errors.Is(err, boardservice.ErrParentNotFound),
 		errors.Is(err, boardservice.ErrOpenSubtasks),
-		errors.Is(err, boardservice.ErrTeamInUse):
+		errors.Is(err, boardservice.ErrTeamInUse),
+		errors.Is(err, boardservice.ErrEpicInUse),
+		errors.Is(err, boardservice.ErrEpicExists):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

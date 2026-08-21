@@ -12,7 +12,7 @@ import (
 // exactly what the UI renders (the Team grid, the Me day board, the Weekly
 // plan); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me" or "weekly". "" and "all" both list every
+	// View is "", "all", "team", "me", "weekly" or "plan". "" and "all" both list every
 	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
 	View string
 	// Team is the team key for the team/weekly views ("" = the no-team group).
@@ -73,7 +73,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Zone = &v
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "weekly":
+	case "", "all", "team", "me", "weekly", "plan":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -113,6 +113,19 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 	case "me":
 		base = board.MeView(b, sel.User, sel.Day)
+	case "plan":
+		// The Plan board: every card filed under an epic, whatever its week —
+		// the client lays rows (weeks) and columns (epics) out itself. The
+		// team selector filters cards, not columns.
+		for _, c := range b.Cards {
+			if c.Epic == "" || c.Parent != "" {
+				continue
+			}
+			if !teamInSet(c.Team, sel.Team) {
+				continue
+			}
+			base = append(base, c)
+		}
 	case "weekly":
 		// weekly accepts a comma-separated team set too, so the Team board's
 		// weekly-plan panel fetches every team it shows in one request.

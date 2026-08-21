@@ -10,6 +10,13 @@ package board
 // web/src/providers/github/githubProvider.ts; such cards never render on a board.
 const SprintStateTitle = "aeman:sprint-state"
 
+// EpicStateTitle marks the hidden card that declares an epic column of the
+// Plan board. One card per epic: its Epic field is the epic's name, and its
+// position on the project is the column order (exactly the team-roster
+// mechanism of sprint-state cards). The card exists so an empty epic — just
+// added, or emptied out — still has a column.
+const EpicStateTitle = "aeman:epic-state"
+
 // ZoneKey is the colour zone a card belongs to, in the Ford sense. It mirrors
 // the ZoneKey union in web/src/providers/types.ts ("" means no zone).
 type ZoneKey string
@@ -110,6 +117,10 @@ type Card struct {
 	// Plan/Week place the card in the founders' weekly plan (Week is a Monday).
 	Plan PlanBand `json:"plan,omitempty"`
 	Week string   `json:"week,omitempty"`
+	// Epic names the Plan-board column this card belongs to ("" = none). An
+	// epic card's row is its Week; StartDate..Day span the weeks its slot
+	// covers when it stretches over more than one.
+	Epic string `json:"epic,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the itemId of the card it belongs to ("" = a
@@ -154,6 +165,7 @@ type CreateInput struct {
 	Parent      string   `json:"parent,omitempty"`
 	Plan        PlanBand `json:"plan,omitempty"`
 	Week        string   `json:"week,omitempty"`
+	Epic        string   `json:"epic,omitempty"`
 }
 
 // SprintState is a team's explicit sprint pointer, read from its hidden
@@ -187,6 +199,11 @@ type Board struct {
 	// each team's hidden sprint-state card on the project. That position IS
 	// the team order every client shares (reordering teams moves the card).
 	TeamOrder []string `json:"teamOrder,omitempty"`
+	// Epics lists the Plan board's columns in board order (the positions of
+	// the hidden epic-state cards), and EpicStates maps each epic to the
+	// state card that declares it (deletion removes that card).
+	Epics      []string          `json:"epics,omitempty"`
+	EpicStates map[string]string `json:"epicStates,omitempty"`
 }
 
 // NewBoard builds a Board snapshot from a board's fields and full card list,
@@ -202,7 +219,24 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 	}
 	seen := map[string]bool{}
 	winners := map[string]Card{}
+	epicSeen := map[string]bool{}
 	for _, c := range cards {
+		if c.Title == EpicStateTitle {
+			// Same duplicate rule as sprint-state: the first position wins
+			// the order, the oldest card wins the state slot.
+			if c.Epic == "" {
+				continue
+			}
+			if !epicSeen[c.Epic] {
+				epicSeen[c.Epic] = true
+				b.Epics = append(b.Epics, c.Epic)
+				if b.EpicStates == nil {
+					b.EpicStates = map[string]string{}
+				}
+				b.EpicStates[c.Epic] = c.ItemID
+			}
+			continue
+		}
 		if c.Title == SprintStateTitle {
 			// Duplicate sprint-state cards happen (a bootstrap raced a stale
 			// snapshot); the winner must be DETERMINISTIC or the pointer

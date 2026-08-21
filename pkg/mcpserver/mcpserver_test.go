@@ -86,6 +86,7 @@ func TestMCPListsTools(t *testing.T) {
 		"send_to_review", "remove_reviewer", "take_into_plan", "release_from_plan",
 		"carry_over", "carry_week",
 		"list_links", "list_log", "list_notes", "add_note", "edit_note", "delete_note",
+		"add_epic", "delete_epic",
 	}
 	for _, w := range want {
 		if !names[w] {

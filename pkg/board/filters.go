@@ -21,6 +21,11 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
+		// An epic card lives on the Plan board until it joins a sprint (see
+		// MeView) — its multi-week span must not smear across the day grid.
+		if c.Epic != "" && c.SprintStart == "" {
+			continue
+		}
 		// A card with an end date spans a range: it shows on every day from its
 		// start through its end (the calendar sets start…end).
 		inRange := c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
@@ -84,6 +89,11 @@ func MeView(b Board, user, day string) []Card {
 	for _, c := range b.Cards {
 		// Subtasks are never listed on their own; they ride with their parent.
 		if c.Parent != "" {
+			continue
+		}
+		// An epic card lives on the Plan board until it joins a sprint: its
+		// week-spanning dates would otherwise smear it across the day boards.
+		if c.Epic != "" && c.SprintStart == "" {
 			continue
 		}
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {

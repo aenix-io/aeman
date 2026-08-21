@@ -168,6 +168,11 @@ type CreateCardArgs struct {
 	// set and no sprint is joined or started (Week defaults to this Monday).
 	Plan board.PlanBand
 	Week string
+	// Epic creates a Plan-board card: filed under the column, its Week is the
+	// row (defaulting to the Monday of Start, then of today), Start/Day may
+	// span several weeks, and no sprint is joined — the card lives on the
+	// Plan board until a team picks it up.
+	Epic string
 	// ReviewOf marks the new card as the review of the given item.
 	ReviewOf string
 	// Parent groups the new card as a subtask of the given item on create.
@@ -210,6 +215,13 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		linkDescription = ref.URL
 		args.Title = ref.FallbackTitle()
 		pendingRef = &ref
+	}
+	// An epic card lives on the Plan board: filed under its column, anchored
+	// to its week row, optionally spanning several weeks via start..day. It
+	// joins no sprint and no plan band — assigning it to a team later places
+	// it into that team's weekly plan.
+	if args.Epic != "" {
+		return s.createEpicCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	// A weekly-plan card lives in the plan bands, not on the day boards: it gets
 	// no dates and joins no sprint. It mirrors handleCreatePlan in TeamBoard.tsx.
@@ -372,6 +384,50 @@ func (s *Service) resolveTitleAsync(ctx context.Context, b board.Board, card boa
 		}
 		_ = s.backend.RenameCard(ctx, fresh, current, resolved.Title)
 	})
+}
+
+// createEpicCard files a new card on the Plan board: under an existing epic
+// column, anchored to its week row, optionally spanning several weeks. No
+// sprint, no plan band — a team picking it up later is what schedules it.
+func (s *Service) createEpicCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
+	known := false
+	for _, e := range b.Epics {
+		if e == args.Epic {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return board.Card{}, fmt.Errorf("unknown epic %q — add it first (add_epic / POST /epics)", args.Epic)
+	}
+	start := args.Start
+	if start == "" {
+		start = board.TodayIso()
+	}
+	day := args.Day
+	if day == "" {
+		day = start
+	}
+	week := args.Week
+	if week == "" {
+		week = board.MondayOf(start)
+	}
+	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
+		Title:    args.Title,
+		Zone:     args.Zone,
+		Epic:     args.Epic,
+		Week:     week,
+		Start:    start,
+		Day:      day,
+		Team:     args.Team,
+		Assignee: args.Assignee,
+	})
+	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
+	if err == nil {
+		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+		s.resolveTitleAsync(ctx, b, card, pendingRef)
+	}
+	return card, err
 }
 
 // withLinkDescription moves the source URL of a create-by-URL card into its

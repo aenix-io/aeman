@@ -73,6 +73,7 @@ var domainFieldSpecs = map[string]domainFieldSpec{
 		{"Fri", "PURPLE", "By Friday"},
 	}},
 	"week":        {name: "Week", dataType: "DATE"},
+	"epic":        {name: "Epic", dataType: "TEXT"},
 	"team":        {name: "Team", dataType: "TEXT"},
 	"reviewOf":    {name: "Review Of", dataType: "TEXT"},
 	"parent":      {name: "Parent", dataType: "TEXT"},
@@ -433,6 +434,11 @@ func (c *Client) SetTeam(ctx context.Context, b board.Board, card board.Card, te
 	return c.setDomainText(ctx, b, card, "team", team)
 }
 
+// SetEpic files (or clears) the Plan-board column a card belongs to.
+func (c *Client) SetEpic(ctx context.Context, b board.Board, card board.Card, epic string) error {
+	return c.setDomainText(ctx, b, card, "epic", epic)
+}
+
 // SetRecurrence sets (or clears) a recurrent card's reseed cycle.
 func (c *Client) SetRecurrence(ctx context.Context, b board.Board, card board.Card, cycle string) error {
 	return c.setDomainText(ctx, b, card, "recurrence", cycle)
@@ -577,7 +583,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		}
 	}
 	for _, tf := range []struct{ role, value string }{
-		{"team", in.Team}, {"reviewOf", in.ReviewOf}, {"parent", in.Parent},
+		{"team", in.Team}, {"reviewOf", in.ReviewOf}, {"parent", in.Parent}, {"epic", in.Epic},
 	} {
 		if tf.value == "" {
 			continue
@@ -622,6 +628,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		SprintStart: in.SprintStart,
 		Plan:        in.Plan,
 		Week:        in.Week,
+		Epic:        in.Epic,
 		Team:        in.Team,
 		ReviewOf:    in.ReviewOf,
 		Parent:      in.Parent,

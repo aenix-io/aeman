@@ -88,13 +88,28 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("LoadBoard")
-	cards := make([]board.Card, len(f.b.Cards))
-	copy(cards, f.b.Cards)
+	cards := make([]board.Card, 0, len(f.b.Cards))
+	var epics []string
+	epicStates := map[string]string{}
+	for _, c := range f.b.Cards {
+		// Mirror board.NewBoard's split for epic-state cards, so the service
+		// sees the same Epics roster it would on a real board. Sprint states
+		// stay seeded directly (tests set them without state cards).
+		if c.Title == board.EpicStateTitle {
+			if c.Epic != "" && epicStates[c.Epic] == "" {
+				epics = append(epics, c.Epic)
+				epicStates[c.Epic] = c.ItemID
+			}
+			continue
+		}
+		cards = append(cards, c)
+	}
 	states := map[string]board.SprintState{}
 	for k, v := range f.b.SprintStates {
 		states[k] = v
 	}
-	return board.Board{ID: f.b.ID, Number: f.b.Number, Owner: f.b.Owner, Cards: cards, SprintStates: states}, nil
+	return board.Board{ID: f.b.ID, Number: f.b.Number, Owner: f.b.Owner, Cards: cards,
+		SprintStates: states, Epics: epics, EpicStates: epicStates}, nil
 }
 
 func (f *fakeBackend) LoadCards(_ context.Context, _ board.Board, ids []string) ([]board.Card, error) {
@@ -120,8 +135,8 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	f.nextID++
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
-		Zone: in.Zone, StartDate: in.Start, SprintStart: in.SprintStart,
-		Plan: in.Plan, Week: in.Week, Team: in.Team, ReviewOf: in.ReviewOf,
+		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
+		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Team: in.Team, ReviewOf: in.ReviewOf,
 		Assignees: []string{},
 	}
 	if in.Assignee != "" {
@@ -288,6 +303,16 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	f.rec("SetTeam %s %s", card.ItemID, team)
 	if c := f.get(card.ItemID); c != nil {
 		c.Team = team
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetEpic(_ context.Context, _ board.Board, card board.Card, epic string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetEpic %s %s", card.ItemID, epic)
+	if c := f.get(card.ItemID); c != nil {
+		c.Epic = epic
 	}
 	return nil
 }

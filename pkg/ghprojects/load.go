@@ -307,6 +307,8 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		}
 	case roles.Week != nil && id == roles.Week.ID && v.Date != "":
 		card.Week = v.Date
+	case roles.Epic != nil && id == roles.Epic.ID && v.Text != "":
+		card.Epic = v.Text
 	case roles.Team != nil && id == roles.Team.ID && v.Text != "":
 		card.Team = v.Text
 	case roles.ReviewOf != nil && id == roles.ReviewOf.ID && v.Text != "":
@@ -333,6 +335,7 @@ type domainFieldRoles struct {
 	Status      *board.ProjectField
 	Plan        *board.ProjectField
 	Week        *board.ProjectField
+	Epic        *board.ProjectField
 	Stage       *board.ProjectField
 	Team        *board.ProjectField
 	ReviewOf    *board.ProjectField
@@ -387,6 +390,8 @@ func domainRoles(fields []board.ProjectField) domainFieldRoles {
 			r.Plan = f
 		case r.Week == nil && domainMatchesAlias("week", name):
 			r.Week = f
+		case r.Epic == nil && domainMatchesAlias("epic", name):
+			r.Epic = f
 		case r.Stage == nil && domainMatchesAlias("stage", name):
 			r.Stage = f
 		case r.Team == nil && domainMatchesAlias("team", name):

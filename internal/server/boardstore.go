@@ -1626,6 +1626,15 @@ func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.C
 	return nil
 }
 
+func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "epic", "file "+cardRef(card)+" under an epic", func(c *board.Card) {
+		c.Epic = epic
+	}, func(ctx context.Context) error {
+		return b.inner.SetEpic(ctx, bd, card, epic)
+	})
+	return nil
+}
+
 func (b *storeBackend) SetRecurrence(ctx context.Context, bd board.Board, card board.Card, cycle string) error {
 	b.mutateCard(ctx, bd, card.ItemID, "recurrence", "set the recurrence of "+cardRef(card), func(c *board.Card) {
 		c.Recurrence = cycle
