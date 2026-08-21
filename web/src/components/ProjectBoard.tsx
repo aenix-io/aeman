@@ -793,10 +793,8 @@ export function ProjectBoard({
     const prev = { team: card.team, plan: card.plan };
     patchCard(card.itemId, { team: team ?? undefined, plan: card.plan ?? (team ? "fri" : undefined) });
     void provider
-      .patchCard(board, card.itemId, {
-        team: team ?? "",
-        ...(team && !card.plan ? { plan: { band: "fri" } } : {}),
-      })
+      // Just the team: the server files the slot in that team's weekly plan.
+      .patchCard(board, card.itemId, { team: team ?? "" })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
