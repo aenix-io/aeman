@@ -31,7 +31,7 @@ import type {
 } from "../types";
 
 // api issues a request against /api/v1 for a given board. It carries the board
-// identity as query parameters (?owner=&project=) so the server resolves the
+// identity as query parameters (?owner=&board=) so the server resolves the
 // right board, sets a JSON content type when there is a body, and on a non-2xx
 // response surfaces the server's {error} message (falling back to statusText).
 async function api<T>(
@@ -43,7 +43,7 @@ async function api<T>(
   const sep = path.includes("?") ? "&" : "?";
   const url = `/api/v1${path}${sep}owner=${encodeURIComponent(
     board.owner,
-  )}&project=${board.number}`;
+  )}&board=${board.number}`;
   // X-Aeman-Client keys watch echo suppression: the server skips this tab's
   // own watch connection when broadcasting the changes it makes here.
   const init: RequestInit = { method, headers: { "X-Aeman-Client": clientId } };
@@ -142,6 +142,12 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
     }
     body.plan = plan;
   }
+  if (patch.epic !== undefined) {
+    body.epic = patch.epic;
+  }
+  if (patch.project !== undefined) {
+    body.project = patch.project;
+  }
   if (patch.reviewOf !== undefined) {
     body.reviewOf = patch.reviewOf;
   }
@@ -167,6 +173,15 @@ export const apiProvider: Provider = {
       // after this from the App's first view fetch.
       cards: [],
       teams: info.metadata.teams ?? [],
+      projects: info.metadata.projects ?? [],
+      deadlines: (info.metadata.deadlines ?? []).map((d) => ({
+        week: d.week,
+        project: d.project ?? "",
+      })),
+      epics: (info.metadata.epics ?? []).map((e) => ({
+        name: e.name,
+        project: e.project ?? "",
+      })),
       members: info.metadata.members ?? [],
       sprintStates: sprintStatesFrom(sprints.items ?? []),
     };
@@ -208,6 +223,13 @@ export const apiProvider: Provider = {
     }
     if (input.plan) {
       body.plan = { band: input.plan, week: input.week ?? "" };
+    }
+    if (input.epic) {
+      body.epic = input.epic;
+      body.project = input.project ?? "";
+      if (input.week) {
+        body.plan = { band: "", week: input.week };
+      }
     }
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;
@@ -337,6 +359,96 @@ export const apiProvider: Provider = {
 
   async deleteTeam(board: BoardAddr, team: string): Promise<void> {
     await api(board, "POST", "/sprints/actions/delete-team", { team });
+  },
+
+  async addEpic(
+    board: BoardAddr,
+    name: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/epics", { name, project });
+  },
+
+  async deleteEpic(
+    board: BoardAddr,
+    name: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/epics/actions/delete-epic", {
+      epic: name,
+      project,
+    });
+  },
+
+  async renameEpic(
+    board: BoardAddr,
+    project: string,
+    epic: string,
+    to: string,
+  ): Promise<void> {
+    await api(board, "POST", "/epics/actions/rename", { project, epic, to });
+  },
+
+  async setEpicProject(
+    board: BoardAddr,
+    from: string,
+    epic: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/epics/actions/set-project", {
+      epic,
+      from,
+      project,
+    });
+  },
+
+  async addProject(board: BoardAddr, name: string): Promise<void> {
+    await api(board, "POST", "/projects", { name });
+  },
+
+  async deleteProject(board: BoardAddr, name: string): Promise<void> {
+    await api(board, "POST", "/projects/actions/delete-project", {
+      project: name,
+    });
+  },
+
+  async reorderProjects(board: BoardAddr, names: string[]): Promise<void> {
+    await api(board, "POST", "/projects/actions/reorder-projects", {
+      projects: names,
+    });
+  },
+
+  async renameProject(
+    board: BoardAddr,
+    from: string,
+    to: string,
+  ): Promise<void> {
+    await api(board, "POST", "/projects/actions/rename", { project: from, to });
+  },
+
+  async addDeadline(
+    board: BoardAddr,
+    week: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/deadlines", { week, project });
+  },
+
+  async deleteDeadline(
+    board: BoardAddr,
+    week: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/deadlines/actions/delete", { week, project });
+  },
+
+  async moveDeadline(
+    board: BoardAddr,
+    project: string,
+    from: string,
+    to: string,
+  ): Promise<void> {
+    await api(board, "POST", "/deadlines/actions/move", { project, from, to });
   },
 
   async carryWeek(

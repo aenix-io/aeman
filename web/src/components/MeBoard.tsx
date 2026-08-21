@@ -1479,7 +1479,7 @@ export function MeBoard({
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
           canManage={false}
-          noTeamChip
+          noneChip="No team"
           filterToggle={{ on: teamFocus, onToggle: () => setTeamFocus((v) => !v) }}
           focusToggle={{ on: focus, onToggle: () => setFocus((v) => !v) }}
         />

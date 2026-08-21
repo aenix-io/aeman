@@ -73,6 +73,10 @@ export interface Card {
   plan?: "wed" | "fri";
   /** ISO date (yyyy-mm-dd) of the plan week this card belongs to (weekly cycle). */
   week?: string;
+  /** The column this card is filed under: epic + project TOGETHER, since epic
+   *  names repeat across projects. Its week is the row. */
+  epic?: string;
+  project?: string;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -96,6 +100,8 @@ export interface NewCardInput {
   start?: string | null;
   plan?: "wed" | "fri" | null;
   week?: string | null;
+  epic?: string | null;
+  project?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
@@ -116,6 +122,20 @@ export interface SprintState {
   previous: string | null;
 }
 
+/** DeadlineRef is one deadline line: the week it sits on and whose it is. */
+export interface DeadlineRef {
+  week: string;
+  project: string;
+}
+
+/** EpicRef is one Project-board column: its name and the project that owns
+ *  it. The pair travels together — a column is meaningless without knowing
+ *  which project's grid it belongs in. */
+export interface EpicRef {
+  name: string;
+  project: string;
+}
+
 export interface Board {
   owner: string;
   number: number;
@@ -125,6 +145,15 @@ export interface Board {
   /** The board's team roster (teams that have a sprint pointer), from GET
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
+  /** The Project board's projects, in board order — the top grouping: a
+   *  project owns epic columns. Not the GitHub board (that is `number`). */
+  projects: string[];
+  /** The Project board's epic columns, in board order, each naming the project
+   *  that owns it. An empty project means the column belongs to none. */
+  epics: EpicRef[];
+  /** The deadline lines: the week (a Monday) each sits on and the project it
+   *  belongs to. A project holds at most one per week. */
+  deadlines: DeadlineRef[];
   /** Every distinct assignee on the board, from GET /board — the people roster
    *  for pickers (assign, review, view-as). */
   members: string[];
@@ -132,7 +161,7 @@ export interface Board {
   sprintStates: Record<string, SprintState>;
 }
 
-/** BoardAddr addresses a board on the server (?owner=&project=). */
+/** BoardAddr addresses a board on the server (?owner=&board=). */
 export type BoardAddr = Pick<Board, "owner" | "number">;
 
 /** CardPatch is a partial spec edit mirroring PATCH /cards/{uid}: only the
@@ -150,6 +179,10 @@ export interface CardPatch {
   stage?: StageKey | "";
   dates?: { start?: string; end?: string; sprint?: string };
   plan?: { band?: "wed" | "fri" | ""; week?: string };
+  /** Re-file under a column ("" clears). Naming only the epic keeps the card
+   *  inside its project; crossing projects names both halves. */
+  epic?: string;
+  project?: string;
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
   parent?: string;
@@ -235,6 +268,48 @@ export interface Provider {
   ): Promise<CarryReport>;
   /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(board: BoardAddr, teams: string[]): Promise<void>;
+
+  /** Declare a new epic column inside a project (which is required). */
+  addEpic(board: BoardAddr, name: string, project: string): Promise<void>;
+  /** Delete an EMPTY epic column (422 while cards still sit under it). */
+  deleteEpic(board: BoardAddr, name: string, project: string): Promise<void>;
+  /** Rename a column in place; its cards follow. */
+  renameEpic(
+    board: BoardAddr,
+    project: string,
+    epic: string,
+    to: string,
+  ): Promise<void>;
+  /** Move a column between projects ("" detaches it from every project). */
+  setEpicProject(
+    board: BoardAddr,
+    from: string,
+    epic: string,
+    project: string,
+  ): Promise<void>;
+  /** Declare a project — the Project board's top grouping. */
+  addProject(board: BoardAddr, name: string): Promise<void>;
+  /** Delete an EMPTY project (422 while it still owns epic columns). */
+  deleteProject(board: BoardAddr, name: string): Promise<void>;
+  /** Apply the shared project order (moves the hidden project-state cards). */
+  reorderProjects(board: BoardAddr, names: string[]): Promise<void>;
+  /** Rename a project in place; its columns and their cards follow. */
+  renameProject(board: BoardAddr, from: string, to: string): Promise<void>;
+  /** Mark a week with a project's deadline (one per project and week). */
+  addDeadline(board: BoardAddr, week: string, project: string): Promise<void>;
+  /** Clear a project's deadline on a week. */
+  deleteDeadline(
+    board: BoardAddr,
+    week: string,
+    project: string,
+  ): Promise<void>;
+  /** Drag a project's deadline to another week; two of its own become one. */
+  moveDeadline(
+    board: BoardAddr,
+    project: string,
+    from: string,
+    to: string,
+  ): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(board: BoardAddr, team: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). */

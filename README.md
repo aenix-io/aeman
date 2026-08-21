@@ -74,14 +74,14 @@ make frontend       # build the SPA once into web/dist
 make run            # go run ./cmd/aeman serve
 ```
 
-`aeman serve` flags: `--addr` (listen address), `--owner` (default org/user), `--project` (default project number), `--lock-board` (pin the board and ignore client-supplied owner/project), `--open` (open browser), `--verbose`. The owner/project/lock-board defaults can also be set via `AEMAN_OWNER`, `AEMAN_PROJECT` and `AEMAN_LOCK_BOARD`.
+`aeman serve` flags: `--addr` (listen address), `--owner` (default org/user), `--board` (GitHub Project number of the board), `--lock-board` (pin the board and ignore client-supplied owner/board), `--open` (open browser), `--verbose`. The owner/board/lock-board defaults can also be set via `AEMAN_OWNER`, `AEMAN_BOARD` and `AEMAN_LOCK_BOARD`. ("Project" is aeman's own planning entity — a group of epic columns — so the GitHub board is addressed as `board`.)
 
 ## API and MCP server
 
 The same binary drives the board three ways: the embedded UI, a JSON HTTP API under `/api/v1`, and an MCP server for AI agents (`aeman mcp` on stdio, or mounted at `/mcp` in the self-hosted OAuth mode). All of them call the same board service, so a change made by an agent shows up on every open board live. `GET /api/v1` returns a machine-readable catalog of every endpoint; see [docs/api.md](docs/api.md) for the endpoints, the card model, the watch protocol, the MCP tool set and client configuration. The board logic itself is importable: the packages under `pkg/` (domain rules, board service, GitHub backend, MCP tool set) let external tools — e.g. a local, privacy-preserving MCP server that talks to GitHub directly — run the exact same board contract; see [docs/embedding.md](docs/embedding.md).
 
 ```sh
-aeman mcp --owner acme --project 7   # start the MCP server on stdio
+aeman mcp --owner acme --board 7     # start the MCP server on stdio
 ```
 
 ## Self-hosted deploy (multi-user)

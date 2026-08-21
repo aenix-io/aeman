@@ -3,7 +3,7 @@
 
 import { mondayOf } from "./date";
 
-export type ViewMode = "me" | "team";
+export type ViewMode = "me" | "team" | "project";
 
 // viewQueries builds the LIST selectors for a board view — possibly several,
 // fetched together and merged. Me is the personal board: the server resolves
@@ -25,6 +25,12 @@ export function viewQueries(
     }
     return [q];
   }
+  if (view === "project") {
+    // Every epic-filed card of every project, all weeks: the Project board
+    // lays the table out itself and the project chips filter client-side, so
+    // switching projects costs no request.
+    return [{ view: "project" }];
+  }
   const team = teams.join(",");
   return [
     { view: "team", team, day, reviews: "true" },
@@ -41,6 +47,9 @@ export function watchQuery(
   teams: string[],
   viewAs?: string,
 ): Record<string, string> {
+  if (view === "project") {
+    return { view: "project" };
+  }
   if (view === "me") {
     const q: Record<string, string> = { view: "me", day, reviews: "true" };
     if (viewAs) {

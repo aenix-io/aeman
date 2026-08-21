@@ -12,7 +12,7 @@ import (
 // exactly what the UI renders (the Team grid, the Me day board, the Weekly
 // plan); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me" or "weekly". "" and "all" both list every
+	// View is "", "all", "team", "me", "weekly" or "project". "" and "all" both list every
 	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
 	View string
 	// Team is the team key for the team/weekly views ("" = the no-team group).
@@ -24,6 +24,10 @@ type Selector struct {
 	// Week is the plan week (a Monday) for the weekly view (defaults to the
 	// current week).
 	Week string
+	// Project filters the project view to one project's epic columns. Empty
+	// means every project — the all-projects overview. Note this is the
+	// planning entity, NOT the GitHub board (that is addressed by owner+board).
+	Project string
 	// Fields picks the resource shape a listing delivers. The default is the
 	// board row — no description, with the derived link refs in status
 	// standing in for it; a card's body is one GET /cards/{uid} away.
@@ -48,6 +52,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 	sel := Selector{
 		View:           q.Get("view"),
 		Team:           q.Get("team"),
+		Project:        q.Get("project"),
 		Day:            q.Get("day"),
 		User:           q.Get("user"),
 		Week:           q.Get("week"),
@@ -73,7 +78,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Zone = &v
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "weekly":
+	case "", "all", "team", "me", "weekly", "project":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -113,6 +118,20 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 	case "me":
 		base = board.MeView(b, sel.User, sel.Day)
+	case "project":
+		// The Project board: every card filed under an epic, whatever its week
+		// — the client lays rows (weeks) and columns (epics) out itself. The
+		// selector filters by PROJECT (an epic's owner), not by team: a project
+		// spans teams, and a card is assigned to a team from this very board.
+		for _, c := range b.Cards {
+			if c.Epic == "" || c.Parent != "" {
+				continue
+			}
+			if sel.Project != "" && c.Project != sel.Project {
+				continue
+			}
+			base = append(base, c)
+		}
 	case "weekly":
 		// weekly accepts a comma-separated team set too, so the Team board's
 		// weekly-plan panel fetches every team it shows in one request.

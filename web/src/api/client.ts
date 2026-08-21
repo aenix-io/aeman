@@ -28,6 +28,9 @@ export interface AppConfig {
   /** The board's day time zone (IANA name): "today" is computed in it so
    *  every user sees the same board day. "Local" = server-local, unset zone. */
   tz?: string;
+  /** Fingerprint of the frontend bundle the server carries. A tab whose own
+   *  build differs is running code that has since been replaced. */
+  build?: string;
 }
 
 export async function fetchConfig(): Promise<AppConfig> {

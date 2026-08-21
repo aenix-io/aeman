@@ -2,8 +2,12 @@ import { useState } from "react";
 
 interface TeamChipsProps {
   label: string;
-  /** Roster of teams to show as chips. */
+  /** Roster of names to show as chips. */
   teams: string[];
+  /** What one chip stands for, used in the add/remove wording. The row is
+   *  shared: the Project board files its projects through it too, and a chip
+   *  row that says "team name…" while adding a project reads as a bug. */
+  entity?: string;
   /** The selected group keys, or null for all (no filter). "" is the no-team
    *  group. Multi-select: Shift-click adds/removes a chip. */
   selectedKeys: string[] | null;
@@ -11,9 +15,10 @@ interface TeamChipsProps {
   onSelect: (keys: string[] | null) => void;
   onAdd: (name: string) => void;
   onRemove: (team: string) => void;
-  onRename: (from: string, to: string) => void;
-  /** Show a "No team" chip (key "") — used by the Team filter. */
-  noTeamChip?: boolean;
+  /** Rename on double-click. Omit where renaming is not supported. */
+  onRename?: (from: string, to: string) => void;
+  /** Label for the catch-all chip (key ""), e.g. "No team". Omit to hide it. */
+  noneChip?: string;
   /** Allow removing / renaming teams (the × and double-click). */
   canManage?: boolean;
   /** When set, show a "manage" link that opens the roster manager. */
@@ -29,12 +34,13 @@ interface TeamChipsProps {
 export function TeamChips({
   label,
   teams,
+  entity = "team",
   selectedKeys,
   onSelect,
   onAdd,
   onRemove,
   onRename,
-  noTeamChip = false,
+  noneChip,
   canManage = true,
   onManage,
   filterToggle,
@@ -58,7 +64,7 @@ export function TeamChips({
     const to = editValue.trim();
     setEditingTeam(null);
     if (to && to !== from) {
-      onRename(from, to);
+      onRename?.(from, to);
     }
   };
 
@@ -115,7 +121,7 @@ export function TeamChips({
                 className="team-chip-toggle"
                 onClick={(e) => handleClick(t, e.shiftKey)}
                 onDoubleClick={
-                  canManage
+                  canManage && onRename
                     ? () => {
                         setEditValue(t);
                         setEditingTeam(t);
@@ -124,7 +130,7 @@ export function TeamChips({
                 }
                 aria-pressed={on}
                 title={
-                  canManage
+                  canManage && onRename
                     ? "Click to select · Shift-click to add · double-click to rename"
                     : "Click to select · Shift-click to add"
                 }
@@ -137,7 +143,7 @@ export function TeamChips({
                   className="team-chip-x"
                   onClick={() => onRemove(t)}
                   aria-label={`Remove ${t}`}
-                  title="Remove team"
+                  title={`Remove ${entity}`}
                 >
                   ×
                 </button>
@@ -145,7 +151,7 @@ export function TeamChips({
             </span>
           );
         })}
-        {noTeamChip && (
+        {noneChip && (
           <span
             className={`team-chip team-filter-chip${(selectedKeys?.includes("") ?? false) ? "" : " team-filter-chip-off"}`}
           >
@@ -154,9 +160,9 @@ export function TeamChips({
               className="team-chip-toggle"
               onClick={(e) => handleClick("", e.shiftKey)}
               aria-pressed={selectedKeys?.includes("") ?? false}
-              title="Cards with no team"
+              title={`Cards with no ${entity}`}
             >
-              <span className="team-chip-name team-col-unassigned">No team</span>
+              <span className="team-chip-name team-col-unassigned">{noneChip}</span>
             </button>
           </span>
         )}
@@ -213,7 +219,7 @@ export function TeamChips({
               className="add-card-input team-add-input"
               autoFocus
               value={addValue}
-              placeholder="team name…"
+              placeholder={`${entity} name…`}
               onChange={(e) => setAddValue(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {

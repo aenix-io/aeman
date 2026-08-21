@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +16,7 @@ import (
 
 // errMissingBoard is returned when neither query parameters nor server defaults
 // identify a board.
-var errMissingBoard = errors.New("owner and project are required (set ?owner=&project= or server defaults)")
+var errMissingBoard = errors.New("owner and board are required (set ?owner=&board= or server defaults)")
 
 // registerAPI wires the JSON API under /api/v1: a small set of Kubernetes-style
 // resources (Card, Sprint, Note, Ordering) plus actions for everything with
@@ -79,6 +80,18 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-week", s.handleCarryWeek)
 	mux.HandleFunc("POST /api/v1/sprints/actions/reorder-teams", s.handleReorderTeams)
 	mux.HandleFunc("POST /api/v1/sprints/actions/delete-team", s.handleDeleteTeam)
+	mux.HandleFunc("POST /api/v1/epics", s.handleAddEpic)
+	mux.HandleFunc("POST /api/v1/epics/actions/delete-epic", s.handleDeleteEpic)
+	mux.HandleFunc("POST /api/v1/epics/actions/reorder-epics", s.handleReorderEpics)
+	mux.HandleFunc("POST /api/v1/epics/actions/set-project", s.handleSetEpicProject)
+	mux.HandleFunc("POST /api/v1/epics/actions/rename", s.handleRenameEpic)
+	mux.HandleFunc("POST /api/v1/deadlines", s.handleAddDeadline)
+	mux.HandleFunc("POST /api/v1/deadlines/actions/delete", s.handleDeleteDeadline)
+	mux.HandleFunc("POST /api/v1/deadlines/actions/move", s.handleMoveDeadline)
+	mux.HandleFunc("POST /api/v1/projects", s.handleAddProject)
+	mux.HandleFunc("POST /api/v1/projects/actions/delete-project", s.handleDeleteProject)
+	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
+	mux.HandleFunc("POST /api/v1/projects/actions/rename", s.handleRenameProject)
 	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
@@ -108,8 +121,8 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		Version: s.opts.Version,
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
-			{"GET", "/api/v1/board", "Board identity and team roster"},
-			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|weekly, team, day, user, week, stage, zone, assignee, fields=full for complete cards"},
+			{"GET", "/api/v1/board", "Board identity, team roster, deadlines, and the Project board's projects and epic columns. Every endpoint takes the board as ?owner=&board= — \"project\" is aeman's planning entity, not the GitHub board"},
+			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|weekly|project, team, day, user, week, project, stage, zone, assignee, fields=full for complete cards"},
 			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint; plan cards via spec.plan)"},
 			{"GET", "/api/v1/cards/{uid}", "One card in full (the body lives here, not in listings)"},
 			{"PATCH", "/api/v1/cards/{uid}", "Edit spec fields; the server applies clamps, links and date rules"},
@@ -134,6 +147,18 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/sprints/actions/reorder-teams", "Apply a shared team order (moves the hidden sprint-state cards; body {teams:[...]})"},
 			{"POST", "/api/v1/sprints/actions/delete-team", "Delete a team's sprint pointer; refused while cards still use the team (body {team})"},
 			{"POST", "/api/v1/sprints/actions/carry-week", "Pull unfinished plan cards into the week ({team, week, dryRun})"},
+			{"POST", "/api/v1/epics", "Declare an epic column inside a project ({name, project}); the project is required"},
+			{"POST", "/api/v1/epics/actions/delete-epic", "Delete an EMPTY epic column; refused while cards sit under it ({epic, project})"},
+			{"POST", "/api/v1/epics/actions/reorder-epics", "Apply one project's column order (moves the hidden epic-state cards; body {project, epics:[...]})"},
+			{"POST", "/api/v1/epics/actions/set-project", "Move a column from one project to another ({epic, from, project}); an empty target detaches it"},
+			{"POST", "/api/v1/epics/actions/rename", "Rename a column in place, cards and all ({project, epic, to})"},
+			{"POST", "/api/v1/deadlines", "Mark a week with a project's deadline line ({week, project}); a project holds at most one per week"},
+			{"POST", "/api/v1/deadlines/actions/delete", "Clear a project's deadline on a week ({week, project})"},
+			{"POST", "/api/v1/deadlines/actions/move", "Drag a project's deadline to another week ({project, from, to}); landing where it already has one leaves a single line"},
+			{"POST", "/api/v1/projects", "Declare a project — the Project board's top grouping, which owns epic columns ({name})"},
+			{"POST", "/api/v1/projects/actions/delete-project", "Delete an EMPTY project; refused while it owns epic columns ({project})"},
+			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
+			{"POST", "/api/v1/projects/actions/rename", "Rename a project in place, columns and cards along with it ({project, to})"},
 			{"GET", "/api/v1/ordering", "The board-level manual card order"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
 			{"GET", "/api/v1/watch", "WebSocket stream of Card/Sprint/Ordering events; selector-scoped with view params"},
@@ -141,8 +166,10 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// boardRef resolves the target board from query parameters, honouring the
-// lock-board pin and server defaults.
+// boardRef resolves the target board from query parameters (?owner=&board=),
+// honouring the lock-board pin and server defaults. The GitHub board is
+// addressed by "board": "project" is aeman's own planning entity (a group of
+// epic columns on the Project board) and is a card filter, not an address.
 func (s *Server) boardRef(r *http.Request) (owner string, project int, err error) {
 	owner = s.opts.DefaultOwner
 	project = s.opts.DefaultProject
@@ -150,10 +177,10 @@ func (s *Server) boardRef(r *http.Request) (owner string, project int, err error
 		if v := r.URL.Query().Get("owner"); v != "" {
 			owner = v
 		}
-		if v := r.URL.Query().Get("project"); v != "" {
+		if v := r.URL.Query().Get("board"); v != "" {
 			n, convErr := strconv.Atoi(v)
 			if convErr != nil {
-				return "", 0, fmt.Errorf("invalid project number %q", v)
+				return "", 0, fmt.Errorf("invalid board number %q", v)
 			}
 			project = n
 		}
@@ -336,6 +363,11 @@ type createCardRequest struct {
 		Band string `json:"band"`
 		Week string `json:"week"`
 	} `json:"plan"`
+	// Epic + Project file the card on the Project board, under the column that
+	// pair identifies (its week defaults to the Monday of dates.start; dates
+	// may span several weeks).
+	Epic           string `json:"epic"`
+	CardProject    string `json:"project"`
 	ReviewOf       string `json:"reviewOf"`
 	Parent         string `json:"parent"`
 	StartNewSprint *bool  `json:"startNewSprint"`
@@ -368,6 +400,8 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		Day:            in.Dates.End,
 		Start:          in.Dates.Start,
 		SprintStart:    in.Dates.Sprint,
+		Epic:           in.Epic,
+		Project:        in.CardProject,
 		ReviewOf:       in.ReviewOf,
 		Parent:         in.Parent,
 		StartNewSprint: in.StartNewSprint,
@@ -376,7 +410,10 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if len(in.Assignees) > 0 {
 		args.Assignee = in.Assignees[0]
 	}
-	if in.Plan != nil {
+	if in.Epic != "" && in.Plan != nil && in.Plan.Week != "" {
+		args.Week = in.Plan.Week
+	}
+	if in.Plan != nil && in.Plan.Band != "" {
 		band, ok := parsePlanBand(w, in.Plan.Band)
 		if !ok {
 			return
@@ -408,10 +445,15 @@ type cardPatch struct {
 	Progress    *int      `json:"progress"`
 	Stage       *string   `json:"stage"`
 	// Recurrence is a recurrent card's reseed cycle ("", "week", "month").
-	Recurrence *string     `json:"recurrence"`
-	Dates      *datesPatch `json:"dates"`
-	Plan       *planPatch  `json:"plan"`
-	ReviewOf   *string     `json:"reviewOf"`
+	Recurrence *string `json:"recurrence"`
+	// Epic and Project are the two halves of the card's column ("" clears).
+	// Epic names repeat across projects, so filing into another project's
+	// column names both; naming only the epic stays inside the card's project.
+	Epic     *string     `json:"epic"`
+	Project  *string     `json:"project"`
+	Dates    *datesPatch `json:"dates"`
+	Plan     *planPatch  `json:"plan"`
+	ReviewOf *string     `json:"reviewOf"`
 	// Parent groups the card as a subtask under another card ("" ungroups).
 	Parent *string `json:"parent"`
 }
@@ -457,6 +499,12 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Team != nil {
 		if err := svc.SetTeam(ctx, owner, project, uid, *p.Team, ""); err != nil {
+			s.apiError(w, r, err)
+			return
+		}
+	}
+	if p.Epic != nil || p.Project != nil {
+		if err := patchColumn(ctx, svc, owner, project, uid, p); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
@@ -1006,6 +1054,270 @@ func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleAddEpic declares a new Project-board column inside a project
+// (body {name, project}). The project is required — see AddEpic.
+func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name    string `json:"name"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.AddEpic(r.Context(), owner, boardNum, in.Name, in.Project); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+}
+
+// handleSetEpicProject moves a column from one project to another
+// (body {epic, from, project}); an empty target detaches it.
+func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Epic    string `json:"epic"`
+		From    string `json:"from"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.SetEpicProject(r.Context(), owner, boardNum, in.From, in.Epic, in.Project); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleRenameEpic renames a column in place, cards and all
+// (body {project, epic, to}).
+func (s *Server) handleRenameEpic(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Project string `json:"project"`
+		Epic    string `json:"epic"`
+		To      string `json:"to"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.RenameEpic(r.Context(), owner, boardNum, in.Project, in.Epic, in.To); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleRenameProject renames a project in place, columns and cards along
+// with it (body {project, to}).
+func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Project string `json:"project"`
+		To      string `json:"to"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.RenameProject(r.Context(), owner, boardNum, in.Project, in.To); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// patchColumn re-files a card under a column — the (project, epic) pair.
+// Naming only the project keeps the column name the card is already under,
+// which is what moving a card between projects means.
+func patchColumn(ctx context.Context, svc *boardservice.Service, owner string, project int, uid string, p cardPatch) error {
+	epic := ""
+	if p.Epic != nil {
+		epic = *p.Epic
+	} else if card, err := svc.Card(ctx, owner, project, uid); err == nil {
+		epic = card.Epic
+	}
+	return svc.SetEpic(ctx, owner, project, uid, epic, p.Project)
+}
+
+// handleAddDeadline marks a week with one project's deadline line
+// (body {week, project}).
+func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Week    string `json:"week"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.AddDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+}
+
+// handleDeleteDeadline clears one project's deadline on a week
+// (body {week, project}).
+func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Week    string `json:"week"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleMoveDeadline drags a deadline to another week (body {from, to});
+// landing on a week that already has one leaves a single line.
+func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Project string `json:"project"`
+		From    string `json:"from"`
+		To      string `json:"to"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.MoveDeadline(r.Context(), owner, boardNum, in.Project, in.From, in.To); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleAddProject declares a project — the Project board's top grouping,
+// which owns epic columns (body {name}).
+func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.AddProject(r.Context(), owner, boardNum, in.Name); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+}
+
+// handleDeleteProject removes an EMPTY project (422 while it still owns epic
+// columns — detaching planned work silently is the anti-goal).
+func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteProject(r.Context(), owner, boardNum, in.Project); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleReorderProjects applies the shared chip order (body {projects:[...]}).
+func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Projects []string `json:"projects"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.ReorderProjects(r.Context(), owner, boardNum, in.Projects); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleDeleteEpic removes an EMPTY epic column (422 while cards still sit
+// under it — the Project board's own anti-goal).
+func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Epic    string `json:"epic"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteEpic(r.Context(), owner, project, in.Epic, in.Project); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleReorderEpics applies a shared column order (body {epics:[...]}),
+// moving the hidden epic-state cards the way reorder-teams moves sprint-state.
+func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Project string   `json:"project"`
+		Epics   []string `json:"epics"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.ReorderEpics(r.Context(), owner, project, in.Project, in.Epics); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // --- Shared helpers ----------------------------------------------------------------
 
 // handleSetPresence records the caller's live Me-view selection — ephemeral
@@ -1127,7 +1439,13 @@ func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, boardservice.ErrSubtaskDepth),
 		errors.Is(err, boardservice.ErrParentNotFound),
 		errors.Is(err, boardservice.ErrOpenSubtasks),
-		errors.Is(err, boardservice.ErrTeamInUse):
+		errors.Is(err, boardservice.ErrTeamInUse),
+		errors.Is(err, boardservice.ErrEpicInUse),
+		errors.Is(err, boardservice.ErrEpicExists),
+		errors.Is(err, boardservice.ErrEpicNotFound),
+		errors.Is(err, boardservice.ErrProjectInUse),
+		errors.Is(err, boardservice.ErrProjectExists),
+		errors.Is(err, boardservice.ErrProjectNotFound):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

@@ -18,6 +18,11 @@ import { CSS } from "@dnd-kit/utilities";
 
 interface TeamsModalProps {
   teams: string[];
+  /** Dialog heading; defaults to the team roster's. */
+  title?: string;
+  /** What one row is, used in the add field. The Project board manages its
+   *  projects through this same dialog. */
+  entity?: string;
   onAdd: (name: string) => void;
   onRename: (from: string, to: string) => void;
   onRemove: (team: string) => void;
@@ -110,6 +115,8 @@ function TeamRow({
 /** TeamsModal manages the roster: create, rename (double-click), delete, drag to reorder. */
 export function TeamsModal({
   teams,
+  title = "Manage teams",
+  entity = "team",
   onAdd,
   onRename,
   onRemove,
@@ -167,7 +174,7 @@ export function TeamsModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2 className="modal-title">Manage teams</h2>
+          <h2 className="modal-title">{title}</h2>
           <button
             type="button"
             className="modal-close"
@@ -187,7 +194,7 @@ export function TeamsModal({
             <SortableContext items={teams} strategy={verticalListSortingStrategy}>
               <ul className="teams-manage-list">
                 {teams.length === 0 && (
-                  <li className="teams-manage-empty">No teams yet.</li>
+                  <li className="teams-manage-empty">No {entity}s yet.</li>
                 )}
                 {teams.map((team) => (
                   <TeamRow
@@ -210,7 +217,7 @@ export function TeamsModal({
             <input
               type="text"
               className="add-card-input"
-              placeholder="New team name…"
+              placeholder={`New ${entity} name…`}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {

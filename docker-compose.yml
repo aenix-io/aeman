@@ -15,7 +15,10 @@ services:
       AEMAN_SCOPES: ${AEMAN_SCOPES:-repo project}
       # Optional: pin the UI to one board (set all three to lock it).
       AEMAN_OWNER: ${AEMAN_OWNER:-}
-      AEMAN_PROJECT: ${AEMAN_PROJECT:-}
+      # The board number. AEMAN_PROJECT is the pre-rename name, still read as a
+      # fallback so an existing .env keeps working across the upgrade — "project"
+      # now means aeman's planning entity, not the GitHub board.
+      AEMAN_BOARD: ${AEMAN_BOARD:-${AEMAN_PROJECT:-}}
       AEMAN_LOCK_BOARD: ${AEMAN_LOCK_BOARD:-}
       # Persist sessions so a restart doesn't sign everyone out.
       AEMAN_SESSION_FILE: ${AEMAN_SESSION_FILE:-/data/sessions.json}
