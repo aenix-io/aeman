@@ -2314,14 +2314,16 @@ button.card-age {
 }
 
 .team-weekly-progress,
-.me-day-progress {
+.me-day-progress,
+.project-progress {
   height: 3px;
   width: 100%;
   background: var(--line-soft);
 }
 
 .team-weekly-progress-fill,
-.me-day-progress-fill {
+.me-day-progress-fill,
+.project-progress-fill {
   height: 100%;
   background: var(--bar-default);
   transition: width 0.2s;
@@ -3315,31 +3317,23 @@ button.card-age {
   font-variant-numeric: tabular-nums;
 }
 
+/* The same strip the Team board's weekly plan wears — bar across the top of a
+   status row — so the two boards read alike. */
 .project-footer {
   flex: none;
+  border-top: 1px solid var(--line);
+}
+
+.project-footer-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 0 14px 12px;
-}
-
-.project-progress {
-  flex: 1;
-  height: 8px;
-  border-radius: 4px;
-  background: var(--hover-overlay);
-  overflow: hidden;
-}
-
-.project-progress-fill {
-  height: 100%;
-  border-radius: 4px;
-  background: var(--accent);
-  transition: width 0.2s ease;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 14px;
+  background: var(--bg);
 }
 
 .project-progress-label {
-  flex: none;
   font-size: 11.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;

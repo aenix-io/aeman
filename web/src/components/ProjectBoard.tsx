@@ -1339,21 +1339,21 @@ export function ProjectBoard({
             aria-valuemax={100}
             aria-valuenow={overall.pct}
             aria-label={`${targetProject || "All projects"} progress`}
+            title={`${overall.pct}% done across the plan`}
           >
             <div
               className="project-progress-fill"
-              style={{
-                width: `${overall.pct}%`,
-                ...(targetProject ? { background: teamColor(targetProject) } : {}),
-              }}
+              style={{ width: `${overall.pct}%` }}
             />
           </div>
-          <span className="project-progress-label">
-            {targetProject === null
-              ? "All projects"
-              : targetProject || "No project"}{" "}
-            · <strong>{overall.pct}%</strong> · {overall.done}/{overall.total} done
-          </span>
+          <div className="project-footer-head">
+            <span className="project-progress-label">
+              {targetProject === null
+                ? "All projects"
+                : targetProject || "No project"}{" "}
+              · {overall.pct}% · {overall.done}/{overall.total} done
+            </span>
+          </div>
         </div>
       )}
 
