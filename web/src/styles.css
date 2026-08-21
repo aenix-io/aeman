@@ -3676,6 +3676,14 @@ button.card-age {
   touch-action: none;
 }
 
+/* The same grip on the other edge: a slot stretches from either end. It stops
+   short of the right so it never covers the badge or delete. */
+.project-slot-resize-top {
+  top: -2px;
+  bottom: auto;
+  right: 40px;
+}
+
 .project-slot {
   cursor: grab;
 }

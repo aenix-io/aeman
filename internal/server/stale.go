@@ -24,6 +24,14 @@ func withStaleAllowed(ctx context.Context) (context.Context, *staleControl) {
 	return context.WithValue(ctx, staleCtxKey{}, sc), sc
 }
 
+// staleOK is withStaleAllowed for callers that do not care to know whether the
+// snapshot they got was stale — the roster mutations, which read the board
+// only to check a name and to carry its ids into the write.
+func staleOK(ctx context.Context) context.Context {
+	c, _ := withStaleAllowed(ctx)
+	return c
+}
+
 // staleControlFrom returns the request's stale marker, or nil when the request
 // must be served current data (every mutation path).
 func staleControlFrom(ctx context.Context) *staleControl {

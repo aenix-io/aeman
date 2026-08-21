@@ -1735,11 +1735,42 @@ func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID
 	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
 		return err
 	}
+	if err := s.syncSlotPlan(ctx, b, card, team); err != nil {
+		return err
+	}
 	// The team travels with the whole group: subtasks follow their parent.
 	for _, c := range board.Children(b, card.ItemID) {
 		if err := s.setTeamOne(ctx, b, c, team, sprintStart); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// syncSlotPlan files a Project-board slot in its team's weekly plan, or takes
+// it back out. The band is what puts a card in that plan, and it used to be
+// added by the frontend alone — so the same assignment made over MCP or the
+// HTTP API left the card with a team and in nobody's plan. The rule belongs
+// here, where every door passes.
+func (s *Service) syncSlotPlan(ctx context.Context, b board.Board, card board.Card, team string) error {
+	if card.Epic == "" {
+		return nil
+	}
+	if team != "" && card.Plan == board.PlanNone {
+		if err := s.backend.SetPlan(ctx, b, card, board.PlanFri); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventPlanBand, "", string(board.PlanFri))
+		return nil
+	}
+	// Taking the team away from a slot nobody has started takes it out of the
+	// plan with it: a weekly plan belongs to a team, and a card in no team's
+	// plan is just clutter in the last one's.
+	if team == "" && card.Plan != board.PlanNone && card.SprintStart == "" && card.Progress == 0 {
+		if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventPlanBand, string(card.Plan), "")
 	}
 	return nil
 }

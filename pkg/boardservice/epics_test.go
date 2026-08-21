@@ -568,3 +568,55 @@ func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
 		t.Fatalf("a weekly-plan card must be left alone, got %q", got)
 	}
 }
+
+// Handing a slot to a team files it in that team's weekly plan, whichever door
+// the change came through — the frontend used to add the band on its own, so
+// the same assignment made over MCP left the card in nobody's plan.
+func TestTeamFilesASlotInTheWeeklyPlan(t *testing.T) {
+	today := board.TodayIso()
+	week := board.MondayOf(today)
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
+		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
+		{ItemID: "slot", Title: "a slot", Epic: "Infra", Project: "Cozystack",
+			StartDate: today, Day: today, Week: week},
+		{ItemID: "day", Title: "an ordinary card", StartDate: today, Day: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+	ctx := context.Background()
+
+	if err := svc.SetTeam(ctx, "acme", 1, "slot", "alpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.get("slot")
+	if got.Plan != board.PlanFri {
+		t.Fatalf("band = %q, want the slot filed in the weekly plan", got.Plan)
+	}
+	if got.SprintStart != "" {
+		t.Fatalf("filing a slot in a plan must not start it, got sprint %q", got.SprintStart)
+	}
+	b, err := svc.Board(ctx, "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bands := board.WeeklyPlan(b, "alpha", week)
+	if len(bands.Fri) != 1 || bands.Fri[0].ItemID != "slot" {
+		t.Fatalf("the slot must show in alpha's plan for its week; got %+v", bands)
+	}
+
+	// Taking the team away takes an unstarted slot back out of the plan.
+	if err := svc.SetTeam(ctx, "acme", 1, "slot", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.get("slot"); got.Plan != board.PlanNone {
+		t.Fatalf("band = %q, want the slot out of the plan again", got.Plan)
+	}
+
+	// An ordinary day card is untouched by any of this.
+	if err := svc.SetTeam(ctx, "acme", 1, "day", "alpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.get("day"); got.Plan != board.PlanNone {
+		t.Fatalf("an ordinary card must not be filed in the weekly plan, got %q", got.Plan)
+	}
+}
