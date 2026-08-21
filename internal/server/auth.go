@@ -322,6 +322,25 @@ func (a *authManager) redirectURI() string {
 	return strings.TrimRight(a.cfg.BaseURL, "/") + "/auth/callback"
 }
 
+// dropSession forgets one session by id. It is what a GitHub 401 means: the
+// token this session was built on is dead, so the session backed by it is
+// worthless — keeping it only lets the client retry forever against a token
+// that will never work again. Returns the login it belonged to, for the log.
+func (a *authManager) dropSession(id string) string {
+	if id == "" {
+		return ""
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s, ok := a.sessions[id]
+	if !ok {
+		return ""
+	}
+	delete(a.sessions, id)
+	a.saveLocked()
+	return s.login
+}
+
 // session resolves the request's session cookie to a live session.
 func (a *authManager) session(r *http.Request) (oauthSession, bool) {
 	c, err := r.Cookie(sessionCookie)

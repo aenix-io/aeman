@@ -251,7 +251,7 @@ func (s *Server) handleCardLog(w http.ResponseWriter, r *http.Request) {
 	}
 	card, err := svc.Card(r.Context(), owner, project, r.PathValue("uid"))
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.CardLog(card))
@@ -272,7 +272,7 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := svc.Board(r.Context(), owner, project)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.BoardResource(b))
@@ -303,7 +303,7 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := svc.Board(r.Context(), owner, project)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.ListCards(b, sel))
@@ -324,7 +324,7 @@ func (s *Server) handleListSprints(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := svc.Board(r.Context(), owner, project)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -340,7 +340,7 @@ func (s *Server) handleGetOrdering(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := svc.Board(r.Context(), owner, project)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.OrderingResource(b))
@@ -423,12 +423,12 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	}
 	card, err := svc.CreateCard(r.Context(), owner, project, args)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	b, err := svc.Board(r.Context(), owner, project)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, apiserver.CardResource(b, card))
@@ -487,25 +487,25 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	if p.Title != nil {
 		if err := svc.Rename(ctx, owner, project, uid, *p.Title); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Description != nil {
 		if err := svc.SetDescription(ctx, owner, project, uid, *p.Description); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Team != nil {
 		if err := svc.SetTeam(ctx, owner, project, uid, *p.Team, ""); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Epic != nil || p.Project != nil {
 		if err := patchColumn(ctx, svc, owner, project, uid, p); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
@@ -515,7 +515,7 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := svc.SetZone(ctx, owner, project, uid, zone); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
@@ -525,7 +525,7 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			login = (*p.Assignees)[0]
 		}
 		if err := svc.SetAssignee(ctx, owner, project, uid, login); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
@@ -535,19 +535,19 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := svc.SetStage(ctx, owner, project, uid, stage); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Recurrence != nil {
 		if err := svc.SetRecurrence(ctx, owner, project, uid, *p.Recurrence); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Progress != nil {
 		if err := svc.SetProgress(ctx, owner, project, uid, *p.Progress); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
@@ -563,13 +563,13 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Parent != nil {
 		if err := svc.SetParent(ctx, owner, project, uid, *p.Parent); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.ReviewOf != nil {
 		if err := svc.SetReviewOf(ctx, owner, project, uid, *p.ReviewOf); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return
 		}
 	}
@@ -590,18 +590,18 @@ func (s *Server) applyDatesPatch(w http.ResponseWriter, r *http.Request, svc *bo
 			end = card.Day
 		}
 		if err := svc.SetDates(ctx, owner, project, uid, *d.Start, end); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return false
 		}
 	} else if d.End != nil {
 		if err := svc.SetDay(ctx, owner, project, uid, *d.End); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return false
 		}
 	}
 	if d.Sprint != nil {
 		if err := svc.SetSprintStart(ctx, owner, project, uid, *d.Sprint); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return false
 		}
 	}
@@ -617,13 +617,13 @@ func (s *Server) applyPlanPatch(w http.ResponseWriter, r *http.Request, svc *boa
 			return false
 		}
 		if err := svc.SetPlan(ctx, owner, project, uid, band); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return false
 		}
 	}
 	if pl.Week != nil {
 		if err := svc.SetWeek(ctx, owner, project, uid, *pl.Week); err != nil {
-			s.apiError(w, err)
+			s.apiError(w, r, err)
 			return false
 		}
 	}
@@ -638,7 +638,7 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.DeleteCard(r.Context(), owner, project, r.PathValue("uid")); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
@@ -660,7 +660,7 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.Remove(r.Context(), owner, project, r.PathValue("uid"), in.From); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
@@ -685,7 +685,7 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 		return svc.MoveCard(r.Context(), owner, project, r.PathValue("uid"), in.After)
 	}
 	if err := move(); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
@@ -708,7 +708,7 @@ func (s *Server) handleDeferCard(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.Defer(r.Context(), owner, project, uid, in.Days); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	s.cardResponse(w, r, svc, owner, project, uid)
@@ -721,7 +721,7 @@ func (s *Server) handleInProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.SetInProgress(r.Context(), owner, project, uid); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	s.cardResponse(w, r, svc, owner, project, uid)
@@ -757,13 +757,13 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	b, err := svc.Board(ctx, owner, project)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	for _, c := range b.Cards {
 		if c.ReviewOf == uid {
 			if err := svc.ReassignReviewer(ctx, owner, project, uid, in.Reviewer, in.Day, zone); err != nil {
-				s.apiError(w, err)
+				s.apiError(w, r, err)
 				return
 			}
 			s.cardResponse(w, r, svc, owner, project, c.ItemID)
@@ -772,12 +772,12 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	}
 	review, err := svc.SendToReview(ctx, owner, project, uid, in.Reviewer, in.Day, zone)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	b, err = svc.Board(ctx, owner, project)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, apiserver.CardResource(b, review))
@@ -790,7 +790,7 @@ func (s *Server) handleRemoveReviewer(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.RemoveReviewer(r.Context(), owner, project, uid); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	s.cardResponse(w, r, svc, owner, project, uid)
@@ -819,7 +819,7 @@ func (s *Server) handleTakeIntoPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.TakeIntoPlan(r.Context(), owner, project, uid, in.Engineer, zone, in.Day); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	s.cardResponse(w, r, svc, owner, project, uid)
@@ -832,7 +832,7 @@ func (s *Server) handleReleaseFromPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.ReleaseFromPlan(r.Context(), owner, project, uid); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	s.cardResponse(w, r, svc, owner, project, uid)
@@ -850,7 +850,7 @@ func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	links, err := svc.CardLinks(r.Context(), owner, project, r.PathValue("uid"))
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	if links == nil {
@@ -864,7 +864,7 @@ func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) notesResponse(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, owner string, project int, uid string, status int) {
 	card, err := svc.Card(r.Context(), owner, project, uid)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, status, map[string]any{
@@ -898,7 +898,7 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.AddNote(r.Context(), owner, project, uid, in.Text); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	s.notesResponse(w, r, svc, owner, project, uid, http.StatusCreated)
@@ -917,7 +917,7 @@ func (s *Server) handleEditNote(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.EditNote(r.Context(), owner, project, uid, r.PathValue("noteId"), in.Text); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	s.notesResponse(w, r, svc, owner, project, uid, http.StatusOK)
@@ -930,7 +930,7 @@ func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.DeleteNote(r.Context(), owner, project, uid, r.PathValue("noteId")); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	s.notesResponse(w, r, svc, owner, project, uid, http.StatusOK)
@@ -952,7 +952,7 @@ func (s *Server) handlePatchSprint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.SetSprintState(r.Context(), owner, project, in.Team, in.Current, in.Previous); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.Sprint{
@@ -982,7 +982,7 @@ func (s *Server) handleCarryOver(w http.ResponseWriter, r *http.Request) {
 	ctx, _ := withStaleAllowed(r.Context())
 	rep, err := svc.CarryOver(ctx, owner, project, in.Team, in.DryRun)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rep)
@@ -1005,7 +1005,7 @@ func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
 	ctx, _ := withStaleAllowed(r.Context())
 	rep, err := svc.CarryWeek(ctx, owner, project, in.Team, in.Week, in.DryRun)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rep)
@@ -1028,7 +1028,7 @@ func (s *Server) handleReorderTeams(w http.ResponseWriter, r *http.Request) {
 	// Same cached-snapshot read as carry-over (see handleCarryOver).
 	ctx, _ := withStaleAllowed(r.Context())
 	if err := svc.ReorderTeams(ctx, owner, project, in.Teams); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1048,7 +1048,7 @@ func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.DeleteTeam(r.Context(), owner, project, in.Team); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1069,7 +1069,7 @@ func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.AddEpic(r.Context(), owner, boardNum, in.Name, in.Project); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
@@ -1091,7 +1091,7 @@ func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.SetEpicProject(r.Context(), owner, boardNum, in.From, in.Epic, in.Project); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1113,7 +1113,7 @@ func (s *Server) handleRenameEpic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.RenameEpic(r.Context(), owner, boardNum, in.Project, in.Epic, in.To); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1134,7 +1134,7 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.RenameProject(r.Context(), owner, boardNum, in.Project, in.To); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1168,7 +1168,7 @@ func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.AddDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
@@ -1189,7 +1189,7 @@ func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.DeleteDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1211,7 +1211,7 @@ func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.MoveDeadline(r.Context(), owner, boardNum, in.Project, in.From, in.To); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1231,7 +1231,7 @@ func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.AddProject(r.Context(), owner, boardNum, in.Name); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
@@ -1251,7 +1251,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.DeleteProject(r.Context(), owner, boardNum, in.Project); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1270,7 +1270,7 @@ func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.ReorderProjects(r.Context(), owner, boardNum, in.Projects); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1291,7 +1291,7 @@ func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.DeleteEpic(r.Context(), owner, project, in.Epic, in.Project); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1312,7 +1312,7 @@ func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.ReorderEpics(r.Context(), owner, project, in.Project, in.Epics); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1352,7 +1352,7 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 func (s *Server) cardResponse(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, owner string, project int, uid string) {
 	b, err := svc.Board(r.Context(), owner, project)
 	if err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	for _, c := range b.Cards {
@@ -1361,7 +1361,7 @@ func (s *Server) cardResponse(w http.ResponseWriter, r *http.Request, svc *board
 			return
 		}
 	}
-	s.apiError(w, fmt.Errorf("%w: %s", boardservice.ErrCardNotFound, uid))
+	s.apiError(w, r, fmt.Errorf("%w: %s", boardservice.ErrCardNotFound, uid))
 }
 
 // parseZone validates a semantic zone name ("" clears); on failure it writes
@@ -1409,8 +1409,27 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 }
 
 // apiError maps service errors onto HTTP statuses.
-func (s *Server) apiError(w http.ResponseWriter, err error) {
+func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, ghprojects.ErrBadCredentials):
+		// The session was built on a token GitHub now refuses: drop it, so
+		// /api/config reports the user as signed out and the SPA offers the
+		// sign-in it needs instead of failing every request behind a session
+		// that still looks valid.
+		if s.auth != nil {
+			if login := s.auth.dropSession(s.auth.sessionID(r)); login != "" {
+				s.log.Warn("github rejected a session token; session dropped, re-authorization required",
+					"login", login, "path", r.URL.Path)
+			}
+			s.auth.setCookie(w, sessionCookie, "", -1)
+		}
+		// GitHub rejected the caller's token: nothing downstream can fix it,
+		// and answering 502 ("upstream is broken") sends people hunting the
+		// wrong problem. Say plainly that the authorization is gone; the
+		// session behind it is dropped by handleAPI so the next request has
+		// to sign in again.
+		writeJSONError(w, http.StatusUnauthorized,
+			"your GitHub authorization is no longer valid: "+err.Error())
 	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),

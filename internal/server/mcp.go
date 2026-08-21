@@ -3,12 +3,14 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/ghprojects"
 	"github.com/aenix-io/aeman/pkg/mcpserver"
 )
 
@@ -56,7 +58,7 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 			return &storeBackend{inner: b, store: s.store, multiUser: true}
 		},
 	})
-	srv.AddReceivingMiddleware(injectGitHubToken)
+	srv.AddReceivingMiddleware(injectGitHubToken, s.dropSessionOnBadCredentials)
 	return srv
 }
 
@@ -76,6 +78,40 @@ func injectGitHubToken(next mcp.MethodHandler) mcp.MethodHandler {
 		}
 		return next(ctx, method, req)
 	}
+}
+
+// dropSessionOnBadCredentials turns "GitHub says this token is dead" into the
+// only answer that helps: forget the session, so the next call fails
+// authentication and the client runs the OAuth flow again. Without it the
+// session stays valid for its full TTL while every tool call fails against a
+// token that will never work — the client cannot tell whose credentials are
+// at fault and keeps retrying (an agent reported it as "the server uses its
+// own, invalid token"; the server holds no token of its own).
+func (s *Server) dropSessionOnBadCredentials(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		res, err := next(ctx, method, req)
+		if err == nil || !errors.Is(err, ghprojects.ErrBadCredentials) || s.auth == nil {
+			return res, err
+		}
+		id, _ := extraString(req, sessionIDExtraKey)
+		if login := s.auth.dropSession(id); login != "" {
+			s.log.Warn("github rejected a session token; session dropped, re-authorization required",
+				"login", login, "method", method)
+		}
+		return res, fmt.Errorf(
+			"your GitHub authorization is no longer valid (GitHub rejected the token); "+
+				"sign in again to aeman to reconnect: %w", err)
+	}
+}
+
+// extraString reads one string value off a request's verified TokenInfo.
+func extraString(req mcp.Request, key string) (string, bool) {
+	extra := req.GetExtra()
+	if extra == nil || extra.TokenInfo == nil {
+		return "", false
+	}
+	v, ok := extra.TokenInfo.Extra[key].(string)
+	return v, ok
 }
 
 // resolveTokenFromContext is the MCP ResolveToken seam for the HTTP transport.
