@@ -3301,12 +3301,6 @@ button.card-age {
   opacity: 0.7;
 }
 
-/* A menu row that only explains why there is nothing to pick. */
-.project-menu-hint {
-  color: var(--muted);
-  cursor: default;
-}
-
 /* How far along the columns are: a percentage beside each header, and one
    wide bar under the table for the whole view. */
 .project-epic-pct {
@@ -3421,6 +3415,13 @@ button.card-age {
   margin-left: auto;
   padding: 2px 10px;
   font-size: 12px;
+}
+
+/* The row that leads a menu, separated from the list beneath it. */
+.project-menu-lead {
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 1px;
+  border-radius: 4px 4px 0 0;
 }
 
 /* A menu row that only explains why there is nothing to pick. */
@@ -3579,10 +3580,10 @@ button.card-age {
    above the badge's grown hit area so it stays reachable. */
 .project-slot-actions {
   position: absolute;
-  /* Beside the owner badge, on the slot's top row: sitting on top of the badge
-     made it impossible to press, and drifting to the bottom edge parted it
-     from the controls it belongs with. */
-  right: 19px;
+  /* Beside the owner badge, on the slot's top row. The badge is 15px wide
+     inside 5px of padding, so anything left of 20px overlaps it — and a badge
+     under the delete button cannot be pressed. */
+  right: 23px;
   top: 2px;
   z-index: 3;
   display: flex;

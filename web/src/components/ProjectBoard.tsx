@@ -865,22 +865,35 @@ export function ProjectBoard({
       });
       byCol.set(k, list);
     }
-    // Interval partitioning per column: earliest first, each card taking the
-    // first lane already free by the week it starts.
+    // Lanes are worked out per CLUSTER of overlapping slots, not per column:
+    // splitting the whole column because two slots happen to share a fortnight
+    // would leave every unrelated card at half width for no reason.
     for (const list of byCol.values()) {
       list.sort((a, b) => a.row - b.row || b.span - a.span);
-      const laneEnd: number[] = [];
+      let cluster: typeof list = [];
+      let laneEnd: number[] = [];
+      const close = () => {
+        for (const s of cluster) {
+          s.lanes = laneEnd.length;
+        }
+        cluster = [];
+        laneEnd = [];
+      };
       for (const s of list) {
+        // A slot that begins after everything so far has ended starts a new
+        // cluster: it shares its weeks with nothing before it.
+        if (laneEnd.length && s.row >= Math.max(...laneEnd)) {
+          close();
+        }
         let lane = laneEnd.findIndex((end) => end <= s.row);
         if (lane === -1) {
           lane = laneEnd.length;
         }
         laneEnd[lane] = s.row + s.span;
         s.lane = lane;
+        cluster.push(s);
       }
-      for (const s of list) {
-        s.lanes = laneEnd.length;
-      }
+      close();
     }
     return byCol;
   }, [cards, weeks, draft]);
@@ -1333,6 +1346,17 @@ export function ProjectBoard({
                 onClose={() => setTeamMenu(null)}
                 className="card-stage-menu"
               >
+                <button
+                  type="button"
+                  className="card-stage-item project-menu-lead"
+                  onClick={() => setDone(card, !complete(card))}
+                >
+                  <span
+                    className="card-stage-dot"
+                    style={{ background: STAGES.done.color }}
+                  />
+                  {complete(card) ? "Reopen" : "Mark as done"}
+                </button>
                 {/* The roster carries "" for the no-team group; the explicit
                     "No team" entry below is that, so skip the blank one. */}
                 {board.teams.filter((t) => t !== "").map((t) => (
@@ -1356,17 +1380,6 @@ export function ProjectBoard({
                 >
                   <span className="card-stage-dot card-stage-dot-none" />
                   No team
-                </button>
-                <button
-                  type="button"
-                  className="card-stage-item card-stage-clear"
-                  onClick={() => setDone(card, !complete(card))}
-                >
-                  <span
-                    className="card-stage-dot"
-                    style={{ background: STAGES.done.color }}
-                  />
-                  {complete(card) ? "Reopen" : "Mark as done"}
                 </button>
               </Dropdown>
               <div
