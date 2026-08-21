@@ -3177,6 +3177,19 @@ button.card-age {
   box-shadow: -40px 0 0 var(--bg);
 }
 
+/* A header can be dragged sideways to reorder the columns (inside one
+   project). The grip on its right edge still resizes, and the × still
+   deletes — both stop the press before it becomes a drag. */
+.project-epic-head-movable {
+  cursor: grab;
+}
+
+.project-epic-head-dragging {
+  cursor: grabbing;
+  background: var(--hover-overlay);
+  opacity: 0.85;
+}
+
 .project-epic-name {
   overflow: hidden;
   text-overflow: ellipsis;
