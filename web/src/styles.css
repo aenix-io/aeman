@@ -3443,6 +3443,15 @@ button.card-age {
   cursor: default;
 }
 
+/* Naming the first column: a plain field in the middle of the empty board. */
+.project-empty-input {
+  width: 260px;
+  max-width: 70vw;
+  font-size: 13px;
+  padding: 6px 10px;
+  text-align: center;
+}
+
 .project-empty-hint {
   color: var(--muted);
   font-size: 13px;
