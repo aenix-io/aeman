@@ -213,6 +213,34 @@ export function App() {
     readFilterFor(boardKeyRef.current),
   );
 
+  // A tab can stay open across deploys (and, on a dev box, across dozens of
+  // rebuilds) — it keeps running the bundle it loaded, which reads as "the fix
+  // did not work". The server fingerprints the bundle it serves, so a mismatch
+  // is checked whenever the tab is looked at again, and offered as a reload.
+  const [staleBuild, setStaleBuild] = useState(false);
+  useEffect(() => {
+    const mine = config?.build;
+    if (!mine) {
+      return;
+    }
+    const check = () => {
+      if (document.hidden) {
+        return;
+      }
+      void fetchConfig()
+        .then((cfg) => setStaleBuild(!!cfg.build && cfg.build !== mine))
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    const timer = window.setInterval(check, 60_000);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+      window.clearInterval(timer);
+    };
+  }, [config?.build]);
+
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
   useEffect(() => {
     let cancelled = false;
@@ -924,6 +952,19 @@ export function App() {
         </div>
       </header>
 
+      {staleBuild && (
+        <div className="banner banner-warning" role="alert">
+          <span>A newer build of aeman is being served — this tab is running the previous one.</span>
+          <button
+            type="button"
+            className="btn btn-primary banner-action"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </button>
+        </div>
+      )}
+
       {showTokenWarning && (
         <div className="banner banner-warning" role="alert">
           <span>
@@ -969,7 +1010,7 @@ export function App() {
               />
             </label>
             <label className="field">
-              <span>Project #</span>
+              <span>Board #</span>
               <input
                 type="number"
                 min={1}

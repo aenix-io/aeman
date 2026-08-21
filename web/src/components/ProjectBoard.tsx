@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -60,11 +60,29 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  *  ROW_PX must match .project-cell in styles.css — it is what keeps the view
  *  still when rows are prepended. */
 const ROW_PX = 28;
+const HEADER_PX = 26;
 const WEEK_STEP = 8;
 
 function weekLabel(monday: string): string {
   const [, m, d] = monday.split("-").map(Number);
   return `${String(d).padStart(2, "0")} ${MONTHS[m - 1]}`;
+}
+
+/** slotTone is how a slot is doing, as a class: finished, taken into work by
+ *  someone, past its end date, or both taken and past it. Done comes first —
+ *  a finished card is finished whatever its dates say. */
+function slotTone(card: CardModel, today: string): string {
+  const done =
+    card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100);
+  if (done) {
+    return "project-slot-done";
+  }
+  const late = !!card.day && card.day < today;
+  const taken = (card.assignees?.length ?? 0) > 0;
+  if (late) {
+    return taken ? "project-slot-late-taken" : "project-slot-late";
+  }
+  return taken ? "project-slot-taken" : "";
 }
 
 /** colKey is a column's identity: the (project, epic) pair. Epic names repeat
@@ -73,8 +91,19 @@ function colKey(project: string, epic: string): string {
   return `${project}\u0000${epic}`;
 }
 
-/** LS_FILTER remembers which project you were looking at. */
+/** LS_FILTER remembers which project you were looking at, LS_COLW how wide you
+ *  dragged the columns. Both are this browser's view of the board rather than
+ *  the board's own state, so they stay local. */
 const LS_FILTER = "aeman.projectFilter";
+const LS_COLW = "aeman.projectColWidth";
+
+/** The narrowest a column may be dragged: below this a title is unreadable. */
+const MIN_COL = 70;
+
+function readColWidth(): number | null {
+  const raw = Number(localStorage.getItem(LS_COLW));
+  return Number.isFinite(raw) && raw >= MIN_COL ? raw : null;
+}
 
 function readFilter(): string[] | null {
   try {
@@ -147,6 +176,38 @@ export function ProjectBoard({
   const [padBack, setPadBack] = useState(0);
   const [padFwd, setPadFwd] = useState(0);
 
+  // Column width: null until dragged, when the columns just share the room —
+  // the right default. One width governs every column, because a plan reads as
+  // a grid and columns of assorted widths stop being comparable.
+  const [colWidth, setColWidth] = useState<number | null>(readColWidth);
+  const [resizing, setResizing] = useState<{ x: number; from: number } | null>(null);
+
+  const beginResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const head = (e.currentTarget as HTMLElement).closest(".project-epic-head");
+    const from = colWidth ?? (head ? head.getBoundingClientRect().width : 140);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setResizing({ x: e.clientX, from });
+  };
+
+  const moveResize = (e: React.PointerEvent) => {
+    if (!resizing) {
+      return;
+    }
+    setColWidth(Math.max(MIN_COL, Math.round(resizing.from + (e.clientX - resizing.x))));
+  };
+
+  const endResize = () => {
+    if (!resizing) {
+      return;
+    }
+    setResizing(null);
+    if (colWidth !== null) {
+      localStorage.setItem(LS_COLW, String(colWidth));
+    }
+  };
+
   const weeks = useMemo(() => {
     let first = addDays(thisMonday, -14 - 7 * padBack);
     let last = addDays(thisMonday, 7 * (8 + padFwd));
@@ -194,6 +255,21 @@ export function ProjectBoard({
   const gridRef = useRef<HTMLDivElement | null>(null);
   // The scrolling ancestor — .project-board, not the grid inside it.
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // The deadline handles live in a layer ABOVE the board, not inside it: a
+  // scroll container clips at its own edge, so a handle that has to straddle
+  // that edge cannot be a child of it. The layer is placed over the board and
+  // scrolled by hand, which keeps the handles glued to their rows.
+  const handlesRef = useRef<HTMLDivElement | null>(null);
+  const handlesClipRef = useRef<HTMLDivElement | null>(null);
+  // The layer's containing block, measured against explicitly rather than via
+  // offsetParent — which is whatever happens to be positioned up the tree.
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [boardBox, setBoardBox] = useState<{
+    left: number;
+    top: number;
+    height: number;
+    gridTop: number;
+  } | null>(null);
 
   // A slot being dragged to another week / epic. It follows the pointer as a
   // preview and only writes on release.
@@ -413,11 +489,17 @@ export function ProjectBoard({
   // A column belongs to exactly one project, so adding one is only offered
   // when a single project is in view — otherwise there is no answer to
   // "which project does this column go in".
-  const targetProject = filter?.length === 1 && filter[0] ? filter[0] : null;
+  // The single chip in view, or null when several (or none) are. "" is the
+  // no-project bucket, which is a destination like any other — a column and a
+  // deadline can both live there.
+  const targetProject = filter?.length === 1 ? filter[0] : null;
+  // Several plans on screen at once: that is when a line needs its project's
+  // colour and a column header needs its project's badge.
+  const multi = targetProject === null;
 
   const addEpic = (name: string) => {
     setAddingEpic(false);
-    if (!name.trim() || !targetProject) {
+    if (!name.trim() || targetProject === null) {
       return;
     }
     void provider
@@ -523,6 +605,62 @@ export function ProjectBoard({
     void call.then(reload).catch((err: unknown) => onError(errText(err)));
   };
 
+  // Measure the board (and where the grid starts inside it) whenever the
+  // layout can have moved. Cheap, and never during a scroll.
+  useLayoutEffect(() => {
+    const board = scrollRef.current;
+    const grid = gridRef.current;
+    const host = wrapRef.current;
+    if (!board || !grid || !host) {
+      setBoardBox(null);
+      return;
+    }
+    const measure = () => {
+      const b = board.getBoundingClientRect();
+      const h = host.getBoundingClientRect();
+      const g = grid.getBoundingClientRect();
+      setBoardBox({
+        left: b.left - h.left,
+        top: b.top - h.top,
+        height: b.height,
+        gridTop: g.top - b.top + board.scrollTop,
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(board);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [weeks.length, epics.length, colWidth, padBack, padFwd]);
+
+  // Follow the board's vertical scrolling by hand, so the handles never lag a
+  // frame behind their rows (which a re-render would cost).
+  useEffect(() => {
+    const board = scrollRef.current;
+    if (!board) {
+      return;
+    }
+    const follow = () => {
+      const layer = handlesRef.current;
+      const clip = handlesClipRef.current;
+      if (layer) {
+        layer.style.transform = `translateY(${-board.scrollTop}px)`;
+      }
+      if (clip && boardBox) {
+        // Hide handles that have scrolled up under the sticky header, and let
+        // them overhang left and right so one can straddle the board's edge.
+        const top = Math.max(0, boardBox.gridTop + HEADER_PX - board.scrollTop);
+        clip.style.clipPath = `inset(${top}px -60px 0px -60px)`;
+      }
+    };
+    follow();
+    board.addEventListener("scroll", follow, { passive: true });
+    return () => board.removeEventListener("scroll", follow);
+  }, [boardBox]);
+
   const beginLineDrag = (
     project: string,
     week: string,
@@ -586,7 +724,9 @@ export function ProjectBoard({
   // between them instead of covering each other up.
   const slots = useMemo(() => {
     type Slot = {
-      card: CardModel;
+      // null is the draft being pulled out right now: it takes a lane like
+      // any other slot, so a new card never lands on top of an existing one.
+      card: CardModel | null;
       row: number;
       span: number;
       lane: number;
@@ -612,6 +752,18 @@ export function ProjectBoard({
       list.push({ card: c, row, span, lane: 0, lanes: 1 });
       byCol.set(k, list);
     }
+    if (draft) {
+      const k = colKey(draft.epic.project, draft.epic.name);
+      const list = byCol.get(k) ?? [];
+      list.push({
+        card: null,
+        row: draft.from,
+        span: draft.to - draft.from + 1,
+        lane: 0,
+        lanes: 1,
+      });
+      byCol.set(k, list);
+    }
     // Interval partitioning per column: earliest first, each card taking the
     // first lane already free by the week it starts.
     for (const list of byCol.values()) {
@@ -630,14 +782,24 @@ export function ProjectBoard({
       }
     }
     return byCol;
-  }, [cards, weeks]);
+  }, [cards, weeks, draft]);
 
   const todayRow = weeks.indexOf(thisMonday);
 
   // The projects the week menu can act on: those in view, or the whole roster
-  // when nothing is filtered. The "no project" chip is not among them — a
-  // deadline is part of a plan, so it is always somebody's.
-  const menuProjects = (filter ?? board.projects).filter((p) => p !== "");
+  // when nothing is filtered. The no-project bucket is included in both cases
+  // — deadlines belonging to no project exist and have to be manageable.
+  const menuProjects = filter ?? [...board.projects, ""];
+
+  // The lane the packing gave the draft, so the new card sits beside whatever
+  // already occupies those weeks rather than on top of it.
+  const draftPacked = draft
+    ? (slots.get(colKey(draft.epic.project, draft.epic.name)) ?? []).find(
+        (s) => s.card === null,
+      )
+    : undefined;
+  const draftLane = draftPacked?.lane ?? 0;
+  const draftLanes = draftPacked?.lanes ?? 1;
 
   // Where a column sits among the visible ones (-1 while it is filtered out).
   const colIndex = (e: EpicRef) =>
@@ -650,7 +812,7 @@ export function ProjectBoard({
   const empty = epics.length === 0 && !addingEpic;
 
   return (
-    <div className="project">
+    <div className="project" ref={wrapRef}>
       {/* The same toolbar row the other boards wear — the chips are a shared
           control and must not look like a stray line of text here. */}
       <div className="board-toolbar">
@@ -677,13 +839,13 @@ export function ProjectBoard({
             <p className="project-empty-hint">
               Start with a project — “manage” above adds one.
             </p>
-          ) : targetProject ? (
+          ) : targetProject !== null ? (
             <button
               type="button"
               className="btn btn-primary"
               onClick={() => setAddingEpic(true)}
             >
-              + Add the first epic of {targetProject}
+              + Add the first epic{targetProject ? ` of ${targetProject}` : ""}
             </button>
           ) : (
             <p className="project-empty-hint">
@@ -706,7 +868,11 @@ export function ProjectBoard({
         className="project-grid"
         ref={gridRef}
         style={{
-          gridTemplateColumns: `66px repeat(${epics.length}, minmax(140px, 1fr)) 34px`,
+          // Until the columns are dragged they share the room; once dragged
+          // they all take the width that was chosen.
+          gridTemplateColumns: `66px repeat(${epics.length}, ${
+            colWidth === null ? "minmax(140px, 1fr)" : `${colWidth}px`
+          }) 34px`,
           gridTemplateRows: `26px repeat(${weeks.length}, 28px)`,
         }}
       >
@@ -747,7 +913,7 @@ export function ProjectBoard({
                   badge a team wears on a card, not as a second line of text
                   competing with the column's own name. Inside one project the
                   badge would repeat on every column and is left off. */}
-              {!targetProject && e.project && (
+              {multi && e.project && (
                 <span
                   className="project-epic-avatar"
                   style={{ background: teamColor(e.project) }}
@@ -764,6 +930,22 @@ export function ProjectBoard({
               >
                 ×
               </button>
+              {/* The border between two headers is the grip: dragging it sets
+                  the width of every column at once, double-click gives the
+                  room back to be shared evenly. */}
+              <span
+                className="project-col-resize"
+                title="Drag to set every column's width · double-click to fit"
+                onPointerDown={beginResize}
+                onPointerMove={moveResize}
+                onPointerUp={endResize}
+                onPointerCancel={() => setResizing(null)}
+                onDoubleClick={(ev) => {
+                  ev.stopPropagation();
+                  setColWidth(null);
+                  localStorage.removeItem(LS_COLW);
+                }}
+              />
             </div>
           );
         })}
@@ -773,7 +955,7 @@ export function ProjectBoard({
               type="text"
               className="project-epic-input"
               autoFocus
-              placeholder={`Epic in ${targetProject ?? ""}…`}
+              placeholder={targetProject ? `Epic in ${targetProject}…` : "Epic with no project…"}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   addEpic((e.target as HTMLInputElement).value);
@@ -790,9 +972,11 @@ export function ProjectBoard({
               title={
                 targetProject
                   ? `Add an epic to ${targetProject}`
-                  : "Pick one project first — a column belongs to a project"
+                  : targetProject === null
+                    ? "Pick one project first — a column belongs to a project"
+                    : "Add an epic that belongs to no project"
               }
-              disabled={!targetProject}
+              disabled={targetProject === null}
               onClick={() => setAddingEpic(true)}
             >
               +
@@ -813,7 +997,6 @@ export function ProjectBoard({
             }}
           >
             <span className="project-week-date">{weekLabel(w)}</span>
-            <span className="project-week-no">{isoWeekNo(w)}</span>
           </div>
         ))}
 
@@ -854,47 +1037,53 @@ export function ProjectBoard({
             // With several projects on screen there are several plans at once,
             // so each line takes its project's colour and steps back, or the
             // grid turns into a stack of red bars nobody can attribute.
-            const colour = targetProject
-              ? undefined
-              : d.project
-                ? teamColor(d.project)
-                : undefined;
-            return (
+            const colour = multi && d.project ? teamColor(d.project) : undefined;
+            const tone = `${dragging ? " project-deadline-dragging" : ""}${
+              multi ? " project-deadline-muted" : ""
+            }`;
+            const key = `${d.project}\u0000${d.week}`;
+            // Two segments, because one element cannot be both above the
+            // sticky week column (to cross the dates) and below the cards (so
+            // it never cuts one in half). The head owns the dates and the
+            // handle and stays put while the plan scrolls; the body runs the
+            // width of the columns, behind them.
+            return [
               <div
-                key={`${d.project}\u0000${d.week}`}
-                className={`project-deadline${dragging ? " project-deadline-dragging" : ""}${
-                  targetProject ? "" : " project-deadline-muted"
-                }`}
-                // The full width of the row, dates included: the line is the
-                // week's edge, and its handle belongs at the very start of it.
-                // (Which is why the line outranks the sticky week column — see
-                // the z-index scale in the stylesheet.)
+                key={`${key}\u0000head`}
+                className={`project-deadline project-deadline-head${tone}`}
                 style={{
                   gridRow: at + 2,
-                  gridColumn: "1 / -1",
+                  gridColumn: 1,
                   ...(colour ? { borderTopColor: colour } : {}),
                 }}
-              >
-                <span
-                  className="project-deadline-dot"
-                  style={colour ? { background: colour } : undefined}
-                  title={`${d.project || "no project"} deadline — drag to another week · ${weekLabel(weeks[at])}`}
-                  onPointerDown={(ev) => beginLineDrag(d.project, d.week, at, ev)}
-                  onPointerMove={moveLineDrag}
-                  onPointerUp={endLineDrag}
-                  onPointerCancel={() => setDragLine(null)}
-                />
-              </div>
-            );
+              />,
+              // Stops before the trailing "add a column" gutter: there is no
+              // plan out there for a line to cross.
+              <div
+                key={`${key}\u0000body`}
+                className={`project-deadline project-deadline-body${tone}`}
+                style={{
+                  gridRow: at + 2,
+                  gridColumn: "2 / -2",
+                  ...(colour ? { borderTopColor: colour } : {}),
+                }}
+              />,
+            ];
           })}
 
-        {/* the create draft */}
+        {/* the create draft, in the lane the packing gave it */}
         {draft && (
           <div
             className="project-slot project-slot-draft"
             style={{
               gridColumn: colIndex(draft.epic) + 2,
               gridRow: `${draft.from + 2} / span ${draft.to - draft.from + 1}`,
+              ...(draftLanes > 1
+                ? {
+                    width: `calc(${100 / draftLanes}% - 2px)`,
+                    marginLeft: `${(100 / draftLanes) * draftLane}%`,
+                  }
+                : {}),
             }}
           >
             <input
@@ -916,10 +1105,12 @@ export function ProjectBoard({
 
         {/* the slots */}
         {epics.map((e, col) =>
-          (slots.get(colKey(e.project, e.name)) ?? []).map(({ card, row, span, lane, lanes }) => (
+          (slots.get(colKey(e.project, e.name)) ?? [])
+            .filter((s): s is typeof s & { card: CardModel } => s.card !== null)
+            .map(({ card, row, span, lane, lanes }) => (
             <div
               key={card.itemId}
-              className={`project-slot${card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100) ? " project-slot-done" : ""}${
+              className={`project-slot ${slotTone(card, today)}${
                 move?.card.itemId === card.itemId ? " project-slot-moving" : ""
               }`}
               style={{
@@ -996,7 +1187,9 @@ export function ProjectBoard({
                 onClose={() => setTeamMenu(null)}
                 className="card-stage-menu"
               >
-                {board.teams.map((t) => (
+                {/* The roster carries "" for the no-team group; the explicit
+                    "No team" entry below is that, so skip the blank one. */}
+                {board.teams.filter((t) => t !== "").map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -1061,20 +1254,66 @@ export function ProjectBoard({
           );
           return (
             <button
-              key={p}
+              key={p || "\u0000none"}
               type="button"
               className="card-stage-item"
               onClick={() => setDeadline(weekMenu ?? "", p, !has)}
             >
               <span
                 className="card-stage-dot"
-                style={{ background: teamColor(p) }}
+                style={{ background: p ? teamColor(p) : "var(--danger)" }}
               />
-              {has ? `Remove ${p}'s deadline` : `Set a deadline for ${p}`}
+              {p
+                ? has
+                  ? `Remove ${p}'s deadline`
+                  : `Set a deadline for ${p}`
+                : has
+                  ? "Remove the deadline with no project"
+                  : "Set a deadline with no project"}
             </button>
           );
         })}
       </Dropdown>
+      {/* The handles: centred on the board's left edge, which is why they are
+          here and not inside it. */}
+      {boardBox && (
+        <div
+          ref={handlesClipRef}
+          className="project-handles"
+          style={{ left: boardBox.left, top: boardBox.top, height: boardBox.height }}
+        >
+          <div ref={handlesRef} className="project-handles-inner">
+            {board.deadlines
+              .filter((d) => !filter || filter.includes(d.project))
+              .map((d) => {
+                const dragging =
+                  dragLine?.from === d.week && dragLine.project === d.project;
+                const at = dragging ? dragLine.row : weeks.indexOf(d.week);
+                if (at < 0 || at >= weeks.length) {
+                  return null;
+                }
+                const colour = multi && d.project ? teamColor(d.project) : undefined;
+                return (
+                  <span
+                    key={`${d.project}\u0000${d.week}`}
+                    className={`project-deadline-dot${dragging ? " project-deadline-dot-dragging" : ""}`}
+                    style={{
+                      // The row's bottom edge, less half the line's 2px so
+                      // the handle's centre lands on the line's centre.
+                      top: boardBox.gridTop + HEADER_PX + (at + 1) * ROW_PX - 1,
+                      ...(colour ? { background: colour } : {}),
+                    }}
+                    title={`${d.project || "no project"} deadline — drag to another week · ${weekLabel(weeks[at])}`}
+                    onPointerDown={(ev) => beginLineDrag(d.project, d.week, at, ev)}
+                    onPointerMove={moveLineDrag}
+                    onPointerUp={endLineDrag}
+                    onPointerCancel={() => setDragLine(null)}
+                  />
+                );
+              })}
+          </div>
+        </div>
+      )}
       {managing && (
         <TeamsModal
           teams={board.projects}

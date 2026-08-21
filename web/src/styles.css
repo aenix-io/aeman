@@ -84,6 +84,14 @@
   --hover-overlay: rgba(27, 31, 36, 0.08);
   --hover-overlay-soft: rgba(27, 31, 36, 0.05);
 
+  /* How a Project-board slot is doing, at a glance. Deliberately NOT the zone
+     palette: a card's zone already owns its left edge, and one colour meaning
+     two things is how a board stops being readable. */
+  --slot-done-bg: #e6f6ec;
+  --slot-taken-bg: #fdf5dc;
+  --slot-late-bg: #fdeae8;
+  --slot-late-taken-bg: #fdeedd;
+
   /* Zone palette (accent = spine/border, bg = area tint). */
   --zone-red-accent: #f85149;
   --zone-red-bg: #fdecea;
@@ -207,6 +215,11 @@
   --danger-tint: rgba(248, 81, 73, 0.15);
   --hover-overlay: rgba(240, 246, 252, 0.1);
   --hover-overlay-soft: rgba(240, 246, 252, 0.06);
+
+  --slot-done-bg: rgba(63, 185, 80, 0.16);
+  --slot-taken-bg: rgba(212, 167, 44, 0.18);
+  --slot-late-bg: rgba(248, 81, 73, 0.18);
+  --slot-late-taken-bg: rgba(219, 109, 40, 0.22);
 
   --zone-red-accent: #ff7b72;
   --zone-red-bg: #4a2321;
@@ -3117,12 +3130,15 @@ button.card-age {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* The containing block for the deadline handle layer. */
+  position: relative;
 }
 
 .project-board {
   flex: 1;
   min-height: 0;
   overflow: auto;
+
   margin: 10px 14px 14px;
   border: 1px solid var(--card-border);
   border-radius: 8px;
@@ -3137,6 +3153,7 @@ button.card-age {
 
 .project-corner,
 .project-epic-head {
+  position: relative;
   position: sticky;
   top: 0;
   /* Above the deadline lines (6), so a line scrolls under the header. */
@@ -3154,6 +3171,8 @@ button.card-age {
 .project-corner {
   left: 0;
   z-index: 9;
+  background: var(--bg);
+  box-shadow: -40px 0 0 var(--bg);
 }
 
 .project-epic-name {
@@ -3188,6 +3207,10 @@ button.card-age {
 /* The window of weeks is not a fixed horizon: these grow it at either end.
    Full-width so they read as the edge of the table, not as floating buttons. */
 .project-more {
+  /* Sticky, so both ends of the window stay reachable at the left edge
+     instead of scrolling away with the columns. */
+  position: sticky;
+  left: 0;
   display: block;
   width: 100%;
   padding: 4px 0;
@@ -3209,14 +3232,25 @@ button.card-age {
 .project-deadline {
   position: relative;
   align-self: end;
-  /* Above the slots AND the sticky week column — the line crosses the dates
-     and its handle sits at the very left, which the sticky column would
-     otherwise cover — but below the sticky header (8/9), so the line still
-     scrolls under it. */
-  z-index: 6;
   height: 0;
   border-top: 2px solid var(--danger);
   pointer-events: none;
+}
+
+/* The head owns the dates column and the handle. Sticky at the same offset as
+   the week column so it holds still while the plan scrolls under it, and above
+   that column (5) so both the line and the handle stay visible there. Still
+   below the sticky header (8/9), so it scrolls under that. */
+.project-deadline-head {
+  position: sticky;
+  left: 0;
+  z-index: 7;
+}
+
+/* The body crosses the columns BEHIND their cards: above the cells, below the
+   slots (2), so a line never cuts a card in half. */
+.project-deadline-body {
+  z-index: 1;
 }
 
 .project-deadline-dragging {
@@ -3229,16 +3263,74 @@ button.card-age {
   opacity: 0.55;
 }
 
-.project-deadline-dot {
+/* The handle layer sits over the board, clipped vertically to it (so a handle
+   scrolled under the header disappears) but free to overhang left and right —
+   which is the whole point: a handle straddles the board's edge, and nothing
+   inside a scroll container can do that. */
+.project-handles {
   position: absolute;
-  left: 1px;
-  top: -5px;
+  width: 0;
+  z-index: 12;
+  pointer-events: none;
+  clip-path: inset(0 -60px);
+}
+
+.project-handles-inner {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.project-deadline-dot {
+  /* Centred on the board's left edge: half of it inside the table, half out. */
+  position: absolute;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
   width: 9px;
   height: 9px;
   border-radius: 50%;
   background: var(--danger);
   cursor: ns-resize;
-  pointer-events: auto;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.project-deadline-dot-dragging {
+  opacity: 0.7;
+}
+
+/* A menu row that only explains why there is nothing to pick. */
+.project-menu-hint {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* The grip along a column header's right edge. It sits INSIDE its own header
+   rather than straddling the border: headers are siblings in one stacking
+   context, so a grip hanging over the next one would be buried under it and
+   would never receive the press. */
+.project-col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.project-col-resize:hover {
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+/* The reload button inside a banner: compact, and never stretched. */
+.banner-action {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 10px;
+  font-size: 12px;
 }
 
 /* A menu row that only explains why there is nothing to pick. */
@@ -3260,11 +3352,26 @@ button.card-age {
   opacity: 1;
 }
 
+/* The "add a column" gutter is 34px — far too narrow to type a name in, so
+   its field breaks out of it and opens leftward over the last column. */
+.project-epic-add .project-epic-input {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  bottom: 3px;
+  width: 180px;
+  z-index: 3;
+  background: var(--bg);
+}
+
 .project-epic-add {
   justify-content: center;
 }
 
+/* The rename field in a column header shares that header's width. */
 .project-epic-input {
+  flex: 1;
+  min-width: 0;
   width: 140px;
   font-size: 12px;
   padding: 2px 6px;
@@ -3274,14 +3381,21 @@ button.card-age {
 
 .project-week {
   position: sticky;
+  /* Parks exactly at the grid's left edge — the table's border — leaving the
+     board's left padding free for the outer half of the deadline handle. A
+     non-zero offset here would shove the column PAST its own cell and over
+     the first column's cards. */
   left: 0;
   z-index: 5;
   background: var(--bg);
+  /* Paint over everything to its left as well: without this the columns
+     scrolling past show through the board's padding, beside the dates. The
+     deadline handle still shows — it sits in a higher layer. */
+  box-shadow: -40px 0 0 var(--bg);
   border-right: 1px solid var(--line-soft);
   border-bottom: 1px solid var(--line-soft);
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 0 6px;
   font-size: 10.5px;
   color: var(--muted);
@@ -3331,8 +3445,24 @@ button.card-age {
   gap: 3px;
 }
 
+/* A slot says how it is doing by its background: finished, taken into work,
+   past its end date, or both taken and past it. Done keeps a little dimming
+   too — it is behind you — but not so much that the green disappears. */
 .project-slot-done {
-  opacity: 0.55;
+  background: var(--slot-done-bg);
+  opacity: 0.8;
+}
+
+.project-slot-taken {
+  background: var(--slot-taken-bg);
+}
+
+.project-slot-late {
+  background: var(--slot-late-bg);
+}
+
+.project-slot-late-taken {
+  background: var(--slot-late-taken-bg);
 }
 
 .project-slot-done .project-slot-title {
@@ -3342,6 +3472,9 @@ button.card-age {
 .project-slot-title {
   flex: 1;
   min-width: 0;
+  /* Three lines at most, but never more than the slot is tall: a one-week
+     slot is short, and the clamp alone would let the text run out below it. */
+  max-height: 100%;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -3357,7 +3490,10 @@ button.card-age {
    above the badge's grown hit area so it stays reachable. */
 .project-slot-actions {
   position: absolute;
-  right: 2px;
+  /* Clear of the owner badge, which lives at the slot's right edge: sitting on
+     top of it made the badge impossible to press — and on an unassigned card,
+     impossible to even find. */
+  right: 19px;
   bottom: 1px;
   z-index: 3;
   display: flex;
@@ -3402,8 +3538,11 @@ button.card-age {
   inset: -6px -2px;
 }
 
+/* An unassigned card still shows its badge, faintly: it is the only way to
+   hand the card to a team, and a control nobody can see is a control nobody
+   uses. It comes up to full strength when the slot is pointed at. */
 .project-slot-team-empty {
-  opacity: 0;
+  opacity: 0.4;
 }
 
 .project-slot:hover .project-slot-team-empty {
@@ -3446,6 +3585,10 @@ button.card-age {
 
 .project-slot-input {
   width: 100%;
+  /* A flex item cannot shrink below an input's intrinsic width unless told
+     to, so the field grew wider than its column and clipped what you typed. */
+  flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;

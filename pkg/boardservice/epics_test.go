@@ -35,12 +35,12 @@ func TestAddEpic(t *testing.T) {
 	if err := svc.AddEpic(context.Background(), "acme", 1, "  ", "Cozystack"); err == nil {
 		t.Fatal("an empty name must be refused")
 	}
-	// A column must name a project that exists: no project, no phantom project.
-	if err := svc.AddEpic(context.Background(), "acme", 1, "Loose", ""); !errors.Is(err, ErrProjectNotFound) {
-		t.Fatalf("an epic without a project must be refused, got %v", err)
-	}
+	// A typo is refused; the no-project bucket is a deliberate destination.
 	if err := svc.AddEpic(context.Background(), "acme", 1, "Loose", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown project must be refused, got %v", err)
+	}
+	if err := svc.AddEpic(context.Background(), "acme", 1, "Loose", ""); err != nil {
+		t.Fatalf("the no-project bucket is a real destination: %v", err)
 	}
 }
 

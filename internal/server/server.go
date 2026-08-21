@@ -5,6 +5,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,7 +55,12 @@ type Options struct {
 
 // Server is the aeman local HTTP server.
 type Server struct {
-	opts       Options
+	opts Options
+	// build identifies the frontend bundle this binary carries — the hash of
+	// its index.html. The SPA compares it against the one it started with and
+	// offers a reload when a new build is being served, which is the only way
+	// a long-open tab learns it is running yesterday's code.
+	build      string
 	log        *slog.Logger
 	tokens     *ghcli.TokenSource
 	auth       *authManager
@@ -92,6 +99,7 @@ func New(opts Options) (*Server, error) {
 
 	s := &Server{
 		opts:       opts,
+		build:      frontendBuild(dist),
 		log:        opts.Logger,
 		tokens:     ghcli.NewTokenSource(),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
@@ -309,11 +317,15 @@ type configResponse struct {
 	// Tz is the board's day time zone (IANA name): the SPA computes "today"
 	// in it so every user sees the same board day.
 	Tz string `json:"tz"`
+	// Build identifies the served frontend bundle; a running SPA whose own
+	// build differs is looking at stale code and says so.
+	Build string `json:"build,omitempty"`
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	resp := configResponse{
 		Version:        s.opts.Version,
+		Build:          s.build,
 		DefaultOwner:   s.opts.DefaultOwner,
 		DefaultProject: s.opts.DefaultProject,
 		LockBoard:      s.opts.LockBoard,
@@ -349,6 +361,17 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// frontendBuild fingerprints the embedded bundle: index.html names the hashed
+// asset files, so its own hash changes with every build.
+func frontendBuild(root fs.FS) string {
+	index, err := fs.ReadFile(root, "index.html")
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(index)
+	return hex.EncodeToString(sum[:8])
 }
 
 // spaHandler serves files from the embedded frontend, falling back to

@@ -23,28 +23,27 @@ var ErrEpicExists = errors.New("epic already exists")
 // mint a team. It is a rejected input (422), not an upstream failure.
 var ErrEpicNotFound = errors.New("unknown epic")
 
-// AddEpic declares a new column inside a project by creating its hidden
-// epic-state card (the exact team-roster mechanism: the card's position IS the
-// column order).
+// AddEpic declares a new column by creating its hidden epic-state card (the
+// exact team-roster mechanism: the card's position IS the column order).
 //
-// The project is required: a column belongs to exactly one project, and one
-// that belongs to none appears only in the all-projects view, which is where a
-// column goes to be forgotten. Use SetEpicProject to move or detach one.
+// A column normally belongs to a project, and naming one is how it ends up
+// somewhere people look. An empty project is allowed but deliberate: it files
+// the column in the no-project bucket, which the board shows behind its own
+// chip. A project that does not exist is still refused — that is a typo.
 func (s *Service) AddEpic(ctx context.Context, owner string, project int, name, projectName string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("epic name must not be empty")
 	}
 	projectName = strings.TrimSpace(projectName)
-	if projectName == "" {
-		return fmt.Errorf("%w: an epic must name the project it belongs to", ErrProjectNotFound)
-	}
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
 		return err
 	}
-	if err := knownProject(b, projectName); err != nil {
-		return err
+	if projectName != "" {
+		if err := knownProject(b, projectName); err != nil {
+			return err
+		}
 	}
 	if err := epicNameFree(b, projectName, name, ""); err != nil {
 		return err
