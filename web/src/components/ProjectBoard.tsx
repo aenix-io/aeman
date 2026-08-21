@@ -322,7 +322,10 @@ export function ProjectBoard({
     }
     const row = rowAt(e.clientY);
     if (row !== drag.to) {
-      setDrag({ ...drag, to: Math.max(drag.from, row) });
+      // A new slot may be pulled either way from where it was started; only a
+      // RESIZE is one-directional, since it moves the end and the start is
+      // history. endDrag sorts the two rows out.
+      setDrag({ ...drag, to: drag.resize ? Math.max(drag.from, row) : row });
     }
   };
 
@@ -350,7 +353,9 @@ export function ProjectBoard({
         });
       return;
     }
-    setDraft({ epic, from, to });
+    // Pulled upward, "from" is the later row: the slot is the span between
+    // them, whichever way the pointer went.
+    setDraft({ epic, from: Math.min(from, to), to: Math.max(from, to) });
   };
 
   const beginMove = (card: CardModel, row: number, span: number, e: React.PointerEvent) => {
@@ -1011,8 +1016,8 @@ export function ProjectBoard({
                 drag &&
                 !drag.resize &&
                 colKey(drag.epic.project, drag.epic.name) === colKey(e.project, e.name) &&
-                row >= drag.from &&
-                row <= drag.to
+                row >= Math.min(drag.from, drag.to) &&
+                row <= Math.max(drag.from, drag.to)
                   ? " project-cell-drag"
                   : ""
               }`}
