@@ -326,6 +326,16 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 		}
 		b.Cards = append(b.Cards, c)
 	}
+	// A slot's row is its START date's week, never a week stored beside it.
+	// The two used to be written separately, so editing a card's dates left it
+	// sitting in the week it was created in — the board said one thing and the
+	// card's own dates said another. Deriving here makes every reader agree at
+	// once, and the stored field converges as cards are written.
+	for i := range b.Cards {
+		if b.Cards[i].Epic != "" && b.Cards[i].StartDate != "" {
+			b.Cards[i].Week = MondayOf(b.Cards[i].StartDate)
+		}
+	}
 	// A card can name an epic without naming a project: it predates the pair,
 	// or someone set the Epic field straight in the GitHub UI. When exactly one
 	// column bears that name it can only be that one, so it is adopted on READ
