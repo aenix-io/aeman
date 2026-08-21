@@ -343,3 +343,65 @@ func TestRenameProject(t *testing.T) {
 		t.Fatalf("the cards must follow the project rename, got %q", c.Project)
 	}
 }
+
+// Carrying a Project-board slot over moves its SECOND boundary: the start is
+// history, the end is what slipped, so the slot stretches into the target week
+// rather than jumping into it. An ordinary plan card still relocates.
+func TestCarryWeekStretchesSlots(t *testing.T) {
+	thisWeek := board.MondayOf(board.TodayIso())
+	twoBack := board.AddDays(thisWeek, -14)
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
+		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
+		{ItemID: "slot", Title: "vGPU rollout", Team: "alpha", Epic: "Infra", Project: "Cozystack",
+			Plan: board.PlanFri, Week: twoBack, StartDate: twoBack,
+			Day: board.AddDays(twoBack, 11)},
+		{ItemID: "plain", Title: "ordinary plan card", Team: "alpha",
+			Plan: board.PlanFri, Week: twoBack},
+	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
+	svc := New(fake)
+
+	rep, err := svc.CarryWeek(context.Background(), "acme", 1, "alpha", thisWeek, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Carried != 2 {
+		t.Fatalf("carried = %d, want both cards", rep.Carried)
+	}
+	slot := fake.get("slot")
+	if slot.Week != twoBack || slot.StartDate != twoBack {
+		t.Fatalf("the first boundary must not move: week=%q start=%q", slot.Week, slot.StartDate)
+	}
+	if want := board.AddDays(thisWeek, 4); slot.Day != want {
+		t.Fatalf("the second boundary = %q, want the target week's Friday %q", slot.Day, want)
+	}
+	// The stretched slot is on the target week's panel, or carrying it there
+	// would have hidden it from the very week it was carried into.
+	b, err := svc.Board(context.Background(), "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bands := board.WeeklyPlan(b, "alpha", thisWeek)
+	found := false
+	for _, c := range append(append([]board.Card{}, bands.Wed...), bands.Fri...) {
+		if c.ItemID == "slot" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the slot must show in the week it was carried into; bands=%+v", bands)
+	}
+	// An ordinary plan card keeps the old behaviour: it moves to the week.
+	if got := fake.get("plain"); got.Week != thisWeek {
+		t.Fatalf("an ordinary plan card relocates, got week %q", got.Week)
+	}
+
+	// Running it again is a no-op for the slot: it already reaches the week.
+	rep2, err := svc.CarryWeek(context.Background(), "acme", 1, "alpha", thisWeek, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep2.Carried != 0 {
+		t.Fatalf("nothing left to carry, got %d", rep2.Carried)
+	}
+}

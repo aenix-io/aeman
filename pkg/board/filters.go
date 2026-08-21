@@ -183,6 +183,14 @@ func planShowsInWeekAt(c Card, week, today string) bool {
 	if c.Week == week {
 		return true
 	}
+	// A Project-board slot spans weeks by design: it belongs to every week
+	// between its two boundaries, not only to the one it starts in. Otherwise
+	// a slot carried over (which moves its END) would vanish from the panel of
+	// the very week it was carried into.
+	if c.Epic != "" && c.Week != "" && c.Day != "" &&
+		c.Week <= week && week <= MondayOf(c.Day) {
+		return true
+	}
 	// History only in weeks whose working days are over: past the week's
 	// Friday (the plan's bands are wed/fri deadlines; the weekend belongs to
 	// wrap-up, not new placement).

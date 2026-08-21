@@ -823,8 +823,26 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if board.Complete(c.Stage, c.Progress) {
 			continue
 		}
+		// A Project-board slot has two boundaries, and carrying it over moves
+		// the SECOND one: the work began when it began — that is history — and
+		// what slipped is the end. The slot stretches into the target week
+		// instead of jumping there, which also keeps the weeks it already ran
+		// through readable on the board. One that already reaches the target
+		// week has nothing to carry, and is not counted as carried either.
+		slotEnd := board.AddDays(week, 4) // the target week's Friday
+		if c.Epic != "" && c.Day >= slotEnd {
+			continue
+		}
 		rep.Carried++
 		if dryRun {
+			continue
+		}
+		if c.Epic != "" {
+			if err := s.backend.SetDay(ctx, b, c, slotEnd); err != nil {
+				return rep, err
+			}
+			s.logEvent(ctx, b, c, board.EventDates,
+				board.DateRange(c.StartDate, c.Day), board.DateRange(c.StartDate, slotEnd))
 			continue
 		}
 		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
