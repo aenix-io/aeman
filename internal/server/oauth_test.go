@@ -737,3 +737,47 @@ func TestPruneEphemeral(t *testing.T) {
 		t.Fatal("live ephemeral entries were wrongly swept")
 	}
 }
+
+// A session is only as good as the GitHub token inside it. When GitHub starts
+// rejecting that token, keeping the session alive for its full TTL is the
+// worst answer: the client's own credentials still verify, so it retries a
+// dead token forever and cannot tell whose authorization broke. Dropping the
+// session forces the one thing that fixes it — signing in again.
+func TestDropSessionForgetsIt(t *testing.T) {
+	a := quietAuth(t, OAuthConfig{SessionFile: t.TempDir() + "/sessions.json"})
+	a.sessions["sid"] = oauthSession{token: "dead-gh-token", login: "octocat", created: time.Now()}
+
+	// While it exists, /mcp accepts the bearer and hands out the token.
+	if _, err := a.verifyToken(context.Background(), "sid", nil); err != nil {
+		t.Fatalf("a live session must verify: %v", err)
+	}
+
+	if login := a.dropSession("sid"); login != "octocat" {
+		t.Fatalf("dropSession must report whose session it was, got %q", login)
+	}
+	if _, ok := a.sessions["sid"]; ok {
+		t.Fatal("the session must be gone")
+	}
+	// Now the MCP client is told to authenticate again, instead of retrying.
+	if _, err := a.verifyToken(context.Background(), "sid", nil); !errors.Is(err, auth.ErrInvalidToken) {
+		t.Fatalf("a dropped session must fail verification with ErrInvalidToken, got %v", err)
+	}
+	// Dropping again (a burst of failing calls) is harmless.
+	if login := a.dropSession("sid"); login != "" {
+		t.Fatalf("dropping an unknown session must be a no-op, got %q", login)
+	}
+}
+
+// The MCP verifier hands the session id down with the token, so a handler
+// that sees GitHub reject the call knows exactly which session to drop.
+func TestVerifyTokenCarriesSessionID(t *testing.T) {
+	a := quietAuth(t, OAuthConfig{SessionFile: t.TempDir() + "/sessions.json"})
+	a.sessions["sid"] = oauthSession{token: "gh", login: "octocat", created: time.Now()}
+	info, err := a.verifyToken(context.Background(), "sid", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Extra[sessionIDExtraKey] != "sid" || info.Extra[githubTokenExtraKey] != "gh" {
+		t.Fatalf("extras = %+v", info.Extra)
+	}
+}

@@ -65,7 +65,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	// because the connection is hijacked, so opt in explicitly).
 	warmCtx, _ := withStaleAllowed(r.Context())
 	if _, err := svc.Board(warmCtx, owner, project); err != nil {
-		s.apiError(w, err)
+		s.apiError(w, r, err)
 		return
 	}
 	// The Origin is checked so a cross-site page cannot open the stream and
