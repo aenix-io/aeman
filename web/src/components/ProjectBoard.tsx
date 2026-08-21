@@ -96,7 +96,11 @@ function slotTone(card: CardModel, today: string): string {
     return "project-slot-done";
   }
   const late = !!card.day && card.day < today;
-  const taken = (card.assignees?.length ?? 0) > 0;
+  // Taken into WORK, not merely assigned: a plan names its owners months
+  // ahead, so an assignee alone would paint the whole roadmap yellow and say
+  // nothing. A slot joins a sprint (or moves off zero) when the work actually
+  // starts — that is the board's own line between planned and underway.
+  const taken = (card.progress ?? 0) > 0 || !!card.sprintStart;
   if (late) {
     return taken ? "project-slot-late-taken" : "project-slot-late";
   }
