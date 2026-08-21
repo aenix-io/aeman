@@ -75,7 +75,11 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
       return;
     }
     const reposition = () => place();
-    const onDown = (e: MouseEvent) => {
+    // pointerdown, not mousedown: anything that begins a drag calls
+    // preventDefault() on the pointer event, and that suppresses the
+    // compatibility mouse events entirely — so a menu opened over the board
+    // would never hear the press that was meant to dismiss it.
+    const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (menuRef.current?.contains(t) || anchorRef.current?.contains(t)) {
         return;
@@ -84,11 +88,11 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     };
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     return () => {
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition);
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
     };
   }, [open, place, onClose, anchorRef]);
 
