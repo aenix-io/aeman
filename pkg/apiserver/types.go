@@ -200,11 +200,11 @@ type EpicRef struct {
 	Project string `json:"project,omitempty"`
 }
 
-// epicRefs pairs each epic with its project, preserving board order.
+// epicRefs projects the column roster onto the wire, preserving board order.
 func epicRefs(b board.Board) []EpicRef {
 	out := make([]EpicRef, 0, len(b.Epics))
 	for _, e := range b.Epics {
-		out = append(out, EpicRef{Name: e, Project: b.EpicProjects[e]})
+		out = append(out, EpicRef{Name: e.Name, Project: e.Project})
 	}
 	return out
 }

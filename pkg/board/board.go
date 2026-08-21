@@ -129,10 +129,11 @@ type Card struct {
 	// epic card's row is its Week; StartDate..Day span the weeks its slot
 	// covers when it stretches over more than one.
 	Epic string `json:"epic,omitempty"`
-	// Project is used by the two hidden state cards only: on a project-state
-	// card it is the project's name, on an epic-state card it is the project
-	// that epic belongs to. A normal card leaves it empty — its project is
-	// whichever project owns its epic, never a second copy that could drift.
+	// Project is the project side of the card's column. A column is
+	// identified by the PAIR (project, epic), because epic names are unique
+	// only within a project — "Docs" or "Auth" belong to every project — so a
+	// card filed under a column must name both. On a project-state card it is
+	// the project's own name; on an epic-state card, the project owning it.
 	Project string `json:"project,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf string `json:"reviewOf,omitempty"`
@@ -182,6 +183,16 @@ type CreateInput struct {
 	Project     string   `json:"project,omitempty"`
 }
 
+// EpicCol is one column of the Project board: its name, the project that owns
+// it, and the hidden epic-state card that declares it. The (Project, Name)
+// pair is the column's identity — epic names repeat across projects, so a name
+// alone does not identify a column.
+type EpicCol struct {
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+	ItemID  string `json:"itemId,omitempty"`
+}
+
 // SprintState is a team's explicit sprint pointer, read from its hidden
 // sprint-state card: the current and previous sprint start dates (and the card's
 // item id). It mirrors the SprintState interface in web/src/providers/types.ts;
@@ -213,13 +224,9 @@ type Board struct {
 	// each team's hidden sprint-state card on the project. That position IS
 	// the team order every client shares (reordering teams moves the card).
 	TeamOrder []string `json:"teamOrder,omitempty"`
-	// Epics lists the Project board's columns in board order (the positions of
-	// the hidden epic-state cards), EpicStates maps each epic to the state
-	// card that declares it (deletion removes that card), and EpicProjects
-	// maps each epic to the project it belongs to.
-	Epics        []string          `json:"epics,omitempty"`
-	EpicStates   map[string]string `json:"epicStates,omitempty"`
-	EpicProjects map[string]string `json:"epicProjects,omitempty"`
+	// Epics lists the Project board's columns in board order (the positions
+	// of the hidden epic-state cards that declare them).
+	Epics []EpicCol `json:"epics,omitempty"`
 	// Projects lists the project roster in board order (the positions of the
 	// hidden project-state cards) and ProjectStates maps each project to the
 	// card that declares it. A project groups epics: the Project board shows
@@ -243,6 +250,7 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 	winners := map[string]Card{}
 	epicSeen := map[string]bool{}
 	projectSeen := map[string]bool{}
+	epicKey := func(project, name string) string { return project + "\x00" + name }
 	for _, c := range cards {
 		if c.Title == ProjectStateTitle {
 			// Same duplicate rule as epic-state: the first position wins.
@@ -263,19 +271,11 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 			if c.Epic == "" {
 				continue
 			}
-			if !epicSeen[c.Epic] {
-				epicSeen[c.Epic] = true
-				b.Epics = append(b.Epics, c.Epic)
-				if b.EpicStates == nil {
-					b.EpicStates = map[string]string{}
-				}
-				b.EpicStates[c.Epic] = c.ItemID
-				if c.Project != "" {
-					if b.EpicProjects == nil {
-						b.EpicProjects = map[string]string{}
-					}
-					b.EpicProjects[c.Epic] = c.Project
-				}
+			if k := epicKey(c.Project, c.Epic); !epicSeen[k] {
+				epicSeen[k] = true
+				b.Epics = append(b.Epics, EpicCol{
+					Name: c.Epic, Project: c.Project, ItemID: c.ItemID,
+				})
 			}
 			continue
 		}
@@ -316,20 +316,31 @@ func olderSprintState(a, b Card) bool {
 	return a.ItemID < b.ItemID
 }
 
-// EpicsOf lists a project's epic columns in board order. An epic whose project
-// is unset (or whose project-state card is gone) belongs to no project and
-// shows only in the all-projects view — it is never silently adopted.
-func EpicsOf(b Board, project string) []string {
-	var out []string
+// EpicsOf lists a project's epic columns in board order. A column whose
+// project is unset belongs to none and shows only in the all-projects view —
+// it is never silently adopted.
+func EpicsOf(b Board, project string) []EpicCol {
+	var out []EpicCol
 	for _, e := range b.Epics {
-		if b.EpicProjects[e] == project {
+		if e.Project == project {
 			out = append(out, e)
 		}
 	}
 	return out
 }
 
-// ProjectOf reports which project an epic belongs to ("" = none).
-func ProjectOf(b Board, epic string) string {
-	return b.EpicProjects[epic]
+// FindEpic looks a column up by its identity — the (project, epic) pair.
+func FindEpic(b Board, project, name string) (EpicCol, bool) {
+	for _, e := range b.Epics {
+		if e.Project == project && e.Name == name {
+			return e, true
+		}
+	}
+	return EpicCol{}, false
+}
+
+// InEpic reports whether a card is filed under a column. Both halves have to
+// match: the same epic name in another project is a different column.
+func InEpic(c Card, project, name string) bool {
+	return c.Epic == name && c.Project == project
 }

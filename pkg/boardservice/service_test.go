@@ -89,9 +89,9 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 	defer f.mu.Unlock()
 	f.rec("LoadBoard")
 	cards := make([]board.Card, 0, len(f.b.Cards))
-	var epics, projects []string
-	epicStates := map[string]string{}
-	epicProjects := map[string]string{}
+	var epics []board.EpicCol
+	var projects []string
+	seenEpic := map[string]bool{}
 	projectStates := map[string]string{}
 	for _, c := range f.b.Cards {
 		// Mirror board.NewBoard's split for the hidden state cards, so the
@@ -106,12 +106,11 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 			continue
 		}
 		if c.Title == board.EpicStateTitle {
-			if c.Epic != "" && epicStates[c.Epic] == "" {
-				epics = append(epics, c.Epic)
-				epicStates[c.Epic] = c.ItemID
-				if c.Project != "" {
-					epicProjects[c.Epic] = c.Project
-				}
+			if k := c.Project + "\x00" + c.Epic; c.Epic != "" && !seenEpic[k] {
+				seenEpic[k] = true
+				epics = append(epics, board.EpicCol{
+					Name: c.Epic, Project: c.Project, ItemID: c.ItemID,
+				})
 			}
 			continue
 		}
@@ -122,7 +121,7 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 		states[k] = v
 	}
 	return board.Board{ID: f.b.ID, Number: f.b.Number, Owner: f.b.Owner, Cards: cards,
-		SprintStates: states, Epics: epics, EpicStates: epicStates, EpicProjects: epicProjects,
+		SprintStates: states, Epics: epics,
 		Projects: projects, ProjectStates: projectStates}, nil
 }
 

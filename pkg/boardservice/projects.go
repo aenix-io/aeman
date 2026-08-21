@@ -56,8 +56,12 @@ func (s *Service) DeleteProject(ctx context.Context, owner string, project int, 
 		return err
 	}
 	if epics := board.EpicsOf(b, name); len(epics) > 0 {
+		names := make([]string, 0, len(epics))
+		for _, e := range epics {
+			names = append(names, e.Name)
+		}
 		return fmt.Errorf("%w: %d (%s) still under %q — delete or move them first",
-			ErrProjectInUse, len(epics), strings.Join(epics, ", "), name)
+			ErrProjectInUse, len(epics), strings.Join(names, ", "), name)
 	}
 	itemID, ok := b.ProjectStates[name]
 	if !ok || itemID == "" {
@@ -89,28 +93,90 @@ func (s *Service) ReorderProjects(ctx context.Context, owner string, project int
 	return nil
 }
 
-// SetEpicProject moves an epic column to another project ("" detaches it into
-// the no-project bucket, where only the all-projects view shows it). The epic's
-// cards ride along: a card's project is never stored, it follows its epic.
-func (s *Service) SetEpicProject(ctx context.Context, owner string, project int, epic, projectName string) error {
+// SetEpicProject moves a column from one project to another ("" detaches it
+// into the no-project bucket, where only the all-projects view shows it). The
+// column's cards are rewritten too: a card names the (project, epic) pair, so
+// leaving them behind would file them under a column that no longer exists.
+func (s *Service) SetEpicProject(ctx context.Context, owner string, project int, from, epic, to string) error {
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
 		return err
 	}
-	itemID, ok := b.EpicStates[epic]
-	if !ok || itemID == "" {
-		return fmt.Errorf("%w %q", ErrEpicNotFound, epic)
+	col, ok := board.FindEpic(b, from, epic)
+	if !ok || col.ItemID == "" {
+		return fmt.Errorf("%w %q in project %q", ErrEpicNotFound, epic, from)
 	}
-	if projectName != "" {
-		if err := knownProject(b, projectName); err != nil {
+	if from == to {
+		return nil
+	}
+	if to != "" {
+		if err := knownProject(b, to); err != nil {
+			return err
+		}
+		// The target project may already have a column of this name, and two
+		// columns with one name inside a project cannot be told apart.
+		if err := epicNameFree(b, to, epic, ""); err != nil {
 			return err
 		}
 	}
-	if b.EpicProjects[epic] == projectName {
+	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: epic, Project: from}
+	if err := s.backend.SetProject(ctx, b, stub, to); err != nil {
+		return err
+	}
+	for _, c := range b.Cards {
+		if !board.InEpic(c, from, epic) {
+			continue
+		}
+		if err := s.backend.SetProject(ctx, b, c, to); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RenameProject renames a project in place: its own state card, the Project
+// field of every column it owns, and of every card under those columns. As
+// with epics the name is the reference, so all of it moves together.
+func (s *Service) RenameProject(ctx context.Context, owner string, project int, from, to string) error {
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return fmt.Errorf("project name must not be empty")
+	}
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	itemID, ok := b.ProjectStates[from]
+	if !ok || itemID == "" {
+		return fmt.Errorf("%w %q", ErrProjectNotFound, from)
+	}
+	if from == to {
 		return nil
 	}
-	stub := board.Card{ItemID: itemID, Title: board.EpicStateTitle, Epic: epic}
-	return s.backend.SetProject(ctx, b, stub, projectName)
+	for _, p := range b.Projects {
+		if p != from && strings.EqualFold(p, to) {
+			return fmt.Errorf("%w: %q", ErrProjectExists, p)
+		}
+	}
+	stub := board.Card{ItemID: itemID, Title: board.ProjectStateTitle, Project: from}
+	if err := s.backend.SetProject(ctx, b, stub, to); err != nil {
+		return err
+	}
+	for _, col := range board.EpicsOf(b, from) {
+		colStub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: col.Name, Project: from}
+		if err := s.backend.SetProject(ctx, b, colStub, to); err != nil {
+			return err
+		}
+	}
+	for _, c := range b.Cards {
+		if c.Project != from {
+			continue
+		}
+		if err := s.backend.SetProject(ctx, b, c, to); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // knownProject rejects a project the board does not declare.

@@ -168,11 +168,12 @@ type CreateCardArgs struct {
 	// set and no sprint is joined or started (Week defaults to this Monday).
 	Plan board.PlanBand
 	Week string
-	// Epic creates a Plan-board card: filed under the column, its Week is the
-	// row (defaulting to the Monday of Start, then of today), Start/Day may
-	// span several weeks, and no sprint is joined — the card lives on the
-	// Plan board until a team picks it up.
-	Epic string
+	// Epic + Project create a Project-board card: filed under the column that
+	// pair identifies, its Week is the row (defaulting to the Monday of Start,
+	// then of today), Start/Day may span several weeks, and no sprint is
+	// joined — the card lives on the Project board until a team picks it up.
+	Epic    string
+	Project string
 	// ReviewOf marks the new card as the review of the given item.
 	ReviewOf string
 	// Parent groups the new card as a subtask of the given item on create.
@@ -386,19 +387,14 @@ func (s *Service) resolveTitleAsync(ctx context.Context, b board.Board, card boa
 	})
 }
 
-// createEpicCard files a new card on the Plan board: under an existing epic
-// column, anchored to its week row, optionally spanning several weeks. No
-// sprint, no plan band — a team picking it up later is what schedules it.
+// createEpicCard files a new card on the Project board: under an existing
+// column — the (project, epic) pair — anchored to its week row and optionally
+// spanning several weeks. No sprint, no plan band: a team picking it up later
+// is what schedules it.
 func (s *Service) createEpicCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
-	known := false
-	for _, e := range b.Epics {
-		if e == args.Epic {
-			known = true
-			break
-		}
-	}
-	if !known {
-		return board.Card{}, fmt.Errorf("%w %q — add it first (add_epic / POST /epics)", ErrEpicNotFound, args.Epic)
+	if _, ok := board.FindEpic(b, args.Project, args.Epic); !ok {
+		return board.Card{}, fmt.Errorf("%w %q in project %q — add it first (add_epic / POST /epics)",
+			ErrEpicNotFound, args.Epic, args.Project)
 	}
 	start := args.Start
 	if start == "" {
@@ -416,6 +412,7 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 		Title:    args.Title,
 		Zone:     args.Zone,
 		Epic:     args.Epic,
+		Project:  args.Project,
 		Week:     week,
 		Start:    start,
 		Day:      day,

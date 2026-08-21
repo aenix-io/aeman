@@ -248,7 +248,8 @@ type updateCardInput struct {
 	Start       *string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd: the card joins the sprint active on that day. A FUTURE day parks it off the board until that day arrives (this is how you schedule work ahead, and how the +1 day / +1 week buttons work). Sprints are daily and created as they start, so no sprint covers a future day yet: the card is left with NO sprint while it waits and the carry-over that reaches its day adopts it — expected, not a mis-scheduled card, and setting sprint by hand would only drag it back onto today's board. Empty clears the dates"`
 	End         *string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
-	Epic        *string `json:"epic,omitempty" jsonschema:"Plan-board column to file the card under; empty clears it. MUST be an EXISTING epic from get_board metadata.epics"`
+	Epic        *string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under; empty clears it. MUST be an EXISTING column from get_board metadata.epics — and columns are identified by the (project, epic) pair, so pass project too unless the card is already in the right project"`
+	Project     *string `json:"project,omitempty" jsonschema:"the project half of the card's column (see epic). Epic names repeat across projects, so filing a card into another project's column needs both"`
 	PlanBand    *string `json:"planBand,omitempty" jsonschema:"weekly-plan band, wed or fri; empty clears it"`
 	PlanWeek    *string `json:"planWeek,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd; empty clears it"`
 	ReviewOf    *string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
@@ -289,8 +290,15 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 			return err
 		}
 	}
-	if in.Epic != nil {
-		if err := svc.SetEpic(ctx, owner, project, in.UID, *in.Epic); err != nil {
+	if in.Epic != nil || in.Project != nil {
+		// A column is the (project, epic) pair. Naming only the epic keeps the
+		// card's current project, which is what filing inside one project
+		// means; crossing projects needs both.
+		epic := card.Epic
+		if in.Epic != nil {
+			epic = *in.Epic
+		}
+		if err := svc.SetEpic(ctx, owner, project, in.UID, epic, in.Project); err != nil {
 			return err
 		}
 	}
@@ -374,7 +382,9 @@ func (h *server) applyDatePatch(ctx context.Context, svc *boardservice.Service, 
 type epicInput struct {
 	boardRef
 	Name    string `json:"name" jsonschema:"the epic's name — the Project-board column header"`
-	Project string `json:"project,omitempty" jsonschema:"the project this column belongs to (required by add_epic; read the roster from get_board metadata.projects). Empty on set_epic_project detaches the column from every project"`
+	Project string `json:"project,omitempty" jsonschema:"the project the column belongs to (required: epic names repeat across projects, so the pair identifies a column). On set_epic_project this is the TARGET project, and empty detaches the column from every project"`
+	From    string `json:"from,omitempty" jsonschema:"set_epic_project only: the project the column is in today"`
+	To      string `json:"to,omitempty" jsonschema:"rename_epic only: the column's new name"`
 }
 
 func (h *server) addEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
@@ -394,16 +404,41 @@ func (h *server) setEpicProject(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.SetEpicProject(ctx, owner, boardNum, in.Name, in.Project); err != nil {
+	if err := svc.SetEpicProject(ctx, owner, boardNum, in.From, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "updated"}, nil
+}
+
+// renameEpic renames a column in place, cards and all.
+func (h *server) renameEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.RenameEpic(ctx, owner, boardNum, in.Project, in.Name, in.To); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "renamed"}, nil
 }
 
 // projectInput names one project of the Project board.
 type projectInput struct {
 	boardRef
 	Name string `json:"name" jsonschema:"the project's name — the chip on the Project board"`
+	To   string `json:"to,omitempty" jsonschema:"rename_project only: the project's new name"`
+}
+
+// renameProject renames a project in place, columns and cards along with it.
+func (h *server) renameProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.RenameProject(ctx, owner, boardNum, in.Name, in.To); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "renamed"}, nil
 }
 
 func (h *server) addProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
@@ -450,7 +485,7 @@ func (h *server) deleteEpic(ctx context.Context, _ *mcp.CallToolRequest, in epic
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteEpic(ctx, owner, project, in.Name); err != nil {
+	if err := svc.DeleteEpic(ctx, owner, project, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted"}, nil

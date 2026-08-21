@@ -127,7 +127,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			if c.Epic == "" || c.Parent != "" {
 				continue
 			}
-			if sel.Project != "" && b.EpicProjects[c.Epic] != sel.Project {
+			if sel.Project != "" && c.Project != sel.Project {
 				continue
 			}
 			base = append(base, c)

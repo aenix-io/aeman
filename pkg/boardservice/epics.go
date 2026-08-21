@@ -14,7 +14,8 @@ import (
 // failure mode the Project board exists to prevent.
 var ErrEpicInUse = errors.New("epic still has cards")
 
-// ErrEpicExists guards AddEpic against doubling a column.
+// ErrEpicExists guards against doubling a column WITHIN a project. Epic names
+// repeat across projects on purpose — every project has its own "Docs".
 var ErrEpicExists = errors.New("epic already exists")
 
 // ErrEpicNotFound is filing a card under a column that does not exist — a
@@ -22,15 +23,13 @@ var ErrEpicExists = errors.New("epic already exists")
 // mint a team. It is a rejected input (422), not an upstream failure.
 var ErrEpicNotFound = errors.New("unknown epic")
 
-// AddEpic declares a new Project-board column inside a project by creating its
-// hidden epic-state card (the exact team-roster mechanism: the card's position
-// IS the column order). The name is the epic's identity — renames are a
-// delete+add while the column is empty.
+// AddEpic declares a new column inside a project by creating its hidden
+// epic-state card (the exact team-roster mechanism: the card's position IS the
+// column order).
 //
-// The project is required: an epic belongs to exactly one project, and a column
-// that belongs to none would appear only in the all-projects view, which is
-// where an epic goes to be forgotten. Use SetEpicProject to move or detach one
-// deliberately.
+// The project is required: a column belongs to exactly one project, and one
+// that belongs to none appears only in the all-projects view, which is where a
+// column goes to be forgotten. Use SetEpicProject to move or detach one.
 func (s *Service) AddEpic(ctx context.Context, owner string, project int, name, projectName string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -44,12 +43,10 @@ func (s *Service) AddEpic(ctx context.Context, owner string, project int, name, 
 	if err != nil {
 		return err
 	}
-	for _, e := range b.Epics {
-		if strings.EqualFold(e, name) {
-			return fmt.Errorf("%w: %q", ErrEpicExists, e)
-		}
-	}
 	if err := knownProject(b, projectName); err != nil {
+		return err
+	}
+	if err := epicNameFree(b, projectName, name, ""); err != nil {
 		return err
 	}
 	_, err = s.backend.CreateCard(ctx, b, board.CreateInput{
@@ -60,79 +57,136 @@ func (s *Service) AddEpic(ctx context.Context, owner string, project int, name, 
 	return err
 }
 
-// DeleteEpic removes an empty epic column by deleting its epic-state card. An
-// epic still referenced by cards is protected (ErrEpicInUse).
-func (s *Service) DeleteEpic(ctx context.Context, owner string, project int, name string) error {
+// DeleteEpic removes an empty column by deleting its epic-state card. A column
+// still referenced by cards is protected (ErrEpicInUse).
+func (s *Service) DeleteEpic(ctx context.Context, owner string, project int, name, projectName string) error {
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
 		return err
 	}
 	inUse := 0
 	for _, c := range b.Cards {
-		if c.Epic == name {
+		if board.InEpic(c, projectName, name) {
 			inUse++
 		}
 	}
 	if inUse > 0 {
 		return fmt.Errorf("%w: %d card(s) still under %q — move or clear them first", ErrEpicInUse, inUse, name)
 	}
-	itemID, ok := b.EpicStates[name]
-	if !ok || itemID == "" {
+	col, ok := board.FindEpic(b, projectName, name)
+	if !ok || col.ItemID == "" {
 		return nil
 	}
-	stub := board.Card{ItemID: itemID, Title: board.EpicStateTitle, Epic: name}
+	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: name, Project: projectName}
 	return s.backend.DeleteCard(ctx, b, stub)
 }
 
-// ReorderEpics persists a column order by walking the epic-state cards into
-// the given sequence (mirrors ReorderTeams). Columns of different projects
-// share one ordered roster: the board position is the single source of order.
-func (s *Service) ReorderEpics(ctx context.Context, owner string, project int, epics []string) error {
+// RenameEpic renames a column in place: its epic-state card and every card
+// filed under it. The name IS the reference (cards store the text, not an id),
+// so the two must move together or the cards would point at a column that no
+// longer exists.
+func (s *Service) RenameEpic(ctx context.Context, owner string, project int, projectName, from, to string) error {
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return fmt.Errorf("epic name must not be empty")
+	}
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	col, ok := board.FindEpic(b, projectName, from)
+	if !ok || col.ItemID == "" {
+		return fmt.Errorf("%w %q", ErrEpicNotFound, from)
+	}
+	if from == to {
+		return nil
+	}
+	if err := epicNameFree(b, projectName, to, from); err != nil {
+		return err
+	}
+	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: from, Project: projectName}
+	if err := s.backend.SetEpic(ctx, b, stub, to); err != nil {
+		return err
+	}
+	for _, c := range b.Cards {
+		if !board.InEpic(c, projectName, from) {
+			continue
+		}
+		if err := s.backend.SetEpic(ctx, b, c, to); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, c, board.EventEpic, from, to)
+	}
+	return nil
+}
+
+// ReorderEpics persists the column order of ONE project by walking its
+// epic-state cards into the given sequence (mirrors ReorderTeams). Names are
+// scoped to the project, since they repeat across projects.
+func (s *Service) ReorderEpics(ctx context.Context, owner string, project int, projectName string, epics []string) error {
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
 		return err
 	}
 	prev := ""
 	for _, name := range epics {
-		itemID, ok := b.EpicStates[name]
-		if !ok || itemID == "" {
+		col, ok := board.FindEpic(b, projectName, name)
+		if !ok || col.ItemID == "" {
 			continue
 		}
-		stub := board.Card{ItemID: itemID, Title: board.EpicStateTitle, Epic: name}
+		stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: name, Project: projectName}
 		if err := s.backend.MoveCard(ctx, b, stub, prev); err != nil {
 			return err
 		}
-		prev = itemID
+		prev = col.ItemID
 	}
 	return nil
 }
 
-// SetEpic files a card under a Project-board column ("" clears it). The column
-// must exist — a typo must not mint a phantom column the way a stray team
-// value used to mint a team.
-func (s *Service) SetEpic(ctx context.Context, owner string, project int, itemID, epic string) error {
+// SetEpic files a card under a column — the (project, epic) pair, since the
+// same epic name in another project is another column. An empty epic clears
+// the filing. A nil projectName keeps the card where it is, which is what
+// filing inside one project means; crossing projects names both halves. The
+// column must exist: a typo must not mint a phantom one.
+func (s *Service) SetEpic(ctx context.Context, owner string, project int, itemID, epic string, inProject *string) error {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
 	}
-	if epic != "" {
-		known := false
-		for _, e := range b.Epics {
-			if e == epic {
-				known = true
-				break
-			}
-		}
-		if !known {
-			return fmt.Errorf("%w %q — add it first (add_epic / POST /epics)", ErrEpicNotFound, epic)
-		}
+	projectName := card.Project
+	if inProject != nil {
+		projectName = *inProject
 	}
-	if card.Epic == epic {
+	if epic == "" {
+		projectName = ""
+	} else if _, ok := board.FindEpic(b, projectName, epic); !ok {
+		return fmt.Errorf("%w %q in project %q — add it first (add_epic / POST /epics)",
+			ErrEpicNotFound, epic, projectName)
+	}
+	if card.Epic == epic && card.Project == projectName {
 		return nil
 	}
-	if err := s.backend.SetEpic(ctx, b, card, epic); err != nil {
-		return err
+	if card.Epic != epic {
+		if err := s.backend.SetEpic(ctx, b, card, epic); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventEpic, card.Epic, epic)
 	}
-	s.logEvent(ctx, b, card, board.EventEpic, card.Epic, epic)
+	if card.Project != projectName {
+		if err := s.backend.SetProject(ctx, b, card, projectName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// epicNameFree rejects a column name already taken WITHIN the project
+// (case-insensitively); except is the column being renamed, if any.
+func epicNameFree(b board.Board, project, name, except string) error {
+	for _, e := range board.EpicsOf(b, project) {
+		if e.Name != except && strings.EqualFold(e.Name, name) {
+			return fmt.Errorf("%w in %q: %q", ErrEpicExists, project, e.Name)
+		}
+	}
 	return nil
 }
