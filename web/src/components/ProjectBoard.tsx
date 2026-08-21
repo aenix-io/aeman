@@ -122,6 +122,7 @@ function colKey(project: string, epic: string): string {
  *  the board's own state, so they stay local. */
 const LS_FILTER = "aeman.projectFilter";
 const LS_COLW = "aeman.projectColWidth";
+const LS_PROGRESS = "aeman.projectProgressOpen";
 
 /** The narrowest a column may be dragged: below this a title is unreadable. */
 const MIN_COL = 70;
@@ -503,6 +504,17 @@ export function ProjectBoard({
   // dialog is open.
   const [renaming, setRenaming] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
+  // The status line remembers whether it was left open, as the Team board's
+  // weekly plan does.
+  const [progressOpen, setProgressOpen] = useState(
+    () => localStorage.getItem(LS_PROGRESS) === "true",
+  );
+  const toggleProgress = () => {
+    setProgressOpen((open) => {
+      localStorage.setItem(LS_PROGRESS, String(!open));
+      return !open;
+    });
+  };
   // The week whose menu is open, and the deadline being dragged to another
   // week (its line follows the pointer and only writes on release).
   const [weekMenu, setWeekMenu] = useState<string | null>(null);
@@ -829,6 +841,23 @@ export function ProjectBoard({
     return out;
   }, [cards]);
   const overall = useMemo(() => progressOf(cards), [cards]);
+
+  // Every project's progress, filter or no filter: the point of opening the
+  // status line is to see the ones you are NOT looking at. The no-project
+  // bucket appears only when it actually holds work.
+  const allProgress = useMemo(() => {
+    const byProject = new Map<string, CardModel[]>();
+    for (const c of board.cards) {
+      if (!c.epic || c.parent) {
+        continue;
+      }
+      const k = c.project ?? "";
+      byProject.set(k, [...(byProject.get(k) ?? []), c]);
+    }
+    return [...board.projects, ""]
+      .filter((p) => p !== "" || (byProject.get("")?.length ?? 0) > 0)
+      .map((p) => ({ project: p, ...progressOf(byProject.get(p) ?? []) }));
+  }, [board.cards, board.projects]);
 
   const todayRow = weeks.indexOf(thisMonday);
 
@@ -1353,7 +1382,62 @@ export function ProjectBoard({
                 : targetProject || "No project"}{" "}
               · {overall.pct}% · {overall.done}/{overall.total} done
             </span>
+            <button
+              type="button"
+              className="project-footer-toggle"
+              onClick={toggleProgress}
+              aria-expanded={progressOpen}
+              aria-label={
+                progressOpen
+                  ? "Hide every project's progress"
+                  : "Show every project's progress"
+              }
+              title={progressOpen ? "Collapse" : "Every project"}
+            >
+              {progressOpen ? "▼" : "▲"}
+            </button>
           </div>
+          {progressOpen && (
+            <div className="project-footer-list">
+              {allProgress.length === 0 && (
+                <p className="project-empty-hint">No projects yet.</p>
+              )}
+              {allProgress.map((p) => (
+                <button
+                  key={p.project || "\u0000none"}
+                  type="button"
+                  className={`project-footer-row${
+                    targetProject === p.project ? " project-footer-row-on" : ""
+                  }`}
+                  onClick={() => selectFilter([p.project])}
+                  title={`Show only ${p.project || "the columns with no project"}`}
+                >
+                  <span className="project-footer-name">
+                    {p.project ? (
+                      <>
+                        <span
+                          className="team-dot"
+                          style={{ background: teamColor(p.project) }}
+                        />
+                        {p.project}
+                      </>
+                    ) : (
+                      <em>No project</em>
+                    )}
+                  </span>
+                  <span className="project-footer-bar">
+                    <span
+                      className="project-footer-bar-fill"
+                      style={{ width: `${p.pct}%` }}
+                    />
+                  </span>
+                  <span className="project-footer-stat">
+                    {p.pct}% · {p.done}/{p.total}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

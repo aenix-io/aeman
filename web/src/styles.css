@@ -2293,6 +2293,7 @@ button.card-age {
   gap: 6px;
 }
 
+.project-footer-toggle,
 .team-weekly-toggle {
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -2315,7 +2316,8 @@ button.card-age {
 
 .team-weekly-progress,
 .me-day-progress,
-.project-progress {
+.project-progress,
+.project-footer-bar {
   height: 3px;
   width: 100%;
   background: var(--line-soft);
@@ -2323,7 +2325,8 @@ button.card-age {
 
 .team-weekly-progress-fill,
 .me-day-progress-fill,
-.project-progress-fill {
+.project-progress-fill,
+.project-footer-bar-fill {
   height: 100%;
   background: var(--bar-default);
   transition: width 0.2s;
@@ -3335,6 +3338,62 @@ button.card-age {
 
 .project-progress-label {
   font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Opened, the status line lists every project — including the ones the
+   filter is currently hiding, which is the reason to open it. */
+.project-footer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 14px 8px;
+  max-height: 30vh;
+  overflow: auto;
+}
+
+.project-footer-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 160px) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--fg);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-footer-row:hover {
+  background: var(--hover-overlay-soft);
+}
+
+.project-footer-row-on {
+  background: var(--hover-overlay);
+}
+
+.project-footer-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-footer-bar {
+  display: block;
+}
+
+.project-footer-bar-fill {
+  display: block;
+}
+
+.project-footer-stat {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
