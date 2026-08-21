@@ -5,6 +5,7 @@ import type {
   EpicRef,
   Provider,
 } from "../providers/types";
+import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { Dropdown } from "./Dropdown";
@@ -405,6 +406,9 @@ export function ProjectBoard({
     from: number;
     to: number;
     resize?: CardModel;
+    // Which edge a resize is pulling: the top moves the slot's start (its
+    // row), the bottom its end. The other edge stays where it is.
+    edge?: "top" | "bottom";
   } | null>(null);
   const [draft, setDraft] = useState<{
     epic: EpicRef;
@@ -479,10 +483,19 @@ export function ProjectBoard({
     return rows.length - 1;
   };
 
-  const beginDrag = (epic: EpicRef, week: number, e: React.PointerEvent, resize?: CardModel) => {
+  const beginDrag = (
+    epic: EpicRef,
+    week: number,
+    e: React.PointerEvent,
+    resize?: CardModel,
+    edge: "top" | "bottom" = "bottom",
+  ) => {
     e.preventDefault();
+    e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setDrag({ epic, from: week, to: week, resize });
+    // "from" is the edge that stays put: the card's first row when the bottom
+    // is pulled, its last row when the top is.
+    setDrag({ epic, from: week, to: week, resize, edge });
   };
 
   const moveDrag = (e: React.PointerEvent) => {
@@ -491,10 +504,16 @@ export function ProjectBoard({
     }
     const row = rowAt(e.clientY);
     if (row !== drag.to) {
-      // A new slot may be pulled either way from where it was started; only a
-      // RESIZE is one-directional, since it moves the end and the start is
-      // history. endDrag sorts the two rows out.
-      setDrag({ ...drag, to: drag.resize ? Math.max(drag.from, row) : row });
+      // A new slot may be pulled either way from where it was started. A
+      // resize may not cross the edge that is staying put: the bottom stops
+      // at the first row, the top stops at the last one.
+      let to = row;
+      if (drag.resize) {
+        to = drag.edge === "top"
+          ? Math.min(drag.from, row)
+          : Math.max(drag.from, row);
+      }
+      setDrag({ ...drag, to });
     }
   };
 
@@ -504,6 +523,24 @@ export function ProjectBoard({
     }
     const { epic, from, to, resize } = drag;
     setDrag(null);
+    if (resize && drag.edge === "top") {
+      // The top edge moves the slot's START; its end stays. The row follows
+      // the start date on the server, so only the date is sent.
+      const start = weeks[Math.min(from, to)];
+      if (start === resize.startDate) {
+        return;
+      }
+      const prev = { startDate: resize.startDate, week: resize.week };
+      patchCard(resize.itemId, { startDate: start, week: start });
+      void provider
+        .patchCard(board, resize.itemId, { dates: { start } })
+        .then(addCard)
+        .catch((err: unknown) => {
+          patchCard(resize.itemId, prev);
+          onError(errText(err));
+        });
+      return;
+    }
     if (resize) {
       // Stretch (or shrink) an existing slot: its anchor week stays, the end
       // lands on the Friday of the released week.
@@ -649,15 +686,23 @@ export function ProjectBoard({
       description: "",
       progress: 0,
     });
-    void provider
-      .createCard(board, {
-        title: title.trim(),
-        epic: epic.name,
-        project: epic.project,
-        week,
-        start,
-        day: end,
-      })
+    const created = provider.createCard(board, {
+      title: title.trim(),
+      epic: epic.name,
+      project: epic.project,
+      week,
+      start,
+      day: end,
+    });
+    // Anything done to the new slot before the create lands — dragging it,
+    // stretching it, handing it to a team — waits here for the real uid
+    // instead of erroring out with "card is still being created", which is
+    // what every other board already does.
+    registerPendingCard(
+      tempId,
+      created.then((c) => c.itemId),
+    );
+    created
       .then((c) => replaceCard(tempId, c))
       .catch((err: unknown) => {
         removeCard(tempId);
@@ -951,9 +996,21 @@ export function ProjectBoard({
 
   // While a slot is being stretched, its span follows the pointer — the drag
   // has to be visible on the thing being dragged, not only on the cursor.
+  // While an edge is being pulled, the slot itself shows where it would land:
+  // the preview IS the card, so there is nothing to imagine.
+  const previewRow = (card: CardModel, row: number, span: number): number => {
+    if (!drag?.resize || drag.resize.itemId !== card.itemId || drag.edge !== "top") {
+      return row;
+    }
+    return Math.max(0, Math.min(drag.to, row + span - 1));
+  };
+
   const previewSpan = (card: CardModel, row: number, span: number): number => {
     if (!drag?.resize || drag.resize.itemId !== card.itemId) {
       return span;
+    }
+    if (drag.edge === "top") {
+      return row + span - previewRow(card, row, span);
     }
     return Math.max(1, Math.min(drag.to - row + 1, weeks.length - row));
   };
@@ -1072,6 +1129,29 @@ export function ProjectBoard({
   }, [board.cards, board.projects]);
 
   const todayRow = weeks.indexOf(thisMonday);
+
+  // Open on today. A plan reaches months back, and the board opened at its
+  // very first week — someone arriving had to scroll past a spent quarter to
+  // find out where the team is. Once per project shown: after that the scroll
+  // is the reader's, and pressing "earlier weeks" must not yank it back.
+  const scrolledFor = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || !boardBox || todayRow < 0 || scrolledFor.current === widthKey) {
+      return;
+    }
+    const top = Math.max(0, boardBox.gridTop + HEADER_PX + (todayRow - 2) * ROW_PX);
+    // After the paint: switching project rebuilds the grid, and a scroll set
+    // before it has its new height is clamped to the old one. The mark is set
+    // in the callback, not here — this effect re-runs as the new board is
+    // measured, and a mark set up front would cancel the pending frame and
+    // then refuse to schedule another, which is why switching never moved.
+    const frame = requestAnimationFrame(() => {
+      scrolledFor.current = widthKey;
+      scroller.scrollTop = top;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [boardBox, todayRow, widthKey, weeks.length]);
 
   // The projects the week menu can act on: those in view, or the whole roster
   // when nothing is filtered. The no-project bucket is included in both cases
@@ -1451,7 +1531,7 @@ export function ProjectBoard({
                 // the preview IS the card, so there is nothing to guess.
                 gridColumn:
                   (move?.card.itemId === card.itemId ? colIndex(move.epic) : col) + 2,
-                gridRow: `${(move?.card.itemId === card.itemId ? move.row : row) + 2} / span ${previewSpan(card, row, span)}`,
+                gridRow: `${(move?.card.itemId === card.itemId ? move.row : previewRow(card, row, span)) + 2} / span ${previewSpan(card, row, span)}`,
                 borderLeftColor: card.team ? teamColor(card.team) : undefined,
                 // Cards sharing weeks in one column split its width instead
                 // of hiding each other. The width holds while the card is
@@ -1559,13 +1639,20 @@ export function ProjectBoard({
                   No team
                 </button>
               </Dropdown>
+              {/* One grip per edge: the top moves the slot's start, the
+                  bottom its end. "from" is whichever edge stays put. */}
+              <div
+                className="project-slot-resize project-slot-resize-top"
+                title="Drag to move the start"
+                onPointerDown={(ev) => beginDrag(e, row + span - 1, ev, card, "top")}
+                onPointerCancel={() => setDrag(null)}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
+              />
               <div
                 className="project-slot-resize"
                 title="Drag to stretch over more weeks"
-                onPointerDown={(ev) => {
-                  ev.stopPropagation();
-                  beginDrag(e, row, ev, card);
-                }}
+                onPointerDown={(ev) => beginDrag(e, row, ev, card, "bottom")}
                 onPointerCancel={() => setDrag(null)}
                 onPointerMove={moveDrag}
                 onPointerUp={endDrag}
