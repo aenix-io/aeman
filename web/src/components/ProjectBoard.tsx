@@ -68,13 +68,39 @@ function weekLabel(monday: string): string {
   return `${String(d).padStart(2, "0")} ${MONTHS[m - 1]}`;
 }
 
+/** complete reports whether a card is finished — the board's own rule. */
+function complete(card: CardModel): boolean {
+  return card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100);
+}
+
+/** progressOf summarises a set of cards: the mean of how far along each one
+ *  is, with finished cards counting as 100. A plain mean, deliberately —
+ *  weighting by how many weeks a slot spans would make the number harder to
+ *  predict than the board it is summarising, and the done/total count beside
+ *  it is what people actually check it against. */
+function progressOf(list: CardModel[]): { pct: number; done: number; total: number } {
+  let sum = 0;
+  let done = 0;
+  for (const c of list) {
+    if (complete(c)) {
+      done += 1;
+      sum += 100;
+    } else {
+      sum += Math.min(100, Math.max(0, c.progress ?? 0));
+    }
+  }
+  return {
+    pct: list.length ? Math.round(sum / list.length) : 0,
+    done,
+    total: list.length,
+  };
+}
+
 /** slotTone is how a slot is doing, as a class: finished, taken into work by
  *  someone, past its end date, or both taken and past it. Done comes first —
  *  a finished card is finished whatever its dates say. */
 function slotTone(card: CardModel, today: string): string {
-  const done =
-    card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100);
-  if (done) {
+  if (complete(card)) {
     return "project-slot-done";
   }
   const late = !!card.day && card.day < today;
@@ -789,6 +815,21 @@ export function ProjectBoard({
     return byCol;
   }, [cards, weeks, draft]);
 
+  // How far along each column is, and the view as a whole.
+  const colProgress = useMemo(() => {
+    const byCol = new Map<string, CardModel[]>();
+    for (const c of cards) {
+      const k = colKey(c.project ?? "", c.epic ?? "");
+      byCol.set(k, [...(byCol.get(k) ?? []), c]);
+    }
+    const out = new Map<string, ReturnType<typeof progressOf>>();
+    for (const [k, list] of byCol) {
+      out.set(k, progressOf(list));
+    }
+    return out;
+  }, [cards]);
+  const overall = useMemo(() => progressOf(cards), [cards]);
+
   const todayRow = weeks.indexOf(thisMonday);
 
   // The projects the week menu can act on: those in view, or the whole roster
@@ -915,6 +956,14 @@ export function ProjectBoard({
               onDoubleClick={() => setRenaming(k)}
             >
               <span className="project-epic-name">{e.name}</span>
+              {(colProgress.get(k)?.total ?? 0) > 0 && (
+                <span
+                  className="project-epic-pct"
+                  title={`${colProgress.get(k)?.done} of ${colProgress.get(k)?.total} cards done`}
+                >
+                  {colProgress.get(k)?.pct}%
+                </span>
+              )}
               {/* With several projects on screen the column header alone is
                   ambiguous, so it carries its project — as the same round
                   badge a team wears on a card, not as a second line of text
@@ -1281,6 +1330,33 @@ export function ProjectBoard({
           );
         })}
       </Dropdown>
+      {!empty && (
+        <div className="project-footer">
+          <div
+            className="project-progress"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={overall.pct}
+            aria-label={`${targetProject || "All projects"} progress`}
+          >
+            <div
+              className="project-progress-fill"
+              style={{
+                width: `${overall.pct}%`,
+                ...(targetProject ? { background: teamColor(targetProject) } : {}),
+              }}
+            />
+          </div>
+          <span className="project-progress-label">
+            {targetProject === null
+              ? "All projects"
+              : targetProject || "No project"}{" "}
+            · <strong>{overall.pct}%</strong> · {overall.done}/{overall.total} done
+          </span>
+        </div>
+      )}
+
       {/* The handles: centred on the board's left edge, which is why they are
           here and not inside it. */}
       {boardBox && (

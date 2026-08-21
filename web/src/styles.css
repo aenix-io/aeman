@@ -3305,6 +3305,46 @@ button.card-age {
   cursor: default;
 }
 
+/* How far along the columns are: a percentage beside each header, and one
+   wide bar under the table for the whole view. */
+.project-epic-pct {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.project-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 14px 12px;
+}
+
+.project-progress {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--hover-overlay);
+  overflow: hidden;
+}
+
+.project-progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.project-progress-label {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* The grip along a column header's right edge. It sits INSIDE its own header
    rather than straddling the border: headers are siblings in one stacking
    context, so a grip hanging over the next one would be buried under it and
