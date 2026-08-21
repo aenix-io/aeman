@@ -84,13 +84,15 @@
   --hover-overlay: rgba(27, 31, 36, 0.08);
   --hover-overlay-soft: rgba(27, 31, 36, 0.05);
 
-  /* How a Project-board slot is doing, at a glance. Deliberately NOT the zone
-     palette: a card's zone already owns its left edge, and one colour meaning
-     two things is how a board stops being readable. */
-  --slot-done-bg: #e6f6ec;
-  --slot-taken-bg: #fdf5dc;
-  --slot-late-bg: #fdeae8;
-  --slot-late-taken-bg: #fdeedd;
+  /* How a Project-board slot is doing, at a glance. Built from the zone tints
+     rather than from colours of my own: those are already defined for the dark
+     theme AND for both colour-blind palettes, so a slot follows every one of
+     them for free — and stays opaque, which a hand-mixed rgba() did not.
+     Late-and-taken sits between the two states it combines. */
+  --slot-done-bg: var(--zone-green-bg);
+  --slot-taken-bg: var(--zone-yellow-bg);
+  --slot-late-bg: var(--zone-red-bg);
+  --slot-late-taken-bg: color-mix(in srgb, var(--zone-red-bg) 55%, var(--zone-yellow-bg));
 
   /* Zone palette (accent = spine/border, bg = area tint). */
   --zone-red-accent: #f85149;
@@ -215,11 +217,6 @@
   --danger-tint: rgba(248, 81, 73, 0.15);
   --hover-overlay: rgba(240, 246, 252, 0.1);
   --hover-overlay-soft: rgba(240, 246, 252, 0.06);
-
-  --slot-done-bg: rgba(63, 185, 80, 0.16);
-  --slot-taken-bg: rgba(212, 167, 44, 0.18);
-  --slot-late-bg: rgba(248, 81, 73, 0.18);
-  --slot-late-taken-bg: rgba(219, 109, 40, 0.22);
 
   --zone-red-accent: #ff7b72;
   --zone-red-bg: #4a2321;
@@ -3543,7 +3540,6 @@ button.card-age {
    too — it is behind you — but not so much that the green disappears. */
 .project-slot-done {
   background: var(--slot-done-bg);
-  opacity: 0.8;
 }
 
 .project-slot-taken {
