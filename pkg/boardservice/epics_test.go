@@ -467,3 +467,104 @@ func TestDeadlines(t *testing.T) {
 		t.Fatalf("the deleted line is still there: %+v", b.Deadlines)
 	}
 }
+
+// The row of a Project-board slot is its start date's week — always, and
+// without anyone having to say so twice. This is the bug that prompted the
+// rule: cards created in one week, re-dated to another, stayed in the row they
+// were created in because the week was a second value nobody updated.
+func TestSlotWeekFollowsItsStart(t *testing.T) {
+	fake := epicBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "acme", 1, CreateCardArgs{
+		Title: "Workshop", Epic: "Infra", Project: "Cozystack",
+		Start: "2026-08-24", Day: "2026-08-28",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Week != "2026-08-24" {
+		t.Fatalf("created week = %q, want the start's Monday", card.Week)
+	}
+
+	// Re-date it to an earlier week: the row must move with the dates.
+	if err := svc.SetDates(ctx, "acme", 1, card.ItemID, "2026-08-06", "2026-08-06"); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.get(card.ItemID)
+	if got.Week != "2026-08-03" {
+		t.Fatalf("week = %q, want the Monday of 2026-08-06", got.Week)
+	}
+	// ...and re-dating a plan slot must not drag it into a sprint.
+	if got.SprintStart != "" {
+		t.Fatalf("a slot that was never taken into work joined sprint %q", got.SprintStart)
+	}
+
+	// The same through the single-date path.
+	if err := svc.SetStart(ctx, "acme", 1, card.ItemID, "2026-09-16"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.get(card.ItemID); got.Week != "2026-09-14" {
+		t.Fatalf("week = %q after SetStart, want 2026-09-14", got.Week)
+	}
+}
+
+// Setting a slot's week by hand is refused: there is nothing to set, and
+// accepting a value here is how the two came to disagree. A weekly-plan card
+// — which has no dates at all — still moves between weeks.
+func TestSlotWeekIsNotSettable(t *testing.T) {
+	today := board.TodayIso()
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
+		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
+		{ItemID: "slot", Title: "a slot", Epic: "Infra", Project: "Cozystack",
+			StartDate: "2026-08-24", Day: "2026-08-28", Week: "2026-08-24"},
+		{ItemID: "plan", Title: "a weekly-plan card", Team: "alpha",
+			Plan: board.PlanFri, Week: board.MondayOf(today)},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+	ctx := context.Background()
+
+	err := svc.SetWeek(ctx, "acme", 1, "slot", "2026-09-07")
+	if !errors.Is(err, ErrWeekDerived) {
+		t.Fatalf("SetWeek on a slot = %v, want ErrWeekDerived", err)
+	}
+	if got := fake.get("slot"); got.Week != "2026-08-24" {
+		t.Fatalf("the refused write still landed: week = %q", got.Week)
+	}
+	if err := svc.SetWeek(ctx, "acme", 1, "plan", "2026-09-07"); err != nil {
+		t.Fatalf("a weekly-plan card must still move between weeks: %v", err)
+	}
+	if got := fake.get("plan"); got.Week != "2026-09-07" {
+		t.Fatalf("plan card week = %q", got.Week)
+	}
+}
+
+// A board read repairs the rows of cards written before the rule, so nobody
+// has to migrate anything: the dates are the truth, whatever is stored.
+func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
+	b := board.NewBoard(nil, []board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
+		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
+		// Written by the old code: dates moved, the week stayed behind.
+		{ItemID: "c1", Title: "stale", Epic: "E", Project: "P",
+			StartDate: "2026-08-06", Day: "2026-08-07", Week: "2026-08-24"},
+		// No start at all: nothing to derive from, so the week stands.
+		{ItemID: "c2", Title: "dateless", Epic: "E", Project: "P", Week: "2026-08-24"},
+		// Not a slot: a weekly-plan card keeps its own week.
+		{ItemID: "c3", Title: "plan", Plan: board.PlanFri, Week: "2026-08-24"},
+	})
+	byID := map[string]board.Card{}
+	for _, c := range b.Cards {
+		byID[c.ItemID] = c
+	}
+	if got := byID["c1"].Week; got != "2026-08-03" {
+		t.Fatalf("stale slot week = %q, want the Monday of its start", got)
+	}
+	if got := byID["c2"].Week; got != "2026-08-24" {
+		t.Fatalf("a slot with no start keeps its week, got %q", got)
+	}
+	if got := byID["c3"].Week; got != "2026-08-24" {
+		t.Fatalf("a weekly-plan card must be left alone, got %q", got)
+	}
+}
