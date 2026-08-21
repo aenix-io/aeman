@@ -296,6 +296,26 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 		}
 		b.Cards = append(b.Cards, c)
 	}
+	// A card can name an epic without naming a project: it predates the pair,
+	// or someone set the Epic field straight in the GitHub UI. When exactly one
+	// column bears that name it can only be that one, so it is adopted on READ
+	// — no rewriting of anyone's data, and the next write settles the pair.
+	// An ambiguous name (two projects, one column name) is left unattached
+	// rather than guessed at.
+	for i := range b.Cards {
+		if b.Cards[i].Epic == "" || b.Cards[i].Project != "" {
+			continue
+		}
+		match, count := "", 0
+		for _, col := range b.Epics {
+			if col.Name == b.Cards[i].Epic {
+				match, count = col.Project, count+1
+			}
+		}
+		if count == 1 {
+			b.Cards[i].Project = match
+		}
+	}
 	for team, c := range winners {
 		b.SprintStates[team] = SprintState{
 			Current:  c.SprintStart,

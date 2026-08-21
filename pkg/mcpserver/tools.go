@@ -196,7 +196,8 @@ type createCardInput struct {
 	Sprint   string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
 	Plan     string `json:"plan,omitempty" jsonschema:"weekly-plan band, wed or fri: creates a plan card with no dates instead of a day card"`
 	Week     string `json:"week,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd; defaults to the current week (plan cards only)"`
-	Epic     string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under. MUST be one of the board's EXISTING epics — read them from get_board metadata.epics; add_epic creates a new column when the user explicitly asks for one. The card's week is its row; start/end dates may span several weeks"`
+	Epic     string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
+	Project  string `json:"project,omitempty" jsonschema:"the project half of the column named by epic (columns are the (project, epic) pair — epic names repeat across projects)"`
 	ReviewOf string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
 	// running sprint, else start one today), true to force a new sprint today,
@@ -224,6 +225,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		Plan:           board.PlanBand(in.Plan),
 		Week:           in.Week,
 		Epic:           in.Epic,
+		Project:        in.Project,
 		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
 	})

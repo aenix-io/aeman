@@ -145,6 +145,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
   if (patch.epic !== undefined) {
     body.epic = patch.epic;
   }
+  if (patch.project !== undefined) {
+    body.project = patch.project;
+  }
   if (patch.reviewOf !== undefined) {
     body.reviewOf = patch.reviewOf;
   }
@@ -219,6 +222,7 @@ export const apiProvider: Provider = {
     }
     if (input.epic) {
       body.epic = input.epic;
+      body.project = input.project ?? "";
       if (input.week) {
         body.plan = { band: "", week: input.week };
       }
@@ -361,16 +365,37 @@ export const apiProvider: Provider = {
     await api(board, "POST", "/epics", { name, project });
   },
 
-  async deleteEpic(board: BoardAddr, name: string): Promise<void> {
-    await api(board, "POST", "/epics/actions/delete-epic", { epic: name });
+  async deleteEpic(
+    board: BoardAddr,
+    name: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/epics/actions/delete-epic", {
+      epic: name,
+      project,
+    });
+  },
+
+  async renameEpic(
+    board: BoardAddr,
+    project: string,
+    epic: string,
+    to: string,
+  ): Promise<void> {
+    await api(board, "POST", "/epics/actions/rename", { project, epic, to });
   },
 
   async setEpicProject(
     board: BoardAddr,
+    from: string,
     epic: string,
     project: string,
   ): Promise<void> {
-    await api(board, "POST", "/epics/actions/set-project", { epic, project });
+    await api(board, "POST", "/epics/actions/set-project", {
+      epic,
+      from,
+      project,
+    });
   },
 
   async addProject(board: BoardAddr, name: string): Promise<void> {
@@ -387,6 +412,14 @@ export const apiProvider: Provider = {
     await api(board, "POST", "/projects/actions/reorder-projects", {
       projects: names,
     });
+  },
+
+  async renameProject(
+    board: BoardAddr,
+    from: string,
+    to: string,
+  ): Promise<void> {
+    await api(board, "POST", "/projects/actions/rename", { project: from, to });
   },
 
   async carryWeek(

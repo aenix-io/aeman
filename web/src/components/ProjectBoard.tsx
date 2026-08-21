@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import type {
   Board,
   Card as CardModel,
+  EpicRef,
   Provider,
 } from "../providers/types";
 import { addDays, mondayOf, todayIso } from "../date";
@@ -9,6 +10,7 @@ import { teamColor, teamInitial } from "../avatar";
 import { Dropdown } from "./Dropdown";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
+import { TeamsModal } from "./TeamsModal";
 
 interface ProjectBoardProps {
   board: Board;
@@ -54,9 +56,21 @@ function isoWeekNo(monday: string): number {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/** One grid row's height in px, and how many weeks each "more" press adds.
+ *  ROW_PX must match .project-cell in styles.css — it is what keeps the view
+ *  still when rows are prepended. */
+const ROW_PX = 28;
+const WEEK_STEP = 8;
+
 function weekLabel(monday: string): string {
   const [, m, d] = monday.split("-").map(Number);
   return `${String(d).padStart(2, "0")} ${MONTHS[m - 1]}`;
+}
+
+/** colKey is a column's identity: the (project, epic) pair. Epic names repeat
+ *  across projects, so a name alone is not a key. */
+function colKey(project: string, epic: string): string {
+  return `${project}\u0000${epic}`;
 }
 
 /** LS_FILTER remembers which project you were looking at. */
@@ -101,12 +115,10 @@ export function ProjectBoard({
 
   // The columns in view: the selected projects' epics, in board order. Every
   // other derived list follows from this one, so a column and its cards can
-  // never disagree about being visible.
+  // never disagree about being visible. A column is the (project, name) PAIR —
+  // "Docs" exists in every project and they are different columns.
   const epics = useMemo(
-    () =>
-      board.epics
-        .filter((e) => !filter || filter.includes(e.project))
-        .map((e) => e.name),
+    () => board.epics.filter((e) => !filter || filter.includes(e.project)),
     [board.epics, filter],
   );
 
@@ -118,26 +130,26 @@ export function ProjectBoard({
     [board.epics],
   );
 
-  const epicProject = useMemo(
-    () => new Map(board.epics.map((e) => [e.name, e.project])),
-    [board.epics],
-  );
-
   // Cards on the board: filed under one of the visible columns. Teams do not
   // filter here — a project spans teams, and the badge is where a card is
   // handed to one.
   const cards = useMemo(() => {
-    const shown = new Set(epics);
+    const shown = new Set(epics.map((e) => colKey(e.project, e.name)));
     return board.cards.filter(
-      (c) => c.epic && !c.parent && shown.has(c.epic),
+      (c) => c.epic && !c.parent && shown.has(colKey(c.project ?? "", c.epic)),
     );
   }, [board.cards, epics]);
 
   // The week window: two weeks of history before today (or the earliest
   // card), through the latest card plus a quarter of runway to plan into.
+  // How far the window reaches beyond the default, in weeks, grown by the
+  // buttons at either end — planning is not confined to a fixed horizon.
+  const [padBack, setPadBack] = useState(0);
+  const [padFwd, setPadFwd] = useState(0);
+
   const weeks = useMemo(() => {
-    let first = addDays(thisMonday, -14);
-    let last = addDays(thisMonday, 7 * 8);
+    let first = addDays(thisMonday, -14 - 7 * padBack);
+    let last = addDays(thisMonday, 7 * (8 + padFwd));
     for (const c of cards) {
       const anchor = c.week ? mondayOf(c.week) : null;
       if (anchor && anchor < first) {
@@ -153,21 +165,35 @@ export function ProjectBoard({
       out.push(w);
     }
     return out;
-  }, [cards, thisMonday]);
+  }, [cards, thisMonday, padBack, padFwd]);
+
+  // Prepending rows would slide the grid under the reader, so the scroll
+  // position is moved by exactly the height added.
+  const showEarlier = () => {
+    const scroller = scrollRef.current;
+    setPadBack(padBack + WEEK_STEP);
+    if (scroller) {
+      requestAnimationFrame(() => {
+        scroller.scrollTop += WEEK_STEP * ROW_PX;
+      });
+    }
+  };
 
   // ---- drag-to-create (and resize): a pressed column stretch becomes a slot.
   const [drag, setDrag] = useState<{
-    epic: string;
+    epic: EpicRef;
     from: number;
     to: number;
     resize?: CardModel;
   } | null>(null);
   const [draft, setDraft] = useState<{
-    epic: string;
+    epic: EpicRef;
     from: number;
     to: number;
   } | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  // The scrolling ancestor — .project-board, not the grid inside it.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // A slot being dragged to another week / epic. It follows the pointer as a
   // preview and only writes on release.
@@ -175,10 +201,10 @@ export function ProjectBoard({
     card: CardModel;
     span: number;
     row: number;
-    epic: string;
+    epic: EpicRef;
   } | null>(null);
 
-  const epicAt = (clientX: number): string | null => {
+  const epicAt = (clientX: number): EpicRef | null => {
     const grid = gridRef.current;
     if (!grid) {
       return null;
@@ -208,7 +234,7 @@ export function ProjectBoard({
     return rows.length - 1;
   };
 
-  const beginDrag = (epic: string, week: number, e: React.PointerEvent, resize?: CardModel) => {
+  const beginDrag = (epic: EpicRef, week: number, e: React.PointerEvent, resize?: CardModel) => {
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setDrag({ epic, from: week, to: week, resize });
@@ -261,7 +287,12 @@ export function ProjectBoard({
     }
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setMove({ card, span, row, epic: card.epic ?? "" });
+    setMove({
+      card,
+      span,
+      row,
+      epic: { name: card.epic ?? "", project: card.project ?? "" },
+    });
   };
 
   const moveMove = (e: React.PointerEvent) => {
@@ -270,7 +301,7 @@ export function ProjectBoard({
     }
     const row = Math.min(rowAt(e.clientY), weeks.length - 1);
     const epic = epicAt(e.clientX) ?? move.epic;
-    if (row !== move.row || epic !== move.epic) {
+    if (row !== move.row || colKey(epic.project, epic.name) !== colKey(move.epic.project, move.epic.name)) {
       setMove({ ...move, row, epic });
     }
   };
@@ -283,14 +314,30 @@ export function ProjectBoard({
     setMove(null);
     const week = weeks[row];
     const end = addDays(weeks[Math.min(row + span - 1, weeks.length - 1)], 4);
-    if (week === card.week && epic === card.epic) {
+    if (
+      week === card.week &&
+      colKey(epic.project, epic.name) === colKey(card.project ?? "", card.epic ?? "")
+    ) {
       return;
     }
-    const prev = { week: card.week, epic: card.epic, startDate: card.startDate, day: card.day };
-    patchCard(card.itemId, { week, epic, startDate: week, day: end });
+    const prev = {
+      week: card.week,
+      epic: card.epic,
+      project: card.project,
+      startDate: card.startDate,
+      day: card.day,
+    };
+    patchCard(card.itemId, {
+      week,
+      epic: epic.name,
+      project: epic.project,
+      startDate: week,
+      day: end,
+    });
     void provider
       .patchCard(board, card.itemId, {
-        epic,
+        epic: epic.name,
+        project: epic.project,
         plan: { week },
         dates: { start: week, end },
       })
@@ -319,7 +366,8 @@ export function ProjectBoard({
       title: title.trim(),
       isDraft: true,
       assignees: [],
-      epic,
+      epic: epic.name,
+      project: epic.project,
       week,
       startDate: start,
       day: end,
@@ -327,7 +375,14 @@ export function ProjectBoard({
       progress: 0,
     });
     void provider
-      .createCard(board, { title: title.trim(), epic, week, start, day: end })
+      .createCard(board, {
+        title: title.trim(),
+        epic: epic.name,
+        project: epic.project,
+        week,
+        start,
+        day: end,
+      })
       .then((c) => replaceCard(tempId, c))
       .catch((err: unknown) => {
         removeCard(tempId);
@@ -337,6 +392,10 @@ export function ProjectBoard({
 
   // ---- columns ----------------------------------------------------------
   const [addingEpic, setAddingEpic] = useState(false);
+  // The column being renamed in its header, and whether the project manager
+  // dialog is open.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [managing, setManaging] = useState(false);
   const [teamMenu, setTeamMenu] = useState<string | null>(null);
   // Only one team menu is open at a time, so a single anchor ref serves
   // whichever badge was last pressed.
@@ -386,12 +445,42 @@ export function ProjectBoard({
       .catch((err: unknown) => onError(errText(err)));
   };
 
-  const deleteEpic = (name: string) => {
-    if (!window.confirm(`Delete the epic “${name}”?`)) {
+  const deleteEpic = (col: EpicRef) => {
+    if (!window.confirm(`Delete the epic “${col.name}”?`)) {
       return;
     }
     void provider
-      .deleteEpic(board, name)
+      .deleteEpic(board, col.name, col.project)
+      .then(reload)
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
+  const renameEpic = (col: EpicRef, to: string) => {
+    setRenaming(null);
+    if (!to.trim() || to.trim() === col.name) {
+      return;
+    }
+    void provider
+      .renameEpic(board, col.project, col.name, to.trim())
+      .then(reload)
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
+  const renameProject = (from: string, to: string) => {
+    void provider
+      .renameProject(board, from, to)
+      .then(() => {
+        if (filter?.includes(from)) {
+          selectFilter(filter.map((p) => (p === from ? to : p)));
+        }
+        reload();
+      })
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
+  const reorderProjects = (ordered: string[]) => {
+    void provider
+      .reorderProjects(board, ordered)
       .then(reload)
       .catch((err: unknown) => onError(errText(err)));
   };
@@ -434,11 +523,20 @@ export function ProjectBoard({
     return Math.max(1, Math.min(drag.to - row + 1, weeks.length - row));
   };
 
-  // Cards per epic with their computed row spans.
+  // Cards per column with their row spans and, when they overlap in time, the
+  // lane each one sits in: cards sharing weeks split the column's width
+  // between them instead of covering each other up.
   const slots = useMemo(() => {
-    const byEpic = new Map<string, { card: CardModel; row: number; span: number }[]>();
+    type Slot = {
+      card: CardModel;
+      row: number;
+      span: number;
+      lane: number;
+      lanes: number;
+    };
+    const byCol = new Map<string, Slot[]>();
     if (weeks.length === 0) {
-      return byEpic;
+      return byCol;
     }
     for (const c of cards) {
       if (!c.epic || !c.week) {
@@ -451,14 +549,36 @@ export function ProjectBoard({
       }
       const endMon = c.day && c.day > anchor ? mondayOf(c.day) : anchor;
       const span = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - row));
-      const list = byEpic.get(c.epic) ?? [];
-      list.push({ card: c, row, span });
-      byEpic.set(c.epic, list);
+      const k = colKey(c.project ?? "", c.epic);
+      const list = byCol.get(k) ?? [];
+      list.push({ card: c, row, span, lane: 0, lanes: 1 });
+      byCol.set(k, list);
     }
-    return byEpic;
+    // Interval partitioning per column: earliest first, each card taking the
+    // first lane already free by the week it starts.
+    for (const list of byCol.values()) {
+      list.sort((a, b) => a.row - b.row || b.span - a.span);
+      const laneEnd: number[] = [];
+      for (const s of list) {
+        let lane = laneEnd.findIndex((end) => end <= s.row);
+        if (lane === -1) {
+          lane = laneEnd.length;
+        }
+        laneEnd[lane] = s.row + s.span;
+        s.lane = lane;
+      }
+      for (const s of list) {
+        s.lanes = laneEnd.length;
+      }
+    }
+    return byCol;
   }, [cards, weeks]);
 
   const todayRow = weeks.indexOf(thisMonday);
+
+  // Where a column sits among the visible ones (-1 while it is filtered out).
+  const colIndex = (e: EpicRef) =>
+    epics.findIndex((x) => colKey(x.project, x.name) === colKey(e.project, e.name));
 
   if (epics.length === 0 && !addingEpic) {
     return (
@@ -472,6 +592,8 @@ export function ProjectBoard({
             onSelect={selectFilter}
             onAdd={addProject}
             onRemove={deleteProject}
+            canManage={false}
+            onManage={() => setManaging(true)}
             noneChip={looseEpics ? "No project" : undefined}
           />
         </div>
@@ -515,10 +637,20 @@ export function ProjectBoard({
           onSelect={selectFilter}
           onAdd={addProject}
           onRemove={deleteProject}
+          canManage={false}
+          onManage={() => setManaging(true)}
           noneChip={looseEpics ? "No project" : undefined}
         />
       </div>
-      <div className="project-board">
+      <div className="project-board" ref={scrollRef}>
+      <button
+        type="button"
+        className="project-more"
+        onClick={showEarlier}
+        title={`Show ${WEEK_STEP} more weeks before`}
+      >
+        ↑ earlier weeks
+      </button>
       <div
         className="project-grid"
         ref={gridRef}
@@ -529,35 +661,53 @@ export function ProjectBoard({
       >
         {/* header row */}
         <div className="project-corner" />
-        {epics.map((e) => (
-          <div
-            key={e}
-            className="project-epic-head"
-            title={
-              epicProject.get(e)
-                ? `${e} — ${epicProject.get(e) ?? ""}`
-                : `${e} — no project`
-            }
-          >
-            <span className="project-epic-name">{e}</span>
-            {/* With several projects on screen the column header alone is
-                ambiguous, so it carries its project; inside one project the
-                label would repeat on every column and is left off. */}
-            {!targetProject && (
-              <span className="project-epic-project">
-                {epicProject.get(e) || "—"}
-              </span>
-            )}
-            <button
-              type="button"
-              className="card-action project-epic-del"
-              title="Delete the epic (must be empty)"
-              onClick={() => deleteEpic(e)}
+        {epics.map((e) => {
+          const k = colKey(e.project, e.name);
+          if (renaming === k) {
+            return (
+              <div key={k} className="project-epic-head">
+                <input
+                  type="text"
+                  className="project-epic-input"
+                  autoFocus
+                  defaultValue={e.name}
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter") {
+                      renameEpic(e, (ev.target as HTMLInputElement).value);
+                    } else if (ev.key === "Escape") {
+                      setRenaming(null);
+                    }
+                  }}
+                  onBlur={(ev) => renameEpic(e, ev.target.value)}
+                />
+              </div>
+            );
+          }
+          return (
+            <div
+              key={k}
+              className="project-epic-head"
+              title={`${e.name} — ${e.project || "no project"} · double-click to rename`}
+              onDoubleClick={() => setRenaming(k)}
             >
-              ×
-            </button>
-          </div>
-        ))}
+              <span className="project-epic-name">{e.name}</span>
+              {/* With several projects on screen the column header alone is
+                  ambiguous, so it carries its project; inside one project the
+                  label would repeat on every column and is left off. */}
+              {!targetProject && (
+                <span className="project-epic-project">{e.project || "—"}</span>
+              )}
+              <button
+                type="button"
+                className="card-action project-epic-del"
+                title="Delete the epic (must be empty)"
+                onClick={() => deleteEpic(e)}
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
         <div className="project-epic-head project-epic-add">
           {addingEpic ? (
             <input
@@ -608,9 +758,13 @@ export function ProjectBoard({
         {epics.map((e, col) =>
           weeks.map((w, row) => (
             <div
-              key={`${e}/${w}`}
+              key={`${colKey(e.project, e.name)}/${w}`}
               className={`project-cell${row === todayRow ? " project-cell-today" : ""}${
-                drag && !drag.resize && drag.epic === e && row >= drag.from && row <= drag.to
+                drag &&
+                !drag.resize &&
+                colKey(drag.epic.project, drag.epic.name) === colKey(e.project, e.name) &&
+                row >= drag.from &&
+                row <= drag.to
                   ? " project-cell-drag"
                   : ""
               }`}
@@ -628,7 +782,7 @@ export function ProjectBoard({
           <div
             className="project-slot project-slot-draft"
             style={{
-              gridColumn: epics.indexOf(draft.epic) + 2,
+              gridColumn: colIndex(draft.epic) + 2,
               gridRow: `${draft.from + 2} / span ${draft.to - draft.from + 1}`,
             }}
           >
@@ -651,7 +805,7 @@ export function ProjectBoard({
 
         {/* the slots */}
         {epics.map((e, col) =>
-          (slots.get(e) ?? []).map(({ card, row, span }) => (
+          (slots.get(colKey(e.project, e.name)) ?? []).map(({ card, row, span, lane, lanes }) => (
             <div
               key={card.itemId}
               className={`project-slot${card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100) ? " project-slot-done" : ""}${
@@ -661,11 +815,18 @@ export function ProjectBoard({
                 // While dragged, the slot itself sits where it would land —
                 // the preview IS the card, so there is nothing to guess.
                 gridColumn:
-                  (move?.card.itemId === card.itemId
-                    ? epics.indexOf(move.epic)
-                    : col) + 2,
+                  (move?.card.itemId === card.itemId ? colIndex(move.epic) : col) + 2,
                 gridRow: `${(move?.card.itemId === card.itemId ? move.row : row) + 2} / span ${previewSpan(card, row, span)}`,
                 borderLeftColor: card.team ? teamColor(card.team) : undefined,
+                // Cards sharing weeks in one column split its width instead of
+                // hiding each other; a dragged card takes the full width so
+                // the preview reads clearly.
+                ...(lanes > 1 && move?.card.itemId !== card.itemId
+                  ? {
+                      width: `calc(${100 / lanes}% - 2px)`,
+                      marginLeft: `${(100 / lanes) * lane}%`,
+                    }
+                  : {}),
               }}
               onPointerDown={(ev) => beginMove(card, row, previewSpan(card, row, span), ev)}
               onPointerMove={moveMove}
@@ -751,7 +912,7 @@ export function ProjectBoard({
                 title="Drag to stretch over more weeks"
                 onPointerDown={(ev) => {
                   ev.stopPropagation();
-                  beginDrag(card.epic ?? e, row, ev, card);
+                  beginDrag(e, row, ev, card);
                 }}
                 onPointerCancel={() => setDrag(null)}
                 onPointerMove={moveDrag}
@@ -761,7 +922,27 @@ export function ProjectBoard({
           )),
         )}
         </div>
+        <button
+          type="button"
+          className="project-more"
+          onClick={() => setPadFwd(padFwd + WEEK_STEP)}
+          title={`Show ${WEEK_STEP} more weeks after`}
+        >
+          ↓ later weeks
+        </button>
       </div>
+      {managing && (
+        <TeamsModal
+          teams={board.projects}
+          title="Manage projects"
+          entity="project"
+          onAdd={addProject}
+          onRename={renameProject}
+          onRemove={deleteProject}
+          onReorder={reorderProjects}
+          onClose={() => setManaging(false)}
+        />
+      )}
     </div>
   );
 }

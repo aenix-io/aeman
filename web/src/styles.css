@@ -3177,6 +3177,24 @@ button.card-age {
   color: var(--muted);
 }
 
+/* The window of weeks is not a fixed horizon: these grow it at either end.
+   Full-width so they read as the edge of the table, not as floating buttons. */
+.project-more {
+  display: block;
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.project-more:hover {
+  background: var(--hover-overlay);
+  color: var(--fg);
+}
+
 .project-empty-hint {
   color: var(--muted);
   font-size: 13px;

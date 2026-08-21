@@ -87,9 +87,11 @@ type CardSpec struct {
 	Recurrence string    `json:"recurrence,omitempty"`
 	Dates      CardDates `json:"dates"`
 	Plan       *CardPlan `json:"plan,omitempty"`
-	// Epic is the Project-board column the card is filed under ("" = none); its
-	// Week is the row, and Dates span the weeks its slot stretches over.
+	// Epic and Project are the column the card is filed under ("" = none) —
+	// the pair, since epic names repeat across projects. The card's Week is
+	// the row, and Dates span the weeks its slot stretches over.
 	Epic     string `json:"epic,omitempty"`
+	Project  string `json:"project,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the uid of the card it is grouped under.
 	Parent string `json:"parent,omitempty"`
@@ -248,6 +250,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Epic:        c.Epic,
+		Project:     c.Project,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 	}

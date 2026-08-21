@@ -73,8 +73,10 @@ export interface Card {
   plan?: "wed" | "fri";
   /** ISO date (yyyy-mm-dd) of the plan week this card belongs to (weekly cycle). */
   week?: string;
-  /** Plan-board column this card is filed under (its week is the row). */
+  /** The column this card is filed under: epic + project TOGETHER, since epic
+   *  names repeat across projects. Its week is the row. */
   epic?: string;
+  project?: string;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -99,6 +101,7 @@ export interface NewCardInput {
   plan?: "wed" | "fri" | null;
   week?: string | null;
   epic?: string | null;
+  project?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
@@ -167,8 +170,10 @@ export interface CardPatch {
   stage?: StageKey | "";
   dates?: { start?: string; end?: string; sprint?: string };
   plan?: { band?: "wed" | "fri" | ""; week?: string };
-  /** Re-file under a Plan-board epic column ("" clears). */
+  /** Re-file under a column ("" clears). Naming only the epic keeps the card
+   *  inside its project; crossing projects names both halves. */
   epic?: string;
+  project?: string;
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
   parent?: string;
@@ -258,10 +263,18 @@ export interface Provider {
   /** Declare a new epic column inside a project (which is required). */
   addEpic(board: BoardAddr, name: string, project: string): Promise<void>;
   /** Delete an EMPTY epic column (422 while cards still sit under it). */
-  deleteEpic(board: BoardAddr, name: string): Promise<void>;
-  /** Move a column to another project ("" detaches it from every project). */
+  deleteEpic(board: BoardAddr, name: string, project: string): Promise<void>;
+  /** Rename a column in place; its cards follow. */
+  renameEpic(
+    board: BoardAddr,
+    project: string,
+    epic: string,
+    to: string,
+  ): Promise<void>;
+  /** Move a column between projects ("" detaches it from every project). */
   setEpicProject(
     board: BoardAddr,
+    from: string,
     epic: string,
     project: string,
   ): Promise<void>;
@@ -271,6 +284,8 @@ export interface Provider {
   deleteProject(board: BoardAddr, name: string): Promise<void>;
   /** Apply the shared project order (moves the hidden project-state cards). */
   reorderProjects(board: BoardAddr, names: string[]): Promise<void>;
+  /** Rename a project in place; its columns and their cards follow. */
+  renameProject(board: BoardAddr, from: string, to: string): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(board: BoardAddr, team: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). */
