@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -503,14 +504,7 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if p.Epic != nil || p.Project != nil {
-		epic := ""
-		if p.Epic != nil {
-			epic = *p.Epic
-		} else if card, err := svc.Card(ctx, owner, project, uid); err == nil {
-			// Only the project moved: keep the column name the card is under.
-			epic = card.Epic
-		}
-		if err := svc.SetEpic(ctx, owner, project, uid, epic, p.Project); err != nil {
+		if err := patchColumn(ctx, svc, owner, project, uid, p); err != nil {
 			s.apiError(w, err)
 			return
 		}
@@ -1144,6 +1138,19 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// patchColumn re-files a card under a column — the (project, epic) pair.
+// Naming only the project keeps the column name the card is already under,
+// which is what moving a card between projects means.
+func patchColumn(ctx context.Context, svc *boardservice.Service, owner string, project int, uid string, p cardPatch) error {
+	epic := ""
+	if p.Epic != nil {
+		epic = *p.Epic
+	} else if card, err := svc.Card(ctx, owner, project, uid); err == nil {
+		epic = card.Epic
+	}
+	return svc.SetEpic(ctx, owner, project, uid, epic, p.Project)
 }
 
 // handleAddDeadline marks a week with one project's deadline line
