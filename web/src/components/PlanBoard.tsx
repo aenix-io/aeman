@@ -6,6 +6,7 @@ import type {
 } from "../providers/types";
 import { addDays, mondayOf, todayIso } from "../date";
 import { teamColor, teamInitial } from "../avatar";
+import { Dropdown } from "./Dropdown";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
 
@@ -222,8 +223,13 @@ export function PlanBoard({
   };
 
   const beginMove = (card: CardModel, row: number, span: number, e: React.PointerEvent) => {
-    // Only a plain drag on the slot's body moves it; buttons and the resize
-    // grip stop propagation themselves.
+    // Only the slot's BODY drags. A press that started on a control inside it
+    // (the team badge, delete, the resize grip) must reach that control: the
+    // press bubbles up here, and capturing it — plus preventDefault — used to
+    // swallow the click entirely, so the badge could never be pressed.
+    if ((e.target as HTMLElement).closest("button, input, .plan-slot-resize")) {
+      return;
+    }
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setMove({ card, span, row, epic: card.epic ?? "" });
@@ -303,6 +309,9 @@ export function PlanBoard({
   // ---- columns ----------------------------------------------------------
   const [addingEpic, setAddingEpic] = useState(false);
   const [teamMenu, setTeamMenu] = useState<string | null>(null);
+  // Only one team menu is open at a time, so a single anchor ref serves
+  // whichever badge was last pressed.
+  const teamAnchor = useRef<HTMLButtonElement | null>(null);
 
   const addEpic = (name: string) => {
     setAddingEpic(false);
@@ -331,12 +340,10 @@ export function PlanBoard({
     setTeamMenu(null);
     const prev = { team: card.team, plan: card.plan };
     patchCard(card.itemId, { team: team ?? undefined, plan: card.plan ?? (team ? "fri" : undefined) });
-    const p: Record<string, unknown> = {};
     void provider
       .patchCard(board, card.itemId, {
         team: team ?? "",
         ...(team && !card.plan ? { plan: { band: "fri", week: card.week ?? "" } } : {}),
-        ...p,
       })
       .then(addCard)
       .catch((err: unknown) => {
@@ -393,28 +400,47 @@ export function PlanBoard({
 
   if (epics.length === 0 && !addingEpic) {
     return (
-      <div className="plan-empty">
-        <p>The Plan board maps epics (columns) across weeks (rows).</p>
-        <button type="button" className="btn btn-primary" onClick={() => setAddingEpic(true)}>
-          + Add the first epic
-        </button>
+      <div className="plan">
+        <div className="board-toolbar">
+          <TeamChips
+            label="Team"
+            teams={roster}
+            selectedKeys={teamFilter}
+            onSelect={onSetFilter}
+            onAdd={onAddTeam}
+            onRemove={onRemoveTeam}
+            onRename={onRenameTeam}
+            canManage={false}
+            noTeamChip
+          />
+        </div>
+        <div className="plan-empty">
+          <p>The Plan board maps epics (columns) across weeks (rows).</p>
+          <button type="button" className="btn btn-primary" onClick={() => setAddingEpic(true)}>
+            + Add the first epic
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <>
-      <TeamChips
-        label="Team"
-        teams={roster}
-        selectedKeys={teamFilter}
-        onSelect={onSetFilter}
-        onAdd={onAddTeam}
-        onRemove={onRemoveTeam}
-        onRename={onRenameTeam}
-        canManage={false}
-        noTeamChip
-      />
+    <div className="plan">
+      {/* The same toolbar row the other boards wear — the chips are a shared
+          control and must not look like a stray line of text here. */}
+      <div className="board-toolbar">
+        <TeamChips
+          label="Team"
+          teams={roster}
+          selectedKeys={teamFilter}
+          onSelect={onSetFilter}
+          onAdd={onAddTeam}
+          onRemove={onRemoveTeam}
+          onRename={onRenameTeam}
+          canManage={false}
+          noTeamChip
+        />
+      </div>
       <div className="plan-board">
       <div
         className="plan-grid"
@@ -564,6 +590,7 @@ export function PlanBoard({
                 title={card.team ? `Team: ${card.team} — click to change` : "Assign to a team"}
                 onClick={(ev) => {
                   ev.stopPropagation();
+                  teamAnchor.current = ev.currentTarget;
                   setTeamMenu(teamMenu === card.itemId ? null : card.itemId);
                 }}
               >
@@ -589,31 +616,35 @@ export function PlanBoard({
                   title={STAGES[card.stage].label}
                 />
               )}
-              {teamMenu === card.itemId && (
-                <div className="plan-team-menu">
-                  {board.teams.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className="card-stage-item"
-                      onClick={() => assignTeam(card, t)}
-                    >
-                      <span
-                        className="card-stage-dot"
-                        style={{ background: teamColor(t) }}
-                      />
-                      {t}
-                    </button>
-                  ))}
+              <Dropdown
+                open={teamMenu === card.itemId}
+                anchorRef={teamAnchor}
+                onClose={() => setTeamMenu(null)}
+                className="card-stage-menu"
+              >
+                {board.teams.map((t) => (
                   <button
+                    key={t}
                     type="button"
-                    className="card-stage-item"
-                    onClick={() => assignTeam(card, null)}
+                    className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
+                    onClick={() => assignTeam(card, t)}
                   >
-                    no team
+                    <span
+                      className="card-stage-dot"
+                      style={{ background: teamColor(t) }}
+                    />
+                    {t}
                   </button>
-                </div>
-              )}
+                ))}
+                <button
+                  type="button"
+                  className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}
+                  onClick={() => assignTeam(card, null)}
+                >
+                  <span className="card-stage-dot card-stage-dot-none" />
+                  No team
+                </button>
+              </Dropdown>
               <div
                 className="plan-slot-resize"
                 title="Drag to stretch over more weeks"
@@ -628,9 +659,9 @@ export function PlanBoard({
             </div>
           )),
         )}
+        </div>
       </div>
-      </div>
-    </>
+    </div>
   );
 }
 
