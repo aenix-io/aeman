@@ -13,7 +13,7 @@ import {
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
-import { PlanBoard } from "./components/PlanBoard";
+import { ProjectBoard } from "./components/ProjectBoard";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
@@ -23,7 +23,7 @@ import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
-type ViewMode = "me" | "team" | "plan";
+type ViewMode = "me" | "team" | "project";
 
 const LS_OWNER = "aeman.owner";
 const LS_PROJECT = "aeman.project";
@@ -37,8 +37,10 @@ function readView(): ViewMode {
   if (raw === "team" || raw === "nixon") {
     return "team";
   }
-  if (raw === "plan") {
-    return "plan";
+  // "plan" is the tab's pre-rename name — an existing localStorage entry
+  // still lands on the Project board rather than silently on Me.
+  if (raw === "project" || raw === "plan") {
+    return "project";
   }
   return "me";
 }
@@ -794,7 +796,7 @@ export function App() {
       // watchKey changes (a dep below).
       const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
         watchOwner,
-      )}&project=${watchProject}&client=${clientId}&${watchKey}`;
+      )}&board=${watchProject}&client=${clientId}&${watchKey}`;
       socket = new WebSocket(url);
       socket.addEventListener("message", (e) => {
         let frame: WatchFrame;
@@ -1034,11 +1036,11 @@ export function App() {
           <button
             type="button"
             role="tab"
-            aria-selected={view === "plan"}
-            className={`segment${view === "plan" ? " segment-active" : ""}`}
-            onClick={() => setView("plan")}
+            aria-selected={view === "project"}
+            className={`segment${view === "project" ? " segment-active" : ""}`}
+            onClick={() => setView("project")}
           >
-            Plan
+            Project
           </button>
         </div>
       </div>
@@ -1086,16 +1088,10 @@ export function App() {
             }}
           />
         )}
-        {board && view === "plan" && (
-          <PlanBoard
+        {board && view === "project" && (
+          <ProjectBoard
             board={board}
             provider={provider}
-            roster={roster}
-            teamFilter={teamFilter}
-            onSetFilter={setTeamFilter}
-            onAddTeam={addTeam}
-            onRemoveTeam={removeTeam}
-            onRenameTeam={renameTeam}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}

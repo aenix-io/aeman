@@ -112,7 +112,8 @@ export interface BoardResource {
     title?: string;
     url?: string;
     teams?: string[];
-    epics?: string[];
+    projects?: string[];
+    epics?: { name: string; project?: string }[];
     members?: string[];
   };
 }

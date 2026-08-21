@@ -2083,7 +2083,7 @@ export function TeamBoard({
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
-          noTeamChip={board.cards.some((c) => !c.team)}
+          noneChip={board.cards.some((c) => !c.team) ? "No team" : undefined}
           canManage={false}
           onManage={() => setTeamsModalOpen(true)}
         />

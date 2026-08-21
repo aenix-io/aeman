@@ -31,7 +31,7 @@ import type {
 } from "../types";
 
 // api issues a request against /api/v1 for a given board. It carries the board
-// identity as query parameters (?owner=&project=) so the server resolves the
+// identity as query parameters (?owner=&board=) so the server resolves the
 // right board, sets a JSON content type when there is a body, and on a non-2xx
 // response surfaces the server's {error} message (falling back to statusText).
 async function api<T>(
@@ -43,7 +43,7 @@ async function api<T>(
   const sep = path.includes("?") ? "&" : "?";
   const url = `/api/v1${path}${sep}owner=${encodeURIComponent(
     board.owner,
-  )}&project=${board.number}`;
+  )}&board=${board.number}`;
   // X-Aeman-Client keys watch echo suppression: the server skips this tab's
   // own watch connection when broadcasting the changes it makes here.
   const init: RequestInit = { method, headers: { "X-Aeman-Client": clientId } };
@@ -170,7 +170,11 @@ export const apiProvider: Provider = {
       // after this from the App's first view fetch.
       cards: [],
       teams: info.metadata.teams ?? [],
-      epics: info.metadata.epics ?? [],
+      projects: info.metadata.projects ?? [],
+      epics: (info.metadata.epics ?? []).map((e) => ({
+        name: e.name,
+        project: e.project ?? "",
+      })),
       members: info.metadata.members ?? [],
       sprintStates: sprintStatesFrom(sprints.items ?? []),
     };
@@ -349,12 +353,40 @@ export const apiProvider: Provider = {
     await api(board, "POST", "/sprints/actions/delete-team", { team });
   },
 
-  async addEpic(board: BoardAddr, name: string): Promise<void> {
-    await api(board, "POST", "/epics", { name });
+  async addEpic(
+    board: BoardAddr,
+    name: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/epics", { name, project });
   },
 
   async deleteEpic(board: BoardAddr, name: string): Promise<void> {
     await api(board, "POST", "/epics/actions/delete-epic", { epic: name });
+  },
+
+  async setEpicProject(
+    board: BoardAddr,
+    epic: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/epics/actions/set-project", { epic, project });
+  },
+
+  async addProject(board: BoardAddr, name: string): Promise<void> {
+    await api(board, "POST", "/projects", { name });
+  },
+
+  async deleteProject(board: BoardAddr, name: string): Promise<void> {
+    await api(board, "POST", "/projects/actions/delete-project", {
+      project: name,
+    });
+  },
+
+  async reorderProjects(board: BoardAddr, names: string[]): Promise<void> {
+    await api(board, "POST", "/projects/actions/reorder-projects", {
+      projects: names,
+    });
   },
 
   async carryWeek(

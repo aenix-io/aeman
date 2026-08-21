@@ -3111,15 +3111,15 @@ button.card-age {
   right: 100%;
 }
 
-/* ---- Plan board: weeks × epics -------------------------------------- */
-.plan {
+/* ---- Project board: weeks × epics -------------------------------------- */
+.project {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.plan-board {
+.project-board {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -3129,14 +3129,14 @@ button.card-age {
   background: var(--bg);
 }
 
-.plan-grid {
+.project-grid {
   display: grid;
   min-width: min-content;
   position: relative;
 }
 
-.plan-corner,
-.plan-epic-head {
+.project-corner,
+.project-epic-head {
   position: sticky;
   top: 0;
   z-index: 6;
@@ -3150,31 +3150,51 @@ button.card-age {
   font-weight: 600;
 }
 
-.plan-corner {
+.project-corner {
   left: 0;
   z-index: 7;
 }
 
-.plan-epic-name {
+.project-epic-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
 }
 
-.plan-epic-del {
+/* The owning project, shown only in the all-projects view — the column name
+   alone is ambiguous there. Muted and clipped: it labels, never competes. */
+.project-epic-project {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.project-empty-hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.project-epic-del {
   opacity: 0;
 }
 
-.plan-epic-head:hover .plan-epic-del {
+.project-epic-head:hover .project-epic-del {
   opacity: 1;
 }
 
-.plan-epic-add {
+.project-epic-add {
   justify-content: center;
 }
 
-.plan-epic-input {
+.project-epic-input {
   width: 140px;
   font-size: 12px;
   padding: 2px 6px;
@@ -3182,7 +3202,7 @@ button.card-age {
   border-radius: 4px;
 }
 
-.plan-week {
+.project-week {
   position: sticky;
   left: 0;
   z-index: 5;
@@ -3197,31 +3217,31 @@ button.card-age {
   color: var(--muted);
 }
 
-.plan-week-no {
+.project-week-no {
   font-size: 10px;
   opacity: 0.7;
 }
 
-.plan-week-today {
+.project-week-today {
   color: var(--accent);
   font-weight: 700;
 }
 
-.plan-cell {
+.project-cell {
   border-bottom: 1px solid var(--line-soft);
   border-right: 1px solid var(--line-soft);
   touch-action: none;
 }
 
-.plan-cell-today {
+.project-cell-today {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
-.plan-cell-drag {
+.project-cell-drag {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.plan-slot {
+.project-slot {
   position: relative;
   z-index: 2;
   margin: 2px 3px;
@@ -3241,15 +3261,15 @@ button.card-age {
   gap: 3px;
 }
 
-.plan-slot-done {
+.project-slot-done {
   opacity: 0.55;
 }
 
-.plan-slot-done .plan-slot-title {
+.project-slot-done .project-slot-title {
   text-decoration: line-through;
 }
 
-.plan-slot-title {
+.project-slot-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -3258,7 +3278,7 @@ button.card-age {
   -webkit-box-orient: vertical;
 }
 
-.plan-slot-actions {
+.project-slot-actions {
   display: flex;
   gap: 2px;
   opacity: 0;
@@ -3267,12 +3287,12 @@ button.card-age {
   z-index: 2;
 }
 
-.plan-slot:hover .plan-slot-actions {
+.project-slot:hover .project-slot-actions {
   opacity: 1;
 }
 
 /* The owner badge is always visible once a team is assigned. */
-.plan-slot-team {
+.project-slot-team {
   flex: none;
   position: relative;
   width: 15px;
@@ -3295,21 +3315,21 @@ button.card-age {
    VERTICALLY — the row is short and nothing sits above or below it inside the
    slot — and only 2px sideways, so it never steals a press meant for the title
    (which starts a drag) or for delete. */
-.plan-slot-team::after {
+.project-slot-team::after {
   content: "";
   position: absolute;
   inset: -6px -2px;
 }
 
-.plan-slot-team-empty {
+.project-slot-team-empty {
   opacity: 0;
 }
 
-.plan-slot:hover .plan-slot-team-empty {
+.project-slot:hover .project-slot-team-empty {
   opacity: 1;
 }
 
-.plan-slot-stage {
+.project-slot-stage {
   position: absolute;
   left: 0;
   bottom: 0;
@@ -3317,7 +3337,7 @@ button.card-age {
   height: 3px;
 }
 
-.plan-slot-resize {
+.project-slot-resize {
   position: absolute;
   left: 0;
   right: 0;
@@ -3327,23 +3347,23 @@ button.card-age {
   touch-action: none;
 }
 
-.plan-slot {
+.project-slot {
   cursor: grab;
 }
 
-.plan-slot-moving {
+.project-slot-moving {
   z-index: 4;
   cursor: grabbing;
   box-shadow: 0 4px 12px var(--elev-1);
   opacity: 0.92;
 }
 
-.plan-slot-draft {
+.project-slot-draft {
   border-style: dashed;
   border-color: var(--accent);
 }
 
-.plan-slot-input {
+.project-slot-input {
   width: 100%;
   border: none;
   outline: none;
@@ -3352,7 +3372,7 @@ button.card-age {
   color: var(--fg);
 }
 
-.plan-empty {
+.project-empty {
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -10,15 +10,9 @@ import { Dropdown } from "./Dropdown";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
 
-interface PlanBoardProps {
+interface ProjectBoardProps {
   board: Board;
   provider: Provider;
-  roster: string[];
-  teamFilter: string[] | null;
-  onSetFilter: (keys: string[] | null) => void;
-  onAddTeam: (name: string) => void;
-  onRemoveTeam: (team: string) => void;
-  onRenameTeam: (from: string, to: string) => void;
   patchCard: (
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
@@ -65,19 +59,27 @@ function weekLabel(monday: string): string {
   return `${String(d).padStart(2, "0")} ${MONTHS[m - 1]}`;
 }
 
-/** The Plan board: weeks as rows, epics as columns, cards as slots that may
- *  span several weeks (dates start..end). Dragging down an empty column
- *  stretch selects a slot and creates a card in it; assigning a card to a
- *  team (the badge menu) also hands it to that team's weekly plan. */
-export function PlanBoard({
+/** LS_FILTER remembers which project you were looking at. */
+const LS_FILTER = "aeman.projectFilter";
+
+function readFilter(): string[] | null {
+  try {
+    const raw = localStorage.getItem(LS_FILTER);
+    const v: unknown = raw ? JSON.parse(raw) : null;
+    return Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The Project board: weeks as rows and one project's epics as columns, cards
+ *  as slots that may span several weeks (dates start..end). Dragging down an
+ *  empty column stretch selects a slot and creates a card in it; assigning a
+ *  card to a team (the badge menu) also hands it to that team's weekly plan —
+ *  which is how work planned here reaches the people who do it. */
+export function ProjectBoard({
   board,
   provider,
-  roster,
-  teamFilter,
-  onSetFilter,
-  onAddTeam,
-  onRemoveTeam,
-  onRenameTeam,
   patchCard,
   addCard,
   replaceCard,
@@ -85,22 +87,51 @@ export function PlanBoard({
   reload,
   onError,
   onOpen,
-}: PlanBoardProps) {
+}: ProjectBoardProps) {
   const today = todayIso();
   const thisMonday = mondayOf(today);
 
-  // Cards on the plan: filed under an epic, filtered by the team chips (a
-  // card with no team always shows — it is unassigned work being planned).
-  const cards = useMemo(
+  // Which project(s) the chips select; null is every project. "" is the chip
+  // for columns that belong to no project.
+  const [filter, setFilter] = useState<string[] | null>(readFilter);
+  const selectFilter = (keys: string[] | null) => {
+    setFilter(keys);
+    localStorage.setItem(LS_FILTER, JSON.stringify(keys));
+  };
+
+  // The columns in view: the selected projects' epics, in board order. Every
+  // other derived list follows from this one, so a column and its cards can
+  // never disagree about being visible.
+  const epics = useMemo(
     () =>
-      board.cards.filter(
-        (c) =>
-          c.epic &&
-          !c.parent &&
-          (!teamFilter || !c.team || teamFilter.includes(c.team)),
-      ),
-    [board.cards, teamFilter],
+      board.epics
+        .filter((e) => !filter || filter.includes(e.project))
+        .map((e) => e.name),
+    [board.epics, filter],
   );
+
+  // Columns belonging to no project are reachable through a "No project" chip
+  // — but only while such a column exists, so the chip never sits there as a
+  // permanently empty option.
+  const looseEpics = useMemo(
+    () => board.epics.some((e) => !e.project),
+    [board.epics],
+  );
+
+  const epicProject = useMemo(
+    () => new Map(board.epics.map((e) => [e.name, e.project])),
+    [board.epics],
+  );
+
+  // Cards on the board: filed under one of the visible columns. Teams do not
+  // filter here — a project spans teams, and the badge is where a card is
+  // handed to one.
+  const cards = useMemo(() => {
+    const shown = new Set(epics);
+    return board.cards.filter(
+      (c) => c.epic && !c.parent && shown.has(c.epic),
+    );
+  }, [board.cards, epics]);
 
   // The week window: two weeks of history before today (or the earliest
   // card), through the latest card plus a quarter of runway to plan into.
@@ -123,8 +154,6 @@ export function PlanBoard({
     }
     return out;
   }, [cards, thisMonday]);
-
-  const epics = board.epics;
 
   // ---- drag-to-create (and resize): a pressed column stretch becomes a slot.
   const [drag, setDrag] = useState<{
@@ -154,7 +183,7 @@ export function PlanBoard({
     if (!grid) {
       return null;
     }
-    const heads = grid.querySelectorAll(".plan-epic-head:not(.plan-epic-add)");
+    const heads = grid.querySelectorAll(".project-epic-head:not(.project-epic-add)");
     for (let i = 0; i < heads.length; i++) {
       const r = heads[i].getBoundingClientRect();
       if (clientX >= r.left && clientX < r.right) {
@@ -169,7 +198,7 @@ export function PlanBoard({
     if (!grid) {
       return 0;
     }
-    const rows = grid.querySelectorAll(".plan-week");
+    const rows = grid.querySelectorAll(".project-week");
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i].getBoundingClientRect();
       if (clientY < r.bottom) {
@@ -227,7 +256,7 @@ export function PlanBoard({
     // (the team badge, delete, the resize grip) must reach that control: the
     // press bubbles up here, and capturing it — plus preventDefault — used to
     // swallow the click entirely, so the badge could never be pressed.
-    if ((e.target as HTMLElement).closest("button, input, .plan-slot-resize")) {
+    if ((e.target as HTMLElement).closest("button, input, .project-slot-resize")) {
       return;
     }
     e.preventDefault();
@@ -313,14 +342,47 @@ export function PlanBoard({
   // whichever badge was last pressed.
   const teamAnchor = useRef<HTMLButtonElement | null>(null);
 
+  // A column belongs to exactly one project, so adding one is only offered
+  // when a single project is in view — otherwise there is no answer to
+  // "which project does this column go in".
+  const targetProject = filter?.length === 1 && filter[0] ? filter[0] : null;
+
   const addEpic = (name: string) => {
     setAddingEpic(false);
+    if (!name.trim() || !targetProject) {
+      return;
+    }
+    void provider
+      .addEpic(board, name.trim(), targetProject)
+      .then(reload)
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
+  const addProject = (name: string) => {
     if (!name.trim()) {
       return;
     }
     void provider
-      .addEpic(board, name.trim())
-      .then(reload)
+      .addProject(board, name.trim())
+      .then(() => {
+        selectFilter([name.trim()]);
+        reload();
+      })
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
+  const deleteProject = (name: string) => {
+    if (!window.confirm(`Delete the project “${name}”?`)) {
+      return;
+    }
+    void provider
+      .deleteProject(board, name)
+      .then(() => {
+        if (filter?.includes(name)) {
+          selectFilter(null);
+        }
+        reload();
+      })
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -400,50 +462,65 @@ export function PlanBoard({
 
   if (epics.length === 0 && !addingEpic) {
     return (
-      <div className="plan">
+      <div className="project">
         <div className="board-toolbar">
           <TeamChips
-            label="Team"
-            teams={roster}
-            selectedKeys={teamFilter}
-            onSelect={onSetFilter}
-            onAdd={onAddTeam}
-            onRemove={onRemoveTeam}
-            onRename={onRenameTeam}
-            canManage={false}
-            noTeamChip
+            label="Project"
+            entity="project"
+            teams={board.projects}
+            selectedKeys={filter}
+            onSelect={selectFilter}
+            onAdd={addProject}
+            onRemove={deleteProject}
+            noneChip={looseEpics ? "No project" : undefined}
           />
         </div>
-        <div className="plan-empty">
-          <p>The Plan board maps epics (columns) across weeks (rows).</p>
-          <button type="button" className="btn btn-primary" onClick={() => setAddingEpic(true)}>
-            + Add the first epic
-          </button>
+        <div className="project-empty">
+          <p>
+            The Project board maps a project&rsquo;s epics (columns) across
+            weeks (rows).
+          </p>
+          {board.projects.length === 0 ? (
+            <p className="project-empty-hint">
+              Start with a project — add one above.
+            </p>
+          ) : targetProject ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setAddingEpic(true)}
+            >
+              + Add the first epic of {targetProject}
+            </button>
+          ) : (
+            <p className="project-empty-hint">
+              Pick one project above to add its first epic.
+            </p>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="plan">
+    <div className="project">
       {/* The same toolbar row the other boards wear — the chips are a shared
           control and must not look like a stray line of text here. */}
       <div className="board-toolbar">
         <TeamChips
-          label="Team"
-          teams={roster}
-          selectedKeys={teamFilter}
-          onSelect={onSetFilter}
-          onAdd={onAddTeam}
-          onRemove={onRemoveTeam}
-          onRename={onRenameTeam}
-          canManage={false}
-          noTeamChip
+          label="Project"
+          entity="project"
+          teams={board.projects}
+          selectedKeys={filter}
+          onSelect={selectFilter}
+          onAdd={addProject}
+          onRemove={deleteProject}
+          noneChip={looseEpics ? "No project" : undefined}
         />
       </div>
-      <div className="plan-board">
+      <div className="project-board">
       <div
-        className="plan-grid"
+        className="project-grid"
         ref={gridRef}
         style={{
           gridTemplateColumns: `66px repeat(${epics.length}, minmax(140px, 1fr)) 34px`,
@@ -451,13 +528,29 @@ export function PlanBoard({
         }}
       >
         {/* header row */}
-        <div className="plan-corner" />
+        <div className="project-corner" />
         {epics.map((e) => (
-          <div key={e} className="plan-epic-head" title={e}>
-            <span className="plan-epic-name">{e}</span>
+          <div
+            key={e}
+            className="project-epic-head"
+            title={
+              epicProject.get(e)
+                ? `${e} — ${epicProject.get(e) ?? ""}`
+                : `${e} — no project`
+            }
+          >
+            <span className="project-epic-name">{e}</span>
+            {/* With several projects on screen the column header alone is
+                ambiguous, so it carries its project; inside one project the
+                label would repeat on every column and is left off. */}
+            {!targetProject && (
+              <span className="project-epic-project">
+                {epicProject.get(e) || "—"}
+              </span>
+            )}
             <button
               type="button"
-              className="card-action plan-epic-del"
+              className="card-action project-epic-del"
               title="Delete the epic (must be empty)"
               onClick={() => deleteEpic(e)}
             >
@@ -465,13 +558,13 @@ export function PlanBoard({
             </button>
           </div>
         ))}
-        <div className="plan-epic-head plan-epic-add">
+        <div className="project-epic-head project-epic-add">
           {addingEpic ? (
             <input
               type="text"
-              className="plan-epic-input"
+              className="project-epic-input"
               autoFocus
-              placeholder="Epic name…"
+              placeholder={`Epic in ${targetProject ?? ""}…`}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   addEpic((e.target as HTMLInputElement).value);
@@ -485,7 +578,12 @@ export function PlanBoard({
             <button
               type="button"
               className="card-action"
-              title="Add an epic"
+              title={
+                targetProject
+                  ? `Add an epic to ${targetProject}`
+                  : "Pick one project first — a column belongs to a project"
+              }
+              disabled={!targetProject}
               onClick={() => setAddingEpic(true)}
             >
               +
@@ -497,12 +595,12 @@ export function PlanBoard({
         {weeks.map((w, i) => (
           <div
             key={w}
-            className={`plan-week${i === todayRow ? " plan-week-today" : ""}`}
+            className={`project-week${i === todayRow ? " project-week-today" : ""}`}
             style={{ gridRow: i + 2, gridColumn: 1 }}
             title={`ISO week ${isoWeekNo(w)}`}
           >
-            <span className="plan-week-date">{weekLabel(w)}</span>
-            <span className="plan-week-no">{isoWeekNo(w)}</span>
+            <span className="project-week-date">{weekLabel(w)}</span>
+            <span className="project-week-no">{isoWeekNo(w)}</span>
           </div>
         ))}
 
@@ -511,9 +609,9 @@ export function PlanBoard({
           weeks.map((w, row) => (
             <div
               key={`${e}/${w}`}
-              className={`plan-cell${row === todayRow ? " plan-cell-today" : ""}${
+              className={`project-cell${row === todayRow ? " project-cell-today" : ""}${
                 drag && !drag.resize && drag.epic === e && row >= drag.from && row <= drag.to
-                  ? " plan-cell-drag"
+                  ? " project-cell-drag"
                   : ""
               }`}
               style={{ gridRow: row + 2, gridColumn: col + 2 }}
@@ -528,7 +626,7 @@ export function PlanBoard({
         {/* the create draft */}
         {draft && (
           <div
-            className="plan-slot plan-slot-draft"
+            className="project-slot project-slot-draft"
             style={{
               gridColumn: epics.indexOf(draft.epic) + 2,
               gridRow: `${draft.from + 2} / span ${draft.to - draft.from + 1}`,
@@ -536,7 +634,7 @@ export function PlanBoard({
           >
             <input
               type="text"
-              className="plan-slot-input"
+              className="project-slot-input"
               autoFocus
               placeholder="New card…"
               onKeyDown={(e) => {
@@ -556,8 +654,8 @@ export function PlanBoard({
           (slots.get(e) ?? []).map(({ card, row, span }) => (
             <div
               key={card.itemId}
-              className={`plan-slot${card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100) ? " plan-slot-done" : ""}${
-                move?.card.itemId === card.itemId ? " plan-slot-moving" : ""
+              className={`project-slot${card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100) ? " project-slot-done" : ""}${
+                move?.card.itemId === card.itemId ? " project-slot-moving" : ""
               }`}
               style={{
                 // While dragged, the slot itself sits where it would land —
@@ -576,12 +674,28 @@ export function PlanBoard({
               onDoubleClick={() => onOpen(card)}
               title={card.title}
             >
-              <span className="plan-slot-title">{card.title}</span>
+              <span className="project-slot-title">{card.title}</span>
+              <span className="project-slot-actions">
+                <button
+                  type="button"
+                  className="card-action card-action-delete"
+                  title="Delete"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    deleteCard(card);
+                  }}
+                >
+                  ×
+                </button>
+              </span>
               {/* The team badge is the card's owner, not an action: it stays
-                  visible once assigned. Unassigned, it is a hover affordance. */}
+                  visible once assigned. Unassigned, it is a hover affordance.
+                  Delete sits to its LEFT so the badge keeps the slot's edge —
+                  it is the thing you point at, and it must not shift when the
+                  hover-only actions appear. */}
               <button
                 type="button"
-                className={`plan-slot-team${card.team ? "" : " plan-slot-team-empty"}`}
+                className={`project-slot-team${card.team ? "" : " project-slot-team-empty"}`}
                 style={
                   card.team
                     ? { background: teamColor(card.team), color: "#fff" }
@@ -596,22 +710,9 @@ export function PlanBoard({
               >
                 {card.team ? teamInitial(card.team) : "+"}
               </button>
-              <span className="plan-slot-actions">
-                <button
-                  type="button"
-                  className="card-action card-action-delete"
-                  title="Delete"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    deleteCard(card);
-                  }}
-                >
-                  ×
-                </button>
-              </span>
               {card.stage && card.stage !== "done" && (
                 <span
-                  className="plan-slot-stage"
+                  className="project-slot-stage"
                   style={{ background: STAGES[card.stage].color }}
                   title={STAGES[card.stage].label}
                 />
@@ -646,7 +747,7 @@ export function PlanBoard({
                 </button>
               </Dropdown>
               <div
-                className="plan-slot-resize"
+                className="project-slot-resize"
                 title="Drag to stretch over more weeks"
                 onPointerDown={(ev) => {
                   ev.stopPropagation();

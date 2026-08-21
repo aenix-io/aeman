@@ -119,6 +119,14 @@ export interface SprintState {
   previous: string | null;
 }
 
+/** EpicRef is one Project-board column: its name and the project that owns
+ *  it. The pair travels together — a column is meaningless without knowing
+ *  which project's grid it belongs in. */
+export interface EpicRef {
+  name: string;
+  project: string;
+}
+
 export interface Board {
   owner: string;
   number: number;
@@ -128,8 +136,12 @@ export interface Board {
   /** The board's team roster (teams that have a sprint pointer), from GET
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
-  /** The Plan board's epic columns, in board order. */
-  epics: string[];
+  /** The Project board's projects, in board order — the top grouping: a
+   *  project owns epic columns. Not the GitHub board (that is `number`). */
+  projects: string[];
+  /** The Project board's epic columns, in board order, each naming the project
+   *  that owns it. An empty project means the column belongs to none. */
+  epics: EpicRef[];
   /** Every distinct assignee on the board, from GET /board — the people roster
    *  for pickers (assign, review, view-as). */
   members: string[];
@@ -137,7 +149,7 @@ export interface Board {
   sprintStates: Record<string, SprintState>;
 }
 
-/** BoardAddr addresses a board on the server (?owner=&project=). */
+/** BoardAddr addresses a board on the server (?owner=&board=). */
 export type BoardAddr = Pick<Board, "owner" | "number">;
 
 /** CardPatch is a partial spec edit mirroring PATCH /cards/{uid}: only the
@@ -243,10 +255,22 @@ export interface Provider {
   /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(board: BoardAddr, teams: string[]): Promise<void>;
 
-  /** Declare a new Plan-board epic column. */
-  addEpic(board: BoardAddr, name: string): Promise<void>;
+  /** Declare a new epic column inside a project (which is required). */
+  addEpic(board: BoardAddr, name: string, project: string): Promise<void>;
   /** Delete an EMPTY epic column (422 while cards still sit under it). */
   deleteEpic(board: BoardAddr, name: string): Promise<void>;
+  /** Move a column to another project ("" detaches it from every project). */
+  setEpicProject(
+    board: BoardAddr,
+    epic: string,
+    project: string,
+  ): Promise<void>;
+  /** Declare a project — the Project board's top grouping. */
+  addProject(board: BoardAddr, name: string): Promise<void>;
+  /** Delete an EMPTY project (422 while it still owns epic columns). */
+  deleteProject(board: BoardAddr, name: string): Promise<void>;
+  /** Apply the shared project order (moves the hidden project-state cards). */
+  reorderProjects(board: BoardAddr, names: string[]): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(board: BoardAddr, team: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). */
