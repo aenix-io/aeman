@@ -166,3 +166,19 @@ func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
 		t.Fatalf("an in-work epic card keeps sprint semantics, got %q", got.SprintStart)
 	}
 }
+
+// Filing under a column that does not exist is a rejected input, not an
+// upstream failure: the API must answer 422 (and say which name), so a typo
+// reads as a typo instead of "the server is broken".
+func TestUnknownEpicIsTyped(t *testing.T) {
+	fake := epicBoard()
+	svc := New(fake)
+	err := svc.SetEpic(context.Background(), "acme", 1, "c1", "Ghost")
+	if !errors.Is(err, ErrEpicNotFound) {
+		t.Fatalf("SetEpic error = %v, want ErrEpicNotFound", err)
+	}
+	_, err = svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{Title: "x", Epic: "Ghost"})
+	if !errors.Is(err, ErrEpicNotFound) {
+		t.Fatalf("CreateCard error = %v, want ErrEpicNotFound", err)
+	}
+}

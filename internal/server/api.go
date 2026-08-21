@@ -1187,7 +1187,8 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 		errors.Is(err, boardservice.ErrOpenSubtasks),
 		errors.Is(err, boardservice.ErrTeamInUse),
 		errors.Is(err, boardservice.ErrEpicInUse),
-		errors.Is(err, boardservice.ErrEpicExists):
+		errors.Is(err, boardservice.ErrEpicExists),
+		errors.Is(err, boardservice.ErrEpicNotFound):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

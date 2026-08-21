@@ -7,11 +7,17 @@ import type {
 import { addDays, mondayOf, todayIso } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { STAGES } from "../stages";
+import { TeamChips } from "./TeamChips";
 
 interface PlanBoardProps {
   board: Board;
   provider: Provider;
+  roster: string[];
   teamFilter: string[] | null;
+  onSetFilter: (keys: string[] | null) => void;
+  onAddTeam: (name: string) => void;
+  onRemoveTeam: (team: string) => void;
+  onRenameTeam: (from: string, to: string) => void;
   patchCard: (
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
@@ -65,7 +71,12 @@ function weekLabel(monday: string): string {
 export function PlanBoard({
   board,
   provider,
+  roster,
   teamFilter,
+  onSetFilter,
+  onAddTeam,
+  onRemoveTeam,
+  onRenameTeam,
   patchCard,
   addCard,
   replaceCard,
@@ -128,6 +139,30 @@ export function PlanBoard({
   } | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
+  // A slot being dragged to another week / epic. It follows the pointer as a
+  // preview and only writes on release.
+  const [move, setMove] = useState<{
+    card: CardModel;
+    span: number;
+    row: number;
+    epic: string;
+  } | null>(null);
+
+  const epicAt = (clientX: number): string | null => {
+    const grid = gridRef.current;
+    if (!grid) {
+      return null;
+    }
+    const heads = grid.querySelectorAll(".plan-epic-head:not(.plan-epic-add)");
+    for (let i = 0; i < heads.length; i++) {
+      const r = heads[i].getBoundingClientRect();
+      if (clientX >= r.left && clientX < r.right) {
+        return epics[i] ?? null;
+      }
+    }
+    return null;
+  };
+
   const rowAt = (clientY: number): number => {
     const grid = gridRef.current;
     if (!grid) {
@@ -184,6 +219,51 @@ export function PlanBoard({
       return;
     }
     setDraft({ epic, from, to });
+  };
+
+  const beginMove = (card: CardModel, row: number, span: number, e: React.PointerEvent) => {
+    // Only a plain drag on the slot's body moves it; buttons and the resize
+    // grip stop propagation themselves.
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setMove({ card, span, row, epic: card.epic ?? "" });
+  };
+
+  const moveMove = (e: React.PointerEvent) => {
+    if (!move) {
+      return;
+    }
+    const row = Math.min(rowAt(e.clientY), weeks.length - 1);
+    const epic = epicAt(e.clientX) ?? move.epic;
+    if (row !== move.row || epic !== move.epic) {
+      setMove({ ...move, row, epic });
+    }
+  };
+
+  const endMove = () => {
+    if (!move) {
+      return;
+    }
+    const { card, span, row, epic } = move;
+    setMove(null);
+    const week = weeks[row];
+    const end = addDays(weeks[Math.min(row + span - 1, weeks.length - 1)], 4);
+    if (week === card.week && epic === card.epic) {
+      return;
+    }
+    const prev = { week: card.week, epic: card.epic, startDate: card.startDate, day: card.day };
+    patchCard(card.itemId, { week, epic, startDate: week, day: end });
+    void provider
+      .patchCard(board, card.itemId, {
+        epic,
+        plan: { week },
+        dates: { start: week, end },
+      })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errText(err));
+      });
   };
 
   const cancelDraft = () => setDraft(null);
@@ -276,6 +356,15 @@ export function PlanBoard({
     });
   };
 
+  // While a slot is being stretched, its span follows the pointer — the drag
+  // has to be visible on the thing being dragged, not only on the cursor.
+  const previewSpan = (card: CardModel, row: number, span: number): number => {
+    if (!drag?.resize || drag.resize.itemId !== card.itemId) {
+      return span;
+    }
+    return Math.max(1, Math.min(drag.to - row + 1, weeks.length - row));
+  };
+
   // Cards per epic with their computed row spans.
   const slots = useMemo(() => {
     const byEpic = new Map<string, { card: CardModel; row: number; span: number }[]>();
@@ -314,13 +403,25 @@ export function PlanBoard({
   }
 
   return (
-    <div className="plan-board">
+    <>
+      <TeamChips
+        label="Team"
+        teams={roster}
+        selectedKeys={teamFilter}
+        onSelect={onSetFilter}
+        onAdd={onAddTeam}
+        onRemove={onRemoveTeam}
+        onRename={onRenameTeam}
+        canManage={false}
+        noTeamChip
+      />
+      <div className="plan-board">
       <div
         className="plan-grid"
         ref={gridRef}
         style={{
-          gridTemplateColumns: `88px repeat(${epics.length}, minmax(180px, 1fr)) 44px`,
-          gridTemplateRows: `34px repeat(${weeks.length}, 44px)`,
+          gridTemplateColumns: `66px repeat(${epics.length}, minmax(140px, 1fr)) 34px`,
+          gridTemplateRows: `26px repeat(${weeks.length}, 28px)`,
         }}
       >
         {/* header row */}
@@ -429,33 +530,54 @@ export function PlanBoard({
           (slots.get(e) ?? []).map(({ card, row, span }) => (
             <div
               key={card.itemId}
-              className={`plan-slot${card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100) ? " plan-slot-done" : ""}`}
+              className={`plan-slot${card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100) ? " plan-slot-done" : ""}${
+                move?.card.itemId === card.itemId ? " plan-slot-moving" : ""
+              }`}
               style={{
-                gridColumn: col + 2,
-                gridRow: `${row + 2} / span ${span}`,
+                // While dragged, the slot itself sits where it would land —
+                // the preview IS the card, so there is nothing to guess.
+                gridColumn:
+                  (move?.card.itemId === card.itemId
+                    ? epics.indexOf(move.epic)
+                    : col) + 2,
+                gridRow: `${(move?.card.itemId === card.itemId ? move.row : row) + 2} / span ${previewSpan(card, row, span)}`,
                 borderLeftColor: card.team ? teamColor(card.team) : undefined,
               }}
+              onPointerDown={(ev) => beginMove(card, row, previewSpan(card, row, span), ev)}
+              onPointerMove={moveMove}
+              onPointerUp={endMove}
+              onPointerCancel={() => setMove(null)}
               onDoubleClick={() => onOpen(card)}
               title={card.title}
             >
               <span className="plan-slot-title">{card.title}</span>
+              {/* The team badge is the card's owner, not an action: it stays
+                  visible once assigned. Unassigned, it is a hover affordance. */}
+              <button
+                type="button"
+                className={`plan-slot-team${card.team ? "" : " plan-slot-team-empty"}`}
+                style={
+                  card.team
+                    ? { background: teamColor(card.team), color: "#fff" }
+                    : undefined
+                }
+                title={card.team ? `Team: ${card.team} — click to change` : "Assign to a team"}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  setTeamMenu(teamMenu === card.itemId ? null : card.itemId);
+                }}
+              >
+                {card.team ? teamInitial(card.team) : "+"}
+              </button>
               <span className="plan-slot-actions">
-                <button
-                  type="button"
-                  className="card-action plan-slot-team"
-                  style={card.team ? { background: teamColor(card.team), color: "#fff" } : undefined}
-                  title={card.team ? `Team: ${card.team}` : "Assign to a team"}
-                  onClick={() =>
-                    setTeamMenu(teamMenu === card.itemId ? null : card.itemId)
-                  }
-                >
-                  {card.team ? teamInitial(card.team) : "+"}
-                </button>
                 <button
                   type="button"
                   className="card-action card-action-delete"
                   title="Delete"
-                  onClick={() => deleteCard(card)}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    deleteCard(card);
+                  }}
                 >
                   ×
                 </button>
@@ -499,6 +621,7 @@ export function PlanBoard({
                   ev.stopPropagation();
                   beginDrag(card.epic ?? e, row, ev, card);
                 }}
+                onPointerCancel={() => setDrag(null)}
                 onPointerMove={moveDrag}
                 onPointerUp={endDrag}
               />
@@ -506,7 +629,8 @@ export function PlanBoard({
           )),
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

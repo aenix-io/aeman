@@ -1090,7 +1090,12 @@ export function App() {
           <PlanBoard
             board={board}
             provider={provider}
+            roster={roster}
             teamFilter={teamFilter}
+            onSetFilter={setTeamFilter}
+            onAddTeam={addTeam}
+            onRemoveTeam={removeTeam}
+            onRenameTeam={renameTeam}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}

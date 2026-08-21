@@ -3130,9 +3130,9 @@ button.card-age {
   border-bottom: 1px solid var(--line-soft);
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  font-size: 12.5px;
+  gap: 3px;
+  padding: 0 6px;
+  font-size: 11.5px;
   font-weight: 600;
 }
 
@@ -3178,8 +3178,8 @@ button.card-age {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px;
-  font-size: 11.5px;
+  padding: 0 6px;
+  font-size: 10.5px;
   color: var(--muted);
 }
 
@@ -3210,18 +3210,21 @@ button.card-age {
 .plan-slot {
   position: relative;
   z-index: 2;
-  margin: 3px 6px;
-  padding: 4px 8px;
-  border-radius: 6px;
+  margin: 2px 3px;
+  padding: 2px 5px;
+  border-radius: 5px;
   border: 1px solid var(--card-border);
   border-left-width: 3px;
   background: var(--bg);
   box-shadow: 0 1px 2px var(--elev-1);
-  font-size: 12px;
-  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.25;
+  /* NOT hidden: the team menu drops out of the slot, and clipping it made
+     the badge look dead — you could click it and nothing appeared. */
+  overflow: visible;
   display: flex;
   align-items: flex-start;
-  gap: 4px;
+  gap: 3px;
 }
 
 .plan-slot-done {
@@ -3234,9 +3237,10 @@ button.card-age {
 
 .plan-slot-title {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 
@@ -3250,10 +3254,31 @@ button.card-age {
   opacity: 1;
 }
 
+/* The owner badge is always visible once a team is assigned. */
 .plan-slot-team {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
-  font-size: 10px;
+  background: var(--hover-overlay);
+  color: var(--muted);
+  font-size: 9px;
   font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.plan-slot-team-empty {
+  opacity: 0;
+}
+
+.plan-slot:hover .plan-slot-team-empty {
+  opacity: 1;
 }
 
 .plan-slot-stage {
@@ -3272,6 +3297,17 @@ button.card-age {
   height: 8px;
   cursor: ns-resize;
   touch-action: none;
+}
+
+.plan-slot {
+  cursor: grab;
+}
+
+.plan-slot-moving {
+  z-index: 4;
+  cursor: grabbing;
+  box-shadow: 0 4px 12px var(--elev-1);
+  opacity: 0.92;
 }
 
 .plan-slot-draft {

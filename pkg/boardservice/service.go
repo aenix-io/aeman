@@ -398,7 +398,7 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 		}
 	}
 	if !known {
-		return board.Card{}, fmt.Errorf("unknown epic %q — add it first (add_epic / POST /epics)", args.Epic)
+		return board.Card{}, fmt.Errorf("%w %q — add it first (add_epic / POST /epics)", ErrEpicNotFound, args.Epic)
 	}
 	start := args.Start
 	if start == "" {

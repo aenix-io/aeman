@@ -17,6 +17,11 @@ var ErrEpicInUse = errors.New("epic still has cards")
 // ErrEpicExists guards AddEpic against doubling a column.
 var ErrEpicExists = errors.New("epic already exists")
 
+// ErrEpicNotFound is filing a card under a column that does not exist — a
+// typo must not mint a phantom column the way a stray team value used to
+// mint a team. It is a rejected input (422), not an upstream failure.
+var ErrEpicNotFound = errors.New("unknown epic")
+
 // AddEpic declares a new Plan-board column by creating its hidden epic-state
 // card (the exact team-roster mechanism: the card's position IS the column
 // order). The name is the epic's identity — renames are a delete+add while
@@ -105,7 +110,7 @@ func (s *Service) SetEpic(ctx context.Context, owner string, project int, itemID
 			}
 		}
 		if !known {
-			return fmt.Errorf("unknown epic %q — add it first (add_epic / POST /epics)", epic)
+			return fmt.Errorf("%w %q — add it first (add_epic / POST /epics)", ErrEpicNotFound, epic)
 		}
 	}
 	if card.Epic == epic {
