@@ -353,6 +353,12 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 
 // spaHandler serves files from the embedded frontend, falling back to
 // index.html for client-side routes.
+//
+// Caching matters here: the bundle's filename carries a content hash, so it can
+// be cached forever, but the document that POINTS at it must not be — an
+// embedded file system reports no modification time, leaving the browser
+// without a validator and free to reuse index.html on its own judgement. That
+// is how a reloaded tab keeps running yesterday's build after a deploy.
 func spaHandler(root fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -361,6 +367,11 @@ func spaHandler(root fs.FS) http.Handler {
 			clean = "index.html"
 		}
 		if _, err := fs.Stat(root, clean); err == nil {
+			if clean == "index.html" {
+				w.Header().Set("Cache-Control", "no-cache")
+			} else {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -370,6 +381,7 @@ func spaHandler(root fs.FS) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(index)
 	})
 }
