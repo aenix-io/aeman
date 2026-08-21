@@ -1053,7 +1053,11 @@ export function ProjectBoard({
   // in its body. An early return here used to leave the shared furniture — the
   // chip row, the manage dialog — out of the empty state, where they are
   // exactly what a person needs to get started.
-  const empty = epics.length === 0 && !addingEpic;
+  // A board with no columns stays on the empty state even while the first one
+  // is being named: the field belongs there, in the middle of the screen.
+  // Flipping to the grid put it in the 34px gutter beside a table that does
+  // not exist yet — six pixels tall, in the far corner.
+  const empty = epics.length === 0;
 
   return (
     <div className="project" ref={wrapRef}>
@@ -1084,13 +1088,32 @@ export function ProjectBoard({
               Start with a project — “manage” above adds one.
             </p>
           ) : targetProject !== null ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setAddingEpic(true)}
-            >
-              + Add the first epic{targetProject ? ` of ${targetProject}` : ""}
-            </button>
+            addingEpic ? (
+              <input
+                type="text"
+                className="add-card-input project-empty-input"
+                autoFocus
+                placeholder={
+                  targetProject ? `Epic in ${targetProject}…` : "Epic with no project…"
+                }
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter") {
+                    addEpic((ev.target as HTMLInputElement).value);
+                  } else if (ev.key === "Escape") {
+                    setAddingEpic(false);
+                  }
+                }}
+                onBlur={(ev) => addEpic(ev.target.value)}
+              />
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setAddingEpic(true)}
+              >
+                + Add the first epic{targetProject ? ` of ${targetProject}` : ""}
+              </button>
+            )
           ) : (
             <p className="project-empty-hint">
               Pick one project above to add its first epic.
