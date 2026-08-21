@@ -75,24 +75,14 @@ function complete(card: CardModel): boolean {
   return card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100);
 }
 
-/** progressOf summarises a set of cards: the mean of how far along each one
- *  is, with finished cards counting as 100. A plain mean, deliberately —
- *  weighting by how many weeks a slot spans would make the number harder to
- *  predict than the board it is summarising, and the done/total count beside
- *  it is what people actually check it against. */
+/** progressOf summarises a set of cards: how many of them are finished. Cards
+ *  done, not progress averaged — a plan is tracked in work completed, and the
+ *  percentage has to agree with the "n/m done" printed beside it. A half-built
+ *  card counts for nothing here, which is the point: it is not done. */
 function progressOf(list: CardModel[]): { pct: number; done: number; total: number } {
-  let sum = 0;
-  let done = 0;
-  for (const c of list) {
-    if (complete(c)) {
-      done += 1;
-      sum += 100;
-    } else {
-      sum += Math.min(100, Math.max(0, c.progress ?? 0));
-    }
-  }
+  const done = list.filter(complete).length;
   return {
-    pct: list.length ? Math.round(sum / list.length) : 0,
+    pct: list.length ? Math.round((done / list.length) * 100) : 0,
     done,
     total: list.length,
   };
