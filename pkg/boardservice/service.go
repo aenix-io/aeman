@@ -168,6 +168,12 @@ type CreateCardArgs struct {
 	// set and no sprint is joined or started (Week defaults to this Monday).
 	Plan board.PlanBand
 	Week string
+	// Epic + Project create a Project-board card: filed under the column that
+	// pair identifies, its Week is the row (defaulting to the Monday of Start,
+	// then of today), Start/Day may span several weeks, and no sprint is
+	// joined — the card lives on the Project board until a team picks it up.
+	Epic    string
+	Project string
 	// ReviewOf marks the new card as the review of the given item.
 	ReviewOf string
 	// Parent groups the new card as a subtask of the given item on create.
@@ -210,6 +216,13 @@ func (s *Service) CreateCard(ctx context.Context, owner string, project int, arg
 		linkDescription = ref.URL
 		args.Title = ref.FallbackTitle()
 		pendingRef = &ref
+	}
+	// An epic card lives on the Plan board: filed under its column, anchored
+	// to its week row, optionally spanning several weeks via start..day. It
+	// joins no sprint and no plan band — assigning it to a team later places
+	// it into that team's weekly plan.
+	if args.Epic != "" {
+		return s.createEpicCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	// A weekly-plan card lives in the plan bands, not on the day boards: it gets
 	// no dates and joins no sprint. It mirrors handleCreatePlan in TeamBoard.tsx.
@@ -372,6 +385,46 @@ func (s *Service) resolveTitleAsync(ctx context.Context, b board.Board, card boa
 		}
 		_ = s.backend.RenameCard(ctx, fresh, current, resolved.Title)
 	})
+}
+
+// createEpicCard files a new card on the Project board: under an existing
+// column — the (project, epic) pair — anchored to its week row and optionally
+// spanning several weeks. No sprint, no plan band: a team picking it up later
+// is what schedules it.
+func (s *Service) createEpicCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
+	if _, ok := board.FindEpic(b, args.Project, args.Epic); !ok {
+		return board.Card{}, fmt.Errorf("%w %q in project %q — add it first (add_epic / POST /epics)",
+			ErrEpicNotFound, args.Epic, args.Project)
+	}
+	start := args.Start
+	if start == "" {
+		start = board.TodayIso()
+	}
+	day := args.Day
+	if day == "" {
+		day = start
+	}
+	week := args.Week
+	if week == "" {
+		week = board.MondayOf(start)
+	}
+	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
+		Title:    args.Title,
+		Zone:     args.Zone,
+		Epic:     args.Epic,
+		Project:  args.Project,
+		Week:     week,
+		Start:    start,
+		Day:      day,
+		Team:     args.Team,
+		Assignee: args.Assignee,
+	})
+	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
+	if err == nil {
+		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+		s.resolveTitleAsync(ctx, b, card, pendingRef)
+	}
+	return card, err
 }
 
 // withLinkDescription moves the source URL of a create-by-URL card into its
@@ -770,8 +823,26 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if board.Complete(c.Stage, c.Progress) {
 			continue
 		}
+		// A Project-board slot has two boundaries, and carrying it over moves
+		// the SECOND one: the work began when it began — that is history — and
+		// what slipped is the end. The slot stretches into the target week
+		// instead of jumping there, which also keeps the weeks it already ran
+		// through readable on the board. One that already reaches the target
+		// week has nothing to carry, and is not counted as carried either.
+		slotEnd := board.AddDays(week, 4) // the target week's Friday
+		if c.Epic != "" && c.Day >= slotEnd {
+			continue
+		}
 		rep.Carried++
 		if dryRun {
+			continue
+		}
+		if c.Epic != "" {
+			if err := s.backend.SetDay(ctx, b, c, slotEnd); err != nil {
+				return rep, err
+			}
+			s.logEvent(ctx, b, c, board.EventDates,
+				board.DateRange(c.StartDate, c.Day), board.DateRange(c.StartDate, slotEnd))
 			continue
 		}
 		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
@@ -1619,6 +1690,13 @@ func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID
 	sprintStart := board.CurrentSprint(b, team)
 	if sprintStart == "" {
 		sprintStart = day
+	}
+	// An epic card that is not in work yet stays plan-level: handing it to a
+	// team files it into that team's WEEKLY plan (band + week do that), not
+	// into today's sprint — joining the sprint would smear its multi-week
+	// span across the team's day grid.
+	if card.Epic != "" && card.SprintStart == "" {
+		sprintStart = ""
 	}
 	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
 		return err

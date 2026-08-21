@@ -1212,6 +1212,45 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	if card.Title == board.DeadlineStateTitle {
+		// A deadline is a line on a week, not a card row.
+		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
+			e.board.Deadlines = append(e.board.Deadlines,
+				board.Deadline{Week: card.Week, Project: card.Project, ItemID: card.ItemID})
+		}
+		e.markRecent(card.ItemID)
+		e.syncBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
+	if card.Title == board.ProjectStateTitle {
+		// A project-state card is a roster entry, not a card row: surface it
+		// as the board's project list (clients re-read /board).
+		if card.Project != "" && e.board.ProjectStates[card.Project] == "" {
+			if e.board.ProjectStates == nil {
+				e.board.ProjectStates = map[string]string{}
+			}
+			e.board.Projects = append(e.board.Projects, card.Project)
+			e.board.ProjectStates[card.Project] = card.ItemID
+		}
+		e.markRecent(card.ItemID)
+		e.syncBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
+	if card.Title == board.EpicStateTitle {
+		// A state card is a Project-board column, not a card: surface it as
+		// the board's column roster (clients re-read /board), never as a row.
+		if _, exists := board.FindEpic(e.board, card.Project, card.Epic); card.Epic != "" && !exists {
+			e.board.Epics = append(e.board.Epics, board.EpicCol{
+				Name: card.Epic, Project: card.Project, ItemID: card.ItemID,
+			})
+		}
+		e.markRecent(card.ItemID)
+		e.syncBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
 	e.upsertCard(card)
 	e.markRecent(card.ItemID)
 	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
@@ -1239,9 +1278,49 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		e.sprintChanged(clientIDFrom(ctx), team)
 		break
 	}
+	// Likewise a deleted epic-state card takes its column with it.
+	for i, col := range e.board.Epics {
+		if col.ItemID != card.ItemID {
+			continue
+		}
+		e.board.Epics = append(e.board.Epics[:i:i], e.board.Epics[i+1:]...)
+		e.syncBroadcast()
+		break
+	}
+	// ...a deleted deadline card takes its line off the grid...
+	for i, d := range e.board.Deadlines {
+		if d.ItemID != card.ItemID {
+			continue
+		}
+		e.board.Deadlines = append(e.board.Deadlines[:i:i], e.board.Deadlines[i+1:]...)
+		e.syncBroadcast()
+		break
+	}
+	// ...and a deleted project-state card takes its chip.
+	for project, id := range e.board.ProjectStates {
+		if id != card.ItemID {
+			continue
+		}
+		delete(e.board.ProjectStates, project)
+		e.board.Projects = removeString(e.board.Projects, project)
+		e.syncBroadcast()
+		break
+	}
 	e.cardChanged(clientIDFrom(ctx), card, "DELETED")
 	e.mu.Unlock()
 	return nil
+}
+
+// renameInList swaps one entry for another, keeping its position.
+func renameInList(list []string, from, to string) []string {
+	out := append([]string(nil), list...)
+	for i, v := range out {
+		if v == from {
+			out[i] = to
+			return out
+		}
+	}
+	return out
 }
 
 // removeString drops the first occurrence of v from list, in place.
@@ -1267,11 +1346,59 @@ func teamOfSprintState(states map[string]board.SprintState, itemID string) (stri
 // moveTeamAfter re-slots team in the order list after the team owning the
 // afterID sprint-state card ("" or unknown = to the front).
 func moveTeamAfter(order []string, states map[string]board.SprintState, team, afterID string) []string {
-	order = removeString(append([]string(nil), order...), team)
+	ids := make(map[string]string, len(states))
+	for t, st := range states {
+		ids[t] = st.ItemID
+	}
+	return moveNameAfter(order, ids, team, afterID)
+}
+
+// epicIndexOf finds a column by its state card's item id (-1 = not a column).
+func epicIndexOf(cols []board.EpicCol, itemID string) int {
+	for i, c := range cols {
+		if c.ItemID == itemID {
+			return i
+		}
+	}
+	return -1
+}
+
+// moveEpicAfter re-slots the column at index from so it follows the column
+// whose state card is afterID ("" or unknown = to the front).
+func moveEpicAfter(cols []board.EpicCol, from int, afterID string) []board.EpicCol {
+	col := cols[from]
+	rest := append(append([]board.EpicCol(nil), cols[:from]...), cols[from+1:]...)
 	at := 0
-	if afterTeam, ok := teamOfSprintState(states, afterID); ok {
-		for i, t := range order {
-			if t == afterTeam {
+	if i := epicIndexOf(rest, afterID); i >= 0 {
+		at = i + 1
+	}
+	out := make([]board.EpicCol, 0, len(rest)+1)
+	out = append(out, rest[:at]...)
+	out = append(out, col)
+	out = append(out, rest[at:]...)
+	return out
+}
+
+// nameOfState finds the roster entry whose state card has the item id.
+func nameOfState(ids map[string]string, itemID string) (string, bool) {
+	for name, id := range ids {
+		if id == itemID {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// moveNameAfter re-slots name in an ordered roster after the entry owning the
+// afterID state card ("" or unknown = to the front). Teams, epic columns and
+// projects all order themselves by their state card's board position, so they
+// all reorder through here.
+func moveNameAfter(order []string, ids map[string]string, name, afterID string) []string {
+	order = removeString(append([]string(nil), order...), name)
+	at := 0
+	if after, ok := nameOfState(ids, afterID); ok {
+		for i, n := range order {
+			if n == after {
 				at = i + 1
 				break
 			}
@@ -1279,7 +1406,7 @@ func moveTeamAfter(order []string, states map[string]board.SprintState, team, af
 	}
 	out := make([]string, 0, len(order)+1)
 	out = append(out, order[:at]...)
-	out = append(out, team)
+	out = append(out, name)
 	out = append(out, order[at:]...)
 	return out
 }
@@ -1295,6 +1422,17 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	// TeamOrder so /board reads agree with the new order immediately.
 	if team, ok := teamOfSprintState(e.board.SprintStates, card.ItemID); ok {
 		e.board.TeamOrder = moveTeamAfter(e.board.TeamOrder, e.board.SprintStates, team, afterID)
+	}
+	// The same for the two Project-board rosters: their order IS the board
+	// position of their state cards, so a reorder must land in the cache or
+	// /board keeps serving the old order until the next revalidation.
+	if from := epicIndexOf(e.board.Epics, card.ItemID); from >= 0 {
+		e.board.Epics = moveEpicAfter(e.board.Epics, from, afterID)
+		e.syncBroadcast()
+	}
+	if project, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
+		e.board.Projects = moveNameAfter(e.board.Projects, e.board.ProjectStates, project, afterID)
+		e.syncBroadcast()
 	}
 	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
@@ -1609,6 +1747,30 @@ func (b *storeBackend) SetPlan(ctx context.Context, bd board.Board, card board.C
 }
 
 func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
+	if card.Title == board.DeadlineStateTitle {
+		// Dragging the line: its card is not in the cached card list, so the
+		// cached deadline set is what has to follow.
+		e := b.store.entry(storeKey(bd.Owner, bd.Number))
+		e.mu.Lock()
+		for i := range e.board.Deadlines {
+			if e.board.Deadlines[i].ItemID == card.ItemID {
+				e.board.Deadlines[i].Week = week
+				e.syncBroadcast()
+				break
+			}
+		}
+		e.mu.Unlock()
+		b.enqueue(ctx, e, pendingOp{
+			key:    "week:" + card.ItemID,
+			itemID: card.ItemID,
+			desc:   "move the deadline to " + week,
+			apply:  func(*board.Board) {},
+			exec: func(ctx context.Context) error {
+				return b.inner.SetWeek(ctx, bd, card, week)
+			},
+		})
+		return nil
+	}
 	b.mutateCard(ctx, bd, card.ItemID, "week", "move "+cardRef(card)+" to another week", func(c *board.Card) {
 		c.Week = week
 	}, func(ctx context.Context) error {
@@ -1622,6 +1784,76 @@ func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.C
 		c.Team = team
 	}, func(ctx context.Context) error {
 		return b.inner.SetTeam(ctx, bd, card, team)
+	})
+	return nil
+}
+
+func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.Card, epic string) error {
+	if card.Title == board.EpicStateTitle {
+		// Renaming the column itself: the state card is not in the cached card
+		// list (NewBoard splits it out), so mutateCard cannot reach it.
+		e := b.store.entry(storeKey(bd.Owner, bd.Number))
+		e.mu.Lock()
+		if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
+			e.board.Epics[i].Name = epic
+			e.syncBroadcast()
+		}
+		e.mu.Unlock()
+		b.enqueue(ctx, e, pendingOp{
+			key:    "epic:" + card.ItemID,
+			itemID: card.ItemID,
+			desc:   "rename the epic " + card.Epic,
+			apply:  func(*board.Board) {},
+			exec: func(ctx context.Context) error {
+				return b.inner.SetEpic(ctx, bd, card, epic)
+			},
+		})
+		return nil
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "epic", "file "+cardRef(card)+" under an epic", func(c *board.Card) {
+		c.Epic = epic
+	}, func(ctx context.Context) error {
+		return b.inner.SetEpic(ctx, bd, card, epic)
+	})
+	return nil
+}
+
+// SetProject rebinds an epic column to a project. The target is a hidden
+// state card, which is NOT in the cached card list (NewBoard splits it out),
+// so mutateCard cannot reach it: update the roster map directly and queue the
+// write like any other mutation.
+func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e.mu.Lock()
+	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
+		e.board.Epics[i].Project = project
+		e.syncBroadcast()
+	} else if old, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
+		// A project-state card renamed: re-key the roster in place.
+		e.board.Projects = renameInList(e.board.Projects, old, project)
+		delete(e.board.ProjectStates, old)
+		e.board.ProjectStates[project] = card.ItemID
+		e.syncBroadcast()
+	} else {
+		// An ordinary card: the project is half of the column it is filed
+		// under, so it lives on the card row like any other field.
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID == card.ItemID {
+				e.board.Cards[i].Project = project
+				e.cardChanged(clientIDFrom(ctx), e.board.Cards[i], "MODIFIED")
+				break
+			}
+		}
+	}
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key:    "project:" + card.ItemID,
+		itemID: card.ItemID,
+		desc:   "file " + cardRef(card) + " under a project",
+		apply:  func(*board.Board) {},
+		exec: func(ctx context.Context) error {
+			return b.inner.SetProject(ctx, bd, card, project)
+		},
 	})
 	return nil
 }

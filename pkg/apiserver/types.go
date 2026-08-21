@@ -61,9 +61,11 @@ type CardDates struct {
 	Sprint string `json:"sprint,omitempty"`
 }
 
-// CardPlan places the card in the founders' weekly plan.
+// CardPlan places the card in the founders' weekly plan — or, for an epic
+// card, anchors its week row (Band empty: the card is on the Plan board, not
+// in a team's wed/fri bands).
 type CardPlan struct {
-	Band string `json:"band"`
+	Band string `json:"band,omitempty"`
 	Week string `json:"week,omitempty"`
 }
 
@@ -85,7 +87,12 @@ type CardSpec struct {
 	Recurrence string    `json:"recurrence,omitempty"`
 	Dates      CardDates `json:"dates"`
 	Plan       *CardPlan `json:"plan,omitempty"`
-	ReviewOf   string    `json:"reviewOf,omitempty"`
+	// Epic and Project are the column the card is filed under ("" = none) —
+	// the pair, since epic names repeat across projects. The card's Week is
+	// the row, and Dates span the weeks its slot stretches over.
+	Epic     string `json:"epic,omitempty"`
+	Project  string `json:"project,omitempty"`
+	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the uid of the card it is grouped under.
 	Parent string `json:"parent,omitempty"`
 }
@@ -173,10 +180,53 @@ type BoardMetadata struct {
 	Title string   `json:"title,omitempty"`
 	URL   string   `json:"url,omitempty"`
 	Teams []string `json:"teams"`
+	// Projects lists the Project board's projects, in board order — the top
+	// grouping: a project owns epic columns. (Not the GitHub board, which the
+	// caller addresses with owner+board.)
+	Projects []string `json:"projects,omitempty"`
+	// Deadlines are the deadline lines in board order: the week each one sits
+	// on and the project it belongs to. A project holds at most one per week.
+	Deadlines []DeadlineRef `json:"deadlines,omitempty"`
+	// Epics lists the Project board's columns in board order, each naming the
+	// project that owns it. An epic with an empty project belongs to none and
+	// shows only in the all-projects view.
+	Epics []EpicRef `json:"epics,omitempty"`
 	// Members is every distinct assignee on the board — the people roster for
 	// pickers (assign, review, view-as) now that clients load one view at a
 	// time and cannot derive it from the cards they hold.
 	Members []string `json:"members"`
+}
+
+// EpicRef is one Project-board column: its name and the project that owns it.
+// The pair travels together because a column is meaningless without knowing
+// which project's grid it belongs in.
+type EpicRef struct {
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+}
+
+// DeadlineRef is one deadline line: its week and the project it belongs to.
+type DeadlineRef struct {
+	Week    string `json:"week"`
+	Project string `json:"project,omitempty"`
+}
+
+// deadlineWeeks lists the deadline lines, in board order.
+func deadlineWeeks(b board.Board) []DeadlineRef {
+	out := make([]DeadlineRef, 0, len(b.Deadlines))
+	for _, d := range b.Deadlines {
+		out = append(out, DeadlineRef{Week: d.Week, Project: d.Project})
+	}
+	return out
+}
+
+// epicRefs projects the column roster onto the wire, preserving board order.
+func epicRefs(b board.Board) []EpicRef {
+	out := make([]EpicRef, 0, len(b.Epics))
+	for _, e := range b.Epics {
+		out = append(out, EpicRef{Name: e.Name, Project: e.Project})
+	}
+	return out
 }
 
 // CardList is the LIST response envelope; Weekly carries the view's computed
@@ -217,10 +267,12 @@ func CardResource(b board.Board, c board.Card) Card {
 		Stage:       string(c.Stage),
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
+		Epic:        c.Epic,
+		Project:     c.Project,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 	}
-	if c.Plan != board.PlanNone {
+	if c.Plan != board.PlanNone || c.Week != "" {
 		spec.Plan = &CardPlan{Band: string(c.Plan), Week: c.Week}
 	}
 	status := CardStatus{
@@ -344,8 +396,10 @@ func BoardResource(b board.Board) BoardInfo {
 	}
 	sortStrings(members)
 	return BoardInfo{
-		Kind:     "Board",
-		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams, Members: members},
+		Kind: "Board",
+		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
+			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b),
+			Deadlines: deadlineWeeks(b), Members: members},
 	}
 }
 

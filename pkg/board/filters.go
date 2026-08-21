@@ -21,6 +21,11 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
+		// An epic card lives on the Project board until it joins a sprint (see
+		// MeView) — its multi-week span must not smear across the day grid.
+		if c.Epic != "" && c.SprintStart == "" {
+			continue
+		}
 		// A card with an end date spans a range: it shows on every day from its
 		// start through its end (the calendar sets start…end).
 		inRange := c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
@@ -84,6 +89,11 @@ func MeView(b Board, user, day string) []Card {
 	for _, c := range b.Cards {
 		// Subtasks are never listed on their own; they ride with their parent.
 		if c.Parent != "" {
+			continue
+		}
+		// An epic card lives on the Project board until it joins a sprint: its
+		// week-spanning dates would otherwise smear it across the day boards.
+		if c.Epic != "" && c.SprintStart == "" {
 			continue
 		}
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {
@@ -171,6 +181,14 @@ func planShowsInWeek(c Card, week string) bool {
 // planShowsInWeekAt is planShowsInWeek against an explicit "today" (testable).
 func planShowsInWeekAt(c Card, week, today string) bool {
 	if c.Week == week {
+		return true
+	}
+	// A Project-board slot spans weeks by design: it belongs to every week
+	// between its two boundaries, not only to the one it starts in. Otherwise
+	// a slot carried over (which moves its END) would vanish from the panel of
+	// the very week it was carried into.
+	if c.Epic != "" && c.Week != "" && c.Day != "" &&
+		c.Week <= week && week <= MondayOf(c.Day) {
 		return true
 	}
 	// History only in weeks whose working days are over: past the week's

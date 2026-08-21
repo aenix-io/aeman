@@ -307,6 +307,10 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		}
 	case roles.Week != nil && id == roles.Week.ID && v.Date != "":
 		card.Week = v.Date
+	case roles.Epic != nil && id == roles.Epic.ID && v.Text != "":
+		card.Epic = v.Text
+	case roles.Project != nil && id == roles.Project.ID && v.Text != "":
+		card.Project = v.Text
 	case roles.Team != nil && id == roles.Team.ID && v.Text != "":
 		card.Team = v.Text
 	case roles.ReviewOf != nil && id == roles.ReviewOf.ID && v.Text != "":
@@ -333,6 +337,8 @@ type domainFieldRoles struct {
 	Status      *board.ProjectField
 	Plan        *board.ProjectField
 	Week        *board.ProjectField
+	Epic        *board.ProjectField
+	Project     *board.ProjectField
 	Stage       *board.ProjectField
 	Team        *board.ProjectField
 	ReviewOf    *board.ProjectField
@@ -354,6 +360,8 @@ var domainRoleAliases = map[string][]string{
 	"status":      {"status"},
 	"plan":        {"plan"},
 	"week":        {"week"},
+	"epic":        {"epic"},
+	"project":     {"project"},
 	"stage":       {"stage"},
 	"team":        {"team"},
 	"reviewOf":    {"review of", "reviewof"},
@@ -387,6 +395,10 @@ func domainRoles(fields []board.ProjectField) domainFieldRoles {
 			r.Plan = f
 		case r.Week == nil && domainMatchesAlias("week", name):
 			r.Week = f
+		case r.Epic == nil && domainMatchesAlias("epic", name):
+			r.Epic = f
+		case r.Project == nil && domainMatchesAlias("project", name):
+			r.Project = f
 		case r.Stage == nil && domainMatchesAlias("stage", name):
 			r.Stage = f
 		case r.Team == nil && domainMatchesAlias("team", name):
@@ -425,6 +437,10 @@ func (r domainFieldRoles) get(role string) *board.ProjectField {
 		return r.Plan
 	case "week":
 		return r.Week
+	case "epic":
+		return r.Epic
+	case "project":
+		return r.Project
 	case "stage":
 		return r.Stage
 	case "team":

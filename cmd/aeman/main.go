@@ -84,8 +84,8 @@ func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8765", "address to listen on")
 	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "default GitHub org/user to load projects from")
-	projectDefault, _ := strconv.Atoi(os.Getenv("AEMAN_PROJECT"))
-	project := fs.Int("project", projectDefault, "default GitHub Project number to open")
+	projectDefault, _ := strconv.Atoi(os.Getenv("AEMAN_BOARD"))
+	project := fs.Int("board", projectDefault, "GitHub Project number of the board to open")
 	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin the UI to --owner/--project and hide the board picker")
 	open := fs.Bool("open", true, "open the UI in a browser on start")
 	verbose := fs.Bool("verbose", false, "enable debug logging")
@@ -93,7 +93,7 @@ func runServe(args []string) error {
 		return err
 	}
 	if *lockBoard && (*owner == "" || *project <= 0) {
-		return fmt.Errorf("--lock-board requires --owner and --project (or AEMAN_OWNER/AEMAN_PROJECT)")
+		return fmt.Errorf("--lock-board requires --owner and --board (or AEMAN_OWNER/AEMAN_BOARD)")
 	}
 
 	logger := newLogger(*verbose)
@@ -142,8 +142,8 @@ func runServe(args []string) error {
 func runMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "default GitHub org/user")
-	projectDefault, _ := strconv.Atoi(os.Getenv("AEMAN_PROJECT"))
-	project := fs.Int("project", projectDefault, "default GitHub Project number")
+	projectDefault, _ := strconv.Atoi(os.Getenv("AEMAN_BOARD"))
+	project := fs.Int("board", projectDefault, "GitHub Project number of the board")
 	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin owner/project, ignoring per-tool overrides")
 	verbose := fs.Bool("verbose", false, "enable debug logging")
 	if err := fs.Parse(args); err != nil {
@@ -176,7 +176,7 @@ func runMCP(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.Info("aeman MCP server ready on stdio", "owner", *owner, "project", *project, "locked", *lockBoard)
+	logger.Info("aeman MCP server ready on stdio", "owner", *owner, "board", *project, "locked", *lockBoard)
 	return mcpserver.Serve(ctx, srv)
 }
 

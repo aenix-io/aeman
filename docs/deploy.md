@@ -38,7 +38,7 @@ To pin every visitor to a single project and hide the board picker, set in `.env
 
 ```sh
 AEMAN_OWNER=acme
-AEMAN_PROJECT=37
+AEMAN_BOARD=37
 AEMAN_LOCK_BOARD=true
 ```
 

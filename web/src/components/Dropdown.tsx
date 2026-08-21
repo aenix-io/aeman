@@ -30,6 +30,7 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     position: "fixed",
     top: 0,
     left: 0,
+    right: "auto",
     visibility: "hidden",
   });
 
@@ -42,12 +43,25 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     const a = anchor.getBoundingClientRect();
     const m = menu.getBoundingClientRect();
     const gap = 4;
-    const right = Math.max(8, window.innerWidth - a.right);
+    // Right-aligned to the anchor where there is room, but CLAMPED to the
+    // viewport: a narrow anchor near the left edge (the week column) would
+    // otherwise push the menu off-screen to the left.
+    const left = Math.min(
+      Math.max(8, a.right - m.width),
+      Math.max(8, window.innerWidth - m.width - 8),
+    );
     let top = a.bottom + gap;
     if (top + m.height > window.innerHeight - 8) {
       top = Math.max(8, a.top - gap - m.height);
     }
-    setStyle({ position: "fixed", top, right, visibility: "visible", zIndex: 60 });
+    setStyle({
+      position: "fixed",
+      top,
+      left,
+      right: "auto",
+      visibility: "visible",
+      zIndex: 60,
+    });
   }, [anchorRef]);
 
   useLayoutEffect(() => {
@@ -61,7 +75,11 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
       return;
     }
     const reposition = () => place();
-    const onDown = (e: MouseEvent) => {
+    // pointerdown, not mousedown: anything that begins a drag calls
+    // preventDefault() on the pointer event, and that suppresses the
+    // compatibility mouse events entirely — so a menu opened over the board
+    // would never hear the press that was meant to dismiss it.
+    const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (menuRef.current?.contains(t) || anchorRef.current?.contains(t)) {
         return;
@@ -70,11 +88,11 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     };
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     return () => {
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition);
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
     };
   }, [open, place, onClose, anchorRef]);
 

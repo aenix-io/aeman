@@ -502,7 +502,7 @@ func TestStaleHeaderOnAPIRead(t *testing.T) {
 
 	get := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=all", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/cards?owner=acme&board=1&view=all", nil)
 		srv.handler.ServeHTTP(rec, req)
 		return rec
 	}
@@ -606,7 +606,7 @@ func TestCarryOverServedFromSnapshot(t *testing.T) {
 	// Seed the cache (the one allowed upstream load), then age it past the
 	// fresh TTL into the stale window.
 	rec := httptest.NewRecorder()
-	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cards?owner=acme&project=1&view=all", nil))
+	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cards?owner=acme&board=1&view=all", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed read: status = %d (%s)", rec.Code, rec.Body.String())
 	}
@@ -616,7 +616,7 @@ func TestCarryOverServedFromSnapshot(t *testing.T) {
 	e.mu.Unlock()
 
 	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sprints/actions/carry-over?owner=acme&project=1",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sprints/actions/carry-over?owner=acme&board=1",
 		strings.NewReader(`{"team":"alpha","dryRun":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	srv.handler.ServeHTTP(rec, req)

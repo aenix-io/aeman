@@ -13,6 +13,7 @@ import {
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
+import { ProjectBoard } from "./components/ProjectBoard";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
@@ -22,7 +23,7 @@ import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
-type ViewMode = "me" | "team";
+type ViewMode = "me" | "team" | "project";
 
 const LS_OWNER = "aeman.owner";
 const LS_PROJECT = "aeman.project";
@@ -35,6 +36,11 @@ function readView(): ViewMode {
   const raw = localStorage.getItem(LS_VIEW);
   if (raw === "team" || raw === "nixon") {
     return "team";
+  }
+  // "plan" is the tab's pre-rename name — an existing localStorage entry
+  // still lands on the Project board rather than silently on Me.
+  if (raw === "project" || raw === "plan") {
+    return "project";
   }
   return "me";
 }
@@ -206,6 +212,34 @@ export function App() {
   const [teamFilter, setTeamFilter] = useState<string[] | null>(() =>
     readFilterFor(boardKeyRef.current),
   );
+
+  // A tab can stay open across deploys (and, on a dev box, across dozens of
+  // rebuilds) — it keeps running the bundle it loaded, which reads as "the fix
+  // did not work". The server fingerprints the bundle it serves, so a mismatch
+  // is checked whenever the tab is looked at again, and offered as a reload.
+  const [staleBuild, setStaleBuild] = useState(false);
+  useEffect(() => {
+    const mine = config?.build;
+    if (!mine) {
+      return;
+    }
+    const check = () => {
+      if (document.hidden) {
+        return;
+      }
+      void fetchConfig()
+        .then((cfg) => setStaleBuild(!!cfg.build && cfg.build !== mine))
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    const timer = window.setInterval(check, 60_000);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+      window.clearInterval(timer);
+    };
+  }, [config?.build]);
 
   // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
   useEffect(() => {
@@ -790,7 +824,7 @@ export function App() {
       // watchKey changes (a dep below).
       const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
         watchOwner,
-      )}&project=${watchProject}&client=${clientId}&${watchKey}`;
+      )}&board=${watchProject}&client=${clientId}&${watchKey}`;
       socket = new WebSocket(url);
       socket.addEventListener("message", (e) => {
         let frame: WatchFrame;
@@ -918,6 +952,19 @@ export function App() {
         </div>
       </header>
 
+      {staleBuild && (
+        <div className="banner banner-warning" role="alert">
+          <span>A newer build of aeman is being served — this tab is running the previous one.</span>
+          <button
+            type="button"
+            className="btn btn-primary banner-action"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </button>
+        </div>
+      )}
+
       {showTokenWarning && (
         <div className="banner banner-warning" role="alert">
           <span>
@@ -963,7 +1010,7 @@ export function App() {
               />
             </label>
             <label className="field">
-              <span>Project #</span>
+              <span>Board #</span>
               <input
                 type="number"
                 min={1}
@@ -1027,6 +1074,15 @@ export function App() {
           >
             Team
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "project"}
+            className={`segment${view === "project" ? " segment-active" : ""}`}
+            onClick={() => setView("project")}
+          >
+            Project
+          </button>
         </div>
       </div>
 
@@ -1071,6 +1127,19 @@ export function App() {
                   .catch(() => {});
               }
             }}
+          />
+        )}
+        {board && view === "project" && (
+          <ProjectBoard
+            board={board}
+            provider={provider}
+            patchCard={patchCard}
+            addCard={addCard}
+            replaceCard={replaceCard}
+            removeCard={removeCard}
+            reload={reload}
+            onError={onError}
+            onOpen={(c) => setDetailCard(c)}
           />
         )}
         {board && view === "team" && (
