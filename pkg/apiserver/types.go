@@ -184,6 +184,9 @@ type BoardMetadata struct {
 	// grouping: a project owns epic columns. (Not the GitHub board, which the
 	// caller addresses with owner+board.)
 	Projects []string `json:"projects,omitempty"`
+	// Deadlines are the deadline lines in board order: the week each one sits
+	// on and the project it belongs to. A project holds at most one per week.
+	Deadlines []DeadlineRef `json:"deadlines,omitempty"`
 	// Epics lists the Project board's columns in board order, each naming the
 	// project that owns it. An epic with an empty project belongs to none and
 	// shows only in the all-projects view.
@@ -200,6 +203,21 @@ type BoardMetadata struct {
 type EpicRef struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
+}
+
+// DeadlineRef is one deadline line: its week and the project it belongs to.
+type DeadlineRef struct {
+	Week    string `json:"week"`
+	Project string `json:"project,omitempty"`
+}
+
+// deadlineWeeks lists the deadline lines, in board order.
+func deadlineWeeks(b board.Board) []DeadlineRef {
+	out := make([]DeadlineRef, 0, len(b.Deadlines))
+	for _, d := range b.Deadlines {
+		out = append(out, DeadlineRef{Week: d.Week, Project: d.Project})
+	}
+	return out
 }
 
 // epicRefs projects the column roster onto the wire, preserving board order.
@@ -380,7 +398,8 @@ func BoardResource(b board.Board) BoardInfo {
 	return BoardInfo{
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
-			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b), Members: members},
+			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b),
+			Deadlines: deadlineWeeks(b), Members: members},
 	}
 }
 

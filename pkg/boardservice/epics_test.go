@@ -405,3 +405,65 @@ func TestCarryWeekStretchesSlots(t *testing.T) {
 		t.Fatalf("nothing left to carry, got %d", rep2.Carried)
 	}
 }
+
+// A deadline belongs to a project: two projects can both have one on the same
+// week, and dragging a project's line onto its own other line merges them.
+func TestDeadlines(t *testing.T) {
+	fake := epicBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	if err := svc.AddProject(ctx, "acme", 1, "Portal"); err != nil {
+		t.Fatal(err)
+	}
+	const w1, w2 = "2026-09-07", "2026-09-14"
+	// Any day of the week resolves to its Monday — the line sits on a row.
+	if err := svc.AddDeadline(ctx, "acme", 1, "2026-09-09", "Cozystack"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AddDeadline(ctx, "acme", 1, w1, "Cozystack"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AddDeadline(ctx, "acme", 1, w1, "Portal"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AddDeadline(ctx, "acme", 1, w2, "Cozystack"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AddDeadline(ctx, "acme", 1, w1, "Ghost"); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("an unknown project must be refused, got %v", err)
+	}
+	b, err := svc.Board(ctx, "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Deadlines) != 3 {
+		t.Fatalf("deadlines = %+v, want one per (project, week) pair", b.Deadlines)
+	}
+
+	// Dragging Cozystack's second line onto its first leaves one — and does
+	// not touch Portal's line on that same week.
+	if err := svc.MoveDeadline(ctx, "acme", 1, "Cozystack", w2, w1); err != nil {
+		t.Fatal(err)
+	}
+	b, err = svc.Board(ctx, "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Deadlines) != 2 {
+		t.Fatalf("two of one project on one week are one; got %+v", b.Deadlines)
+	}
+	if _, ok := board.FindDeadline(b, "Portal", w1); !ok {
+		t.Fatalf("another project's deadline must survive the merge; got %+v", b.Deadlines)
+	}
+
+	if err := svc.DeleteDeadline(ctx, "acme", 1, w1, "Portal"); err != nil {
+		t.Fatal(err)
+	}
+	b, err = svc.Board(ctx, "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := board.FindDeadline(b, "Portal", w1); ok {
+		t.Fatalf("the deleted line is still there: %+v", b.Deadlines)
+	}
+}

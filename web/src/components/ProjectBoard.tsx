@@ -396,6 +396,15 @@ export function ProjectBoard({
   // dialog is open.
   const [renaming, setRenaming] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
+  // The week whose menu is open, and the deadline being dragged to another
+  // week (its line follows the pointer and only writes on release).
+  const [weekMenu, setWeekMenu] = useState<string | null>(null);
+  const weekAnchor = useRef<HTMLElement | null>(null);
+  const [dragLine, setDragLine] = useState<{
+    project: string;
+    from: string;
+    row: number;
+  } | null>(null);
   const [teamMenu, setTeamMenu] = useState<string | null>(null);
   // Only one team menu is open at a time, so a single anchor ref serves
   // whichever badge was last pressed.
@@ -503,6 +512,57 @@ export function ProjectBoard({
       });
   };
 
+  // A deadline belongs to the project whose plan it is part of, so setting
+  // one needs a single project in view — the same rule a column follows.
+  const setDeadline = (week: string, on: boolean) => {
+    setWeekMenu(null);
+    if (!targetProject) {
+      return;
+    }
+    const call = on
+      ? provider.addDeadline(board, week, targetProject)
+      : provider.deleteDeadline(board, week, targetProject);
+    void call.then(reload).catch((err: unknown) => onError(errText(err)));
+  };
+
+  const beginLineDrag = (
+    project: string,
+    week: string,
+    row: number,
+    e: React.PointerEvent,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setDragLine({ project, from: week, row });
+  };
+
+  const moveLineDrag = (e: React.PointerEvent) => {
+    if (!dragLine) {
+      return;
+    }
+    const row = Math.min(rowAt(e.clientY), weeks.length - 1);
+    if (row !== dragLine.row) {
+      setDragLine({ ...dragLine, row });
+    }
+  };
+
+  const endLineDrag = () => {
+    if (!dragLine) {
+      return;
+    }
+    const { project: dlProject, from, row } = dragLine;
+    setDragLine(null);
+    const to = weeks[row];
+    if (!to || to === from) {
+      return;
+    }
+    void provider
+      .moveDeadline(board, dlProject, from, to)
+      .then(reload)
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
   const deleteCard = (card: CardModel) => {
     if (!window.confirm(`Delete "${card.title}"?`)) {
       return;
@@ -575,6 +635,14 @@ export function ProjectBoard({
   }, [cards, weeks]);
 
   const todayRow = weeks.indexOf(thisMonday);
+
+  // Whether the project in view already has a deadline on the week whose menu
+  // is open — the menu offers setting or clearing THAT project's line.
+  const weekHasDeadline =
+    weekMenu !== null &&
+    board.deadlines.some(
+      (d) => d.week === weekMenu && d.project === (targetProject ?? ""),
+    );
 
   // Where a column sits among the visible ones (-1 while it is filtered out).
   const colIndex = (e: EpicRef) =>
@@ -684,13 +752,13 @@ export function ProjectBoard({
                   badge a team wears on a card, not as a second line of text
                   competing with the column's own name. Inside one project the
                   badge would repeat on every column and is left off. */}
-              {!targetProject && (
+              {!targetProject && e.project && (
                 <span
-                  className={`project-epic-avatar${e.project ? "" : " project-epic-avatar-none"}`}
-                  style={e.project ? { background: teamColor(e.project) } : undefined}
-                  title={e.project || "no project"}
+                  className="project-epic-avatar"
+                  style={{ background: teamColor(e.project) }}
+                  title={e.project}
                 >
-                  {e.project ? teamInitial(e.project) : "·"}
+                  {teamInitial(e.project)}
                 </span>
               )}
               <button
@@ -743,7 +811,11 @@ export function ProjectBoard({
             key={w}
             className={`project-week${i === todayRow ? " project-week-today" : ""}`}
             style={{ gridRow: i + 2, gridColumn: 1 }}
-            title={`ISO week ${isoWeekNo(w)}`}
+            title={`ISO week ${isoWeekNo(w)} · click for the deadline`}
+            onClick={(ev) => {
+              weekAnchor.current = ev.currentTarget;
+              setWeekMenu(weekMenu === w ? null : w);
+            }}
           >
             <span className="project-week-date">{weekLabel(w)}</span>
             <span className="project-week-no">{isoWeekNo(w)}</span>
@@ -772,6 +844,54 @@ export function ProjectBoard({
             />
           )),
         )}
+
+        {/* deadlines: one line per week, dragged by the dot on its left */}
+        {board.deadlines
+          .filter((d) => !filter || filter.includes(d.project))
+          .map((d) => {
+            const dragging =
+              dragLine?.from === d.week && dragLine.project === d.project;
+            const at = dragging ? dragLine.row : weeks.indexOf(d.week);
+            if (at < 0 || at >= weeks.length) {
+              return null;
+            }
+            // Inside one project the line is simply the deadline — plain red.
+            // With several projects on screen there are several plans at once,
+            // so each line takes its project's colour and steps back, or the
+            // grid turns into a stack of red bars nobody can attribute.
+            const colour = targetProject
+              ? undefined
+              : d.project
+                ? teamColor(d.project)
+                : undefined;
+            return (
+              <div
+                key={`${d.project}\u0000${d.week}`}
+                className={`project-deadline${dragging ? " project-deadline-dragging" : ""}${
+                  targetProject ? "" : " project-deadline-muted"
+                }`}
+                // The full width of the row, dates included: the line is the
+                // week's edge, and its handle belongs at the very start of it.
+                // (Which is why the line outranks the sticky week column — see
+                // the z-index scale in the stylesheet.)
+                style={{
+                  gridRow: at + 2,
+                  gridColumn: "1 / -1",
+                  ...(colour ? { borderTopColor: colour } : {}),
+                }}
+              >
+                <span
+                  className="project-deadline-dot"
+                  style={colour ? { background: colour } : undefined}
+                  title={`${d.project || "no project"} deadline — drag to another week · ${weekLabel(weeks[at])}`}
+                  onPointerDown={(ev) => beginLineDrag(d.project, d.week, at, ev)}
+                  onPointerMove={moveLineDrag}
+                  onPointerUp={endLineDrag}
+                  onPointerCancel={() => setDragLine(null)}
+                />
+              </div>
+            );
+          })}
 
         {/* the create draft */}
         {draft && (
@@ -814,10 +934,11 @@ export function ProjectBoard({
                   (move?.card.itemId === card.itemId ? colIndex(move.epic) : col) + 2,
                 gridRow: `${(move?.card.itemId === card.itemId ? move.row : row) + 2} / span ${previewSpan(card, row, span)}`,
                 borderLeftColor: card.team ? teamColor(card.team) : undefined,
-                // Cards sharing weeks in one column split its width instead of
-                // hiding each other; a dragged card takes the full width so
-                // the preview reads clearly.
-                ...(lanes > 1 && move?.card.itemId !== card.itemId
+                // Cards sharing weeks in one column split its width instead
+                // of hiding each other. The width holds while the card is
+                // being dragged too: widening it on press made the first click
+                // of a double-click visibly inflate the card.
+                ...(lanes > 1
                   ? {
                       width: `calc(${100 / lanes}% - 2px)`,
                       marginLeft: `${(100 / lanes) * lane}%`,
@@ -928,6 +1049,36 @@ export function ProjectBoard({
         </button>
       </div>
       )}
+      <Dropdown
+        open={weekMenu !== null}
+        anchorRef={weekAnchor}
+        onClose={() => setWeekMenu(null)}
+        className="card-stage-menu"
+      >
+        <button
+          type="button"
+          className="card-stage-item"
+          disabled={!targetProject}
+          title={
+            targetProject
+              ? undefined
+              : "Pick one project first — a deadline belongs to a plan"
+          }
+          onClick={() => setDeadline(weekMenu ?? "", !weekHasDeadline)}
+        >
+          <span
+            className="card-stage-dot"
+            style={{
+              background: targetProject ? teamColor(targetProject) : "var(--danger)",
+            }}
+          />
+          {weekHasDeadline
+            ? `Remove ${targetProject}'s deadline`
+            : targetProject
+              ? `Set a deadline for ${targetProject}`
+              : "Set a deadline"}
+        </button>
+      </Dropdown>
       {managing && (
         <TeamsModal
           teams={board.projects}

@@ -117,9 +117,18 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	cards := make([]board.Card, 0, len(f.board.Cards))
 	var epics []board.EpicCol
 	var projects []string
+	var deadlines []board.Deadline
 	seenEpic := map[string]bool{}
 	projectStates := map[string]string{}
 	for _, c := range f.board.Cards {
+		if c.Title == board.DeadlineStateTitle {
+			if c.Week != "" {
+				deadlines = append(deadlines, board.Deadline{
+					Week: c.Week, Project: c.Project, ItemID: c.ItemID,
+				})
+			}
+			continue
+		}
 		if c.Title == board.ProjectStateTitle {
 			if c.Project != "" && projectStates[c.Project] == "" {
 				projects = append(projects, c.Project)
@@ -144,7 +153,7 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	}
 	return board.Board{ID: f.board.ID, Number: f.board.Number, Owner: f.board.Owner, Cards: cards,
 		SprintStates: states, Epics: epics,
-		Projects: projects, ProjectStates: projectStates}, nil
+		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines}, nil
 }
 
 // LoadCards returns the seeded cards matching ids, mirroring a partial reload.

@@ -122,6 +122,12 @@ export interface SprintState {
   previous: string | null;
 }
 
+/** DeadlineRef is one deadline line: the week it sits on and whose it is. */
+export interface DeadlineRef {
+  week: string;
+  project: string;
+}
+
 /** EpicRef is one Project-board column: its name and the project that owns
  *  it. The pair travels together — a column is meaningless without knowing
  *  which project's grid it belongs in. */
@@ -145,6 +151,9 @@ export interface Board {
   /** The Project board's epic columns, in board order, each naming the project
    *  that owns it. An empty project means the column belongs to none. */
   epics: EpicRef[];
+  /** The deadline lines: the week (a Monday) each sits on and the project it
+   *  belongs to. A project holds at most one per week. */
+  deadlines: DeadlineRef[];
   /** Every distinct assignee on the board, from GET /board — the people roster
    *  for pickers (assign, review, view-as). */
   members: string[];
@@ -286,6 +295,21 @@ export interface Provider {
   reorderProjects(board: BoardAddr, names: string[]): Promise<void>;
   /** Rename a project in place; its columns and their cards follow. */
   renameProject(board: BoardAddr, from: string, to: string): Promise<void>;
+  /** Mark a week with a project's deadline (one per project and week). */
+  addDeadline(board: BoardAddr, week: string, project: string): Promise<void>;
+  /** Clear a project's deadline on a week. */
+  deleteDeadline(
+    board: BoardAddr,
+    week: string,
+    project: string,
+  ): Promise<void>;
+  /** Drag a project's deadline to another week; two of its own become one. */
+  moveDeadline(
+    board: BoardAddr,
+    project: string,
+    from: string,
+    to: string,
+  ): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(board: BoardAddr, team: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). */

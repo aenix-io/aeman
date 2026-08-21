@@ -30,6 +30,7 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     position: "fixed",
     top: 0,
     left: 0,
+    right: "auto",
     visibility: "hidden",
   });
 
@@ -42,12 +43,25 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     const a = anchor.getBoundingClientRect();
     const m = menu.getBoundingClientRect();
     const gap = 4;
-    const right = Math.max(8, window.innerWidth - a.right);
+    // Right-aligned to the anchor where there is room, but CLAMPED to the
+    // viewport: a narrow anchor near the left edge (the week column) would
+    // otherwise push the menu off-screen to the left.
+    const left = Math.min(
+      Math.max(8, a.right - m.width),
+      Math.max(8, window.innerWidth - m.width - 8),
+    );
     let top = a.bottom + gap;
     if (top + m.height > window.innerHeight - 8) {
       top = Math.max(8, a.top - gap - m.height);
     }
-    setStyle({ position: "fixed", top, right, visibility: "visible", zIndex: 60 });
+    setStyle({
+      position: "fixed",
+      top,
+      left,
+      right: "auto",
+      visibility: "visible",
+      zIndex: 60,
+    });
   }, [anchorRef]);
 
   useLayoutEffect(() => {

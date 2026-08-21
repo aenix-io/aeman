@@ -1212,6 +1212,17 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	if card.Title == board.DeadlineStateTitle {
+		// A deadline is a line on a week, not a card row.
+		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
+			e.board.Deadlines = append(e.board.Deadlines,
+				board.Deadline{Week: card.Week, Project: card.Project, ItemID: card.ItemID})
+		}
+		e.markRecent(card.ItemID)
+		e.syncBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
 	if card.Title == board.ProjectStateTitle {
 		// A project-state card is a roster entry, not a card row: surface it
 		// as the board's project list (clients re-read /board).
@@ -1273,6 +1284,15 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 			continue
 		}
 		e.board.Epics = append(e.board.Epics[:i:i], e.board.Epics[i+1:]...)
+		e.syncBroadcast()
+		break
+	}
+	// ...a deleted deadline card takes its line off the grid...
+	for i, d := range e.board.Deadlines {
+		if d.ItemID != card.ItemID {
+			continue
+		}
+		e.board.Deadlines = append(e.board.Deadlines[:i:i], e.board.Deadlines[i+1:]...)
 		e.syncBroadcast()
 		break
 	}
@@ -1727,6 +1747,30 @@ func (b *storeBackend) SetPlan(ctx context.Context, bd board.Board, card board.C
 }
 
 func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
+	if card.Title == board.DeadlineStateTitle {
+		// Dragging the line: its card is not in the cached card list, so the
+		// cached deadline set is what has to follow.
+		e := b.store.entry(storeKey(bd.Owner, bd.Number))
+		e.mu.Lock()
+		for i := range e.board.Deadlines {
+			if e.board.Deadlines[i].ItemID == card.ItemID {
+				e.board.Deadlines[i].Week = week
+				e.syncBroadcast()
+				break
+			}
+		}
+		e.mu.Unlock()
+		b.enqueue(ctx, e, pendingOp{
+			key:    "week:" + card.ItemID,
+			itemID: card.ItemID,
+			desc:   "move the deadline to " + week,
+			apply:  func(*board.Board) {},
+			exec: func(ctx context.Context) error {
+				return b.inner.SetWeek(ctx, bd, card, week)
+			},
+		})
+		return nil
+	}
 	b.mutateCard(ctx, bd, card.ItemID, "week", "move "+cardRef(card)+" to another week", func(c *board.Card) {
 		c.Week = week
 	}, func(ctx context.Context) error {

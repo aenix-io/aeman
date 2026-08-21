@@ -3139,7 +3139,8 @@ button.card-age {
 .project-epic-head {
   position: sticky;
   top: 0;
-  z-index: 6;
+  /* Above the deadline lines (6), so a line scrolls under the header. */
+  z-index: 8;
   background: var(--bg);
   border-bottom: 1px solid var(--line-soft);
   display: flex;
@@ -3152,7 +3153,7 @@ button.card-age {
 
 .project-corner {
   left: 0;
-  z-index: 7;
+  z-index: 9;
 }
 
 .project-epic-name {
@@ -3200,6 +3201,44 @@ button.card-age {
 .project-more:hover {
   background: var(--hover-overlay);
   color: var(--fg);
+}
+
+/* A deadline is a line across the whole grid at the END of its week — the
+   week it is due by. It must not swallow clicks meant for the cells under it,
+   so only its handle takes the pointer. */
+.project-deadline {
+  position: relative;
+  align-self: end;
+  /* Above the slots AND the sticky week column — the line crosses the dates
+     and its handle sits at the very left, which the sticky column would
+     otherwise cover — but below the sticky header (8/9), so the line still
+     scrolls under it. */
+  z-index: 6;
+  height: 0;
+  border-top: 2px solid var(--danger);
+  pointer-events: none;
+}
+
+.project-deadline-dragging {
+  opacity: 0.7;
+}
+
+/* Several projects on screen means several plans at once: their lines step
+   back so the grid stays readable and each one is told apart by colour. */
+.project-deadline-muted {
+  opacity: 0.55;
+}
+
+.project-deadline-dot {
+  position: absolute;
+  left: 1px;
+  top: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  cursor: ns-resize;
+  pointer-events: auto;
 }
 
 .project-empty-hint {
@@ -3301,15 +3340,26 @@ button.card-age {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+  /* Long words (a branch name, an id) must break rather than force the box
+     wider than its lane and clip to two characters. */
+  overflow-wrap: anywhere;
 }
 
+/* Delete only appears on hover, so it must not RESERVE the width it would
+   need: in a column split between two slots that space is most of the title.
+   Out of the flow entirely, over the slot's bottom-right corner when shown —
+   above the badge's grown hit area so it stays reachable. */
 .project-slot-actions {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  z-index: 3;
   display: flex;
   gap: 2px;
   opacity: 0;
-  /* Above the badge's grown hit area, so delete stays reachable. */
-  position: relative;
-  z-index: 2;
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: 0 0 3px 3px var(--bg);
 }
 
 .project-slot:hover .project-slot-actions {

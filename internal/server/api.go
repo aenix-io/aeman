@@ -84,6 +84,9 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/epics/actions/reorder-epics", s.handleReorderEpics)
 	mux.HandleFunc("POST /api/v1/epics/actions/set-project", s.handleSetEpicProject)
 	mux.HandleFunc("POST /api/v1/epics/actions/rename", s.handleRenameEpic)
+	mux.HandleFunc("POST /api/v1/deadlines", s.handleAddDeadline)
+	mux.HandleFunc("POST /api/v1/deadlines/actions/delete", s.handleDeleteDeadline)
+	mux.HandleFunc("POST /api/v1/deadlines/actions/move", s.handleMoveDeadline)
 	mux.HandleFunc("POST /api/v1/projects", s.handleAddProject)
 	mux.HandleFunc("POST /api/v1/projects/actions/delete-project", s.handleDeleteProject)
 	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
@@ -117,7 +120,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		Version: s.opts.Version,
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
-			{"GET", "/api/v1/board", "Board identity, team roster, and the Project board's projects and epic columns. Every endpoint takes the board as ?owner=&board= — \"project\" is aeman's planning entity, not the GitHub board"},
+			{"GET", "/api/v1/board", "Board identity, team roster, deadlines, and the Project board's projects and epic columns. Every endpoint takes the board as ?owner=&board= — \"project\" is aeman's planning entity, not the GitHub board"},
 			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|weekly|project, team, day, user, week, project, stage, zone, assignee, fields=full for complete cards"},
 			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint; plan cards via spec.plan)"},
 			{"GET", "/api/v1/cards/{uid}", "One card in full (the body lives here, not in listings)"},
@@ -148,6 +151,9 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/epics/actions/reorder-epics", "Apply one project's column order (moves the hidden epic-state cards; body {project, epics:[...]})"},
 			{"POST", "/api/v1/epics/actions/set-project", "Move a column from one project to another ({epic, from, project}); an empty target detaches it"},
 			{"POST", "/api/v1/epics/actions/rename", "Rename a column in place, cards and all ({project, epic, to})"},
+			{"POST", "/api/v1/deadlines", "Mark a week with a project's deadline line ({week, project}); a project holds at most one per week"},
+			{"POST", "/api/v1/deadlines/actions/delete", "Clear a project's deadline on a week ({week, project})"},
+			{"POST", "/api/v1/deadlines/actions/move", "Drag a project's deadline to another week ({project, from, to}); landing where it already has one leaves a single line"},
 			{"POST", "/api/v1/projects", "Declare a project — the Project board's top grouping, which owns epic columns ({name})"},
 			{"POST", "/api/v1/projects/actions/delete-project", "Delete an EMPTY project; refused while it owns epic columns ({project})"},
 			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
@@ -1134,6 +1140,70 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.RenameProject(r.Context(), owner, boardNum, in.Project, in.To); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleAddDeadline marks a week with one project's deadline line
+// (body {week, project}).
+func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Week    string `json:"week"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.AddDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+}
+
+// handleDeleteDeadline clears one project's deadline on a week
+// (body {week, project}).
+func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Week    string `json:"week"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleMoveDeadline drags a deadline to another week (body {from, to});
+// landing on a week that already has one leaves a single line.
+func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Project string `json:"project"`
+		From    string `json:"from"`
+		To      string `json:"to"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.MoveDeadline(r.Context(), owner, boardNum, in.Project, in.From, in.To); err != nil {
 		s.apiError(w, err)
 		return
 	}

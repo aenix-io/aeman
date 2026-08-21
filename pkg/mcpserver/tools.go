@@ -424,6 +424,48 @@ func (h *server) renameEpic(ctx context.Context, _ *mcp.CallToolRequest, in epic
 	return nil, statusOutput{Status: "renamed"}, nil
 }
 
+// deadlineInput names a week of the Project board (and, for a move, the week
+// the line is dragged to).
+type deadlineInput struct {
+	boardRef
+	Week    string `json:"week" jsonschema:"the deadline's week as yyyy-mm-dd; any day resolves to its Monday, since the line sits on a week row"`
+	Project string `json:"project,omitempty" jsonschema:"whose deadline it is — a deadline belongs to a project and takes its colour. Empty means a line belonging to no project"`
+	To      string `json:"to,omitempty" jsonschema:"move_deadline only: the week to drag the line to"`
+}
+
+func (h *server) addDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.AddDeadline(ctx, owner, boardNum, in.Week, in.Project); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "added"}, nil
+}
+
+func (h *server) deleteDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.DeleteDeadline(ctx, owner, boardNum, in.Week, in.Project); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "deleted"}, nil
+}
+
+func (h *server) moveDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.MoveDeadline(ctx, owner, boardNum, in.Project, in.Week, in.To); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "moved"}, nil
+}
+
 // projectInput names one project of the Project board.
 type projectInput struct {
 	boardRef

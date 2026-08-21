@@ -25,6 +25,14 @@ const EpicStateTitle = "aeman:epic-state"
 // empty one can be created first and filled with epics afterwards.
 const ProjectStateTitle = "aeman:project-state"
 
+// DeadlineStateTitle marks the hidden card that puts a deadline on a week of
+// the Project board — the line across the grid. One card per deadline: its
+// Week is the week the line sits on and its Project is whose deadline it is.
+// A project holds at most one deadline per week, so two of ITS OWN lines
+// dragged onto the same week merge into one; two projects can of course both
+// have something due that week.
+const DeadlineStateTitle = "aeman:deadline-state"
+
 // ZoneKey is the colour zone a card belongs to, in the Ford sense. It mirrors
 // the ZoneKey union in web/src/providers/types.ts ("" means no zone).
 type ZoneKey string
@@ -183,6 +191,15 @@ type CreateInput struct {
 	Project     string   `json:"project,omitempty"`
 }
 
+// Deadline is a date marked on the Project board: the week its line sits on,
+// the project it belongs to ("" = none), and the hidden card that declares it.
+// A project holds at most one deadline per week.
+type Deadline struct {
+	Week    string `json:"week"`
+	Project string `json:"project,omitempty"`
+	ItemID  string `json:"itemId,omitempty"`
+}
+
 // EpicCol is one column of the Project board: its name, the project that owns
 // it, and the hidden epic-state card that declares it. The (Project, Name)
 // pair is the column's identity — epic names repeat across projects, so a name
@@ -227,6 +244,8 @@ type Board struct {
 	// Epics lists the Project board's columns in board order (the positions
 	// of the hidden epic-state cards that declare them).
 	Epics []EpicCol `json:"epics,omitempty"`
+	// Deadlines are the weeks carrying a deadline line, in board order.
+	Deadlines []Deadline `json:"deadlines,omitempty"`
 	// Projects lists the project roster in board order (the positions of the
 	// hidden project-state cards) and ProjectStates maps each project to the
 	// card that declares it. A project groups epics: the Project board shows
@@ -250,8 +269,19 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 	winners := map[string]Card{}
 	epicSeen := map[string]bool{}
 	projectSeen := map[string]bool{}
+	deadlineSeen := map[string]bool{}
 	epicKey := func(project, name string) string { return project + "\x00" + name }
 	for _, c := range cards {
+		if c.Title == DeadlineStateTitle {
+			// One line per week: a duplicate is a merge that already happened
+			// (or a torn write) and the first position wins, as everywhere.
+			if k := c.Project + "\x00" + c.Week; c.Week != "" && !deadlineSeen[k] {
+				deadlineSeen[k] = true
+				b.Deadlines = append(b.Deadlines,
+					Deadline{Week: c.Week, Project: c.Project, ItemID: c.ItemID})
+			}
+			continue
+		}
 		if c.Title == ProjectStateTitle {
 			// Same duplicate rule as epic-state: the first position wins.
 			if c.Project == "" || projectSeen[c.Project] {
@@ -363,4 +393,14 @@ func FindEpic(b Board, project, name string) (EpicCol, bool) {
 // match: the same epic name in another project is a different column.
 func InEpic(c Card, project, name string) bool {
 	return c.Epic == name && c.Project == project
+}
+
+// FindDeadline looks a deadline up by its identity — the (project, week) pair.
+func FindDeadline(b Board, project, week string) (Deadline, bool) {
+	for _, d := range b.Deadlines {
+		if d.Project == project && d.Week == week {
+			return d, true
+		}
+	}
+	return Deadline{}, false
 }

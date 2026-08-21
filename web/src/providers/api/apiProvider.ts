@@ -174,6 +174,10 @@ export const apiProvider: Provider = {
       cards: [],
       teams: info.metadata.teams ?? [],
       projects: info.metadata.projects ?? [],
+      deadlines: (info.metadata.deadlines ?? []).map((d) => ({
+        week: d.week,
+        project: d.project ?? "",
+      })),
       epics: (info.metadata.epics ?? []).map((e) => ({
         name: e.name,
         project: e.project ?? "",
@@ -420,6 +424,31 @@ export const apiProvider: Provider = {
     to: string,
   ): Promise<void> {
     await api(board, "POST", "/projects/actions/rename", { project: from, to });
+  },
+
+  async addDeadline(
+    board: BoardAddr,
+    week: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/deadlines", { week, project });
+  },
+
+  async deleteDeadline(
+    board: BoardAddr,
+    week: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/deadlines/actions/delete", { week, project });
+  },
+
+  async moveDeadline(
+    board: BoardAddr,
+    project: string,
+    from: string,
+    to: string,
+  ): Promise<void> {
+    await api(board, "POST", "/deadlines/actions/move", { project, from, to });
   },
 
   async carryWeek(

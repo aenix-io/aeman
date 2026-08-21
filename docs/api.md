@@ -20,6 +20,8 @@ The HTTP API takes them as query parameters (`?owner=acme&board=7`), falling bac
 
 **"Project" means aeman's own planning entity** — a group of epic columns on the Project board — and never the GitHub board. That is why the board is addressed by `board`: `project` is a card filter (`?view=project&project=cozystack`) and the subject of its own endpoints.
 
+A project also carries **deadlines**: a line across the grid on a given week. One project holds at most one per week, so dragging one of its lines onto another merges them — but two projects can each have something due the same week, and those are two lines.
+
 A **column** of the Project board is the pair `(project, epic)`. Epic names are unique only *within* a project, so every project can have its own `Docs` or `Auth`, and a card names both halves. Anything acting on a column — filing a card, deleting, renaming, reordering — names both.
 
 When started with `--lock-board` (or `AEMAN_LOCK_BOARD=1`), aeman pins the board to its configured `--owner`/`--board` and ignores any client-supplied owner/board. Use this when exposing aeman to clients that must not roam across boards.
@@ -34,7 +36,7 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 
 | Method & path | Purpose |
 | --- | --- |
-| `GET /api/v1/board` | Board identity, the team roster, and the Project board's structure: `metadata.projects` (in board order) and `metadata.epics` (`{name, project}`, in board order). |
+| `GET /api/v1/board` | Board identity, the team roster, and the Project board's structure: `metadata.projects` (in board order), `metadata.epics` (`{name, project}`, in board order) and `metadata.deadlines` (`{week, project}`). |
 | `GET /api/v1/cards` | LIST cards (selectors below), in board order. A listing is the **board-row shape**: no `spec.description` — `status.links` carries the refs extracted from it (capped at 50), and the body itself is one `GET /cards/{uid}` away. `?fields=full` opts a genuine bulk reader into complete cards. |
 | `POST /api/v1/cards` | Create a card (201). A title that is nothing but a GitHub issue/PR URL becomes that item's real title, with the link moved into the description (one-time, never re-synced). |
 | `GET /api/v1/cards/{uid}` | One card. |
@@ -50,6 +52,7 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | `PATCH /api/v1/sprints` | Set a pointer directly `{team, current, previous}`. |
 | `POST /api/v1/projects` | Declare a project `{name}` (201) — the Project board's top grouping, which owns epic columns. It may be created empty. |
 | `POST /api/v1/epics` | Declare an epic column `{name, project}` (201). The project is required and must exist. |
+| `POST /api/v1/deadlines` | Mark a week with a project's deadline `{week, project}` (201). Any day resolves to its Monday; asking twice changes nothing. |
 | `GET /api/v1/ordering` | The board-level manual card order (a uid list). |
 | `GET /api/v1/watch` | WebSocket stream of resource events (below). |
 
@@ -78,6 +81,8 @@ Actions carry the board rules — the client never reimplements them.
 | `POST /api/v1/projects/actions/delete-project` | `{project}` | Delete an EMPTY project; 422 while it still owns columns. |
 | `POST /api/v1/projects/actions/reorder-projects` | `{projects:[...]}` | Apply the shared project order. |
 | `POST /api/v1/projects/actions/rename` | `{project, to}` | Rename a project in place; its columns and their cards follow. |
+| `POST /api/v1/deadlines/actions/delete` | `{week, project}` | Clear that project's deadline on the week. |
+| `POST /api/v1/deadlines/actions/move` | `{project, from, to}` | Drag its deadline to another week; landing where it already has one leaves a single line. Another project's line on that week is untouched. |
 
 The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they report the counts without changing anything — that backs the UI's confirm dialogs.
 
@@ -203,7 +208,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
 
 | Tool | Purpose |
 | --- | --- |
-| `get_board` | Board identity, team roster, and the Project board's structure (`metadata.projects`, `metadata.epics`). |
+| `get_board` | Board identity, team roster, and the Project board's structure (`metadata.projects`, `metadata.epics`, `metadata.deadlines`). |
 | `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`, `focus`). Returns board ROWS (no descriptions; `status.links` carries the extracted refs). `title=<substring>` resolves a card someone mentioned by name to its uid in one cheap call; `full=true` opts a bulk reader into complete cards. No view defaults to your own Me board (who-am-i resolved server-side); `view=all` is the whole board, `view=team` the lead view. |
 | `get_card` / `list_notes` / `list_links` | One card IN FULL — the detail pane, and the way to read a body after a `list_cards` row; its notes; its description links (GitHub refs resolved with titles). |
 | `list_log` | The card's activity feed: events (stage/progress/review/plan changes with actor) + notes, one chronological list — read a card's delta instead of asking for morning reports. |
@@ -215,6 +220,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
 | `take_into_plan` / `release_from_plan` | Weekly-plan membership. |
 | `carry_over` / `carry_week` | Sprint/week carry with `dryRun` count reports. |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |
+| `add_deadline` / `delete_deadline` / `move_deadline` | A project's deadline lines: mark a week, clear it, drag one to another week (two of the same project on one week become one). |
 | `add_project` / `delete_project` / `rename_project` / `reorder_projects` | The project roster: declare one (it may start empty), delete an EMPTY one, rename one (its columns and cards follow), set the chip order. |
 | `add_epic` / `delete_epic` / `rename_epic` / `set_epic_project` | The columns of a project, each named by the `(project, epic)` pair: `add_epic` requires `project=`, `delete_epic` refuses a column with cards, `rename_epic` rewrites the column and its cards, `set_epic_project` moves one between projects (an empty target detaches it). |
 
