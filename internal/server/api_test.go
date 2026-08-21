@@ -1,6 +1,8 @@
 package server
 
 import (
+	"fmt"
+
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -8,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aenix-io/aeman/pkg/ghprojects"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
@@ -613,5 +617,23 @@ func TestPresenceUsesAuthenticatedLogin(t *testing.T) {
 	}
 	if got.Card != "c1" {
 		t.Fatalf("presence card = %q, want c1", got.Card)
+	}
+}
+
+// GitHub rejecting the caller's token is not an upstream outage: answering
+// 502 sent people hunting a broken server (an agent even concluded aeman used
+// "its own invalid token" — in OAuth mode it holds none). It is a 401 saying
+// the authorization is gone.
+func TestAPIBadCredentialsAnswers401(t *testing.T) {
+	fake := boardservicetest.New(nil, nil)
+	fake.FailLoad(fmt.Errorf("%w: HTTP 401: Bad credentials", ghprojects.ErrBadCredentials))
+	srv := apiServer(t, Options{}, fake)
+
+	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&project=1", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no longer valid") {
+		t.Fatalf("the answer must name the cause, got %s", rec.Body.String())
 	}
 }

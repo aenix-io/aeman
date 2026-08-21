@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -430,5 +431,39 @@ func TestLoadBoardPaginatesItems(t *testing.T) {
 	}
 	if projectQueries != 2 {
 		t.Fatalf("want 2 project page queries (first + one follow-up), got %d", projectQueries)
+	}
+}
+
+// GitHub rejecting the caller's token is its own condition, not a generic
+// upstream failure: the token stored for that user is dead and no retry will
+// help, so the session behind it must be dropped rather than kept alive for
+// its full TTL while every call fails. The sentinel is what lets the server
+// tell the two apart.
+func TestGraphQLBadCredentialsIsTyped(t *testing.T) {
+	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(code)
+			fmt.Fprint(w, `{"message":"Bad credentials"}`)
+		}))
+		var out struct{}
+		err := New("tok", WithEndpoint(srv.URL)).graphql(context.Background(), `query{x}`, nil, &out)
+		srv.Close()
+		if !errors.Is(err, ErrBadCredentials) {
+			t.Fatalf("HTTP %d must be ErrBadCredentials, got %v", code, err)
+		}
+		if !strings.Contains(err.Error(), "Bad credentials") {
+			t.Fatalf("the upstream message must survive for the log: %v", err)
+		}
+	}
+
+	// An ordinary upstream failure stays untyped — it is retryable.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	var out struct{}
+	err := New("tok", WithEndpoint(srv.URL)).graphql(context.Background(), `query{x}`, nil, &out)
+	if errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("a 502 is not a credentials problem: %v", err)
 	}
 }
