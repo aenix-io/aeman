@@ -512,16 +512,14 @@ export function ProjectBoard({
       });
   };
 
-  // A deadline belongs to the project whose plan it is part of, so setting
-  // one needs a single project in view — the same rule a column follows.
-  const setDeadline = (week: string, on: boolean) => {
+  // A deadline belongs to the project whose plan it is part of, so the week's
+  // menu offers one entry per project in view — with several on screen there
+  // is no single "the" deadline to set.
+  const setDeadline = (week: string, projectName: string, on: boolean) => {
     setWeekMenu(null);
-    if (!targetProject) {
-      return;
-    }
     const call = on
-      ? provider.addDeadline(board, week, targetProject)
-      : provider.deleteDeadline(board, week, targetProject);
+      ? provider.addDeadline(board, week, projectName)
+      : provider.deleteDeadline(board, week, projectName);
     void call.then(reload).catch((err: unknown) => onError(errText(err)));
   };
 
@@ -636,13 +634,10 @@ export function ProjectBoard({
 
   const todayRow = weeks.indexOf(thisMonday);
 
-  // Whether the project in view already has a deadline on the week whose menu
-  // is open — the menu offers setting or clearing THAT project's line.
-  const weekHasDeadline =
-    weekMenu !== null &&
-    board.deadlines.some(
-      (d) => d.week === weekMenu && d.project === (targetProject ?? ""),
-    );
+  // The projects the week menu can act on: those in view, or the whole roster
+  // when nothing is filtered. The "no project" chip is not among them — a
+  // deadline is part of a plan, so it is always somebody's.
+  const menuProjects = (filter ?? board.projects).filter((p) => p !== "");
 
   // Where a column sits among the visible ones (-1 while it is filtered out).
   const colIndex = (e: EpicRef) =>
@@ -1055,29 +1050,30 @@ export function ProjectBoard({
         onClose={() => setWeekMenu(null)}
         className="card-stage-menu"
       >
-        <button
-          type="button"
-          className="card-stage-item"
-          disabled={!targetProject}
-          title={
-            targetProject
-              ? undefined
-              : "Pick one project first — a deadline belongs to a plan"
-          }
-          onClick={() => setDeadline(weekMenu ?? "", !weekHasDeadline)}
-        >
-          <span
-            className="card-stage-dot"
-            style={{
-              background: targetProject ? teamColor(targetProject) : "var(--danger)",
-            }}
-          />
-          {weekHasDeadline
-            ? `Remove ${targetProject}'s deadline`
-            : targetProject
-              ? `Set a deadline for ${targetProject}`
-              : "Set a deadline"}
-        </button>
+        {menuProjects.length === 0 && (
+          <span className="card-stage-item project-menu-hint">
+            Add a project first — a deadline belongs to a plan
+          </span>
+        )}
+        {menuProjects.map((p) => {
+          const has = board.deadlines.some(
+            (d) => d.week === weekMenu && d.project === p,
+          );
+          return (
+            <button
+              key={p}
+              type="button"
+              className="card-stage-item"
+              onClick={() => setDeadline(weekMenu ?? "", p, !has)}
+            >
+              <span
+                className="card-stage-dot"
+                style={{ background: teamColor(p) }}
+              />
+              {has ? `Remove ${p}'s deadline` : `Set a deadline for ${p}`}
+            </button>
+          );
+        })}
       </Dropdown>
       {managing && (
         <TeamsModal

@@ -3241,6 +3241,12 @@ button.card-age {
   pointer-events: auto;
 }
 
+/* A menu row that only explains why there is nothing to pick. */
+.project-menu-hint {
+  color: var(--muted);
+  cursor: default;
+}
+
 .project-empty-hint {
   color: var(--muted);
   font-size: 13px;
