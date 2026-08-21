@@ -680,10 +680,18 @@ export function ProjectBoard({
             >
               <span className="project-epic-name">{e.name}</span>
               {/* With several projects on screen the column header alone is
-                  ambiguous, so it carries its project; inside one project the
-                  label would repeat on every column and is left off. */}
+                  ambiguous, so it carries its project — as the same round
+                  badge a team wears on a card, not as a second line of text
+                  competing with the column's own name. Inside one project the
+                  badge would repeat on every column and is left off. */}
               {!targetProject && (
-                <span className="project-epic-project">{e.project || "—"}</span>
+                <span
+                  className={`project-epic-avatar${e.project ? "" : " project-epic-avatar-none"}`}
+                  style={e.project ? { background: teamColor(e.project) } : undefined}
+                  title={e.project || "no project"}
+                >
+                  {e.project ? teamInitial(e.project) : "·"}
+                </span>
               )}
               <button
                 type="button"

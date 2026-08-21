@@ -3163,17 +3163,24 @@ button.card-age {
 }
 
 /* The owning project, shown only in the all-projects view — the column name
-   alone is ambiguous there. Muted and clipped: it labels, never competes. */
-.project-epic-project {
+   alone is ambiguous there. It wears the same round badge a team does on a
+   card, so one glance groups the columns without reading anything. */
+.project-epic-avatar {
   flex: none;
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
   font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.project-epic-avatar-none {
+  background: var(--hover-overlay);
   color: var(--muted);
 }
 
