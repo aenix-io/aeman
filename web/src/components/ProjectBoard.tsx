@@ -165,10 +165,34 @@ export function ProjectBoard({
   // other derived list follows from this one, so a column and its cards can
   // never disagree about being visible. A column is the (project, name) PAIR —
   // "Docs" exists in every project and they are different columns.
-  const epics = useMemo(
-    () => board.epics.filter((e) => !filter || filter.includes(e.project)),
-    [board.epics, filter],
-  );
+  // While a column is being dragged — and until the server's order catches
+  // up — this is the order the columns are drawn in. Null means "the board's".
+  const [order, setOrder] = useState<string[] | null>(null);
+
+  const epics = useMemo(() => {
+    const shown = board.epics.filter((e) => !filter || filter.includes(e.project));
+    if (!order) {
+      return shown;
+    }
+    const at = (e: EpicRef) => {
+      const i = order.indexOf(colKey(e.project, e.name));
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    return [...shown].sort((a, b) => at(a) - at(b));
+  }, [board.epics, filter, order]);
+
+  // The board caught up (or the columns changed under us): stop overriding.
+  useEffect(() => {
+    if (!order) {
+      return;
+    }
+    const live = board.epics
+      .filter((e) => !filter || filter.includes(e.project))
+      .map((e) => colKey(e.project, e.name));
+    if (live.length === order.length && live.every((k, i) => k === order[i])) {
+      setOrder(null);
+    }
+  }, [board.epics, filter, order]);
 
   // Columns belonging to no project are reachable through a "No project" chip
   // — but only while such a column exists, so the chip never sits there as a
@@ -200,6 +224,80 @@ export function ProjectBoard({
   // a grid and columns of assorted widths stop being comparable.
   const [colWidth, setColWidth] = useState<number | null>(readColWidth);
   const [resizing, setResizing] = useState<{ x: number; from: number } | null>(null);
+
+  // Dragging a column header sideways reorders the columns. A column can
+  // always be moved among the columns of ITS OWN project — that order is what
+  // the board stores — so dragging works whatever the chips are showing; a
+  // header of another project simply is not a landing place.
+  const colDrag = useRef<{
+    key: string;
+    project: string;
+    x: number;
+    moved: boolean;
+  } | null>(null);
+  const [dragCol, setDragCol] = useState<string | null>(null);
+
+  const beginColDrag = (e: React.PointerEvent, col: EpicRef) => {
+    if ((e.target as HTMLElement).closest("button, input, .project-col-resize")) {
+      return;
+    }
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    colDrag.current = {
+      key: colKey(col.project, col.name),
+      project: col.project,
+      x: e.clientX,
+      moved: false,
+    };
+  };
+
+  const moveColDrag = (e: React.PointerEvent) => {
+    const d = colDrag.current;
+    if (!d) {
+      return;
+    }
+    if (!d.moved) {
+      if (Math.abs(e.clientX - d.x) < DRAG_SLOP) {
+        return;
+      }
+      d.moved = true;
+      setDragCol(d.key);
+    }
+    const over = epicAt(e.clientX);
+    // Only among its own project's columns: dropping a column into another
+    // project's run of columns would be a move between projects, which is a
+    // different action with its own menu entry.
+    if (!over || over.project !== d.project) {
+      return;
+    }
+    const keys = epics.map((x) => colKey(x.project, x.name));
+    const from = keys.indexOf(d.key);
+    const to = keys.indexOf(colKey(over.project, over.name));
+    if (from === -1 || to === -1 || from === to) {
+      return;
+    }
+    const next = [...keys];
+    next.splice(to, 0, ...next.splice(from, 1));
+    setOrder(next);
+  };
+
+  const endColDrag = () => {
+    const d = colDrag.current;
+    colDrag.current = null;
+    setDragCol(null);
+    if (!d?.moved) {
+      return;
+    }
+    // Only this project's columns are persisted — the others keep the order
+    // the board already has for them.
+    const names = epics.filter((x) => x.project === d.project).map((x) => x.name);
+    void provider
+      .reorderEpics(board, d.project, names)
+      .then(reload)
+      .catch((err: unknown) => {
+        setOrder(null); // put the board's own order back on screen
+        onError(errText(err));
+      });
+  };
 
   const beginResize = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -865,22 +963,35 @@ export function ProjectBoard({
       });
       byCol.set(k, list);
     }
-    // Interval partitioning per column: earliest first, each card taking the
-    // first lane already free by the week it starts.
+    // Lanes are worked out per CLUSTER of overlapping slots, not per column:
+    // splitting the whole column because two slots happen to share a fortnight
+    // would leave every unrelated card at half width for no reason.
     for (const list of byCol.values()) {
       list.sort((a, b) => a.row - b.row || b.span - a.span);
-      const laneEnd: number[] = [];
+      let cluster: typeof list = [];
+      let laneEnd: number[] = [];
+      const close = () => {
+        for (const s of cluster) {
+          s.lanes = laneEnd.length;
+        }
+        cluster = [];
+        laneEnd = [];
+      };
       for (const s of list) {
+        // A slot that begins after everything so far has ended starts a new
+        // cluster: it shares its weeks with nothing before it.
+        if (laneEnd.length && s.row >= Math.max(...laneEnd)) {
+          close();
+        }
         let lane = laneEnd.findIndex((end) => end <= s.row);
         if (lane === -1) {
           lane = laneEnd.length;
         }
         laneEnd[lane] = s.row + s.span;
         s.lane = lane;
+        cluster.push(s);
       }
-      for (const s of list) {
-        s.lanes = laneEnd.length;
-      }
+      close();
     }
     return byCol;
   }, [cards, weeks, draft]);
@@ -1038,9 +1149,21 @@ export function ProjectBoard({
           return (
             <div
               key={k}
-              className="project-epic-head"
-              title={`${e.name} — ${e.project || "no project"} · double-click to rename`}
+              className={`project-epic-head project-epic-head-movable${
+                dragCol === k ? " project-epic-head-dragging" : ""
+              }`}
+              title={`${e.name} — ${e.project || "no project"} · double-click to rename · drag to reorder`}
               onDoubleClick={() => setRenaming(k)}
+              onPointerDown={(ev) => beginColDrag(ev, e)}
+              onPointerMove={moveColDrag}
+              onPointerUp={endColDrag}
+              onPointerCancel={() => {
+                // A cancelled gesture must not leave the preview standing:
+                // the board's own order is the truth again.
+                colDrag.current = null;
+                setDragCol(null);
+                setOrder(null);
+              }}
             >
               <span className="project-epic-name">{e.name}</span>
               {(colProgress.get(k)?.total ?? 0) > 0 && (
@@ -1333,6 +1456,17 @@ export function ProjectBoard({
                 onClose={() => setTeamMenu(null)}
                 className="card-stage-menu"
               >
+                <button
+                  type="button"
+                  className="card-stage-item project-menu-lead"
+                  onClick={() => setDone(card, !complete(card))}
+                >
+                  <span
+                    className="card-stage-dot"
+                    style={{ background: STAGES.done.color }}
+                  />
+                  {complete(card) ? "Reopen" : "Mark as done"}
+                </button>
                 {/* The roster carries "" for the no-team group; the explicit
                     "No team" entry below is that, so skip the blank one. */}
                 {board.teams.filter((t) => t !== "").map((t) => (
@@ -1356,17 +1490,6 @@ export function ProjectBoard({
                 >
                   <span className="card-stage-dot card-stage-dot-none" />
                   No team
-                </button>
-                <button
-                  type="button"
-                  className="card-stage-item card-stage-clear"
-                  onClick={() => setDone(card, !complete(card))}
-                >
-                  <span
-                    className="card-stage-dot"
-                    style={{ background: STAGES.done.color }}
-                  />
-                  {complete(card) ? "Reopen" : "Mark as done"}
                 </button>
               </Dropdown>
               <div
