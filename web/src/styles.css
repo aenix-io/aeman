@@ -3583,11 +3583,11 @@ button.card-age {
    above the badge's grown hit area so it stays reachable. */
 .project-slot-actions {
   position: absolute;
-  /* Clear of the owner badge, which lives at the slot's right edge: sitting on
-     top of it made the badge impossible to press — and on an unassigned card,
-     impossible to even find. */
+  /* Beside the owner badge, on the slot's top row: sitting on top of the badge
+     made it impossible to press, and drifting to the bottom edge parted it
+     from the controls it belongs with. */
   right: 19px;
-  bottom: 1px;
+  top: 2px;
   z-index: 3;
   display: flex;
   gap: 2px;
