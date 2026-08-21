@@ -60,6 +60,8 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  *  ROW_PX must match .project-cell in styles.css — it is what keeps the view
  *  still when rows are prepended. */
 const ROW_PX = 28;
+/** How far the pointer must travel before a press on a card becomes a drag. */
+const DRAG_SLOP = 4;
 const HEADER_PX = 26;
 const WEEK_STEP = 8;
 
@@ -306,6 +308,16 @@ export function ProjectBoard({
     row: number;
     epic: EpicRef;
   } | null>(null);
+  // The press behind a possible drag: held in a ref so that merely pressing a
+  // card re-renders nothing, and so a click that never travels stays a click.
+  const press = useRef<{
+    card: CardModel;
+    row: number;
+    span: number;
+    grab: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const epicAt = (clientX: number): EpicRef | null => {
     const grid = gridRef.current;
@@ -395,19 +407,43 @@ export function ProjectBoard({
     }
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setMove({
+    // Remember WHERE on the card the press landed. A press is not yet a drag:
+    // it becomes one only once the pointer travels, so a stray click leaves
+    // the card exactly where it was.
+    press.current = {
       card,
-      span,
       row,
-      epic: { name: card.epic ?? "", project: card.project ?? "" },
-    });
+      span,
+      grab: Math.max(0, rowAt(e.clientY) - row),
+      x: e.clientX,
+      y: e.clientY,
+    };
   };
 
   const moveMove = (e: React.PointerEvent) => {
-    if (!move) {
+    const p = press.current;
+    if (!p) {
       return;
     }
-    const row = Math.min(rowAt(e.clientY), weeks.length - 1);
+    if (!move) {
+      if (Math.abs(e.clientX - p.x) < DRAG_SLOP && Math.abs(e.clientY - p.y) < DRAG_SLOP) {
+        return;
+      }
+      setMove({
+        card: p.card,
+        span: p.span,
+        row: p.row,
+        epic: { name: p.card.epic ?? "", project: p.card.project ?? "" },
+      });
+      return;
+    }
+    // The card follows the point it was grabbed by, not its own top edge:
+    // grabbing a six-week slot by its last week and nudging it must not fling
+    // it five weeks up the board.
+    const row = Math.max(
+      0,
+      Math.min(rowAt(e.clientY) - p.grab, weeks.length - p.span),
+    );
     const epic = epicAt(e.clientX) ?? move.epic;
     if (row !== move.row || colKey(epic.project, epic.name) !== colKey(move.epic.project, move.epic.name)) {
       setMove({ ...move, row, epic });
@@ -415,6 +451,7 @@ export function ProjectBoard({
   };
 
   const endMove = () => {
+    press.current = null;
     if (!move) {
       return;
     }
@@ -1219,7 +1256,10 @@ export function ProjectBoard({
               onPointerDown={(ev) => beginMove(card, row, previewSpan(card, row, span), ev)}
               onPointerMove={moveMove}
               onPointerUp={endMove}
-              onPointerCancel={() => setMove(null)}
+              onPointerCancel={() => {
+                press.current = null;
+                setMove(null);
+              }}
               onDoubleClick={() => onOpen(card)}
               title={card.title}
             >
