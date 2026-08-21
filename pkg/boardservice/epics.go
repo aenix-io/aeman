@@ -18,6 +18,11 @@ var ErrEpicInUse = errors.New("epic still has cards")
 // repeat across projects on purpose — every project has its own "Docs".
 var ErrEpicExists = errors.New("epic already exists")
 
+// ErrWeekDerived is setting the week of a Project-board slot by hand: it is
+// derived from the card's start date, so there is nothing to set. A rejected
+// input (422), not an upstream failure.
+var ErrWeekDerived = errors.New("a slot's week is derived from its dates")
+
 // ErrEpicNotFound is filing a card under a column that does not exist — a
 // typo must not mint a phantom column the way a stray team value used to
 // mint a team. It is a rejected input (422), not an upstream failure.

@@ -609,7 +609,7 @@ export function ProjectBoard({
       .patchCard(board, card.itemId, {
         epic: epic.name,
         project: epic.project,
-        plan: { week },
+        // No plan.week: the server takes the row from dates.start.
         dates: { start: week, end },
       })
       .then(addCard)
@@ -791,7 +791,7 @@ export function ProjectBoard({
     void provider
       .patchCard(board, card.itemId, {
         team: team ?? "",
-        ...(team && !card.plan ? { plan: { band: "fri", week: card.week ?? "" } } : {}),
+        ...(team && !card.plan ? { plan: { band: "fri" } } : {}),
       })
       .then(addCard)
       .catch((err: unknown) => {
@@ -974,10 +974,13 @@ export function ProjectBoard({
       return byCol;
     }
     for (const c of cards) {
-      if (!c.epic || !c.week) {
+      // The row is the START date's week. A card's own stored week is only a
+      // fallback for one that has no start at all.
+      const from = c.startDate || c.week;
+      if (!c.epic || !from) {
         continue;
       }
-      const anchor = mondayOf(c.week);
+      const anchor = mondayOf(from);
       const row = weeksBetween(weeks[0], anchor);
       if (row < 0 || row >= weeks.length) {
         continue;

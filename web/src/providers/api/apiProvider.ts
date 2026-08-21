@@ -227,9 +227,7 @@ export const apiProvider: Provider = {
     if (input.epic) {
       body.epic = input.epic;
       body.project = input.project ?? "";
-      if (input.week) {
-        body.plan = { band: "", week: input.week };
-      }
+      // No plan.week: a slot's row is the week of its start date.
     }
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;

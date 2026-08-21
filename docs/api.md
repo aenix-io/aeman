@@ -22,6 +22,8 @@ The HTTP API takes them as query parameters (`?owner=acme&board=7`), falling bac
 
 A project also carries **deadlines**: a line across the grid on a given week. One project holds at most one per week, so dragging one of its lines onto another merges them — but two projects can each have something due the same week, and those are two lines.
 
+A slot's **row is the week of its `dates.start`** — always derived, never stored beside the dates where the two could drift. `plan.week` belongs to weekly-plan cards (those created with a band and no dates); setting it on a card filed under an epic is refused (422).
+
 A **column** of the Project board is the pair `(project, epic)`. Epic names are unique only *within* a project, so every project can have its own `Docs` or `Auth`, and a card names both halves. Anything acting on a column — filing a card, deleting, renaming, reordering — names both.
 
 When started with `--lock-board` (or `AEMAN_LOCK_BOARD=1`), aeman pins the board to its configured `--owner`/`--board` and ignores any client-supplied owner/board. Use this when exposing aeman to clients that must not roam across boards.

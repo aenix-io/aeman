@@ -404,10 +404,9 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 	if day == "" {
 		day = start
 	}
-	week := args.Week
-	if week == "" {
-		week = board.MondayOf(start)
-	}
+	// The row is the start's week, full stop: an explicit week here would be
+	// a second value free to disagree with the dates the moment either moves.
+	week := board.MondayOf(start)
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:    args.Title,
 		Zone:     args.Zone,
@@ -920,6 +919,11 @@ func (s *Service) SetDates(ctx context.Context, owner string, project int, itemI
 			}
 		}
 	}
+	// A Project-board slot that has not been taken into work stays out of the
+	// sprints: re-dating a plan is planning, not starting the work.
+	if c.Epic != "" && c.SprintStart == "" {
+		sprint = ""
+	}
 	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
 		return err
 	}
@@ -927,6 +931,9 @@ func (s *Service) SetDates(ctx context.Context, owner string, project int, itemI
 		return err
 	}
 	if err := s.backend.SetDay(ctx, b, c, end); err != nil {
+		return err
+	}
+	if err := s.syncSlotWeek(ctx, b, c, start); err != nil {
 		return err
 	}
 	s.logEvent(ctx, b, c, board.EventDates,
@@ -1376,6 +1383,24 @@ func (s *Service) SetDay(ctx context.Context, owner string, project int, itemID,
 	return nil
 }
 
+// syncSlotWeek keeps a Project-board slot's row under its start date. The week
+// is not a second thing to set: it IS the start's week, and a card whose dates
+// moved while its week stayed behind sat in a row its own dates contradicted.
+func (s *Service) syncSlotWeek(ctx context.Context, b board.Board, c board.Card, start string) error {
+	if c.Epic == "" || start == "" {
+		return nil
+	}
+	week := board.MondayOf(start)
+	if week == c.Week {
+		return nil
+	}
+	if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, c, board.EventWeek, c.Week, week)
+	return nil
+}
+
 // SetStart sets a card's start date (date = "" clears it).
 func (s *Service) SetStart(ctx context.Context, owner string, project int, itemID, date string) error {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
@@ -1383,6 +1408,9 @@ func (s *Service) SetStart(ctx context.Context, owner string, project int, itemI
 		return err
 	}
 	if err := s.backend.SetStart(ctx, b, card, date); err != nil {
+		return err
+	}
+	if err := s.syncSlotWeek(ctx, b, card, date); err != nil {
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventDates,
@@ -1428,10 +1456,16 @@ func (s *Service) SetPlan(ctx context.Context, owner string, project int, itemID
 }
 
 // SetWeek sets a card's plan week, a Monday (week = "" clears it).
+// SetWeek moves a WEEKLY-PLAN card to another week. A Project-board slot is
+// refused: its week comes from its start date, and accepting a second value
+// here is exactly how the two came to disagree.
 func (s *Service) SetWeek(ctx context.Context, owner string, project int, itemID, week string) error {
 	b, card, err := s.loadCard(ctx, owner, project, itemID)
 	if err != nil {
 		return err
+	}
+	if card.Epic != "" {
+		return fmt.Errorf("%w: a slot's week follows its start date — move the dates instead", ErrWeekDerived)
 	}
 	if err := s.backend.SetWeek(ctx, b, card, week); err != nil {
 		return err

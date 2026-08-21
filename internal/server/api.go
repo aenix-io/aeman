@@ -364,8 +364,8 @@ type createCardRequest struct {
 		Week string `json:"week"`
 	} `json:"plan"`
 	// Epic + Project file the card on the Project board, under the column that
-	// pair identifies (its week defaults to the Monday of dates.start; dates
-	// may span several weeks).
+	// pair identifies. Its row is the week of dates.start — plan.week is for
+	// weekly-plan cards and is ignored here — and dates may span weeks.
 	Epic           string `json:"epic"`
 	CardProject    string `json:"project"`
 	ReviewOf       string `json:"reviewOf"`
@@ -1445,7 +1445,8 @@ func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, boardservice.ErrEpicNotFound),
 		errors.Is(err, boardservice.ErrProjectInUse),
 		errors.Is(err, boardservice.ErrProjectExists),
-		errors.Is(err, boardservice.ErrProjectNotFound):
+		errors.Is(err, boardservice.ErrProjectNotFound),
+		errors.Is(err, boardservice.ErrWeekDerived):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())
