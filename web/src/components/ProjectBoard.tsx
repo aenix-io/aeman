@@ -119,9 +119,29 @@ const LS_PROGRESS = "aeman.projectProgressOpen";
 /** The narrowest a column may be dragged: below this a title is unreadable. */
 const MIN_COL = 70;
 
-function readColWidth(): number | null {
-  const raw = Number(localStorage.getItem(LS_COLW));
-  return Number.isFinite(raw) && raw >= MIN_COL ? raw : null;
+/** Column widths, one per selection of projects: a plan of 21 columns and one
+ *  of a single column want different widths, and a width that followed you
+ *  between them would be wrong in one of the two. */
+function readColWidths(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(LS_COLW);
+    const v: unknown = raw ? JSON.parse(raw) : null;
+    // The pre-selection format was one number for the whole board: keep it as
+    // the all-projects width rather than dropping what someone dragged.
+    if (typeof v === "number") {
+      return v >= MIN_COL ? { "*": v } : {};
+    }
+    if (v && typeof v === "object") {
+      return Object.fromEntries(
+        Object.entries(v as Record<string, unknown>).filter(
+          ([, w]) => typeof w === "number" && w >= MIN_COL,
+        ),
+      ) as Record<string, number>;
+    }
+  } catch {
+    // A corrupt entry is not worth a broken board.
+  }
+  return {};
 }
 
 function readFilter(): string[] | null {
@@ -220,9 +240,11 @@ export function ProjectBoard({
   const [padFwd, setPadFwd] = useState(0);
 
   // Column width: null until dragged, when the columns just share the room —
-  // the right default. One width governs every column, because a plan reads as
-  // a grid and columns of assorted widths stop being comparable.
-  const [colWidth, setColWidth] = useState<number | null>(readColWidth);
+  // the right default. One width governs every column of the selection,
+  // because a plan reads as a grid and columns of assorted widths stop being
+  // comparable; a different selection carries its own width.
+  const [colWidths, setColWidths] = useState<Record<string, number>>(readColWidths);
+  const widthsRef = useRef(colWidths);
   const [resizing, setResizing] = useState<{ x: number; from: number } | null>(null);
 
   // Dragging a column header sideways reorders the columns. A column can
@@ -299,6 +321,24 @@ export function ProjectBoard({
       });
   };
 
+  // Which selection the width belongs to: the chips in view, or every project.
+  const widthKey = filter ? [...filter].sort().join("\u0000") : "*";
+  const colWidth = colWidths[widthKey] ?? null;
+
+  const setColWidth = (w: number | null) => {
+    const next = { ...widthsRef.current };
+    if (w === null) {
+      delete next[widthKey];
+    } else {
+      next[widthKey] = w;
+    }
+    widthsRef.current = next;
+    setColWidths(next);
+  };
+
+  const persistWidths = () =>
+    localStorage.setItem(LS_COLW, JSON.stringify(widthsRef.current));
+
   const beginResize = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -320,9 +360,7 @@ export function ProjectBoard({
       return;
     }
     setResizing(null);
-    if (colWidth !== null) {
-      localStorage.setItem(LS_COLW, String(colWidth));
-    }
+    persistWidths();
   };
 
   const weeks = useMemo(() => {
@@ -1230,9 +1268,10 @@ export function ProjectBoard({
                 onPointerUp={endResize}
                 onPointerCancel={() => setResizing(null)}
                 onDoubleClick={(ev) => {
+                  // Back to sharing the room evenly — for this selection only.
                   ev.stopPropagation();
                   setColWidth(null);
-                  localStorage.removeItem(LS_COLW);
+                  persistWidths();
                 }}
               />
             </div>
