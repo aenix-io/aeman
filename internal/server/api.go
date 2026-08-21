@@ -1068,6 +1068,11 @@ func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.AddEpic(r.Context(), owner, boardNum, in.Name, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1090,6 +1095,11 @@ func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.SetEpicProject(r.Context(), owner, boardNum, in.From, in.Epic, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1112,6 +1122,11 @@ func (s *Server) handleRenameEpic(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.RenameEpic(r.Context(), owner, boardNum, in.Project, in.Epic, in.To); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1133,6 +1148,11 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.RenameProject(r.Context(), owner, boardNum, in.Project, in.To); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1167,6 +1187,11 @@ func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.AddDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1188,6 +1213,11 @@ func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.DeleteDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1210,6 +1240,11 @@ func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.MoveDeadline(r.Context(), owner, boardNum, in.Project, in.From, in.To); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1230,6 +1265,11 @@ func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.AddProject(r.Context(), owner, boardNum, in.Name); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1250,6 +1290,11 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.DeleteProject(r.Context(), owner, boardNum, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1269,6 +1314,11 @@ func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.ReorderProjects(r.Context(), owner, boardNum, in.Projects); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1290,6 +1340,11 @@ func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.DeleteEpic(r.Context(), owner, project, in.Epic, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1311,6 +1366,11 @@ func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The roster is read here to check a name and to carry the board's
+	// ids into the write; a snapshot minutes old answers both, and
+	// blocking on a full reload made adding a column feel broken on a
+	// big board. The background revalidation catches the rest up.
+	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.ReorderEpics(r.Context(), owner, project, in.Project, in.Epics); err != nil {
 		s.apiError(w, r, err)
 		return
