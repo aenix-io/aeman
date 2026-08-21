@@ -1212,6 +1212,21 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	if card.Title == board.EpicStateTitle {
+		// A state card is a Plan-board column, not a card: surface it as the
+		// board's epic roster (clients re-read /board), never as a card row.
+		if card.Epic != "" && e.board.EpicStates[card.Epic] == "" {
+			if e.board.EpicStates == nil {
+				e.board.EpicStates = map[string]string{}
+			}
+			e.board.Epics = append(e.board.Epics, card.Epic)
+			e.board.EpicStates[card.Epic] = card.ItemID
+		}
+		e.markRecent(card.ItemID)
+		e.syncBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
 	e.upsertCard(card)
 	e.markRecent(card.ItemID)
 	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
@@ -1237,6 +1252,16 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		delete(e.board.SprintStates, team)
 		e.board.TeamOrder = removeString(e.board.TeamOrder, team)
 		e.sprintChanged(clientIDFrom(ctx), team)
+		break
+	}
+	// Likewise a deleted epic-state card takes its column with it.
+	for epic, id := range e.board.EpicStates {
+		if id != card.ItemID {
+			continue
+		}
+		delete(e.board.EpicStates, epic)
+		e.board.Epics = removeString(e.board.Epics, epic)
+		e.syncBroadcast()
 		break
 	}
 	e.cardChanged(clientIDFrom(ctx), card, "DELETED")

@@ -122,3 +122,47 @@ func TestBoardParsesEpics(t *testing.T) {
 		t.Fatalf("state cards must be split out of Cards, got %d", len(b.Cards))
 	}
 }
+
+// Handing an epic card to a team files it into the team's WEEKLY plan (band +
+// week carry it there); it must NOT join today's sprint — a multi-week slot
+// in the current sprint would smear across the team's whole day grid.
+func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
+	today := board.TodayIso()
+	fake := newFake([]board.Card{
+		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra"},
+		{ItemID: "slot", Title: "vGPU rollout", Epic: "Infra", Week: board.MondayOf(today),
+			StartDate: board.MondayOf(today), Day: board.AddDays(board.MondayOf(today), 18)},
+		{ItemID: "day", Title: "ordinary", Team: "", StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+
+	if err := svc.SetTeam(context.Background(), "acme", 1, "slot", "alpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.get("slot")
+	if got.Team != "alpha" {
+		t.Fatalf("team = %q", got.Team)
+	}
+	if got.SprintStart != "" {
+		t.Fatalf("an epic card must stay out of the sprint on team assignment, got %q", got.SprintStart)
+	}
+
+	// An ordinary card still joins the team's sprint — the old behaviour.
+	if err := svc.SetTeam(context.Background(), "acme", 1, "day", "alpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.get("day"); got.SprintStart != today {
+		t.Fatalf("an ordinary card joins the team sprint, got %q", got.SprintStart)
+	}
+
+	// An epic card ALREADY in work follows the normal rule (it has a sprint).
+	if err := svc.SetSprintStart(context.Background(), "acme", 1, "slot", today); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetTeam(context.Background(), "acme", 1, "slot", "alpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.get("slot"); got.SprintStart != today {
+		t.Fatalf("an in-work epic card keeps sprint semantics, got %q", got.SprintStart)
+	}
+}

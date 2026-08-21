@@ -339,6 +339,9 @@ type createCardRequest struct {
 		Band string `json:"band"`
 		Week string `json:"week"`
 	} `json:"plan"`
+	// Epic files the card on the Plan board (its week defaults to the Monday
+	// of dates.start; dates may span several weeks).
+	Epic           string `json:"epic"`
 	ReviewOf       string `json:"reviewOf"`
 	Parent         string `json:"parent"`
 	StartNewSprint *bool  `json:"startNewSprint"`
@@ -371,6 +374,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		Day:            in.Dates.End,
 		Start:          in.Dates.Start,
 		SprintStart:    in.Dates.Sprint,
+		Epic:           in.Epic,
 		ReviewOf:       in.ReviewOf,
 		Parent:         in.Parent,
 		StartNewSprint: in.StartNewSprint,
@@ -379,7 +383,10 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if len(in.Assignees) > 0 {
 		args.Assignee = in.Assignees[0]
 	}
-	if in.Plan != nil {
+	if in.Epic != "" && in.Plan != nil && in.Plan.Week != "" {
+		args.Week = in.Plan.Week
+	}
+	if in.Plan != nil && in.Plan.Band != "" {
 		band, ok := parsePlanBand(w, in.Plan.Band)
 		if !ok {
 			return

@@ -61,9 +61,11 @@ type CardDates struct {
 	Sprint string `json:"sprint,omitempty"`
 }
 
-// CardPlan places the card in the founders' weekly plan.
+// CardPlan places the card in the founders' weekly plan — or, for an epic
+// card, anchors its week row (Band empty: the card is on the Plan board, not
+// in a team's wed/fri bands).
 type CardPlan struct {
-	Band string `json:"band"`
+	Band string `json:"band,omitempty"`
 	Week string `json:"week,omitempty"`
 }
 
@@ -226,7 +228,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 	}
-	if c.Plan != board.PlanNone {
+	if c.Plan != board.PlanNone || c.Week != "" {
 		spec.Plan = &CardPlan{Band: string(c.Plan), Week: c.Week}
 	}
 	status := CardStatus{

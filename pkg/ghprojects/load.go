@@ -357,6 +357,7 @@ var domainRoleAliases = map[string][]string{
 	"status":      {"status"},
 	"plan":        {"plan"},
 	"week":        {"week"},
+	"epic":        {"epic"},
 	"stage":       {"stage"},
 	"team":        {"team"},
 	"reviewOf":    {"review of", "reviewof"},
@@ -430,6 +431,8 @@ func (r domainFieldRoles) get(role string) *board.ProjectField {
 		return r.Plan
 	case "week":
 		return r.Week
+	case "epic":
+		return r.Epic
 	case "stage":
 		return r.Stage
 	case "team":

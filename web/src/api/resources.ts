@@ -64,6 +64,7 @@ export interface CardResource {
     recurrence?: string;
     dates?: { start?: string; end?: string; sprint?: string };
     plan?: { band?: string; week?: string };
+    epic?: string;
     reviewOf?: string;
     parent?: string;
   };
@@ -107,7 +108,13 @@ export interface OrderingResource {
 
 export interface BoardResource {
   kind: string;
-  metadata: { title?: string; url?: string; teams?: string[]; members?: string[] };
+  metadata: {
+    title?: string;
+    url?: string;
+    teams?: string[];
+    epics?: string[];
+    members?: string[];
+  };
 }
 
 export interface CardListResource {
@@ -181,6 +188,7 @@ export function resourceToCard(res: CardResource): Card {
     sprintStart: dates.sprint || undefined,
     plan: band === "wed" || band === "fri" ? band : undefined,
     week: spec.plan?.week || undefined,
+    epic: spec.epic || undefined,
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a
     // genuinely empty body also arrives undefined (the field is omitempty) —

@@ -73,6 +73,8 @@ export interface Card {
   plan?: "wed" | "fri";
   /** ISO date (yyyy-mm-dd) of the plan week this card belongs to (weekly cycle). */
   week?: string;
+  /** Plan-board column this card is filed under (its week is the row). */
+  epic?: string;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -96,6 +98,7 @@ export interface NewCardInput {
   start?: string | null;
   plan?: "wed" | "fri" | null;
   week?: string | null;
+  epic?: string | null;
   assigneeLogin?: string | null;
   team?: string | null;
   /** On a review card, the itemId of the original card it reviews. */
@@ -125,6 +128,8 @@ export interface Board {
   /** The board's team roster (teams that have a sprint pointer), from GET
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
+  /** The Plan board's epic columns, in board order. */
+  epics: string[];
   /** Every distinct assignee on the board, from GET /board — the people roster
    *  for pickers (assign, review, view-as). */
   members: string[];
@@ -150,6 +155,8 @@ export interface CardPatch {
   stage?: StageKey | "";
   dates?: { start?: string; end?: string; sprint?: string };
   plan?: { band?: "wed" | "fri" | ""; week?: string };
+  /** Re-file under a Plan-board epic column ("" clears). */
+  epic?: string;
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
   parent?: string;
@@ -235,6 +242,11 @@ export interface Provider {
   ): Promise<CarryReport>;
   /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(board: BoardAddr, teams: string[]): Promise<void>;
+
+  /** Declare a new Plan-board epic column. */
+  addEpic(board: BoardAddr, name: string): Promise<void>;
+  /** Delete an EMPTY epic column (422 while cards still sit under it). */
+  deleteEpic(board: BoardAddr, name: string): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(board: BoardAddr, team: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). */

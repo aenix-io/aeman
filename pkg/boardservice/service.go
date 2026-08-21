@@ -1676,6 +1676,13 @@ func (s *Service) SetTeam(ctx context.Context, owner string, project int, itemID
 	if sprintStart == "" {
 		sprintStart = day
 	}
+	// An epic card that is not in work yet stays plan-level: handing it to a
+	// team files it into that team's WEEKLY plan (band + week do that), not
+	// into today's sprint — joining the sprint would smear its multi-week
+	// span across the team's day grid.
+	if card.Epic != "" && card.SprintStart == "" {
+		sprintStart = ""
+	}
 	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
 		return err
 	}

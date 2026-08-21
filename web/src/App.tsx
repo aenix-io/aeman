@@ -13,6 +13,7 @@ import {
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
+import { PlanBoard } from "./components/PlanBoard";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
@@ -22,7 +23,7 @@ import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
-type ViewMode = "me" | "team";
+type ViewMode = "me" | "team" | "plan";
 
 const LS_OWNER = "aeman.owner";
 const LS_PROJECT = "aeman.project";
@@ -35,6 +36,9 @@ function readView(): ViewMode {
   const raw = localStorage.getItem(LS_VIEW);
   if (raw === "team" || raw === "nixon") {
     return "team";
+  }
+  if (raw === "plan") {
+    return "plan";
   }
   return "me";
 }
@@ -1027,6 +1031,15 @@ export function App() {
           >
             Team
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "plan"}
+            className={`segment${view === "plan" ? " segment-active" : ""}`}
+            onClick={() => setView("plan")}
+          >
+            Plan
+          </button>
         </div>
       </div>
 
@@ -1071,6 +1084,20 @@ export function App() {
                   .catch(() => {});
               }
             }}
+          />
+        )}
+        {board && view === "plan" && (
+          <PlanBoard
+            board={board}
+            provider={provider}
+            teamFilter={teamFilter}
+            patchCard={patchCard}
+            addCard={addCard}
+            replaceCard={replaceCard}
+            removeCard={removeCard}
+            reload={reload}
+            onError={onError}
+            onOpen={(c) => setDetailCard(c)}
           />
         )}
         {board && view === "team" && (

@@ -142,6 +142,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
     }
     body.plan = plan;
   }
+  if (patch.epic !== undefined) {
+    body.epic = patch.epic;
+  }
   if (patch.reviewOf !== undefined) {
     body.reviewOf = patch.reviewOf;
   }
@@ -167,6 +170,7 @@ export const apiProvider: Provider = {
       // after this from the App's first view fetch.
       cards: [],
       teams: info.metadata.teams ?? [],
+      epics: info.metadata.epics ?? [],
       members: info.metadata.members ?? [],
       sprintStates: sprintStatesFrom(sprints.items ?? []),
     };
@@ -208,6 +212,12 @@ export const apiProvider: Provider = {
     }
     if (input.plan) {
       body.plan = { band: input.plan, week: input.week ?? "" };
+    }
+    if (input.epic) {
+      body.epic = input.epic;
+      if (input.week) {
+        body.plan = { band: "", week: input.week };
+      }
     }
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;
@@ -337,6 +347,14 @@ export const apiProvider: Provider = {
 
   async deleteTeam(board: BoardAddr, team: string): Promise<void> {
     await api(board, "POST", "/sprints/actions/delete-team", { team });
+  },
+
+  async addEpic(board: BoardAddr, name: string): Promise<void> {
+    await api(board, "POST", "/epics", { name });
+  },
+
+  async deleteEpic(board: BoardAddr, name: string): Promise<void> {
+    await api(board, "POST", "/epics/actions/delete-epic", { epic: name });
   },
 
   async carryWeek(

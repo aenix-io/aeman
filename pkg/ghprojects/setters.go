@@ -625,6 +625,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		Assignees:   assignees,
 		Zone:        in.Zone,
 		StartDate:   in.Start,
+		Day:         in.Day,
 		SprintStart: in.SprintStart,
 		Plan:        in.Plan,
 		Week:        in.Week,
