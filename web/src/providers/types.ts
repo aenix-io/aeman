@@ -280,6 +280,12 @@ export interface Provider {
     epic: string,
     to: string,
   ): Promise<void>;
+  /** Apply one project's column order (moves the hidden epic-state cards). */
+  reorderEpics(
+    board: BoardAddr,
+    project: string,
+    epics: string[],
+  ): Promise<void>;
   /** Move a column between projects ("" detaches it from every project). */
   setEpicProject(
     board: BoardAddr,

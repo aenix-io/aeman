@@ -389,6 +389,14 @@ export const apiProvider: Provider = {
     await api(board, "POST", "/epics/actions/rename", { project, epic, to });
   },
 
+  async reorderEpics(
+    board: BoardAddr,
+    project: string,
+    epics: string[],
+  ): Promise<void> {
+    await api(board, "POST", "/epics/actions/reorder-epics", { project, epics });
+  },
+
   async setEpicProject(
     board: BoardAddr,
     from: string,
