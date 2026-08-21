@@ -779,6 +779,37 @@ export function ProjectBoard({
       .catch((err: unknown) => onError(errText(err)));
   };
 
+  // Done, and back again. Marking done is the board's own rule — the server
+  // clears the stage and fills 100 — and the way back is the In Progress
+  // action, which nudges the card into the working band instead of inventing
+  // a number: the same thing the other boards do when a card reopens.
+  const setDone = (card: CardModel, done: boolean) => {
+    setTeamMenu(null);
+    const prev = { stage: card.stage, progress: card.progress };
+    if (done) {
+      patchCard(card.itemId, {
+        stage: card.stage === "recurrent" ? "recurrent" : undefined,
+        progress: 100,
+      });
+      void provider
+        .patchCard(board, card.itemId, { stage: "done" })
+        .then(addCard)
+        .catch((err: unknown) => {
+          patchCard(card.itemId, prev);
+          onError(errText(err));
+        });
+      return;
+    }
+    patchCard(card.itemId, { stage: undefined, progress: 90 });
+    void provider
+      .setInProgress(board, card.itemId)
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errText(err));
+      });
+  };
+
   const deleteCard = (card: CardModel) => {
     if (!window.confirm(`Delete "${card.title}"?`)) {
       return;
@@ -1335,6 +1366,17 @@ export function ProjectBoard({
                 >
                   <span className="card-stage-dot card-stage-dot-none" />
                   No team
+                </button>
+                <button
+                  type="button"
+                  className="card-stage-item card-stage-clear"
+                  onClick={() => setDone(card, !complete(card))}
+                >
+                  <span
+                    className="card-stage-dot"
+                    style={{ background: STAGES.done.color }}
+                  />
+                  {complete(card) ? "Reopen" : "Mark as done"}
                 </button>
               </Dropdown>
               <div
