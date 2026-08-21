@@ -3602,9 +3602,6 @@ button.card-age {
   display: flex;
   gap: 2px;
   opacity: 0;
-  border-radius: 4px;
-  background: var(--bg);
-  box-shadow: 0 0 3px 3px var(--bg);
 }
 
 .project-slot:hover .project-slot-actions {

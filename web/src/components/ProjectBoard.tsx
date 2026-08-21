@@ -225,21 +225,29 @@ export function ProjectBoard({
   const [colWidth, setColWidth] = useState<number | null>(readColWidth);
   const [resizing, setResizing] = useState<{ x: number; from: number } | null>(null);
 
-  // Dragging a column header sideways reorders the columns. Only inside a
-  // single project: across projects the columns interleave by board position,
-  // and "move this one left" would have no single meaning.
-  const colDrag = useRef<{ key: string; x: number; moved: boolean } | null>(null);
+  // Dragging a column header sideways reorders the columns. A column can
+  // always be moved among the columns of ITS OWN project — that order is what
+  // the board stores — so dragging works whatever the chips are showing; a
+  // header of another project simply is not a landing place.
+  const colDrag = useRef<{
+    key: string;
+    project: string;
+    x: number;
+    moved: boolean;
+  } | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
 
-  const beginColDrag = (e: React.PointerEvent, key: string) => {
-    if (
-      targetProject === null ||
-      (e.target as HTMLElement).closest("button, input, .project-col-resize")
-    ) {
+  const beginColDrag = (e: React.PointerEvent, col: EpicRef) => {
+    if ((e.target as HTMLElement).closest("button, input, .project-col-resize")) {
       return;
     }
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    colDrag.current = { key, x: e.clientX, moved: false };
+    colDrag.current = {
+      key: colKey(col.project, col.name),
+      project: col.project,
+      x: e.clientX,
+      moved: false,
+    };
   };
 
   const moveColDrag = (e: React.PointerEvent) => {
@@ -255,7 +263,10 @@ export function ProjectBoard({
       setDragCol(d.key);
     }
     const over = epicAt(e.clientX);
-    if (!over) {
+    // Only among its own project's columns: dropping a column into another
+    // project's run of columns would be a move between projects, which is a
+    // different action with its own menu entry.
+    if (!over || over.project !== d.project) {
       return;
     }
     const keys = epics.map((x) => colKey(x.project, x.name));
@@ -273,12 +284,14 @@ export function ProjectBoard({
     const d = colDrag.current;
     colDrag.current = null;
     setDragCol(null);
-    if (!d?.moved || targetProject === null) {
+    if (!d?.moved) {
       return;
     }
-    const names = epics.map((x) => x.name);
+    // Only this project's columns are persisted — the others keep the order
+    // the board already has for them.
+    const names = epics.filter((x) => x.project === d.project).map((x) => x.name);
     void provider
-      .reorderEpics(board, targetProject, names)
+      .reorderEpics(board, d.project, names)
       .then(reload)
       .catch((err: unknown) => {
         setOrder(null); // put the board's own order back on screen
@@ -1136,19 +1149,20 @@ export function ProjectBoard({
           return (
             <div
               key={k}
-              className={`project-epic-head${dragCol === k ? " project-epic-head-dragging" : ""}${
-                targetProject !== null ? " project-epic-head-movable" : ""
+              className={`project-epic-head project-epic-head-movable${
+                dragCol === k ? " project-epic-head-dragging" : ""
               }`}
-              title={`${e.name} — ${e.project || "no project"} · double-click to rename${
-                targetProject !== null ? " · drag to reorder" : ""
-              }`}
+              title={`${e.name} — ${e.project || "no project"} · double-click to rename · drag to reorder`}
               onDoubleClick={() => setRenaming(k)}
-              onPointerDown={(ev) => beginColDrag(ev, k)}
+              onPointerDown={(ev) => beginColDrag(ev, e)}
               onPointerMove={moveColDrag}
               onPointerUp={endColDrag}
               onPointerCancel={() => {
+                // A cancelled gesture must not leave the preview standing:
+                // the board's own order is the truth again.
                 colDrag.current = null;
                 setDragCol(null);
+                setOrder(null);
               }}
             >
               <span className="project-epic-name">{e.name}</span>
