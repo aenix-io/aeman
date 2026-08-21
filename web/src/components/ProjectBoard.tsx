@@ -870,7 +870,9 @@ export function ProjectBoard({
         style={{
           // Until the columns are dragged they share the room; once dragged
           // they all take the width that was chosen.
-          gridTemplateColumns: `66px repeat(${epics.length}, ${
+          // 54px is what "17 Aug" needs and no more — the ISO number that
+          // used to share this column is gone.
+          gridTemplateColumns: `54px repeat(${epics.length}, ${
             colWidth === null ? "minmax(140px, 1fr)" : `${colWidth}px`
           }) 34px`,
           gridTemplateRows: `26px repeat(${weeks.length}, 28px)`,
