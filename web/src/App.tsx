@@ -733,6 +733,32 @@ export function App() {
       if (frame.kind === "Sync") {
         return;
       }
+      // The board's STRUCTURE changed under us — someone added a project, a
+      // column or a deadline. None of that lives in a card, so it cannot
+      // arrive as a card event: re-read the board and keep the cards we hold.
+      if (frame.kind === "Board") {
+        if (watchOwner && watchProject != null) {
+          void provider
+            .loadBoard(watchOwner, watchProject)
+            .then((fresh) =>
+              setBoard((cur) =>
+                cur
+                  ? {
+                      ...cur,
+                      teams: fresh.teams,
+                      projects: fresh.projects,
+                      epics: fresh.epics,
+                      deadlines: fresh.deadlines,
+                      members: fresh.members,
+                      sprintStates: fresh.sprintStates,
+                    }
+                  : cur,
+              ),
+            )
+            .catch(() => undefined);
+        }
+        return;
+      }
       // The write-behind queue's depth: changes applied everywhere but not
       // yet confirmed by GitHub.
       if (frame.kind === "Queue") {

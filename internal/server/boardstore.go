@@ -1144,6 +1144,21 @@ func (e *boardEntry) diffNotify(old board.Board) {
 // were served a stale snapshot use it to drop their revalidation hold — the
 // data itself already arrived as the diff's ordinary events. The caller holds
 // e.mu.
+// rosterBroadcast tells every watcher that the board's STRUCTURE changed —
+// its projects, epic columns or deadlines. Those live in the board metadata
+// rather than in any card, so a client cannot learn about them from the card
+// events it is already receiving: it has to re-read /board, and this is what
+// tells it to. Sent to every watcher regardless of the view it selected,
+// because the roster is the same for all of them.
+func (e *boardEntry) rosterBroadcast() {
+	frame := watchFrame{Type: "MODIFIED", Kind: "Board", Object: map[string]string{
+		"loadedAt": e.loadedAt.UTC().Format(time.RFC3339),
+	}}
+	for sub := range e.watchers {
+		sub.send(frame)
+	}
+}
+
 func (e *boardEntry) syncBroadcast() {
 	frame := watchFrame{Type: "MODIFIED", Kind: "Sync", Object: map[string]string{
 		"loadedAt": e.loadedAt.UTC().Format(time.RFC3339),
@@ -1219,7 +1234,7 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 				board.Deadline{Week: card.Week, Project: card.Project, ItemID: card.ItemID})
 		}
 		e.markRecent(card.ItemID)
-		e.syncBroadcast()
+		e.rosterBroadcast()
 		e.mu.Unlock()
 		return card, nil
 	}
@@ -1234,7 +1249,7 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 			e.board.ProjectStates[card.Project] = card.ItemID
 		}
 		e.markRecent(card.ItemID)
-		e.syncBroadcast()
+		e.rosterBroadcast()
 		e.mu.Unlock()
 		return card, nil
 	}
@@ -1247,7 +1262,7 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 			})
 		}
 		e.markRecent(card.ItemID)
-		e.syncBroadcast()
+		e.rosterBroadcast()
 		e.mu.Unlock()
 		return card, nil
 	}
@@ -1284,7 +1299,7 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 			continue
 		}
 		e.board.Epics = append(e.board.Epics[:i:i], e.board.Epics[i+1:]...)
-		e.syncBroadcast()
+		e.rosterBroadcast()
 		break
 	}
 	// ...a deleted deadline card takes its line off the grid...
@@ -1293,7 +1308,7 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 			continue
 		}
 		e.board.Deadlines = append(e.board.Deadlines[:i:i], e.board.Deadlines[i+1:]...)
-		e.syncBroadcast()
+		e.rosterBroadcast()
 		break
 	}
 	// ...and a deleted project-state card takes its chip.
@@ -1303,7 +1318,7 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		}
 		delete(e.board.ProjectStates, project)
 		e.board.Projects = removeString(e.board.Projects, project)
-		e.syncBroadcast()
+		e.rosterBroadcast()
 		break
 	}
 	e.cardChanged(clientIDFrom(ctx), card, "DELETED")
@@ -1428,11 +1443,11 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	// /board keeps serving the old order until the next revalidation.
 	if from := epicIndexOf(e.board.Epics, card.ItemID); from >= 0 {
 		e.board.Epics = moveEpicAfter(e.board.Epics, from, afterID)
-		e.syncBroadcast()
+		e.rosterBroadcast()
 	}
 	if project, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		e.board.Projects = moveNameAfter(e.board.Projects, e.board.ProjectStates, project, afterID)
-		e.syncBroadcast()
+		e.rosterBroadcast()
 	}
 	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
@@ -1755,7 +1770,7 @@ func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.C
 		for i := range e.board.Deadlines {
 			if e.board.Deadlines[i].ItemID == card.ItemID {
 				e.board.Deadlines[i].Week = week
-				e.syncBroadcast()
+				e.rosterBroadcast()
 				break
 			}
 		}
@@ -1796,7 +1811,7 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 		e.mu.Lock()
 		if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 			e.board.Epics[i].Name = epic
-			e.syncBroadcast()
+			e.rosterBroadcast()
 		}
 		e.mu.Unlock()
 		b.enqueue(ctx, e, pendingOp{
@@ -1827,13 +1842,13 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 	e.mu.Lock()
 	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 		e.board.Epics[i].Project = project
-		e.syncBroadcast()
+		e.rosterBroadcast()
 	} else if old, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		// A project-state card renamed: re-key the roster in place.
 		e.board.Projects = renameInList(e.board.Projects, old, project)
 		delete(e.board.ProjectStates, old)
 		e.board.ProjectStates[project] = card.ItemID
-		e.syncBroadcast()
+		e.rosterBroadcast()
 	} else {
 		// An ordinary card: the project is half of the column it is filed
 		// under, so it lives on the card row like any other field.

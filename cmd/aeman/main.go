@@ -31,6 +31,17 @@ import (
 // version is overridden at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
+// boardEnv reads the board number's environment variable. AEMAN_PROJECT is
+// the pre-rename name and is still honoured: "project" became aeman's own
+// planning entity, and a rename that silently stops a deployment from booting
+// is not a rename anyone should have to read release notes to survive.
+func boardEnv() string {
+	if v := os.Getenv("AEMAN_BOARD"); v != "" {
+		return v
+	}
+	return os.Getenv("AEMAN_PROJECT")
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "aeman:", err)
@@ -84,7 +95,7 @@ func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8765", "address to listen on")
 	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "default GitHub org/user to load projects from")
-	projectDefault, _ := strconv.Atoi(os.Getenv("AEMAN_BOARD"))
+	projectDefault, _ := strconv.Atoi(boardEnv())
 	project := fs.Int("board", projectDefault, "GitHub Project number of the board to open")
 	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin the UI to --owner/--project and hide the board picker")
 	open := fs.Bool("open", true, "open the UI in a browser on start")
@@ -142,7 +153,7 @@ func runServe(args []string) error {
 func runMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "default GitHub org/user")
-	projectDefault, _ := strconv.Atoi(os.Getenv("AEMAN_BOARD"))
+	projectDefault, _ := strconv.Atoi(boardEnv())
 	project := fs.Int("board", projectDefault, "GitHub Project number of the board")
 	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin owner/project, ignoring per-tool overrides")
 	verbose := fs.Bool("verbose", false, "enable debug logging")
