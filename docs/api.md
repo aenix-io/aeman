@@ -20,6 +20,8 @@ The HTTP API takes them as query parameters (`?owner=acme&board=7`), falling bac
 
 **"Project" means aeman's own planning entity** — a group of epic columns on the Project board — and never the GitHub board. That is why the board is addressed by `board`: `project` is a card filter (`?view=project&project=cozystack`) and the subject of its own endpoints.
 
+A **column** of the Project board is the pair `(project, epic)`. Epic names are unique only *within* a project, so every project can have its own `Docs` or `Auth`, and a card names both halves. Anything acting on a column — filing a card, deleting, renaming, reordering — names both.
+
 When started with `--lock-board` (or `AEMAN_LOCK_BOARD=1`), aeman pins the board to its configured `--owner`/`--board` and ignores any client-supplied owner/board. Use this when exposing aeman to clients that must not roam across boards.
 
 ## HTTP API
@@ -69,11 +71,13 @@ Actions carry the board rules — the client never reimplements them.
 | `POST /api/v1/cards/{uid}/actions/release-from-plan` | `{}` | Release a card from the weekly plan. |
 | `POST /api/v1/sprints/actions/carry-over` | `{team, dryRun}` | Advance the team's sprint to today and carry its unfinished cards; finished recurrent cards reseed fresh copies. |
 | `POST /api/v1/sprints/actions/carry-week` | `{team, week, dryRun}` | Pull unfinished plan cards from earlier weeks into the week (same recurrent reseeding). |
-| `POST /api/v1/epics/actions/delete-epic` | `{epic}` | Delete an EMPTY column; 422 while cards still sit under it. |
-| `POST /api/v1/epics/actions/reorder-epics` | `{epics:[...]}` | Apply the shared column order (moves the hidden epic-state cards). |
-| `POST /api/v1/epics/actions/set-project` | `{epic, project}` | Move a column to another project; an empty project detaches it from every project. Its cards ride along — a card's project always follows its epic. |
+| `POST /api/v1/epics/actions/delete-epic` | `{epic, project}` | Delete an EMPTY column; 422 while cards still sit under it. |
+| `POST /api/v1/epics/actions/reorder-epics` | `{project, epics:[...]}` | Apply one project's column order (moves the hidden epic-state cards). |
+| `POST /api/v1/epics/actions/rename` | `{project, epic, to}` | Rename a column in place; its cards are rewritten with it. A name already used inside the SAME project is refused (422); the same name in another project is fine. |
+| `POST /api/v1/epics/actions/set-project` | `{epic, from, project}` | Move a column from one project to another; an empty target detaches it. Its cards are rewritten too. |
 | `POST /api/v1/projects/actions/delete-project` | `{project}` | Delete an EMPTY project; 422 while it still owns columns. |
 | `POST /api/v1/projects/actions/reorder-projects` | `{projects:[...]}` | Apply the shared project order. |
+| `POST /api/v1/projects/actions/rename` | `{project, to}` | Rename a project in place; its columns and their cards follow. |
 
 The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they report the counts without changing anything — that backs the UI's confirm dialogs.
 
@@ -102,6 +106,8 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
     "stage": "review",
     "dates": { "start": "2026-07-01", "end": "2026-07-04", "sprint": "2026-07-01" },
     "plan": { "band": "wed", "week": "2026-06-29" },
+    "epic": "Auth",
+    "project": "cozystack",
     "reviewOf": "PVTI_..."
   },
   "status": {
@@ -141,7 +147,7 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
 Clients follow the Kubernetes list/watch pattern:
 
 1. LIST: `GET /api/v1/cards` (+ `/sprints`) — the current state.
-2. WATCH: `GET /api/v1/watch?owner=&project=&client=<id>` — upgrade to a WebSocket; each text frame is one event:
+2. WATCH: `GET /api/v1/watch?owner=&board=&client=<id>` — upgrade to a WebSocket; each text frame is one event:
 
 ```json
 { "type": "ADDED" | "MODIFIED" | "DELETED", "kind": "Card" | "Sprint" | "Ordering", "object": { ... } }
@@ -188,7 +194,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/epics?owner=acme&board=7' \
   -H 'Content-Type: application/json' -d '{"name":"Auth","project":"cozystack"}'
 curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
   -H 'Content-Type: application/json' \
-  -d '{"title":"SSO for the console","epic":"Auth","plan":{"week":"2026-08-24"},"dates":{"end":"2026-09-11"}}'
+  -d '{"title":"SSO for the console","epic":"Auth","project":"cozystack","plan":{"week":"2026-08-24"},"dates":{"end":"2026-09-11"}}'
 ```
 
 ## MCP server
@@ -209,8 +215,8 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
 | `take_into_plan` / `release_from_plan` | Weekly-plan membership. |
 | `carry_over` / `carry_week` | Sprint/week carry with `dryRun` count reports. |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |
-| `add_project` / `delete_project` / `reorder_projects` | The project roster: declare one (it may start empty), delete an EMPTY one, set the chip order. |
-| `add_epic` / `delete_epic` / `set_epic_project` | The columns of a project: `add_epic` requires `project=`, `delete_epic` refuses a column with cards, `set_epic_project` moves one between projects (empty detaches). |
+| `add_project` / `delete_project` / `rename_project` / `reorder_projects` | The project roster: declare one (it may start empty), delete an EMPTY one, rename one (its columns and cards follow), set the chip order. |
+| `add_epic` / `delete_epic` / `rename_epic` / `set_epic_project` | The columns of a project, each named by the `(project, epic)` pair: `add_epic` requires `project=`, `delete_epic` refuses a column with cards, `rename_epic` rewrites the column and its cards, `set_epic_project` moves one between projects (an empty target detaches it). |
 
 Each tool accepts optional `owner`/`board` to pick the GitHub board, defaulting to the server's configuration (and ignored under `--lock-board`). Changes made by agents are streamed to every open board over the watch, like any other write.
 
