@@ -1,0 +1,9 @@
+{{- if .Values.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "aeman.namespace" . }}
+  labels:
+    name: {{ include "aeman.namespace" . }}
+    {{- include "aeman.labels" . | nindent 4 }}
+{{- end }}

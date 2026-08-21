@@ -8,6 +8,10 @@
 *.out
 coverage.*
 
+# Helm: local secret overrides and build metadata (never commit credentials)
+charts/*/values-secret.yaml
+.build-metadata.json
+
 # Node / frontend
 node_modules/
 web/node_modules/
