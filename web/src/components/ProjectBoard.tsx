@@ -580,49 +580,11 @@ export function ProjectBoard({
   const colIndex = (e: EpicRef) =>
     epics.findIndex((x) => colKey(x.project, x.name) === colKey(e.project, e.name));
 
-  if (epics.length === 0 && !addingEpic) {
-    return (
-      <div className="project">
-        <div className="board-toolbar">
-          <TeamChips
-            label="Project"
-            entity="project"
-            teams={board.projects}
-            selectedKeys={filter}
-            onSelect={selectFilter}
-            onAdd={addProject}
-            onRemove={deleteProject}
-            canManage={false}
-            onManage={() => setManaging(true)}
-            noneChip={looseEpics ? "No project" : undefined}
-          />
-        </div>
-        <div className="project-empty">
-          <p>
-            The Project board maps a project&rsquo;s epics (columns) across
-            weeks (rows).
-          </p>
-          {board.projects.length === 0 ? (
-            <p className="project-empty-hint">
-              Start with a project — add one above.
-            </p>
-          ) : targetProject ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setAddingEpic(true)}
-            >
-              + Add the first epic of {targetProject}
-            </button>
-          ) : (
-            <p className="project-empty-hint">
-              Pick one project above to add its first epic.
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
+  // Everything below renders through ONE return: the empty board differs only
+  // in its body. An early return here used to leave the shared furniture — the
+  // chip row, the manage dialog — out of the empty state, where they are
+  // exactly what a person needs to get started.
+  const empty = epics.length === 0 && !addingEpic;
 
   return (
     <div className="project">
@@ -642,6 +604,32 @@ export function ProjectBoard({
           noneChip={looseEpics ? "No project" : undefined}
         />
       </div>
+      {empty && (
+        <div className="project-empty">
+          <p>
+            The Project board maps a project&rsquo;s epics (columns) across
+            weeks (rows).
+          </p>
+          {board.projects.length === 0 ? (
+            <p className="project-empty-hint">
+              Start with a project — “manage” above adds one.
+            </p>
+          ) : targetProject ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setAddingEpic(true)}
+            >
+              + Add the first epic of {targetProject}
+            </button>
+          ) : (
+            <p className="project-empty-hint">
+              Pick one project above to add its first epic.
+            </p>
+          )}
+        </div>
+      )}
+      {!empty && (
       <div className="project-board" ref={scrollRef}>
       <button
         type="button"
@@ -931,6 +919,7 @@ export function ProjectBoard({
           ↓ later weeks
         </button>
       </div>
+      )}
       {managing && (
         <TeamsModal
           teams={board.projects}
