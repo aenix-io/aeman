@@ -87,7 +87,7 @@ type CardSpec struct {
 	Recurrence string    `json:"recurrence,omitempty"`
 	Dates      CardDates `json:"dates"`
 	Plan       *CardPlan `json:"plan,omitempty"`
-	// Epic is the Plan-board column the card is filed under ("" = none); its
+	// Epic is the Project-board column the card is filed under ("" = none); its
 	// Week is the row, and Dates span the weeks its slot stretches over.
 	Epic     string `json:"epic,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
@@ -178,12 +178,35 @@ type BoardMetadata struct {
 	Title string   `json:"title,omitempty"`
 	URL   string   `json:"url,omitempty"`
 	Teams []string `json:"teams"`
-	// Epics lists the Plan board's columns, in board order.
-	Epics []string `json:"epics,omitempty"`
+	// Projects lists the Project board's projects, in board order — the top
+	// grouping: a project owns epic columns. (Not the GitHub board, which the
+	// caller addresses with owner+board.)
+	Projects []string `json:"projects,omitempty"`
+	// Epics lists the Project board's columns in board order, each naming the
+	// project that owns it. An epic with an empty project belongs to none and
+	// shows only in the all-projects view.
+	Epics []EpicRef `json:"epics,omitempty"`
 	// Members is every distinct assignee on the board — the people roster for
 	// pickers (assign, review, view-as) now that clients load one view at a
 	// time and cannot derive it from the cards they hold.
 	Members []string `json:"members"`
+}
+
+// EpicRef is one Project-board column: its name and the project that owns it.
+// The pair travels together because a column is meaningless without knowing
+// which project's grid it belongs in.
+type EpicRef struct {
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+}
+
+// epicRefs pairs each epic with its project, preserving board order.
+func epicRefs(b board.Board) []EpicRef {
+	out := make([]EpicRef, 0, len(b.Epics))
+	for _, e := range b.Epics {
+		out = append(out, EpicRef{Name: e, Project: b.EpicProjects[e]})
+	}
+	return out
 }
 
 // CardList is the LIST response envelope; Weekly carries the view's computed
@@ -352,8 +375,9 @@ func BoardResource(b board.Board) BoardInfo {
 	}
 	sortStrings(members)
 	return BoardInfo{
-		Kind:     "Board",
-		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams, Epics: append([]string{}, b.Epics...), Members: members},
+		Kind: "Board",
+		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
+			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b), Members: members},
 	}
 }
 

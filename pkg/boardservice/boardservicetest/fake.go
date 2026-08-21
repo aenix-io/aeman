@@ -115,13 +115,25 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	defer f.mu.Unlock()
 	f.rec("LoadBoard")
 	cards := make([]board.Card, 0, len(f.board.Cards))
-	var epics []string
+	var epics, projects []string
 	epicStates := map[string]string{}
+	epicProjects := map[string]string{}
+	projectStates := map[string]string{}
 	for _, c := range f.board.Cards {
+		if c.Title == board.ProjectStateTitle {
+			if c.Project != "" && projectStates[c.Project] == "" {
+				projects = append(projects, c.Project)
+				projectStates[c.Project] = c.ItemID
+			}
+			continue
+		}
 		if c.Title == board.EpicStateTitle {
 			if c.Epic != "" && epicStates[c.Epic] == "" {
 				epics = append(epics, c.Epic)
 				epicStates[c.Epic] = c.ItemID
+				if c.Project != "" {
+					epicProjects[c.Epic] = c.Project
+				}
 			}
 			continue
 		}
@@ -132,7 +144,8 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 		states[k] = v
 	}
 	return board.Board{ID: f.board.ID, Number: f.board.Number, Owner: f.board.Owner, Cards: cards,
-		SprintStates: states, Epics: epics, EpicStates: epicStates}, nil
+		SprintStates: states, Epics: epics, EpicStates: epicStates, EpicProjects: epicProjects,
+		Projects: projects, ProjectStates: projectStates}, nil
 }
 
 // LoadCards returns the seeded cards matching ids, mirroring a partial reload.
@@ -161,7 +174,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Team: in.Team, ReviewOf: in.ReviewOf,
+		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Parent: in.Parent, Assignees: []string{},
 	}
 	if in.Assignee != "" {
@@ -378,13 +391,24 @@ func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, tea
 	return nil
 }
 
-// SetEpic files the card under a Plan-board column.
+// SetEpic files the card under a Project-board column.
 func (f *Backend) SetEpic(_ context.Context, _ board.Board, card board.Card, epic string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("SetEpic %s %s", card.ItemID, epic)
 	if c := f.card(card.ItemID); c != nil {
 		c.Epic = epic
+	}
+	return nil
+}
+
+// SetProject writes a state card's Project field.
+func (f *Backend) SetProject(_ context.Context, _ board.Board, card board.Card, project string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetProject %s %s", card.ItemID, project)
+	if c := f.card(card.ItemID); c != nil {
+		c.Project = project
 	}
 	return nil
 }

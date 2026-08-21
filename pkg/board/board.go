@@ -11,11 +11,19 @@ package board
 const SprintStateTitle = "aeman:sprint-state"
 
 // EpicStateTitle marks the hidden card that declares an epic column of the
-// Plan board. One card per epic: its Epic field is the epic's name, and its
-// position on the project is the column order (exactly the team-roster
-// mechanism of sprint-state cards). The card exists so an empty epic — just
-// added, or emptied out — still has a column.
+// Project board. One card per epic: its Epic field is the epic's name, its
+// Project field is the project the epic belongs to, and its position on the
+// board is the column order (exactly the team-roster mechanism of sprint-state
+// cards). The card exists so an empty epic — just added, or emptied out —
+// still has a column.
 const EpicStateTitle = "aeman:epic-state"
+
+// ProjectStateTitle marks the hidden card that declares a project — the
+// Project board's top-level grouping, one step above epics. One card per
+// project: its Project field is the name and its board position is the order
+// the chips appear in. Like an epic, a project exists in its own right, so an
+// empty one can be created first and filled with epics afterwards.
+const ProjectStateTitle = "aeman:project-state"
 
 // ZoneKey is the colour zone a card belongs to, in the Ford sense. It mirrors
 // the ZoneKey union in web/src/providers/types.ts ("" means no zone).
@@ -117,10 +125,15 @@ type Card struct {
 	// Plan/Week place the card in the founders' weekly plan (Week is a Monday).
 	Plan PlanBand `json:"plan,omitempty"`
 	Week string   `json:"week,omitempty"`
-	// Epic names the Plan-board column this card belongs to ("" = none). An
+	// Epic names the Project-board column this card belongs to ("" = none). An
 	// epic card's row is its Week; StartDate..Day span the weeks its slot
 	// covers when it stretches over more than one.
 	Epic string `json:"epic,omitempty"`
+	// Project is used by the two hidden state cards only: on a project-state
+	// card it is the project's name, on an epic-state card it is the project
+	// that epic belongs to. A normal card leaves it empty — its project is
+	// whichever project owns its epic, never a second copy that could drift.
+	Project string `json:"project,omitempty"`
 	// ReviewOf, on a review card, is the itemId of the original card it reviews.
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the itemId of the card it belongs to ("" = a
@@ -166,6 +179,7 @@ type CreateInput struct {
 	Plan        PlanBand `json:"plan,omitempty"`
 	Week        string   `json:"week,omitempty"`
 	Epic        string   `json:"epic,omitempty"`
+	Project     string   `json:"project,omitempty"`
 }
 
 // SprintState is a team's explicit sprint pointer, read from its hidden
@@ -199,11 +213,19 @@ type Board struct {
 	// each team's hidden sprint-state card on the project. That position IS
 	// the team order every client shares (reordering teams moves the card).
 	TeamOrder []string `json:"teamOrder,omitempty"`
-	// Epics lists the Plan board's columns in board order (the positions of
-	// the hidden epic-state cards), and EpicStates maps each epic to the
-	// state card that declares it (deletion removes that card).
-	Epics      []string          `json:"epics,omitempty"`
-	EpicStates map[string]string `json:"epicStates,omitempty"`
+	// Epics lists the Project board's columns in board order (the positions of
+	// the hidden epic-state cards), EpicStates maps each epic to the state
+	// card that declares it (deletion removes that card), and EpicProjects
+	// maps each epic to the project it belongs to.
+	Epics        []string          `json:"epics,omitempty"`
+	EpicStates   map[string]string `json:"epicStates,omitempty"`
+	EpicProjects map[string]string `json:"epicProjects,omitempty"`
+	// Projects lists the project roster in board order (the positions of the
+	// hidden project-state cards) and ProjectStates maps each project to the
+	// card that declares it. A project groups epics: the Project board shows
+	// one project's epics as its columns.
+	Projects      []string          `json:"projects,omitempty"`
+	ProjectStates map[string]string `json:"projectStates,omitempty"`
 }
 
 // NewBoard builds a Board snapshot from a board's fields and full card list,
@@ -220,7 +242,21 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 	seen := map[string]bool{}
 	winners := map[string]Card{}
 	epicSeen := map[string]bool{}
+	projectSeen := map[string]bool{}
 	for _, c := range cards {
+		if c.Title == ProjectStateTitle {
+			// Same duplicate rule as epic-state: the first position wins.
+			if c.Project == "" || projectSeen[c.Project] {
+				continue
+			}
+			projectSeen[c.Project] = true
+			b.Projects = append(b.Projects, c.Project)
+			if b.ProjectStates == nil {
+				b.ProjectStates = map[string]string{}
+			}
+			b.ProjectStates[c.Project] = c.ItemID
+			continue
+		}
 		if c.Title == EpicStateTitle {
 			// Same duplicate rule as sprint-state: the first position wins
 			// the order, the oldest card wins the state slot.
@@ -234,6 +270,12 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 					b.EpicStates = map[string]string{}
 				}
 				b.EpicStates[c.Epic] = c.ItemID
+				if c.Project != "" {
+					if b.EpicProjects == nil {
+						b.EpicProjects = map[string]string{}
+					}
+					b.EpicProjects[c.Epic] = c.Project
+				}
 			}
 			continue
 		}
@@ -272,4 +314,22 @@ func olderSprintState(a, b Card) bool {
 		return a.CreatedAt < b.CreatedAt
 	}
 	return a.ItemID < b.ItemID
+}
+
+// EpicsOf lists a project's epic columns in board order. An epic whose project
+// is unset (or whose project-state card is gone) belongs to no project and
+// shows only in the all-projects view — it is never silently adopted.
+func EpicsOf(b Board, project string) []string {
+	var out []string
+	for _, e := range b.Epics {
+		if b.EpicProjects[e] == project {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// ProjectOf reports which project an epic belongs to ("" = none).
+func ProjectOf(b Board, epic string) string {
+	return b.EpicProjects[epic]
 }

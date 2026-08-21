@@ -12,10 +12,12 @@ import (
 	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
-// boardRef is embedded in every tool input to select the target board.
+// boardRef is embedded in every tool input to select the target board. It is
+// addressed by owner+board: "project" is aeman's own planning entity (a group
+// of epic columns on the Project board), not the GitHub board.
 type boardRef struct {
-	Owner   string `json:"owner,omitempty" jsonschema:"GitHub org or user that owns the project; defaults to the server configuration"`
-	Project int    `json:"project,omitempty" jsonschema:"GitHub Project number; defaults to the server configuration"`
+	Owner string `json:"owner,omitempty" jsonschema:"GitHub org or user that owns the board; defaults to the server configuration"`
+	Board int    `json:"board,omitempty" jsonschema:"GitHub Project number of the board; defaults to the server configuration. Not to be confused with an aeman project, which groups epic columns"`
 }
 
 // cardRef identifies a single card on a board.
@@ -100,11 +102,12 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 // filters, mirroring GET /api/v1/cards.
 type listCardsInput struct {
 	boardRef
-	View     string `json:"view,omitempty" jsonschema:"view to scope to: team, me or weekly; empty lists every card"`
+	View     string `json:"view,omitempty" jsonschema:"view to scope to: team, me, weekly or project; empty lists every card"`
 	Team     string `json:"team,omitempty" jsonschema:"team key for the team/weekly views; on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
 	Week     string `json:"week,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd for the weekly view; defaults to the current week"`
+	Project  string `json:"project,omitempty" jsonschema:"aeman project to scope the project view to — one project's epic columns; empty is every project. Read the roster from get_board metadata.projects"`
 	Stage    string `json:"stage,omitempty" jsonschema:"filter by stage: locked, review, recurrent or done"`
 	Zone     string `json:"zone,omitempty" jsonschema:"filter by semantic zone: urgent, unplanned, planned or niceToHave"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee GitHub login"`
@@ -118,11 +121,12 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	if err != nil {
 		return nil, apiserver.CardList{}, err
 	}
-	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User, Week: in.Week, Assignee: in.Assignee, Focus: in.Focus}
+	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User, Week: in.Week,
+		Project: in.Project, Assignee: in.Assignee, Focus: in.Focus}
 	switch sel.View {
-	case "", "all", "team", "me", "weekly", "plan":
+	case "", "all", "team", "me", "weekly", "project":
 	default:
-		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use all, team, me, weekly or plan)", sel.View)
+		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use all, team, me, weekly or project)", sel.View)
 	}
 	// An unspecified view defaults to the caller's personal Me board (their own
 	// cards); Team is the lead view and view=all is the whole board. "Who am I"
@@ -192,7 +196,7 @@ type createCardInput struct {
 	Sprint   string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
 	Plan     string `json:"plan,omitempty" jsonschema:"weekly-plan band, wed or fri: creates a plan card with no dates instead of a day card"`
 	Week     string `json:"week,omitempty" jsonschema:"plan week Monday as yyyy-mm-dd; defaults to the current week (plan cards only)"`
-	Epic     string `json:"epic,omitempty" jsonschema:"Plan-board column to file the card under. MUST be one of the board's EXISTING epics — read them from get_board metadata.epics; add_epic creates a new column when the user explicitly asks for one. The card's week is its row; start/end dates may span several weeks"`
+	Epic     string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under. MUST be one of the board's EXISTING epics — read them from get_board metadata.epics; add_epic creates a new column when the user explicitly asks for one. The card's week is its row; start/end dates may span several weeks"`
 	ReviewOf string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
 	// running sprint, else start one today), true to force a new sprint today,
@@ -366,21 +370,79 @@ func (h *server) applyDatePatch(ctx context.Context, svc *boardservice.Service, 
 	return nil
 }
 
-// epicInput names one Plan-board column.
+// epicInput names one Project-board column, and the project that owns it.
 type epicInput struct {
 	boardRef
-	Name string `json:"name" jsonschema:"the epic's name — the Plan-board column header"`
+	Name    string `json:"name" jsonschema:"the epic's name — the Project-board column header"`
+	Project string `json:"project,omitempty" jsonschema:"the project this column belongs to (required by add_epic; read the roster from get_board metadata.projects). Empty on set_epic_project detaches the column from every project"`
 }
 
 func (h *server) addEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddEpic(ctx, owner, project, in.Name); err != nil {
+	if err := svc.AddEpic(ctx, owner, boardNum, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil
+}
+
+// setEpicProject moves a column to another project (empty detaches it).
+func (h *server) setEpicProject(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.SetEpicProject(ctx, owner, boardNum, in.Name, in.Project); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "updated"}, nil
+}
+
+// projectInput names one project of the Project board.
+type projectInput struct {
+	boardRef
+	Name string `json:"name" jsonschema:"the project's name — the chip on the Project board"`
+}
+
+func (h *server) addProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.AddProject(ctx, owner, boardNum, in.Name); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "added"}, nil
+}
+
+func (h *server) deleteProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.DeleteProject(ctx, owner, boardNum, in.Name); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "deleted"}, nil
+}
+
+// reorderProjectsInput carries the whole chip order, top to bottom.
+type reorderProjectsInput struct {
+	boardRef
+	Projects []string `json:"projects" jsonschema:"every project name in the order the chips should appear"`
+}
+
+func (h *server) reorderProjects(ctx context.Context, _ *mcp.CallToolRequest, in reorderProjectsInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.ReorderProjects(ctx, owner, boardNum, in.Projects); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "reordered"}, nil
 }
 
 func (h *server) deleteEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {

@@ -15,7 +15,7 @@ import (
 
 // errMissingBoard is returned when neither query parameters nor server defaults
 // identify a board.
-var errMissingBoard = errors.New("owner and project are required (set ?owner=&project= or server defaults)")
+var errMissingBoard = errors.New("owner and board are required (set ?owner=&board= or server defaults)")
 
 // registerAPI wires the JSON API under /api/v1: a small set of Kubernetes-style
 // resources (Card, Sprint, Note, Ordering) plus actions for everything with
@@ -82,6 +82,10 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/epics", s.handleAddEpic)
 	mux.HandleFunc("POST /api/v1/epics/actions/delete-epic", s.handleDeleteEpic)
 	mux.HandleFunc("POST /api/v1/epics/actions/reorder-epics", s.handleReorderEpics)
+	mux.HandleFunc("POST /api/v1/epics/actions/set-project", s.handleSetEpicProject)
+	mux.HandleFunc("POST /api/v1/projects", s.handleAddProject)
+	mux.HandleFunc("POST /api/v1/projects/actions/delete-project", s.handleDeleteProject)
+	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
 	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
@@ -111,8 +115,8 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		Version: s.opts.Version,
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
-			{"GET", "/api/v1/board", "Board identity and team roster"},
-			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|weekly, team, day, user, week, stage, zone, assignee, fields=full for complete cards"},
+			{"GET", "/api/v1/board", "Board identity, team roster, and the Project board's projects and epic columns. Every endpoint takes the board as ?owner=&board= — \"project\" is aeman's planning entity, not the GitHub board"},
+			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|weekly|project, team, day, user, week, project, stage, zone, assignee, fields=full for complete cards"},
 			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint; plan cards via spec.plan)"},
 			{"GET", "/api/v1/cards/{uid}", "One card in full (the body lives here, not in listings)"},
 			{"PATCH", "/api/v1/cards/{uid}", "Edit spec fields; the server applies clamps, links and date rules"},
@@ -137,6 +141,13 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/sprints/actions/reorder-teams", "Apply a shared team order (moves the hidden sprint-state cards; body {teams:[...]})"},
 			{"POST", "/api/v1/sprints/actions/delete-team", "Delete a team's sprint pointer; refused while cards still use the team (body {team})"},
 			{"POST", "/api/v1/sprints/actions/carry-week", "Pull unfinished plan cards into the week ({team, week, dryRun})"},
+			{"POST", "/api/v1/epics", "Declare an epic column inside a project ({name, project}); the project is required"},
+			{"POST", "/api/v1/epics/actions/delete-epic", "Delete an EMPTY epic column; refused while cards sit under it ({epic})"},
+			{"POST", "/api/v1/epics/actions/reorder-epics", "Apply a shared column order (moves the hidden epic-state cards; body {epics:[...]})"},
+			{"POST", "/api/v1/epics/actions/set-project", "Move a column to another project ({epic, project}); empty project detaches it"},
+			{"POST", "/api/v1/projects", "Declare a project — the Project board's top grouping, which owns epic columns ({name})"},
+			{"POST", "/api/v1/projects/actions/delete-project", "Delete an EMPTY project; refused while it owns epic columns ({project})"},
+			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
 			{"GET", "/api/v1/ordering", "The board-level manual card order"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
 			{"GET", "/api/v1/watch", "WebSocket stream of Card/Sprint/Ordering events; selector-scoped with view params"},
@@ -144,8 +155,10 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// boardRef resolves the target board from query parameters, honouring the
-// lock-board pin and server defaults.
+// boardRef resolves the target board from query parameters (?owner=&board=),
+// honouring the lock-board pin and server defaults. The GitHub board is
+// addressed by "board": "project" is aeman's own planning entity (a group of
+// epic columns on the Project board) and is a card filter, not an address.
 func (s *Server) boardRef(r *http.Request) (owner string, project int, err error) {
 	owner = s.opts.DefaultOwner
 	project = s.opts.DefaultProject
@@ -153,10 +166,10 @@ func (s *Server) boardRef(r *http.Request) (owner string, project int, err error
 		if v := r.URL.Query().Get("owner"); v != "" {
 			owner = v
 		}
-		if v := r.URL.Query().Get("project"); v != "" {
+		if v := r.URL.Query().Get("board"); v != "" {
 			n, convErr := strconv.Atoi(v)
 			if convErr != nil {
-				return "", 0, fmt.Errorf("invalid project number %q", v)
+				return "", 0, fmt.Errorf("invalid board number %q", v)
 			}
 			project = n
 		}
@@ -339,7 +352,7 @@ type createCardRequest struct {
 		Band string `json:"band"`
 		Week string `json:"week"`
 	} `json:"plan"`
-	// Epic files the card on the Plan board (its week defaults to the Monday
+	// Epic files the card on the Project board (its week defaults to the Monday
 	// of dates.start; dates may span several weeks).
 	Epic           string `json:"epic"`
 	ReviewOf       string `json:"reviewOf"`
@@ -419,7 +432,7 @@ type cardPatch struct {
 	Stage       *string   `json:"stage"`
 	// Recurrence is a recurrent card's reseed cycle ("", "week", "month").
 	Recurrence *string `json:"recurrence"`
-	// Epic files the card under a Plan-board column ("" clears).
+	// Epic files the card under a Project-board column ("" clears).
 	Epic     *string     `json:"epic"`
 	Dates    *datesPatch `json:"dates"`
 	Plan     *planPatch  `json:"plan"`
@@ -1024,27 +1037,109 @@ func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleAddEpic declares a new Plan-board column (body {name}).
+// handleAddEpic declares a new Project-board column inside a project
+// (body {name, project}). The project is required — see AddEpic.
 func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name string `json:"name"`
+		Name    string `json:"name"`
+		Project string `json:"project"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, owner, boardNum, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.AddEpic(r.Context(), owner, project, in.Name); err != nil {
+	if err := svc.AddEpic(r.Context(), owner, boardNum, in.Name, in.Project); err != nil {
 		s.apiError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
 }
 
+// handleSetEpicProject moves a column to another project (body {epic, project});
+// an empty project detaches it from every project.
+func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Epic    string `json:"epic"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.SetEpicProject(r.Context(), owner, boardNum, in.Epic, in.Project); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleAddProject declares a project — the Project board's top grouping,
+// which owns epic columns (body {name}).
+func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.AddProject(r.Context(), owner, boardNum, in.Name); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+}
+
+// handleDeleteProject removes an EMPTY project (422 while it still owns epic
+// columns — detaching planned work silently is the anti-goal).
+func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteProject(r.Context(), owner, boardNum, in.Project); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleReorderProjects applies the shared chip order (body {projects:[...]}).
+func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Projects []string `json:"projects"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.ReorderProjects(r.Context(), owner, boardNum, in.Projects); err != nil {
+		s.apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleDeleteEpic removes an EMPTY epic column (422 while cards still sit
-// under it — orphaning planned work silently is the Plan board's own anti-goal).
+// under it — the Project board's own anti-goal).
 func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Epic string `json:"epic"`
@@ -1188,7 +1283,10 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 		errors.Is(err, boardservice.ErrTeamInUse),
 		errors.Is(err, boardservice.ErrEpicInUse),
 		errors.Is(err, boardservice.ErrEpicExists),
-		errors.Is(err, boardservice.ErrEpicNotFound):
+		errors.Is(err, boardservice.ErrEpicNotFound),
+		errors.Is(err, boardservice.ErrProjectInUse),
+		errors.Is(err, boardservice.ErrProjectExists),
+		errors.Is(err, boardservice.ErrProjectNotFound):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

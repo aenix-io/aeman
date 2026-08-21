@@ -21,7 +21,7 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
-		// An epic card lives on the Plan board until it joins a sprint (see
+		// An epic card lives on the Project board until it joins a sprint (see
 		// MeView) — its multi-week span must not smear across the day grid.
 		if c.Epic != "" && c.SprintStart == "" {
 			continue
@@ -91,7 +91,7 @@ func MeView(b Board, user, day string) []Card {
 		if c.Parent != "" {
 			continue
 		}
-		// An epic card lives on the Plan board until it joins a sprint: its
+		// An epic card lives on the Project board until it joins a sprint: its
 		// week-spanning dates would otherwise smear it across the day boards.
 		if c.Epic != "" && c.SprintStart == "" {
 			continue

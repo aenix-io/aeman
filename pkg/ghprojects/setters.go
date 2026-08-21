@@ -74,6 +74,7 @@ var domainFieldSpecs = map[string]domainFieldSpec{
 	}},
 	"week":        {name: "Week", dataType: "DATE"},
 	"epic":        {name: "Epic", dataType: "TEXT"},
+	"project":     {name: "Project", dataType: "TEXT"},
 	"team":        {name: "Team", dataType: "TEXT"},
 	"reviewOf":    {name: "Review Of", dataType: "TEXT"},
 	"parent":      {name: "Parent", dataType: "TEXT"},
@@ -434,9 +435,16 @@ func (c *Client) SetTeam(ctx context.Context, b board.Board, card board.Card, te
 	return c.setDomainText(ctx, b, card, "team", team)
 }
 
-// SetEpic files (or clears) the Plan-board column a card belongs to.
+// SetEpic files (or clears) the Project-board column a card belongs to.
 func (c *Client) SetEpic(ctx context.Context, b board.Board, card board.Card, epic string) error {
 	return c.setDomainText(ctx, b, card, "epic", epic)
+}
+
+// SetProject writes the Project field. It is used on the two hidden state
+// cards — a project-state card's own name, and the project an epic-state card
+// belongs to — never on a normal card, whose project follows its epic.
+func (c *Client) SetProject(ctx context.Context, b board.Board, card board.Card, project string) error {
+	return c.setDomainText(ctx, b, card, "project", project)
 }
 
 // SetRecurrence sets (or clears) a recurrent card's reseed cycle.
@@ -584,6 +592,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 	}
 	for _, tf := range []struct{ role, value string }{
 		{"team", in.Team}, {"reviewOf", in.ReviewOf}, {"parent", in.Parent}, {"epic", in.Epic},
+		{"project", in.Project},
 	} {
 		if tf.value == "" {
 			continue
@@ -630,6 +639,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		Plan:        in.Plan,
 		Week:        in.Week,
 		Epic:        in.Epic,
+		Project:     in.Project,
 		Team:        in.Team,
 		ReviewOf:    in.ReviewOf,
 		Parent:      in.Parent,

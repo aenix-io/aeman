@@ -1212,15 +1212,36 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	if card.Title == board.ProjectStateTitle {
+		// A project-state card is a roster entry, not a card row: surface it
+		// as the board's project list (clients re-read /board).
+		if card.Project != "" && e.board.ProjectStates[card.Project] == "" {
+			if e.board.ProjectStates == nil {
+				e.board.ProjectStates = map[string]string{}
+			}
+			e.board.Projects = append(e.board.Projects, card.Project)
+			e.board.ProjectStates[card.Project] = card.ItemID
+		}
+		e.markRecent(card.ItemID)
+		e.syncBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
 	if card.Title == board.EpicStateTitle {
-		// A state card is a Plan-board column, not a card: surface it as the
-		// board's epic roster (clients re-read /board), never as a card row.
+		// A state card is a Project-board column, not a card: surface it as
+		// the board's epic roster (clients re-read /board), never as a row.
 		if card.Epic != "" && e.board.EpicStates[card.Epic] == "" {
 			if e.board.EpicStates == nil {
 				e.board.EpicStates = map[string]string{}
 			}
 			e.board.Epics = append(e.board.Epics, card.Epic)
 			e.board.EpicStates[card.Epic] = card.ItemID
+		}
+		if card.Epic != "" && card.Project != "" {
+			if e.board.EpicProjects == nil {
+				e.board.EpicProjects = map[string]string{}
+			}
+			e.board.EpicProjects[card.Epic] = card.Project
 		}
 		e.markRecent(card.ItemID)
 		e.syncBroadcast()
@@ -1260,7 +1281,18 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 			continue
 		}
 		delete(e.board.EpicStates, epic)
+		delete(e.board.EpicProjects, epic)
 		e.board.Epics = removeString(e.board.Epics, epic)
+		e.syncBroadcast()
+		break
+	}
+	// ...and a deleted project-state card takes its chip.
+	for project, id := range e.board.ProjectStates {
+		if id != card.ItemID {
+			continue
+		}
+		delete(e.board.ProjectStates, project)
+		e.board.Projects = removeString(e.board.Projects, project)
 		e.syncBroadcast()
 		break
 	}
@@ -1292,11 +1324,33 @@ func teamOfSprintState(states map[string]board.SprintState, itemID string) (stri
 // moveTeamAfter re-slots team in the order list after the team owning the
 // afterID sprint-state card ("" or unknown = to the front).
 func moveTeamAfter(order []string, states map[string]board.SprintState, team, afterID string) []string {
-	order = removeString(append([]string(nil), order...), team)
+	ids := make(map[string]string, len(states))
+	for t, st := range states {
+		ids[t] = st.ItemID
+	}
+	return moveNameAfter(order, ids, team, afterID)
+}
+
+// nameOfState finds the roster entry whose state card has the item id.
+func nameOfState(ids map[string]string, itemID string) (string, bool) {
+	for name, id := range ids {
+		if id == itemID {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// moveNameAfter re-slots name in an ordered roster after the entry owning the
+// afterID state card ("" or unknown = to the front). Teams, epic columns and
+// projects all order themselves by their state card's board position, so they
+// all reorder through here.
+func moveNameAfter(order []string, ids map[string]string, name, afterID string) []string {
+	order = removeString(append([]string(nil), order...), name)
 	at := 0
-	if afterTeam, ok := teamOfSprintState(states, afterID); ok {
-		for i, t := range order {
-			if t == afterTeam {
+	if after, ok := nameOfState(ids, afterID); ok {
+		for i, n := range order {
+			if n == after {
 				at = i + 1
 				break
 			}
@@ -1304,7 +1358,7 @@ func moveTeamAfter(order []string, states map[string]board.SprintState, team, af
 	}
 	out := make([]string, 0, len(order)+1)
 	out = append(out, order[:at]...)
-	out = append(out, team)
+	out = append(out, name)
 	out = append(out, order[at:]...)
 	return out
 }
@@ -1320,6 +1374,17 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	// TeamOrder so /board reads agree with the new order immediately.
 	if team, ok := teamOfSprintState(e.board.SprintStates, card.ItemID); ok {
 		e.board.TeamOrder = moveTeamAfter(e.board.TeamOrder, e.board.SprintStates, team, afterID)
+	}
+	// The same for the two Project-board rosters: their order IS the board
+	// position of their state cards, so a reorder must land in the cache or
+	// /board keeps serving the old order until the next revalidation.
+	if epic, ok := nameOfState(e.board.EpicStates, card.ItemID); ok {
+		e.board.Epics = moveNameAfter(e.board.Epics, e.board.EpicStates, epic, afterID)
+		e.syncBroadcast()
+	}
+	if project, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
+		e.board.Projects = moveNameAfter(e.board.Projects, e.board.ProjectStates, project, afterID)
+		e.syncBroadcast()
 	}
 	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
@@ -1656,6 +1721,37 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 		c.Epic = epic
 	}, func(ctx context.Context) error {
 		return b.inner.SetEpic(ctx, bd, card, epic)
+	})
+	return nil
+}
+
+// SetProject rebinds an epic column to a project. The target is a hidden
+// state card, which is NOT in the cached card list (NewBoard splits it out),
+// so mutateCard cannot reach it: update the roster map directly and queue the
+// write like any other mutation.
+func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e.mu.Lock()
+	if epic, ok := nameOfState(e.board.EpicStates, card.ItemID); ok {
+		if project == "" {
+			delete(e.board.EpicProjects, epic)
+		} else {
+			if e.board.EpicProjects == nil {
+				e.board.EpicProjects = map[string]string{}
+			}
+			e.board.EpicProjects[epic] = project
+		}
+		e.syncBroadcast()
+	}
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key:    "project:" + card.ItemID,
+		itemID: card.ItemID,
+		desc:   "file " + cardRef(card) + " under a project",
+		apply:  func(*board.Board) {},
+		exec: func(ctx context.Context) error {
+			return b.inner.SetProject(ctx, bd, card, project)
+		},
 	})
 	return nil
 }

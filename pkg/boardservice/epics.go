@@ -11,7 +11,7 @@ import (
 
 // ErrEpicInUse is returned when deleting an epic that still has cards filed
 // under it: silently orphaning them would hide planned work, exactly the
-// failure mode the Plan board exists to prevent.
+// failure mode the Project board exists to prevent.
 var ErrEpicInUse = errors.New("epic still has cards")
 
 // ErrEpicExists guards AddEpic against doubling a column.
@@ -22,14 +22,23 @@ var ErrEpicExists = errors.New("epic already exists")
 // mint a team. It is a rejected input (422), not an upstream failure.
 var ErrEpicNotFound = errors.New("unknown epic")
 
-// AddEpic declares a new Plan-board column by creating its hidden epic-state
-// card (the exact team-roster mechanism: the card's position IS the column
-// order). The name is the epic's identity — renames are a delete+add while
-// the column is empty.
-func (s *Service) AddEpic(ctx context.Context, owner string, project int, name string) error {
+// AddEpic declares a new Project-board column inside a project by creating its
+// hidden epic-state card (the exact team-roster mechanism: the card's position
+// IS the column order). The name is the epic's identity — renames are a
+// delete+add while the column is empty.
+//
+// The project is required: an epic belongs to exactly one project, and a column
+// that belongs to none would appear only in the all-projects view, which is
+// where an epic goes to be forgotten. Use SetEpicProject to move or detach one
+// deliberately.
+func (s *Service) AddEpic(ctx context.Context, owner string, project int, name, projectName string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("epic name must not be empty")
+	}
+	projectName = strings.TrimSpace(projectName)
+	if projectName == "" {
+		return fmt.Errorf("%w: an epic must name the project it belongs to", ErrProjectNotFound)
 	}
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
@@ -40,9 +49,13 @@ func (s *Service) AddEpic(ctx context.Context, owner string, project int, name s
 			return fmt.Errorf("%w: %q", ErrEpicExists, e)
 		}
 	}
+	if err := knownProject(b, projectName); err != nil {
+		return err
+	}
 	_, err = s.backend.CreateCard(ctx, b, board.CreateInput{
-		Title: board.EpicStateTitle,
-		Epic:  name,
+		Title:   board.EpicStateTitle,
+		Epic:    name,
+		Project: projectName,
 	})
 	return err
 }
@@ -72,7 +85,8 @@ func (s *Service) DeleteEpic(ctx context.Context, owner string, project int, nam
 }
 
 // ReorderEpics persists a column order by walking the epic-state cards into
-// the given sequence (mirrors ReorderTeams).
+// the given sequence (mirrors ReorderTeams). Columns of different projects
+// share one ordered roster: the board position is the single source of order.
 func (s *Service) ReorderEpics(ctx context.Context, owner string, project int, epics []string) error {
 	b, err := s.backend.LoadBoard(ctx, owner, project)
 	if err != nil {
@@ -93,7 +107,7 @@ func (s *Service) ReorderEpics(ctx context.Context, owner string, project int, e
 	return nil
 }
 
-// SetEpic files a card under a Plan-board column ("" clears it). The column
+// SetEpic files a card under a Project-board column ("" clears it). The column
 // must exist — a typo must not mint a phantom column the way a stray team
 // value used to mint a team.
 func (s *Service) SetEpic(ctx context.Context, owner string, project int, itemID, epic string) error {
