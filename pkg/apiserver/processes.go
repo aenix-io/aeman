@@ -6,22 +6,23 @@ import (
 )
 
 // ProcessList is the Process tab on the wire: every process with its
-// templates, each template with its recent history — enough to draw the tab
+// tasks, each task with its recent history — enough to draw the tab
 // and to answer "is this process alive" without a second request.
 type ProcessList struct {
 	Kind  string    `json:"kind"`
 	Items []Process `json:"items"`
 }
 
-// Process is one process and the templates it iterates on.
+// Process is one process and the tasks it iterates on.
 type Process struct {
-	Name      string     `json:"name"`
-	Project   string     `json:"project,omitempty"`
-	Templates []Template `json:"templates"`
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+	Paused  bool   `json:"paused,omitempty"`
+	Tasks   []Task `json:"tasks"`
 }
 
 // Template is what an iteration is copied from, plus how the last few went.
-type Template struct {
+type Task struct {
 	UID         string `json:"uid"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
@@ -30,7 +31,7 @@ type Template struct {
 	Team        string `json:"team,omitempty"`
 	Assignee    string `json:"assignee,omitempty"`
 	Accumulate  bool   `json:"accumulate,omitempty"`
-	// History lists the template's iterations, oldest first, as they went.
+	// History lists the task's iterations, oldest first, as they went.
 	History []Iteration `json:"history"`
 }
 
@@ -52,12 +53,12 @@ func ProcessesResource(b board.Board, project string) ProcessList {
 		if project != "" && p.Project != project {
 			continue
 		}
-		proc := Process{Name: p.Name, Project: p.Project, Templates: []Template{}}
-		for _, t := range board.TemplatesOf(b, p.Name) {
-			tpl := Template{
+		proc := Process{Name: p.Name, Project: p.Project, Paused: p.Paused, Tasks: []Task{}}
+		for _, t := range board.TasksOf(b, p.Name) {
+			task := Task{
 				UID:         t.ItemID,
-				Title:       boardservice.TemplateTitle(t),
-				Description: boardservice.TemplateDescription(t),
+				Title:       boardservice.TaskTitle(t),
+				Description: boardservice.TaskDescription(t),
 				Recurrence:  t.Recurrence,
 				Start:       t.StartDate,
 				Team:        t.Team,
@@ -65,14 +66,14 @@ func ProcessesResource(b board.Board, project string) ProcessList {
 				History:     []Iteration{},
 			}
 			if len(t.Assignees) > 0 {
-				tpl.Assignee = t.Assignees[0]
+				task.Assignee = t.Assignees[0]
 			}
 			for _, it := range board.Iterations(b, t.ItemID) {
-				tpl.History = append(tpl.History, Iteration{
+				task.History = append(task.History, Iteration{
 					UID: it.ItemID, Week: it.Week, State: iterationState(it, t, today),
 				})
 			}
-			proc.Templates = append(proc.Templates, tpl)
+			proc.Tasks = append(proc.Tasks, task)
 		}
 		out.Items = append(out.Items, proc)
 	}

@@ -215,12 +215,12 @@ func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID,
 				return
 			}
 		}
-		// A process template is a whole card kept out of the rows; every
+		// A process task is a whole card kept out of the rows; every
 		// card setter (description, cycle, start, team, owner) applies to it
 		// the same way, so it is reached here rather than in each setter.
-		for i := range target.Templates {
-			if target.Templates[i].ItemID == itemID {
-				fn(&target.Templates[i])
+		for i := range target.Tasks {
+			if target.Tasks[i].ItemID == itemID {
+				fn(&target.Tasks[i])
 				return
 			}
 		}
@@ -237,9 +237,9 @@ func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID,
 		}
 	}
 	if !announced {
-		for _, t := range e.board.Templates {
+		for _, t := range e.board.Tasks {
 			if t.ItemID == itemID {
-				// A template changed: clients re-read the board's structure.
+				// A task changed: clients re-read the board's structure.
 				e.rosterBroadcast()
 				break
 			}

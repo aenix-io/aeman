@@ -65,6 +65,8 @@ export interface CardResource {
     dates?: { start?: string; end?: string; sprint?: string };
     plan?: { band?: string; week?: string };
     epic?: string;
+    process?: string;
+    task?: string;
     project?: string;
     reviewOf?: string;
     parent?: string;
@@ -194,6 +196,8 @@ export function resourceToCard(res: CardResource): Card {
     week: spec.plan?.week || undefined,
     epic: spec.epic || undefined,
     project: spec.project || undefined,
+    process: spec.process || undefined,
+    task: spec.task || undefined,
     // A summary listing omits the body: description stays undefined ("not
     // loaded") and the boards fetch it on selection. A full resource with a
     // genuinely empty body also arrives undefined (the field is omitempty) —

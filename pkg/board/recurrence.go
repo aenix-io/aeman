@@ -22,7 +22,7 @@ func ValidRecurrence(cycle string) bool {
 }
 
 // NextAfter is the first date strictly after `from` at which a cycle anchored
-// on `anchor` comes due — the calendar arithmetic behind process templates.
+// on `anchor` comes due — the calendar arithmetic behind process tasks.
 // The cycle is counted on the calendar from the anchor, never from when the
 // last iteration happened to close, so a late March does not shift April.
 // The per-sprint default has no calendar meaning and yields "".

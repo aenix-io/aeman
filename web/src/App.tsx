@@ -628,10 +628,10 @@ export function App() {
         want(a);
       }
     }
-    // A process template's standing owner is not on any card until the next
+    // A process task's standing owner is not on any card until the next
     // iteration is spawned, so it would otherwise show as a bare login.
     for (const p of board.processes) {
-      for (const t of p.templates) {
+      for (const t of p.tasks) {
         want(t.assignee ?? "");
       }
     }

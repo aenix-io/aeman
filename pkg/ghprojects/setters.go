@@ -72,14 +72,15 @@ var domainFieldSpecs = map[string]domainFieldSpec{
 		{"Wed", "BLUE", "By Wednesday"},
 		{"Fri", "PURPLE", "By Friday"},
 	}},
-	"week":     {name: "Week", dataType: "DATE"},
-	"epic":     {name: "Epic", dataType: "TEXT"},
-	"project":  {name: "Project", dataType: "TEXT"},
-	"process":  {name: "Process", dataType: "TEXT"},
-	"template": {name: "Template", dataType: "TEXT"},
+	"week":    {name: "Week", dataType: "DATE"},
+	"epic":    {name: "Epic", dataType: "TEXT"},
+	"project": {name: "Project", dataType: "TEXT"},
+	"process": {name: "Process", dataType: "TEXT"},
+	"task":    {name: "Task", dataType: "TEXT"},
 	// A flag, stored as "yes"/"" — Projects v2 has no boolean field, and a
 	// single-select for one bit is more machinery than the bit deserves.
 	"accumulate":  {name: "Accumulate", dataType: "TEXT"},
+	"paused":      {name: "Paused", dataType: "TEXT"},
 	"team":        {name: "Team", dataType: "TEXT"},
 	"reviewOf":    {name: "Review Of", dataType: "TEXT"},
 	"parent":      {name: "Parent", dataType: "TEXT"},
@@ -457,18 +458,27 @@ func (c *Client) SetProcess(ctx context.Context, b board.Board, card board.Card,
 	return c.setDomainText(ctx, b, card, "process", process)
 }
 
-// SetTemplate links an iteration to the template it was spawned from.
-func (c *Client) SetTemplate(ctx context.Context, b board.Board, card board.Card, template string) error {
-	return c.setDomainText(ctx, b, card, "template", template)
+// SetTask links an iteration to the task it was spawned from.
+func (c *Client) SetTask(ctx context.Context, b board.Board, card board.Card, task string) error {
+	return c.setDomainText(ctx, b, card, "task", task)
 }
 
-// SetAccumulate sets a template's accumulate flag.
+// SetAccumulate sets a task's accumulate flag.
 func (c *Client) SetAccumulate(ctx context.Context, b board.Board, card board.Card, on bool) error {
 	v := ""
 	if on {
 		v = "yes"
 	}
 	return c.setDomainText(ctx, b, card, "accumulate", v)
+}
+
+// SetPaused stops (or restarts) a process spawning iterations.
+func (c *Client) SetPaused(ctx context.Context, b board.Board, card board.Card, paused bool) error {
+	v := ""
+	if paused {
+		v = "yes"
+	}
+	return c.setDomainText(ctx, b, card, "paused", v)
 }
 
 // SetRecurrence sets (or clears) a recurrent card's reseed cycle.
@@ -574,8 +584,9 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 			} `json:"projectItem"`
 		} `json:"addProjectV2DraftIssue"`
 	}
-	if err := c.graphql(ctx, addDraftMutation,
-		map[string]any{"project": b.ID, "title": in.Title, "assignees": assigneeIDs}, &created); err != nil {
+	if err := c.graphql(ctx, addDraftMutation, map[string]any{
+		"project": b.ID, "title": in.Title, "body": in.Body, "assignees": assigneeIDs,
+	}, &created); err != nil {
 		return board.Card{}, err
 	}
 	item := created.AddProjectV2DraftIssue.ProjectItem
@@ -616,7 +627,7 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 	}
 	for _, tf := range []struct{ role, value string }{
 		{"team", in.Team}, {"reviewOf", in.ReviewOf}, {"parent", in.Parent}, {"epic", in.Epic},
-		{"project", in.Project}, {"process", in.Process}, {"template", in.Template},
+		{"project", in.Project}, {"process", in.Process}, {"task", in.Task},
 		{"recurrence", in.Recurrence},
 	} {
 		if tf.value == "" {
@@ -666,8 +677,9 @@ func (c *Client) CreateCard(ctx context.Context, b board.Board, in board.CreateI
 		Epic:        in.Epic,
 		Project:     in.Project,
 		Process:     in.Process,
-		Template:    in.Template,
+		Task:        in.Task,
 		Recurrence:  in.Recurrence,
+		Description: in.Body,
 		Team:        in.Team,
 		ReviewOf:    in.ReviewOf,
 		Parent:      in.Parent,

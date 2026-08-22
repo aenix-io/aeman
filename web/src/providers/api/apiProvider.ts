@@ -28,7 +28,7 @@ import type {
   Note,
   ProcessInfo,
   Provider,
-  TemplateInput,
+  TaskInput,
   ZoneKey,
 } from "../types";
 
@@ -60,7 +60,7 @@ export function processesFrom(items: ProcessInfo[] | null | undefined): ProcessI
   return (items ?? []).map((p) => ({
     ...p,
     project: p.project ?? "",
-    templates: (p.templates ?? []).map((t) => ({ ...t, history: t.history ?? [] })),
+    tasks: (p.tasks ?? []).map((t) => ({ ...t, history: t.history ?? [] })),
   }));
 }
 
@@ -481,28 +481,36 @@ export const apiProvider: Provider = {
     await api(board, "POST", "/processes/actions/set-project", { process, project });
   },
 
-  async addTemplate(
+  async setProcessPaused(
     board: BoardAddr,
     process: string,
-    input: TemplateInput,
+    paused: boolean,
+  ): Promise<void> {
+    await api(board, "POST", "/processes/actions/set-paused", { process, paused });
+  },
+
+  async addTask(
+    board: BoardAddr,
+    process: string,
+    input: TaskInput,
   ): Promise<string> {
-    const res = await api<{ uid: string }>(board, "POST", "/processes/templates", {
+    const res = await api<{ uid: string }>(board, "POST", "/processes/tasks", {
       process,
       ...input,
     });
     return res.uid;
   },
 
-  async updateTemplate(
+  async updateTask(
     board: BoardAddr,
     uid: string,
-    patch: TemplateInput,
+    patch: TaskInput,
   ): Promise<void> {
-    await api(board, "PATCH", `/processes/templates/${uid}`, patch);
+    await api(board, "PATCH", `/processes/tasks/${uid}`, patch);
   },
 
-  async deleteTemplate(board: BoardAddr, uid: string): Promise<void> {
-    await api(board, "DELETE", `/processes/templates/${uid}`);
+  async deleteTask(board: BoardAddr, uid: string): Promise<void> {
+    await api(board, "DELETE", `/processes/tasks/${uid}`);
   },
 
   async addDeadline(

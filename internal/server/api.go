@@ -90,9 +90,10 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/processes/actions/delete-process", s.handleDeleteProcess)
 	mux.HandleFunc("POST /api/v1/processes/actions/rename", s.handleRenameProcess)
 	mux.HandleFunc("POST /api/v1/processes/actions/set-project", s.handleSetProcessProject)
-	mux.HandleFunc("POST /api/v1/processes/templates", s.handleAddTemplate)
-	mux.HandleFunc("PATCH /api/v1/processes/templates/{uid}", s.handlePatchTemplate)
-	mux.HandleFunc("DELETE /api/v1/processes/templates/{uid}", s.handleDeleteTemplate)
+	mux.HandleFunc("POST /api/v1/processes/actions/set-paused", s.handleSetProcessPaused)
+	mux.HandleFunc("POST /api/v1/processes/tasks", s.handleAddTask)
+	mux.HandleFunc("PATCH /api/v1/processes/tasks/{uid}", s.handlePatchTask)
+	mux.HandleFunc("DELETE /api/v1/processes/tasks/{uid}", s.handleDeleteTask)
 	mux.HandleFunc("POST /api/v1/deadlines", s.handleAddDeadline)
 	mux.HandleFunc("POST /api/v1/deadlines/actions/delete", s.handleDeleteDeadline)
 	mux.HandleFunc("POST /api/v1/deadlines/actions/move", s.handleMoveDeadline)
@@ -160,14 +161,15 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/epics/actions/reorder-epics", "Apply one project's column order (moves the hidden epic-state cards; body {project, epics:[...]})"},
 			{"POST", "/api/v1/epics/actions/set-project", "Move a column from one project to another ({epic, from, project}); an empty target detaches it"},
 			{"POST", "/api/v1/epics/actions/rename", "Rename a column in place, cards and all ({project, epic, to})"},
-			{"GET", "/api/v1/processes", "The Process tab: every process with its templates and each template's history (?project= filters)"},
+			{"GET", "/api/v1/processes", "The Process tab: every process with its tasks and each task's history (?project= filters)"},
 			{"POST", "/api/v1/processes", "Declare a process — recurring work inside a project ({name, project})"},
-			{"POST", "/api/v1/processes/actions/delete-process", "Delete an EMPTY process ({process}); refused while it has templates"},
-			{"POST", "/api/v1/processes/actions/rename", "Rename a process; its templates follow ({process, to})"},
+			{"POST", "/api/v1/processes/actions/delete-process", "Delete an EMPTY process ({process}); refused while it has tasks"},
+			{"POST", "/api/v1/processes/actions/rename", "Rename a process; its tasks follow ({process, to})"},
 			{"POST", "/api/v1/processes/actions/set-project", "Move a process to another project ({process, project}; empty project = the no-project bucket)"},
-			{"POST", "/api/v1/processes/templates", "Add what a process iterates on ({process, title, description, recurrence, start, team, assignee, accumulate})"},
-			{"PATCH", "/api/v1/processes/templates/{uid}", "Change what the NEXT iterations will be; the running one is untouched"},
-			{"DELETE", "/api/v1/processes/templates/{uid}", "Delete a template; its past iterations stay as the record"},
+			{"POST", "/api/v1/processes/actions/set-paused", "Pause a process, or resume it ({process, paused}); a paused process files no iterations"},
+			{"POST", "/api/v1/processes/tasks", "Add what a process iterates on ({process, title, description, recurrence, start, team, assignee, accumulate})"},
+			{"PATCH", "/api/v1/processes/tasks/{uid}", "Change what the NEXT iterations will be; the running one is untouched"},
+			{"DELETE", "/api/v1/processes/tasks/{uid}", "Delete a task; its past iterations stay as the record"},
 			{"POST", "/api/v1/deadlines", "Mark a week with a project's deadline line ({week, project}); a project holds at most one per week"},
 			{"POST", "/api/v1/deadlines/actions/delete", "Clear a project's deadline on a week ({week, project})"},
 			{"POST", "/api/v1/deadlines/actions/move", "Drag a project's deadline to another week ({project, from, to}); landing where it already has one leaves a single line"},
@@ -1284,9 +1286,29 @@ func (s *Server) handleSetProcessProject(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// templateRequest is a template on the wire, for create (all fields) and
+func (s *Server) handleSetProcessPaused(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Process string `json:"process"`
+		Paused  bool   `json:"paused"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.SetProcessPaused(r.Context(), owner, boardNum, in.Process, in.Paused); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// taskRequest is a task on the wire, for create (all fields) and
 // patch (pointers: only the present ones apply).
-type templateRequest struct {
+type taskRequest struct {
 	Process     string  `json:"process"`
 	Title       *string `json:"title"`
 	Description *string `json:"description"`
@@ -1297,8 +1319,8 @@ type templateRequest struct {
 	Accumulate  *bool   `json:"accumulate"`
 }
 
-func (s *Server) handleAddTemplate(w http.ResponseWriter, r *http.Request) {
-	var in templateRequest
+func (s *Server) handleAddTask(w http.ResponseWriter, r *http.Request) {
+	var in taskRequest
 	if !decodeJSON(w, r, &in) {
 		return
 	}
@@ -1313,7 +1335,7 @@ func (s *Server) handleAddTemplate(w http.ResponseWriter, r *http.Request) {
 		}
 		return *p
 	}
-	tpl, err := svc.AddProcessTemplate(r.Context(), owner, boardNum, in.Process, boardservice.TemplateArgs{
+	tpl, err := svc.AddProcessTask(r.Context(), owner, boardNum, in.Process, boardservice.TaskArgs{
 		Title: str(in.Title), Description: str(in.Description), Recurrence: str(in.Recurrence),
 		Start: str(in.Start), Team: str(in.Team), Assignee: str(in.Assignee),
 		Accumulate: in.Accumulate != nil && *in.Accumulate,
@@ -1325,8 +1347,8 @@ func (s *Server) handleAddTemplate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"uid": tpl.ItemID})
 }
 
-func (s *Server) handlePatchTemplate(w http.ResponseWriter, r *http.Request) {
-	var in templateRequest
+func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
+	var in taskRequest
 	if !decodeJSON(w, r, &in) {
 		return
 	}
@@ -1335,7 +1357,7 @@ func (s *Server) handlePatchTemplate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := svc.UpdateProcessTemplate(r.Context(), owner, boardNum, r.PathValue("uid"), boardservice.TemplatePatch{
+	err := svc.UpdateProcessTask(r.Context(), owner, boardNum, r.PathValue("uid"), boardservice.TaskPatch{
 		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
 		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
 	})
@@ -1346,13 +1368,13 @@ func (s *Server) handlePatchTemplate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(staleOK(r.Context()))
 	svc, owner, boardNum, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.DeleteProcessTemplate(r.Context(), owner, boardNum, r.PathValue("uid")); err != nil {
+	if err := svc.DeleteProcessTask(r.Context(), owner, boardNum, r.PathValue("uid")); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1696,7 +1718,7 @@ func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrProcessInUse),
-		errors.Is(err, boardservice.ErrTemplateNotFound):
+		errors.Is(err, boardservice.ErrTaskNotFound):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

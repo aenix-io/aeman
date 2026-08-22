@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Board,
-  ProcessTemplate,
+  ProcessTask,
   Provider,
-  TemplateInput,
+  TaskInput,
 } from "../providers/types";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
@@ -25,7 +25,7 @@ interface ProcessBoardProps {
   onError: (message: string) => void;
 }
 
-/** The cycles a template may run on, in the order a person would list them. */
+/** The cycles a task may run on, in the order a person would list them. */
 const CYCLES: { key: string; label: string }[] = [
   { key: "week", label: "every week" },
   { key: "2weeks", label: "every two weeks" },
@@ -38,7 +38,7 @@ function cycleLabel(key: string): string {
 }
 
 /** The Process tab: recurring work the team keeps doing — each process expands
- *  into the templates it iterates on, and each template shows how its last
+ *  into the tasks it iterates on, and each task shows how its last
  *  iterations went. Processes belong to projects and the chips are the same
  *  ones the Project tab has; the selection is shared. */
 export function ProcessBoard({
@@ -56,7 +56,7 @@ export function ProcessBoard({
   // reload of anything.
   const processes = board.processes;
   const [open, setOpen] = useState<Set<string>>(() => new Set());
-  // The template being created (keyed by process) or edited (by uid), the
+  // The task being created (keyed by process) or edited (by uid), the
   // process being named, and the one being renamed.
   const [adding, setAdding] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -67,6 +67,13 @@ export function ProcessBoard({
   // not already one chip.
   const [addMenu, setAddMenu] = useState(false);
   const addAnchor = useRef<HTMLElement | null>(null);
+  // Tasks whose create is still in flight, shown at once under the process
+  // they belong to. A task create is two synchronous writes upstream (the
+  // task, then the turn it owes this week) and takes seconds; waiting for
+  // them with nothing on screen reads as a click that did nothing.
+  const [pendingTasks, setPendingTasks] = useState<
+    { process: string; task: ProcessTask }[]
+  >([]);
 
   const shown = useMemo(
     () => processes.filter((p) => !filter || filter.includes(p.project)),
@@ -116,6 +123,20 @@ export function ProcessBoard({
   const setProcessProject = (name: string, to: string) => {
     void provider.setProcessProject(board, name, to).catch(fail);
   };
+
+  const setPaused = (name: string, paused: boolean) => {
+    void provider.setProcessPaused(board, name, paused).catch(fail);
+  };
+
+  // Ticking off a turn from here is the same act as on the Project board: the
+  // stage carries it, and reopening puts the card back in progress rather
+  // than to zero — the work that was done was still done.
+  const setTurnDone = (iteration: { uid: string; state: string }, done: boolean) => {
+    const call = done
+      ? provider.patchCard(board, iteration.uid, { stage: "done" })
+      : provider.setInProgress(board, iteration.uid);
+    void call.catch(fail);
+  };
   const deleteProcess = (name: string) => {
     if (!window.confirm(`Delete the process “${name}”?`)) {
       return;
@@ -131,19 +152,40 @@ export function ProcessBoard({
     void provider.renameProcess(board, from, n).catch(fail);
   };
 
-  const saveTemplate = (process: string, uid: string | null, input: TemplateInput) => {
+  const saveTask = (process: string, uid: string | null, input: TaskInput) => {
     setAdding(null);
     setEditing(null);
-    const call = uid
-      ? provider.updateTemplate(board, uid, input)
-      : provider.addTemplate(board, process, input).then(() => undefined);
-    void call.catch(fail);
-  };
-  const deleteTemplate = (t: ProcessTemplate) => {
-    if (!window.confirm(`Delete the template “${t.title}”? Its past iterations stay.`)) {
+    if (uid) {
+      void provider.updateTask(board, uid, input).catch(fail);
       return;
     }
-    void provider.deleteTemplate(board, t.uid).catch(fail);
+    const optimistic: ProcessTask = {
+      uid: `tmp-${process}-${input.title ?? ""}`,
+      title: input.title ?? "",
+      description: input.description,
+      recurrence: input.recurrence ?? "week",
+      start: input.start,
+      team: input.team,
+      assignee: input.assignee,
+      accumulate: input.accumulate,
+      history: [],
+    };
+    setPendingTasks((cur) => [...cur, { process, task: optimistic }]);
+    const forget = () =>
+      setPendingTasks((cur) => cur.filter((x) => x.task.uid !== optimistic.uid));
+    void provider
+      .addTask(board, process, input)
+      .then(forget)
+      .catch((err: unknown) => {
+        forget();
+        fail(err);
+      });
+  };
+  const deleteTask = (t: ProcessTask) => {
+    if (!window.confirm(`Delete the task “${t.title}”? Its past iterations stay.`)) {
+      return;
+    }
+    void provider.deleteTask(board, t.uid).catch(fail);
   };
 
   return (
@@ -170,21 +212,39 @@ export function ProcessBoard({
               A process is recurring work the team keeps doing — publishing
               articles, collecting payment — and wants to see itself doing.
             </p>
-            <button type="button" className="btn btn-primary" onClick={beginAdd}>
-              + Add the first process{targetProject ? ` of ${targetProject}` : ""}
-            </button>
+            {addingProcess !== null ? (
+              <input
+                type="text"
+                className="add-card-input project-empty-input"
+                autoFocus
+                placeholder={
+                  addingProcess ? `Process in ${addingProcess}…` : "Process with no project…"
+                }
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter") {
+                    addProcess((ev.target as HTMLInputElement).value, addingProcess);
+                  } else if (ev.key === "Escape") {
+                    setAddingProcess(null);
+                  }
+                }}
+                onBlur={(ev) => addProcess(ev.target.value, addingProcess)}
+              />
+            ) : (
+              <button type="button" className="btn btn-primary" onClick={beginAdd}>
+                + Add the first process{targetProject ? ` of ${targetProject}` : ""}
+              </button>
+            )}
           </div>
         )}
         {shown.map((p) => (
-          <section key={p.name} className="process-item">
+          <section key={p.name} className={`process-item${p.paused ? " process-item-paused" : ""}`}>
+            {/* No double-click here: opening and closing a process is two
+                clicks in a row, and the browser reads that as one — the
+                process kept sliding into rename. The pencil renames. */}
             <header
               className="process-head"
               onClick={() => toggle(p.name)}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setRenaming(p.name);
-              }}
-              title="Click to expand · double-click to rename"
+              title="Click to expand"
             >
               <span className="process-caret">{open.has(p.name) ? "▾" : "▸"}</span>
               {renaming === p.name ? (
@@ -213,14 +273,52 @@ export function ProcessBoard({
                 onPick={(to) => setProcessProject(p.name, to)}
               />
               <span className="process-count">
-                {p.templates.length} {p.templates.length === 1 ? "template" : "templates"}
+                {p.tasks.length} {p.tasks.length === 1 ? "task" : "tasks"}
               </span>
-              <Health templates={p.templates} />
+              {p.paused && <span className="process-paused-tag">paused</span>}
+              <button
+                type="button"
+                className="card-action process-rename"
+                title="Rename the process"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRenaming(p.name);
+                }}
+              >
+                ✎
+              </button>
+              <Health tasks={p.tasks} />
+              {/* Work that stops for a month is not work that was deleted: a
+                  paused process files nothing and keeps everything. */}
+              <button
+                type="button"
+                className="card-action process-pause"
+                title={
+                  p.paused
+                    ? "Paused — files no cards. Click to resume; the current week gets what it is owed."
+                    : "Pause: file no cards until resumed. Tasks and history are kept."
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPaused(p.name, !p.paused);
+                }}
+              >
+                {p.paused ? (
+                  <svg viewBox="0 0 12 12" aria-hidden="true">
+                    <path d="M3 1.6 L10 6 L3 10.4 Z" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 12 12" aria-hidden="true">
+                    <rect x="2.5" y="1.6" width="2.6" height="8.8" rx="0.8" />
+                    <rect x="6.9" y="1.6" width="2.6" height="8.8" rx="0.8" />
+                  </svg>
+                )}
+              </button>
               <button
                 type="button"
                 className="card-action card-action-delete process-del"
-                title={p.templates.length ? "Delete its templates first" : "Delete the process"}
-                disabled={p.templates.length > 0}
+                title={p.tasks.length ? "Delete its tasks first" : "Delete the process"}
+                disabled={p.tasks.length > 0}
                 onClick={(e) => {
                   e.stopPropagation();
                   deleteProcess(p.name);
@@ -232,42 +330,54 @@ export function ProcessBoard({
 
             {open.has(p.name) && (
               <div className="process-body">
-                {p.templates.map((t) =>
+                {[
+                  ...p.tasks,
+                  // …and the ones still being written upstream.
+                  ...pendingTasks
+                    .filter(
+                      (x) =>
+                        x.process === p.name &&
+                        !p.tasks.some((t) => t.title === x.task.title),
+                    )
+                    .map((x) => x.task),
+                ].map((t) =>
                   editing === t.uid ? (
-                    <TemplateForm
+                    <TaskForm
                       key={t.uid}
                       board={board}
                       initial={t}
-                      onSave={(input) => saveTemplate(p.name, t.uid, input)}
+                      onSave={(input) => saveTask(p.name, t.uid, input)}
                       onCancel={() => setEditing(null)}
                     />
                   ) : (
-                    <TemplateRow
+                    <TaskRow
                       key={t.uid}
-                      template={t}
+                      pending={t.uid.startsWith("tmp-")}
+                      task={t}
                       teams={board.teams}
                       members={board.members}
                       users={users}
-                      onSetRecurrence={(recurrence) => saveTemplate(p.name, t.uid, { recurrence })}
-                      onSetTeam={(team) => saveTemplate(p.name, t.uid, { team })}
-                      onSetAssignee={(assignee) => saveTemplate(p.name, t.uid, { assignee })}
-                      onSetAccumulate={(accumulate) => saveTemplate(p.name, t.uid, { accumulate })}
+                      onSetRecurrence={(recurrence) => saveTask(p.name, t.uid, { recurrence })}
+                      onSetTeam={(team) => saveTask(p.name, t.uid, { team })}
+                      onSetAssignee={(assignee) => saveTask(p.name, t.uid, { assignee })}
+                      onSetAccumulate={(accumulate) => saveTask(p.name, t.uid, { accumulate })}
+                      onSetDone={setTurnDone}
                       onEdit={() => setEditing(t.uid)}
-                      onDelete={() => deleteTemplate(t)}
+                      onDelete={() => deleteTask(t)}
                     />
                   ),
                 )}
                 {adding === p.name ? (
-                  <TemplateForm
+                  <TaskForm
                     board={board}
-                    onSave={(input) => saveTemplate(p.name, null, input)}
+                    onSave={(input) => saveTask(p.name, null, input)}
                     onCancel={() => setAdding(null)}
                   />
                 ) : (
                   <button
                     type="button"
                     className="add-card process-add"
-                    title="Add a template — what an iteration is copied from"
+                    title="Add a task — what an iteration is copied from"
                     onClick={() => setAdding(p.name)}
                   >
                     + add
@@ -338,12 +448,20 @@ export function ProcessBoard({
  *  that say whether it is alive, and the count carries the rest. */
 const SHOWN_ITERATIONS = 10;
 
-/** Health is the row of dots: one per iteration, how it went. */
-function Health({ templates }: { templates: ProcessTemplate[] }) {
-  // Sorted by week: a process's row gathers several templates, and their
-  // turns interleave in time rather than in the order the templates were
+/** Health is the row of dots: one per iteration, how it went. Given a way to
+ *  set the current turn's state, the row becomes the control for it: the dot
+ *  you are looking at is the turn you want to tick off. */
+function Health({
+  tasks,
+  onSetDone,
+}: {
+  tasks: ProcessTask[];
+  onSetDone?: (iteration: { uid: string; state: string }, done: boolean) => void;
+}) {
+  // Sorted by week: a process's row gathers several tasks, and their
+  // turns interleave in time rather than in the order the tasks were
   // added — an unsorted row would read as a history that never happened.
-  const all = templates
+  const all = tasks
     .flatMap((t) => t.history)
     .slice()
     .sort((a, b) => a.week.localeCompare(b.week));
@@ -354,23 +472,43 @@ function Health({ templates }: { templates: ProcessTemplate[] }) {
   const hidden = all.length - recent.length;
   const done = all.filter((i) => i.state === "done").length;
   const late = all.filter((i) => i.state === "late").length;
-  return (
-    <span
-      className="process-health"
-      title={`${done} of ${all.length} turns done${late ? `, ${late} overdue` : ""}${
-        hidden ? ` · showing the last ${recent.length}` : ""
-      }`}
-    >
+  const current = all[all.length - 1];
+  const summary = `${done} of ${all.length} turns done${late ? `, ${late} overdue` : ""}${
+    hidden ? ` · showing the last ${recent.length}` : ""
+  }`;
+  const dots = (
+    <>
       {hidden > 0 && <span className="process-health-more">+{hidden}</span>}
       {recent.map((i) => (
         <span key={i.uid} className={`process-dot process-dot-${i.state}`} title={`${i.week}: ${i.state}`} />
       ))}
-    </span>
+    </>
+  );
+  if (!onSetDone || !current) {
+    return (
+      <span className="process-health" title={summary}>
+        {dots}
+      </span>
+    );
+  }
+  return (
+    <CellPicker
+      className="process-health process-health-pick"
+      title={summary}
+      label={dots}
+      options={
+        current.state === "done"
+          ? [{ key: "open", active: false, label: <>Reopen this turn</> }]
+          : [{ key: "done", active: false, label: <>Mark this turn done</> }]
+      }
+      onPick={(key) => onSetDone(current, key === "done")}
+    />
   );
 }
 
-function TemplateRow({
-  template: t,
+function TaskRow({
+  task: t,
+  pending,
   teams,
   members,
   users,
@@ -378,10 +516,13 @@ function TemplateRow({
   onSetTeam,
   onSetAssignee,
   onSetAccumulate,
+  onSetDone,
   onEdit,
   onDelete,
 }: {
-  template: ProcessTemplate;
+  task: ProcessTask;
+  /** Its create is still in flight: shown, but not yet something to act on. */
+  pending?: boolean;
   teams: string[];
   members: string[];
   users: Record<string, GhUser>;
@@ -389,27 +530,28 @@ function TemplateRow({
   onSetTeam: (team: string) => void;
   onSetAssignee: (assignee: string) => void;
   onSetAccumulate: (accumulate: boolean) => void;
+  onSetDone: (iteration: { uid: string; state: string }, done: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
-    <div className="process-template">
-      {/* The title opens the template on a double-click, the way a card does:
+    <div className={`process-task${pending ? " process-task-pending" : ""}`}>
+      {/* The title opens the task on a double-click, the way a card does:
           the pencil is for finding it, this is for using it. */}
       <div
-        className="process-template-main"
+        className="process-task-main"
         title="Double-click to edit"
         onDoubleClick={onEdit}
       >
-        <span className="process-template-title">{t.title}</span>
+        <span className="process-task-title">{t.title}</span>
         {t.description && (
-          <span className="process-template-desc">{t.description}</span>
+          <span className="process-task-desc">{t.description}</span>
         )}
       </div>
-      <span className="process-template-meta">
+      <span className="process-task-meta">
         {/* One control for one subject: how often the work comes round, and
             what a turn does when the last one is unfinished. The stack marks
-            a template that accumulates; a plain cycle says nothing, because
+            a task that accumulates; a plain cycle says nothing, because
             not accumulating is what every process does by default. */}
         <CellPicker
           className="process-cell-cycle"
@@ -450,7 +592,7 @@ function TemplateRow({
           }
         />
         <span>{t.start ? `from ${t.start}` : ""}</span>
-        <span className="process-template-who">
+        <span className="process-task-who">
           {/* Team and owner are set where they are read — the cell IS the
               control, as a card's badges are. The form behind ✎ is for the
               title, the body and the cycle. */}
@@ -464,7 +606,7 @@ function TemplateRow({
                   {t.team}
                 </>
               ) : (
-                <span className="process-template-none">no team</span>
+                <span className="process-task-none">no team</span>
               )
             }
             options={[
@@ -513,7 +655,7 @@ function TemplateRow({
                   {users[t.assignee]?.name ?? t.assignee}
                 </>
               ) : (
-                <span className="process-template-none">nobody</span>
+                <span className="process-task-none">nobody</span>
               )
             }
             options={[
@@ -533,12 +675,12 @@ function TemplateRow({
           />
         </span>
       </span>
-      <Health templates={[t]} />
-      <span className="process-template-actions">
-        <button type="button" className="card-action" title="Edit the template" onClick={onEdit}>
+      <Health tasks={[t]} onSetDone={onSetDone} />
+      <span className="process-task-actions">
+        <button type="button" className="card-action" title="Edit the task" onClick={onEdit}>
           ✎
         </button>
-        <button type="button" className="card-action card-action-delete" title="Delete the template" onClick={onDelete}>
+        <button type="button" className="card-action card-action-delete" title="Delete the task" onClick={onDelete}>
           ×
         </button>
       </span>
@@ -620,15 +762,15 @@ function StackIcon() {
   );
 }
 
-function TemplateForm({
+function TaskForm({
   board,
   initial,
   onSave,
   onCancel,
 }: {
   board: Board;
-  initial?: ProcessTemplate;
-  onSave: (input: TemplateInput) => void;
+  initial?: ProcessTask;
+  onSave: (input: TaskInput) => void;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState(initial?.title ?? "");

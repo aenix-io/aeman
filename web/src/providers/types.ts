@@ -77,6 +77,9 @@ export interface Card {
    *  names repeat across projects. Its week is the row. */
   epic?: string;
   project?: string;
+  /** On a process turn: the process it belongs to, and the task it came from. */
+  process?: string;
+  task?: string;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -122,9 +125,9 @@ export interface SprintState {
   previous: string | null;
 }
 
-/** ProcessTemplate is what a process iterates on, plus how the last few
+/** ProcessTask is what a process iterates on, plus how the last few
  *  iterations went. */
-export interface ProcessTemplate {
+export interface ProcessTask {
   uid: string;
   title: string;
   description?: string;
@@ -136,15 +139,17 @@ export interface ProcessTemplate {
   history: { uid: string; week: string; state: "done" | "open" | "late" }[];
 }
 
-/** ProcessInfo is one process and its templates. */
+/** ProcessInfo is one process and its tasks. */
 export interface ProcessInfo {
   name: string;
   project: string;
-  templates: ProcessTemplate[];
+  /** A paused process files no iterations; nothing else about it changes. */
+  paused?: boolean;
+  tasks: ProcessTask[];
 }
 
-/** TemplateInput is a template on its way in (create: all; patch: some). */
-export interface TemplateInput {
+/** TaskInput is a task on its way in (create: all; patch: some). */
+export interface TaskInput {
   title?: string;
   description?: string;
   recurrence?: string;
@@ -186,7 +191,7 @@ export interface Board {
   /** The deadline lines: the week (a Monday) each sits on and the project it
    *  belongs to. A project holds at most one per week. */
   deadlines: DeadlineRef[];
-  /** The processes with their templates and history — the Process tab is
+  /** The processes with their tasks and history — the Process tab is
    *  drawn from this, and the Board watch frame refreshes it. */
   processes: ProcessInfo[];
   /** Every distinct assignee on the board, from GET /board — the people roster
@@ -336,16 +341,18 @@ export interface Provider {
   reorderProjects(board: BoardAddr, names: string[]): Promise<void>;
   /** Rename a project in place; its columns and their cards follow. */
   renameProject(board: BoardAddr, from: string, to: string): Promise<void>;
-  /** The Process tab: every process with its templates and their history. */
+  /** The Process tab: every process with its tasks and their history. */
   listProcesses(board: BoardAddr, project?: string): Promise<ProcessInfo[]>;
   addProcess(board: BoardAddr, name: string, project: string): Promise<void>;
   deleteProcess(board: BoardAddr, name: string): Promise<void>;
   renameProcess(board: BoardAddr, from: string, to: string): Promise<void>;
   /** Move a process to another project ("" = the no-project bucket). */
   setProcessProject(board: BoardAddr, process: string, project: string): Promise<void>;
-  addTemplate(board: BoardAddr, process: string, input: TemplateInput): Promise<string>;
-  updateTemplate(board: BoardAddr, uid: string, patch: TemplateInput): Promise<void>;
-  deleteTemplate(board: BoardAddr, uid: string): Promise<void>;
+  /** Stop a process filing iterations, or start it again. */
+  setProcessPaused(board: BoardAddr, process: string, paused: boolean): Promise<void>;
+  addTask(board: BoardAddr, process: string, input: TaskInput): Promise<string>;
+  updateTask(board: BoardAddr, uid: string, patch: TaskInput): Promise<void>;
+  deleteTask(board: BoardAddr, uid: string): Promise<void>;
   /** Mark a week with a project's deadline (one per project and week). */
   addDeadline(board: BoardAddr, week: string, project: string): Promise<void>;
   /** Clear a project's deadline on a week. */

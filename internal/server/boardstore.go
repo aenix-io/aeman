@@ -399,6 +399,13 @@ func (e *boardEntry) markAuthed(login string) {
 // events are suppressed — it already holds the change optimistically — but its
 // membership is still tracked, or later diffs would mis-fire.
 func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
+	// A turn of a process is a card AND a row of the Process tab's history:
+	// its stage changing is a card event to the boards and a structure event
+	// to that tab, which reads the turns from the board rather than from the
+	// card stream.
+	if c.Task != "" {
+		e.rosterBroadcast()
+	}
 	res := apiserver.CardResource(e.board, c)
 	for sub := range e.watchers {
 		if !sub.resources["cards"] {
@@ -1250,8 +1257,8 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 		e.mu.Unlock()
 		return card, nil
 	}
-	if card.Title == board.ProcessTemplateTitle {
-		e.board.Templates = append(e.board.Templates, card)
+	if card.Title == board.ProcessTaskTitle {
+		e.board.Tasks = append(e.board.Tasks, card)
 		e.markRecent(card.ItemID)
 		e.rosterBroadcast()
 		e.mu.Unlock()
@@ -1332,7 +1339,7 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		e.rosterBroadcast()
 		break
 	}
-	// ...a deleted process or template leaves its roster...
+	// ...a deleted process or task leaves its roster...
 	for i, p := range e.board.Processes {
 		if p.ItemID != card.ItemID {
 			continue
@@ -1341,11 +1348,11 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		e.rosterBroadcast()
 		break
 	}
-	for i, t := range e.board.Templates {
+	for i, t := range e.board.Tasks {
 		if t.ItemID != card.ItemID {
 			continue
 		}
-		e.board.Templates = append(e.board.Templates[:i:i], e.board.Templates[i+1:]...)
+		e.board.Tasks = append(e.board.Tasks[:i:i], e.board.Tasks[i+1:]...)
 		e.rosterBroadcast()
 		break
 	}
@@ -1549,13 +1556,13 @@ func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card boar
 				break
 			}
 		}
-		// A process template's body is the iteration's title and text; it
+		// A process task's body is the iteration's title and text; it
 		// lives outside the card rows, and treating "not a row" as "deleted"
-		// silently dropped the very write that gives the template a name.
+		// silently dropped the very write that gives the task a name.
 		if snap == nil {
-			for i := range e.board.Templates {
-				if e.board.Templates[i].ItemID == itemID {
-					take(e.board.Templates[i])
+			for i := range e.board.Tasks {
+				if e.board.Tasks[i].ItemID == itemID {
+					take(e.board.Tasks[i])
 					break
 				}
 			}
@@ -1949,7 +1956,7 @@ func processIndexOf(list []board.Process, itemID string) int {
 	return -1
 }
 
-// SetProcess renames a process on its state card, or re-points a template at
+// SetProcess renames a process on its state card, or re-points a task at
 // a renamed process; neither is a card row, so the rosters are updated here.
 func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
@@ -1959,9 +1966,9 @@ func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card boar
 			e.board.Processes[i].Name = process
 		}
 	}
-	for i := range e.board.Templates {
-		if e.board.Templates[i].ItemID == card.ItemID {
-			e.board.Templates[i].Process = process
+	for i := range e.board.Tasks {
+		if e.board.Tasks[i].ItemID == card.ItemID {
+			e.board.Tasks[i].Process = process
 		}
 	}
 	e.rosterBroadcast()
@@ -1975,11 +1982,29 @@ func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card boar
 	return nil
 }
 
-func (b *storeBackend) SetTemplate(ctx context.Context, bd board.Board, card board.Card, template string) error {
-	b.mutateCard(ctx, bd, card.ItemID, "template", "link "+cardRef(card)+" to its template", func(c *board.Card) {
-		c.Template = template
+func (b *storeBackend) SetTask(ctx context.Context, bd board.Board, card board.Card, task string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "task", "link "+cardRef(card)+" to its task", func(c *board.Card) {
+		c.Task = task
 	}, func(ctx context.Context) error {
-		return b.inner.SetTemplate(ctx, bd, card, template)
+		return b.inner.SetTask(ctx, bd, card, task)
+	})
+	return nil
+}
+
+// SetPaused pauses a process: a roster entry, not a card row.
+func (b *storeBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e.mu.Lock()
+	if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
+		e.board.Processes[i].Paused = paused
+		e.rosterBroadcast()
+	}
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key: "paused:" + card.ItemID, itemID: card.ItemID,
+		desc:  "pause or resume " + cardRef(card),
+		apply: func(*board.Board) {},
+		exec:  func(ctx context.Context) error { return b.inner.SetPaused(ctx, bd, card, paused) },
 	})
 	return nil
 }

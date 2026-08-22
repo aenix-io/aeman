@@ -3827,7 +3827,7 @@ button.card-age {
 /* Fixed columns, left-aligned: the title takes the room, the facts stand in
    one column under each other, the dots and the actions each keep their own.
    Sharing the row by content made every line's facts start somewhere else. */
-.process-template {
+.process-task {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) 580px 120px 48px;
   align-items: center;
@@ -3836,22 +3836,22 @@ button.card-age {
   border-radius: 6px;
 }
 
-.process-template:hover {
+.process-task:hover {
   background: var(--hover-overlay-soft);
 }
 
-.process-template-main {
+.process-task-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
-.process-template-title {
+.process-task-title {
   font-size: 12.5px;
   font-weight: 600;
 }
 
-.process-template-desc {
+.process-task-desc {
   font-size: 11.5px;
   color: var(--muted);
   white-space: nowrap;
@@ -3859,7 +3859,7 @@ button.card-age {
   text-overflow: ellipsis;
 }
 
-.process-template-meta {
+.process-task-meta {
   display: grid;
   grid-template-columns: 118px 105px 132px 1fr;
   column-gap: 10px;
@@ -3870,13 +3870,13 @@ button.card-age {
   white-space: nowrap;
 }
 
-.process-template-meta > span {
+.process-task-meta > span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* The template's own history: a single left-aligned row under the process's. */
-.process-template > .process-health {
+/* The task's own history: a single left-aligned row under the process's. */
+.process-task > .process-health {
   margin-left: 0;
   justify-content: flex-start;
 }
@@ -3887,13 +3887,13 @@ button.card-age {
   gap: 4px;
 }
 
-.process-template-actions {
+.process-task-actions {
   display: flex;
   gap: 2px;
   opacity: 0;
 }
 
-.process-template:hover .process-template-actions {
+.process-task:hover .process-task-actions {
   opacity: 1;
 }
 
@@ -3987,11 +3987,11 @@ button.card-age {
 /* The team and the owner are grid cells of the row, not a pair sharing one:
    a long team name used to push the owner along, so no two rows started their
    owner at the same place. */
-.process-template-who {
+.process-task-who {
   display: contents;
 }
 
-.process-template-none {
+.process-task-none {
   font-style: italic;
   opacity: 0.7;
 }
@@ -4016,7 +4016,7 @@ button.card-age {
   color: var(--muted);
 }
 
-/* A cell that sets what it shows: the team and the owner of a template are
+/* A cell that sets what it shows: the team and the owner of a task are
    picked where they are read, the way a card's badges work. */
 .process-cell {
   display: inline-flex;
@@ -4058,7 +4058,7 @@ button.card-age {
   flex: none;
 }
 
-/* The mark on a cycle that piles up. Only a template that accumulates wears
+/* The mark on a cycle that piles up. Only a task that accumulates wears
    it: not accumulating is what every process does unless told otherwise, and
    a mark on the ordinary case is noise. */
 .process-cell-cycle {
@@ -4088,4 +4088,109 @@ button.card-age {
   font-size: 10.5px;
   color: var(--muted);
   margin-right: 2px;
+}
+
+/* A paused process: still there, still whole, simply not filing. */
+.process-item-paused .process-name,
+.process-item-paused .process-body {
+  opacity: 0.55;
+}
+
+.process-paused-tag {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--warn, var(--muted));
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.process-pause {
+  opacity: 0;
+  margin-left: 4px;
+}
+
+.process-pause svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+
+.process-head:hover .process-pause,
+.process-item-paused .process-pause {
+  opacity: 1;
+}
+
+/* A task whose create is still upstream: there, but not yet actionable. */
+.process-task-pending {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Where a card comes from, in its detail and in its badge menu. */
+.modal-origin {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+
+.modal-origin-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--hover-overlay-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.modal-origin-kind,
+.card-assign-origin-kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.card-assign-origin {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px 6px;
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 4px;
+}
+
+.card-assign-origin span {
+  display: inline-flex;
+  gap: 5px;
+  align-items: baseline;
+}
+
+.process-rename {
+  opacity: 0;
+  margin-left: 2px;
+}
+
+.process-head:hover .process-rename {
+  opacity: 1;
+}
+
+/* The history row as a control: it still reads as dots, it just answers. */
+.process-health-pick {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 2px 5px;
+  background: none;
+  cursor: pointer;
+}
+
+.process-health-pick:hover {
+  border-color: var(--line);
+  background: var(--bg);
 }

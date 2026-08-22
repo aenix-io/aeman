@@ -90,8 +90,14 @@ type CardSpec struct {
 	// Epic and Project are the column the card is filed under ("" = none) —
 	// the pair, since epic names repeat across projects. The card's Week is
 	// the row, and Dates span the weeks its slot stretches over.
-	Epic     string `json:"epic,omitempty"`
-	Project  string `json:"project,omitempty"`
+	Epic    string `json:"epic,omitempty"`
+	Project string `json:"project,omitempty"`
+	// Process and Task, on a process turn, name the process this card is a
+	// turn of and the task it was copied from. A card on the Me or Team
+	// board carries them so a person can see what it belongs to without
+	// going looking for it.
+	Process  string `json:"process,omitempty"`
+	Task     string `json:"task,omitempty"`
 	ReviewOf string `json:"reviewOf,omitempty"`
 	// Parent, on a subtask, is the uid of the card it is grouped under.
 	Parent string `json:"parent,omitempty"`
@@ -230,6 +236,20 @@ func processRefs(b board.Board) []ProcessRef {
 	return out
 }
 
+// processOf names the process a card is a turn of, by way of the task it was
+// copied from. Empty for every card that is not a turn.
+func processOf(b board.Board, c board.Card) string {
+	if c.Task == "" {
+		return ""
+	}
+	for _, t := range b.Tasks {
+		if t.ItemID == c.Task {
+			return t.Process
+		}
+	}
+	return ""
+}
+
 // deadlineWeeks lists the deadline lines, in board order.
 func deadlineWeeks(b board.Board) []DeadlineRef {
 	out := make([]DeadlineRef, 0, len(b.Deadlines))
@@ -288,6 +308,8 @@ func CardResource(b board.Board, c board.Card) Card {
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Epic:        c.Epic,
 		Project:     c.Project,
+		Process:     processOf(b, c),
+		Task:        c.Task,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
 	}

@@ -500,9 +500,30 @@ func (h *server) setProcessProject(ctx context.Context, _ *mcp.CallToolRequest, 
 	return nil, statusOutput{Status: "moved"}, nil
 }
 
-type addTemplateInput struct {
+type pauseProcessInput struct {
 	boardRef
-	Process     string `json:"process" jsonschema:"the process this template belongs to (required)"`
+	Process string `json:"process" jsonschema:"the process to pause or resume (required)"`
+	Paused  bool   `json:"paused" jsonschema:"true stops it filing iterations, false starts it again"`
+}
+
+func (h *server) setProcessPaused(ctx context.Context, _ *mcp.CallToolRequest, in pauseProcessInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.SetProcessPaused(ctx, owner, boardNum, in.Process, in.Paused); err != nil {
+		return nil, statusOutput{}, err
+	}
+	status := "resumed"
+	if in.Paused {
+		status = "paused"
+	}
+	return nil, statusOutput{Status: status}, nil
+}
+
+type addTaskInput struct {
+	boardRef
+	Process     string `json:"process" jsonschema:"the process this task belongs to (required)"`
 	Title       string `json:"title" jsonschema:"the title every iteration will be created with (required)"`
 	Description string `json:"description,omitempty" jsonschema:"the body every iteration will be created with"`
 	Recurrence  string `json:"recurrence" jsonschema:"the cycle: week, 2weeks, month or quarter (required). Counted on the calendar from start, not from when the last iteration closed"`
@@ -512,12 +533,12 @@ type addTemplateInput struct {
 	Accumulate  bool   `json:"accumulate,omitempty" jsonschema:"spawn the next iteration even while the previous one is still open, so unpaid months pile up as separate cards. Default false: an open iteration simply goes overdue and the next one waits"`
 }
 
-func (h *server) addProcessTemplate(ctx context.Context, _ *mcp.CallToolRequest, in addTemplateInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) addProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in addTaskInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	tpl, err := svc.AddProcessTemplate(ctx, owner, boardNum, in.Process, boardservice.TemplateArgs{
+	tpl, err := svc.AddProcessTask(ctx, owner, boardNum, in.Process, boardservice.TaskArgs{
 		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
 		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
 	})
@@ -527,9 +548,9 @@ func (h *server) addProcessTemplate(ctx context.Context, _ *mcp.CallToolRequest,
 	return nil, statusOutput{Status: "added", UID: tpl.ItemID}, nil
 }
 
-type updateTemplateInput struct {
+type updateTaskInput struct {
 	boardRef
-	UID         string  `json:"uid" jsonschema:"the template's uid, from list_processes (required)"`
+	UID         string  `json:"uid" jsonschema:"the task's uid, from list_processes (required)"`
 	Title       *string `json:"title,omitempty" jsonschema:"new title for the NEXT iterations"`
 	Description *string `json:"description,omitempty" jsonschema:"new body for the NEXT iterations; empty clears"`
 	Recurrence  *string `json:"recurrence,omitempty" jsonschema:"new cycle: week, 2weeks, month or quarter"`
@@ -539,12 +560,12 @@ type updateTemplateInput struct {
 	Accumulate  *bool   `json:"accumulate,omitempty" jsonschema:"whether the next iteration spawns while the previous is open"`
 }
 
-func (h *server) updateProcessTemplate(ctx context.Context, _ *mcp.CallToolRequest, in updateTemplateInput) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) updateProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in updateTaskInput) (*mcp.CallToolResult, statusOutput, error) {
 	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	err = svc.UpdateProcessTemplate(ctx, owner, boardNum, in.UID, boardservice.TemplatePatch{
+	err = svc.UpdateProcessTask(ctx, owner, boardNum, in.UID, boardservice.TaskPatch{
 		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
 		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
 	})
@@ -554,17 +575,17 @@ func (h *server) updateProcessTemplate(ctx context.Context, _ *mcp.CallToolReque
 	return nil, statusOutput{Status: "updated", UID: in.UID}, nil
 }
 
-type templateRef struct {
+type taskRef struct {
 	boardRef
-	UID string `json:"uid" jsonschema:"the template's uid, from list_processes (required)"`
+	UID string `json:"uid" jsonschema:"the task's uid, from list_processes (required)"`
 }
 
-func (h *server) deleteProcessTemplate(ctx context.Context, _ *mcp.CallToolRequest, in templateRef) (*mcp.CallToolResult, statusOutput, error) {
+func (h *server) deleteProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in taskRef) (*mcp.CallToolResult, statusOutput, error) {
 	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteProcessTemplate(ctx, owner, boardNum, in.UID); err != nil {
+	if err := svc.DeleteProcessTask(ctx, owner, boardNum, in.UID); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil

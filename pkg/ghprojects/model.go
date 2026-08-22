@@ -111,7 +111,10 @@ type FieldRoles struct {
 // is required; the remaining fields are applied when the board has a matching
 // role.
 type CreateCardInput struct {
-	Title       string            `json:"title"`
+	Title string `json:"title"`
+	// Body is the draft's description, written with the create rather than
+	// after it.
+	Body        string            `json:"body,omitempty"`
 	Zone        ZoneKey           `json:"zone,omitempty"`
 	Assignee    string            `json:"assignee,omitempty"`
 	Day         string            `json:"day,omitempty"`

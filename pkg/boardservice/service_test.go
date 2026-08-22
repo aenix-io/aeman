@@ -93,7 +93,7 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 	var projects []string
 	var deadlines []board.Deadline
 	var processes []board.Process
-	var templates []board.Card
+	var tasks []board.Card
 	seenEpic := map[string]bool{}
 	projectStates := map[string]string{}
 	for _, c := range f.b.Cards {
@@ -107,8 +107,8 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 			}
 			continue
 		}
-		if c.Title == board.ProcessTemplateTitle {
-			templates = append(templates, c)
+		if c.Title == board.ProcessTaskTitle {
+			tasks = append(tasks, c)
 			continue
 		}
 		if c.Title == board.DeadlineStateTitle {
@@ -144,7 +144,7 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 	return board.Board{ID: f.b.ID, Number: f.b.Number, Owner: f.b.Owner, Cards: cards,
 		SprintStates: states, Epics: epics,
 		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
-		Processes: processes, Templates: templates}, nil
+		Processes: processes, Tasks: tasks}, nil
 }
 
 func (f *fakeBackend) LoadCards(_ context.Context, _ board.Board, ids []string) ([]board.Card, error) {
@@ -172,8 +172,10 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
-		Process: in.Process, Template: in.Template, Recurrence: in.Recurrence,
-		Assignees: []string{},
+		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
+		Paused:      in.Paused,
+		Description: in.Body,
+		Assignees:   []string{},
 	}
 	if in.Assignee != "" {
 		card.Assignees = []string{in.Assignee}
@@ -2681,12 +2683,12 @@ func (f *fakeBackend) SetProcess(_ context.Context, _ board.Board, card board.Ca
 	return nil
 }
 
-func (f *fakeBackend) SetTemplate(_ context.Context, _ board.Board, card board.Card, template string) error {
+func (f *fakeBackend) SetTask(_ context.Context, _ board.Board, card board.Card, task string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.rec("SetTemplate %s %s", card.ItemID, template)
+	f.rec("SetTask %s %s", card.ItemID, task)
 	if c := f.get(card.ItemID); c != nil {
-		c.Template = template
+		c.Task = task
 	}
 	return nil
 }
@@ -2697,6 +2699,16 @@ func (f *fakeBackend) SetAccumulate(_ context.Context, _ board.Board, card board
 	f.rec("SetAccumulate %s %v", card.ItemID, on)
 	if c := f.get(card.ItemID); c != nil {
 		c.Accumulate = on
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetPaused(_ context.Context, _ board.Board, card board.Card, paused bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetPaused %s %v", card.ItemID, paused)
+	if c := f.get(card.ItemID); c != nil {
+		c.Paused = paused
 	}
 	return nil
 }

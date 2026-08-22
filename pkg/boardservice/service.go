@@ -785,7 +785,7 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		}
 	}
 	var rep CarryReport
-	// Processes first: the iterations a week is owed, from their templates.
+	// Processes first: the iterations a week is owed, from their tasks.
 	spawned, err := s.SpawnIterations(ctx, b, team, week, dryRun)
 	if err != nil {
 		return rep, err
@@ -833,8 +833,8 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		// A process iteration stays in the week it was owed: carrying it
 		// forward would erase the one fact the process exists to record —
 		// which week the work was NOT done in. It shows as late where it is,
-		// and the template decides whether the next week gets its own.
-		if c.Template != "" {
+		// and the task decides whether the next week gets its own.
+		if c.Task != "" {
 			continue
 		}
 		// A Project-board slot has two boundaries, and carrying it over moves
@@ -1179,6 +1179,13 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 	// A review card is auxiliary and one-off: it cannot be made recurrent.
 	if stage == board.StageRecurrent && card.ReviewOf != "" {
 		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)
+	}
+	// A process turn IS the recurrence: its task decides when the work
+	// comes round again, and a card that shed the marker would still be
+	// replaced next cycle while pretending to be a one-off. Done, deferred,
+	// dropped — all fine; not recurrent is not.
+	if card.Task != "" && stage != board.StageRecurrent && stage != board.StageDone {
+		return fmt.Errorf("%w: this card is a turn of a process — its recurrence is the process's", ErrInvalidStage)
 	}
 	// Closing the parent is the human's final call - made only once every
 	// subtask is done.
