@@ -59,6 +59,14 @@ type Backend interface {
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	// SetEpic files the card under a Project-board column ("" clears).
 	SetEpic(ctx context.Context, b board.Board, card board.Card, epic string) error
+	// SetProcess writes the Process field of a process state card.
+	SetProcess(ctx context.Context, b board.Board, card board.Card, process string) error
+	// SetTask links an iteration to the task it came from.
+	SetTask(ctx context.Context, b board.Board, card board.Card, task string) error
+	// SetPaused stops (or restarts) a process spawning iterations.
+	SetPaused(ctx context.Context, b board.Board, card board.Card, paused bool) error
+	// SetAccumulate sets a task's accumulate flag.
+	SetAccumulate(ctx context.Context, b board.Board, card board.Card, on bool) error
 	// SetProject writes the Project field of a hidden state card: a
 	// project-state card's own name, or the project an epic belongs to.
 	SetProject(ctx context.Context, b board.Board, card board.Card, project string) error

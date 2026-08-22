@@ -26,9 +26,43 @@ import type {
   CarryReport,
   NewCardInput,
   Note,
+  ProcessInfo,
   Provider,
+  TaskInput,
   ZoneKey,
 } from "../types";
+
+/** boardMetadata maps a board resource's metadata onto board state — used by
+ *  loadBoard and by the Board watch frame alike, so a roster change arriving
+ *  over the watch lands exactly as a fresh load would. */
+export function boardMetadata(
+  info: BoardResource,
+): Pick<Board, "title" | "url" | "teams" | "projects" | "deadlines" | "epics" | "members"> {
+  return {
+    title: info.metadata.title ?? "",
+    url: info.metadata.url ?? "",
+    teams: info.metadata.teams ?? [],
+    projects: info.metadata.projects ?? [],
+    deadlines: (info.metadata.deadlines ?? []).map((d) => ({
+      week: d.week,
+      project: d.project ?? "",
+    })),
+    epics: (info.metadata.epics ?? []).map((e) => ({
+      name: e.name,
+      project: e.project ?? "",
+    })),
+    members: info.metadata.members ?? [],
+  };
+}
+
+/** processesFrom normalises the process structure off the wire. */
+export function processesFrom(items: ProcessInfo[] | null | undefined): ProcessInfo[] {
+  return (items ?? []).map((p) => ({
+    ...p,
+    project: p.project ?? "",
+    tasks: (p.tasks ?? []).map((t) => ({ ...t, history: t.history ?? [] })),
+  }));
+}
 
 // api issues a request against /api/v1 for a given board. It carries the board
 // identity as query parameters (?owner=&board=) so the server resolves the
@@ -167,22 +201,11 @@ export const apiProvider: Provider = {
     return {
       owner,
       number,
-      title: info.metadata.title ?? "",
-      url: info.metadata.url ?? "",
       // Cards are loaded per view via listCards; the initial set arrives right
       // after this from the App's first view fetch.
       cards: [],
-      teams: info.metadata.teams ?? [],
-      projects: info.metadata.projects ?? [],
-      deadlines: (info.metadata.deadlines ?? []).map((d) => ({
-        week: d.week,
-        project: d.project ?? "",
-      })),
-      epics: (info.metadata.epics ?? []).map((e) => ({
-        name: e.name,
-        project: e.project ?? "",
-      })),
-      members: info.metadata.members ?? [],
+      ...boardMetadata(info),
+      processes: [],
       sprintStates: sprintStatesFrom(sprints.items ?? []),
     };
   },
@@ -430,6 +453,64 @@ export const apiProvider: Provider = {
     to: string,
   ): Promise<void> {
     await api(board, "POST", "/projects/actions/rename", { project: from, to });
+  },
+
+  async listProcesses(board: BoardAddr, project?: string): Promise<ProcessInfo[]> {
+    const q = project ? `?project=${encodeURIComponent(project)}` : "";
+    const res = await api<{ items: ProcessInfo[] | null }>(board, "GET", `/processes${q}`);
+    return processesFrom(res.items);
+  },
+
+  async addProcess(board: BoardAddr, name: string, project: string): Promise<void> {
+    await api(board, "POST", "/processes", { name, project });
+  },
+
+  async deleteProcess(board: BoardAddr, name: string): Promise<void> {
+    await api(board, "POST", "/processes/actions/delete-process", { process: name });
+  },
+
+  async renameProcess(board: BoardAddr, from: string, to: string): Promise<void> {
+    await api(board, "POST", "/processes/actions/rename", { process: from, to });
+  },
+
+  async setProcessProject(
+    board: BoardAddr,
+    process: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/processes/actions/set-project", { process, project });
+  },
+
+  async setProcessPaused(
+    board: BoardAddr,
+    process: string,
+    paused: boolean,
+  ): Promise<void> {
+    await api(board, "POST", "/processes/actions/set-paused", { process, paused });
+  },
+
+  async addTask(
+    board: BoardAddr,
+    process: string,
+    input: TaskInput,
+  ): Promise<string> {
+    const res = await api<{ uid: string }>(board, "POST", "/processes/tasks", {
+      process,
+      ...input,
+    });
+    return res.uid;
+  },
+
+  async updateTask(
+    board: BoardAddr,
+    uid: string,
+    patch: TaskInput,
+  ): Promise<void> {
+    await api(board, "PATCH", `/processes/tasks/${uid}`, patch);
+  },
+
+  async deleteTask(board: BoardAddr, uid: string): Promise<void> {
+    await api(board, "DELETE", `/processes/tasks/${uid}`);
   },
 
   async addDeadline(

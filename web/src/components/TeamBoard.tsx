@@ -24,7 +24,7 @@ import type {
   ZoneKey,
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
-import { todayIso, addDays, localDateIso, mondayOf } from "../date";
+import { todayIso, addDays, localDateIso, mondayOf, weeksBetween } from "../date";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
@@ -527,6 +527,28 @@ export function TeamBoard({
   // Move a single plan card to another plan week (+1/+2 weeks, or a picked one).
   const handleSetWeek = (card: CardModel, week: string | null) => {
     const prev = card.week ?? null;
+    // A SLOT has no week of its own — its row is the week of its start date —
+    // so moving one to another week means moving its dates there. Sending
+    // plan.week for it is refused (422), which turned this control into an
+    // error message for every slot that a team assignment put in the plan.
+    if (card.epic && week) {
+      // How many weeks the slot spans, so moving it keeps its length.
+      const span =
+        card.startDate && card.day
+          ? Math.max(0, weeksBetween(mondayOf(card.startDate), mondayOf(card.day)))
+          : 0;
+      const prevDates = { startDate: card.startDate, day: card.day };
+      const end = addDays(week, span * 7 + 4);
+      patchCard(card.itemId, { week, startDate: week, day: end });
+      void provider
+        .patchCard(board, card.itemId, { dates: { start: week, end } })
+        .then(addCard)
+        .catch((err: unknown) => {
+          patchCard(card.itemId, prevDates);
+          onError(errMessage(err));
+        });
+      return;
+    }
     patchCard(card.itemId, { week: week ?? undefined });
     void provider
       .patchCard(board, card.itemId, { plan: { week: week ?? "" } })

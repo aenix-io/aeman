@@ -4,6 +4,7 @@ import { apiProvider } from "./providers/api/apiProvider";
 import {
   resourceToCard,
   sprintStateFrom,
+  type BoardResource,
   type CardResource,
   type OrderingResource,
   type SprintResource,
@@ -14,6 +15,11 @@ import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
+import { ProcessBoard } from "./components/ProcessBoard";
+import { TeamsModal } from "./components/TeamsModal";
+import { readProjectFilter, writeProjectFilter } from "./projectFilter";
+import { boardMetadata, processesFrom } from "./providers/api/apiProvider";
+import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
@@ -23,7 +29,7 @@ import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
-type ViewMode = "me" | "team" | "project";
+type ViewMode = "me" | "team" | "project" | "process";
 
 const LS_OWNER = "aeman.owner";
 const LS_PROJECT = "aeman.project";
@@ -41,6 +47,9 @@ function readView(): ViewMode {
   // still lands on the Project board rather than silently on Me.
   if (raw === "project" || raw === "plan") {
     return "project";
+  }
+  if (raw === "process") {
+    return "process";
   }
   return "me";
 }
@@ -114,6 +123,49 @@ export function App() {
     () => localStorage.getItem(LS_PROJECT) ?? "",
   );
   const [view, setView] = useState<ViewMode>(readView);
+  // The project chips' selection, shared by the Project and Process tabs.
+  const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
+  const setProjectFilter = (keys: string[] | null) => {
+    setProjectFilterState(keys);
+    writeProjectFilter(keys);
+  };
+  // The project manager: one dialog, reached from the chip row of both the
+  // Project and the Process tab. Its writes return as soon as the server's
+  // cache has them; the Board watch frame repaints — nothing reloads.
+  const [managingProjects, setManagingProjects] = useState(false);
+  const addProject = (name: string) => {
+    if (!board || !name.trim()) {
+      return;
+    }
+    setProjectFilter([name.trim()]);
+    void provider.addProject(board, name.trim()).catch((err: unknown) => setError(errMessage(err)));
+  };
+  const deleteProject = (name: string) => {
+    if (!board || !window.confirm(`Delete the project “${name}”?`)) {
+      return;
+    }
+    if (projectFilter?.includes(name)) {
+      setProjectFilter(null);
+    }
+    void provider.deleteProject(board, name).catch((err: unknown) => setError(errMessage(err)));
+  };
+  const renameProject = (from: string, to: string) => {
+    if (!board) {
+      return;
+    }
+    if (projectFilter?.includes(from)) {
+      setProjectFilter(projectFilter.map((p) => (p === from ? to : p)));
+    }
+    void provider.renameProject(board, from, to).catch((err: unknown) => setError(errMessage(err)));
+  };
+  const reorderProjects = (ordered: string[]) => {
+    if (!board) {
+      return;
+    }
+    // Shown in the new order at once; the frame confirms it.
+    setBoard((cur) => (cur ? { ...cur, projects: ordered } : cur));
+    void provider.reorderProjects(board, ordered).catch((err: unknown) => setError(errMessage(err)));
+  };
 
   // Appearance (theme mode + colour palette). Applied to <html> so the CSS
   // theme/palette overrides repaint the app; persisted in localStorage like the
@@ -489,13 +541,16 @@ export function App() {
         // as one board: a reload() must never leave the board empty while the
         // cards are still in flight (loadBoard itself carries no cards).
         const addr = { owner: ownerArg, number: numberArg };
-        const [loaded, lists] = await Promise.all([
+        const [loaded, lists, processes] = await Promise.all([
           provider.loadBoard(ownerArg, numberArg),
           Promise.all(
             activeQueriesRef.current.map((q) => provider.listCards(addr, q)),
           ),
+          // The process structure rides with the board from the start; the
+          // Board watch frame keeps it current afterwards.
+          provider.listProcesses(addr).catch(() => [] as ProcessInfo[]),
         ]);
-        setBoard({ ...loaded, cards: mergeCardLists(lists) });
+        setBoard({ ...loaded, cards: mergeCardLists(lists), processes });
       } catch (err: unknown) {
         setError(errMessage(err));
       } finally {
@@ -562,12 +617,22 @@ export function App() {
       return;
     }
     const todo: string[] = [];
+    const want = (login: string) => {
+      if (login && !fetchedUsers.current.has(login)) {
+        fetchedUsers.current.add(login);
+        todo.push(login);
+      }
+    };
     for (const c of board.cards) {
       for (const a of c.assignees) {
-        if (a && !fetchedUsers.current.has(a)) {
-          fetchedUsers.current.add(a);
-          todo.push(a);
-        }
+        want(a);
+      }
+    }
+    // A process task's standing owner is not on any card until the next
+    // iteration is spawned, so it would otherwise show as a bare login.
+    for (const p of board.processes) {
+      for (const t of p.tasks) {
+        want(t.assignee ?? "");
       }
     }
     if (todo.length === 0) {
@@ -733,30 +798,17 @@ export function App() {
       if (frame.kind === "Sync") {
         return;
       }
-      // The board's STRUCTURE changed under us — someone added a project, a
-      // column or a deadline. None of that lives in a card, so it cannot
-      // arrive as a card event: re-read the board and keep the cards we hold.
-      if (frame.kind === "Board") {
-        if (watchOwner && watchProject != null) {
-          void provider
-            .loadBoard(watchOwner, watchProject)
-            .then((fresh) =>
-              setBoard((cur) =>
-                cur
-                  ? {
-                      ...cur,
-                      teams: fresh.teams,
-                      projects: fresh.projects,
-                      epics: fresh.epics,
-                      deadlines: fresh.deadlines,
-                      members: fresh.members,
-                      sprintStates: fresh.sprintStates,
-                    }
-                  : cur,
-              ),
-            )
-            .catch(() => undefined);
-        }
+      // The board's STRUCTURE changed — a project, a column, a deadline, a
+      // process. The frame carries the board itself, so it is applied the way
+      // a Card frame is: no round trip, and our own roster writes need no
+      // reload either.
+      if (frame.kind === "Board" && frame.object) {
+        const obj = frame.object as BoardResource & { processes?: ProcessInfo[] | null };
+        setBoard((cur) =>
+          cur
+            ? { ...cur, ...boardMetadata(obj), processes: processesFrom(obj.processes) }
+            : cur,
+        );
         return;
       }
       // The write-behind queue's depth: changes applied everywhere but not
@@ -1109,6 +1161,15 @@ export function App() {
           >
             Project
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "process"}
+            className={`segment${view === "process" ? " segment-active" : ""}`}
+            onClick={() => setView("process")}
+          >
+            Process
+          </button>
         </div>
       </div>
 
@@ -1159,6 +1220,9 @@ export function App() {
           <ProjectBoard
             board={board}
             provider={provider}
+            filter={projectFilter}
+            onSetFilter={setProjectFilter}
+            onManageProjects={() => setManagingProjects(true)}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}
@@ -1166,6 +1230,17 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
+          />
+        )}
+        {board && view === "process" && (
+          <ProcessBoard
+            board={board}
+            provider={provider}
+            filter={projectFilter}
+            onSetFilter={setProjectFilter}
+            onManageProjects={() => setManagingProjects(true)}
+            users={users}
+            onError={onError}
           />
         )}
         {board && view === "team" && (
@@ -1196,6 +1271,19 @@ export function App() {
           />
         )}
       </main>
+
+      {board && managingProjects && (
+        <TeamsModal
+          teams={board.projects}
+          title="Manage projects"
+          entity="project"
+          onAdd={addProject}
+          onRename={renameProject}
+          onRemove={deleteProject}
+          onReorder={reorderProjects}
+          onClose={() => setManagingProjects(false)}
+        />
+      )}
 
       {board && detailCard && (
         <CardDetail

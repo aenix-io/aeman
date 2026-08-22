@@ -89,7 +89,9 @@ func (c *Client) CreateProjectCard(ctx context.Context, board *Board, in CreateC
 			} `json:"projectItem"`
 		} `json:"addProjectV2DraftIssue"`
 	}
-	vars := map[string]any{"project": board.ID, "title": in.Title, "assignees": assigneeIDs}
+	vars := map[string]any{
+		"project": board.ID, "title": in.Title, "body": in.Body, "assignees": assigneeIDs,
+	}
 	if err := c.graphql(ctx, addDraftMutation, vars, &created); err != nil {
 		return nil, err
 	}

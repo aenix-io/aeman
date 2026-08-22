@@ -25,6 +25,21 @@ const EpicStateTitle = "aeman:epic-state"
 // empty one can be created first and filled with epics afterwards.
 const ProjectStateTitle = "aeman:project-state"
 
+// ProcessStateTitle marks the hidden card that declares a process — recurring
+// work the team keeps doing and wants to see itself doing: its Process field
+// is the name, its Project the plan it is part of. A process groups tasks
+// the way a project groups epic columns.
+const ProcessStateTitle = "aeman:process-state"
+
+// ProcessTaskTitle marks the hidden card an iteration is copied FROM. Its
+// Process names the process, its Title and Description are what the iteration
+// will say, Recurrence is its cycle, StartDate the calendar anchor the cycle
+// is counted from, Team the plan the iterations land in, and Assignees the
+// standing owner. Unlike a recurrent card's reseed, which copies the previous
+// iteration (so a rename propagates forever), every iteration comes from
+// here — the live card may be renamed or described freely.
+const ProcessTaskTitle = "aeman:process-task"
+
 // DeadlineStateTitle marks the hidden card that puts a deadline on a week of
 // the Project board — the line across the grid. One card per deadline: its
 // Week is the week the line sits on and its Project is whose deadline it is.
@@ -137,6 +152,24 @@ type Card struct {
 	// epic card's row is its Week; StartDate..Day span the weeks its slot
 	// covers when it stretches over more than one.
 	Epic string `json:"epic,omitempty"`
+	// Process, on the two process state cards, is the process's name (on its
+	// own card) or the process a task belongs to. On an ordinary card it
+	// is empty — an iteration points at its task instead.
+	Process string `json:"process,omitempty"`
+	// Task, on an iteration, is the item id of the process task it
+	// was spawned from ("" = not an iteration). The link is what makes the
+	// process's history: its iterations are the cards that name it.
+	Task string `json:"task,omitempty"`
+	// Paused, on a process state card, stops it spawning: the tasks and
+	// their history stay exactly as they are, and nothing new is filed until
+	// it is resumed. Work that stops for a month is not work that was
+	// deleted, and a process nobody can pause gets deleted instead.
+	Paused bool `json:"paused,omitempty"`
+	// Accumulate, on a task, spawns an iteration on every due date even
+	// while the previous one is still open — unpaid months pile up as
+	// separate cards. Off (the default), an open iteration simply goes
+	// overdue and the next one waits for it.
+	Accumulate bool `json:"accumulate,omitempty"`
 	// Project is the project side of the card's column. A column is
 	// identified by the PAIR (project, epic), because epic names are unique
 	// only within a project — "Docs" or "Auth" belong to every project — so a
@@ -189,6 +222,14 @@ type CreateInput struct {
 	Week        string   `json:"week,omitempty"`
 	Epic        string   `json:"epic,omitempty"`
 	Project     string   `json:"project,omitempty"`
+	Process     string   `json:"process,omitempty"`
+	Task        string   `json:"task,omitempty"`
+	Recurrence  string   `json:"recurrence,omitempty"`
+	Paused      bool     `json:"paused,omitempty"`
+	// Body is the draft's description, written with the create rather than
+	// after it: a card that appears without its text, then fills in a second
+	// later, reads as a card the board got wrong.
+	Body string `json:"body,omitempty"`
 }
 
 // Deadline is a date marked on the Project board: the week its line sits on,
@@ -197,6 +238,15 @@ type CreateInput struct {
 type Deadline struct {
 	Week    string `json:"week"`
 	Project string `json:"project,omitempty"`
+	ItemID  string `json:"itemId,omitempty"`
+}
+
+// Process is recurring work the team keeps doing: its name, the project it
+// is part of, and the hidden card that declares it.
+type Process struct {
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+	Paused  bool   `json:"paused,omitempty"`
 	ItemID  string `json:"itemId,omitempty"`
 }
 
@@ -246,6 +296,11 @@ type Board struct {
 	Epics []EpicCol `json:"epics,omitempty"`
 	// Deadlines are the weeks carrying a deadline line, in board order.
 	Deadlines []Deadline `json:"deadlines,omitempty"`
+	// Processes lists the board's processes in board order, and Tasks the
+	// cards iterations are copied from (also in board order). Both are split
+	// out of Cards, like every other state card.
+	Processes []Process `json:"processes,omitempty"`
+	Tasks     []Card    `json:"tasks,omitempty"`
 	// Projects lists the project roster in board order (the positions of the
 	// hidden project-state cards) and ProjectStates maps each project to the
 	// card that declares it. A project groups epics: the Project board shows
@@ -270,8 +325,24 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 	epicSeen := map[string]bool{}
 	projectSeen := map[string]bool{}
 	deadlineSeen := map[string]bool{}
+	processSeen := map[string]bool{}
 	epicKey := func(project, name string) string { return project + "\x00" + name }
 	for _, c := range cards {
+		if c.Title == ProcessStateTitle {
+			if c.Process != "" && !processSeen[c.Process] {
+				processSeen[c.Process] = true
+				b.Processes = append(b.Processes, Process{
+					Name: c.Process, Project: c.Project, Paused: c.Paused, ItemID: c.ItemID,
+				})
+			}
+			continue
+		}
+		if c.Title == ProcessTaskTitle {
+			// A task is a whole card — title, description, cycle, owner —
+			// so it is kept as one, just out of the board's card rows.
+			b.Tasks = append(b.Tasks, c)
+			continue
+		}
 		if c.Title == DeadlineStateTitle {
 			// One line per week: a duplicate is a merge that already happened
 			// (or a torn write) and the first position wins, as everywhere.
@@ -413,4 +484,36 @@ func FindDeadline(b Board, project, week string) (Deadline, bool) {
 		}
 	}
 	return Deadline{}, false
+}
+
+// FindProcess looks a process up by name.
+func FindProcess(b Board, name string) (Process, bool) {
+	for _, p := range b.Processes {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return Process{}, false
+}
+
+// TasksOf lists a process's tasks in board order.
+func TasksOf(b Board, process string) []Card {
+	var out []Card
+	for _, t := range b.Tasks {
+		if t.Process == process {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// Iterations lists the cards spawned from a task, in board order.
+func Iterations(b Board, taskID string) []Card {
+	var out []Card
+	for _, c := range b.Cards {
+		if c.Task == taskID {
+			out = append(out, c)
+		}
+	}
+	return out
 }

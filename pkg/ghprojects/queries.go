@@ -165,8 +165,8 @@ const clearFieldMutation = `mutation($project: ID!, $item: ID!, $field: ID!) {
   }) { projectV2Item { id } }
 }`
 
-const addDraftMutation = `mutation($project: ID!, $title: String!, $assignees: [ID!]) {
-  addProjectV2DraftIssue(input: { projectId: $project, title: $title, assigneeIds: $assignees }) {
+const addDraftMutation = `mutation($project: ID!, $title: String!, $body: String, $assignees: [ID!]) {
+  addProjectV2DraftIssue(input: { projectId: $project, title: $title, body: $body, assigneeIds: $assignees }) {
     projectItem { id content { ... on DraftIssue { id } } }
   }
 }`
