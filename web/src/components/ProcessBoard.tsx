@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Board,
   ProcessTemplate,
@@ -6,6 +6,7 @@ import type {
   TemplateInput,
 } from "../providers/types";
 import { teamColor } from "../avatar";
+import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { TeamChips } from "./TeamChips";
@@ -19,6 +20,8 @@ interface ProcessBoardProps {
   /** Opens the PROJECT manager — the chips' "manage" is about projects here
    *  exactly as it is on the Project tab. */
   onManageProjects: () => void;
+  /** GitHub name + avatar per login, as the Me and Team boards have them. */
+  users: Record<string, GhUser>;
   onError: (message: string) => void;
 }
 
@@ -44,6 +47,7 @@ export function ProcessBoard({
   filter,
   onSetFilter,
   onManageProjects,
+  users,
   onError,
 }: ProcessBoardProps) {
   // The processes are part of the board, loaded with it and refreshed by the
@@ -241,6 +245,11 @@ export function ProcessBoard({
                     <TemplateRow
                       key={t.uid}
                       template={t}
+                      teams={board.teams}
+                      members={board.members}
+                      users={users}
+                      onSetTeam={(team) => saveTemplate(p.name, t.uid, { team })}
+                      onSetAssignee={(assignee) => saveTemplate(p.name, t.uid, { assignee })}
                       onEdit={() => setEditing(t.uid)}
                       onDelete={() => deleteTemplate(t)}
                     />
@@ -339,10 +348,20 @@ function Health({ templates }: { templates: ProcessTemplate[] }) {
 
 function TemplateRow({
   template: t,
+  teams,
+  members,
+  users,
+  onSetTeam,
+  onSetAssignee,
   onEdit,
   onDelete,
 }: {
   template: ProcessTemplate;
+  teams: string[];
+  members: string[];
+  users: Record<string, GhUser>;
+  onSetTeam: (team: string) => void;
+  onSetAssignee: (assignee: string) => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -358,15 +377,80 @@ function TemplateRow({
         <span>{cycleLabel(t.recurrence)}</span>
         <span>{t.start ? `from ${t.start}` : ""}</span>
         <span className="process-template-who">
-          {t.team ? (
-            <span className="process-team">
-              <span className="team-dot" style={{ background: teamColor(t.team) }} />
-              {t.team}
-            </span>
-          ) : (
-            <span className="process-template-none">no team</span>
-          )}
-          {t.assignee && <span>@{t.assignee}</span>}
+          {/* Team and owner are set where they are read — the cell IS the
+              control, as a card's badges are. The form behind ✎ is for the
+              title, the body and the cycle. */}
+          <CellPicker
+            className="process-cell-team"
+            title="Which team's weekly plan the iterations land in"
+            label={
+              t.team ? (
+                <>
+                  <span className="team-dot" style={{ background: teamColor(t.team) }} />
+                  {t.team}
+                </>
+              ) : (
+                <span className="process-template-none">no team</span>
+              )
+            }
+            options={[
+              ...teams
+                .filter((x) => x !== "")
+                .map((x) => ({
+                  key: x,
+                  active: x === t.team,
+                  label: (
+                    <>
+                      <span className="card-stage-dot" style={{ background: teamColor(x) }} />
+                      {x}
+                    </>
+                  ),
+                })),
+              {
+                key: "",
+                active: !t.team,
+                label: (
+                  <>
+                    <span className="card-stage-dot" style={{ background: "var(--line)" }} />
+                    No team
+                  </>
+                ),
+              },
+            ]}
+            onPick={onSetTeam}
+          />
+          <CellPicker
+            className="process-cell-owner"
+            title="Who every iteration is assigned to"
+            label={
+              t.assignee ? (
+                <>
+                  <img
+                    className="avatar-img process-owner-avatar"
+                    src={avatarUrlFor(t.assignee, users[t.assignee])}
+                    alt={t.assignee}
+                  />
+                  {displayName(t.assignee, users[t.assignee])}
+                </>
+              ) : (
+                <span className="process-template-none">nobody</span>
+              )
+            }
+            options={[
+              ...members.map((m) => ({
+                key: m,
+                active: m === t.assignee,
+                label: (
+                  <>
+                    <img className="avatar-img" src={avatarUrlFor(m, users[m])} alt={m} />
+                    {displayName(m, users[m])}
+                  </>
+                ),
+              })),
+              { key: "", active: !t.assignee, label: <>Nobody</> },
+            ]}
+            onPick={onSetAssignee}
+          />
           {t.accumulate && (
             <span title="The next iteration spawns even while the previous is still open">
               accumulates
@@ -384,6 +468,64 @@ function TemplateRow({
         </button>
       </span>
     </div>
+  );
+}
+
+/** CellPicker turns a cell of the row into the control that sets it: the value
+ *  is the trigger, the menu is the choices. */
+function CellPicker({
+  className,
+  title,
+  label,
+  options,
+  onPick,
+}: {
+  className: string;
+  title: string;
+  label: ReactNode;
+  options: { key: string; label: ReactNode; active: boolean }[];
+  onPick: (key: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLElement | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        className={`process-cell ${className}`}
+        title={title}
+        ref={(el) => {
+          anchor.current = el;
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        {label}
+      </button>
+      <Dropdown
+        open={open}
+        anchorRef={anchor}
+        onClose={() => setOpen(false)}
+        className="card-stage-menu"
+      >
+        {options.map((o) => (
+          <button
+            key={o.key || "\u0000none"}
+            type="button"
+            className={`card-stage-item${o.active ? " card-stage-item-active" : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onPick(o.key);
+            }}
+          >
+            {o.label}
+          </button>
+        ))}
+      </Dropdown>
+    </>
   );
 }
 

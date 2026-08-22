@@ -617,12 +617,22 @@ export function App() {
       return;
     }
     const todo: string[] = [];
+    const want = (login: string) => {
+      if (login && !fetchedUsers.current.has(login)) {
+        fetchedUsers.current.add(login);
+        todo.push(login);
+      }
+    };
     for (const c of board.cards) {
       for (const a of c.assignees) {
-        if (a && !fetchedUsers.current.has(a)) {
-          fetchedUsers.current.add(a);
-          todo.push(a);
-        }
+        want(a);
+      }
+    }
+    // A process template's standing owner is not on any card until the next
+    // iteration is spawned, so it would otherwise show as a bare login.
+    for (const p of board.processes) {
+      for (const t of p.templates) {
+        want(t.assignee ?? "");
       }
     }
     if (todo.length === 0) {
@@ -1229,6 +1239,7 @@ export function App() {
             filter={projectFilter}
             onSetFilter={setProjectFilter}
             onManageProjects={() => setManagingProjects(true)}
+            users={users}
             onError={onError}
           />
         )}

@@ -3829,7 +3829,7 @@ button.card-age {
    Sharing the row by content made every line's facts start somewhere else. */
 .process-template {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 380px 120px 48px;
+  grid-template-columns: minmax(160px, 1fr) 460px 120px 48px;
   align-items: center;
   gap: 12px;
   padding: 6px 8px;
@@ -3861,7 +3861,7 @@ button.card-age {
 
 .process-template-meta {
   display: grid;
-  grid-template-columns: 110px 110px 1fr;
+  grid-template-columns: 100px 105px 1fr;
   column-gap: 10px;
   row-gap: 2px;
   align-items: center;
@@ -4014,4 +4014,44 @@ button.card-age {
   background: transparent;
   border: 1px dashed var(--line);
   color: var(--muted);
+}
+
+/* A cell that sets what it shows: the team and the owner of a template are
+   picked where they are read, the way a card's badges work. */
+.process-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.process-cell:hover {
+  border-color: var(--line);
+  background: var(--bg);
+}
+
+.process-cell-team {
+  flex: 0 0 auto;
+}
+
+.process-cell-owner {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.process-owner-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex: none;
 }

@@ -80,34 +80,34 @@ func TestNextAfterIsCalendarArithmetic(t *testing.T) {
 }
 
 // Iterations are spawned from the TEMPLATE: a renamed or re-described live
-// card stays as it is, and the next one is the template again.
+// card stays as it is, and the next one is the template again. A template due
+// this week also hands its card over at once — waiting for someone to carry
+// the week is how a new process looked broken.
 func TestSpawnCopiesTheTemplateNotThePreviousIteration(t *testing.T) {
 	fake := processBoard()
 	svc := New(fake)
 	ctx := context.Background()
+	week := board.MondayOf(board.TodayIso())
+	next := board.AddDays(week, 7)
 	tpl, err := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
 		Title: "Technical article", Description: "the brief",
-		Recurrence: "week", Start: "2026-03-02", Team: "alpha", Assignee: "writer",
+		Recurrence: "week", Start: week, Team: "alpha", Assignee: "writer",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	b, _ := svc.Board(ctx, "acme", 1)
-	n, err := svc.SpawnIterations(ctx, b, "alpha", "2026-03-02", false)
-	if err != nil || n != 1 {
-		t.Fatalf("spawned = %d, err = %v", n, err)
-	}
-	b, _ = svc.Board(ctx, "acme", 1)
 	its := board.Iterations(b, tpl.ItemID)
 	if len(its) != 1 {
-		t.Fatalf("iterations = %d", len(its))
+		t.Fatalf("a template due this week files its card at once; iterations = %d", len(its))
 	}
 	first := its[0]
 	if first.Title != "Technical article" || first.Description != "the brief" ||
-		first.Plan != board.PlanFri || first.Week != "2026-03-02" || first.Team != "alpha" ||
+		first.Plan != board.PlanFri || first.Week != week || first.Team != "alpha" ||
 		first.Stage != board.StageRecurrent || len(first.Assignees) != 1 || first.Assignees[0] != "writer" {
 		t.Fatalf("iteration = %+v", first)
 	}
+
 	// The team renames and finishes it…
 	if err := svc.Rename(ctx, "acme", 1, first.ItemID, "Article about etcd"); err != nil {
 		t.Fatal(err)
@@ -117,8 +117,8 @@ func TestSpawnCopiesTheTemplateNotThePreviousIteration(t *testing.T) {
 	}
 	// …and the next week's iteration is the template again, not the rename.
 	b, _ = svc.Board(ctx, "acme", 1)
-	if _, err := svc.SpawnIterations(ctx, b, "alpha", "2026-03-09", false); err != nil {
-		t.Fatal(err)
+	if n, err := svc.SpawnIterations(ctx, b, "alpha", next, false); err != nil || n != 1 {
+		t.Fatalf("next week: spawned %d, err %v", n, err)
 	}
 	b, _ = svc.Board(ctx, "acme", 1)
 	its = board.Iterations(b, tpl.ItemID)
@@ -140,42 +140,50 @@ func TestSpawnWaitsForTheOpenIterationUnlessAccumulating(t *testing.T) {
 	fake := processBoard()
 	svc := New(fake)
 	ctx := context.Background()
-	waits, _ := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
-		Title: "Article", Recurrence: "week", Start: "2026-03-02", Team: "alpha",
+	week := board.MondayOf(board.TodayIso())
+	next := board.AddDays(week, 7)
+	waits, err := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
+		Title: "Article", Recurrence: "week", Start: week, Team: "alpha",
 	})
-	piles, _ := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
-		Title: "Invoice client X", Recurrence: "week", Start: "2026-03-02", Team: "alpha", Accumulate: true,
-	})
-	b, _ := svc.Board(ctx, "acme", 1)
-	if n, _ := svc.SpawnIterations(ctx, b, "alpha", "2026-03-02", false); n != 2 {
-		t.Fatalf("first week spawns both, got %d", n)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Nobody finished either. Next week:
-	b, _ = svc.Board(ctx, "acme", 1)
-	if n, _ := svc.SpawnIterations(ctx, b, "alpha", "2026-03-09", false); n != 1 {
+	piles, err := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
+		Title: "Invoice client X", Recurrence: "week", Start: week, Team: "alpha", Accumulate: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := svc.Board(ctx, "acme", 1)
+	if len(board.Iterations(b, waits.ItemID)) != 1 || len(board.Iterations(b, piles.ItemID)) != 1 {
+		t.Fatalf("each template files this week's card on creation")
+	}
+	// Re-running this week is a no-op.
+	if n, _ := svc.SpawnIterations(ctx, b, "alpha", week, true); n != 0 {
+		t.Fatalf("re-running a week must spawn nothing, got %d", n)
+	}
+	// Nobody finished either. Next week only the accumulating one spawns.
+	if n, _ := svc.SpawnIterations(ctx, b, "alpha", next, false); n != 1 {
 		t.Fatalf("only the accumulating template spawns while open, got %d", n)
 	}
 	b, _ = svc.Board(ctx, "acme", 1)
 	if len(board.Iterations(b, waits.ItemID)) != 1 || len(board.Iterations(b, piles.ItemID)) != 2 {
 		t.Fatalf("waits=%d piles=%d", len(board.Iterations(b, waits.ItemID)), len(board.Iterations(b, piles.ItemID)))
 	}
-	// Re-running the same week is a no-op.
-	if n, _ := svc.SpawnIterations(ctx, b, "alpha", "2026-03-09", true); n != 0 {
-		t.Fatalf("re-running a week must spawn nothing, got %d", n)
-	}
 }
 
-// A monthly template is due in the week its anchor's day falls in, and in no
-// other week: the calendar is the clock.
+// The calendar is the clock, and only the calendar: a monthly template is due
+// in the week its anchor's day falls in, and in no other week. Built directly
+// on the board, so the check is the arithmetic and nothing else.
 func TestMonthlyTemplateIsDueOnceAMonth(t *testing.T) {
-	fake := processBoard()
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Marketing"},
+		{ItemID: "pr1", Title: board.ProcessStateTitle, Process: "Articles", Project: "Marketing"},
+		{ItemID: "tpl", Title: board.ProcessTemplateTitle, Process: "Articles",
+			Description: "Monthly", Recurrence: "month", StartDate: "2026-03-03", Team: "alpha"},
+	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
 	svc := New(fake)
 	ctx := context.Background()
-	if _, err := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
-		Title: "Monthly", Recurrence: "month", Start: "2026-03-03", Team: "alpha",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	b, _ := svc.Board(ctx, "acme", 1)
 	for week, want := range map[string]int{
 		"2026-03-02": 1, // the anchor's own week
@@ -195,15 +203,13 @@ func TestIterationsStayInTheirWeek(t *testing.T) {
 	fake := processBoard()
 	svc := New(fake)
 	ctx := context.Background()
+	week := board.MondayOf(board.TodayIso())
 	if _, err := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
-		Title: "Article", Recurrence: "week", Start: "2026-03-02", Team: "alpha",
+		Title: "Article", Recurrence: "week", Start: week, Team: "alpha",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CarryWeek(ctx, "acme", 1, "alpha", "2026-03-02", false); err != nil {
-		t.Fatal(err)
-	}
-	rep, err := svc.CarryWeek(ctx, "acme", 1, "alpha", "2026-03-09", false)
+	rep, err := svc.CarryWeek(ctx, "acme", 1, "alpha", board.AddDays(week, 7), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +218,7 @@ func TestIterationsStayInTheirWeek(t *testing.T) {
 	}
 	b, _ := svc.Board(ctx, "acme", 1)
 	for _, c := range b.Cards {
-		if c.Template != "" && c.Week != "2026-03-02" {
+		if c.Template != "" && c.Week != week {
 			t.Fatalf("the iteration moved to %s; it belongs to the week it was owed", c.Week)
 		}
 	}

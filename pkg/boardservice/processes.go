@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -190,6 +191,10 @@ func (s *Service) AddProcessTemplate(ctx context.Context, owner string, project 
 	}
 	created.Description = templateBody(a.Title, a.Description)
 	created.Accumulate = a.Accumulate
+	// If this week is already owed an iteration, hand it over now: a template
+	// added on Monday should show in Monday's plan, not after someone carries
+	// the week.
+	s.spawnDue(ctx, owner, project, created.ItemID)
 	return created, nil
 }
 
@@ -291,6 +296,9 @@ func (s *Service) UpdateProcessTemplate(ctx context.Context, owner string, proje
 			return err
 		}
 	}
+	// A changed cycle, start, team or title can make this week due when it was
+	// not: give it its card now rather than at the next carry.
+	s.spawnDue(ctx, owner, project, templateID)
 	return nil
 }
 
@@ -314,43 +322,70 @@ func findTemplate(b board.Board, id string) (board.Card, bool) {
 // week that already holds an iteration of a template never gets a second
 // (re-running carry_week must be idempotent).
 func (s *Service) SpawnIterations(ctx context.Context, b board.Board, team, week string, dryRun bool) (int, error) {
-	weekEnd := board.AddDays(week, 6)
 	spawned := 0
 	for _, t := range b.Templates {
-		// A template with no title is a torn create (the card landed, the
-		// description did not): spawning a nameless card from it helps nobody.
-		if t.Team != team || t.Recurrence == "" || TemplateTitle(t) == "" {
+		if t.Team != team {
 			continue
 		}
-		// Due inside the target week? The first due date after the day
-		// before the week, if it falls before the week ends.
-		due := board.NextAfter(t.Recurrence, t.StartDate, board.AddDays(week, -1))
-		if due == "" || due > weekEnd {
-			continue
-		}
-		iterations := board.Iterations(b, t.ItemID)
-		already := false
-		open := false
-		for _, it := range iterations {
-			if it.Week == week {
-				already = true
-			}
-			if !board.Complete(it.Stage, it.Progress) {
-				open = true
-			}
-		}
-		if already || (open && !t.Accumulate) {
-			continue
-		}
-		spawned++
-		if dryRun {
-			continue
-		}
-		if err := s.spawnIteration(ctx, b, t, week); err != nil {
+		ok, err := s.spawnIfDue(ctx, b, t, week, dryRun)
+		if err != nil {
 			return spawned, err
+		}
+		if ok {
+			spawned++
 		}
 	}
 	return spawned, nil
+}
+
+// spawnIfDue files one template's iteration for a week, if that week is owed
+// one. It reports whether an iteration was (or would be) spawned.
+func (s *Service) spawnIfDue(ctx context.Context, b board.Board, t board.Card, week string, dryRun bool) (bool, error) {
+	// A template with no title is a torn create (the card landed, the
+	// description did not): spawning a nameless card from it helps nobody.
+	if t.Recurrence == "" || TemplateTitle(t) == "" {
+		return false, nil
+	}
+	// Due inside this week? The first due date after the day before the week,
+	// if it falls before the week ends.
+	due := board.NextAfter(t.Recurrence, t.StartDate, board.AddDays(week, -1))
+	if due == "" || due > board.AddDays(week, 6) {
+		return false, nil
+	}
+	open := false
+	for _, it := range board.Iterations(b, t.ItemID) {
+		if it.Week == week {
+			return false, nil // this week already has its iteration
+		}
+		if !board.Complete(it.Stage, it.Progress) {
+			open = true
+		}
+	}
+	if open && !t.Accumulate {
+		return false, nil
+	}
+	if dryRun {
+		return true, nil
+	}
+	return true, s.spawnIteration(ctx, b, t, week)
+}
+
+// spawnDue files the CURRENT week's iteration for one template, so a template
+// that is due now produces its card the moment it is written rather than
+// waiting for someone to carry the week. Failing to spawn does not fail the
+// write: the template is saved either way, and the sweep will catch it.
+func (s *Service) spawnDue(ctx context.Context, owner string, project int, templateID string) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return
+	}
+	t, ok := findTemplate(b, templateID)
+	if !ok {
+		return
+	}
+	if _, err := s.spawnIfDue(ctx, b, t, board.MondayOf(board.TodayIso()), false); err != nil {
+		slog.Warn("process iteration not spawned", "template", templateID, "err", err)
+	}
 }
 
 // spawnIteration copies a template into one weekly-plan card.
