@@ -336,15 +336,23 @@ function TemplateRow({
       </div>
       <span className="process-template-meta">
         <span>{cycleLabel(t.recurrence)}</span>
-        {t.start && <span>from {t.start}</span>}
-        {t.team && (
-          <span className="process-team">
-            <span className="team-dot" style={{ background: teamColor(t.team) }} />
-            {t.team}
-          </span>
-        )}
-        {t.assignee && <span>@{t.assignee}</span>}
-        {t.accumulate && <span title="The next iteration spawns even while the previous is still open">accumulates</span>}
+        <span>{t.start ? `from ${t.start}` : ""}</span>
+        <span className="process-template-who">
+          {t.team ? (
+            <span className="process-team">
+              <span className="team-dot" style={{ background: teamColor(t.team) }} />
+              {t.team}
+            </span>
+          ) : (
+            <span className="process-template-none">no team</span>
+          )}
+          {t.assignee && <span>@{t.assignee}</span>}
+          {t.accumulate && (
+            <span title="The next iteration spawns even while the previous is still open">
+              accumulates
+            </span>
+          )}
+        </span>
       </span>
       <Health templates={[t]} />
       <span className="process-template-actions">
