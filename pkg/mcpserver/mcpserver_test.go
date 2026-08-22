@@ -89,6 +89,8 @@ func TestMCPListsTools(t *testing.T) {
 		"add_epic", "delete_epic", "set_epic_project", "rename_epic",
 		"add_project", "delete_project", "reorder_projects", "rename_project",
 		"add_deadline", "delete_deadline", "move_deadline",
+		"list_processes", "add_process", "delete_process", "rename_process",
+		"add_process_template", "update_process_template", "delete_process_template",
 	}
 	for _, w := range want {
 		if !names[w] {

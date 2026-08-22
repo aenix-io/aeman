@@ -424,6 +424,135 @@ func (h *server) renameEpic(ctx context.Context, _ *mcp.CallToolRequest, in epic
 	return nil, statusOutput{Status: "renamed"}, nil
 }
 
+// --- Processes ----------------------------------------------------------------
+
+type listProcessesInput struct {
+	boardRef
+	Project string `json:"project,omitempty" jsonschema:"scope to one project's processes; empty is every project"`
+}
+
+func (h *server) listProcesses(ctx context.Context, _ *mcp.CallToolRequest, in listProcessesInput) (*mcp.CallToolResult, apiserver.ProcessList, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.ProcessList{}, err
+	}
+	b, err := svc.Board(ctx, owner, boardNum)
+	if err != nil {
+		return nil, apiserver.ProcessList{}, err
+	}
+	return nil, apiserver.ProcessesResource(b, in.Project), nil
+}
+
+type processInput struct {
+	boardRef
+	Name    string `json:"name" jsonschema:"the process's name"`
+	Project string `json:"project,omitempty" jsonschema:"add_process: the project the process is part of (from get_board metadata.projects)"`
+	To      string `json:"to,omitempty" jsonschema:"rename_process only: the new name"`
+}
+
+func (h *server) addProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.AddProcess(ctx, owner, boardNum, in.Name, in.Project); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "added"}, nil
+}
+
+func (h *server) deleteProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.DeleteProcess(ctx, owner, boardNum, in.Name); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "deleted"}, nil
+}
+
+func (h *server) renameProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.RenameProcess(ctx, owner, boardNum, in.Name, in.To); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "renamed"}, nil
+}
+
+type addTemplateInput struct {
+	boardRef
+	Process     string `json:"process" jsonschema:"the process this template belongs to (required)"`
+	Title       string `json:"title" jsonschema:"the title every iteration will be created with (required)"`
+	Description string `json:"description,omitempty" jsonschema:"the body every iteration will be created with"`
+	Recurrence  string `json:"recurrence" jsonschema:"the cycle: week, 2weeks, month or quarter (required). Counted on the calendar from start, not from when the last iteration closed"`
+	Start       string `json:"start,omitempty" jsonschema:"the calendar anchor the cycle is counted from, yyyy-mm-dd; defaults to today"`
+	Team        string `json:"team,omitempty" jsonschema:"the team whose weekly plan the iterations land in — MUST be an existing team key from get_board metadata.teams"`
+	Assignee    string `json:"assignee,omitempty" jsonschema:"the standing owner (GitHub login); every iteration is assigned to them, the team lead may reassign"`
+	Accumulate  bool   `json:"accumulate,omitempty" jsonschema:"spawn the next iteration even while the previous one is still open, so unpaid months pile up as separate cards. Default false: an open iteration simply goes overdue and the next one waits"`
+}
+
+func (h *server) addProcessTemplate(ctx context.Context, _ *mcp.CallToolRequest, in addTemplateInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	tpl, err := svc.AddProcessTemplate(ctx, owner, boardNum, in.Process, boardservice.TemplateArgs{
+		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
+		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
+	})
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "added", UID: tpl.ItemID}, nil
+}
+
+type updateTemplateInput struct {
+	boardRef
+	UID         string  `json:"uid" jsonschema:"the template's uid, from list_processes (required)"`
+	Title       *string `json:"title,omitempty" jsonschema:"new title for the NEXT iterations"`
+	Description *string `json:"description,omitempty" jsonschema:"new body for the NEXT iterations; empty clears"`
+	Recurrence  *string `json:"recurrence,omitempty" jsonschema:"new cycle: week, 2weeks, month or quarter"`
+	Start       *string `json:"start,omitempty" jsonschema:"new calendar anchor, yyyy-mm-dd"`
+	Team        *string `json:"team,omitempty" jsonschema:"new team (an existing team key)"`
+	Assignee    *string `json:"assignee,omitempty" jsonschema:"new standing owner; empty clears"`
+	Accumulate  *bool   `json:"accumulate,omitempty" jsonschema:"whether the next iteration spawns while the previous is open"`
+}
+
+func (h *server) updateProcessTemplate(ctx context.Context, _ *mcp.CallToolRequest, in updateTemplateInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	err = svc.UpdateProcessTemplate(ctx, owner, boardNum, in.UID, boardservice.TemplatePatch{
+		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
+		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
+	})
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "updated", UID: in.UID}, nil
+}
+
+type templateRef struct {
+	boardRef
+	UID string `json:"uid" jsonschema:"the template's uid, from list_processes (required)"`
+}
+
+func (h *server) deleteProcessTemplate(ctx context.Context, _ *mcp.CallToolRequest, in templateRef) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.DeleteProcessTemplate(ctx, owner, boardNum, in.UID); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
+}
+
 // deadlineInput names a week of the Project board (and, for a move, the week
 // the line is dragged to).
 type deadlineInput struct {

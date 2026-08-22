@@ -85,6 +85,13 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/epics/actions/reorder-epics", s.handleReorderEpics)
 	mux.HandleFunc("POST /api/v1/epics/actions/set-project", s.handleSetEpicProject)
 	mux.HandleFunc("POST /api/v1/epics/actions/rename", s.handleRenameEpic)
+	mux.HandleFunc("GET /api/v1/processes", s.handleListProcesses)
+	mux.HandleFunc("POST /api/v1/processes", s.handleAddProcess)
+	mux.HandleFunc("POST /api/v1/processes/actions/delete-process", s.handleDeleteProcess)
+	mux.HandleFunc("POST /api/v1/processes/actions/rename", s.handleRenameProcess)
+	mux.HandleFunc("POST /api/v1/processes/templates", s.handleAddTemplate)
+	mux.HandleFunc("PATCH /api/v1/processes/templates/{uid}", s.handlePatchTemplate)
+	mux.HandleFunc("DELETE /api/v1/processes/templates/{uid}", s.handleDeleteTemplate)
 	mux.HandleFunc("POST /api/v1/deadlines", s.handleAddDeadline)
 	mux.HandleFunc("POST /api/v1/deadlines/actions/delete", s.handleDeleteDeadline)
 	mux.HandleFunc("POST /api/v1/deadlines/actions/move", s.handleMoveDeadline)
@@ -152,6 +159,13 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/epics/actions/reorder-epics", "Apply one project's column order (moves the hidden epic-state cards; body {project, epics:[...]})"},
 			{"POST", "/api/v1/epics/actions/set-project", "Move a column from one project to another ({epic, from, project}); an empty target detaches it"},
 			{"POST", "/api/v1/epics/actions/rename", "Rename a column in place, cards and all ({project, epic, to})"},
+			{"GET", "/api/v1/processes", "The Process tab: every process with its templates and each template's history (?project= filters)"},
+			{"POST", "/api/v1/processes", "Declare a process — recurring work inside a project ({name, project})"},
+			{"POST", "/api/v1/processes/actions/delete-process", "Delete an EMPTY process ({process}); refused while it has templates"},
+			{"POST", "/api/v1/processes/actions/rename", "Rename a process; its templates follow ({process, to})"},
+			{"POST", "/api/v1/processes/templates", "Add what a process iterates on ({process, title, description, recurrence, start, team, assignee, accumulate})"},
+			{"PATCH", "/api/v1/processes/templates/{uid}", "Change what the NEXT iterations will be; the running one is untouched"},
+			{"DELETE", "/api/v1/processes/templates/{uid}", "Delete a template; its past iterations stay as the record"},
 			{"POST", "/api/v1/deadlines", "Mark a week with a project's deadline line ({week, project}); a project holds at most one per week"},
 			{"POST", "/api/v1/deadlines/actions/delete", "Clear a project's deadline on a week ({week, project})"},
 			{"POST", "/api/v1/deadlines/actions/move", "Drag a project's deadline to another week ({project, from, to}); landing where it already has one leaves a single line"},
@@ -1173,6 +1187,156 @@ func patchColumn(ctx context.Context, svc *boardservice.Service, owner string, p
 	return svc.SetEpic(ctx, owner, project, uid, epic, p.Project)
 }
 
+// --- Processes -----------------------------------------------------------------
+
+func (s *Server) handleListProcesses(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	b, err := svc.Board(r.Context(), owner, boardNum)
+	if err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apiserver.ProcessesResource(b, r.URL.Query().Get("project")))
+}
+
+func (s *Server) handleAddProcess(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name    string `json:"name"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.AddProcess(r.Context(), owner, boardNum, in.Name, in.Project); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDeleteProcess(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Process string `json:"process"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteProcess(r.Context(), owner, boardNum, in.Process); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleRenameProcess(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Process string `json:"process"`
+		To      string `json:"to"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.RenameProcess(r.Context(), owner, boardNum, in.Process, in.To); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// templateRequest is a template on the wire, for create (all fields) and
+// patch (pointers: only the present ones apply).
+type templateRequest struct {
+	Process     string  `json:"process"`
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Recurrence  *string `json:"recurrence"`
+	Start       *string `json:"start"`
+	Team        *string `json:"team"`
+	Assignee    *string `json:"assignee"`
+	Accumulate  *bool   `json:"accumulate"`
+}
+
+func (s *Server) handleAddTemplate(w http.ResponseWriter, r *http.Request) {
+	var in templateRequest
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	str := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	tpl, err := svc.AddProcessTemplate(r.Context(), owner, boardNum, in.Process, boardservice.TemplateArgs{
+		Title: str(in.Title), Description: str(in.Description), Recurrence: str(in.Recurrence),
+		Start: str(in.Start), Team: str(in.Team), Assignee: str(in.Assignee),
+		Accumulate: in.Accumulate != nil && *in.Accumulate,
+	})
+	if err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"uid": tpl.ItemID})
+}
+
+func (s *Server) handlePatchTemplate(w http.ResponseWriter, r *http.Request) {
+	var in templateRequest
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	err := svc.UpdateProcessTemplate(r.Context(), owner, boardNum, r.PathValue("uid"), boardservice.TemplatePatch{
+		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
+		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
+	})
+	if err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.DeleteProcessTemplate(r.Context(), owner, boardNum, r.PathValue("uid")); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleAddDeadline marks a week with one project's deadline line
 // (body {week, project}).
 func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
@@ -1506,7 +1670,11 @@ func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProjectInUse),
 		errors.Is(err, boardservice.ErrProjectExists),
 		errors.Is(err, boardservice.ErrProjectNotFound),
-		errors.Is(err, boardservice.ErrWeekDerived):
+		errors.Is(err, boardservice.ErrWeekDerived),
+		errors.Is(err, boardservice.ErrProcessExists),
+		errors.Is(err, boardservice.ErrProcessNotFound),
+		errors.Is(err, boardservice.ErrProcessInUse),
+		errors.Is(err, boardservice.ErrTemplateNotFound):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())
