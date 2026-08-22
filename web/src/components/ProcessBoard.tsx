@@ -472,12 +472,15 @@ function Health({
     return <span className="process-health process-health-empty">no iterations yet</span>;
   }
   const recent = all.slice(-SHOWN_ITERATIONS);
-  const hidden = all.length - recent.length;
-  const done = all.filter((i) => i.state === "done").length;
-  const late = all.filter((i) => i.state === "late").length;
+  // The server sends the recent turns and counts the rest, so the numbers
+  // hold even for a process that has been running for years.
+  const total = tasks.reduce((n, t) => n + (t.turns ?? t.history.length), 0);
+  const hidden = total - recent.length;
+  const done = tasks.reduce((n, t) => n + (t.done ?? 0), 0);
+  const late = tasks.reduce((n, t) => n + (t.late ?? 0), 0);
   const current = all[all.length - 1];
-  const summary = `${done} of ${all.length} turns done${late ? `, ${late} overdue` : ""}${
-    hidden ? ` · showing the last ${recent.length}` : ""
+  const summary = `${done} of ${total} turns done${late ? `, ${late} overdue` : ""}${
+    hidden > 0 ? ` · showing the last ${recent.length}` : ""
   }`;
   const dots = (
     <>

@@ -31,9 +31,20 @@ type Task struct {
 	Team        string `json:"team,omitempty"`
 	Assignee    string `json:"assignee,omitempty"`
 	Accumulate  bool   `json:"accumulate,omitempty"`
-	// History lists the task's iterations, oldest first, as they went.
+	// History lists the task's recent turns, oldest first, as they went —
+	// the last HistoryShown of them. A process that has run for a year has
+	// fifty, nobody reads more than the recent ones, and this list rides in
+	// every board frame.
 	History []Iteration `json:"history"`
+	// Turns, Done and Late count ALL of them, so the tail that is not sent
+	// still counts. Turns == len(History) means nothing was left out.
+	Turns int `json:"turns"`
+	Done  int `json:"done"`
+	Late  int `json:"late"`
 }
+
+// HistoryShown bounds the turns carried per task.
+const HistoryShown = 12
 
 // Iteration is one spawned card and how it went: "done" when it closed,
 // "open" while it still runs inside its cycle, "late" when it is still open
@@ -69,9 +80,21 @@ func ProcessesResource(b board.Board, project string) ProcessList {
 				task.Assignee = t.Assignees[0]
 			}
 			for _, it := range board.Iterations(b, t.ItemID) {
-				task.History = append(task.History, Iteration{
-					UID: it.ItemID, Week: it.Week, State: iterationState(it, t, today),
-				})
+				turn := Iteration{UID: it.ItemID, Week: it.Week, State: iterationState(it, t, today)}
+				task.Turns++
+				switch turn.State {
+				case "done":
+					task.Done++
+				case "late":
+					task.Late++
+				}
+				task.History = append(task.History, turn)
+			}
+			// Oldest first, and only the tail: turns interleave in time only
+			// within a task, but a task written long ago can still hold more
+			// than anyone will read.
+			if len(task.History) > HistoryShown {
+				task.History = task.History[len(task.History)-HistoryShown:]
 			}
 			proc.Tasks = append(proc.Tasks, task)
 		}

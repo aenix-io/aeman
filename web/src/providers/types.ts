@@ -137,6 +137,10 @@ export interface ProcessTask {
   assignee?: string;
   accumulate?: boolean;
   history: { uid: string; week: string; state: "done" | "open" | "late" }[];
+  /** Counts over ALL turns, including the ones history leaves out. */
+  turns?: number;
+  done?: number;
+  late?: number;
 }
 
 /** ProcessInfo is one process and its tasks. */
