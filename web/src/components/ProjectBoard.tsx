@@ -6,16 +6,22 @@ import type {
   Provider,
 } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
-import { addDays, mondayOf, todayIso } from "../date";
+import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { Dropdown } from "./Dropdown";
+import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
-import { TeamsModal } from "./TeamsModal";
 
 interface ProjectBoardProps {
   board: Board;
   provider: Provider;
+  /** Which projects are in view (null = all; "" = the no-project bucket). */
+  filter: string[] | null;
+  onSetFilter: (keys: string[] | null) => void;
+  /** Opens the project manager, which the App owns — both this tab and the
+   *  Process tab reach it through their chip row. */
+  onManageProjects: () => void;
   patchCard: (
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
@@ -26,15 +32,6 @@ interface ProjectBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
-}
-
-/** weeksBetween counts whole weeks from Monday a to Monday b (0 = same week). */
-function weeksBetween(a: string, b: string): number {
-  const [ay, am, ad] = a.split("-").map(Number);
-  const [by, bm, bd] = b.split("-").map(Number);
-  return Math.round(
-    (Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / (7 * 86400000),
-  );
 }
 
 /** isoWeekNo is the ISO-8601 week number of a Monday. */
@@ -114,10 +111,10 @@ function colKey(project: string, epic: string): string {
   return `${project}\u0000${epic}`;
 }
 
-/** LS_FILTER remembers which project you were looking at, LS_COLW how wide you
- *  dragged the columns. Both are this browser's view of the board rather than
- *  the board's own state, so they stay local. */
-const LS_FILTER = "aeman.projectFilter";
+/** LS_COLW remembers how wide you dragged the columns — this browser's view
+ *  of the board rather than the board's own state, so it stays local. (The
+ *  project chips' selection lives in projectFilter.ts, shared with the
+ *  Process tab.) */
 const LS_COLW = "aeman.projectColWidth";
 const LS_PROGRESS = "aeman.projectProgressOpen";
 
@@ -149,16 +146,6 @@ function readColWidths(): Record<string, number> {
   return {};
 }
 
-function readFilter(): string[] | null {
-  try {
-    const raw = localStorage.getItem(LS_FILTER);
-    const v: unknown = raw ? JSON.parse(raw) : null;
-    return Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 /** The Project board: weeks as rows and one project's epics as columns, cards
  *  as slots that may span several weeks (dates start..end). Dragging down an
  *  empty column stretch selects a slot and creates a card in it; assigning a
@@ -167,6 +154,9 @@ function readFilter(): string[] | null {
 export function ProjectBoard({
   board,
   provider,
+  filter,
+  onSetFilter,
+  onManageProjects,
   patchCard,
   addCard,
   replaceCard,
@@ -180,11 +170,8 @@ export function ProjectBoard({
 
   // Which project(s) the chips select; null is every project. "" is the chip
   // for columns that belong to no project.
-  const [filter, setFilter] = useState<string[] | null>(readFilter);
-  const selectFilter = (keys: string[] | null) => {
-    setFilter(keys);
-    localStorage.setItem(LS_FILTER, JSON.stringify(keys));
-  };
+  // The chips' selection is owned by the App and shared with the Process tab.
+  const selectFilter = onSetFilter;
 
   // The columns in view: the selected projects' epics, in board order. Every
   // other derived list follows from this one, so a column and its cards can
@@ -317,9 +304,10 @@ export function ProjectBoard({
     // Only this project's columns are persisted — the others keep the order
     // the board already has for them.
     const names = epics.filter((x) => x.project === d.project).map((x) => x.name);
+    // The preview order stays up until the Board frame confirms it (or a
+    // failure puts the board's own order back).
     void provider
       .reorderEpics(board, d.project, names)
-      .then(reload)
       .catch((err: unknown) => {
         setOrder(null); // put the board's own order back on screen
         onError(errText(err));
@@ -715,7 +703,7 @@ export function ProjectBoard({
   // The column being renamed in its header, and whether the project manager
   // dialog is open.
   const [renaming, setRenaming] = useState<string | null>(null);
-  const [managing, setManaging] = useState(false);
+
   // The status line remembers whether it was left open, as the Team board's
   // weekly plan does.
   const [progressOpen, setProgressOpen] = useState(
@@ -759,45 +747,29 @@ export function ProjectBoard({
     }
     void provider
       .addEpic(board, name.trim(), targetProject)
-      .then(reload)
       .catch((err: unknown) => onError(errText(err)));
   };
 
-  const addProject = (name: string) => {
-    if (!name.trim()) {
-      return;
-    }
-    void provider
-      .addProject(board, name.trim())
-      .then(() => {
-        selectFilter([name.trim()]);
-        reload();
-      })
-      .catch((err: unknown) => onError(errText(err)));
-  };
-
-  const deleteProject = (name: string) => {
-    if (!window.confirm(`Delete the project “${name}”?`)) {
-      return;
-    }
-    void provider
-      .deleteProject(board, name)
-      .then(() => {
-        if (filter?.includes(name)) {
-          selectFilter(null);
-        }
-        reload();
-      })
-      .catch((err: unknown) => onError(errText(err)));
-  };
-
+  // Roster writes return as soon as the server's cache has them; the Board
+  // watch frame that follows repaints this tab and every other open one. No
+  // reload — the same way a card edit on Me or Team never reloads.
   const deleteEpic = (col: EpicRef) => {
     if (!window.confirm(`Delete the epic “${col.name}”?`)) {
       return;
     }
     void provider
       .deleteEpic(board, col.name, col.project)
-      .then(reload)
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
+  // Re-filing a column moves its cards with it: a card's column is the pair,
+  // and half a move would leave them in a column that is not theirs.
+  const setEpicProject = (col: EpicRef, to: string) => {
+    if (to === col.project) {
+      return;
+    }
+    void provider
+      .setEpicProject(board, col.project, col.name, to)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -808,26 +780,6 @@ export function ProjectBoard({
     }
     void provider
       .renameEpic(board, col.project, col.name, to.trim())
-      .then(reload)
-      .catch((err: unknown) => onError(errText(err)));
-  };
-
-  const renameProject = (from: string, to: string) => {
-    void provider
-      .renameProject(board, from, to)
-      .then(() => {
-        if (filter?.includes(from)) {
-          selectFilter(filter.map((p) => (p === from ? to : p)));
-        }
-        reload();
-      })
-      .catch((err: unknown) => onError(errText(err)));
-  };
-
-  const reorderProjects = (ordered: string[]) => {
-    void provider
-      .reorderProjects(board, ordered)
-      .then(reload)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -855,7 +807,7 @@ export function ProjectBoard({
     const call = on
       ? provider.addDeadline(board, week, projectName)
       : provider.deleteDeadline(board, week, projectName);
-    void call.then(reload).catch((err: unknown) => onError(errText(err)));
+    void call.catch((err: unknown) => onError(errText(err)));
   };
 
   // Measure the board (and where the grid starts inside it) whenever the
@@ -948,7 +900,6 @@ export function ProjectBoard({
     }
     void provider
       .moveDeadline(board, dlProject, from, to)
-      .then(reload)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -1193,10 +1144,10 @@ export function ProjectBoard({
           teams={board.projects}
           selectedKeys={filter}
           onSelect={selectFilter}
-          onAdd={addProject}
-          onRemove={deleteProject}
+          onAdd={() => undefined}
+          onRemove={() => undefined}
           canManage={false}
-          onManage={() => setManaging(true)}
+          onManage={onManageProjects}
           noneChip={looseEpics ? "No project" : undefined}
         />
       </div>
@@ -1325,15 +1276,12 @@ export function ProjectBoard({
                   badge a team wears on a card, not as a second line of text
                   competing with the column's own name. Inside one project the
                   badge would repeat on every column and is left off. */}
-              {multi && e.project && (
-                <span
-                  className="project-epic-avatar"
-                  style={{ background: teamColor(e.project) }}
-                  title={e.project}
-                >
-                  {teamInitial(e.project)}
-                </span>
-              )}
+              <ProjectPicker
+                current={e.project}
+                projects={board.projects}
+                entity="epic"
+                onPick={(to) => setEpicProject(e, to)}
+              />
               <button
                 type="button"
                 className="card-action project-epic-del"
@@ -1829,18 +1777,6 @@ export function ProjectBoard({
               })}
           </div>
         </div>
-      )}
-      {managing && (
-        <TeamsModal
-          teams={board.projects}
-          title="Manage projects"
-          entity="project"
-          onAdd={addProject}
-          onRename={renameProject}
-          onRemove={deleteProject}
-          onReorder={reorderProjects}
-          onClose={() => setManaging(false)}
-        />
       )}
     </div>
   );

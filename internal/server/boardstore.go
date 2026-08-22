@@ -399,6 +399,13 @@ func (e *boardEntry) markAuthed(login string) {
 // events are suppressed — it already holds the change optimistically — but its
 // membership is still tracked, or later diffs would mis-fire.
 func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
+	// A turn of a process is a card AND a row of the Process tab's history:
+	// its stage changing is a card event to the boards and a structure event
+	// to that tab, which reads the turns from the board rather than from the
+	// card stream.
+	if c.Task != "" {
+		e.rosterBroadcast()
+	}
 	res := apiserver.CardResource(e.board, c)
 	for sub := range e.watchers {
 		if !sub.resources["cards"] {
@@ -1151,12 +1158,25 @@ func (e *boardEntry) diffNotify(old board.Board) {
 // tells it to. Sent to every watcher regardless of the view it selected,
 // because the roster is the same for all of them.
 func (e *boardEntry) rosterBroadcast() {
-	frame := watchFrame{Type: "MODIFIED", Kind: "Board", Object: map[string]string{
-		"loadedAt": e.loadedAt.UTC().Format(time.RFC3339),
+	// The frame CARRIES the board, the way a Card frame carries its card: a
+	// client applies it and needs no round trip. A bare "something changed"
+	// signal sent every open tab back to GET /board — a full snapshot each,
+	// which is the opposite of what a cache is for. Processes ride along as
+	// their full structure, since the Process tab is drawn from it.
+	frame := watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
+		BoardInfo: apiserver.BoardResource(e.board),
+		Processes: apiserver.ProcessesResource(e.board, "").Items,
 	}}
 	for sub := range e.watchers {
 		sub.send(frame)
 	}
+}
+
+// boardFrame is the Board watch frame's object: the board resource plus the
+// process structure, so one frame repaints every roster-driven view.
+type boardFrame struct {
+	apiserver.BoardInfo
+	Processes []apiserver.Process `json:"processes"`
 }
 
 func (e *boardEntry) syncBroadcast() {
@@ -1227,6 +1247,23 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	if card.Title == board.ProcessStateTitle {
+		if _, exists := board.FindProcess(e.board, card.Process); card.Process != "" && !exists {
+			e.board.Processes = append(e.board.Processes,
+				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
+		}
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
+	if card.Title == board.ProcessTaskTitle {
+		e.board.Tasks = append(e.board.Tasks, card)
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
 	if card.Title == board.DeadlineStateTitle {
 		// A deadline is a line on a week, not a card row.
 		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
@@ -1299,6 +1336,23 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 			continue
 		}
 		e.board.Epics = append(e.board.Epics[:i:i], e.board.Epics[i+1:]...)
+		e.rosterBroadcast()
+		break
+	}
+	// ...a deleted process or task leaves its roster...
+	for i, p := range e.board.Processes {
+		if p.ItemID != card.ItemID {
+			continue
+		}
+		e.board.Processes = append(e.board.Processes[:i:i], e.board.Processes[i+1:]...)
+		e.rosterBroadcast()
+		break
+	}
+	for i, t := range e.board.Tasks {
+		if t.ItemID != card.ItemID {
+			continue
+		}
+		e.board.Tasks = append(e.board.Tasks[:i:i], e.board.Tasks[i+1:]...)
 		e.rosterBroadcast()
 		break
 	}
@@ -1490,13 +1544,27 @@ func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card boar
 	exec := func(ctx context.Context) error {
 		e.mu.Lock()
 		var snap *board.Card
+		take := func(c board.Card) {
+			cp := c
+			cp.Notes = append([]board.Note(nil), cp.Notes...)
+			cp.Events = append([]board.Event(nil), cp.Events...)
+			snap = &cp
+		}
 		for i := range e.board.Cards {
 			if e.board.Cards[i].ItemID == itemID {
-				cp := e.board.Cards[i]
-				cp.Notes = append([]board.Note(nil), cp.Notes...)
-				cp.Events = append([]board.Event(nil), cp.Events...)
-				snap = &cp
+				take(e.board.Cards[i])
 				break
+			}
+		}
+		// A process task's body is the iteration's title and text; it
+		// lives outside the card rows, and treating "not a row" as "deleted"
+		// silently dropped the very write that gives the task a name.
+		if snap == nil {
+			for i := range e.board.Tasks {
+				if e.board.Tasks[i].ItemID == itemID {
+					take(e.board.Tasks[i])
+					break
+				}
 			}
 		}
 		e.mu.Unlock()
@@ -1779,7 +1847,14 @@ func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.C
 			key:    "week:" + card.ItemID,
 			itemID: card.ItemID,
 			desc:   "move the deadline to " + week,
-			apply:  func(*board.Board) {},
+			apply: func(fresh *board.Board) {
+				for i := range fresh.Deadlines {
+					if fresh.Deadlines[i].ItemID == card.ItemID {
+						fresh.Deadlines[i].Week = week
+						return
+					}
+				}
+			},
 			exec: func(ctx context.Context) error {
 				return b.inner.SetWeek(ctx, bd, card, week)
 			},
@@ -1818,7 +1893,11 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 			key:    "epic:" + card.ItemID,
 			itemID: card.ItemID,
 			desc:   "rename the epic " + card.Epic,
-			apply:  func(*board.Board) {},
+			apply: func(fresh *board.Board) {
+				if i := epicIndexOf(fresh.Epics, card.ItemID); i >= 0 {
+					fresh.Epics[i].Name = epic
+				}
+			},
 			exec: func(ctx context.Context) error {
 				return b.inner.SetEpic(ctx, bd, card, epic)
 			},
@@ -1843,6 +1922,10 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 		e.board.Epics[i].Project = project
 		e.rosterBroadcast()
+	} else if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
+		// A process moved to another project: it is a roster entry, not a row.
+		e.board.Processes[i].Project = project
+		e.rosterBroadcast()
 	} else if old, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		// A project-state card renamed: re-key the roster in place.
 		e.board.Projects = renameInList(e.board.Projects, old, project)
@@ -1865,10 +1948,126 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 		key:    "project:" + card.ItemID,
 		itemID: card.ItemID,
 		desc:   "file " + cardRef(card) + " under a project",
-		apply:  func(*board.Board) {},
+		apply: func(fresh *board.Board) {
+			if i := epicIndexOf(fresh.Epics, card.ItemID); i >= 0 {
+				fresh.Epics[i].Project = project
+				return
+			}
+			if i := processIndexOf(fresh.Processes, card.ItemID); i >= 0 {
+				fresh.Processes[i].Project = project
+				return
+			}
+			if old, ok := nameOfState(fresh.ProjectStates, card.ItemID); ok {
+				fresh.Projects = renameInList(fresh.Projects, old, project)
+				delete(fresh.ProjectStates, old)
+				fresh.ProjectStates[project] = card.ItemID
+				return
+			}
+			for i := range fresh.Cards {
+				if fresh.Cards[i].ItemID == card.ItemID {
+					fresh.Cards[i].Project = project
+					return
+				}
+			}
+		},
 		exec: func(ctx context.Context) error {
 			return b.inner.SetProject(ctx, bd, card, project)
 		},
+	})
+	return nil
+}
+
+// A roster write is applied to the cache at once and to GitHub behind. If a
+// full reload lands while it is still queued, every pending op is replayed
+// over the fresh board — so each of these carries a replay that re-imposes
+// its own change. Without one the reload put the old name (or the old pause)
+// back in the cache and broadcast it to every tab, and only the NEXT reload
+// undid that.
+
+// processIndexOf finds a process in the roster by the item id of the card
+// that declares it.
+func processIndexOf(list []board.Process, itemID string) int {
+	for i := range list {
+		if list[i].ItemID == itemID {
+			return i
+		}
+	}
+	return -1
+}
+
+// SetProcess renames a process on its state card, or re-points a task at
+// a renamed process; neither is a card row, so the rosters are updated here.
+func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e.mu.Lock()
+	for i := range e.board.Processes {
+		if e.board.Processes[i].ItemID == card.ItemID {
+			e.board.Processes[i].Name = process
+		}
+	}
+	for i := range e.board.Tasks {
+		if e.board.Tasks[i].ItemID == card.ItemID {
+			e.board.Tasks[i].Process = process
+		}
+	}
+	e.rosterBroadcast()
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key: "process:" + card.ItemID, itemID: card.ItemID,
+		desc: "rename the process on " + cardRef(card),
+		apply: func(fresh *board.Board) {
+			for i := range fresh.Processes {
+				if fresh.Processes[i].ItemID == card.ItemID {
+					fresh.Processes[i].Name = process
+				}
+			}
+			for i := range fresh.Tasks {
+				if fresh.Tasks[i].ItemID == card.ItemID {
+					fresh.Tasks[i].Process = process
+				}
+			}
+		},
+		exec: func(ctx context.Context) error { return b.inner.SetProcess(ctx, bd, card, process) },
+	})
+	return nil
+}
+
+func (b *storeBackend) SetTask(ctx context.Context, bd board.Board, card board.Card, task string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "task", "link "+cardRef(card)+" to its task", func(c *board.Card) {
+		c.Task = task
+	}, func(ctx context.Context) error {
+		return b.inner.SetTask(ctx, bd, card, task)
+	})
+	return nil
+}
+
+// SetPaused pauses a process: a roster entry, not a card row.
+func (b *storeBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e.mu.Lock()
+	if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
+		e.board.Processes[i].Paused = paused
+		e.rosterBroadcast()
+	}
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key: "paused:" + card.ItemID, itemID: card.ItemID,
+		desc: "pause or resume " + cardRef(card),
+		apply: func(fresh *board.Board) {
+			if i := processIndexOf(fresh.Processes, card.ItemID); i >= 0 {
+				fresh.Processes[i].Paused = paused
+			}
+		},
+		exec: func(ctx context.Context) error { return b.inner.SetPaused(ctx, bd, card, paused) },
+	})
+	return nil
+}
+
+func (b *storeBackend) SetAccumulate(ctx context.Context, bd board.Board, card board.Card, on bool) error {
+	b.mutateCard(ctx, bd, card.ItemID, "accumulate", "set accumulate on "+cardRef(card), func(c *board.Card) {
+		c.Accumulate = on
+	}, func(ctx context.Context) error {
+		return b.inner.SetAccumulate(ctx, bd, card, on)
 	})
 	return nil
 }

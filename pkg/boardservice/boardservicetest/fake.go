@@ -130,9 +130,23 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	var epics []board.EpicCol
 	var projects []string
 	var deadlines []board.Deadline
+	var processes []board.Process
+	var tasks []board.Card
 	seenEpic := map[string]bool{}
 	projectStates := map[string]string{}
 	for _, c := range f.board.Cards {
+		if c.Title == board.ProcessStateTitle {
+			if c.Process != "" {
+				processes = append(processes, board.Process{
+					Name: c.Process, Project: c.Project, Paused: c.Paused, ItemID: c.ItemID,
+				})
+			}
+			continue
+		}
+		if c.Title == board.ProcessTaskTitle {
+			tasks = append(tasks, c)
+			continue
+		}
 		if c.Title == board.DeadlineStateTitle {
 			if c.Week != "" {
 				deadlines = append(deadlines, board.Deadline{
@@ -165,7 +179,8 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	}
 	return board.Board{ID: f.board.ID, Number: f.board.Number, Owner: f.board.Owner, Cards: cards,
 		SprintStates: states, Epics: epics,
-		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines}, nil
+		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
+		Processes: processes, Tasks: tasks}, nil
 }
 
 // LoadCards returns the seeded cards matching ids, mirroring a partial reload.
@@ -195,7 +210,10 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
-		Parent: in.Parent, Assignees: []string{},
+		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
+		Paused:      in.Paused,
+		Description: in.Body,
+		Parent:      in.Parent, Assignees: []string{},
 	}
 	if in.Assignee != "" {
 		card.Assignees = []string{in.Assignee}
@@ -510,3 +528,43 @@ func (f *Backend) SetSprintState(_ context.Context, _ board.Board, team, current
 
 // Backend must satisfy boardservice.Backend.
 var _ boardservice.Backend = (*Backend)(nil)
+
+func (f *Backend) SetProcess(_ context.Context, _ board.Board, card board.Card, process string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetProcess %s %s", card.ItemID, process)
+	if c := f.card(card.ItemID); c != nil {
+		c.Process = process
+	}
+	return nil
+}
+
+func (f *Backend) SetTask(_ context.Context, _ board.Board, card board.Card, task string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTask %s %s", card.ItemID, task)
+	if c := f.card(card.ItemID); c != nil {
+		c.Task = task
+	}
+	return nil
+}
+
+func (f *Backend) SetAccumulate(_ context.Context, _ board.Board, card board.Card, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetAccumulate %s %v", card.ItemID, on)
+	if c := f.card(card.ItemID); c != nil {
+		c.Accumulate = on
+	}
+	return nil
+}
+
+func (f *Backend) SetPaused(_ context.Context, _ board.Board, card board.Card, paused bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetPaused %s %v", card.ItemID, paused)
+	if c := f.card(card.ItemID); c != nil {
+		c.Paused = paused
+	}
+	return nil
+}

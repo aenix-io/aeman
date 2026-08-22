@@ -256,6 +256,32 @@ export function CardDetail({
           </button>
         </div>
 
+        {/* Where this card comes from. A turn of a process and a slot of a
+            project look like ordinary cards on a day board, and the first
+            question about one is always "what is this part of?". */}
+        {(card.process || card.epic || card.project) && (
+          <div className="modal-origin">
+            {card.process && (
+              <span className="modal-origin-item" title="A turn of this process">
+                <span className="modal-origin-kind">process</span>
+                {card.process}
+              </span>
+            )}
+            {card.project && (
+              <span className="modal-origin-item" title="Part of this project">
+                <span className="modal-origin-kind">project</span>
+                {card.project}
+              </span>
+            )}
+            {card.epic && (
+              <span className="modal-origin-item" title="In this column of the plan">
+                <span className="modal-origin-kind">epic</span>
+                {card.epic}
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="modal-tabs" role="tablist" aria-label="Card sections">
           <button
             type="button"

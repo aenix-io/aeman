@@ -915,6 +915,26 @@ export function Card({
                   .join(", ")}
               </div>
             )}
+            {/* What this card is part of — the menu is where a person asks
+                "whose is this?", and the answer starts with where it came
+                from. */}
+            {(card.process || card.project) && (
+              <div className="card-assign-origin">
+                {card.process && (
+                  <span>
+                    <span className="card-assign-origin-kind">process</span>
+                    {card.process}
+                  </span>
+                )}
+                {card.project && (
+                  <span>
+                    <span className="card-assign-origin-kind">project</span>
+                    {card.project}
+                    {card.epic ? ` · ${card.epic}` : ""}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="card-assign-cols">
               {onSetTeam && (
                 <div className="card-assign-col">

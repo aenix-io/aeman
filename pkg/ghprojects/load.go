@@ -311,6 +311,14 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		card.Epic = v.Text
 	case roles.Project != nil && id == roles.Project.ID && v.Text != "":
 		card.Project = v.Text
+	case roles.Process != nil && id == roles.Process.ID && v.Text != "":
+		card.Process = v.Text
+	case roles.Task != nil && id == roles.Task.ID && v.Text != "":
+		card.Task = v.Text
+	case roles.Accumulate != nil && id == roles.Accumulate.ID && v.Text != "":
+		card.Accumulate = v.Text == "yes"
+	case roles.Paused != nil && id == roles.Paused.ID && v.Text != "":
+		card.Paused = v.Text == "yes"
 	case roles.Team != nil && id == roles.Team.ID && v.Text != "":
 		card.Team = v.Text
 	case roles.ReviewOf != nil && id == roles.ReviewOf.ID && v.Text != "":
@@ -339,6 +347,10 @@ type domainFieldRoles struct {
 	Week        *board.ProjectField
 	Epic        *board.ProjectField
 	Project     *board.ProjectField
+	Process     *board.ProjectField
+	Task        *board.ProjectField
+	Accumulate  *board.ProjectField
+	Paused      *board.ProjectField
 	Stage       *board.ProjectField
 	Team        *board.ProjectField
 	ReviewOf    *board.ProjectField
@@ -362,6 +374,10 @@ var domainRoleAliases = map[string][]string{
 	"week":        {"week"},
 	"epic":        {"epic"},
 	"project":     {"project"},
+	"process":     {"process"},
+	"task":        {"task"},
+	"accumulate":  {"accumulate"},
+	"paused":      {"paused"},
 	"stage":       {"stage"},
 	"team":        {"team"},
 	"reviewOf":    {"review of", "reviewof"},
@@ -399,6 +415,14 @@ func domainRoles(fields []board.ProjectField) domainFieldRoles {
 			r.Epic = f
 		case r.Project == nil && domainMatchesAlias("project", name):
 			r.Project = f
+		case r.Process == nil && domainMatchesAlias("process", name):
+			r.Process = f
+		case r.Task == nil && domainMatchesAlias("task", name):
+			r.Task = f
+		case r.Accumulate == nil && domainMatchesAlias("accumulate", name):
+			r.Accumulate = f
+		case r.Paused == nil && domainMatchesAlias("paused", name):
+			r.Paused = f
 		case r.Stage == nil && domainMatchesAlias("stage", name):
 			r.Stage = f
 		case r.Team == nil && domainMatchesAlias("team", name):
@@ -441,6 +465,14 @@ func (r domainFieldRoles) get(role string) *board.ProjectField {
 		return r.Epic
 	case "project":
 		return r.Project
+	case "process":
+		return r.Process
+	case "task":
+		return r.Task
+	case "accumulate":
+		return r.Accumulate
+	case "paused":
+		return r.Paused
 	case "stage":
 		return r.Stage
 	case "team":
