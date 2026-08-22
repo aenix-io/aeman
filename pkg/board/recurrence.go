@@ -27,37 +27,73 @@ func ValidRecurrence(cycle string) bool {
 // last iteration happened to close, so a late March does not shift April.
 // The per-sprint default has no calendar meaning and yields "".
 func NextAfter(cycle, anchor, from string) string {
-	if anchor == "" {
+	a, err := time.Parse(isoLayout, anchor)
+	if err != nil {
+		// A date nobody can read is not a schedule. Better no due date than
+		// one derived from garbage — a malformed anchor used to come back
+		// verbatim and then be string-compared against the week's end.
 		return ""
 	}
-	step := func(d string) string {
-		switch cycle {
-		case RecurrenceWeek:
-			return AddDays(d, 7)
-		case RecurrenceFortnight:
-			return AddDays(d, 14)
-		case RecurrenceMonth:
-			return addMonths(d, 1)
-		case RecurrenceQuarter:
-			return addMonths(d, 3)
-		}
-		return ""
+	f, err := time.Parse(isoLayout, from)
+	if err != nil {
+		f = time.Time{} // no floor: the anchor itself is the answer
 	}
-	d := anchor
-	if d > from {
-		return d
-	}
-	for i := 0; i < 2000; i++ { // a bound, not a budget: ~38 years of weeks
-		n := step(d)
-		if n == "" || n <= d {
-			return ""
+	after := func(d time.Time) bool { return d.After(f) }
+
+	switch cycle {
+	case RecurrenceWeek, RecurrenceFortnight:
+		days := 7
+		if cycle == RecurrenceFortnight {
+			days = 14
 		}
-		d = n
-		if d > from {
-			return d
+		d := a
+		if !after(d) {
+			// Straight to the right turn instead of walking there: an anchor
+			// twenty years back is a thousand steps, and a loop bound would
+			// have to guess how many are too many.
+			elapsed := int(f.Sub(d).Hours() / 24)
+			d = d.AddDate(0, 0, (elapsed/days+1)*days)
+			for !after(d) {
+				d = d.AddDate(0, 0, days)
+			}
+		}
+		return d.Format(isoLayout)
+
+	case RecurrenceMonth, RecurrenceQuarter:
+		months := 1
+		if cycle == RecurrenceQuarter {
+			months = 3
+		}
+		n := 0
+		if !after(a) {
+			// Months between the two dates, rounded down to whole turns.
+			gap := (f.Year()-a.Year())*12 + int(f.Month()-a.Month())
+			if gap > 0 {
+				n = (gap / months) * months
+			}
+		}
+		for d := addMonthsClamped(a, n); ; d = addMonthsClamped(a, n) {
+			if after(d) {
+				return d.Format(isoLayout)
+			}
+			n += months
 		}
 	}
-	return ""
+	return "" // the per-sprint default has no calendar meaning
+}
+
+// addMonthsClamped adds whole months to a date, keeping the day of the month
+// and clamping it to the target month's length: the 31st becomes the 28th in
+// February and is the 31st again in March. Go's own AddDate rolls the
+// overflow forward instead (31 Jan + 1 month = 3 Mar), which walks a monthly
+// task off its day and skips February altogether.
+func addMonthsClamped(t time.Time, months int) time.Time {
+	y, m, d := t.Date()
+	first := time.Date(y, m, 1, 0, 0, 0, 0, t.Location()).AddDate(0, months, 0)
+	if last := first.AddDate(0, 1, -1).Day(); d > last {
+		d = last
+	}
+	return time.Date(first.Year(), first.Month(), d, 0, 0, 0, 0, t.Location())
 }
 
 // RecurrenceDue reports whether a recurrent card's next iteration is due on
