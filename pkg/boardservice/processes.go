@@ -180,7 +180,7 @@ type TaskArgs struct {
 // whole card kept out of the board's rows: its title and description are the
 // iteration's, and every iteration is copied from it anew.
 func (s *Service) AddProcessTask(ctx context.Context, owner string, project int, process string, a TaskArgs) (board.Card, error) {
-	a.Title = strings.TrimSpace(a.Title)
+	a.Title = oneLine(a.Title)
 	if a.Title == "" {
 		return board.Card{}, fmt.Errorf("task title must not be empty")
 	}
@@ -230,6 +230,14 @@ func (s *Service) AddProcessTask(ctx context.Context, owner string, project int,
 }
 
 // taskBody packs an iteration's title and body into one description.
+// oneLine folds a title onto the single line the body format gives it. A
+// title is one line by definition, and a pasted newline used to split it
+// silently: the tail became the description, and the task came back named
+// after its first word.
+func oneLine(title string) string {
+	return strings.Join(strings.Fields(title), " ")
+}
+
 // taskBody packs an iteration's title and body into one description. The
 // title is written as a heading — not because it is styled, but because a
 // bare "[Urgent] Invoice" is note-shaped ("[timestamp] text") and the draft
@@ -308,7 +316,7 @@ func (s *Service) UpdateProcessTask(ctx context.Context, owner string, project i
 	if p.Title != nil || p.Description != nil {
 		title, desc := TaskTitle(t), TaskDescription(t)
 		if p.Title != nil {
-			title = strings.TrimSpace(*p.Title)
+			title = oneLine(*p.Title)
 		}
 		if p.Description != nil {
 			desc = *p.Description
@@ -462,9 +470,13 @@ func (s *Service) spawnIfDue(ctx context.Context, b board.Board, t board.Card, w
 	if t.Recurrence == "" || TaskTitle(t) == "" {
 		return false, nil
 	}
-	// A paused process files nothing. Every path that could spawn comes
-	// through here, so this is the only place the pause has to hold.
-	if p, ok := board.FindProcess(b, t.Process); ok && p.Paused {
+	// A paused process files nothing — and a task whose process is not on the
+	// board files nothing either. The only way to orphan one is to delete the
+	// process's card by hand upstream (the service refuses while tasks
+	// remain), and a task nobody can see, pause or delete must not keep
+	// filing work into people's weeks.
+	p, ok := board.FindProcess(b, t.Process)
+	if !ok || p.Paused {
 		return false, nil
 	}
 	// Due inside this week? The first due date after the day before the week,

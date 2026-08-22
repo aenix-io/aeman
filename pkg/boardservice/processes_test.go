@@ -570,3 +570,42 @@ func TestRedatingASlotLeavesItsSprintAlone(t *testing.T) {
 		t.Errorf("a slot nobody started must stay out of the sprints, got %q", got.SprintStart)
 	}
 }
+
+// A title is one line: a pasted newline used to split it silently, so the
+// task came back named after its first word and the rest became its body.
+func TestATaskTitleIsOneLine(t *testing.T) {
+	fake := processBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+		Title: "Write the\nmonthly report", Description: "one page",
+		Recurrence: "month", Start: board.MondayOf(board.TodayIso()), Team: "alpha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := fake.get(task.ItemID)
+	if got := TaskTitle(*stored); got != "Write the monthly report" {
+		t.Fatalf("title = %q", got)
+	}
+	if got := TaskDescription(*stored); got != "one page" {
+		t.Fatalf("description = %q — the title's tail leaked into it", got)
+	}
+}
+
+// A task whose process was deleted upstream stops filing turns: nobody can
+// see it, pause it or delete it from the board, so it must not keep putting
+// work into people's weeks.
+func TestAnOrphanedTaskStopsFiling(t *testing.T) {
+	today := board.TodayIso()
+	week := board.MondayOf(today)
+	b := board.NewBoard(nil, []board.Card{
+		{ItemID: "task", Title: board.ProcessTaskTitle, Process: "Ghost",
+			Description: "# Orphan", Recurrence: "week", StartDate: week, Team: "alpha"},
+	})
+	fake := newFake(b.Cards, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+	if n, err := svc.SpawnIterations(context.Background(), b, "alpha", week, true); err != nil || n != 0 {
+		t.Fatalf("spawned %d (err %v), want none", n, err)
+	}
+}
