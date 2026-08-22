@@ -6,7 +6,7 @@ import type {
   Provider,
 } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
-import { addDays, mondayOf, todayIso } from "../date";
+import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
@@ -32,15 +32,6 @@ interface ProjectBoardProps {
   reload: () => void;
   onError: (message: string) => void;
   onOpen: (card: CardModel) => void;
-}
-
-/** weeksBetween counts whole weeks from Monday a to Monday b (0 = same week). */
-function weeksBetween(a: string, b: string): number {
-  const [ay, am, ad] = a.split("-").map(Number);
-  const [by, bm, bd] = b.split("-").map(Number);
-  return Math.round(
-    (Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / (7 * 86400000),
-  );
 }
 
 /** isoWeekNo is the ISO-8601 week number of a Monday. */

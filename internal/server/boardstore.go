@@ -1847,7 +1847,14 @@ func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.C
 			key:    "week:" + card.ItemID,
 			itemID: card.ItemID,
 			desc:   "move the deadline to " + week,
-			apply:  func(*board.Board) {},
+			apply: func(fresh *board.Board) {
+				for i := range fresh.Deadlines {
+					if fresh.Deadlines[i].ItemID == card.ItemID {
+						fresh.Deadlines[i].Week = week
+						return
+					}
+				}
+			},
 			exec: func(ctx context.Context) error {
 				return b.inner.SetWeek(ctx, bd, card, week)
 			},
@@ -1886,7 +1893,11 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 			key:    "epic:" + card.ItemID,
 			itemID: card.ItemID,
 			desc:   "rename the epic " + card.Epic,
-			apply:  func(*board.Board) {},
+			apply: func(fresh *board.Board) {
+				if i := epicIndexOf(fresh.Epics, card.ItemID); i >= 0 {
+					fresh.Epics[i].Name = epic
+				}
+			},
 			exec: func(ctx context.Context) error {
 				return b.inner.SetEpic(ctx, bd, card, epic)
 			},
@@ -1937,13 +1948,41 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 		key:    "project:" + card.ItemID,
 		itemID: card.ItemID,
 		desc:   "file " + cardRef(card) + " under a project",
-		apply:  func(*board.Board) {},
+		apply: func(fresh *board.Board) {
+			if i := epicIndexOf(fresh.Epics, card.ItemID); i >= 0 {
+				fresh.Epics[i].Project = project
+				return
+			}
+			if i := processIndexOf(fresh.Processes, card.ItemID); i >= 0 {
+				fresh.Processes[i].Project = project
+				return
+			}
+			if old, ok := nameOfState(fresh.ProjectStates, card.ItemID); ok {
+				fresh.Projects = renameInList(fresh.Projects, old, project)
+				delete(fresh.ProjectStates, old)
+				fresh.ProjectStates[project] = card.ItemID
+				return
+			}
+			for i := range fresh.Cards {
+				if fresh.Cards[i].ItemID == card.ItemID {
+					fresh.Cards[i].Project = project
+					return
+				}
+			}
+		},
 		exec: func(ctx context.Context) error {
 			return b.inner.SetProject(ctx, bd, card, project)
 		},
 	})
 	return nil
 }
+
+// A roster write is applied to the cache at once and to GitHub behind. If a
+// full reload lands while it is still queued, every pending op is replayed
+// over the fresh board — so each of these carries a replay that re-imposes
+// its own change. Without one the reload put the old name (or the old pause)
+// back in the cache and broadcast it to every tab, and only the NEXT reload
+// undid that.
 
 // processIndexOf finds a process in the roster by the item id of the card
 // that declares it.
@@ -1975,9 +2014,20 @@ func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card boar
 	e.mu.Unlock()
 	b.enqueue(ctx, e, pendingOp{
 		key: "process:" + card.ItemID, itemID: card.ItemID,
-		desc:  "rename the process on " + cardRef(card),
-		apply: func(*board.Board) {},
-		exec:  func(ctx context.Context) error { return b.inner.SetProcess(ctx, bd, card, process) },
+		desc: "rename the process on " + cardRef(card),
+		apply: func(fresh *board.Board) {
+			for i := range fresh.Processes {
+				if fresh.Processes[i].ItemID == card.ItemID {
+					fresh.Processes[i].Name = process
+				}
+			}
+			for i := range fresh.Tasks {
+				if fresh.Tasks[i].ItemID == card.ItemID {
+					fresh.Tasks[i].Process = process
+				}
+			}
+		},
+		exec: func(ctx context.Context) error { return b.inner.SetProcess(ctx, bd, card, process) },
 	})
 	return nil
 }
@@ -2002,9 +2052,13 @@ func (b *storeBackend) SetPaused(ctx context.Context, bd board.Board, card board
 	e.mu.Unlock()
 	b.enqueue(ctx, e, pendingOp{
 		key: "paused:" + card.ItemID, itemID: card.ItemID,
-		desc:  "pause or resume " + cardRef(card),
-		apply: func(*board.Board) {},
-		exec:  func(ctx context.Context) error { return b.inner.SetPaused(ctx, bd, card, paused) },
+		desc: "pause or resume " + cardRef(card),
+		apply: func(fresh *board.Board) {
+			if i := processIndexOf(fresh.Processes, card.ItemID); i >= 0 {
+				fresh.Processes[i].Paused = paused
+			}
+		},
+		exec: func(ctx context.Context) error { return b.inner.SetPaused(ctx, bd, card, paused) },
 	})
 	return nil
 }
