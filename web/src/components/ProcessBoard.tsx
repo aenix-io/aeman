@@ -267,9 +267,10 @@ export function ProcessBoard({
                   <button
                     type="button"
                     className="add-card process-add"
+                    title="Add a template — what an iteration is copied from"
                     onClick={() => setAdding(p.name)}
                   >
-                    + add a template
+                    + add
                   </button>
                 )}
               </div>
