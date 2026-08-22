@@ -400,6 +400,17 @@ func (s *Service) spawnIteration(ctx context.Context, b board.Board, t board.Car
 	}
 	if len(t.Assignees) > 0 {
 		in.Assignee = t.Assignees[0]
+		// Somebody owns this turn, so it is work with a name on it, not a
+		// line in a plan waiting to be claimed: dating it across its week
+		// puts it on that person's day board, which is where they look for
+		// what to do. An unowned iteration stays dateless and waits in the
+		// team's plan for whoever takes it.
+		in.Start = week
+		// The whole week, weekend included: a turn that is still open on
+		// Saturday has not stopped being this week's work, and a card that
+		// vanishes from the day board on Friday evening is a card nobody
+		// finishes.
+		in.Day = board.AddDays(week, 6)
 	}
 	created, err := s.backend.CreateCard(ctx, b, in)
 	if err != nil {

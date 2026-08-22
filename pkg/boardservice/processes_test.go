@@ -223,3 +223,73 @@ func TestIterationsStayInTheirWeek(t *testing.T) {
 		}
 	}
 }
+
+// A turn with an owner is dated across its week, so it reaches that person's
+// day board — Me is "what I do now", and a card with a name on it belongs
+// there. A turn nobody owns stays dateless and waits in the team's plan.
+func TestOwnedIterationsAreDated(t *testing.T) {
+	fake := processBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	week := board.MondayOf(board.TodayIso())
+	owned, err := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
+		Title: "Owned", Recurrence: "week", Start: week, Team: "alpha", Assignee: "writer",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loose, err := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
+		Title: "Unowned", Recurrence: "week", Start: week, Team: "alpha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := svc.Board(ctx, "acme", 1)
+
+	its := board.Iterations(b, owned.ItemID)
+	if len(its) != 1 {
+		t.Fatalf("owned iterations = %d", len(its))
+	}
+	if its[0].StartDate != week || its[0].Day != board.AddDays(week, 6) {
+		t.Fatalf("an owned turn spans its week, got %s..%s", its[0].StartDate, its[0].Day)
+	}
+	// …and the owner finds it on their day board.
+	mine := board.MeView(b, "writer", board.TodayIso())
+	found := false
+	for _, c := range mine {
+		if c.ItemID == its[0].ItemID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the owner's day board must carry their turn; got %d cards", len(mine))
+	}
+
+	its = board.Iterations(b, loose.ItemID)
+	if len(its) != 1 || its[0].StartDate != "" || its[0].Day != "" {
+		t.Fatalf("an unowned turn stays dateless, got %+v", its)
+	}
+}
+
+// A Project slot with an owner reaches that person's day board as well: it is
+// their work, and it shows across the days its own dates cover. An unowned
+// slot stays on the Project board, where a plan belongs.
+func TestOwnedSlotsShowOnTheDayBoard(t *testing.T) {
+	today := board.TodayIso()
+	b := board.NewBoard(nil, []board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
+		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
+		{ItemID: "owned", Title: "owned slot", Epic: "E", Project: "P",
+			StartDate: board.AddDays(today, -3), Day: board.AddDays(today, 10),
+			Assignees: []string{"writer"}},
+		{ItemID: "loose", Title: "unowned slot", Epic: "E", Project: "P",
+			StartDate: board.AddDays(today, -3), Day: board.AddDays(today, 10)},
+	})
+	mine := board.MeView(b, "writer", today)
+	if len(mine) != 1 || mine[0].ItemID != "owned" {
+		t.Fatalf("the owner's day board must carry their slot and nothing else; got %+v", mine)
+	}
+	if got := board.MeView(b, "", today); len(got) != 1 {
+		t.Fatalf("an unowned slot stays off the day boards; got %d", len(got))
+	}
+}
