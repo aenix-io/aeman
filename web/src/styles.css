@@ -4058,36 +4058,34 @@ button.card-age {
   flex: none;
 }
 
-/* The cycle, and the mark that says what a missed turn does. */
-.process-cycle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+/* The mark on a cycle that piles up. Only a template that accumulates wears
+   it: not accumulating is what every process does unless told otherwise, and
+   a mark on the ordinary case is noise. */
+.process-cell-cycle {
+  justify-self: start;
 }
 
 .process-accum {
   display: inline-flex;
-  padding: 1px;
-  border: none;
-  border-radius: 3px;
-  background: none;
   color: var(--muted);
-  cursor: pointer;
-  opacity: 0.3;
 }
 
-.process-accum svg {
+.process-stack {
   width: 11px;
   height: 11px;
   fill: currentColor;
+  flex: none;
 }
 
-.process-accum:hover {
-  opacity: 0.75;
-  background: var(--hover-overlay-soft);
+/* The same mark leads the menu entry that sets it. */
+.process-accum-item .process-stack {
+  margin-right: 2px;
 }
 
-.process-accum-on {
-  color: var(--accent);
-  opacity: 1;
+/* How many turns are not drawn: the row shows the recent ones, this says how
+   much history stands behind them. */
+.process-health-more {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-right: 2px;
 }

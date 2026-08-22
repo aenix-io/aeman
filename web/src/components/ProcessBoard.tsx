@@ -248,6 +248,7 @@ export function ProcessBoard({
                       teams={board.teams}
                       members={board.members}
                       users={users}
+                      onSetRecurrence={(recurrence) => saveTemplate(p.name, t.uid, { recurrence })}
                       onSetTeam={(team) => saveTemplate(p.name, t.uid, { team })}
                       onSetAssignee={(assignee) => saveTemplate(p.name, t.uid, { assignee })}
                       onSetAccumulate={(accumulate) => saveTemplate(p.name, t.uid, { accumulate })}
@@ -331,15 +332,35 @@ export function ProcessBoard({
   );
 }
 
+/** How many turns the dots show. A process that has run for a year has fifty
+ *  of them and the row would become a smear: the recent ones are the ones
+ *  that say whether it is alive, and the count carries the rest. */
+const SHOWN_ITERATIONS = 10;
+
 /** Health is the row of dots: one per iteration, how it went. */
 function Health({ templates }: { templates: ProcessTemplate[] }) {
-  const all = templates.flatMap((t) => t.history);
+  // Sorted by week: a process's row gathers several templates, and their
+  // turns interleave in time rather than in the order the templates were
+  // added — an unsorted row would read as a history that never happened.
+  const all = templates
+    .flatMap((t) => t.history)
+    .slice()
+    .sort((a, b) => a.week.localeCompare(b.week));
   if (all.length === 0) {
     return <span className="process-health process-health-empty">no iterations yet</span>;
   }
-  const recent = all.slice(-12);
+  const recent = all.slice(-SHOWN_ITERATIONS);
+  const hidden = all.length - recent.length;
+  const done = all.filter((i) => i.state === "done").length;
+  const late = all.filter((i) => i.state === "late").length;
   return (
-    <span className="process-health" title={`${all.filter((i) => i.state === "done").length} of ${all.length} iterations done`}>
+    <span
+      className="process-health"
+      title={`${done} of ${all.length} turns done${late ? `, ${late} overdue` : ""}${
+        hidden ? ` · showing the last ${recent.length}` : ""
+      }`}
+    >
+      {hidden > 0 && <span className="process-health-more">+{hidden}</span>}
       {recent.map((i) => (
         <span key={i.uid} className={`process-dot process-dot-${i.state}`} title={`${i.week}: ${i.state}`} />
       ))}
@@ -352,6 +373,7 @@ function TemplateRow({
   teams,
   members,
   users,
+  onSetRecurrence,
   onSetTeam,
   onSetAssignee,
   onSetAccumulate,
@@ -362,6 +384,7 @@ function TemplateRow({
   teams: string[];
   members: string[];
   users: Record<string, GhUser>;
+  onSetRecurrence: (recurrence: string) => void;
   onSetTeam: (team: string) => void;
   onSetAssignee: (assignee: string) => void;
   onSetAccumulate: (accumulate: boolean) => void;
@@ -370,40 +393,61 @@ function TemplateRow({
 }) {
   return (
     <div className="process-template">
-      <div className="process-template-main">
+      {/* The title opens the template on a double-click, the way a card does:
+          the pencil is for finding it, this is for using it. */}
+      <div
+        className="process-template-main"
+        title="Double-click to edit"
+        onDoubleClick={onEdit}
+      >
         <span className="process-template-title">{t.title}</span>
         {t.description && (
           <span className="process-template-desc">{t.description}</span>
         )}
       </div>
       <span className="process-template-meta">
-        <span className="process-cycle">
-          {cycleLabel(t.recurrence)}
-          {/* Accumulation belongs to the cycle — it says what happens when a
-              turn of that cycle comes round with the last one unfinished — so
-              it is a mark on the cycle, not a word in the row. Shown even when
-              off (faint), because an icon that appears only when set is a
-              setting nobody can find. */}
-          <button
-            type="button"
-            className={`process-accum${t.accumulate ? " process-accum-on" : ""}`}
-            title={
-              t.accumulate
-                ? "Accumulates: the next card is filed even while this one is open, so missed turns pile up. Click to stop."
-                : "Does not accumulate: an open card holds the next one back and goes overdue. Click to let them pile up."
-            }
-            onClick={(e) => {
-              e.stopPropagation();
-              onSetAccumulate(!t.accumulate);
-            }}
-          >
-            <svg viewBox="0 0 12 12" aria-hidden="true">
-              <rect x="1" y="7.5" width="10" height="2.2" rx="1.1" />
-              <rect x="2" y="4.4" width="8" height="2.2" rx="1.1" />
-              <rect x="3" y="1.3" width="6" height="2.2" rx="1.1" />
-            </svg>
-          </button>
-        </span>
+        {/* One control for one subject: how often the work comes round, and
+            what a turn does when the last one is unfinished. The stack marks
+            a template that accumulates; a plain cycle says nothing, because
+            not accumulating is what every process does by default. */}
+        <CellPicker
+          className="process-cell-cycle"
+          title="How often this repeats"
+          label={
+            <>
+              {cycleLabel(t.recurrence)}
+              {t.accumulate && (
+                <span className="process-accum" title="Missed turns pile up">
+                  <StackIcon />
+                </span>
+              )}
+            </>
+          }
+          options={CYCLES.map((c) => ({
+            key: c.key,
+            active: c.key === t.recurrence,
+            label: <>{c.label}</>,
+          }))}
+          onPick={onSetRecurrence}
+          extra={
+            <button
+              type="button"
+              className={`card-stage-item process-accum-item${t.accumulate ? " card-stage-item-active" : ""}`}
+              title={
+                t.accumulate
+                  ? "The next card is filed even while this one is open, so missed turns pile up"
+                  : "An open card holds the next one back and goes overdue"
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                onSetAccumulate(!t.accumulate);
+              }}
+            >
+              <StackIcon />
+              Pile up missed turns
+            </button>
+          }
+        />
         <span>{t.start ? `from ${t.start}` : ""}</span>
         <span className="process-template-who">
           {/* Team and owner are set where they are read — the cell IS the
@@ -509,12 +553,16 @@ function CellPicker({
   label,
   options,
   onPick,
+  extra,
 }: {
   className: string;
   title: string;
   label: ReactNode;
   options: { key: string; label: ReactNode; active: boolean }[];
   onPick: (key: string) => void;
+  /** Rendered under the options, for a second question about the same
+   *  subject — the cycle's menu carries its accumulate toggle there. */
+  extra?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLElement | null>(null);
@@ -554,8 +602,20 @@ function CellPicker({
             {o.label}
           </button>
         ))}
+        {extra}
       </Dropdown>
     </>
+  );
+}
+
+/** StackIcon: turns piling up on one another. */
+function StackIcon() {
+  return (
+    <svg className="process-stack" viewBox="0 0 12 12" aria-hidden="true">
+      <rect x="1" y="7.5" width="10" height="2.2" rx="1.1" />
+      <rect x="2" y="4.4" width="8" height="2.2" rx="1.1" />
+      <rect x="3" y="1.3" width="6" height="2.2" rx="1.1" />
+    </svg>
   );
 }
 
