@@ -90,6 +90,7 @@ func TestMCPListsTools(t *testing.T) {
 		"add_project", "delete_project", "reorder_projects", "rename_project",
 		"add_deadline", "delete_deadline", "move_deadline",
 		"list_processes", "add_process", "delete_process", "rename_process",
+		"set_process_project",
 		"add_process_template", "update_process_template", "delete_process_template",
 	}
 	for _, w := range want {

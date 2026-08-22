@@ -341,6 +341,8 @@ export interface Provider {
   addProcess(board: BoardAddr, name: string, project: string): Promise<void>;
   deleteProcess(board: BoardAddr, name: string): Promise<void>;
   renameProcess(board: BoardAddr, from: string, to: string): Promise<void>;
+  /** Move a process to another project ("" = the no-project bucket). */
+  setProcessProject(board: BoardAddr, process: string, project: string): Promise<void>;
   addTemplate(board: BoardAddr, process: string, input: TemplateInput): Promise<string>;
   updateTemplate(board: BoardAddr, uid: string, patch: TemplateInput): Promise<void>;
   deleteTemplate(board: BoardAddr, uid: string): Promise<void>;

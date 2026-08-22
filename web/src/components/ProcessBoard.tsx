@@ -6,6 +6,8 @@ import type {
   TemplateInput,
 } from "../providers/types";
 import { teamColor } from "../avatar";
+import { Dropdown } from "./Dropdown";
+import { ProjectPicker } from "./ProjectPicker";
 import { TeamChips } from "./TeamChips";
 
 interface ProcessBoardProps {
@@ -54,8 +56,13 @@ export function ProcessBoard({
   // process being named, and the one being renamed.
   const [adding, setAdding] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const [addingProcess, setAddingProcess] = useState(false);
+  // The project a new process is being named for (null = not naming one).
+  const [addingProcess, setAddingProcess] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  // The "which project?" menu behind + add a process, for when the answer is
+  // not already one chip.
+  const [addMenu, setAddMenu] = useState(false);
+  const addAnchor = useRef<HTMLElement | null>(null);
 
   const shown = useMemo(
     () => processes.filter((p) => !filter || filter.includes(p.project)),
@@ -78,14 +85,32 @@ export function ProcessBoard({
 
   // Every write below returns as soon as the server's cache has it; the
   // Board frame that follows repaints this tab (and every other open one).
-  const addProcess = (name: string) => {
-    setAddingProcess(false);
+  const addProcess = (name: string, project: string) => {
+    setAddingProcess(null);
     const n = name.trim();
-    if (!n || targetProject === null) {
+    if (!n) {
       return;
     }
     setOpen((cur) => new Set(cur).add(n));
-    void provider.addProcess(board, n, targetProject).catch(fail);
+    void provider.addProcess(board, n, project).catch(fail);
+  };
+
+  // Where a new process would go: the one chip in view answers it; otherwise
+  // the button asks, the way the week menu asks which project a deadline is
+  // for. The no-project bucket is offered in both cases — a process without a
+  // project exists and has to be creatable.
+  const menuProjects = filter ?? [...board.projects, ""];
+  const beginAdd = (ev: React.MouseEvent) => {
+    if (targetProject !== null) {
+      setAddingProcess(targetProject);
+      return;
+    }
+    addAnchor.current = ev.currentTarget as HTMLElement;
+    setAddMenu(true);
+  };
+
+  const setProcessProject = (name: string, to: string) => {
+    void provider.setProcessProject(board, name, to).catch(fail);
   };
   const deleteProcess = (name: string) => {
     if (!window.confirm(`Delete the process “${name}”?`)) {
@@ -141,13 +166,9 @@ export function ProcessBoard({
               A process is recurring work the team keeps doing — publishing
               articles, collecting payment — and wants to see itself doing.
             </p>
-            {targetProject !== null ? (
-              <button type="button" className="btn btn-primary" onClick={() => setAddingProcess(true)}>
-                + Add the first process{targetProject ? ` of ${targetProject}` : ""}
-              </button>
-            ) : (
-              <p className="project-empty-hint">Pick one project above to add a process to it.</p>
-            )}
+            <button type="button" className="btn btn-primary" onClick={beginAdd}>
+              + Add the first process{targetProject ? ` of ${targetProject}` : ""}
+            </button>
           </div>
         )}
         {shown.map((p) => (
@@ -181,15 +202,12 @@ export function ProcessBoard({
               ) : (
                 <span className="process-name">{p.name}</span>
               )}
-              {!targetProject && p.project && (
-                <span
-                  className="project-epic-avatar"
-                  style={{ background: teamColor(p.project) }}
-                  title={p.project}
-                >
-                  {p.project[0]?.toUpperCase()}
-                </span>
-              )}
+              <ProjectPicker
+                current={p.project}
+                projects={board.projects}
+                entity="process"
+                onPick={(to) => setProcessProject(p.name, to)}
+              />
               <span className="process-count">
                 {p.templates.length} {p.templates.length === 1 ? "template" : "templates"}
               </span>
@@ -249,54 +267,56 @@ export function ProcessBoard({
         ))}
         {/* A new process, named in place — the way a column is on Project.
             It needs a single project in view: that is what it belongs to. */}
-        {shown.length > 0 &&
-          (addingProcess ? (
-            <input
-              type="text"
-              className="add-card-input process-new"
-              autoFocus
-              placeholder={targetProject ? `New process in ${targetProject}…` : "New process…"}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  addProcess((e.target as HTMLInputElement).value);
-                } else if (e.key === "Escape") {
-                  setAddingProcess(false);
-                }
-              }}
-              onBlur={(e) => addProcess(e.target.value)}
-            />
-          ) : (
-            <button
-              type="button"
-              className="add-card process-new"
-              disabled={targetProject === null}
-              title={
-                targetProject !== null
-                  ? "Add a process"
-                  : "Pick one project first — a process belongs to a project"
-              }
-              onClick={() => setAddingProcess(true)}
-            >
-              + add a process
-            </button>
-          ))}
-        {shown.length === 0 && addingProcess && (
+        {addingProcess !== null ? (
           <input
             type="text"
             className="add-card-input process-new"
             autoFocus
-            placeholder={targetProject ? `New process in ${targetProject}…` : "New process…"}
+            placeholder={
+              addingProcess ? `New process in ${addingProcess}…` : "New process in no project…"
+            }
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                addProcess((e.target as HTMLInputElement).value);
+                addProcess((e.target as HTMLInputElement).value, addingProcess);
               } else if (e.key === "Escape") {
-                setAddingProcess(false);
+                setAddingProcess(null);
               }
             }}
-            onBlur={(e) => addProcess(e.target.value)}
+            onBlur={(e) => addProcess(e.target.value, addingProcess)}
           />
+        ) : (
+          shown.length > 0 && (
+            <button type="button" className="add-card process-new" onClick={beginAdd}>
+              + add a process
+            </button>
+          )
         )}
       </div>
+
+      <Dropdown
+        open={addMenu}
+        anchorRef={addAnchor}
+        onClose={() => setAddMenu(false)}
+        className="card-stage-menu"
+      >
+        {menuProjects.map((pr) => (
+          <button
+            key={pr || "\u0000none"}
+            type="button"
+            className="card-stage-item"
+            onClick={() => {
+              setAddMenu(false);
+              setAddingProcess(pr);
+            }}
+          >
+            <span
+              className="card-stage-dot"
+              style={{ background: pr ? teamColor(pr) : "var(--line)" }}
+            />
+            {pr ? `New process in ${pr}` : "New process in no project"}
+          </button>
+        ))}
+      </Dropdown>
     </div>
   );
 }

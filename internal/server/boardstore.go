@@ -1904,6 +1904,10 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 		e.board.Epics[i].Project = project
 		e.rosterBroadcast()
+	} else if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
+		// A process moved to another project: it is a roster entry, not a row.
+		e.board.Processes[i].Project = project
+		e.rosterBroadcast()
 	} else if old, ok := nameOfState(e.board.ProjectStates, card.ItemID); ok {
 		// A project-state card renamed: re-key the roster in place.
 		e.board.Projects = renameInList(e.board.Projects, old, project)
@@ -1932,6 +1936,17 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 		},
 	})
 	return nil
+}
+
+// processIndexOf finds a process in the roster by the item id of the card
+// that declares it.
+func processIndexOf(list []board.Process, itemID string) int {
+	for i := range list {
+		if list[i].ItemID == itemID {
+			return i
+		}
+	}
+	return -1
 }
 
 // SetProcess renames a process on its state card, or re-points a template at

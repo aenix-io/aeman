@@ -3995,3 +3995,23 @@ button.card-age {
   font-style: italic;
   opacity: 0.7;
 }
+
+/* The project badge as a control: a column's or a process's project is
+   changed by clicking the badge that shows it. */
+.project-epic-avatar-pick {
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.project-epic-avatar-pick:hover {
+  box-shadow: 0 0 0 2px var(--hover-overlay);
+}
+
+/* No project yet: an outline, so the badge is still there to click. */
+.project-epic-avatar-none {
+  background: transparent;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+}

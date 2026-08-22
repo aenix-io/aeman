@@ -89,6 +89,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/processes", s.handleAddProcess)
 	mux.HandleFunc("POST /api/v1/processes/actions/delete-process", s.handleDeleteProcess)
 	mux.HandleFunc("POST /api/v1/processes/actions/rename", s.handleRenameProcess)
+	mux.HandleFunc("POST /api/v1/processes/actions/set-project", s.handleSetProcessProject)
 	mux.HandleFunc("POST /api/v1/processes/templates", s.handleAddTemplate)
 	mux.HandleFunc("PATCH /api/v1/processes/templates/{uid}", s.handlePatchTemplate)
 	mux.HandleFunc("DELETE /api/v1/processes/templates/{uid}", s.handleDeleteTemplate)
@@ -163,6 +164,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/processes", "Declare a process — recurring work inside a project ({name, project})"},
 			{"POST", "/api/v1/processes/actions/delete-process", "Delete an EMPTY process ({process}); refused while it has templates"},
 			{"POST", "/api/v1/processes/actions/rename", "Rename a process; its templates follow ({process, to})"},
+			{"POST", "/api/v1/processes/actions/set-project", "Move a process to another project ({process, project}; empty project = the no-project bucket)"},
 			{"POST", "/api/v1/processes/templates", "Add what a process iterates on ({process, title, description, recurrence, start, team, assignee, accumulate})"},
 			{"PATCH", "/api/v1/processes/templates/{uid}", "Change what the NEXT iterations will be; the running one is untouched"},
 			{"DELETE", "/api/v1/processes/templates/{uid}", "Delete a template; its past iterations stay as the record"},
@@ -1256,6 +1258,26 @@ func (s *Server) handleRenameProcess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := svc.RenameProcess(r.Context(), owner, boardNum, in.Process, in.To); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleSetProcessProject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Process string `json:"process"`
+		Project string `json:"project"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.SetProcessProject(r.Context(), owner, boardNum, in.Process, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}

@@ -483,6 +483,23 @@ func (h *server) renameProcess(ctx context.Context, _ *mcp.CallToolRequest, in p
 	return nil, statusOutput{Status: "renamed"}, nil
 }
 
+type setProcessProjectInput struct {
+	boardRef
+	Process string `json:"process" jsonschema:"the process to move (required)"`
+	Project string `json:"project" jsonschema:"the project it should belong to, from get_board metadata.projects; empty moves it to the no-project bucket"`
+}
+
+func (h *server) setProcessProject(ctx context.Context, _ *mcp.CallToolRequest, in setProcessProjectInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.SetProcessProject(ctx, owner, boardNum, in.Process, in.Project); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "moved"}, nil
+}
+
 type addTemplateInput struct {
 	boardRef
 	Process     string `json:"process" jsonschema:"the process this template belongs to (required)"`

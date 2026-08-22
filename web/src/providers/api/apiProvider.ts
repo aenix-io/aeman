@@ -473,6 +473,14 @@ export const apiProvider: Provider = {
     await api(board, "POST", "/processes/actions/rename", { process: from, to });
   },
 
+  async setProcessProject(
+    board: BoardAddr,
+    process: string,
+    project: string,
+  ): Promise<void> {
+    await api(board, "POST", "/processes/actions/set-project", { process, project });
+  },
+
   async addTemplate(
     board: BoardAddr,
     process: string,

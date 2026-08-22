@@ -105,6 +105,30 @@ func (s *Service) RenameProcess(ctx context.Context, owner string, project int, 
 	return nil
 }
 
+// SetProcessProject moves a process to another project ("" = the no-project
+// bucket). Its templates and their iterations are untouched: a process
+// belongs to a project, and the work it spawns belongs to the process.
+func (s *Service) SetProcessProject(ctx context.Context, owner string, project int, name, projectName string) error {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	if projectName != "" {
+		if err := knownProject(b, projectName); err != nil {
+			return err
+		}
+	}
+	p, ok := board.FindProcess(b, name)
+	if !ok || p.ItemID == "" {
+		return fmt.Errorf("%w %q", ErrProcessNotFound, name)
+	}
+	if p.Project == projectName {
+		return nil
+	}
+	stub := board.Card{ItemID: p.ItemID, Title: board.ProcessStateTitle, Process: name, Project: p.Project}
+	return s.backend.SetProject(ctx, b, stub, projectName)
+}
+
 // TemplateArgs is what a process template says about the iterations it will
 // spawn. Recurrence is the cycle; Start the calendar anchor it is counted
 // from (defaults to today); Team the weekly plan the iterations land in;

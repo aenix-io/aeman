@@ -9,6 +9,7 @@ import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { Dropdown } from "./Dropdown";
+import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
 
@@ -770,6 +771,17 @@ export function ProjectBoard({
       .catch((err: unknown) => onError(errText(err)));
   };
 
+  // Re-filing a column moves its cards with it: a card's column is the pair,
+  // and half a move would leave them in a column that is not theirs.
+  const setEpicProject = (col: EpicRef, to: string) => {
+    if (to === col.project) {
+      return;
+    }
+    void provider
+      .setEpicProject(board, col.project, col.name, to)
+      .catch((err: unknown) => onError(errText(err)));
+  };
+
   const renameEpic = (col: EpicRef, to: string) => {
     setRenaming(null);
     if (!to.trim() || to.trim() === col.name) {
@@ -1273,15 +1285,12 @@ export function ProjectBoard({
                   badge a team wears on a card, not as a second line of text
                   competing with the column's own name. Inside one project the
                   badge would repeat on every column and is left off. */}
-              {multi && e.project && (
-                <span
-                  className="project-epic-avatar"
-                  style={{ background: teamColor(e.project) }}
-                  title={e.project}
-                >
-                  {teamInitial(e.project)}
-                </span>
-              )}
+              <ProjectPicker
+                current={e.project}
+                projects={board.projects}
+                entity="epic"
+                onPick={(to) => setEpicProject(e, to)}
+              />
               <button
                 type="button"
                 className="card-action project-epic-del"
