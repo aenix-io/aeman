@@ -130,9 +130,21 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	var epics []board.EpicCol
 	var projects []string
 	var deadlines []board.Deadline
+	var processes []board.Process
+	var templates []board.Card
 	seenEpic := map[string]bool{}
 	projectStates := map[string]string{}
 	for _, c := range f.board.Cards {
+		if c.Title == board.ProcessStateTitle {
+			if c.Process != "" {
+				processes = append(processes, board.Process{Name: c.Process, Project: c.Project, ItemID: c.ItemID})
+			}
+			continue
+		}
+		if c.Title == board.ProcessTemplateTitle {
+			templates = append(templates, c)
+			continue
+		}
 		if c.Title == board.DeadlineStateTitle {
 			if c.Week != "" {
 				deadlines = append(deadlines, board.Deadline{
@@ -165,7 +177,8 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	}
 	return board.Board{ID: f.board.ID, Number: f.board.Number, Owner: f.board.Owner, Cards: cards,
 		SprintStates: states, Epics: epics,
-		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines}, nil
+		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
+		Processes: processes, Templates: templates}, nil
 }
 
 // LoadCards returns the seeded cards matching ids, mirroring a partial reload.
@@ -195,6 +208,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Process: in.Process, Template: in.Template, Recurrence: in.Recurrence,
 		Parent: in.Parent, Assignees: []string{},
 	}
 	if in.Assignee != "" {
@@ -510,3 +524,33 @@ func (f *Backend) SetSprintState(_ context.Context, _ board.Board, team, current
 
 // Backend must satisfy boardservice.Backend.
 var _ boardservice.Backend = (*Backend)(nil)
+
+func (f *Backend) SetProcess(_ context.Context, _ board.Board, card board.Card, process string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetProcess %s %s", card.ItemID, process)
+	if c := f.card(card.ItemID); c != nil {
+		c.Process = process
+	}
+	return nil
+}
+
+func (f *Backend) SetTemplate(_ context.Context, _ board.Board, card board.Card, template string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTemplate %s %s", card.ItemID, template)
+	if c := f.card(card.ItemID); c != nil {
+		c.Template = template
+	}
+	return nil
+}
+
+func (f *Backend) SetAccumulate(_ context.Context, _ board.Board, card board.Card, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetAccumulate %s %v", card.ItemID, on)
+	if c := f.card(card.ItemID); c != nil {
+		c.Accumulate = on
+	}
+	return nil
+}

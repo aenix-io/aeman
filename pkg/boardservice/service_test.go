@@ -92,6 +92,8 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 	var epics []board.EpicCol
 	var projects []string
 	var deadlines []board.Deadline
+	var processes []board.Process
+	var templates []board.Card
 	seenEpic := map[string]bool{}
 	projectStates := map[string]string{}
 	for _, c := range f.b.Cards {
@@ -99,6 +101,16 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 		// service sees the same Projects/Epics rosters it would on a real
 		// board. Sprint states stay seeded directly (tests set them without
 		// state cards).
+		if c.Title == board.ProcessStateTitle {
+			if c.Process != "" {
+				processes = append(processes, board.Process{Name: c.Process, Project: c.Project, ItemID: c.ItemID})
+			}
+			continue
+		}
+		if c.Title == board.ProcessTemplateTitle {
+			templates = append(templates, c)
+			continue
+		}
 		if c.Title == board.DeadlineStateTitle {
 			if c.Week != "" {
 				deadlines = append(deadlines, board.Deadline{
@@ -131,7 +143,8 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 	}
 	return board.Board{ID: f.b.ID, Number: f.b.Number, Owner: f.b.Owner, Cards: cards,
 		SprintStates: states, Epics: epics,
-		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines}, nil
+		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
+		Processes: processes, Templates: templates}, nil
 }
 
 func (f *fakeBackend) LoadCards(_ context.Context, _ board.Board, ids []string) ([]board.Card, error) {
@@ -159,6 +172,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Process: in.Process, Template: in.Template, Recurrence: in.Recurrence,
 		Assignees: []string{},
 	}
 	if in.Assignee != "" {
@@ -226,6 +240,9 @@ func (f *fakeBackend) SetDescription(_ context.Context, _ board.Board, card boar
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("SetDescription %s %s", card.ItemID, description)
+	if c := f.get(card.ItemID); c != nil {
+		c.Description = description
+	}
 	return nil
 }
 
@@ -2652,4 +2669,34 @@ func TestSetDatesIntoFutureLeavesTheSprint(t *testing.T) {
 	if got := fake.get("c1"); got.SprintStart != today {
 		t.Fatalf("back on today's board, sprint = %q, want %q", got.SprintStart, today)
 	}
+}
+
+func (f *fakeBackend) SetProcess(_ context.Context, _ board.Board, card board.Card, process string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetProcess %s %s", card.ItemID, process)
+	if c := f.get(card.ItemID); c != nil {
+		c.Process = process
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetTemplate(_ context.Context, _ board.Board, card board.Card, template string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTemplate %s %s", card.ItemID, template)
+	if c := f.get(card.ItemID); c != nil {
+		c.Template = template
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetAccumulate(_ context.Context, _ board.Board, card board.Card, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetAccumulate %s %v", card.ItemID, on)
+	if c := f.get(card.ItemID); c != nil {
+		c.Accumulate = on
+	}
+	return nil
 }

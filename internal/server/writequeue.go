@@ -215,14 +215,34 @@ func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID,
 				return
 			}
 		}
+		// A process template is a whole card kept out of the rows; every
+		// card setter (description, cycle, start, team, owner) applies to it
+		// the same way, so it is reached here rather than in each setter.
+		for i := range target.Templates {
+			if target.Templates[i].ItemID == itemID {
+				fn(&target.Templates[i])
+				return
+			}
+		}
 	}
 	e.mu.Lock()
 	apply(&e.board)
+	announced := false
 	for i := range e.board.Cards {
 		if e.board.Cards[i].ItemID == itemID {
 			e.markRecent(itemID)
 			e.cardChanged(clientIDFrom(ctx), e.board.Cards[i], "MODIFIED")
+			announced = true
 			break
+		}
+	}
+	if !announced {
+		for _, t := range e.board.Templates {
+			if t.ItemID == itemID {
+				// A template changed: clients re-read the board's structure.
+				e.rosterBroadcast()
+				break
+			}
 		}
 	}
 	e.mu.Unlock()

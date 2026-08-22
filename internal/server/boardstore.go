@@ -1227,6 +1227,23 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	}
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
+	if card.Title == board.ProcessStateTitle {
+		if _, exists := board.FindProcess(e.board, card.Process); card.Process != "" && !exists {
+			e.board.Processes = append(e.board.Processes,
+				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
+		}
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
+	if card.Title == board.ProcessTemplateTitle {
+		e.board.Templates = append(e.board.Templates, card)
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+		e.mu.Unlock()
+		return card, nil
+	}
 	if card.Title == board.DeadlineStateTitle {
 		// A deadline is a line on a week, not a card row.
 		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
@@ -1299,6 +1316,23 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 			continue
 		}
 		e.board.Epics = append(e.board.Epics[:i:i], e.board.Epics[i+1:]...)
+		e.rosterBroadcast()
+		break
+	}
+	// ...a deleted process or template leaves its roster...
+	for i, p := range e.board.Processes {
+		if p.ItemID != card.ItemID {
+			continue
+		}
+		e.board.Processes = append(e.board.Processes[:i:i], e.board.Processes[i+1:]...)
+		e.rosterBroadcast()
+		break
+	}
+	for i, t := range e.board.Templates {
+		if t.ItemID != card.ItemID {
+			continue
+		}
+		e.board.Templates = append(e.board.Templates[:i:i], e.board.Templates[i+1:]...)
 		e.rosterBroadcast()
 		break
 	}
@@ -1869,6 +1903,50 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 		exec: func(ctx context.Context) error {
 			return b.inner.SetProject(ctx, bd, card, project)
 		},
+	})
+	return nil
+}
+
+// SetProcess renames a process on its state card, or re-points a template at
+// a renamed process; neither is a card row, so the rosters are updated here.
+func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e.mu.Lock()
+	for i := range e.board.Processes {
+		if e.board.Processes[i].ItemID == card.ItemID {
+			e.board.Processes[i].Name = process
+		}
+	}
+	for i := range e.board.Templates {
+		if e.board.Templates[i].ItemID == card.ItemID {
+			e.board.Templates[i].Process = process
+		}
+	}
+	e.rosterBroadcast()
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key: "process:" + card.ItemID, itemID: card.ItemID,
+		desc:  "rename the process on " + cardRef(card),
+		apply: func(*board.Board) {},
+		exec:  func(ctx context.Context) error { return b.inner.SetProcess(ctx, bd, card, process) },
+	})
+	return nil
+}
+
+func (b *storeBackend) SetTemplate(ctx context.Context, bd board.Board, card board.Card, template string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "template", "link "+cardRef(card)+" to its template", func(c *board.Card) {
+		c.Template = template
+	}, func(ctx context.Context) error {
+		return b.inner.SetTemplate(ctx, bd, card, template)
+	})
+	return nil
+}
+
+func (b *storeBackend) SetAccumulate(ctx context.Context, bd board.Board, card board.Card, on bool) error {
+	b.mutateCard(ctx, bd, card.ItemID, "accumulate", "set accumulate on "+cardRef(card), func(c *board.Card) {
+		c.Accumulate = on
+	}, func(ctx context.Context) error {
+		return b.inner.SetAccumulate(ctx, bd, card, on)
 	})
 	return nil
 }

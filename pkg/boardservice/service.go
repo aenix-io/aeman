@@ -444,6 +444,8 @@ func (s *Service) withLinkDescription(ctx context.Context, b board.Board, card b
 type CarryReport struct {
 	Carried  int `json:"carried"`
 	Reseeded int `json:"reseeded"`
+	// Spawned counts process iterations filed into the week (carry_week).
+	Spawned int `json:"spawned,omitempty"`
 }
 
 // ReorderTeams applies a shared team order by moving the hidden sprint-state
@@ -783,6 +785,12 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		}
 	}
 	var rep CarryReport
+	// Processes first: the iterations a week is owed, from their templates.
+	spawned, err := s.SpawnIterations(ctx, b, team, week, dryRun)
+	if err != nil {
+		return rep, err
+	}
+	rep.Spawned = spawned
 	for _, c := range b.Cards {
 		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week || c.Team != team {
 			continue
