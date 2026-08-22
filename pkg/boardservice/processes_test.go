@@ -188,3 +188,32 @@ func TestMonthlyTemplateIsDueOnceAMonth(t *testing.T) {
 		}
 	}
 }
+
+// An open iteration is NOT carried into the next week: the week it was owed
+// is the record, and the template decides whether the next week gets its own.
+func TestIterationsStayInTheirWeek(t *testing.T) {
+	fake := processBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	if _, err := svc.AddProcessTemplate(ctx, "acme", 1, "Articles", TemplateArgs{
+		Title: "Article", Recurrence: "week", Start: "2026-03-02", Team: "alpha",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CarryWeek(ctx, "acme", 1, "alpha", "2026-03-02", false); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := svc.CarryWeek(ctx, "acme", 1, "alpha", "2026-03-09", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Carried != 0 {
+		t.Fatalf("an open iteration must not be carried, got carried=%d", rep.Carried)
+	}
+	b, _ := svc.Board(ctx, "acme", 1)
+	for _, c := range b.Cards {
+		if c.Template != "" && c.Week != "2026-03-02" {
+			t.Fatalf("the iteration moved to %s; it belongs to the week it was owed", c.Week)
+		}
+	}
+}

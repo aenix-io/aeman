@@ -830,6 +830,13 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if board.Complete(c.Stage, c.Progress) {
 			continue
 		}
+		// A process iteration stays in the week it was owed: carrying it
+		// forward would erase the one fact the process exists to record —
+		// which week the work was NOT done in. It shows as late where it is,
+		// and the template decides whether the next week gets its own.
+		if c.Template != "" {
+			continue
+		}
 		// A Project-board slot has two boundaries, and carrying it over moves
 		// the SECOND one: the work began when it began — that is history — and
 		// what slipped is the end. The slot stretches into the target week

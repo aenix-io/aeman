@@ -1524,13 +1524,27 @@ func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card boar
 	exec := func(ctx context.Context) error {
 		e.mu.Lock()
 		var snap *board.Card
+		take := func(c board.Card) {
+			cp := c
+			cp.Notes = append([]board.Note(nil), cp.Notes...)
+			cp.Events = append([]board.Event(nil), cp.Events...)
+			snap = &cp
+		}
 		for i := range e.board.Cards {
 			if e.board.Cards[i].ItemID == itemID {
-				cp := e.board.Cards[i]
-				cp.Notes = append([]board.Note(nil), cp.Notes...)
-				cp.Events = append([]board.Event(nil), cp.Events...)
-				snap = &cp
+				take(e.board.Cards[i])
 				break
+			}
+		}
+		// A process template's body is the iteration's title and text; it
+		// lives outside the card rows, and treating "not a row" as "deleted"
+		// silently dropped the very write that gives the template a name.
+		if snap == nil {
+			for i := range e.board.Templates {
+				if e.board.Templates[i].ItemID == itemID {
+					take(e.board.Templates[i])
+					break
+				}
 			}
 		}
 		e.mu.Unlock()

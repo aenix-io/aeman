@@ -184,6 +184,10 @@ type BoardMetadata struct {
 	// grouping: a project owns epic columns. (Not the GitHub board, which the
 	// caller addresses with owner+board.)
 	Projects []string `json:"projects,omitempty"`
+	// Processes lists the board's processes in board order, each naming its
+	// project. The Process tab reads the full structure from /processes; this
+	// is the roster, so a client can tell when it changed.
+	Processes []ProcessRef `json:"processes,omitempty"`
 	// Deadlines are the deadline lines in board order: the week each one sits
 	// on and the project it belongs to. A project holds at most one per week.
 	Deadlines []DeadlineRef `json:"deadlines,omitempty"`
@@ -205,10 +209,25 @@ type EpicRef struct {
 	Project string `json:"project,omitempty"`
 }
 
+// ProcessRef is one process: its name and project.
+type ProcessRef struct {
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+}
+
 // DeadlineRef is one deadline line: its week and the project it belongs to.
 type DeadlineRef struct {
 	Week    string `json:"week"`
 	Project string `json:"project,omitempty"`
+}
+
+// processRefs lists the processes, in board order.
+func processRefs(b board.Board) []ProcessRef {
+	out := make([]ProcessRef, 0, len(b.Processes))
+	for _, p := range b.Processes {
+		out = append(out, ProcessRef{Name: p.Name, Project: p.Project})
+	}
+	return out
 }
 
 // deadlineWeeks lists the deadline lines, in board order.
@@ -399,7 +418,7 @@ func BoardResource(b board.Board) BoardInfo {
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
 			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b),
-			Deadlines: deadlineWeeks(b), Members: members},
+			Deadlines: deadlineWeeks(b), Processes: processRefs(b), Members: members},
 	}
 }
 

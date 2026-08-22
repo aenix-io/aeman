@@ -16,6 +16,9 @@ import { TeamsModal } from "./TeamsModal";
 interface ProjectBoardProps {
   board: Board;
   provider: Provider;
+  /** Which projects are in view (null = all; "" = the no-project bucket). */
+  filter: string[] | null;
+  onSetFilter: (keys: string[] | null) => void;
   patchCard: (
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
@@ -114,10 +117,10 @@ function colKey(project: string, epic: string): string {
   return `${project}\u0000${epic}`;
 }
 
-/** LS_FILTER remembers which project you were looking at, LS_COLW how wide you
- *  dragged the columns. Both are this browser's view of the board rather than
- *  the board's own state, so they stay local. */
-const LS_FILTER = "aeman.projectFilter";
+/** LS_COLW remembers how wide you dragged the columns — this browser's view
+ *  of the board rather than the board's own state, so it stays local. (The
+ *  project chips' selection lives in projectFilter.ts, shared with the
+ *  Process tab.) */
 const LS_COLW = "aeman.projectColWidth";
 const LS_PROGRESS = "aeman.projectProgressOpen";
 
@@ -149,16 +152,6 @@ function readColWidths(): Record<string, number> {
   return {};
 }
 
-function readFilter(): string[] | null {
-  try {
-    const raw = localStorage.getItem(LS_FILTER);
-    const v: unknown = raw ? JSON.parse(raw) : null;
-    return Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 /** The Project board: weeks as rows and one project's epics as columns, cards
  *  as slots that may span several weeks (dates start..end). Dragging down an
  *  empty column stretch selects a slot and creates a card in it; assigning a
@@ -167,6 +160,8 @@ function readFilter(): string[] | null {
 export function ProjectBoard({
   board,
   provider,
+  filter,
+  onSetFilter,
   patchCard,
   addCard,
   replaceCard,
@@ -180,11 +175,8 @@ export function ProjectBoard({
 
   // Which project(s) the chips select; null is every project. "" is the chip
   // for columns that belong to no project.
-  const [filter, setFilter] = useState<string[] | null>(readFilter);
-  const selectFilter = (keys: string[] | null) => {
-    setFilter(keys);
-    localStorage.setItem(LS_FILTER, JSON.stringify(keys));
-  };
+  // The chips' selection is owned by the App and shared with the Process tab.
+  const selectFilter = onSetFilter;
 
   // The columns in view: the selected projects' epics, in board order. Every
   // other derived list follows from this one, so a column and its cards can

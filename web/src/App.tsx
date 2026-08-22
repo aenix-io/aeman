@@ -14,6 +14,8 @@ import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
+import { ProcessBoard } from "./components/ProcessBoard";
+import { readProjectFilter, writeProjectFilter } from "./projectFilter";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
@@ -23,7 +25,7 @@ import { mergeNotes } from "./notes";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
-type ViewMode = "me" | "team" | "project";
+type ViewMode = "me" | "team" | "project" | "process";
 
 const LS_OWNER = "aeman.owner";
 const LS_PROJECT = "aeman.project";
@@ -41,6 +43,9 @@ function readView(): ViewMode {
   // still lands on the Project board rather than silently on Me.
   if (raw === "project" || raw === "plan") {
     return "project";
+  }
+  if (raw === "process") {
+    return "process";
   }
   return "me";
 }
@@ -114,6 +119,12 @@ export function App() {
     () => localStorage.getItem(LS_PROJECT) ?? "",
   );
   const [view, setView] = useState<ViewMode>(readView);
+  // The project chips' selection, shared by the Project and Process tabs.
+  const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
+  const setProjectFilter = (keys: string[] | null) => {
+    setProjectFilterState(keys);
+    writeProjectFilter(keys);
+  };
 
   // Appearance (theme mode + colour palette). Applied to <html> so the CSS
   // theme/palette overrides repaint the app; persisted in localStorage like the
@@ -749,6 +760,7 @@ export function App() {
                       projects: fresh.projects,
                       epics: fresh.epics,
                       deadlines: fresh.deadlines,
+                      processes: fresh.processes,
                       members: fresh.members,
                       sprintStates: fresh.sprintStates,
                     }
@@ -1109,6 +1121,15 @@ export function App() {
           >
             Project
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "process"}
+            className={`segment${view === "process" ? " segment-active" : ""}`}
+            onClick={() => setView("process")}
+          >
+            Process
+          </button>
         </div>
       </div>
 
@@ -1159,6 +1180,8 @@ export function App() {
           <ProjectBoard
             board={board}
             provider={provider}
+            filter={projectFilter}
+            onSetFilter={setProjectFilter}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}
@@ -1166,6 +1189,15 @@ export function App() {
             reload={reload}
             onError={onError}
             onOpen={(c) => setDetailCard(c)}
+          />
+        )}
+        {board && view === "process" && (
+          <ProcessBoard
+            board={board}
+            provider={provider}
+            filter={projectFilter}
+            onSetFilter={setProjectFilter}
+            onError={onError}
           />
         )}
         {board && view === "team" && (

@@ -26,7 +26,9 @@ import type {
   CarryReport,
   NewCardInput,
   Note,
+  ProcessInfo,
   Provider,
+  TemplateInput,
   ZoneKey,
 } from "../types";
 
@@ -177,6 +179,10 @@ export const apiProvider: Provider = {
       deadlines: (info.metadata.deadlines ?? []).map((d) => ({
         week: d.week,
         project: d.project ?? "",
+      })),
+      processes: (info.metadata.processes ?? []).map((p) => ({
+        name: p.name,
+        project: p.project ?? "",
       })),
       epics: (info.metadata.epics ?? []).map((e) => ({
         name: e.name,
@@ -430,6 +436,52 @@ export const apiProvider: Provider = {
     to: string,
   ): Promise<void> {
     await api(board, "POST", "/projects/actions/rename", { project: from, to });
+  },
+
+  async listProcesses(board: BoardAddr, project?: string): Promise<ProcessInfo[]> {
+    const q = project ? `?project=${encodeURIComponent(project)}` : "";
+    const res = await api<{ items: ProcessInfo[] | null }>(board, "GET", `/processes${q}`);
+    return (res.items ?? []).map((p) => ({
+      ...p,
+      project: p.project ?? "",
+      templates: (p.templates ?? []).map((t) => ({ ...t, history: t.history ?? [] })),
+    }));
+  },
+
+  async addProcess(board: BoardAddr, name: string, project: string): Promise<void> {
+    await api(board, "POST", "/processes", { name, project });
+  },
+
+  async deleteProcess(board: BoardAddr, name: string): Promise<void> {
+    await api(board, "POST", "/processes/actions/delete-process", { process: name });
+  },
+
+  async renameProcess(board: BoardAddr, from: string, to: string): Promise<void> {
+    await api(board, "POST", "/processes/actions/rename", { process: from, to });
+  },
+
+  async addTemplate(
+    board: BoardAddr,
+    process: string,
+    input: TemplateInput,
+  ): Promise<string> {
+    const res = await api<{ uid: string }>(board, "POST", "/processes/templates", {
+      process,
+      ...input,
+    });
+    return res.uid;
+  },
+
+  async updateTemplate(
+    board: BoardAddr,
+    uid: string,
+    patch: TemplateInput,
+  ): Promise<void> {
+    await api(board, "PATCH", `/processes/templates/${uid}`, patch);
+  },
+
+  async deleteTemplate(board: BoardAddr, uid: string): Promise<void> {
+    await api(board, "DELETE", `/processes/templates/${uid}`);
   },
 
   async addDeadline(

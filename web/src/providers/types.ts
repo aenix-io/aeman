@@ -122,6 +122,38 @@ export interface SprintState {
   previous: string | null;
 }
 
+/** ProcessTemplate is what a process iterates on, plus how the last few
+ *  iterations went. */
+export interface ProcessTemplate {
+  uid: string;
+  title: string;
+  description?: string;
+  recurrence: string;
+  start?: string;
+  team?: string;
+  assignee?: string;
+  accumulate?: boolean;
+  history: { uid: string; week: string; state: "done" | "open" | "late" }[];
+}
+
+/** ProcessInfo is one process and its templates. */
+export interface ProcessInfo {
+  name: string;
+  project: string;
+  templates: ProcessTemplate[];
+}
+
+/** TemplateInput is a template on its way in (create: all; patch: some). */
+export interface TemplateInput {
+  title?: string;
+  description?: string;
+  recurrence?: string;
+  start?: string;
+  team?: string;
+  assignee?: string;
+  accumulate?: boolean;
+}
+
 /** DeadlineRef is one deadline line: the week it sits on and whose it is. */
 export interface DeadlineRef {
   week: string;
@@ -154,6 +186,8 @@ export interface Board {
   /** The deadline lines: the week (a Monday) each sits on and the project it
    *  belongs to. A project holds at most one per week. */
   deadlines: DeadlineRef[];
+  /** The process roster (name + project), in board order. */
+  processes: { name: string; project: string }[];
   /** Every distinct assignee on the board, from GET /board — the people roster
    *  for pickers (assign, review, view-as). */
   members: string[];
@@ -301,6 +335,14 @@ export interface Provider {
   reorderProjects(board: BoardAddr, names: string[]): Promise<void>;
   /** Rename a project in place; its columns and their cards follow. */
   renameProject(board: BoardAddr, from: string, to: string): Promise<void>;
+  /** The Process tab: every process with its templates and their history. */
+  listProcesses(board: BoardAddr, project?: string): Promise<ProcessInfo[]>;
+  addProcess(board: BoardAddr, name: string, project: string): Promise<void>;
+  deleteProcess(board: BoardAddr, name: string): Promise<void>;
+  renameProcess(board: BoardAddr, from: string, to: string): Promise<void>;
+  addTemplate(board: BoardAddr, process: string, input: TemplateInput): Promise<string>;
+  updateTemplate(board: BoardAddr, uid: string, patch: TemplateInput): Promise<void>;
+  deleteTemplate(board: BoardAddr, uid: string): Promise<void>;
   /** Mark a week with a project's deadline (one per project and week). */
   addDeadline(board: BoardAddr, week: string, project: string): Promise<void>;
   /** Clear a project's deadline on a week. */
