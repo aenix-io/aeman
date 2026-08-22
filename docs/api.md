@@ -24,6 +24,8 @@ A project also carries **deadlines**: a line across the grid on a given week. On
 
 A slot's **row is the week of its `dates.start`** — always derived, never stored beside the dates where the two could drift. `plan.week` belongs to weekly-plan cards (those created with a band and no dates); setting it on a card filed under an epic is refused (422).
 
+A project also holds **processes** — recurring work the team keeps doing and wants to see itself doing. A process groups **templates**; each template says what every iteration is called and says, its cycle (counted on the calendar from its start date, not from when the last iteration closed), the team whose weekly plan the iterations land in, and the standing owner. `carry_week` spawns what each week is owed. An open iteration holds the next one back — the stuck card *is* the process, and it goes overdue where it is — unless the template `accumulate`s, for work where unpaid months must pile up as separate cards. Every iteration is a fresh copy of the template: a renamed live card stays renamed. See [`docs/design/processes.md`](design/processes.md).
+
 A **column** of the Project board is the pair `(project, epic)`. Epic names are unique only *within* a project, so every project can have its own `Docs` or `Auth`, and a card names both halves. Anything acting on a column — filing a card, deleting, renaming, reordering — names both.
 
 When started with `--lock-board` (or `AEMAN_LOCK_BOARD=1`), aeman pins the board to its configured `--owner`/`--board` and ignores any client-supplied owner/board. Use this when exposing aeman to clients that must not roam across boards.
@@ -54,6 +56,11 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | `PATCH /api/v1/sprints` | Set a pointer directly `{team, current, previous}`. |
 | `POST /api/v1/projects` | Declare a project `{name}` (201) — the Project board's top grouping, which owns epic columns. It may be created empty. |
 | `POST /api/v1/epics` | Declare an epic column `{name, project}` (201). The project is required and must exist. |
+| `GET /api/v1/processes` | The Process tab: every process with its templates and each template's history (`?project=` filters). |
+| `POST /api/v1/processes` | Declare a process `{name, project}` (201). |
+| `POST /api/v1/processes/templates` | Add what a process iterates on `{process, title, description, recurrence, start, team, assignee, accumulate}` (201, returns `{uid}`). |
+| `PATCH /api/v1/processes/templates/{uid}` | Change what the NEXT iterations will be; the running one is untouched. |
+| `DELETE /api/v1/processes/templates/{uid}` | Delete a template; its past iterations stay as the record. |
 | `POST /api/v1/deadlines` | Mark a week with a project's deadline `{week, project}` (201). Any day resolves to its Monday; asking twice changes nothing. |
 | `GET /api/v1/ordering` | The board-level manual card order (a uid list). |
 | `GET /api/v1/watch` | WebSocket stream of resource events (below). |
@@ -83,6 +90,8 @@ Actions carry the board rules — the client never reimplements them.
 | `POST /api/v1/projects/actions/delete-project` | `{project}` | Delete an EMPTY project; 422 while it still owns columns. |
 | `POST /api/v1/projects/actions/reorder-projects` | `{projects:[...]}` | Apply the shared project order. |
 | `POST /api/v1/projects/actions/rename` | `{project, to}` | Rename a project in place; its columns and their cards follow. |
+| `POST /api/v1/processes/actions/delete-process` | `{process}` | Delete an EMPTY process; 422 while it has templates. |
+| `POST /api/v1/processes/actions/rename` | `{process, to}` | Rename a process; its templates follow. |
 | `POST /api/v1/deadlines/actions/delete` | `{week, project}` | Clear that project's deadline on the week. |
 | `POST /api/v1/deadlines/actions/move` | `{project, from, to}` | Drag its deadline to another week; landing where it already has one leaves a single line. Another project's line on that week is untouched. |
 
@@ -220,8 +229,11 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
 | `move_card` / `defer_card` | Reorder; push the scheduled day ahead. |
 | `send_to_review` / `remove_reviewer` | The review-card cycle (send reassigns when a review card exists). |
 | `take_into_plan` / `release_from_plan` | Weekly-plan membership. |
-| `carry_over` / `carry_week` | Sprint/week carry with `dryRun` count reports. |
+| `carry_over` / `carry_week` | Sprint/week carry with `dryRun` count reports; `carry_week` also spawns the process iterations the week is owed (`spawned`). |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |
+| `list_processes` | The Process tab in one call: processes, templates, and each template's history (done / open / late per iteration). |
+| `add_process` / `delete_process` / `rename_process` | The process roster inside a project. |
+| `add_process_template` / `update_process_template` / `delete_process_template` | What a process iterates on: title, body, cycle (`week` / `2weeks` / `month` / `quarter`), start, team, owner, `accumulate`. |
 | `add_deadline` / `delete_deadline` / `move_deadline` | A project's deadline lines: mark a week, clear it, drag one to another week (two of the same project on one week become one). |
 | `add_project` / `delete_project` / `rename_project` / `reorder_projects` | The project roster: declare one (it may start empty), delete an EMPTY one, rename one (its columns and cards follow), set the chip order. |
 | `add_epic` / `delete_epic` / `rename_epic` / `set_epic_project` | The columns of a project, each named by the `(project, epic)` pair: `add_epic` requires `project=`, `delete_epic` refuses a column with cards, `rename_epic` rewrites the column and its cards, `set_epic_project` moves one between projects (an empty target detaches it). |
