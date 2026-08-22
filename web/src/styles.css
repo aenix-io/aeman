@@ -3829,7 +3829,7 @@ button.card-age {
    Sharing the row by content made every line's facts start somewhere else. */
 .process-template {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 460px 120px 48px;
+  grid-template-columns: minmax(150px, 1fr) 580px 120px 48px;
   align-items: center;
   gap: 12px;
   padding: 6px 8px;
@@ -3861,7 +3861,7 @@ button.card-age {
 
 .process-template-meta {
   display: grid;
-  grid-template-columns: 100px 105px 1fr;
+  grid-template-columns: 118px 105px 132px 1fr;
   column-gap: 10px;
   row-gap: 2px;
   align-items: center;
@@ -3984,11 +3984,11 @@ button.card-age {
   pointer-events: none;
 }
 
+/* The team and the owner are grid cells of the row, not a pair sharing one:
+   a long team name used to push the owner along, so no two rows started their
+   owner at the same place. */
 .process-template-who {
-  display: inline-flex;
-  gap: 10px;
-  align-items: center;
-  overflow: hidden;
+  display: contents;
 }
 
 .process-template-none {
@@ -4041,11 +4041,13 @@ button.card-age {
 }
 
 .process-cell-team {
-  flex: 0 0 auto;
+  justify-self: start;
+  max-width: 100%;
 }
 
 .process-cell-owner {
-  flex: 1 1 auto;
+  justify-self: start;
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -4054,4 +4056,38 @@ button.card-age {
   height: 16px;
   border-radius: 50%;
   flex: none;
+}
+
+/* The cycle, and the mark that says what a missed turn does. */
+.process-cycle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.process-accum {
+  display: inline-flex;
+  padding: 1px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.3;
+}
+
+.process-accum svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+
+.process-accum:hover {
+  opacity: 0.75;
+  background: var(--hover-overlay-soft);
+}
+
+.process-accum-on {
+  color: var(--accent);
+  opacity: 1;
 }

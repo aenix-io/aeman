@@ -250,6 +250,7 @@ export function ProcessBoard({
                       users={users}
                       onSetTeam={(team) => saveTemplate(p.name, t.uid, { team })}
                       onSetAssignee={(assignee) => saveTemplate(p.name, t.uid, { assignee })}
+                      onSetAccumulate={(accumulate) => saveTemplate(p.name, t.uid, { accumulate })}
                       onEdit={() => setEditing(t.uid)}
                       onDelete={() => deleteTemplate(t)}
                     />
@@ -353,6 +354,7 @@ function TemplateRow({
   users,
   onSetTeam,
   onSetAssignee,
+  onSetAccumulate,
   onEdit,
   onDelete,
 }: {
@@ -362,6 +364,7 @@ function TemplateRow({
   users: Record<string, GhUser>;
   onSetTeam: (team: string) => void;
   onSetAssignee: (assignee: string) => void;
+  onSetAccumulate: (accumulate: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -374,7 +377,33 @@ function TemplateRow({
         )}
       </div>
       <span className="process-template-meta">
-        <span>{cycleLabel(t.recurrence)}</span>
+        <span className="process-cycle">
+          {cycleLabel(t.recurrence)}
+          {/* Accumulation belongs to the cycle — it says what happens when a
+              turn of that cycle comes round with the last one unfinished — so
+              it is a mark on the cycle, not a word in the row. Shown even when
+              off (faint), because an icon that appears only when set is a
+              setting nobody can find. */}
+          <button
+            type="button"
+            className={`process-accum${t.accumulate ? " process-accum-on" : ""}`}
+            title={
+              t.accumulate
+                ? "Accumulates: the next card is filed even while this one is open, so missed turns pile up. Click to stop."
+                : "Does not accumulate: an open card holds the next one back and goes overdue. Click to let them pile up."
+            }
+            onClick={(e) => {
+              e.stopPropagation();
+              onSetAccumulate(!t.accumulate);
+            }}
+          >
+            <svg viewBox="0 0 12 12" aria-hidden="true">
+              <rect x="1" y="7.5" width="10" height="2.2" rx="1.1" />
+              <rect x="2" y="4.4" width="8" height="2.2" rx="1.1" />
+              <rect x="3" y="1.3" width="6" height="2.2" rx="1.1" />
+            </svg>
+          </button>
+        </span>
         <span>{t.start ? `from ${t.start}` : ""}</span>
         <span className="process-template-who">
           {/* Team and owner are set where they are read — the cell IS the
@@ -421,7 +450,11 @@ function TemplateRow({
           />
           <CellPicker
             className="process-cell-owner"
-            title="Who every iteration is assigned to"
+            title={
+              t.assignee
+                ? `Assigned to ${displayName(t.assignee, users[t.assignee])} — click to change`
+                : "Nobody owns the iterations — click to assign"
+            }
             label={
               t.assignee ? (
                 <>
@@ -430,7 +463,9 @@ function TemplateRow({
                     src={avatarUrlFor(t.assignee, users[t.assignee])}
                     alt={t.assignee}
                   />
-                  {displayName(t.assignee, users[t.assignee])}
+                  {/* The name alone in the row — the login is in the tooltip
+                      and in the menu, and it is the half that gets cut. */}
+                  {users[t.assignee]?.name ?? t.assignee}
                 </>
               ) : (
                 <span className="process-template-none">nobody</span>
@@ -451,11 +486,6 @@ function TemplateRow({
             ]}
             onPick={onSetAssignee}
           />
-          {t.accumulate && (
-            <span title="The next iteration spawns even while the previous is still open">
-              accumulates
-            </span>
-          )}
         </span>
       </span>
       <Health templates={[t]} />
