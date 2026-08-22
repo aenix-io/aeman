@@ -5,7 +5,7 @@
 ## Decision
 
 Every entity aeman exposes — cards, teams, projects, epic columns,
-deadlines, processes, templates — is served from the server's in-memory
+deadlines, processes, tasks — is served from the server's in-memory
 board cache and mutated through it. A write is applied to the cache and
 acknowledged at once; the backing store (GitHub Projects v2) is written
 behind, through a per-board FIFO with DeltaFIFO-style coalescing. Every

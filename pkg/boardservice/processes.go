@@ -266,6 +266,20 @@ func (s *Service) DeleteProcessTask(ctx context.Context, owner string, project i
 	if !ok {
 		return fmt.Errorf("%w %q", ErrTaskNotFound, taskID)
 	}
+	// The turns stay — they are the record of work that was done — but they
+	// stop pointing at a task that no longer exists. A dangling link left
+	// them out of every process's history while still forbidding them to
+	// leave the recurrent stage: stranded, and unfixable from the UI.
+	for _, it := range board.Iterations(b, taskID) {
+		if err := s.backend.SetTask(ctx, b, it, ""); err != nil {
+			return err
+		}
+		if it.Recurrence != "" {
+			if err := s.backend.SetRecurrence(ctx, b, it, ""); err != nil {
+				return err
+			}
+		}
+	}
 	return s.backend.DeleteCard(ctx, b, t)
 }
 

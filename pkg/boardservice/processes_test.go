@@ -430,3 +430,143 @@ func TestBracketedTaskTitleSurvives(t *testing.T) {
 		t.Fatalf("legacy bodies must still read: %q / %q", TaskTitle(old), TaskDescription(old))
 	}
 }
+
+// The invariant holds at every door, not just the stage menu: "in progress"
+// and "send to review" used to walk around it, and the Process tab's own
+// un-tick button was one of them.
+func TestATurnKeepsItsMarkerWhicheverDoor(t *testing.T) {
+	fake := processBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	week := board.MondayOf(board.TodayIso())
+	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+		Title: "Article", Recurrence: "week", Start: week, Team: "alpha", Assignee: "writer",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := svc.Board(ctx, "acme", 1)
+	turn := board.Iterations(b, task.ItemID)[0]
+
+	for _, door := range []struct {
+		name string
+		call func() error
+	}{
+		{"the stage menu", func() error { return svc.SetStage(ctx, "acme", 1, turn.ItemID, board.StageReview) }},
+		{"in progress", func() error { return svc.SetInProgress(ctx, "acme", 1, turn.ItemID) }},
+	} {
+		if err := door.call(); !errors.Is(err, ErrInvalidStage) {
+			t.Errorf("%s: err = %v, want the turn to keep its marker", door.name, err)
+		}
+		if got := fake.get(turn.ItemID); got.Stage != board.StageRecurrent {
+			t.Fatalf("%s left the turn on stage %q", door.name, got.Stage)
+		}
+	}
+	// Done is allowed, and reopening by progress keeps the marker.
+	if err := svc.SetStage(ctx, "acme", 1, turn.ItemID, board.StageDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetProgress(ctx, "acme", 1, turn.ItemID, 90); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.get(turn.ItemID); got.Stage != board.StageRecurrent || got.Progress != 90 {
+		t.Fatalf("a reopened turn = stage %q progress %d", got.Stage, got.Progress)
+	}
+}
+
+// Deleting a task frees the turns it leaves behind: they keep their record but
+// stop pointing at a task that is gone, and can be moved off recurrent again.
+func TestDeletingATaskFreesItsTurns(t *testing.T) {
+	fake := processBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	week := board.MondayOf(board.TodayIso())
+	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+		Title: "Article", Recurrence: "week", Start: week, Team: "alpha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := svc.Board(ctx, "acme", 1)
+	turn := board.Iterations(b, task.ItemID)[0]
+	if err := svc.DeleteProcessTask(ctx, "acme", 1, task.ItemID); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.get(turn.ItemID)
+	if got == nil {
+		t.Fatal("the turn is the record of work done and must stay")
+	}
+	if got.Task != "" || got.Recurrence != "" {
+		t.Fatalf("a freed turn keeps no dead link: task=%q recurrence=%q", got.Task, got.Recurrence)
+	}
+	if err := svc.SetInProgress(ctx, "acme", 1, turn.ItemID); err != nil {
+		t.Fatalf("a freed turn must move like any card: %v", err)
+	}
+}
+
+// A slot only visits a weekly plan; the × there takes it out of the plan and
+// never deletes the roadmap card, whether or not anyone has touched it.
+func TestThePlanCrossNeverDeletesASlot(t *testing.T) {
+	today := board.TodayIso()
+	week := board.MondayOf(today)
+	newBoard := func() *fakeBackend {
+		return newFake([]board.Card{
+			{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
+			{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
+			{ItemID: "slot", Title: "a roadmap slot", Epic: "E", Project: "P",
+				StartDate: today, Day: board.AddDays(today, 30), Week: week,
+				Team: "alpha", Plan: board.PlanFri},
+		}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	}
+	for _, c := range []struct {
+		name string
+		call func(*Service) error
+	}{
+		{"the plan ×", func(s *Service) error { return s.Remove(context.Background(), "acme", 1, "slot", "plan") }},
+		{"release from plan", func(s *Service) error { return s.ReleaseFromPlan(context.Background(), "acme", 1, "slot") }},
+	} {
+		fake := newBoard()
+		svc := New(fake)
+		if err := c.call(svc); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		got := fake.get("slot")
+		if got == nil {
+			t.Fatalf("%s deleted the slot", c.name)
+		}
+		if got.Plan != board.PlanNone {
+			t.Errorf("%s left the band %q", c.name, got.Plan)
+		}
+		if got.Week != week || got.Epic != "E" || got.StartDate != today {
+			t.Errorf("%s changed the slot: week %q epic %q start %q", c.name, got.Week, got.Epic, got.StartDate)
+		}
+	}
+}
+
+// Re-dating a slot is planning: one nobody started stays out of the sprints,
+// and one somebody is working on keeps the sprint they are working in.
+func TestRedatingASlotLeavesItsSprintAlone(t *testing.T) {
+	today := board.TodayIso()
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
+		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
+		{ItemID: "started", Title: "in work", Epic: "E", Project: "P", Team: "alpha",
+			StartDate: today, Day: board.AddDays(today, 7), SprintStart: today, Progress: 40},
+		{ItemID: "planned", Title: "not yet", Epic: "E", Project: "P", Team: "alpha",
+			StartDate: today, Day: board.AddDays(today, 7)},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+	ctx := context.Background()
+	later := board.AddDays(today, 21)
+	for _, id := range []string{"started", "planned"} {
+		if err := svc.SetDates(ctx, "acme", 1, id, later, board.AddDays(later, 4)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := fake.get("started"); got.SprintStart != today {
+		t.Errorf("a started slot must keep its sprint, got %q", got.SprintStart)
+	}
+	if got := fake.get("planned"); got.SprintStart != "" {
+		t.Errorf("a slot nobody started must stay out of the sprints, got %q", got.SprintStart)
+	}
+}

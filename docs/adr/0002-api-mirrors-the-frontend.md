@@ -6,7 +6,7 @@
 
 The HTTP API and the MCP tool set expose the entities a person sees in
 the frontend — boards, cards, teams, projects, epic columns, deadlines,
-processes, templates — under those names, with those relationships and
+processes, tasks — under those names, with those relationships and
 those rules. They do not expose the backend's model. A GitHub Projects
 v2 item with a `Process` text field and a title of `aeman:process-state`
 is an implementation detail; a *process* is the entity.

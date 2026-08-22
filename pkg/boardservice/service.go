@@ -795,6 +795,13 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week || c.Team != team {
 			continue
 		}
+		// A turn of a process is recurrent, but its process owns the repeat:
+		// SpawnIterations above decides whether the target week is owed one,
+		// and on what cycle. The reseed below would copy it regardless —
+		// weekly, unlinked, and self-perpetuating from then on.
+		if c.Task != "" {
+			continue
+		}
 		// A finished recurrent plan card stays in its week and seeds the target
 		// week with a fresh copy (unless one with the same title is already there).
 		if c.Stage == board.StageRecurrent && c.Progress >= 100 {
@@ -897,6 +904,12 @@ func (s *Service) Defer(ctx context.Context, owner string, project int, itemID s
 	if err := s.backend.SetStart(ctx, b, c, target); err != nil {
 		return err
 	}
+	// A slot's row is its start's week, so deferring one moves the row too —
+	// otherwise the cache says one week and the card's own dates another,
+	// and the next full load jumps it.
+	if err := s.syncSlotWeek(ctx, b, c, target); err != nil {
+		return err
+	}
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(target, c.Day))
 	if board.LocalDateIso(c.CreatedAt) == today {
@@ -934,10 +947,13 @@ func (s *Service) SetDates(ctx context.Context, owner string, project int, itemI
 			}
 		}
 	}
-	// A Project-board slot that has not been taken into work stays out of the
-	// sprints: re-dating a plan is planning, not starting the work.
-	if c.Epic != "" && c.SprintStart == "" {
-		sprint = ""
+	// Re-dating a slot is planning, whatever state it is in: one never taken
+	// into work stays out of the sprints, and one somebody is working on
+	// keeps the sprint they are working in. Recomputing it from the new date
+	// silently dropped a started slot off its team's day board — and its
+	// subtasks with it.
+	if c.Epic != "" {
+		sprint = c.SprintStart
 	}
 	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
 		return err
@@ -989,6 +1005,18 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 		return err
 	}
 	if from == "plan" {
+		// A slot of a plan is never deleted by the plan ×. It is a piece of a
+		// roadmap that happens to be in a weekly plan because someone gave it
+		// a team; taking it out of the plan means exactly that, and its dates
+		// and its column stay. (Its row is derived from its start, so the
+		// week is not cleared either.)
+		if c.Epic != "" {
+			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
+			return nil
+		}
 		// A card someone is (or was) working on is never deleted by the plan ×:
 		// it sheds only its weekly membership and stays with the person and on
 		// the sprint days it passed through.
@@ -996,7 +1024,7 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
-			if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
+			if err := s.clearPlanWeek(ctx, b, c); err != nil {
 				return err
 			}
 			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
@@ -1016,7 +1044,7 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
-			if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
+			if err := s.clearPlanWeek(ctx, b, c); err != nil {
 				return err
 			}
 			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
@@ -1180,13 +1208,6 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 	if stage == board.StageRecurrent && card.ReviewOf != "" {
 		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)
 	}
-	// A process turn IS the recurrence: its task decides when the work
-	// comes round again, and a card that shed the marker would still be
-	// replaced next cycle while pretending to be a one-off. Done, deferred,
-	// dropped — all fine; not recurrent is not.
-	if card.Task != "" && stage != board.StageRecurrent && stage != board.StageDone {
-		return fmt.Errorf("%w: this card is a turn of a process — its recurrence is the process's", ErrInvalidStage)
-	}
 	// Closing the parent is the human's final call - made only once every
 	// subtask is done.
 	if stage == board.StageDone && board.OpenChildren(b, card.ItemID) {
@@ -1282,8 +1303,23 @@ func (s *Service) reactivateReviewCard(ctx context.Context, b board.Board, origi
 }
 
 // applyStage persists a stage change and any coupled progress change.
+// keepsItsMarker refuses to move a turn of a process off the recurrent stage,
+// whichever door the change came through — the stage menu, "in progress", or
+// being sent to review. Its task owns the repeat, and a turn that shed the
+// marker would still be replaced next cycle while pretending to be a one-off.
+// Done is the exception: that is what finishing a turn IS.
+func (s *Service) keepsItsMarker(card board.Card, newStage board.StageKey) error {
+	if card.Task == "" || newStage == board.StageRecurrent || newStage == board.StageDone {
+		return nil
+	}
+	return fmt.Errorf("%w: this card is a turn of a process — its recurrence is the process's", ErrInvalidStage)
+}
+
 func (s *Service) applyStage(ctx context.Context, b board.Board, card board.Card, stage board.StageKey) error {
 	newStage, newProgress := board.ApplyStage(stage, card.Progress)
+	if err := s.keepsItsMarker(card, newStage); err != nil {
+		return err
+	}
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 		return err
 	}
@@ -1348,6 +1384,9 @@ func (s *Service) SetInProgress(ctx context.Context, owner string, project int, 
 		return err
 	}
 	newStage, newProgress := board.ApplyInProgress(card.Stage, card.Progress)
+	if err := s.keepsItsMarker(card, newStage); err != nil {
+		return err
+	}
 	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
 		return err
 	}
@@ -1403,6 +1442,16 @@ func (s *Service) SetDay(ctx context.Context, owner string, project int, itemID,
 	s.logEvent(ctx, b, card, board.EventDates,
 		board.DateRange(card.StartDate, card.Day), board.DateRange(card.StartDate, day))
 	return nil
+}
+
+// clearPlanWeek drops a card's plan week — except a slot's, which is derived
+// from its start date and would come straight back on the next read, having
+// meanwhile taken the slot off the Project board.
+func (s *Service) clearPlanWeek(ctx context.Context, b board.Board, c board.Card) error {
+	if c.Epic != "" {
+		return nil
+	}
+	return s.backend.SetWeek(ctx, b, c, "")
 }
 
 // syncSlotWeek keeps a Project-board slot's row under its start date. The week
@@ -2047,16 +2096,22 @@ func (s *Service) ReleaseFromPlan(ctx context.Context, owner string, project int
 	if err != nil {
 		return err
 	}
-	if len(card.Assignees) == 0 && card.Progress == 0 {
+	if card.Epic == "" && len(card.Assignees) == 0 && card.Progress == 0 {
 		// A pure plan card is deleted for real (an earlier-week demote would
-		// boomerang back on the next carry-week).
+		// boomerang back on the next carry-week). A SLOT is never that: it
+		// belongs to a roadmap and only visits the weekly plan.
 		return s.deleteWithCascade(ctx, b, card)
 	}
 	if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
 		return err
 	}
-	if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
-		return err
+	// A slot's row is derived from its start date; clearing the week would
+	// only be undone by the next read, and meanwhile the slot would go
+	// missing from the Project board.
+	if card.Epic == "" {
+		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
+			return err
+		}
 	}
 	s.logEvent(ctx, b, card, board.EventPlanReleased, string(card.Plan), "")
 	return nil

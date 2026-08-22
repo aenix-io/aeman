@@ -103,7 +103,9 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board
 		// state cards).
 		if c.Title == board.ProcessStateTitle {
 			if c.Process != "" {
-				processes = append(processes, board.Process{Name: c.Process, Project: c.Project, ItemID: c.ItemID})
+				processes = append(processes, board.Process{
+					Name: c.Process, Project: c.Project, Paused: c.Paused, ItemID: c.ItemID,
+				})
 			}
 			continue
 		}

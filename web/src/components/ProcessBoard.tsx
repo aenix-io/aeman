@@ -132,9 +132,12 @@ export function ProcessBoard({
   // stage carries it, and reopening puts the card back in progress rather
   // than to zero — the work that was done was still done.
   const setTurnDone = (iteration: { uid: string; state: string }, done: boolean) => {
+    // Reopening moves the progress, not the stage: a turn stays recurrent for
+    // as long as it exists — its task owns the repeat — and "in progress"
+    // would strip the marker the service now refuses to let go.
     const call = done
       ? provider.patchCard(board, iteration.uid, { stage: "done" })
-      : provider.setInProgress(board, iteration.uid);
+      : provider.patchCard(board, iteration.uid, { progress: 90 });
     void call.catch(fail);
   };
   const deleteProcess = (name: string) => {

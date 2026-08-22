@@ -21,7 +21,7 @@ type Process struct {
 	Tasks   []Task `json:"tasks"`
 }
 
-// Template is what an iteration is copied from, plus how the last few went.
+// Task is what an iteration is copied from, plus how the last few went.
 type Task struct {
 	UID         string `json:"uid"`
 	Title       string `json:"title"`

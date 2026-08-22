@@ -39,10 +39,11 @@ the task's start**, not from when the last iteration closed. A
 task started on 3 March with a monthly cycle is due in the weeks of
 3 April, 3 May, … whatever happened to the March card.
 
-An iteration is spawned by `carry_week` (and by the same background
-sweep that runs it), for every task whose cycle puts a due date in
-the target week. So the weekly plan fills itself; nobody presses
-anything per task.
+An iteration is spawned by `carry_week`, for every task whose cycle puts
+a due date in the target week — and at once, without waiting for a carry,
+when a task is created or changed into being due this week. There is no
+background sweep: a week nobody carries is a week nobody is owed turns
+for, the same rule the rest of the board runs on.
 
 ## When the previous iteration is still open
 

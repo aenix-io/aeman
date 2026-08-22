@@ -132,7 +132,16 @@ func (s *Service) ReorderEpics(ctx context.Context, owner string, project int, p
 	if err != nil {
 		return err
 	}
+	// Where this project's block begins in the board-wide roster: moving its
+	// first column to "the top" would hoist the whole project above every
+	// other one, because b.Epics is one list for every project.
 	prev := ""
+	for _, e := range b.Epics {
+		if e.Project == projectName {
+			break
+		}
+		prev = e.ItemID
+	}
 	for _, name := range epics {
 		col, ok := board.FindEpic(b, projectName, name)
 		if !ok || col.ItemID == "" {
@@ -180,6 +189,14 @@ func (s *Service) SetEpic(ctx context.Context, owner string, project int, itemID
 		if err := s.backend.SetProject(ctx, b, card, projectName); err != nil {
 			return err
 		}
+	}
+	// Filing a card under a column makes it a slot, and a slot's row is its
+	// start date's week. Without this the card lands in the column with no
+	// row at all: off the Project board until the next full load, and in a
+	// weekly plan that matches no week.
+	if epic != "" {
+		card.Epic = epic
+		return s.syncSlotWeek(ctx, b, card, card.StartDate)
 	}
 	return nil
 }

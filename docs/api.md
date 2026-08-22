@@ -93,6 +93,7 @@ Actions carry the board rules — the client never reimplements them.
 | `POST /api/v1/processes/actions/delete-process` | `{process}` | Delete an EMPTY process; 422 while it has tasks. |
 | `POST /api/v1/processes/actions/rename` | `{process, to}` | Rename a process; its tasks follow. |
 | `POST /api/v1/processes/actions/set-project` | `{process, project}` | Move a process to another project (`""` = the no-project bucket). |
+| `POST /api/v1/processes/actions/set-paused` | `{process, paused}` | Stop a process filing turns, or start it again; resuming files what the current week is owed. |
 | `POST /api/v1/deadlines/actions/delete` | `{week, project}` | Clear that project's deadline on the week. |
 | `POST /api/v1/deadlines/actions/move` | `{project, from, to}` | Drag its deadline to another week; landing where it already has one leaves a single line. Another project's line on that week is untouched. |
 
@@ -233,7 +234,8 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
 | `carry_over` / `carry_week` | Sprint/week carry with `dryRun` count reports; `carry_week` also spawns the process iterations the week is owed (`spawned`). |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |
 | `list_processes` | The Process tab in one call: processes, tasks, and each task's history (done / open / late per iteration). |
-| `add_process` / `delete_process` / `rename_process` / `set_process_project` | The process roster inside a project, and moving one between projects. |
+| `add_process` / `delete_process` / `rename_process` | The process roster inside a project. |
+| `set_process_project` / `set_process_paused` | Move a process between projects; pause it (it files no turns) or resume it. |
 | `add_process_task` / `update_process_task` / `delete_process_task` | What a process iterates on: title, body, cycle (`week` / `2weeks` / `month` / `quarter`), start, team, owner, `accumulate`. |
 | `add_deadline` / `delete_deadline` / `move_deadline` | A project's deadline lines: mark a week, clear it, drag one to another week (two of the same project on one week become one). |
 | `add_project` / `delete_project` / `rename_project` / `reorder_projects` | The project roster: declare one (it may start empty), delete an EMPTY one, rename one (its columns and cards follow), set the chip order. |
