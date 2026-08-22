@@ -1151,12 +1151,25 @@ func (e *boardEntry) diffNotify(old board.Board) {
 // tells it to. Sent to every watcher regardless of the view it selected,
 // because the roster is the same for all of them.
 func (e *boardEntry) rosterBroadcast() {
-	frame := watchFrame{Type: "MODIFIED", Kind: "Board", Object: map[string]string{
-		"loadedAt": e.loadedAt.UTC().Format(time.RFC3339),
+	// The frame CARRIES the board, the way a Card frame carries its card: a
+	// client applies it and needs no round trip. A bare "something changed"
+	// signal sent every open tab back to GET /board — a full snapshot each,
+	// which is the opposite of what a cache is for. Processes ride along as
+	// their full structure, since the Process tab is drawn from it.
+	frame := watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
+		BoardInfo: apiserver.BoardResource(e.board),
+		Processes: apiserver.ProcessesResource(e.board, "").Items,
 	}}
 	for sub := range e.watchers {
 		sub.send(frame)
 	}
+}
+
+// boardFrame is the Board watch frame's object: the board resource plus the
+// process structure, so one frame repaints every roster-driven view.
+type boardFrame struct {
+	apiserver.BoardInfo
+	Processes []apiserver.Process `json:"processes"`
 }
 
 func (e *boardEntry) syncBroadcast() {

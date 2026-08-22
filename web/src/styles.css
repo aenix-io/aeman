@@ -3936,3 +3936,33 @@ button.card-age {
   justify-content: flex-end;
   gap: 6px;
 }
+
+/* A process named or renamed in place, and the "+ add a process" row. */
+.process-name-input {
+  font-size: 13px;
+  font-weight: 600;
+  width: 260px;
+}
+
+.process-new {
+  align-self: flex-start;
+}
+
+.process-new.add-card-input {
+  width: 280px;
+  font-size: 13px;
+}
+
+.process-del {
+  opacity: 0;
+  margin-left: 4px;
+}
+
+.process-head:hover .process-del {
+  opacity: 1;
+}
+
+.process-del:disabled {
+  opacity: 0;
+  pointer-events: none;
+}

@@ -186,8 +186,9 @@ export interface Board {
   /** The deadline lines: the week (a Monday) each sits on and the project it
    *  belongs to. A project holds at most one per week. */
   deadlines: DeadlineRef[];
-  /** The process roster (name + project), in board order. */
-  processes: { name: string; project: string }[];
+  /** The processes with their templates and history — the Process tab is
+   *  drawn from this, and the Board watch frame refreshes it. */
+  processes: ProcessInfo[];
   /** Every distinct assignee on the board, from GET /board — the people roster
    *  for pickers (assign, review, view-as). */
   members: string[];

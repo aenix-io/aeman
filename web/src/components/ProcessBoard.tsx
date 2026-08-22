@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Board,
-  ProcessInfo,
   ProcessTemplate,
   Provider,
   TemplateInput,
 } from "../providers/types";
 import { teamColor } from "../avatar";
 import { TeamChips } from "./TeamChips";
-import { TeamsModal } from "./TeamsModal";
 
 interface ProcessBoardProps {
   board: Board;
@@ -16,6 +14,9 @@ interface ProcessBoardProps {
   /** The project chips' selection, shared with the Project tab. */
   filter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
+  /** Opens the PROJECT manager — the chips' "manage" is about projects here
+   *  exactly as it is on the Project tab. */
+  onManageProjects: () => void;
   onError: (message: string) => void;
 }
 
@@ -40,31 +41,29 @@ export function ProcessBoard({
   provider,
   filter,
   onSetFilter,
+  onManageProjects,
   onError,
 }: ProcessBoardProps) {
-  const [processes, setProcesses] = useState<ProcessInfo[] | null>(null);
-  const [managing, setManaging] = useState(false);
+  // The processes are part of the board, loaded with it and refreshed by the
+  // Board watch frame — the server's cache is the one source, and a write
+  // here shows up the same way a teammate's does: through the watch, with no
+  // reload of anything.
+  const processes = board.processes;
   const [open, setOpen] = useState<Set<string>>(() => new Set());
-  // The template being created (keyed by process) or edited (by uid).
+  // The template being created (keyed by process) or edited (by uid), the
+  // process being named, and the one being renamed.
   const [adding, setAdding] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-
-  const reload = () => {
-    void provider
-      .listProcesses(board)
-      .then(setProcesses)
-      .catch((err: unknown) => onError(errText(err)));
-  };
-  // The board's structure changing (a process added in another tab) arrives as
-  // a new board object; re-read then too.
-  useEffect(reload, [board.processes, board.projects]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [addingProcess, setAddingProcess] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   const shown = useMemo(
-    () => (processes ?? []).filter((p) => !filter || filter.includes(p.project)),
+    () => processes.filter((p) => !filter || filter.includes(p.project)),
     [processes, filter],
   );
   const targetProject = filter?.length === 1 ? filter[0] : null;
-  const looseProcesses = (processes ?? []).some((p) => !p.project);
+  const looseProcesses = processes.some((p) => !p.project);
+  const fail = (err: unknown) => onError(errText(err));
 
   const toggle = (name: string) =>
     setOpen((cur) => {
@@ -77,29 +76,30 @@ export function ProcessBoard({
       return next;
     });
 
+  // Every write below returns as soon as the server's cache has it; the
+  // Board frame that follows repaints this tab (and every other open one).
   const addProcess = (name: string) => {
-    void provider
-      .addProcess(board, name, targetProject ?? "")
-      .then(() => {
-        setOpen((cur) => new Set(cur).add(name));
-        reload();
-      })
-      .catch((err: unknown) => onError(errText(err)));
+    setAddingProcess(false);
+    const n = name.trim();
+    if (!n || targetProject === null) {
+      return;
+    }
+    setOpen((cur) => new Set(cur).add(n));
+    void provider.addProcess(board, n, targetProject).catch(fail);
   };
   const deleteProcess = (name: string) => {
     if (!window.confirm(`Delete the process “${name}”?`)) {
       return;
     }
-    void provider
-      .deleteProcess(board, name)
-      .then(reload)
-      .catch((err: unknown) => onError(errText(err)));
+    void provider.deleteProcess(board, name).catch(fail);
   };
   const renameProcess = (from: string, to: string) => {
-    void provider
-      .renameProcess(board, from, to)
-      .then(reload)
-      .catch((err: unknown) => onError(errText(err)));
+    setRenaming(null);
+    const n = to.trim();
+    if (!n || n === from) {
+      return;
+    }
+    void provider.renameProcess(board, from, n).catch(fail);
   };
 
   const saveTemplate = (process: string, uid: string | null, input: TemplateInput) => {
@@ -108,16 +108,13 @@ export function ProcessBoard({
     const call = uid
       ? provider.updateTemplate(board, uid, input)
       : provider.addTemplate(board, process, input).then(() => undefined);
-    void call.then(reload).catch((err: unknown) => onError(errText(err)));
+    void call.catch(fail);
   };
   const deleteTemplate = (t: ProcessTemplate) => {
     if (!window.confirm(`Delete the template “${t.title}”? Its past iterations stay.`)) {
       return;
     }
-    void provider
-      .deleteTemplate(board, t.uid)
-      .then(reload)
-      .catch((err: unknown) => onError(errText(err)));
+    void provider.deleteTemplate(board, t.uid).catch(fail);
   };
 
   return (
@@ -132,33 +129,58 @@ export function ProcessBoard({
           onAdd={() => undefined}
           onRemove={() => undefined}
           canManage={false}
+          onManage={onManageProjects}
           noneChip={looseProcesses ? "No project" : undefined}
         />
-        <button type="button" className="add-card" onClick={() => setManaging(true)}>
-          manage
-        </button>
       </div>
 
       <div className="process-list">
-        {processes === null && <p className="process-hint">Loading…</p>}
-        {processes !== null && shown.length === 0 && (
+        {shown.length === 0 && !addingProcess && (
           <div className="project-empty">
             <p>
               A process is recurring work the team keeps doing — publishing
               articles, collecting payment — and wants to see itself doing.
             </p>
-            <p className="project-empty-hint">
-              {targetProject !== null
-                ? "Add the first one with “manage” above."
-                : "Pick one project above to add a process to it."}
-            </p>
+            {targetProject !== null ? (
+              <button type="button" className="btn btn-primary" onClick={() => setAddingProcess(true)}>
+                + Add the first process{targetProject ? ` of ${targetProject}` : ""}
+              </button>
+            ) : (
+              <p className="project-empty-hint">Pick one project above to add a process to it.</p>
+            )}
           </div>
         )}
         {shown.map((p) => (
           <section key={p.name} className="process-item">
-            <header className="process-head" onClick={() => toggle(p.name)}>
+            <header
+              className="process-head"
+              onClick={() => toggle(p.name)}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setRenaming(p.name);
+              }}
+              title="Click to expand · double-click to rename"
+            >
               <span className="process-caret">{open.has(p.name) ? "▾" : "▸"}</span>
-              <span className="process-name">{p.name}</span>
+              {renaming === p.name ? (
+                <input
+                  type="text"
+                  className="add-card-input process-name-input"
+                  autoFocus
+                  defaultValue={p.name}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      renameProcess(p.name, (e.target as HTMLInputElement).value);
+                    } else if (e.key === "Escape") {
+                      setRenaming(null);
+                    }
+                  }}
+                  onBlur={(e) => renameProcess(p.name, e.target.value)}
+                />
+              ) : (
+                <span className="process-name">{p.name}</span>
+              )}
               {!targetProject && p.project && (
                 <span
                   className="project-epic-avatar"
@@ -172,6 +194,18 @@ export function ProcessBoard({
                 {p.templates.length} {p.templates.length === 1 ? "template" : "templates"}
               </span>
               <Health templates={p.templates} />
+              <button
+                type="button"
+                className="card-action card-action-delete process-del"
+                title={p.templates.length ? "Delete its templates first" : "Delete the process"}
+                disabled={p.templates.length > 0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteProcess(p.name);
+                }}
+              >
+                ×
+              </button>
             </header>
 
             {open.has(p.name) && (
@@ -213,20 +247,56 @@ export function ProcessBoard({
             )}
           </section>
         ))}
+        {/* A new process, named in place — the way a column is on Project.
+            It needs a single project in view: that is what it belongs to. */}
+        {shown.length > 0 &&
+          (addingProcess ? (
+            <input
+              type="text"
+              className="add-card-input process-new"
+              autoFocus
+              placeholder={targetProject ? `New process in ${targetProject}…` : "New process…"}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  addProcess((e.target as HTMLInputElement).value);
+                } else if (e.key === "Escape") {
+                  setAddingProcess(false);
+                }
+              }}
+              onBlur={(e) => addProcess(e.target.value)}
+            />
+          ) : (
+            <button
+              type="button"
+              className="add-card process-new"
+              disabled={targetProject === null}
+              title={
+                targetProject !== null
+                  ? "Add a process"
+                  : "Pick one project first — a process belongs to a project"
+              }
+              onClick={() => setAddingProcess(true)}
+            >
+              + add a process
+            </button>
+          ))}
+        {shown.length === 0 && addingProcess && (
+          <input
+            type="text"
+            className="add-card-input process-new"
+            autoFocus
+            placeholder={targetProject ? `New process in ${targetProject}…` : "New process…"}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                addProcess((e.target as HTMLInputElement).value);
+              } else if (e.key === "Escape") {
+                setAddingProcess(false);
+              }
+            }}
+            onBlur={(e) => addProcess(e.target.value)}
+          />
+        )}
       </div>
-
-      {managing && (
-        <TeamsModal
-          teams={shown.map((p) => p.name)}
-          title={targetProject ? `Processes of ${targetProject}` : "Processes"}
-          entity="process"
-          onAdd={addProcess}
-          onRename={renameProcess}
-          onRemove={deleteProcess}
-          onReorder={() => undefined}
-          onClose={() => setManaging(false)}
-        />
-      )}
     </div>
   );
 }

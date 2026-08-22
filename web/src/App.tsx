@@ -4,6 +4,7 @@ import { apiProvider } from "./providers/api/apiProvider";
 import {
   resourceToCard,
   sprintStateFrom,
+  type BoardResource,
   type CardResource,
   type OrderingResource,
   type SprintResource,
@@ -15,7 +16,10 @@ import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { ProcessBoard } from "./components/ProcessBoard";
+import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
+import { boardMetadata, processesFrom } from "./providers/api/apiProvider";
+import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
 import { fetchUsers, type GhUser } from "./users";
@@ -124,6 +128,43 @@ export function App() {
   const setProjectFilter = (keys: string[] | null) => {
     setProjectFilterState(keys);
     writeProjectFilter(keys);
+  };
+  // The project manager: one dialog, reached from the chip row of both the
+  // Project and the Process tab. Its writes return as soon as the server's
+  // cache has them; the Board watch frame repaints — nothing reloads.
+  const [managingProjects, setManagingProjects] = useState(false);
+  const addProject = (name: string) => {
+    if (!board || !name.trim()) {
+      return;
+    }
+    setProjectFilter([name.trim()]);
+    void provider.addProject(board, name.trim()).catch((err: unknown) => setError(errMessage(err)));
+  };
+  const deleteProject = (name: string) => {
+    if (!board || !window.confirm(`Delete the project “${name}”?`)) {
+      return;
+    }
+    if (projectFilter?.includes(name)) {
+      setProjectFilter(null);
+    }
+    void provider.deleteProject(board, name).catch((err: unknown) => setError(errMessage(err)));
+  };
+  const renameProject = (from: string, to: string) => {
+    if (!board) {
+      return;
+    }
+    if (projectFilter?.includes(from)) {
+      setProjectFilter(projectFilter.map((p) => (p === from ? to : p)));
+    }
+    void provider.renameProject(board, from, to).catch((err: unknown) => setError(errMessage(err)));
+  };
+  const reorderProjects = (ordered: string[]) => {
+    if (!board) {
+      return;
+    }
+    // Shown in the new order at once; the frame confirms it.
+    setBoard((cur) => (cur ? { ...cur, projects: ordered } : cur));
+    void provider.reorderProjects(board, ordered).catch((err: unknown) => setError(errMessage(err)));
   };
 
   // Appearance (theme mode + colour palette). Applied to <html> so the CSS
@@ -500,13 +541,16 @@ export function App() {
         // as one board: a reload() must never leave the board empty while the
         // cards are still in flight (loadBoard itself carries no cards).
         const addr = { owner: ownerArg, number: numberArg };
-        const [loaded, lists] = await Promise.all([
+        const [loaded, lists, processes] = await Promise.all([
           provider.loadBoard(ownerArg, numberArg),
           Promise.all(
             activeQueriesRef.current.map((q) => provider.listCards(addr, q)),
           ),
+          // The process structure rides with the board from the start; the
+          // Board watch frame keeps it current afterwards.
+          provider.listProcesses(addr).catch(() => [] as ProcessInfo[]),
         ]);
-        setBoard({ ...loaded, cards: mergeCardLists(lists) });
+        setBoard({ ...loaded, cards: mergeCardLists(lists), processes });
       } catch (err: unknown) {
         setError(errMessage(err));
       } finally {
@@ -744,31 +788,17 @@ export function App() {
       if (frame.kind === "Sync") {
         return;
       }
-      // The board's STRUCTURE changed under us — someone added a project, a
-      // column or a deadline. None of that lives in a card, so it cannot
-      // arrive as a card event: re-read the board and keep the cards we hold.
-      if (frame.kind === "Board") {
-        if (watchOwner && watchProject != null) {
-          void provider
-            .loadBoard(watchOwner, watchProject)
-            .then((fresh) =>
-              setBoard((cur) =>
-                cur
-                  ? {
-                      ...cur,
-                      teams: fresh.teams,
-                      projects: fresh.projects,
-                      epics: fresh.epics,
-                      deadlines: fresh.deadlines,
-                      processes: fresh.processes,
-                      members: fresh.members,
-                      sprintStates: fresh.sprintStates,
-                    }
-                  : cur,
-              ),
-            )
-            .catch(() => undefined);
-        }
+      // The board's STRUCTURE changed — a project, a column, a deadline, a
+      // process. The frame carries the board itself, so it is applied the way
+      // a Card frame is: no round trip, and our own roster writes need no
+      // reload either.
+      if (frame.kind === "Board" && frame.object) {
+        const obj = frame.object as BoardResource & { processes?: ProcessInfo[] | null };
+        setBoard((cur) =>
+          cur
+            ? { ...cur, ...boardMetadata(obj), processes: processesFrom(obj.processes) }
+            : cur,
+        );
         return;
       }
       // The write-behind queue's depth: changes applied everywhere but not
@@ -1182,6 +1212,7 @@ export function App() {
             provider={provider}
             filter={projectFilter}
             onSetFilter={setProjectFilter}
+            onManageProjects={() => setManagingProjects(true)}
             patchCard={patchCard}
             addCard={addCard}
             replaceCard={replaceCard}
@@ -1197,6 +1228,7 @@ export function App() {
             provider={provider}
             filter={projectFilter}
             onSetFilter={setProjectFilter}
+            onManageProjects={() => setManagingProjects(true)}
             onError={onError}
           />
         )}
@@ -1228,6 +1260,19 @@ export function App() {
           />
         )}
       </main>
+
+      {board && managingProjects && (
+        <TeamsModal
+          teams={board.projects}
+          title="Manage projects"
+          entity="project"
+          onAdd={addProject}
+          onRename={renameProject}
+          onRemove={deleteProject}
+          onReorder={reorderProjects}
+          onClose={() => setManagingProjects(false)}
+        />
+      )}
 
       {board && detailCard && (
         <CardDetail

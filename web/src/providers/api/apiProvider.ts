@@ -32,6 +32,38 @@ import type {
   ZoneKey,
 } from "../types";
 
+/** boardMetadata maps a board resource's metadata onto board state — used by
+ *  loadBoard and by the Board watch frame alike, so a roster change arriving
+ *  over the watch lands exactly as a fresh load would. */
+export function boardMetadata(
+  info: BoardResource,
+): Pick<Board, "title" | "url" | "teams" | "projects" | "deadlines" | "epics" | "members"> {
+  return {
+    title: info.metadata.title ?? "",
+    url: info.metadata.url ?? "",
+    teams: info.metadata.teams ?? [],
+    projects: info.metadata.projects ?? [],
+    deadlines: (info.metadata.deadlines ?? []).map((d) => ({
+      week: d.week,
+      project: d.project ?? "",
+    })),
+    epics: (info.metadata.epics ?? []).map((e) => ({
+      name: e.name,
+      project: e.project ?? "",
+    })),
+    members: info.metadata.members ?? [],
+  };
+}
+
+/** processesFrom normalises the process structure off the wire. */
+export function processesFrom(items: ProcessInfo[] | null | undefined): ProcessInfo[] {
+  return (items ?? []).map((p) => ({
+    ...p,
+    project: p.project ?? "",
+    templates: (p.templates ?? []).map((t) => ({ ...t, history: t.history ?? [] })),
+  }));
+}
+
 // api issues a request against /api/v1 for a given board. It carries the board
 // identity as query parameters (?owner=&board=) so the server resolves the
 // right board, sets a JSON content type when there is a body, and on a non-2xx
@@ -169,26 +201,11 @@ export const apiProvider: Provider = {
     return {
       owner,
       number,
-      title: info.metadata.title ?? "",
-      url: info.metadata.url ?? "",
       // Cards are loaded per view via listCards; the initial set arrives right
       // after this from the App's first view fetch.
       cards: [],
-      teams: info.metadata.teams ?? [],
-      projects: info.metadata.projects ?? [],
-      deadlines: (info.metadata.deadlines ?? []).map((d) => ({
-        week: d.week,
-        project: d.project ?? "",
-      })),
-      processes: (info.metadata.processes ?? []).map((p) => ({
-        name: p.name,
-        project: p.project ?? "",
-      })),
-      epics: (info.metadata.epics ?? []).map((e) => ({
-        name: e.name,
-        project: e.project ?? "",
-      })),
-      members: info.metadata.members ?? [],
+      ...boardMetadata(info),
+      processes: [],
       sprintStates: sprintStatesFrom(sprints.items ?? []),
     };
   },
@@ -441,11 +458,7 @@ export const apiProvider: Provider = {
   async listProcesses(board: BoardAddr, project?: string): Promise<ProcessInfo[]> {
     const q = project ? `?project=${encodeURIComponent(project)}` : "";
     const res = await api<{ items: ProcessInfo[] | null }>(board, "GET", `/processes${q}`);
-    return (res.items ?? []).map((p) => ({
-      ...p,
-      project: p.project ?? "",
-      templates: (p.templates ?? []).map((t) => ({ ...t, history: t.history ?? [] })),
-    }));
+    return processesFrom(res.items);
   },
 
   async addProcess(board: BoardAddr, name: string, project: string): Promise<void> {

@@ -11,7 +11,6 @@ import { teamColor, teamInitial } from "../avatar";
 import { Dropdown } from "./Dropdown";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
-import { TeamsModal } from "./TeamsModal";
 
 interface ProjectBoardProps {
   board: Board;
@@ -19,6 +18,9 @@ interface ProjectBoardProps {
   /** Which projects are in view (null = all; "" = the no-project bucket). */
   filter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
+  /** Opens the project manager, which the App owns — both this tab and the
+   *  Process tab reach it through their chip row. */
+  onManageProjects: () => void;
   patchCard: (
     itemId: string,
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
@@ -162,6 +164,7 @@ export function ProjectBoard({
   provider,
   filter,
   onSetFilter,
+  onManageProjects,
   patchCard,
   addCard,
   replaceCard,
@@ -309,9 +312,10 @@ export function ProjectBoard({
     // Only this project's columns are persisted — the others keep the order
     // the board already has for them.
     const names = epics.filter((x) => x.project === d.project).map((x) => x.name);
+    // The preview order stays up until the Board frame confirms it (or a
+    // failure puts the board's own order back).
     void provider
       .reorderEpics(board, d.project, names)
-      .then(reload)
       .catch((err: unknown) => {
         setOrder(null); // put the board's own order back on screen
         onError(errText(err));
@@ -707,7 +711,7 @@ export function ProjectBoard({
   // The column being renamed in its header, and whether the project manager
   // dialog is open.
   const [renaming, setRenaming] = useState<string | null>(null);
-  const [managing, setManaging] = useState(false);
+
   // The status line remembers whether it was left open, as the Team board's
   // weekly plan does.
   const [progressOpen, setProgressOpen] = useState(
@@ -751,45 +755,18 @@ export function ProjectBoard({
     }
     void provider
       .addEpic(board, name.trim(), targetProject)
-      .then(reload)
       .catch((err: unknown) => onError(errText(err)));
   };
 
-  const addProject = (name: string) => {
-    if (!name.trim()) {
-      return;
-    }
-    void provider
-      .addProject(board, name.trim())
-      .then(() => {
-        selectFilter([name.trim()]);
-        reload();
-      })
-      .catch((err: unknown) => onError(errText(err)));
-  };
-
-  const deleteProject = (name: string) => {
-    if (!window.confirm(`Delete the project “${name}”?`)) {
-      return;
-    }
-    void provider
-      .deleteProject(board, name)
-      .then(() => {
-        if (filter?.includes(name)) {
-          selectFilter(null);
-        }
-        reload();
-      })
-      .catch((err: unknown) => onError(errText(err)));
-  };
-
+  // Roster writes return as soon as the server's cache has them; the Board
+  // watch frame that follows repaints this tab and every other open one. No
+  // reload — the same way a card edit on Me or Team never reloads.
   const deleteEpic = (col: EpicRef) => {
     if (!window.confirm(`Delete the epic “${col.name}”?`)) {
       return;
     }
     void provider
       .deleteEpic(board, col.name, col.project)
-      .then(reload)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -800,26 +777,6 @@ export function ProjectBoard({
     }
     void provider
       .renameEpic(board, col.project, col.name, to.trim())
-      .then(reload)
-      .catch((err: unknown) => onError(errText(err)));
-  };
-
-  const renameProject = (from: string, to: string) => {
-    void provider
-      .renameProject(board, from, to)
-      .then(() => {
-        if (filter?.includes(from)) {
-          selectFilter(filter.map((p) => (p === from ? to : p)));
-        }
-        reload();
-      })
-      .catch((err: unknown) => onError(errText(err)));
-  };
-
-  const reorderProjects = (ordered: string[]) => {
-    void provider
-      .reorderProjects(board, ordered)
-      .then(reload)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -847,7 +804,7 @@ export function ProjectBoard({
     const call = on
       ? provider.addDeadline(board, week, projectName)
       : provider.deleteDeadline(board, week, projectName);
-    void call.then(reload).catch((err: unknown) => onError(errText(err)));
+    void call.catch((err: unknown) => onError(errText(err)));
   };
 
   // Measure the board (and where the grid starts inside it) whenever the
@@ -940,7 +897,6 @@ export function ProjectBoard({
     }
     void provider
       .moveDeadline(board, dlProject, from, to)
-      .then(reload)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -1185,10 +1141,10 @@ export function ProjectBoard({
           teams={board.projects}
           selectedKeys={filter}
           onSelect={selectFilter}
-          onAdd={addProject}
-          onRemove={deleteProject}
+          onAdd={() => undefined}
+          onRemove={() => undefined}
           canManage={false}
-          onManage={() => setManaging(true)}
+          onManage={onManageProjects}
           noneChip={looseEpics ? "No project" : undefined}
         />
       </div>
@@ -1821,18 +1777,6 @@ export function ProjectBoard({
               })}
           </div>
         </div>
-      )}
-      {managing && (
-        <TeamsModal
-          teams={board.projects}
-          title="Manage projects"
-          entity="project"
-          onAdd={addProject}
-          onRename={renameProject}
-          onRemove={deleteProject}
-          onReorder={reorderProjects}
-          onClose={() => setManaging(false)}
-        />
       )}
     </div>
   );
