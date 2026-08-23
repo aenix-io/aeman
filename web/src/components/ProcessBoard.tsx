@@ -83,6 +83,10 @@ export function ProcessBoard({
   const looseProcesses = processes.some((p) => !p.project);
   const fail = (err: unknown) => onError(errText(err));
 
+  const allOpen = shown.length > 0 && shown.every((p) => open.has(p.name));
+  const toggleAll = () =>
+    setOpen(allOpen ? new Set() : new Set(shown.map((p) => p.name)));
+
   const toggle = (name: string) =>
     setOpen((cur) => {
       const next = new Set(cur);
@@ -206,10 +210,24 @@ export function ProcessBoard({
           onManage={onManageProjects}
           noneChip={looseProcesses ? "No project" : undefined}
         />
+        {shown.length > 0 && (
+          <button
+            type="button"
+            className="add-card process-toggle-all"
+            title={allOpen ? "Collapse every process" : "Expand every process"}
+            onClick={toggleAll}
+          >
+            {allOpen ? "collapse all" : "expand all"}
+          </button>
+        )}
       </div>
 
       <div className="process-list">
-        {shown.length === 0 && !addingProcess && (
+        {/* The empty state stays on screen while the first process is being
+            named — the field is part of it, as on the Project tab. Hiding it
+            the moment naming began sent the field to the list's own add row
+            at the bottom, below nothing. */}
+        {shown.length === 0 && (
           <div className="project-empty">
             <p>
               A process is recurring work the team keeps doing — publishing
@@ -361,6 +379,7 @@ export function ProcessBoard({
                       members={board.members}
                       users={users}
                       onSetRecurrence={(recurrence) => saveTask(p.name, t.uid, { recurrence })}
+                      onSetStart={(start) => saveTask(p.name, t.uid, { start })}
                       onSetTeam={(team) => saveTask(p.name, t.uid, { team })}
                       onSetAssignee={(assignee) => saveTask(p.name, t.uid, { assignee })}
                       onSetAccumulate={(accumulate) => saveTask(p.name, t.uid, { accumulate })}
@@ -392,30 +411,29 @@ export function ProcessBoard({
         ))}
         {/* A new process, named in place — the way a column is on Project.
             It needs a single project in view: that is what it belongs to. */}
-        {addingProcess !== null ? (
-          <input
-            type="text"
-            className="add-card-input process-new"
-            autoFocus
-            placeholder={
-              addingProcess ? `New process in ${addingProcess}…` : "New process in no project…"
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                addProcess((e.target as HTMLInputElement).value, addingProcess);
-              } else if (e.key === "Escape") {
-                setAddingProcess(null);
+        {shown.length > 0 &&
+          (addingProcess !== null ? (
+            <input
+              type="text"
+              className="add-card-input process-new"
+              autoFocus
+              placeholder={
+                addingProcess ? `New process in ${addingProcess}…` : "New process in no project…"
               }
-            }}
-            onBlur={(e) => addProcess(e.target.value, addingProcess)}
-          />
-        ) : (
-          shown.length > 0 && (
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  addProcess((e.target as HTMLInputElement).value, addingProcess);
+                } else if (e.key === "Escape") {
+                  setAddingProcess(null);
+                }
+              }}
+              onBlur={(e) => addProcess(e.target.value, addingProcess)}
+            />
+          ) : (
             <button type="button" className="add-card process-new" onClick={beginAdd}>
               + add a process
             </button>
-          )
-        )}
+          ))}
       </div>
 
       <Dropdown
@@ -519,6 +537,7 @@ function TaskRow({
   members,
   users,
   onSetRecurrence,
+  onSetStart,
   onSetTeam,
   onSetAssignee,
   onSetAccumulate,
@@ -533,6 +552,7 @@ function TaskRow({
   members: string[];
   users: Record<string, GhUser>;
   onSetRecurrence: (recurrence: string) => void;
+  onSetStart: (start: string) => void;
   onSetTeam: (team: string) => void;
   onSetAssignee: (assignee: string) => void;
   onSetAccumulate: (accumulate: boolean) => void;
@@ -597,7 +617,23 @@ function TaskRow({
             </button>
           }
         />
-        <span>{t.start ? `from ${t.start}` : ""}</span>
+        {/* The anchor the cycle is counted from. A date typed into this
+            field moves every future due date with it; the turn already
+            running is left alone. */}
+        <label className="process-cell process-cell-from" title="The day the cycle is counted from — click to change">
+          <span>{t.start ? `from ${t.start}` : "no start"}</span>
+          <input
+            type="date"
+            className="process-from-input"
+            value={t.start ?? ""}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              if (e.target.value && e.target.value !== t.start) {
+                onSetStart(e.target.value);
+              }
+            }}
+          />
+        </label>
         <span className="process-task-who">
           {/* Team and owner are set where they are read — the cell IS the
               control, as a card's badges are. The form behind ✎ is for the

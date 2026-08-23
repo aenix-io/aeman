@@ -74,6 +74,7 @@ export interface CardResource {
   status?: {
     complete?: boolean;
     inProgress?: boolean;
+    overdue?: boolean;
     reviewedBy?: string;
     reviewRound?: number;
     links?: {
@@ -188,6 +189,7 @@ export function resourceToCard(res: CardResource): Card {
     reviewOf: spec.reviewOf || undefined,
     parent: spec.parent || undefined,
     reviewRound: res.status?.reviewRound,
+    overdue: res.status?.overdue ?? false,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,

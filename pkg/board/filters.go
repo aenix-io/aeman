@@ -152,9 +152,14 @@ type WeeklyBands struct {
 // group). Only the Fri band collects cards explicitly marked PlanFri; every other
 // plan card falls into Wed. It mirrors the `weekly` memo in TeamBoard.tsx.
 func WeeklyPlan(b Board, team, week string) WeeklyBands {
+	return WeeklyPlanAt(b, team, week, TodayIso())
+}
+
+// WeeklyPlanAt is WeeklyPlan against an explicit "today" (testable).
+func WeeklyPlanAt(b Board, team, week, today string) WeeklyBands {
 	bands := WeeklyBands{Wed: []Card{}, Fri: []Card{}}
 	for _, c := range b.Cards {
-		if c.Plan == PlanNone || c.Team != team || !planShowsInWeek(c, week) {
+		if c.Plan == PlanNone || c.Team != team || !planShowsInWeekAt(c, week, today) {
 			continue
 		}
 		// A week-history entry (the card has moved on to a later week) sits in
@@ -169,7 +174,7 @@ func WeeklyPlan(b Board, team, week string) WeeklyBands {
 	return bands
 }
 
-// planShowsInWeek reports whether a plan card belongs on week W's panel: its
+// planShowsInWeekAt reports whether a plan card belongs on week W's panel: its
 // own week, or — mirroring the day grid's sprint history — any FINISHED week
 // it was actually worked in. A card taken into work that was moved forward
 // keeps showing in the weeks it was worked once those weeks are over (their
@@ -177,13 +182,17 @@ func WeeklyPlan(b Board, team, week string) WeeklyBands {
 // pushed to a future week leaves its panel — it is not this week's work
 // anymore. A pure (never-started) plan card moves with its week and leaves no
 // history.
-func planShowsInWeek(c Card, week string) bool {
-	return planShowsInWeekAt(c, week, TodayIso())
-}
-
-// planShowsInWeekAt is planShowsInWeek against an explicit "today" (testable).
 func planShowsInWeekAt(c Card, week, today string) bool {
 	if c.Week == week {
+		return true
+	}
+	// A debt follows you: a plan card still open past the day it was owed by
+	// shows on the CURRENT week's panel too, beside that week's own work,
+	// without leaving the week it was owed in. It used to take a carry to
+	// bring it forward, and the carry moved it — so the week that was missed
+	// forgot it had been. Only the current week: the panel of some other
+	// future week is not where anyone settles debts.
+	if week == MondayOf(today) && c.Week < week && Overdue(c, today) {
 		return true
 	}
 	// A Project-board slot spans weeks by design: it belongs to every week

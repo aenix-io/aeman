@@ -462,6 +462,32 @@ func (s *Service) SpawnIterations(ctx context.Context, b board.Board, team, week
 	return spawned, nil
 }
 
+// SpawnDue files, for every team on the board, the turns the CURRENT week is
+// owed. It is what makes a process run by itself: the server sweeps after
+// each background refresh, so a turn appears when its week arrives, not when
+// somebody remembers to press something. Idempotent — a week that already
+// holds a task's turn is skipped (spawnIfDue).
+func (s *Service) SpawnDue(ctx context.Context, owner string, project int) (int, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return 0, err
+	}
+	week := board.MondayOf(board.TodayIso())
+	teams := map[string]bool{}
+	for _, t := range b.Tasks {
+		teams[t.Team] = true
+	}
+	total := 0
+	for team := range teams {
+		n, err := s.SpawnIterations(ctx, b, team, week, false)
+		total += n
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
+}
+
 // spawnIfDue files one task's iteration for a week, if that week is owed
 // one. It reports whether an iteration was (or would be) spawned.
 func (s *Service) spawnIfDue(ctx context.Context, b board.Board, t board.Card, week string, dryRun bool) (bool, error) {

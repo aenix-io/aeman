@@ -105,8 +105,12 @@ type CardSpec struct {
 
 // CardStatus is derived by the server, never written by clients.
 type CardStatus struct {
-	Complete    bool   `json:"complete"`
-	InProgress  bool   `json:"inProgress"`
+	Complete   bool `json:"complete"`
+	InProgress bool `json:"inProgress"`
+	// Overdue: a card that came from a plan — a slot, a process turn, a
+	// weekly-plan card — still open past the day it was owed by. Derived on
+	// read from the card's own dates (board.Overdue); never stored.
+	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
 	// Links are the references extracted from the card's description —
@@ -319,6 +323,7 @@ func CardResource(b board.Board, c board.Card) Card {
 	status := CardStatus{
 		Complete:    board.Complete(c.Stage, c.Progress),
 		InProgress:  board.IsInProgress(c),
+		Overdue:     board.Overdue(c, board.TodayIso()),
 		ReviewRound: c.ReviewRound,
 	}
 	for _, l := range board.ExtractLinks(c.Description) {

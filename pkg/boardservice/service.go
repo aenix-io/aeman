@@ -442,6 +442,8 @@ func (s *Service) withLinkDescription(ctx context.Context, b board.Board, card b
 // CarryReport summarizes what a carry pass did — or would do, on a dry run
 // (which backs the UI's confirm dialog counts).
 type CarryReport struct {
+	// Carried counts the open plan cards from earlier weeks — the debts now
+	// showing on the target week's panel. They are not moved.
 	Carried  int `json:"carried"`
 	Reseeded int `json:"reseeded"`
 	// Spawned counts process iterations filed into the week (carry_week).
@@ -837,48 +839,16 @@ func (s *Service) CarryWeek(ctx context.Context, owner string, project int, team
 		if board.Complete(c.Stage, c.Progress) {
 			continue
 		}
-		// A process iteration stays in the week it was owed: carrying it
-		// forward would erase the one fact the process exists to record —
-		// which week the work was NOT done in. It shows as late where it is,
-		// and the task decides whether the next week gets its own.
-		if c.Task != "" {
-			continue
-		}
-		// A Project-board slot has two boundaries, and carrying it over moves
-		// the SECOND one: the work began when it began — that is history — and
-		// what slipped is the end. The slot stretches into the target week
-		// instead of jumping there, which also keeps the weeks it already ran
-		// through readable on the board. One that already reaches the target
-		// week has nothing to carry, and is not counted as carried either.
-		slotEnd := board.AddDays(week, 4) // the target week's Friday
-		if c.Epic != "" && c.Day >= slotEnd {
-			continue
-		}
+		// An unfinished plan card is a DEBT, and a debt is not moved: it stays
+		// in the week it was owed in — that week is the record of what was
+		// missed — and shows on the current week's panel beside that week's
+		// own work, with the overdue mark (board.Overdue, planShowsInWeekAt).
+		// Carrying used to move the card and, for a slot, stretch its end to
+		// the target week — rewriting the very date that says it slipped, so
+		// the board forgot anything had. It counts the debts now and leaves
+		// them be; what carry-week still DOES is file the process turns the
+		// week is owed, above.
 		rep.Carried++
-		if dryRun {
-			continue
-		}
-		if c.Epic != "" {
-			if err := s.backend.SetDay(ctx, b, c, slotEnd); err != nil {
-				return rep, err
-			}
-			s.logEvent(ctx, b, c, board.EventDates,
-				board.DateRange(c.StartDate, c.Day), board.DateRange(c.StartDate, slotEnd))
-			continue
-		}
-		if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
-			return rep, err
-		}
-		s.logEvent(ctx, b, c, board.EventWeek, c.Week, week)
-		// A carried card is already overdue, so it lands in the target week's
-		// earlier half: a by-Friday card tightens to by-Wednesday. (Its past
-		// weeks keep showing it in the by-Friday band — the week-history rule.)
-		if c.Plan == board.PlanFri {
-			if err := s.backend.SetPlan(ctx, b, c, board.PlanWed); err != nil {
-				return rep, err
-			}
-			s.logEvent(ctx, b, c, board.EventPlanBand, "fri", "wed")
-		}
 	}
 	return rep, nil
 }

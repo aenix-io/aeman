@@ -561,7 +561,7 @@ export function Card({
 
   return (
     <div
-      className={`card${selected ? " card-selected" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
+      className={`card${selected ? " card-selected" : ""}${card.overdue ? " card-overdue" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
         card.plan ? ` card-plan-${card.plan}` : ""
       }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
         dimAvatar ? " card-dim-avatar" : ""

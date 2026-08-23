@@ -93,7 +93,10 @@ function slotTone(card: CardModel, today: string): string {
   if (complete(card)) {
     return "project-slot-done";
   }
-  const late = !!card.day && card.day < today;
+  // The server's one definition of overdue (board.Overdue), with the local
+  // reading as a fallback for a card created a moment ago and not yet echoed
+  // back: the two agree, and only one of them should exist.
+  const late = card.overdue ?? (!!card.day && card.day < today);
   // Taken into WORK, not merely assigned: a plan names its owners months
   // ahead, so an assignee alone would paint the whole roadmap yellow and say
   // nothing. A slot joins a sprint (or moves off zero) when the work actually

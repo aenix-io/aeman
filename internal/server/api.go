@@ -49,7 +49,7 @@ var errMissingBoard = errors.New("owner and board are required (set ?owner=&boar
 //	GET    /api/v1/sprints                            per-team sprint pointers
 //	PATCH  /api/v1/sprints                            set a team's pointer directly
 //	POST   /api/v1/sprints/actions/carry-over         advance a sprint, carry unfinished (dryRun)
-//	POST   /api/v1/sprints/actions/carry-week         pull unfinished plan cards forward (dryRun)
+//	POST   /api/v1/sprints/actions/carry-week         file the week's process turns; count its debts (dryRun)
 //	GET    /api/v1/ordering                           the board-level manual order
 //	GET    /api/v1/watch                              WebSocket stream (Card/Sprint/Ordering events)
 func (s *Server) registerAPI(mux *http.ServeMux) {
@@ -155,7 +155,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/sprints/actions/carry-over", "Advance a team's sprint to today, carry unfinished ({team, dryRun})"},
 			{"POST", "/api/v1/sprints/actions/reorder-teams", "Apply a shared team order (moves the hidden sprint-state cards; body {teams:[...]})"},
 			{"POST", "/api/v1/sprints/actions/delete-team", "Delete a team's sprint pointer; refused while cards still use the team (body {team})"},
-			{"POST", "/api/v1/sprints/actions/carry-week", "Pull unfinished plan cards into the week ({team, week, dryRun})"},
+			{"POST", "/api/v1/sprints/actions/carry-week", "File the process turns a team's week is owed and reseed its finished recurrent cards; debts are counted, not moved ({team, week, dryRun}). The server runs this itself as each week arrives"},
 			{"POST", "/api/v1/epics", "Declare an epic column inside a project ({name, project}); the project is required"},
 			{"POST", "/api/v1/epics/actions/delete-epic", "Delete an EMPTY epic column; refused while cards sit under it ({epic, project})"},
 			{"POST", "/api/v1/epics/actions/reorder-epics", "Apply one project's column order (moves the hidden epic-state cards; body {project, epics:[...]})"},

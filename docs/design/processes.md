@@ -76,3 +76,24 @@ deletable while it has no tasks), `add_process_task` /
 `update_process_task` / `delete_process_task`, and
 `list_processes` returning the structure with each task's history.
 Iterations are plain cards; nothing new to list them with.
+
+## Overdue, and why nothing moves
+
+A card that came from a plan — a Project slot, a process turn, a
+weekly-plan card — and is still open past the day it was owed by is
+**overdue**. The day is the card's own: a slot's end date, a turn's
+week, a plan card's band (by Wednesday means by Wednesday). It is
+derived on every read (`board.Overdue`), never stored, and it shows as
+a red line on the card's left edge wherever the card appears: the day
+board, the weekly plan, the Project board. Agents read it as
+`status.overdue`.
+
+An overdue card is not moved. It stays in the week it was owed in —
+that week is the record of what was missed — and shows on the current
+week's panel beside that week's own work. Carry-week used to move it
+(and, for a slot, stretch its end date to the target week, rewriting
+the very date that said it slipped), so the board forgot that anything
+had. Now the server's weekly sweep only files process turns and reseeds
+finished recurrent cards; debts it counts and leaves be. Closing the
+card takes the line away and leaves the card where it was — done, late,
+in its own week.

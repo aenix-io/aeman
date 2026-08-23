@@ -80,6 +80,9 @@ export interface Card {
   /** On a process turn: the process it belongs to, and the task it came from. */
   process?: string;
   task?: string;
+  /** A card from a plan — a slot, a turn, a weekly-plan card — still open past
+   *  the day it was owed by. Derived by the server from the card's dates. */
+  overdue?: boolean;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
