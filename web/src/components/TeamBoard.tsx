@@ -330,6 +330,19 @@ export function TeamBoard({
       if (c.week === currentWeek) {
         return true;
       }
+      // A debt follows you: a card from an earlier week, still open past the
+      // day it was owed by, belongs on the CURRENT week's panel beside that
+      // week's own work. The server decided it is overdue (board.Overdue)
+      // and served it; this mirror of the server's week rule used to drop
+      // it on the floor — which is what happens when a rule is copied.
+      if (
+        c.overdue &&
+        !!c.week &&
+        c.week < currentWeek &&
+        currentWeek === mondayOf(todayIso())
+      ) {
+        return true;
+      }
       // History only in weeks whose working days are over (past the week's
       // Friday): while a week runs, a card pushed to a future week leaves its
       // panel — it is not this week's work anymore.
