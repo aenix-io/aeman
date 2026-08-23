@@ -877,26 +877,6 @@ func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in carry
 	return nil, rep, nil
 }
 
-// carryWeekInput names a team and target week for the weekly carry.
-type carryWeekInput struct {
-	boardRef
-	Team   string `json:"team,omitempty" jsonschema:"EXISTING team key from get_board metadata.teams; empty is the no-team group. Carrying an unknown team quietly bootstraps a sprint pointer for it — never invent a key here"`
-	Week   string `json:"week,omitempty" jsonschema:"target week Monday as yyyy-mm-dd; defaults to the current week"`
-	DryRun bool   `json:"dryRun,omitempty" jsonschema:"report the would-be counts without changing anything"`
-}
-
-func (h *server) carryWeek(ctx context.Context, _ *mcp.CallToolRequest, in carryWeekInput) (*mcp.CallToolResult, boardservice.CarryReport, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
-	if err != nil {
-		return nil, boardservice.CarryReport{}, err
-	}
-	rep, err := svc.CarryWeek(ctx, owner, project, in.Team, in.Week, in.DryRun)
-	if err != nil {
-		return nil, boardservice.CarryReport{}, err
-	}
-	return nil, rep, nil
-}
-
 // --- Notes ---------------------------------------------------------------------
 
 // linkListOutput is the list_links result envelope.

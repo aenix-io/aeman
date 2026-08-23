@@ -304,16 +304,7 @@ export interface Provider {
     board: BoardAddr,
     team: string | null,
     dryRun?: boolean,
-  ): Promise<CarryReport>;
-  /** Pull a team's unfinished plan cards from earlier weeks into `week`;
-   * finished recurrent ones reseed as fresh copies. dryRun = counts only. */
-  carryWeek(
-    board: BoardAddr,
-    team: string | null,
-    week: string,
-    dryRun?: boolean,
-  ): Promise<CarryReport>;
-  /** Apply a shared team order (moves the hidden sprint-state cards). */
+  ): Promise<CarryReport>;  /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(board: BoardAddr, teams: string[]): Promise<void>;
 
   /** Declare a new epic column inside a project (which is required). */
