@@ -1311,6 +1311,54 @@ func (s *Service) applyStage(ctx context.Context, b board.Board, card board.Card
 		if err := s.backend.SetProgress(ctx, b, card, newProgress); err != nil {
 			return err
 		}
+		// The jump is recorded so Reopen can RESTORE it: undoing an
+		// accidental done must give back the progress the card had, not an
+		// invented number.
+		s.logEvent(ctx, b, card, board.EventProgress,
+			strconv.Itoa(card.Progress), strconv.Itoa(newProgress))
+	}
+	return nil
+}
+
+// Reopen undoes a done mark: the stage clears and the progress RETURNS to
+// what the card had when done was set — read from its own activity log (the
+// done write records the jump). A card with no recorded jump falls back to
+// the in-progress nudge, the old behaviour.
+func (s *Service) Reopen(ctx context.Context, owner string, project int, itemID string) error {
+	b, card, err := s.loadCard(ctx, owner, project, itemID)
+	if err != nil {
+		return err
+	}
+	restored := -1
+	for _, e := range card.Events {
+		if e.Kind != board.EventProgress {
+			continue
+		}
+		// The LAST recorded jump onto a completing value is the done we are
+		// undoing; its from-side is what the card is owed back.
+		if to, err := strconv.Atoi(e.To); err == nil && to >= 100 {
+			if from, err := strconv.Atoi(e.From); err == nil {
+				restored = from
+			}
+		}
+	}
+	if restored < 0 {
+		return s.SetInProgress(ctx, owner, project, itemID)
+	}
+	newStage, _ := board.ApplyInProgress(card.Stage, card.Progress)
+	if err := s.keepsItsMarker(card, newStage); err != nil {
+		return err
+	}
+	if err := s.backend.SetStage(ctx, b, card, newStage); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, card, board.EventStage, string(card.Stage), "reopened")
+	if restored != card.Progress {
+		if err := s.backend.SetProgress(ctx, b, card, restored); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventProgress,
+			strconv.Itoa(card.Progress), strconv.Itoa(restored))
 	}
 	return nil
 }

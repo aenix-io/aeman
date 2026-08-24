@@ -318,6 +318,11 @@ export const apiProvider: Provider = {
     return cardFrom(board, "POST", `/cards/${uid}/actions/in-progress`, {});
   },
 
+  async reopen(board: BoardAddr, uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
+    return cardFrom(board, "POST", `/cards/${uid}/actions/reopen`, {});
+  },
+
   async sendToReview(
     board: BoardAddr,
     uid: string,

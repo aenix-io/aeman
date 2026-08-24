@@ -36,6 +36,7 @@ var errMissingBoard = errors.New("owner and board are required (set ?owner=&boar
 //	POST   /api/v1/cards/{uid}/actions/move           reorder after another card
 //	POST   /api/v1/cards/{uid}/actions/defer          push the scheduled day N days ahead
 //	POST   /api/v1/cards/{uid}/actions/in-progress    move to the implicit In Progress
+//	POST   /api/v1/cards/{uid}/actions/reopen         undo a done mark, restoring the pre-done progress
 //	POST   /api/v1/cards/{uid}/actions/send-to-review send (or reassign) to a reviewer
 //	POST   /api/v1/cards/{uid}/actions/remove-reviewer delete the linked review card
 //	POST   /api/v1/cards/{uid}/actions/take-into-plan  take a plan card into work
@@ -63,6 +64,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/move", s.handleMoveCard)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/defer", s.handleDeferCard)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/in-progress", s.handleInProgress)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/reopen", s.handleReopen)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/send-to-review", s.handleSendToReview)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-reviewer", s.handleRemoveReviewer)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/take-into-plan", s.handleTakeIntoPlan)
@@ -139,6 +141,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/cards/{uid}/actions/remove", "The smart remove: demote, release or delete by board rules ({from: grid|plan})"},
 			{"POST", "/api/v1/cards/{uid}/actions/move", "Reorder after ({after}) or before ({before}) another card; empty = top"},
 			{"POST", "/api/v1/cards/{uid}/actions/defer", "Push the scheduled day {days} ahead of today"},
+			{"POST", "/api/v1/cards/{uid}/actions/reopen", "Undo a done mark: the stage clears and the progress returns to what the card had when done was set (its log records the jump); no history falls back to In Progress"},
 			{"POST", "/api/v1/cards/{uid}/actions/in-progress", "Move to the implicit In Progress status"},
 			{"POST", "/api/v1/cards/{uid}/actions/send-to-review", "Send to review ({reviewer, day}); reassigns if a review card exists"},
 			{"POST", "/api/v1/cards/{uid}/actions/remove-reviewer", "Delete the linked review card"},
@@ -750,6 +753,19 @@ func (s *Server) handleInProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if err := svc.SetInProgress(r.Context(), owner, project, uid); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	s.cardResponse(w, r, svc, owner, project, uid)
+}
+
+func (s *Server) handleReopen(w http.ResponseWriter, r *http.Request) {
+	svc, owner, project, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	uid := r.PathValue("uid")
+	if err := svc.Reopen(r.Context(), owner, project, uid); err != nil {
 		s.apiError(w, r, err)
 		return
 	}

@@ -375,3 +375,41 @@ func TestDoneOnRecurrentKeepsRecurrence(t *testing.T) {
 		t.Fatalf("progress = %d, want 100", c.Progress)
 	}
 }
+
+// Grouping a weekly-plan card under a Project-board SLOT: the plan hand-off
+// must not write the subtask's week onto the parent — a slot's week derives
+// from its start date, the conflicting write is refused, and the refusal
+// killed the whole grouping. A slot is on the Weekly panel by its span
+// already; the subtask's plan simply clears.
+func TestGroupPlanCardUnderASlot(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "slot", Title: "the slot", Epic: "E", Project: "P", Team: "t",
+			StartDate: "2026-08-25", Week: "2026-08-24", Day: "2026-09-11"},
+		{ItemID: "c1", Title: "plan card", Team: "t",
+			Plan: board.PlanFri, Week: "2026-08-31"},
+	}, nil)
+	svc := New(fake)
+	ctx := t.Context()
+	if err := svc.SetParent(ctx, "o", 1, "c1", "slot"); err != nil {
+		t.Fatalf("grouping under a slot: %v", err)
+	}
+	b, _ := fake.LoadBoard(ctx, "o", 1)
+	var child, parent board.Card
+	for _, c := range b.Cards {
+		switch c.ItemID {
+		case "c1":
+			child = c
+		case "slot":
+			parent = c
+		}
+	}
+	if child.Parent != "slot" {
+		t.Fatalf("child parent = %q, want slot", child.Parent)
+	}
+	if child.Plan != board.PlanNone {
+		t.Fatalf("the subtask kept its plan band %q", child.Plan)
+	}
+	if parent.Plan != board.PlanNone || parent.Week != "2026-08-24" {
+		t.Fatalf("the slot was rewritten: band %q week %q", parent.Plan, parent.Week)
+	}
+}

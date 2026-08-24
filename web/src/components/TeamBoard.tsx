@@ -648,9 +648,13 @@ export function TeamBoard({
   // on the board — a card created into a hidden group would just vanish.
   const pickerNoTeam = (teamFilter ?? roster).includes("");
 
-  // People to offer when reassigning a card: everyone seen on the board, me first.
+  // People to offer when reassigning a card: the BOARD's member roster plus
+  // everyone seen on a card. Cards alone are not enough — in a team-filtered
+  // view they only name that team's people, and handing a weekly-plan card
+  // to someone outside the filter (the whole point of assigning) offered an
+  // empty seat. MeBoard already does it this way.
   const people = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(board.members);
     for (const card of board.cards) {
       for (const login of card.assignees) {
         set.add(login);
@@ -659,8 +663,9 @@ export function TeamBoard({
     if (me) {
       set.add(me);
     }
+    set.delete("");
     return [...set].sort((a, b) => a.localeCompare(b));
-  }, [board.cards, me]);
+  }, [board.members, board.cards, me]);
 
   // Subtasks grouped by parent, from the full card state (children are
   // delivered alongside their parents by the view).

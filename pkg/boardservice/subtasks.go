@@ -61,9 +61,12 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 	}
 	// A weekly-plan card grouped under a parent hands its slot to the parent
 	// (the parent replaces it in the Weekly plan); a parent already in the
-	// plan keeps its own slot and the subtask's simply clears.
+	// plan keeps its own slot and the subtask's simply clears. A SLOT parent
+	// receives nothing: it is on the Weekly panel by its span already, and
+	// writing the subtask's week onto it is the conflicting write SetWeek
+	// refuses — the refusal used to kill the whole grouping.
 	if card.Plan != board.PlanNone {
-		if p.Plan == board.PlanNone {
+		if p.Plan == board.PlanNone && p.Epic == "" {
 			if err := s.backend.SetPlan(ctx, b, p, card.Plan); err != nil {
 				return err
 			}

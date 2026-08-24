@@ -276,6 +276,9 @@ export interface Provider {
   deferCard(board: BoardAddr, uid: string, days: number): Promise<Card>;
   /** Move to the implicit In Progress status (no stage, progress in [10,90]). */
   setInProgress(board: BoardAddr, uid: string): Promise<Card>;
+  /** Undo a done mark: the stage clears and the progress returns to what the
+   *  card had when done was set (its log records the jump). */
+  reopen(board: BoardAddr, uid: string): Promise<Card>;
   /** Create the linked review card (or reassign an existing one). */
   sendToReview(
     board: BoardAddr,
