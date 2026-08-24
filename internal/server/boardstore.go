@@ -1406,18 +1406,37 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 
 	b.installCreated(ctx, e, card)
 
+	var adopted atomic.Bool
 	title := card.Title
 	b.enqueue(ctx, e, pendingOp{
-		key:    "", // a create never coalesces
-		itemID: provisional,
-		desc:   "create «" + title + "»",
-		apply:  func(*board.Board) {},
+		key:     "", // a create never coalesces
+		itemID:  provisional,
+		desc:    "create «" + title + "»",
+		noRetry: true, // an ambiguous failure retried = a duplicate card
+		// The apply re-imposes the provisional row on a freshly installed
+		// board (the recentCards grace covers the first 90 seconds; this
+		// covers a queue that outlives it — GitHub throttling, a long
+		// backlog). Skipped once adopted: the fresh read then carries the
+		// real card itself. NB: apply runs under e.mu (install holds it), so
+		// adoption is read through an atomic, not the entry lock.
+		apply: func(target *board.Board) {
+			if adopted.Load() {
+				return
+			}
+			for _, c := range target.Cards {
+				if c.ItemID == provisional {
+					return
+				}
+			}
+			target.Cards = append(target.Cards, card)
+		},
 		exec: func(ctx context.Context) error {
 			real, err := b.inner.CreateCard(ctx, bd, in)
 			if err != nil {
 				return err
 			}
 			b.adoptLocal(ctx, e, provisional, real)
+			adopted.Store(true)
 			return nil
 		},
 	})

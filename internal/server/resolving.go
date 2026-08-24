@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
@@ -175,3 +176,36 @@ func (r *resolvingBackend) SetSprintState(ctx context.Context, b board.Board, te
 }
 
 var _ boardservice.Backend = (*resolvingBackend)(nil)
+
+// ---- optional capabilities ------------------------------------------------
+// The wrapper must not HIDE what its inner backend can do: the store probes
+// b.inner with type assertions for these, and when the resolving layer landed
+// in between, every assertion silently failed — the cheap access probe died
+// (every returning user paid the full board load), draft-body sync died, and
+// GitHub link resolution died. Each forward delegates when the inner backend
+// offers the capability and reports its absence otherwise.
+
+func (r *resolvingBackend) CheckBoardAccess(ctx context.Context, owner string, project int) error {
+	if p, ok := r.inner.(interface {
+		CheckBoardAccess(ctx context.Context, owner string, project int) error
+	}); ok {
+		return p.CheckBoardAccess(ctx, owner, project)
+	}
+	return fmt.Errorf("backend offers no access probe")
+}
+
+func (r *resolvingBackend) SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error) {
+	if s, ok := r.inner.(interface {
+		SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error)
+	}); ok {
+		return s.SyncDraftBody(ctx, card, description, notes, events)
+	}
+	return nil, nil, fmt.Errorf("backend cannot sync draft bodies")
+}
+
+func (r *resolvingBackend) ResolveIssueRef(ctx context.Context, link board.Link) (board.Link, error) {
+	if l, ok := r.inner.(boardservice.LinkResolver); ok {
+		return l.ResolveIssueRef(ctx, link)
+	}
+	return link, fmt.Errorf("backend cannot resolve github refs")
+}

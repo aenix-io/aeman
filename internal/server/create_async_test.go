@@ -151,3 +151,107 @@ func boardCard(b board.Board, id string) (board.Card, bool) {
 	}
 	return board.Card{}, false
 }
+
+// A provisional card must survive a warm install: the warmer replaces the
+// cached board every few minutes, and the create's pending op is what
+// re-imposes the not-yet-adopted row onto the fresh snapshot. With an empty
+// apply, a warm tick between create and adoption WIPED the row — an
+// immediate rename answered "card not found: local-…", and the client that
+// still held the provisional saw a duplicate once the real card arrived.
+func TestProvisionalSurvivesAWarmInstall(t *testing.T) {
+	store := newBoardStore()
+	fake := boardservicetest.New(nil, map[string]board.SprintState{
+		"alpha": {Current: board.TodayIso(), ItemID: "st1"},
+	})
+	slow := &slowCreates{Backend: fake, delay: 300 * time.Millisecond}
+	be := &storeBackend{inner: &resolvingBackend{inner: slow, store: store}, store: store}
+	svc := boardservice.New(be)
+	ctx := context.Background()
+	if _, err := be.LoadBoard(ctx, "acme", 1); err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := svc.CreateCard(ctx, "acme", 1, boardservice.CreateCardArgs{
+		Title: "born mid-warm", Team: "alpha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(created.ItemID, "local-") {
+		t.Fatalf("expected a provisional id, got %q", created.ItemID)
+	}
+
+	// The warmer replaces the cache with a fresh snapshot that does not
+	// contain the provisional row (GitHub does not know it yet).
+	fresh, err := fake.LoadBoard(ctx, "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := store.entry(storeKey("acme", 1))
+	be.install(e, fresh, "")
+
+	// The provisional row is still on the cached board…
+	bd, err := be.LoadBoard(ctx, "acme", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	present := false
+	for _, c := range bd.Cards {
+		if c.ItemID == created.ItemID {
+			present = true
+		}
+	}
+	if !present {
+		t.Fatal("the warm install wiped the provisional card")
+	}
+	// …and an immediate rename by the provisional id lands.
+	if err := svc.Rename(ctx, "acme", 1, created.ItemID, "renamed mid-warm"); err != nil {
+		t.Fatalf("rename by the provisional id: %v", err)
+	}
+
+	// Once the queue drains, the adopted real card carries the rename.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		bd, _ := be.LoadBoard(ctx, "acme", 1)
+		var found *board.Card
+		for i := range bd.Cards {
+			if bd.Cards[i].Title == "renamed mid-warm" && !strings.HasPrefix(bd.Cards[i].ItemID, "local-") {
+				found = &bd.Cards[i]
+			}
+		}
+		if found != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the adopted card never carried the rename")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The resolving wrapper must not hide its inner backend's capabilities: the
+// store type-asserts b.inner for the cheap access probe (and the body
+// syncer, and the link resolver), and a wrapper that swallows them silently
+// turned every returning user's read into a full 50-second board load.
+func TestResolvingForwardsCapabilities(t *testing.T) {
+	r := &resolvingBackend{inner: probingBackend{}, store: newBoardStore()}
+	var asIface any = r
+	p, ok := asIface.(accessProber)
+	if !ok {
+		t.Fatal("the wrapper does not offer the access probe")
+	}
+	if err := p.CheckBoardAccess(context.Background(), "acme", 1); err != nil {
+		t.Fatalf("the probe was not delegated: %v", err)
+	}
+	// An inner backend WITHOUT the probe reports failure rather than lying.
+	r2 := &resolvingBackend{inner: boardservicetest.New(nil, nil), store: newBoardStore()}
+	var as2 any = r2
+	if err := as2.(accessProber).CheckBoardAccess(context.Background(), "acme", 1); err == nil {
+		t.Fatal("a probe-less inner backend must report the probe failed")
+	}
+}
+
+// probingBackend is a fake that offers CheckBoardAccess.
+type probingBackend struct{ boardservice.Backend }
+
+func (probingBackend) CheckBoardAccess(context.Context, string, int) error { return nil }
