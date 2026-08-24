@@ -924,24 +924,6 @@ export function ProjectBoard({
 
   // While a slot is being stretched, its span follows the pointer — the drag
   // has to be visible on the thing being dragged, not only on the cursor.
-  // While an edge is being pulled, the slot itself shows where it would land:
-  // the preview IS the card, so there is nothing to imagine.
-  const previewRow = (card: CardModel, row: number, span: number): number => {
-    if (!drag?.resize || drag.resize.itemId !== card.itemId || drag.edge !== "top") {
-      return row;
-    }
-    return Math.max(0, Math.min(drag.to, row + span - 1));
-  };
-
-  const previewSpan = (card: CardModel, row: number, span: number): number => {
-    if (!drag?.resize || drag.resize.itemId !== card.itemId) {
-      return span;
-    }
-    if (drag.edge === "top") {
-      return row + span - previewRow(card, row, span);
-    }
-    return Math.max(1, Math.min(drag.to - row + 1, weeks.length - row));
-  };
 
   // Cards per column with their row spans and, when they overlap in time, the
   // lane each one sits in: cards sharing weeks split the column's width
@@ -955,6 +937,9 @@ export function ProjectBoard({
       span: number;
       lane: number;
       lanes: number;
+      // How many lanes wide the slot is drawn: it grows rightwards over the
+      // lanes that are free for every row it covers.
+      width: number;
     };
     const byCol = new Map<string, Slot[]>();
     if (weeks.length === 0) {
@@ -968,15 +953,34 @@ export function ProjectBoard({
         continue;
       }
       const anchor = mondayOf(from);
-      const row = weeksBetween(weeks[0], anchor);
+      let row = weeksBetween(weeks[0], anchor);
       if (row < 0 || row >= weeks.length) {
         continue;
       }
       const endMon = c.day && c.day > anchor ? mondayOf(c.day) : anchor;
-      const span = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - row));
-      const k = colKey(c.project ?? "", c.epic);
+      let span = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - row));
+      let k = colKey(c.project ?? "", c.epic);
+      // A card being dragged is packed WHERE IT WOULD LAND, not where it came
+      // from: the lanes are what make room for it, so computing them from its
+      // old place drew it on top of whatever already sat in the new one.
+      if (move?.card.itemId === c.itemId) {
+        row = move.row;
+        span = Math.max(1, Math.min(move.span, weeks.length - row));
+        k = colKey(move.epic.project, move.epic.name);
+      } else if (drag?.resize?.itemId === c.itemId) {
+        // The same for an edge being pulled: the slot's preview is its real
+        // extent for as long as the pull lasts.
+        if (drag.edge === "top") {
+          const last = row + span - 1;
+          const top = Math.max(0, Math.min(drag.to, last));
+          span = last - top + 1;
+          row = top;
+        } else {
+          span = Math.max(1, Math.min(drag.to - row + 1, weeks.length - row));
+        }
+      }
       const list = byCol.get(k) ?? [];
-      list.push({ card: c, row, span, lane: 0, lanes: 1 });
+      list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
       byCol.set(k, list);
     }
     if (draft) {
@@ -988,6 +992,7 @@ export function ProjectBoard({
         span: draft.to - draft.from + 1,
         lane: 0,
         lanes: 1,
+        width: 1,
       });
       byCol.set(k, list);
     }
@@ -999,8 +1004,30 @@ export function ProjectBoard({
       let cluster: typeof list = [];
       let laneEnd: number[] = [];
       const close = () => {
+        const lanes = laneEnd.length;
         for (const s of cluster) {
-          s.lanes = laneEnd.length;
+          s.lanes = lanes;
+          // A cluster's lane count is what the busiest week in it needs, but
+          // a slot beside a quiet week has room the busy weeks do not: it
+          // grows rightwards over every lane that is free for ALL of its own
+          // rows. Without this a card sat at half width beside empty space,
+          // as if the space were spoken for.
+          let width = 1;
+          while (s.lane + width < lanes) {
+            const nextLane = s.lane + width;
+            const taken = cluster.some(
+              (o) =>
+                o !== s &&
+                o.lane === nextLane &&
+                o.row < s.row + s.span &&
+                s.row < o.row + o.span,
+            );
+            if (taken) {
+              break;
+            }
+            width += 1;
+          }
+          s.width = width;
         }
         cluster = [];
         laneEnd = [];
@@ -1022,7 +1049,7 @@ export function ProjectBoard({
       close();
     }
     return byCol;
-  }, [cards, weeks, draft]);
+  }, [cards, weeks, draft, move, drag]);
 
   // How far along each column is, and the view as a whole.
   const colProgress = useMemo(() => {
@@ -1095,6 +1122,7 @@ export function ProjectBoard({
     : undefined;
   const draftLane = draftPacked?.lane ?? 0;
   const draftLanes = draftPacked?.lanes ?? 1;
+  const draftWidth = draftPacked?.width ?? 1;
 
   // Where a column sits among the visible ones (-1 while it is filtered out).
   const colIndex = (e: EpicRef) =>
@@ -1433,7 +1461,7 @@ export function ProjectBoard({
               gridRow: `${draft.from + 2} / span ${draft.to - draft.from + 1}`,
               ...(draftLanes > 1
                 ? {
-                    width: `calc(${100 / draftLanes}% - 2px)`,
+                    width: `calc(${(100 / draftLanes) * draftWidth}% - 2px)`,
                     marginLeft: `${(100 / draftLanes) * draftLane}%`,
                   }
                 : {}),
@@ -1460,7 +1488,7 @@ export function ProjectBoard({
         {epics.map((e, col) =>
           (slots.get(colKey(e.project, e.name)) ?? [])
             .filter((s): s is typeof s & { card: CardModel } => s.card !== null)
-            .map(({ card, row, span, lane, lanes }) => (
+            .map(({ card, row, span, lane, lanes, width: laneWidth }) => (
             <div
               key={card.itemId}
               className={`project-slot ${slotTone(card, today)}${
@@ -1468,10 +1496,11 @@ export function ProjectBoard({
               }`}
               style={{
                 // While dragged, the slot itself sits where it would land —
-                // the preview IS the card, so there is nothing to guess.
-                gridColumn:
-                  (move?.card.itemId === card.itemId ? colIndex(move.epic) : col) + 2,
-                gridRow: `${(move?.card.itemId === card.itemId ? move.row : previewRow(card, row, span)) + 2} / span ${previewSpan(card, row, span)}`,
+                // the preview IS the card. row/span/col come from the packing,
+                // which places it there and moves its neighbours aside to make
+                // the room.
+                gridColumn: col + 2,
+                gridRow: `${row + 2} / span ${span}`,
                 borderLeftColor: card.team ? teamColor(card.team) : undefined,
                 // Cards sharing weeks in one column split its width instead
                 // of hiding each other. The width holds while the card is
@@ -1479,12 +1508,12 @@ export function ProjectBoard({
                 // of a double-click visibly inflate the card.
                 ...(lanes > 1
                   ? {
-                      width: `calc(${100 / lanes}% - 2px)`,
+                      width: `calc(${(100 / lanes) * laneWidth}% - 2px)`,
                       marginLeft: `${(100 / lanes) * lane}%`,
                     }
                   : {}),
               }}
-              onPointerDown={(ev) => beginMove(card, row, previewSpan(card, row, span), ev)}
+              onPointerDown={(ev) => beginMove(card, row, span, ev)}
               onPointerMove={moveMove}
               onPointerUp={endMove}
               onPointerCancel={() => {
