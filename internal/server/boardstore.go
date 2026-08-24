@@ -126,6 +126,15 @@ type boardEntry struct {
 	// touched within recentGrace are re-applied on top of every full reload.
 	recentCards map[string]time.Time
 	recentGone  map[string]time.Time
+	// locals maps the provisional id a card is given when it is created —
+	// creation answers from the cache, GitHub follows behind — onto the card
+	// GitHub eventually gave back. Every queued write resolves its target
+	// through it at execution time, and requests still naming the
+	// provisional id are answered for the real card: a client that created
+	// something keeps working with the id it was handed.
+	locals map[string]board.Card
+	// nextLocal numbers those provisional ids.
+	nextLocal int
 	// pending is the write-behind queue: changes already live in this cache
 	// that GitHub has not confirmed yet (see writequeue.go). inflight is the
 	// op currently on the wire (still unconfirmed, so counters and reload
@@ -364,10 +373,31 @@ func (e *boardEntry) cached(login string, multiUser bool) (board.Board, cacheSta
 		}
 		reproof = authAge >= authFreshFor
 	}
+	state := cacheFresh
 	if age >= boardFreshFor {
-		return e.board, cacheStale, reproof
+		state = cacheStale
 	}
-	return e.board, cacheFresh, reproof
+	return e.withAliases(e.board), state, reproof
+}
+
+// withAliases hands a board out with the provisional→real id map attached,
+// so a service lookup by an id the client has not yet swapped still lands.
+// Called under e.mu.
+func (e *boardEntry) withAliases(b board.Board) board.Board {
+	if len(e.locals) == 0 {
+		return b
+	}
+	aliases := make(map[string]string, len(e.locals))
+	for prov, real := range e.locals {
+		if real.ItemID != "" {
+			aliases[prov] = real.ItemID
+		}
+	}
+	if len(aliases) == 0 {
+		return b
+	}
+	b.Aliases = aliases
+	return b
 }
 
 // markAuthed records that a login's own token just proved read access, and
@@ -661,6 +691,7 @@ func (s *boardStore) entry(key string) *boardEntry {
 		e = &boardEntry{
 			watchers: map[*subscription]struct{}{},
 			presence: map[string]presenceEntry{},
+			locals:   map[string]board.Card{},
 		}
 		s.entries[key] = e
 	}
@@ -1054,7 +1085,7 @@ func (b *storeBackend) ensureWarm(e *boardEntry, owner string, project int) {
 				// not this request's: ensureWarm can be entered from another
 				// user's request, and the turns must be written by the
 				// session that actually keeps the board fresh.
-				writer := &storeBackend{inner: src.inner, store: store, multiUser: b.multiUser}
+				writer := &storeBackend{inner: src.inner, store: store, multiUser: b.multiUser} // src.inner already resolves
 				sctx, scancel := context.WithTimeout(context.Background(), warmLoadTimeout)
 				if n, serr := boardservice.New(writer).SpawnDue(sctx, owner, project); serr != nil {
 					store.logger().Warn("process turns not filed", "board", key, "err", serr)
@@ -1114,7 +1145,7 @@ func (b *storeBackend) install(e *boardEntry, fresh board.Board, login string) b
 		e.diffNotify(old)
 	}
 	e.syncBroadcast()
-	return e.board
+	return e.withAliases(e.board)
 }
 
 // diffNotify announces everything a full reload changed against the previous
@@ -1258,12 +1289,54 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	e.mu.Unlock()
 }
 
+// CreateCard answers from the cache: the caller gets a provisional card at
+// once — id "local-N" — and the real GitHub create rides the write-behind
+// queue like any other change, counted by the same unsynced indicator. When
+// GitHub answers, the provisional id is rewritten everywhere the cache holds
+// it and a Card frame carries the correction to every client; queued writes
+// that named the provisional id resolve it at execution time, because the
+// create sits ahead of them in the same FIFO.
+//
+// State cards (sprint pointers) stay synchronous: they anchor whole teams,
+// are rare, and their callers read fields off the answer immediately.
 func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.CreateInput) (board.Card, error) {
+	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	if in.Title == board.SprintStateTitle {
+		return b.createSync(ctx, bd, e, in)
+	}
+	e.mu.Lock()
+	e.nextLocal++
+	provisional := fmt.Sprintf("%s%d-%d", localIDPrefix, time.Now().UnixMilli(), e.nextLocal)
+	card := cardFromInput(in, provisional)
+	e.locals[provisional] = board.Card{}
+	e.mu.Unlock()
+
+	b.installCreated(ctx, e, card)
+
+	title := card.Title
+	b.enqueue(ctx, e, pendingOp{
+		key:    "", // a create never coalesces
+		itemID: provisional,
+		desc:   "create «" + title + "»",
+		apply:  func(*board.Board) {},
+		exec: func(ctx context.Context) error {
+			real, err := b.inner.CreateCard(ctx, bd, in)
+			if err != nil {
+				return err
+			}
+			b.adoptLocal(ctx, e, provisional, real)
+			return nil
+		},
+	})
+	return card, nil
+}
+
+// createSync is the old synchronous path, kept for the state cards.
+func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardEntry, in board.CreateInput) (board.Card, error) {
 	card, err := b.inner.CreateCard(ctx, bd, in)
 	if err != nil {
 		return card, err
 	}
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	e.mu.Lock()
 	if card.Title == board.ProcessStateTitle {
 		if _, exists := board.FindProcess(e.board, card.Process); card.Process != "" && !exists {
@@ -1327,6 +1400,12 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	e.mu.Unlock()
 	return card, nil
 }
+
+// localIDPrefix marks a card that lives in the cache while its creation is
+// still on its way to GitHub. It is a real id to every caller — requests
+// naming it are answered, and writes against it queue up behind the create —
+// but it must never reach GitHub, which is what resolve is for.
+const localIDPrefix = "local-"
 
 func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card board.Card) error {
 	if err := b.inner.DeleteCard(ctx, bd, card); err != nil {
@@ -2207,4 +2286,153 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 		e.mu.Unlock()
 	}
 	return nil
+}
+
+// cardFromInput shapes the provisional card exactly the way the store's
+// backend echoes a real create, so nothing downstream can tell them apart.
+func cardFromInput(in board.CreateInput, itemID string) board.Card {
+	c := board.Card{
+		ItemID:      itemID,
+		IsDraft:     true,
+		Title:       in.Title,
+		Zone:        in.Zone,
+		Day:         in.Day,
+		StartDate:   in.Start,
+		SprintStart: in.SprintStart,
+		Team:        in.Team,
+		Plan:        in.Plan,
+		Week:        in.Week,
+		Epic:        in.Epic,
+		Project:     in.Project,
+		Process:     in.Process,
+		Task:        in.Task,
+		Recurrence:  in.Recurrence,
+		Paused:      in.Paused,
+		Description: in.Body,
+		ReviewOf:    in.ReviewOf,
+		Parent:      in.Parent,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		Assignees:   []string{},
+	}
+	if in.Assignee != "" {
+		c.Assignees = []string{in.Assignee}
+	}
+	return c
+}
+
+// installCreated puts a provisional card into the cache the way the old
+// synchronous create did — rosters for state cards, a row otherwise — and
+// broadcasts it.
+func (b *storeBackend) installCreated(ctx context.Context, e *boardEntry, card board.Card) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch card.Title {
+	case board.ProcessStateTitle:
+		if _, exists := board.FindProcess(e.board, card.Process); card.Process != "" && !exists {
+			e.board.Processes = append(e.board.Processes,
+				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
+		}
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+	case board.ProcessTaskTitle:
+		e.board.Tasks = append(e.board.Tasks, card)
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+	case board.ProjectStateTitle:
+		if card.Project != "" && e.board.ProjectStates[card.Project] == "" {
+			if e.board.ProjectStates == nil {
+				e.board.ProjectStates = map[string]string{}
+			}
+			e.board.Projects = append(e.board.Projects, card.Project)
+			e.board.ProjectStates[card.Project] = card.ItemID
+		}
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+	case board.EpicStateTitle:
+		if _, exists := board.FindEpic(e.board, card.Project, card.Epic); card.Epic != "" && !exists {
+			e.board.Epics = append(e.board.Epics, board.EpicCol{
+				Name: card.Epic, Project: card.Project, ItemID: card.ItemID,
+			})
+		}
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+	case board.DeadlineStateTitle:
+		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
+			e.board.Deadlines = append(e.board.Deadlines,
+				board.Deadline{Week: card.Week, Project: card.Project, ItemID: card.ItemID})
+		}
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+	default:
+		e.upsertCard(card)
+		e.markRecent(card.ItemID)
+		e.cardChanged(clientIDFrom(ctx), card, "ADDED")
+	}
+}
+
+// adoptLocal rewrites a provisional id to the one GitHub answered with:
+// in the card rows, the rosters, the recent guards, and the locals map the
+// queued writes resolve through — then tells every client, which swaps its
+// own copy the way it applies any other Card frame.
+func (b *storeBackend) adoptLocal(ctx context.Context, e *boardEntry, provisional string, real board.Card) {
+	e.mu.Lock()
+	e.locals[provisional] = real
+	swap := func(id *string) {
+		if *id == provisional {
+			*id = real.ItemID
+		}
+	}
+	for i := range e.board.Cards {
+		swap(&e.board.Cards[i].ItemID)
+		if e.board.Cards[i].ItemID == real.ItemID {
+			e.board.Cards[i].ContentID = real.ContentID
+			e.board.Cards[i].URL = real.URL
+			e.board.Cards[i].IsDraft = real.IsDraft
+		}
+		// A subtask or review made against the provisional parent follows.
+		swap(&e.board.Cards[i].Parent)
+		swap(&e.board.Cards[i].ReviewOf)
+		swap(&e.board.Cards[i].Task)
+	}
+	for i := range e.board.Tasks {
+		swap(&e.board.Tasks[i].ItemID)
+	}
+	for i := range e.board.Processes {
+		swap(&e.board.Processes[i].ItemID)
+	}
+	for i := range e.board.Epics {
+		swap(&e.board.Epics[i].ItemID)
+	}
+	for i := range e.board.Deadlines {
+		swap(&e.board.Deadlines[i].ItemID)
+	}
+	for name, id := range e.board.ProjectStates {
+		if id == provisional {
+			e.board.ProjectStates[name] = real.ItemID
+		}
+	}
+	if t, ok := e.recentCards[provisional]; ok {
+		delete(e.recentCards, provisional)
+		e.recentCards[real.ItemID] = t
+	}
+	// Tell the clients: DELETE the provisional row, ADD the real one — the
+	// simplest frame pair every board already knows how to apply. Roster
+	// consumers get the fresh structure wholesale.
+	var adopted *board.Card
+	for i := range e.board.Cards {
+		if e.board.Cards[i].ItemID == real.ItemID {
+			adopted = &e.board.Cards[i]
+			break
+		}
+	}
+	if adopted != nil {
+		gone := *adopted
+		gone.ItemID = provisional
+		e.cardChanged("", gone, "DELETED")
+		e.cardChanged("", *adopted, "ADDED")
+	} else {
+		e.rosterBroadcast()
+	}
+	e.mu.Unlock()
+	_ = ctx
 }

@@ -55,7 +55,7 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 		WrapBackend: func(b boardservice.Backend) boardservice.Backend {
 			// /mcp is mounted only in OAuth mode, so every request is a distinct
 			// token-bearing user: gate cache hits on per-login authorization.
-			return &storeBackend{inner: b, store: s.store, multiUser: true}
+			return &storeBackend{inner: &resolvingBackend{inner: b, store: s.store}, store: s.store, multiUser: true}
 		},
 	})
 	srv.AddReceivingMiddleware(injectGitHubToken, s.dropSessionOnBadCredentials)
