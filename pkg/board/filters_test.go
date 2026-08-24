@@ -202,3 +202,42 @@ func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
 		t.Fatalf("a closed sprint's day must keep the card as history, got %+v", got)
 	}
 }
+
+// A Project-board slot has no stored plan band, yet it IS the week's work for
+// every week its span covers: the panel derives its band from the end date
+// instead of dropping it. The stored band, when present, always wins — deriving
+// must never move a card someone placed by hand.
+func TestWeeklyPlanDerivesSlotBands(t *testing.T) {
+	const week, today = "2026-08-24", "2026-08-24"
+	mk := func(id, wk, day string, plan PlanBand) Card {
+		return Card{ItemID: id, Title: id, Team: "t", Epic: "E", Week: wk, Day: day, Plan: plan}
+	}
+	cases := []struct {
+		name string
+		card Card
+		wed  bool // expected in the Wed band
+		fri  bool // expected in the Fri band
+	}{
+		{"ends by Wednesday -> Wed", mk("a", week, "2026-08-26", PlanNone), true, false},
+		{"ends exactly Wednesday -> Wed", mk("aw", week, AddDays(week, 2), PlanNone), true, false},
+		{"ends Thursday -> Fri", mk("at", week, AddDays(week, 3), PlanNone), false, true},
+		{"ends Friday -> Fri", mk("b", week, "2026-08-28", PlanNone), false, true},
+		{"a middle week of a long span -> Fri", mk("c", "2026-08-17", "2026-09-04", PlanNone), false, true},
+		{"ends by Wednesday of a later covered week -> Wed there", mk("cw", "2026-08-17", "2026-08-26", PlanNone), true, false},
+		{"stored band outranks the derived one", mk("d", week, "2026-08-28", PlanWed), true, false},
+		{"band-less non-slot stays off the panel", Card{ItemID: "e", Title: "e", Team: "t", Week: week}, false, false},
+		{"slot without an end date stays off", mk("f", week, "", PlanNone), false, false},
+		{"slot of another week stays off", mk("g", "2026-09-07", "2026-09-11", PlanNone), false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bands := WeeklyPlanAt(Board{Cards: []Card{tc.card}}, "t", week, today)
+			if got := len(bands.Wed) == 1; got != tc.wed {
+				t.Errorf("in Wed band = %v, want %v", got, tc.wed)
+			}
+			if got := len(bands.Fri) == 1; got != tc.fri {
+				t.Errorf("in Fri band = %v, want %v", got, tc.fri)
+			}
+		})
+	}
+}

@@ -159,15 +159,30 @@ func WeeklyPlan(b Board, team, week string) WeeklyBands {
 func WeeklyPlanAt(b Board, team, week, today string) WeeklyBands {
 	bands := WeeklyBands{Wed: []Card{}, Fri: []Card{}}
 	for _, c := range b.Cards {
-		if c.Plan == PlanNone || c.Team != team || !planShowsInWeekAt(c, week, today) {
+		// A Project-board slot needs no stored band to be the week's work:
+		// its span IS its plan, and the band derives from the end date. A
+		// band-less card that is not a slot still stays off the panel.
+		slot := c.Epic != "" && c.Week != "" && c.Day != ""
+		if (c.Plan == PlanNone && !slot) || c.Team != team || !planShowsInWeekAt(c, week, today) {
 			continue
 		}
+		switch {
+		// The derived band. Only the week the slot ENDS in can be a
+		// by-Wednesday week; every earlier covered week holds the slot open
+		// through its Friday. A stored band never reaches this arm — hand
+		// placement outranks derivation, so deriving cannot move a card.
+		case c.Plan == PlanNone:
+			if MondayOf(c.Day) == week && c.Day <= AddDays(week, 2) {
+				bands.Wed = append(bands.Wed, c)
+			} else {
+				bands.Fri = append(bands.Fri, c)
+			}
 		// A week-history entry (the card has moved on to a later week) sits in
 		// the by-Friday band of the past week: it stayed open through that
 		// week's end, and its current band describes the week it lives in now.
-		if c.Plan == PlanFri || c.Week != week {
+		case c.Plan == PlanFri || c.Week != week:
 			bands.Fri = append(bands.Fri, c)
-		} else {
+		default:
 			bands.Wed = append(bands.Wed, c)
 		}
 	}

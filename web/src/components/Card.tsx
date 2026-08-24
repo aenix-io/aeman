@@ -7,6 +7,7 @@ import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { addDays, daysSince, localDateIso, todayIso, mondayOf } from "../date";
 import { Dropdown } from "./Dropdown";
 import { extractLinks, type CardLink } from "../links";
+import { effectiveBand } from "../weekly";
 import { RangeCalendar } from "./RangeCalendar";
 
 // ageColor fades the age badge from light grey (fresh) to maroon-red by ~10 days.
@@ -352,6 +353,10 @@ export function Card({
   // A plan card not yet taken into work hasn't started aging: show 0d. Once it
   // has an assignee it ages normally; and it gets a green "taken" background.
   const taken = Boolean(weekMode) && card.assignees.length > 0;
+  // The plan stripe: the stored band, or — for a Project-board slot — the
+  // band derived from its end date. A slot needs no stored band to be in
+  // the weekly plan, so its row must not pretend otherwise.
+  const band = effectiveBand(card);
   // The small second avatar: on a weekly-plan card it is the person the card
   // is ASSIGNED to (who took it into work) — not the review counterpart; on
   // grid cards it stays the counterpart (the reviewer / the implementer).
@@ -562,7 +567,7 @@ export function Card({
   return (
     <div
       className={`card${selected ? " card-selected" : ""}${card.overdue ? " card-overdue" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
-        card.plan ? ` card-plan-${card.plan}` : ""
+        band ? ` card-plan-${band}` : ""
       }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
         dimAvatar ? " card-dim-avatar" : ""
       }${groupTarget ? " card-group-target" : ""}`}
