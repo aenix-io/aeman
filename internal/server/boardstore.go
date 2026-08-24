@@ -899,6 +899,8 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		err error
 	}
 	done := make(chan loaded, 1)
+	b.store.logger().Info("board load began", "board", storeKey(owner, project), "login", login)
+	started := time.Now()
 	go func() { //nolint:gosec // G118: the whole point — the fetch must outlive its request
 		defer e.loadMu.Unlock()
 		// Deliberately NOT the request context: the detachment is the fix.
@@ -906,10 +908,13 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		defer cancel()
 		fresh, err := b.inner.LoadBoard(lctx, owner, project)
 		if err != nil {
-			b.store.logger().Warn("board load failed", "owner", owner, "project", project, "err", err)
+			b.store.logger().Warn("board load failed", "board", storeKey(owner, project),
+				"dur", time.Since(started), "err", err)
 			done <- loaded{err: err}
 			return
 		}
+		b.store.logger().Info("board load done", "board", storeKey(owner, project),
+			"cards", len(fresh.Cards), "dur", time.Since(started))
 		installed := b.install(e, fresh, login)
 		b.setWarmSrc(e, login)
 		b.ensureWarm(e, owner, project)
@@ -1101,6 +1106,7 @@ func (b *storeBackend) ensureWarm(e *boardEntry, owner string, project int) {
 		return
 	}
 	e.warming = true
+	b.store.logger().Info("board warmer started", "board", storeKey(owner, project), "login", e.warmSrc.login)
 	e.mu.Unlock()
 	store := b.store
 	key := storeKey(owner, project)
