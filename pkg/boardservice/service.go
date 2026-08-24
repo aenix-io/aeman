@@ -1511,6 +1511,18 @@ func (s *Service) SetWeek(ctx context.Context, owner string, project int, itemID
 		return err
 	}
 	if card.Epic != "" {
+		// Re-asserting the week the slot already derives from its start date
+		// is a harmless no-op — the SPA and API writers echo the visible week
+		// back (ungrouping a slot subtask used to die here on the parent's
+		// week). Only a CONFLICTING week is refused: accepting it is exactly
+		// how a slot's week and dates came to disagree.
+		derived := card.Week
+		if card.StartDate != "" {
+			derived = board.MondayOf(card.StartDate)
+		}
+		if week == derived {
+			return nil
+		}
 		return fmt.Errorf("%w: a slot's week follows its start date — move the dates instead", ErrWeekDerived)
 	}
 	if err := s.backend.SetWeek(ctx, b, card, week); err != nil {
