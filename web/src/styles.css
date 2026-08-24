@@ -4232,7 +4232,6 @@ button.card-age {
   background: var(--danger);
 }
 
-.project-slot-late,
-.project-slot-late-taken {
-  box-shadow: inset 3px 0 0 var(--danger);
-}
+/* No line on a late slot: the Project board already tints it red all over,
+   and its left border carries the team colour. The red line belongs to the
+   boards where a debt is not otherwise marked. */
