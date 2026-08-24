@@ -845,28 +845,63 @@ export function ProjectBoard({
   }, [weeks.length, epics.length, colWidth, padBack, padFwd]);
 
   // Follow the board's vertical scrolling by hand, so the handles never lag a
-  // frame behind their rows (which a re-render would cost).
+  // frame behind their rows (which a re-render would cost). The offset is
+  // MEASURED from the grid's real position, not read off scrollTop: during
+  // the rubber-band bounce the content keeps moving while scrollTop sits
+  // clamped at the edge, and the deadline lines (in the table) sailed off
+  // while their dots (in this overlay) stood still. Measuring follows the
+  // bounce too, so a rAF loop runs while it settles.
   useEffect(() => {
     const board = scrollRef.current;
-    if (!board) {
+    const grid = gridRef.current;
+    if (!board || !grid) {
       return;
     }
-    const follow = () => {
+    let raf = 0;
+    let settled = 0;
+    let last = NaN;
+    const offsetNow = () =>
+      board.getBoundingClientRect().top - grid.getBoundingClientRect().top;
+    const apply = () => {
       const layer = handlesRef.current;
       const clip = handlesClipRef.current;
+      const offset = offsetNow();
       if (layer) {
-        layer.style.transform = `translateY(${-board.scrollTop}px)`;
+        layer.style.transform = `translateY(${-offset}px)`;
       }
       if (clip && boardBox) {
         // Hide handles that have scrolled up under the sticky header, and let
         // them overhang left and right so one can straddle the board's edge.
-        const top = Math.max(0, boardBox.gridTop + HEADER_PX - board.scrollTop);
+        const top = Math.max(0, boardBox.gridTop + HEADER_PX - offset);
         clip.style.clipPath = `inset(${top}px -60px 0px -60px)`;
+      }
+      return offset;
+    };
+    const settle = () => {
+      const offset = apply();
+      // Keep following until the position holds still ACROSS frames — that is
+      // the bounce easing back with no scroll events left to say so. (Same-
+      // frame comparison always held, which cut the loop off mid-ease.)
+      settled = offset === last ? settled + 1 : 0;
+      last = offset;
+      raf = settled < 6 ? requestAnimationFrame(settle) : 0;
+    };
+    const follow = () => {
+      apply();
+      settled = 0;
+      last = NaN;
+      if (!raf) {
+        raf = requestAnimationFrame(settle);
       }
     };
     follow();
     board.addEventListener("scroll", follow, { passive: true });
-    return () => board.removeEventListener("scroll", follow);
+    return () => {
+      board.removeEventListener("scroll", follow);
+      if (raf) {
+        cancelAnimationFrame(raf);
+      }
+    };
   }, [boardBox]);
 
   const beginLineDrag = (
