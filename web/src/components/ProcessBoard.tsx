@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Board,
+  ProcessInfo,
   ProcessTask,
   Provider,
   TaskInput,
@@ -67,6 +68,39 @@ export function ProcessBoard({
   // not already one chip.
   const [addMenu, setAddMenu] = useState(false);
   const addAnchor = useRef<HTMLElement | null>(null);
+
+  // Dragging, the way the Project board drags its columns: a press arms it,
+  // movement past a slop makes it a drag, and the list previews the order
+  // live — the preview IS what a drop will persist.
+  const DRAG_SLOP = 5;
+  // A process being dragged among processes: the previewed name order.
+  const procDrag = useRef<{ name: string; y: number; moved: boolean } | null>(null);
+  const [procOrder, setProcOrderState] = useState<string[] | null>(null);
+  // Mirrored in refs: the drag's window listeners are the closures of the
+  // PRESS render, and reading state through them would read the past.
+  const procOrderRef = useRef<string[] | null>(null);
+  const setProcOrder = (v: string[] | null) => {
+    procOrderRef.current = v;
+    setProcOrderState(v);
+  };
+  // A task being dragged: where it currently previews (process + index).
+  const taskDrag = useRef<{
+    uid: string;
+    fromProcess: string;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  const [taskPreview, setTaskPreviewState] = useState<{
+    uid: string;
+    process: string;
+    index: number;
+  } | null>(null);
+  const taskPreviewRef = useRef<typeof taskPreview>(null);
+  const setTaskPreview = (v: typeof taskPreview) => {
+    taskPreviewRef.current = v;
+    setTaskPreviewState(v);
+  };
+  const shownRef = useRef<ProcessInfo[]>([]);
   // Tasks whose create is still in flight, shown at once under the process
   // they belong to. A task create is two synchronous writes upstream (the
   // task, then the turn it owes this week) and takes seconds; waiting for
@@ -75,10 +109,35 @@ export function ProcessBoard({
     { process: string; task: ProcessTask }[]
   >([]);
 
-  const shown = useMemo(
-    () => processes.filter((p) => !filter || filter.includes(p.project)),
-    [processes, filter],
-  );
+  const shown = useMemo(() => {
+    let list = processes.filter((p) => !filter || filter.includes(p.project));
+    if (procOrder) {
+      const by = new Map(list.map((p) => [p.name, p]));
+      const ordered = procOrder.map((n) => by.get(n)).filter((p): p is ProcessInfo => !!p);
+      const rest = list.filter((p) => !procOrder.includes(p.name));
+      list = [...ordered, ...rest];
+    }
+    if (taskPreview) {
+      // The dragged task shows at its previewed place — lifted out of its
+      // process and inserted where the pointer says, mid-list included.
+      let dragged: ProcessTask | undefined;
+      for (const p of list) {
+        dragged = dragged ?? p.tasks.find((t) => t.uid === taskPreview.uid);
+      }
+      if (dragged) {
+        list = list.map((p) => {
+          const without = p.tasks.filter((t) => t.uid !== taskPreview.uid);
+          if (p.name !== taskPreview.process) {
+            return without.length === p.tasks.length ? p : { ...p, tasks: without };
+          }
+          const at = Math.max(0, Math.min(taskPreview.index, without.length));
+          return { ...p, tasks: [...without.slice(0, at), dragged!, ...without.slice(at)] };
+        });
+      }
+    }
+    shownRef.current = list;
+    return list;
+  }, [processes, filter, procOrder, taskPreview]);
   const targetProject = filter?.length === 1 ? filter[0] : null;
   const looseProcesses = processes.some((p) => !p.project);
   const fail = (err: unknown) => onError(errText(err));
@@ -130,6 +189,167 @@ export function ProcessBoard({
 
   const setPaused = (name: string, paused: boolean) => {
     void provider.setProcessPaused(board, name, paused).catch(fail);
+  };
+
+  // ---- dragging processes ------------------------------------------------
+  const beginProcDrag = (p: ProcessInfo, e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest("button, input, .process-cell")) {
+      return;
+    }
+    e.preventDefault();
+    procDrag.current = { name: p.name, y: e.clientY, moved: false };
+    const onMove = (ev: PointerEvent) => moveProcDrag(ev);
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      endProcDrag();
+    };
+    const onCancel = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      procDrag.current = null;
+      setProcOrder(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+  };
+  const moveProcDrag = (e: PointerEvent) => {
+    const d = procDrag.current;
+    if (!d) {
+      return;
+    }
+    if (!d.moved && Math.abs(e.clientY - d.y) < DRAG_SLOP) {
+      return;
+    }
+    d.moved = true;
+    // Which process the pointer is over decides the previewed position. The
+    // list is read through a ref: this closure was made at press time.
+    const heads = [...document.querySelectorAll(".process-item")];
+    const names = (procOrderRef.current ?? shownRef.current.map((p) => p.name));
+    let to = names.indexOf(d.name);
+    heads.forEach((h, i) => {
+      const r = h.getBoundingClientRect();
+      if (e.clientY >= r.top && e.clientY <= r.bottom && i < names.length) {
+        to = i;
+      }
+    });
+    const from = names.indexOf(d.name);
+    if (to !== from && to >= 0) {
+      const next = [...names];
+      next.splice(from, 1);
+      next.splice(to, 0, d.name);
+      setProcOrder(next);
+    }
+  };
+  const endProcDrag = () => {
+    const d = procDrag.current;
+    procDrag.current = null;
+    if (!d?.moved) {
+      return;
+    }
+    const order = procOrderRef.current;
+    setProcOrder(null);
+    if (!order) {
+      return;
+    }
+    // The full roster in board order, with the shown block reordered in
+    // place: the server applies exactly what the preview showed.
+    const rest = processes.map((p) => p.name).filter((n) => !order.includes(n));
+    void provider.reorderProcesses(board, [...order, ...rest]).catch(fail);
+  };
+
+  // ---- dragging tasks ----------------------------------------------------
+  const beginTaskDrag = (p: ProcessInfo, task: ProcessTask, e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest("button, input, .process-cell, label")) {
+      return;
+    }
+    // Listeners on the WINDOW, not pointer capture on the row: the preview
+    // remounts the dragged row under its target process, and a removed
+    // element takes its capture — and the rest of the gesture — with it.
+    e.preventDefault();
+    taskDrag.current = { uid: task.uid, fromProcess: p.name, y: e.clientY, moved: false };
+    const onMove = (ev: PointerEvent) => moveTaskDrag(ev);
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      endTaskDrag();
+    };
+    const onCancel = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      taskDrag.current = null;
+      setTaskPreview(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+  };
+  const moveTaskDrag = (e: PointerEvent) => {
+    const d = taskDrag.current;
+    if (!d) {
+      return;
+    }
+    if (!d.moved && Math.abs(e.clientY - d.y) < DRAG_SLOP) {
+      return;
+    }
+    d.moved = true;
+    // The open process body under the pointer is the target; the row index
+    // within it comes from the row midpoints. A collapsed process cannot
+    // receive (there is nowhere to show the preview), same as Me/Team where
+    // a drop needs a visible list.
+    const items = [...document.querySelectorAll(".process-item")];
+    const list = shownRef.current;
+    for (let i = 0; i < items.length && i < list.length; i++) {
+      const body = items[i].querySelector(".process-body");
+      if (!body) {
+        continue;
+      }
+      const br = body.getBoundingClientRect();
+      if (e.clientY < br.top || e.clientY > br.bottom) {
+        continue;
+      }
+      const rows = [...body.querySelectorAll(".process-task")];
+      let index = rows.length;
+      for (let j = 0; j < rows.length; j++) {
+        const rr = rows[j].getBoundingClientRect();
+        if (e.clientY < rr.top + rr.height / 2) {
+          index = j;
+          break;
+        }
+      }
+      const cur = taskPreviewRef.current;
+      if (!cur || cur.process !== list[i].name || cur.index !== index) {
+        setTaskPreview({ uid: d.uid, process: list[i].name, index });
+      }
+      return;
+    }
+  };
+  const endTaskDrag = () => {
+    const d = taskDrag.current;
+    taskDrag.current = null;
+    if (!d?.moved) {
+      return;
+    }
+    const preview = taskPreviewRef.current;
+    setTaskPreview(null);
+    if (!preview) {
+      return;
+    }
+    // The target process's final uid order — the dragged task included at its
+    // previewed index — is the whole instruction; a cross-process move is the
+    // same call, the server adopts the stranger.
+    const target = shownRef.current.find((p) => p.name === preview.process);
+    if (!target) {
+      return;
+    }
+    void provider
+      .reorderProcessTasks(board, preview.process, target.tasks.map((t) => t.uid))
+      .catch(fail);
   };
 
   // Ticking off a turn from here is the same act as on the Project board: the
@@ -263,9 +483,10 @@ export function ProcessBoard({
                 clicks in a row, and the browser reads that as one — the
                 process kept sliding into rename. The pencil renames. */}
             <header
-              className="process-head"
+              className={`process-head${procDrag.current?.name === p.name && procOrder ? " process-head-dragging" : ""}`}
               onClick={() => toggle(p.name)}
-              title="Click to expand"
+              onPointerDown={(e) => beginProcDrag(p, e)}
+              title="Click to expand · drag to reorder"
             >
               <span className="process-caret">{open.has(p.name) ? "▾" : "▸"}</span>
               {renaming === p.name ? (
@@ -374,6 +595,8 @@ export function ProcessBoard({
                     <TaskRow
                       key={t.uid}
                       pending={t.uid.startsWith("tmp-")}
+                      dragging={taskPreview?.uid === t.uid}
+                      onDragStart={(e) => beginTaskDrag(p, t, e)}
                       task={t}
                       teams={board.teams}
                       members={board.members}
@@ -533,6 +756,8 @@ function Health({
 function TaskRow({
   task: t,
   pending,
+  dragging,
+  onDragStart,
   teams,
   members,
   users,
@@ -548,6 +773,8 @@ function TaskRow({
   task: ProcessTask;
   /** Its create is still in flight: shown, but not yet something to act on. */
   pending?: boolean;
+  dragging?: boolean;
+  onDragStart?: (e: React.PointerEvent) => void;
   teams: string[];
   members: string[];
   users: Record<string, GhUser>;
@@ -561,7 +788,10 @@ function TaskRow({
   onDelete: () => void;
 }) {
   return (
-    <div className={`process-task${pending ? " process-task-pending" : ""}`}>
+    <div
+      className={`process-task${pending ? " process-task-pending" : ""}${dragging ? " process-task-dragging" : ""}`}
+      onPointerDown={onDragStart}
+    >
       {/* The title opens the task on a double-click, the way a card does:
           the pencil is for finding it, this is for using it. */}
       <div

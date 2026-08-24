@@ -489,6 +489,18 @@ export const apiProvider: Provider = {
     await api(board, "POST", "/processes/actions/set-paused", { process, paused });
   },
 
+  async reorderProcesses(board: BoardAddr, processes: string[]): Promise<void> {
+    await api(board, "POST", "/processes/actions/reorder", { processes });
+  },
+
+  async reorderProcessTasks(
+    board: BoardAddr,
+    process: string,
+    uids: string[],
+  ): Promise<void> {
+    await api(board, "POST", "/processes/tasks/actions/reorder", { process, uids });
+  },
+
   async addTask(
     board: BoardAddr,
     process: string,

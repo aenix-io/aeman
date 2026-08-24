@@ -521,6 +521,39 @@ func (h *server) setProcessPaused(ctx context.Context, _ *mcp.CallToolRequest, i
 	return nil, statusOutput{Status: status}, nil
 }
 
+type reorderProcessesInput struct {
+	boardRef
+	Processes []string `json:"processes" jsonschema:"every process name in the desired order (from list_processes)"`
+}
+
+func (h *server) reorderProcesses(ctx context.Context, _ *mcp.CallToolRequest, in reorderProcessesInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.ReorderProcesses(ctx, owner, boardNum, in.Processes); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "reordered"}, nil
+}
+
+type reorderProcessTasksInput struct {
+	boardRef
+	Process string   `json:"process" jsonschema:"the process whose task order this is (required)"`
+	UIDs    []string `json:"uids" jsonschema:"the task uids in the desired order. A uid belonging to another process is ADOPTED into this one at its position — that is how moving a task between processes lands"`
+}
+
+func (h *server) reorderProcessTasks(ctx context.Context, _ *mcp.CallToolRequest, in reorderProcessTasksInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.ReorderProcessTasks(ctx, owner, boardNum, in.Process, in.UIDs); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "reordered"}, nil
+}
+
 type addTaskInput struct {
 	boardRef
 	Process     string `json:"process" jsonschema:"the process this task belongs to (required)"`
