@@ -435,6 +435,19 @@ func clientIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id := r.Header.Get("X-Aeman-Client"); id != "" {
 			r = r.WithContext(withClientID(r.Context(), id))
+			// The card the request ADDRESSES (the {uid} of /cards/{uid}/...)
+			// scopes the echo suppression: only that card's change is the
+			// author's own optimistic state; everything else a request
+			// touches — batch fan-outs, cascades — echoes even to them.
+			if rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/cards/"); ok && rest != "" {
+				uid := rest
+				if i := strings.IndexByte(uid, '/'); i >= 0 {
+					uid = uid[:i]
+				}
+				if uid != "" {
+					r = r.WithContext(withTargetItem(r.Context(), uid))
+				}
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

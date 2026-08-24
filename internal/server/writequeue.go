@@ -231,7 +231,7 @@ func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID,
 	for i := range e.board.Cards {
 		if e.board.Cards[i].ItemID == itemID {
 			e.markRecent(itemID)
-			e.cardChanged(clientIDFrom(ctx), e.board.Cards[i], "MODIFIED")
+			e.cardChanged(echoOrigin(ctx, itemID), e.board.Cards[i], "MODIFIED")
 			announced = true
 			break
 		}

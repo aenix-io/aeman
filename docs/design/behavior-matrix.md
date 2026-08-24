@@ -71,6 +71,8 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 | V4 | Watch (view-scoped): entering/leaving the selection delivers ADDED/DELETED for that subscription | 🆕 apiserver `TestScopedWatch*` |
 | V5 | Ordering singleton: move emits one MODIFIED Ordering; LIST stays sorted | 🆕 apiserver `TestOrdering*` |
 
+| V+ | Echo suppression is scoped to the ADDRESSED card: the author's watch is spared the echo only for the {uid} their request named — a batch fan-out (epic rename over its cards) or a cascade (a subtask following its parent) echoes even to the author, who holds no optimistic copy of those cards. Unscoped suppression made a renamed column's cards vanish from the very board that renamed it | internal/server echoOrigin + clientIDMiddleware | ✅ TestBatchEchoesReachTheirAuthor / TestAddressedCardStaysSuppressed |
+
 ## Card object mapping
 
 | # | Rule | Test |
