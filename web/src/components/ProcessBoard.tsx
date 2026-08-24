@@ -626,7 +626,19 @@ function TaskRow({
             type="date"
             className="process-from-input"
             value={t.start ?? ""}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              // Clicking a date input only FOCUSES it; the picker opens from
+              // the calendar icon, which is invisible here (the input is an
+              // opacity-0 overlay over the text). Ask for the picker
+              // outright, or the click does nothing a person can see.
+              try {
+                (e.target as HTMLInputElement).showPicker();
+              } catch {
+                // Some browsers gate showPicker (or lack it); focus still
+                // lets the keyboard edit the date.
+              }
+            }}
             onChange={(e) => {
               if (e.target.value && e.target.value !== t.start) {
                 onSetStart(e.target.value);
