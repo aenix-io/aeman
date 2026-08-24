@@ -827,13 +827,13 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		// error (no access, rate limit, network) to the caller.
 	}
 	e.loadMu.Lock()
-	defer e.loadMu.Unlock()
 	// A concurrent loader — the warmer included — may have refreshed the
 	// cache while we waited on loadMu; a mutation that queued behind the
 	// warmer's reload must ride that result (proving its own access by probe
 	// when needed — but not re-asking after a probe that just failed) instead
 	// of re-paying the full load.
 	if bd, st, rp := e.cached(login, b.multiUser); st == cacheFresh {
+		e.loadMu.Unlock()
 		if rp {
 			b.reproveAsync(ctx, e, owner, project, login)
 		}
@@ -841,6 +841,7 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		return bd, nil
 	} else if st == cacheUnauthed && login != "" && !probeFailed {
 		if bd, st2, ok := b.admitByProbe(ctx, e, owner, project, login); ok && st2 == cacheFresh {
+			e.loadMu.Unlock()
 			b.markRead(e)
 			return bd, nil
 		}
@@ -848,15 +849,46 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 	// The token-scoped backend load is the authorization check: GitHub rejects a
 	// token that can't read this board, so reaching a cached result requires
 	// having passed it (recorded per login in install).
-	fresh, err := b.inner.LoadBoard(ctx, owner, project)
-	if err != nil {
-		return board.Board{}, err
+	//
+	// The fetch is DETACHED from the request: a big board takes the better
+	// part of a minute, the user refreshes the page, the refresh cancels the
+	// request context — and with it, before this, the fetch. Every refresh
+	// restarted the fetch from zero, so a refresh-happy user could keep a
+	// board cold forever while every request appeared to hang. Now the fetch
+	// runs on its own context, the goroutine owns loadMu until it is done
+	// (waiters ride the SAME fetch), and the result lands in the cache — and
+	// seeds the warmer — whether or not anyone is still waiting for it.
+	type loaded struct {
+		bd  board.Board
+		err error
 	}
-	installed := b.install(e, fresh, login)
-	b.setWarmSrc(e, login)
-	b.ensureWarm(e, owner, project)
-	b.markRead(e)
-	return installed, nil
+	done := make(chan loaded, 1)
+	go func() {
+		defer e.loadMu.Unlock()
+		lctx, cancel := context.WithTimeout(context.Background(), warmLoadTimeout)
+		defer cancel()
+		fresh, err := b.inner.LoadBoard(lctx, owner, project)
+		if err != nil {
+			b.store.logger().Warn("board load failed", "owner", owner, "project", project, "err", err)
+			done <- loaded{err: err}
+			return
+		}
+		installed := b.install(e, fresh, login)
+		b.setWarmSrc(e, login)
+		b.ensureWarm(e, owner, project)
+		done <- loaded{bd: installed}
+	}()
+	select {
+	case l := <-done:
+		if l.err != nil {
+			return board.Board{}, l.err
+		}
+		b.markRead(e)
+		return l.bd, nil
+	case <-ctx.Done():
+		// The fetch carries on without us; the next request finds it warm.
+		return board.Board{}, ctx.Err()
+	}
 }
 
 // accessProber is the cheap authorization check a backend may offer: can this
