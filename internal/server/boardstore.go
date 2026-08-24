@@ -659,6 +659,11 @@ type boardStore struct {
 	// log receives warmer lifecycle events (start/stop and on whose token it
 	// runs). Nil-safe via logger().
 	log *slog.Logger
+	// warmFile persists the warm roster (board -> warming login) across
+	// restarts, so startup can bring the cache up before the first request.
+	// Empty = no persistence. warmRoster is its in-memory copy.
+	warmFile   string
+	warmRoster map[string]string
 }
 
 // logger returns the store's logger, or a discard logger when none was wired
@@ -863,8 +868,9 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		err error
 	}
 	done := make(chan loaded, 1)
-	go func() {
+	go func() { //nolint:gosec // G118: the whole point — the fetch must outlive its request
 		defer e.loadMu.Unlock()
+		// Deliberately NOT the request context: the detachment is the fix.
 		lctx, cancel := context.WithTimeout(context.Background(), warmLoadTimeout)
 		defer cancel()
 		fresh, err := b.inner.LoadBoard(lctx, owner, project)
@@ -1023,7 +1029,21 @@ func (b *storeBackend) setWarmSrc(e *boardEntry, login string) {
 	}
 	e.mu.Lock()
 	e.warmSrc = &warmSource{inner: b.inner, alive: b.warmAlive, login: login}
+	key := storeKeyOf(b.store, e)
 	e.mu.Unlock()
+	b.store.recordWarm(key, login)
+}
+
+// storeKeyOf finds an entry's key (entries are few; a scan is fine).
+func storeKeyOf(s *boardStore, e *boardEntry) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.entries {
+		if v == e {
+			return k
+		}
+	}
+	return ""
 }
 
 // ensureWarm keeps a board's cache from ever crossing boardFreshFor while
