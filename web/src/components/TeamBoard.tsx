@@ -30,7 +30,6 @@ import { teamColor } from "../avatar";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
-import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
@@ -124,8 +123,6 @@ export function TeamBoard({
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
   const sprintRef = useRef<HTMLDivElement | null>(null);
-  const [carryWeekOpen, setCarryWeekOpen] = useState(false);
-  const carryWeekRef = useRef<HTMLDivElement | null>(null);
   // Subtask UI state: manually expanded parents, the card a drag would group
   // under (its middle band is hovered — the card highlights), and the parent
   // whose add-subtask form is open (the + button flow).
@@ -333,6 +330,19 @@ export function TeamBoard({
       if (c.week === currentWeek) {
         return true;
       }
+      // A debt follows you: a card from an earlier week, still open past the
+      // day it was owed by, belongs on the CURRENT week's panel beside that
+      // week's own work. The server decided it is overdue (board.Overdue)
+      // and served it; this mirror of the server's week rule used to drop
+      // it on the floor — which is what happens when a rule is copied.
+      if (
+        c.overdue &&
+        !!c.week &&
+        c.week < currentWeek &&
+        currentWeek === mondayOf(todayIso())
+      ) {
+        return true;
+      }
       // History only in weeks whose working days are over (past the week's
       // Friday): while a week runs, a card pushed to a future week leaves its
       // panel — it is not this week's work anymore.
@@ -380,24 +390,6 @@ export function TeamBoard({
       0,
     );
     return Math.round(sum / all.length);
-  }, [weekly]);
-
-  // Teams (and the no-team group) with unfinished plan cards this week — the
-  // only carry-over targets worth offering in the dropdown.
-  const carryable = useMemo(() => {
-    const teams = new Set<string>();
-    let noTeam = false;
-    for (const c of [...weekly.wed, ...weekly.fri]) {
-      if (c.stage === "done") {
-        continue;
-      }
-      if (c.team) {
-        teams.add(c.team);
-      } else {
-        noTeam = true;
-      }
-    }
-    return { teams: [...teams], noTeam };
   }, [weekly]);
 
   const handleCreatePlan = (
@@ -448,67 +440,6 @@ export function TeamBoard({
         removeCard(tempId);
         onError(errMessage(err));
       });
-  };
-
-  // Weekly carry over: pull a team's unfinished plan cards from earlier weeks
-  // into the current (selected) week — the weekly analogue of the daily sprint
-  // carry over. A dry run supplies the confirm-dialog counts; the real call
-  // moves the cards and reseeds the finished recurrent ones server-side.
-  const handleCarryWeek = (team: string | null) => {
-    setCarryWeekOpen(false);
-    const label = team ?? "no team";
-    void (async () => {
-      let rep: CarryReport;
-      try {
-        rep = await track(provider.carryWeek(board, team, currentWeek, true));
-      } catch (err: unknown) {
-        onError(errMessage(err));
-        return;
-      }
-      if (rep.carried === 0 && rep.reseeded === 0) {
-        onError(
-          `No unfinished plan cards from earlier weeks for "${label}" to carry into the week of ${currentWeek}.`,
-        );
-        return;
-      }
-      if (
-        !window.confirm(
-          `Carry over ${rep.carried} unfinished plan card(s) for "${label}" into the week of ${currentWeek}?` +
-            (rep.reseeded > 0
-              ? ` ${rep.reseeded} recurrent card(s) will restart at 0%.`
-              : ""),
-        )
-      ) {
-        return;
-      }
-      // Optimistic: move the unfinished plan cards locally; the re-list after
-      // the server call reconciles (and picks up the reseeded copies).
-      for (const c of board.cards) {
-        if (
-          c.plan &&
-          c.week != null &&
-          c.week < currentWeek &&
-          // Skip not-yet-persisted optimistic cards (temporary ids).
-          !c.itemId.startsWith("tmp-") &&
-          (team === null ? c.team == null : c.team === team) &&
-          !isComplete(c)
-        ) {
-          patchCard(
-            c.itemId,
-            c.plan === "fri"
-              ? { week: currentWeek, plan: "wed" }
-              : { week: currentWeek },
-          );
-        }
-      }
-      try {
-        await track(provider.carryWeek(board, team, currentWeek));
-      } catch (err: unknown) {
-        onError(errMessage(err));
-      }
-      // Pick up the reseeded copies (and reconcile the moves).
-      reload();
-    })();
   };
 
   // Move a plan card between the two bands (changes its Wed/Fri deadline).
@@ -2434,64 +2365,6 @@ export function TeamBoard({
                       Weekly plan · {currentWeek}
                     </span>
                     <div className="team-weekly-actions">
-                      {!planCollapsed && (
-                        <div className="sprint-wrap" ref={carryWeekRef}>
-                          <button
-                            type="button"
-                            className="btn"
-                            onClick={() => {
-                              if (teamFilter?.length === 1) {
-                                handleCarryWeek(
-                                  teamFilter[0] === "" ? null : teamFilter[0],
-                                );
-                              } else {
-                                setCarryWeekOpen((o) => !o);
-                              }
-                            }}
-                            title="Move unfinished plan cards to next week"
-                          >
-                            Carry over week{teamFilter?.length === 1 ? " →" : " ▾"}
-                          </button>
-                          {teamFilter?.length !== 1 && (
-                            <Dropdown
-                              open={carryWeekOpen}
-                              anchorRef={carryWeekRef}
-                              onClose={() => setCarryWeekOpen(false)}
-                              className="card-stage-menu sprint-menu"
-                            >
-                              {carryable.teams.map((t) => (
-                                <button
-                                  key={t}
-                                  type="button"
-                                  className="card-stage-item"
-                                  onClick={() => handleCarryWeek(t)}
-                                >
-                                  <span
-                                    className="team-dot"
-                                    style={{ background: teamColor(t) }}
-                                  />
-                                  {t}
-                                </button>
-                              ))}
-                              {pickerNoTeam && (
-                                <button
-                                  type="button"
-                                  className="card-stage-item card-stage-clear"
-                                  onClick={() => handleCarryWeek(null)}
-                                >
-                                  no team
-                                </button>
-                              )}
-                              {carryable.teams.length === 0 &&
-                                !pickerNoTeam && (
-                                  <div className="sprint-empty">
-                                    Nothing to carry
-                                  </div>
-                                )}
-                            </Dropdown>
-                          )}
-                        </div>
-                      )}
                       <button
                         type="button"
                         className="team-weekly-toggle"

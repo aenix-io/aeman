@@ -538,19 +538,6 @@ export const apiProvider: Provider = {
     await api(board, "POST", "/deadlines/actions/move", { project, from, to });
   },
 
-  async carryWeek(
-    board: BoardAddr,
-    team: string | null,
-    week: string,
-    dryRun = false,
-  ): Promise<CarryReport> {
-    return api<CarryReport>(board, "POST", "/sprints/actions/carry-week", {
-      team: team ?? "",
-      week,
-      dryRun,
-    });
-  },
-
   async setSprintState(
     board: BoardAddr,
     team: string | null,

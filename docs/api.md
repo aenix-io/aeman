@@ -24,7 +24,7 @@ A project also carries **deadlines**: a line across the grid on a given week. On
 
 A slot's **row is the week of its `dates.start`** — always derived, never stored beside the dates where the two could drift. `plan.week` belongs to weekly-plan cards (those created with a band and no dates); setting it on a card filed under an epic is refused (422).
 
-A project also holds **processes** — recurring work the team keeps doing and wants to see itself doing. A process groups **tasks**; each task says what every iteration is called and says, its cycle (counted on the calendar from its start date, not from when the last iteration closed), the team whose weekly plan the iterations land in, and the standing owner. `carry_week` spawns what each week is owed. An open iteration holds the next one back — the stuck card *is* the process, and it goes overdue where it is — unless the task `accumulate`s, for work where unpaid months must pile up as separate cards. Every iteration is a fresh copy of the task: a renamed live card stays renamed. See [`docs/design/processes.md`](design/processes.md).
+A project also holds **processes** — recurring work the team keeps doing and wants to see itself doing. A process groups **tasks**; each task says what every iteration is called and says, its cycle (counted on the calendar from its start date, not from when the last iteration closed), the team whose weekly plan the iterations land in, and the standing owner. The server files what each week is owed by itself, as the week arrives — nothing to call. An open iteration holds the next one back — the stuck card *is* the process, and it goes overdue where it is — unless the task `accumulate`s, for work where unpaid months must pile up as separate cards. Every iteration is a fresh copy of the task: a renamed live card stays renamed. See [`docs/design/processes.md`](design/processes.md).
 
 A **column** of the Project board is the pair `(project, epic)`. Epic names are unique only *within* a project, so every project can have its own `Docs` or `Auth`, and a card names both halves. Anything acting on a column — filing a card, deleting, renaming, reordering — names both.
 
@@ -82,7 +82,6 @@ Actions carry the board rules — the client never reimplements them.
 | `POST /api/v1/cards/{uid}/actions/take-into-plan` | `{engineer, zone, day}` | Take a weekly-plan card into work. |
 | `POST /api/v1/cards/{uid}/actions/release-from-plan` | `{}` | Release a card from the weekly plan. |
 | `POST /api/v1/sprints/actions/carry-over` | `{team, dryRun}` | Advance the team's sprint to today and carry its unfinished cards; finished recurrent cards reseed fresh copies. |
-| `POST /api/v1/sprints/actions/carry-week` | `{team, week, dryRun}` | Pull unfinished plan cards from earlier weeks into the week (same recurrent reseeding). |
 | `POST /api/v1/epics/actions/delete-epic` | `{epic, project}` | Delete an EMPTY column; 422 while cards still sit under it. |
 | `POST /api/v1/epics/actions/reorder-epics` | `{project, epics:[...]}` | Apply one project's column order (moves the hidden epic-state cards). |
 | `POST /api/v1/epics/actions/rename` | `{project, epic, to}` | Rename a column in place; its cards are rewritten with it. A name already used inside the SAME project is refused (422); the same name in another project is fine. |
@@ -231,7 +230,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
 | `move_card` / `defer_card` | Reorder; push the scheduled day ahead. |
 | `send_to_review` / `remove_reviewer` | The review-card cycle (send reassigns when a review card exists). |
 | `take_into_plan` / `release_from_plan` | Weekly-plan membership. |
-| `carry_over` / `carry_week` | Sprint/week carry with `dryRun` count reports; `carry_week` also spawns the process iterations the week is owed (`spawned`). |
+| `carry_over` | Advance a team's sprint and carry its unfinished day cards forward (`dryRun` reports the counts). There is no weekly counterpart: the server files each week's process turns by itself, and an unfinished plan card is a debt that stays where it was owed and shows on the current week as overdue. |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |
 | `list_processes` | The Process tab in one call: processes, tasks, and each task's history (done / open / late per iteration). |
 | `add_process` / `delete_process` / `rename_process` | The process roster inside a project. |

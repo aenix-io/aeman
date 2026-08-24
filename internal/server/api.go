@@ -49,7 +49,6 @@ var errMissingBoard = errors.New("owner and board are required (set ?owner=&boar
 //	GET    /api/v1/sprints                            per-team sprint pointers
 //	PATCH  /api/v1/sprints                            set a team's pointer directly
 //	POST   /api/v1/sprints/actions/carry-over         advance a sprint, carry unfinished (dryRun)
-//	POST   /api/v1/sprints/actions/carry-week         pull unfinished plan cards forward (dryRun)
 //	GET    /api/v1/ordering                           the board-level manual order
 //	GET    /api/v1/watch                              WebSocket stream (Card/Sprint/Ordering events)
 func (s *Server) registerAPI(mux *http.ServeMux) {
@@ -77,7 +76,6 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/sprints", s.handleListSprints)
 	mux.HandleFunc("PATCH /api/v1/sprints", s.handlePatchSprint)
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-over", s.handleCarryOver)
-	mux.HandleFunc("POST /api/v1/sprints/actions/carry-week", s.handleCarryWeek)
 	mux.HandleFunc("POST /api/v1/sprints/actions/reorder-teams", s.handleReorderTeams)
 	mux.HandleFunc("POST /api/v1/sprints/actions/delete-team", s.handleDeleteTeam)
 	mux.HandleFunc("POST /api/v1/epics", s.handleAddEpic)
@@ -155,7 +153,6 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/sprints/actions/carry-over", "Advance a team's sprint to today, carry unfinished ({team, dryRun})"},
 			{"POST", "/api/v1/sprints/actions/reorder-teams", "Apply a shared team order (moves the hidden sprint-state cards; body {teams:[...]})"},
 			{"POST", "/api/v1/sprints/actions/delete-team", "Delete a team's sprint pointer; refused while cards still use the team (body {team})"},
-			{"POST", "/api/v1/sprints/actions/carry-week", "Pull unfinished plan cards into the week ({team, week, dryRun})"},
 			{"POST", "/api/v1/epics", "Declare an epic column inside a project ({name, project}); the project is required"},
 			{"POST", "/api/v1/epics/actions/delete-epic", "Delete an EMPTY epic column; refused while cards sit under it ({epic, project})"},
 			{"POST", "/api/v1/epics/actions/reorder-epics", "Apply one project's column order (moves the hidden epic-state cards; body {project, epics:[...]})"},
@@ -999,29 +996,6 @@ func (s *Server) handleCarryOver(w http.ResponseWriter, r *http.Request) {
 	// semantics apply; a cold cache still loads.
 	ctx, _ := withStaleAllowed(r.Context())
 	rep, err := svc.CarryOver(ctx, owner, project, in.Team, in.DryRun)
-	if err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, rep)
-}
-
-func (s *Server) handleCarryWeek(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Team   string `json:"team"`
-		Week   string `json:"week"`
-		DryRun bool   `json:"dryRun"`
-	}
-	if !decodeJSON(w, r, &in) {
-		return
-	}
-	svc, owner, project, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	// Same cached-snapshot read as carry-over (see handleCarryOver).
-	ctx, _ := withStaleAllowed(r.Context())
-	rep, err := svc.CarryWeek(ctx, owner, project, in.Team, in.Week, in.DryRun)
 	if err != nil {
 		s.apiError(w, r, err)
 		return

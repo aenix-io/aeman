@@ -1045,6 +1045,24 @@ func (b *storeBackend) ensureWarm(e *boardEntry, owner string, project int) {
 				fails = 0
 			}
 			e.loadMu.Unlock()
+			if err == nil {
+				// The week's process turns, filed by the warmer's own token —
+				// the one person whose session keeps this board fresh. Run
+				// through the CACHED backend so the new cards reach every
+				// open tab the way any write does.
+				// Through a cached backend built on the warmer's own token —
+				// not this request's: ensureWarm can be entered from another
+				// user's request, and the turns must be written by the
+				// session that actually keeps the board fresh.
+				writer := &storeBackend{inner: src.inner, store: store, multiUser: b.multiUser}
+				sctx, scancel := context.WithTimeout(context.Background(), warmLoadTimeout)
+				if n, serr := boardservice.New(writer).SpawnDue(sctx, owner, project); serr != nil {
+					store.logger().Warn("process turns not filed", "board", key, "err", serr)
+				} else if n > 0 {
+					store.logger().Info("process turns filed", "board", key, "turns", n)
+				}
+				scancel()
+			}
 			if err != nil {
 				fails++
 				e.mu.Lock()

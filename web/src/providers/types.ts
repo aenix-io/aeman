@@ -80,6 +80,9 @@ export interface Card {
   /** On a process turn: the process it belongs to, and the task it came from. */
   process?: string;
   task?: string;
+  /** A card from a plan — a slot, a turn, a weekly-plan card — still open past
+   *  the day it was owed by. Derived by the server from the card's dates. */
+  overdue?: boolean;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -301,16 +304,7 @@ export interface Provider {
     board: BoardAddr,
     team: string | null,
     dryRun?: boolean,
-  ): Promise<CarryReport>;
-  /** Pull a team's unfinished plan cards from earlier weeks into `week`;
-   * finished recurrent ones reseed as fresh copies. dryRun = counts only. */
-  carryWeek(
-    board: BoardAddr,
-    team: string | null,
-    week: string,
-    dryRun?: boolean,
-  ): Promise<CarryReport>;
-  /** Apply a shared team order (moves the hidden sprint-state cards). */
+  ): Promise<CarryReport>;  /** Apply a shared team order (moves the hidden sprint-state cards). */
   reorderTeams(board: BoardAddr, teams: string[]): Promise<void>;
 
   /** Declare a new epic column inside a project (which is required). */

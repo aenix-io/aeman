@@ -105,17 +105,15 @@ func ProcessesResource(b board.Board, project string) ProcessList {
 
 // iterationState: done, or open within its cycle, or late once the cycle has
 // rolled past it without it closing.
-func iterationState(it, tpl board.Card, today string) string {
+// iterationState: done, or late once the week it was owed in has passed with
+// it still open, or open. One definition with the rest of the board
+// (board.Overdue): a turn used to count as late only when the NEXT turn came
+// due, so a monthly task went red a month after its week, not a day after.
+func iterationState(it, _ board.Card, today string) string {
 	if board.Complete(it.Stage, it.Progress) {
 		return "done"
 	}
-	if it.Week == "" {
-		return "open"
-	}
-	// The next due date after the iteration's week: still open past it means
-	// the process has already fallen behind.
-	next := board.NextAfter(tpl.Recurrence, tpl.StartDate, board.AddDays(it.Week, 6))
-	if next != "" && next <= today {
+	if board.Overdue(it, today) {
 		return "late"
 	}
 	return "open"
