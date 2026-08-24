@@ -231,13 +231,13 @@ func (a *authManager) handleMCPCallback(w http.ResponseWriter, r *http.Request, 
 		a.redirectError(w, r, p.redirectURI, p.clientState, "invalid_request", "missing authorization code")
 		return
 	}
-	ghToken, err := a.exchange(r.Context(), code)
+	grant, err := a.exchange(r.Context(), code)
 	if err != nil {
 		a.log.Error("mcp oauth token exchange failed", "err", err)
 		a.redirectError(w, r, p.redirectURI, p.clientState, "server_error", "token exchange failed")
 		return
 	}
-	login, err := a.fetchLogin(r.Context(), ghToken)
+	login, err := a.fetchLogin(r.Context(), grant.token)
 	if err != nil {
 		a.log.Error("mcp oauth user lookup failed", "err", err)
 		a.redirectError(w, r, p.redirectURI, p.clientState, "server_error", "could not read GitHub user")
@@ -245,21 +245,24 @@ func (a *authManager) handleMCPCallback(w http.ResponseWriter, r *http.Request, 
 	}
 
 	if isLoopbackRedirect(p.redirectURI) {
-		a.completeMCPAuth(w, r, ghToken, login, p)
+		a.completeMCPAuth(w, r, grant, login, p)
 		return
 	}
-	a.promptConsent(w, ghToken, login, p)
+	a.promptConsent(w, grant, login, p)
 }
 
 // completeMCPAuth opens the session, mints a single-use MCP authorization code
 // and bounces the browser back to the client's redirect_uri. It runs only for a
 // loopback redirect or after the user approves the consent screen.
-func (a *authManager) completeMCPAuth(w http.ResponseWriter, r *http.Request, ghToken, login string, p pendingAuth) {
+func (a *authManager) completeMCPAuth(w http.ResponseWriter, r *http.Request, grant ghGrant, login string, p pendingAuth) {
 	now := time.Now()
 	sid := randToken()
 	mcpCode := randToken()
 	a.mu.Lock()
-	a.sessions[sid] = oauthSession{token: ghToken, login: login, created: now}
+	a.sessions[sid] = oauthSession{
+		token: grant.token, login: login, created: now,
+		refresh: grant.refresh, tokenExpiry: grant.expiry,
+	}
 	a.saveLocked()
 	a.authCodes[mcpCode] = authCode{
 		sid:           sid,
@@ -289,13 +292,13 @@ func (a *authManager) completeMCPAuth(w http.ResponseWriter, r *http.Request, gh
 // screen, binding it to this browser via a cookie so only the user who just
 // authenticated can approve (and a cross-site POST, which drops the Lax cookie,
 // cannot).
-func (a *authManager) promptConsent(w http.ResponseWriter, ghToken, login string, p pendingAuth) {
+func (a *authManager) promptConsent(w http.ResponseWriter, grant ghGrant, login string, p pendingAuth) {
 	consentID := randToken()
 	browserToken := randToken()
 	a.mu.Lock()
 	a.pruneEphemeralLocked()
 	a.pendingConsent[consentID] = pendingConsent{
-		ghToken:       ghToken,
+		grant:         grant,
 		login:         login,
 		clientID:      p.clientID,
 		redirectURI:   p.redirectURI,
@@ -352,7 +355,7 @@ func (a *authManager) handleConsent(w http.ResponseWriter, r *http.Request) {
 		a.redirectError(w, r, pc.redirectURI, pc.clientState, "access_denied", "user denied the request")
 		return
 	}
-	a.completeMCPAuth(w, r, pc.ghToken, pc.login, p)
+	a.completeMCPAuth(w, r, pc.grant, pc.login, p)
 }
 
 // handleToken redeems an MCP authorization code for an access token. The token
@@ -425,15 +428,11 @@ func (a *authManager) handleToken(w http.ResponseWriter, r *http.Request) {
 
 // verifyToken is the auth.TokenVerifier backing /mcp: it maps a bearer token
 // (= session id) to its TokenInfo, carrying the user's GitHub token in Extra.
-func (a *authManager) verifyToken(_ context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
-	a.mu.Lock()
-	s, ok := a.sessions[token]
-	if ok && time.Since(s.created) > sessionTTL {
-		delete(a.sessions, token)
-		a.saveLocked()
-		ok = false
-	}
-	a.mu.Unlock()
+func (a *authManager) verifyToken(ctx context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
+	// Through the same gate the web session uses: it renews an expiring
+	// GitHub token in place, which is what stops the MCP token "slipping"
+	// every eight hours while the aeman session behind it is still live.
+	s, ok := a.sessionByID(ctx, token)
 	if !ok {
 		return nil, fmt.Errorf("unknown or expired session: %w", auth.ErrInvalidToken)
 	}

@@ -57,6 +57,12 @@ type oauthSession struct {
 	token   string
 	login   string
 	created time.Time
+	// refresh and tokenExpiry track a GitHub App user token, which expires
+	// (8h by default) and renews with a SINGLE-USE refresh token. Zero
+	// tokenExpiry means the token does not expire (a classic OAuth app, or
+	// expiration opted out) and refresh stays empty.
+	refresh     string
+	tokenExpiry time.Time
 }
 
 // persistedState is the on-disk envelope. Only the dynamically registered MCP
@@ -85,6 +91,10 @@ type persistedSession struct {
 	Token   string    `json:"token"`
 	Login   string    `json:"login"`
 	Created time.Time `json:"created"`
+	// Refresh/TokenExpiry survive restarts with the session: losing the
+	// refresh token would sign everyone out at the next expiry instead.
+	Refresh     string    `json:"refresh,omitempty"`
+	TokenExpiry time.Time `json:"tokenExpiry,omitempty"`
 }
 
 // authManager runs the GitHub OAuth web flow and keeps per-user sessions. They
@@ -113,6 +123,12 @@ type authManager struct {
 
 	mu       sync.Mutex
 	sessions map[string]oauthSession
+	// refreshing single-flights token renewal per session: GitHub's refresh
+	// token is SINGLE-USE, so two concurrent renewals would burn it — the
+	// second gets "bad_refresh_token" and the session dies for no reason.
+	// Callers land here only when the token is already past its expiry;
+	// while a renewal is in flight they wait on its channel.
+	refreshing map[string]chan struct{}
 	// clients holds dynamically-registered MCP OAuth clients (RFC 7591).
 	clients map[string]oauthClient
 	// pendingAuth tracks in-flight MCP authorizations, keyed by the GitHub
@@ -160,7 +176,7 @@ type authCode struct {
 // issued until the user confirms the client and (remote) redirect target, so a
 // phished authorize link cannot silently deliver a code to an attacker's URI.
 type pendingConsent struct {
-	ghToken       string
+	grant         ghGrant
 	login         string
 	clientID      string
 	redirectURI   string
@@ -264,7 +280,10 @@ func (a *authManager) load() {
 			now := time.Now()
 			for sid, s := range sessions {
 				if now.Sub(s.Created) <= sessionTTL {
-					a.sessions[sid] = oauthSession{token: s.Token, login: s.Login, created: s.Created}
+					a.sessions[sid] = oauthSession{
+						token: s.Token, login: s.Login, created: s.Created,
+						refresh: s.Refresh, tokenExpiry: s.TokenExpiry,
+					}
 				}
 			}
 		}
@@ -289,7 +308,10 @@ func (a *authManager) saveLocked() {
 	if a.sessionKey != nil && len(a.sessions) > 0 {
 		sessions := make(map[string]persistedSession, len(a.sessions))
 		for sid, s := range a.sessions {
-			sessions[sid] = persistedSession{Token: s.token, Login: s.login, Created: s.created}
+			sessions[sid] = persistedSession{
+				Token: s.token, Login: s.login, Created: s.created,
+				Refresh: s.refresh, TokenExpiry: s.tokenExpiry,
+			}
 		}
 		if enc, err := encryptSessions(a.sessionKey, sessions); err != nil {
 			a.log.Error("session encrypt failed; not persisting sessions", "err", err)
@@ -341,24 +363,103 @@ func (a *authManager) dropSession(id string) string {
 	return s.login
 }
 
-// session resolves the request's session cookie to a live session.
+// session resolves the request's session cookie to a live session, renewing
+// its GitHub token when the token has expired (a GitHub App user token lives
+// 8h; the session is allowed to outlive it precisely because of this).
 func (a *authManager) session(r *http.Request) (oauthSession, bool) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
 		return oauthSession{}, false
 	}
+	return a.sessionByID(r.Context(), c.Value)
+}
+
+// sessionByID is session for a bare id — the MCP bearer path uses it too.
+func (a *authManager) sessionByID(ctx context.Context, sid string) (oauthSession, bool) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, ok := a.sessions[c.Value]
+	s, ok := a.sessions[sid]
 	if !ok {
+		a.mu.Unlock()
 		return oauthSession{}, false
 	}
 	if time.Since(s.created) > sessionTTL {
-		delete(a.sessions, c.Value)
+		delete(a.sessions, sid)
 		a.saveLocked()
+		a.mu.Unlock()
 		return oauthSession{}, false
 	}
-	return s, true
+	// The GitHub token is renewed a little AHEAD of its expiry, so requests
+	// keep riding a valid token instead of queueing behind a renewal.
+	if s.tokenExpiry.IsZero() || time.Until(s.tokenExpiry) > tokenRenewAhead || s.refresh == "" {
+		a.mu.Unlock()
+		return s, true
+	}
+	return a.renewSession(ctx, sid, s)
+}
+
+// tokenRenewAhead is how early a session's GitHub token is renewed. Well
+// inside the 8h lifetime, and long enough that a request never has to use a
+// token in its final seconds.
+const tokenRenewAhead = 10 * time.Minute
+
+// renewSession refreshes sid's GitHub token, single-flight. Called with a.mu
+// HELD; returns with it released.
+func (a *authManager) renewSession(ctx context.Context, sid string, s oauthSession) (oauthSession, bool) {
+	if ch, busy := a.refreshing[sid]; busy {
+		stillValid := time.Now().Before(s.tokenExpiry)
+		a.mu.Unlock()
+		if stillValid {
+			// The old token still works; no reason to queue behind the renewal.
+			return s, true
+		}
+		<-ch
+		a.mu.Lock()
+		s, ok := a.sessions[sid]
+		a.mu.Unlock()
+		return s, ok
+	}
+	ch := make(chan struct{})
+	if a.refreshing == nil {
+		a.refreshing = map[string]chan struct{}{}
+	}
+	a.refreshing[sid] = ch
+	a.mu.Unlock()
+
+	grant, err := a.refreshGrant(ctx, s.refresh)
+
+	a.mu.Lock()
+	delete(a.refreshing, sid)
+	close(ch)
+	cur, ok := a.sessions[sid]
+	if !ok {
+		a.mu.Unlock()
+		return oauthSession{}, false
+	}
+	if err != nil {
+		// The refresh token was refused or unreachable. Keep the session as
+		// long as its access token might still work — a network blip must
+		// not sign anyone out — and only drop it once both are dead.
+		if time.Now().After(cur.tokenExpiry) {
+			delete(a.sessions, sid)
+			a.saveLocked()
+			a.mu.Unlock()
+			a.log.Warn("github token renewal failed; session dropped", "login", cur.login, "err", err)
+			return oauthSession{}, false
+		}
+		a.mu.Unlock()
+		a.log.Warn("github token renewal failed; keeping the current token", "login", cur.login, "err", err)
+		return cur, true
+	}
+	cur.token = grant.token
+	cur.tokenExpiry = grant.expiry
+	if grant.refresh != "" {
+		cur.refresh = grant.refresh
+	}
+	a.sessions[sid] = cur
+	a.saveLocked()
+	a.mu.Unlock()
+	a.log.Info("github token renewed", "login", cur.login)
+	return cur, true
 }
 
 // sessionID returns the caller's session cookie value ("" when absent). It
@@ -438,13 +539,13 @@ func (a *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := a.exchange(r.Context(), code)
+	grant, err := a.exchange(r.Context(), code)
 	if err != nil {
 		a.log.Error("oauth token exchange failed", "err", err)
 		writeJSONError(w, http.StatusBadGateway, "token exchange failed")
 		return
 	}
-	login, err := a.fetchLogin(r.Context(), token)
+	login, err := a.fetchLogin(r.Context(), grant.token)
 	if err != nil {
 		a.log.Error("oauth user lookup failed", "err", err)
 		writeJSONError(w, http.StatusBadGateway, "could not read GitHub user")
@@ -453,7 +554,10 @@ func (a *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	sid := randToken()
 	a.mu.Lock()
-	a.sessions[sid] = oauthSession{token: token, login: login, created: time.Now()}
+	a.sessions[sid] = oauthSession{
+		token: grant.token, login: login, created: time.Now(),
+		refresh: grant.refresh, tokenExpiry: grant.expiry,
+	}
 	a.saveLocked()
 	a.mu.Unlock()
 	a.setCookie(w, sessionCookie, sid, int(sessionTTL/time.Second))
@@ -472,38 +576,70 @@ func (a *authManager) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-func (a *authManager) exchange(ctx context.Context, code string) (string, error) {
+// ghGrant is what GitHub's token endpoint hands back. A GitHub App issues
+// expiring user tokens (8h) with a single-use refresh token; a classic OAuth
+// app leaves ExpiresIn and RefreshToken empty and the token lives until it is
+// revoked.
+type ghGrant struct {
+	token   string
+	refresh string
+	expiry  time.Time // zero = does not expire
+}
+
+func (a *authManager) exchange(ctx context.Context, code string) (ghGrant, error) {
 	form := url.Values{}
 	form.Set("client_id", a.cfg.ClientID)
 	form.Set("client_secret", a.cfg.ClientSecret)
 	form.Set("code", code)
 	form.Set("redirect_uri", a.redirectURI())
 
+	return a.tokenGrant(ctx, form)
+}
+
+// refreshGrant renews an expiring GitHub App user token. The refresh token is
+// single-use: the grant that comes back carries its replacement.
+func (a *authManager) refreshGrant(ctx context.Context, refresh string) (ghGrant, error) {
+	form := url.Values{}
+	form.Set("client_id", a.cfg.ClientID)
+	form.Set("client_secret", a.cfg.ClientSecret)
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", refresh)
+	return a.tokenGrant(ctx, form)
+}
+
+// tokenGrant posts a form to GitHub's token endpoint and reads the grant.
+func (a *authManager) tokenGrant(ctx context.Context, form url.Values) (ghGrant, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", err
+		return ghGrant{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return "", err
+		return ghGrant{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	var out struct {
 		AccessToken      string `json:"access_token"`
+		RefreshToken     string `json:"refresh_token"`
+		ExpiresIn        int64  `json:"expires_in"`
 		Error            string `json:"error"`
 		ErrorDescription string `json:"error_description"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", err
+		return ghGrant{}, err
 	}
 	if out.AccessToken == "" {
-		return "", fmt.Errorf("no access token (%s: %s)", out.Error, out.ErrorDescription)
+		return ghGrant{}, fmt.Errorf("no access token (%s: %s)", out.Error, out.ErrorDescription)
 	}
-	return out.AccessToken, nil
+	g := ghGrant{token: out.AccessToken, refresh: out.RefreshToken}
+	if out.ExpiresIn > 0 {
+		g.expiry = time.Now().Add(time.Duration(out.ExpiresIn) * time.Second)
+	}
+	return g, nil
 }
 
 func (a *authManager) fetchLogin(ctx context.Context, token string) (string, error) {
