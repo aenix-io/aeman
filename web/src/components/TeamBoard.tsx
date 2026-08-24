@@ -863,6 +863,10 @@ export function TeamBoard({
           if (!parentCard?.plan) {
             return;
           }
+          // A slot's week derives from its start date: the pull-out must
+          // not write the PARENT's week onto it — that conflicting write is
+          // refused, and refusing the whole patch kept the subtask stuck.
+          const slot = isSlot(card);
           const week = parentCard.week ?? currentWeek;
           const prev: Partial<CardModel> = {
             parent: card.parent,
@@ -872,12 +876,12 @@ export function TeamBoard({
           patchCard(card.itemId, {
             parent: undefined,
             plan: toMeta.band,
-            week,
+            ...(slot ? {} : { week }),
           });
           void provider
             .patchCard(board, card.itemId, {
               parent: "",
-              plan: { band: toMeta.band, week },
+              plan: slot ? { band: toMeta.band } : { band: toMeta.band, week },
             })
             .then((c) => {
               addCard(c);

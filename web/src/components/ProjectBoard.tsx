@@ -392,7 +392,14 @@ export function ProjectBoard({
   };
 
   // ---- drag-to-create (and resize): a pressed column stretch becomes a slot.
-  const [drag, setDrag] = useState<{
+  // The gestures listen on the WINDOW for their whole life: the live
+  // preview re-lanes and remounts slots, and a removed element takes its
+  // pointer capture — and the rest of the gesture — with it (the stuck,
+  // unreleasable drag). Window listeners are closures of the press-time
+  // render, so the state they read lives in refs.
+  const dragRef = useRef<typeof drag>(null);
+  const moveRef = useRef<typeof move>(null);
+  const [drag, setDragState] = useState<{
     epic: EpicRef;
     from: number;
     to: number;
@@ -423,14 +430,22 @@ export function ProjectBoard({
     gridTop: number;
   } | null>(null);
 
+  const setDrag = (v: typeof drag) => {
+    dragRef.current = v;
+    setDragState(v);
+  };
   // A slot being dragged to another week / epic. It follows the pointer as a
   // preview and only writes on release.
-  const [move, setMove] = useState<{
+  const [move, setMoveState] = useState<{
     card: CardModel;
     span: number;
     row: number;
     epic: EpicRef;
   } | null>(null);
+  const setMove = (v: typeof move) => {
+    moveRef.current = v;
+    setMoveState(v);
+  };
   // The press behind a possible drag: held in a ref so that merely pressing a
   // card re-renders nothing, and so a click that never travels stays a click.
   const press = useRef<{
@@ -481,13 +496,14 @@ export function ProjectBoard({
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     // "from" is the edge that stays put: the card's first row when the bottom
     // is pulled, its last row when the top is.
     setDrag({ epic, from: week, to: week, resize, edge });
+    armGesture(moveDrag, endDrag, () => setDrag(null));
   };
 
-  const moveDrag = (e: React.PointerEvent) => {
+  const moveDrag = (e: PointerEvent) => {
+    const drag = dragRef.current;
     if (!drag) {
       return;
     }
@@ -507,6 +523,7 @@ export function ProjectBoard({
   };
 
   const endDrag = () => {
+    const drag = dragRef.current;
     if (!drag) {
       return;
     }
@@ -553,6 +570,30 @@ export function ProjectBoard({
     setDraft({ epic, from: Math.min(from, to), to: Math.max(from, to) });
   };
 
+  // armGesture wires a gesture's move/up/cancel to the window for its whole
+  // life and tears them down when it ends, however it ends.
+  const armGesture = (
+    onMove: (e: PointerEvent) => void,
+    onUp: () => void,
+    onCancel: () => void,
+  ) => {
+    const up = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      onUp();
+    };
+    const cancel = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      onCancel();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+  };
+
   const beginMove = (card: CardModel, row: number, span: number, e: React.PointerEvent) => {
     // Only the slot's BODY drags. A press that started on a control inside it
     // (the team badge, delete, the resize grip) must reach that control: the
@@ -562,7 +603,6 @@ export function ProjectBoard({
       return;
     }
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     // Remember WHERE on the card the press landed. A press is not yet a drag:
     // it becomes one only once the pointer travels, so a stray click leaves
     // the card exactly where it was.
@@ -574,13 +614,18 @@ export function ProjectBoard({
       x: e.clientX,
       y: e.clientY,
     };
+    armGesture(moveMove, endMove, () => {
+      press.current = null;
+      setMove(null);
+    });
   };
 
-  const moveMove = (e: React.PointerEvent) => {
+  const moveMove = (e: PointerEvent) => {
     const p = press.current;
     if (!p) {
       return;
     }
+    const move = moveRef.current;
     if (!move) {
       if (Math.abs(e.clientX - p.x) < DRAG_SLOP && Math.abs(e.clientY - p.y) < DRAG_SLOP) {
         return;
@@ -608,6 +653,7 @@ export function ProjectBoard({
 
   const endMove = () => {
     press.current = null;
+    const move = moveRef.current;
     if (!move) {
       return;
     }
@@ -942,6 +988,9 @@ export function ProjectBoard({
       width: number;
     };
     const byCol = new Map<string, Slot[]>();
+    // A second, preview-less collection exists only while an edge is being
+    // pulled: it tells the pin which lane the slot rests in.
+    const rest = drag?.resize ? new Map<string, Slot[]>() : null;
     if (weeks.length === 0) {
       return byCol;
     }
@@ -982,6 +1031,17 @@ export function ProjectBoard({
       const list = byCol.get(k) ?? [];
       list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
       byCol.set(k, list);
+      if (rest) {
+        // The same card at REST — pre-preview geometry, for the lane pin.
+        const rr = weeksBetween(weeks[0], anchor);
+        if (rr >= 0 && rr < weeks.length) {
+          const rs = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - rr));
+          const rk = colKey(c.project ?? "", c.epic);
+          const rl = rest.get(rk) ?? [];
+          rl.push({ card: c, row: rr, span: rs, lane: 0, lanes: 1, width: 1 });
+          rest.set(rk, rl);
+        }
+      }
     }
     if (draft) {
       const k = colKey(draft.epic.project, draft.epic.name);
@@ -998,56 +1058,98 @@ export function ProjectBoard({
     }
     // Lanes are worked out per CLUSTER of overlapping slots, not per column:
     // splitting the whole column because two slots happen to share a fortnight
-    // would leave every unrelated card at half width for no reason.
-    for (const list of byCol.values()) {
-      list.sort((a, b) => a.row - b.row || b.span - a.span);
-      let cluster: typeof list = [];
-      let laneEnd: number[] = [];
-      const close = () => {
-        const lanes = laneEnd.length;
-        for (const s of cluster) {
-          s.lanes = lanes;
-          // A cluster's lane count is what the busiest week in it needs, but
-          // a slot beside a quiet week has room the busy weeks do not: it
-          // grows rightwards over every lane that is free for ALL of its own
-          // rows. Without this a card sat at half width beside empty space,
-          // as if the space were spoken for.
-          let width = 1;
-          while (s.lane + width < lanes) {
-            const nextLane = s.lane + width;
-            const taken = cluster.some(
-              (o) =>
-                o !== s &&
-                o.lane === nextLane &&
-                o.row < s.row + s.span &&
-                s.row < o.row + o.span,
-            );
-            if (taken) {
-              break;
+    // would leave every unrelated card at half width for no reason. A pin
+    // holds one card in a KNOWN lane: while an edge is being pulled, the slot
+    // must not hop lanes under the pointer — the neighbours pack around it.
+    const pack = (
+      lists: Map<string, Slot[]>,
+      pin?: { id: string; lane: number; row: number; span: number },
+    ) => {
+      for (const list of lists.values()) {
+        list.sort((a, b) => a.row - b.row || b.span - a.span);
+        let cluster: typeof list = [];
+        let laneEnd: number[] = [];
+        const close = () => {
+          const lanes = laneEnd.length;
+          for (const s of cluster) {
+            s.lanes = lanes;
+            // A cluster's lane count is what the busiest week in it needs, but
+            // a slot beside a quiet week has room the busy weeks do not: it
+            // grows rightwards over every lane that is free for ALL of its own
+            // rows. Without this a card sat at half width beside empty space,
+            // as if the space were spoken for.
+            let width = 1;
+            while (s.lane + width < lanes) {
+              const nextLane = s.lane + width;
+              const taken = cluster.some(
+                (o) =>
+                  o !== s &&
+                  o.lane === nextLane &&
+                  o.row < s.row + s.span &&
+                  s.row < o.row + o.span,
+              );
+              if (taken) {
+                break;
+              }
+              width += 1;
             }
-            width += 1;
+            s.width = width;
           }
-          s.width = width;
+          cluster = [];
+          laneEnd = [];
+        };
+        // Whether a slot's rows overlap the pinned card's previewed extent.
+        const meetsPin = (s: Slot) =>
+          !!pin && s.row < pin.row + pin.span && pin.row < s.row + s.span;
+        for (const s of list) {
+          // A slot that begins after everything so far has ended starts a new
+          // cluster: it shares its weeks with nothing before it.
+          if (laneEnd.length && s.row >= Math.max(...laneEnd)) {
+            close();
+          }
+          let lane: number;
+          if (pin && s.card?.itemId === pin.id) {
+            lane = pin.lane;
+            while (laneEnd.length <= lane) {
+              laneEnd.push(0);
+            }
+          } else {
+            // First fit — but never into the pinned lane while sharing rows
+            // with the pinned card, even before it is placed.
+            lane = laneEnd.findIndex(
+              (end, i) => end <= s.row && !(pin && i === pin.lane && meetsPin(s)),
+            );
+            if (lane === -1) {
+              lane = laneEnd.length;
+              if (pin && lane === pin.lane && meetsPin(s)) {
+                laneEnd.push(0);
+                lane += 1;
+              }
+            }
+          }
+          laneEnd[lane] = Math.max(laneEnd[lane] ?? 0, s.row + s.span);
+          s.lane = lane;
+          cluster.push(s);
         }
-        cluster = [];
-        laneEnd = [];
-      };
-      for (const s of list) {
-        // A slot that begins after everything so far has ended starts a new
-        // cluster: it shares its weeks with nothing before it.
-        if (laneEnd.length && s.row >= Math.max(...laneEnd)) {
-          close();
-        }
-        let lane = laneEnd.findIndex((end) => end <= s.row);
-        if (lane === -1) {
-          lane = laneEnd.length;
-        }
-        laneEnd[lane] = s.row + s.span;
-        s.lane = lane;
-        cluster.push(s);
+        close();
       }
-      close();
+    };
+    let pin: { id: string; lane: number; row: number; span: number } | undefined;
+    if (rest && drag?.resize) {
+      pack(rest);
+      for (const list of rest.values()) {
+        const own = list.find((s) => s.card?.itemId === drag.resize?.itemId);
+        if (own) {
+          const preview = [...byCol.values()]
+            .flat()
+            .find((s) => s.card?.itemId === drag.resize?.itemId);
+          if (preview) {
+            pin = { id: drag.resize.itemId, lane: own.lane, row: preview.row, span: preview.span };
+          }
+        }
+      }
     }
+    pack(byCol, pin);
     return byCol;
   }, [cards, weeks, draft, move, drag]);
 
@@ -1382,8 +1484,6 @@ export function ProjectBoard({
               }`}
               style={{ gridRow: row + 2, gridColumn: col + 2 }}
               onPointerDown={(ev) => beginDrag(e, row, ev)}
-              onPointerMove={moveDrag}
-              onPointerUp={endDrag}
               onPointerCancel={() => setDrag(null)}
             />
           )),
@@ -1514,12 +1614,6 @@ export function ProjectBoard({
                   : {}),
               }}
               onPointerDown={(ev) => beginMove(card, row, span, ev)}
-              onPointerMove={moveMove}
-              onPointerUp={endMove}
-              onPointerCancel={() => {
-                press.current = null;
-                setMove(null);
-              }}
               onDoubleClick={() => onOpen(card)}
               title={card.title}
             >
@@ -1614,17 +1708,11 @@ export function ProjectBoard({
                 className="project-slot-resize project-slot-resize-top"
                 title="Drag to move the start"
                 onPointerDown={(ev) => beginDrag(e, row + span - 1, ev, card, "top")}
-                onPointerCancel={() => setDrag(null)}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
               />
               <div
                 className="project-slot-resize"
                 title="Drag to stretch over more weeks"
                 onPointerDown={(ev) => beginDrag(e, row, ev, card, "bottom")}
-                onPointerCancel={() => setDrag(null)}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
               />
             </div>
           )),

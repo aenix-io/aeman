@@ -424,7 +424,18 @@ func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		log.Debug("request", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start))
+		dur := time.Since(start)
+		switch {
+		// A slow request is the fact that explains every "aeman is down"
+		// report; at Debug they were invisible on production. The watch
+		// socket is exempt — it is SUPPOSED to stay open for hours.
+		case dur > 5*time.Second && !strings.HasPrefix(r.URL.Path, "/api/v1/watch"):
+			log.Warn("slow request", "method", r.Method, "path", r.URL.Path, "dur", dur)
+		case dur > time.Second && !strings.HasPrefix(r.URL.Path, "/api/v1/watch"):
+			log.Info("slow request", "method", r.Method, "path", r.URL.Path, "dur", dur)
+		default:
+			log.Debug("request", "method", r.Method, "path", r.URL.Path, "dur", dur)
+		}
 	})
 }
 
@@ -435,6 +446,19 @@ func clientIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id := r.Header.Get("X-Aeman-Client"); id != "" {
 			r = r.WithContext(withClientID(r.Context(), id))
+			// The card the request ADDRESSES (the {uid} of /cards/{uid}/...)
+			// scopes the echo suppression: only that card's change is the
+			// author's own optimistic state; everything else a request
+			// touches — batch fan-outs, cascades — echoes even to them.
+			if rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/cards/"); ok && rest != "" {
+				uid := rest
+				if i := strings.IndexByte(uid, '/'); i >= 0 {
+					uid = uid[:i]
+				}
+				if uid != "" {
+					r = r.WithContext(withTargetItem(r.Context(), uid))
+				}
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

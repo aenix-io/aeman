@@ -591,3 +591,25 @@ func TestTeamFilesASlotInTheWeeklyPlan(t *testing.T) {
 		t.Fatalf("an ordinary card must not be filed in the weekly plan, got %q", got.Plan)
 	}
 }
+
+// SetWeek on a slot: re-asserting the week the slot already derives from its
+// start date is a harmless no-op — the SPA and API writers echo the visible
+// week back — while a CONFLICTING week is refused; accepting it is exactly
+// how a slot's week and dates came to disagree. Ungrouping a slot subtask
+// used to die on this: the pull-out wrote the PARENT's week.
+func TestSetWeekOnASlot(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "s1", Title: "slot", Epic: "E", Project: "P", Team: "t",
+			StartDate: "2026-08-25", Week: "2026-08-24", Day: "2026-08-28"},
+	}, nil)
+	svc := New(fake)
+	ctx := context.Background()
+	// The derived week (the start date's Monday) is accepted silently.
+	if err := svc.SetWeek(ctx, "o", 1, "s1", "2026-08-24"); err != nil {
+		t.Fatalf("re-asserting the derived week: %v", err)
+	}
+	// Any other week is refused.
+	if err := svc.SetWeek(ctx, "o", 1, "s1", "2026-08-03"); !errors.Is(err, ErrWeekDerived) {
+		t.Fatalf("a conflicting week got %v, want ErrWeekDerived", err)
+	}
+}

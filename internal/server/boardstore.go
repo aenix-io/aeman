@@ -63,6 +63,37 @@ func withClientID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, clientIDCtxKey{}, id)
 }
 
+// targetItemCtxKey carries the item id the client's request ADDRESSED — the
+// {uid} of a /cards/{uid} route. Echo suppression is scoped to it: the author
+// holds an optimistic copy of the card they patched, and only of that card.
+type targetItemCtxKey struct{}
+
+func withTargetItem(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, targetItemCtxKey{}, id)
+}
+
+// echoOrigin is clientIDFrom for one card's change: the author's own watch is
+// spared the echo only when THIS card is the one their request addressed. A
+// cascade onto any other card — an epic rename fanning out, a subtask
+// following its parent — has no optimistic copy on the author's side, and
+// suppressing it left the author's board stale until a reload (the "renamed
+// column loses its cards" bug). A request that addressed no card (a batch
+// action) suppresses nothing.
+func echoOrigin(ctx context.Context, itemID string) string {
+	origin := clientIDFrom(ctx)
+	if origin == "" {
+		return ""
+	}
+	if target, _ := ctx.Value(targetItemCtxKey{}).(string); target != itemID {
+		// The one blind spot: a client still patching by a provisional
+		// local-N id it created moments ago is compared against the adopted
+		// id here; its echo goes through, harmlessly re-asserting the same
+		// values.
+		return ""
+	}
+	return origin
+}
+
 func clientIDFrom(ctx context.Context) string {
 	// Server-side work on nobody's behalf (a background title resolve) must
 	// reach every watcher, including the tab that triggered the create — an
@@ -868,6 +899,8 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		err error
 	}
 	done := make(chan loaded, 1)
+	b.store.logger().Info("board load began", "board", storeKey(owner, project), "login", login)
+	started := time.Now()
 	go func() { //nolint:gosec // G118: the whole point — the fetch must outlive its request
 		defer e.loadMu.Unlock()
 		// Deliberately NOT the request context: the detachment is the fix.
@@ -875,10 +908,13 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		defer cancel()
 		fresh, err := b.inner.LoadBoard(lctx, owner, project)
 		if err != nil {
-			b.store.logger().Warn("board load failed", "owner", owner, "project", project, "err", err)
+			b.store.logger().Warn("board load failed", "board", storeKey(owner, project),
+				"dur", time.Since(started), "err", err)
 			done <- loaded{err: err}
 			return
 		}
+		b.store.logger().Info("board load done", "board", storeKey(owner, project),
+			"cards", len(fresh.Cards), "dur", time.Since(started))
 		installed := b.install(e, fresh, login)
 		b.setWarmSrc(e, login)
 		b.ensureWarm(e, owner, project)
@@ -1070,6 +1106,7 @@ func (b *storeBackend) ensureWarm(e *boardEntry, owner string, project int) {
 		return
 	}
 	e.warming = true
+	b.store.logger().Info("board warmer started", "board", storeKey(owner, project), "login", e.warmSrc.login)
 	e.mu.Unlock()
 	store := b.store
 	key := storeKey(owner, project)
@@ -1334,7 +1371,7 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	e.markRecent(card.ItemID)
 	for i := range e.board.Cards {
 		if e.board.Cards[i].ItemID == itemID {
-			e.cardChanged(clientIDFrom(ctx), e.board.Cards[i], "MODIFIED")
+			e.cardChanged(echoOrigin(ctx, e.board.Cards[i].ItemID), e.board.Cards[i], "MODIFIED")
 			break
 		}
 	}
@@ -1524,7 +1561,7 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 		e.rosterBroadcast()
 		break
 	}
-	e.cardChanged(clientIDFrom(ctx), card, "DELETED")
+	e.cardChanged(echoOrigin(ctx, card.ItemID), card, "DELETED")
 	e.mu.Unlock()
 	return nil
 }
@@ -2097,7 +2134,7 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 		for i := range e.board.Cards {
 			if e.board.Cards[i].ItemID == card.ItemID {
 				e.board.Cards[i].Project = project
-				e.cardChanged(clientIDFrom(ctx), e.board.Cards[i], "MODIFIED")
+				e.cardChanged(echoOrigin(ctx, e.board.Cards[i].ItemID), e.board.Cards[i], "MODIFIED")
 				break
 			}
 		}
