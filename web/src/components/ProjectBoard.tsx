@@ -927,9 +927,10 @@ export function ProjectBoard({
   };
 
   // Done, and back again. Marking done is the board's own rule — the server
-  // clears the stage and fills 100 — and the way back is the In Progress
-  // action, which nudges the card into the working band instead of inventing
-  // a number: the same thing the other boards do when a card reopens.
+  // clears the stage and fills 100 — and the way back RESTORES what done
+  // overwrote: the server reads the pre-done progress from the card's own
+  // log, so an accidental done+undo round-trips instead of leaving the card
+  // at 90 and painted "taken into work".
   const setDone = (card: CardModel, done: boolean) => {
     setTeamMenu(null);
     const prev = { stage: card.stage, progress: card.progress };
@@ -947,9 +948,11 @@ export function ProjectBoard({
         });
       return;
     }
-    patchCard(card.itemId, { stage: undefined, progress: 90 });
+    // Optimistically only the stage clears; the restored progress arrives
+    // with the response — the client cannot know it.
+    patchCard(card.itemId, { stage: undefined });
     void provider
-      .setInProgress(board, card.itemId)
+      .reopen(board, card.itemId)
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);

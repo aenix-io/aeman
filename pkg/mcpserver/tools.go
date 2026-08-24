@@ -521,6 +521,19 @@ func (h *server) setProcessPaused(ctx context.Context, _ *mcp.CallToolRequest, i
 	return nil, statusOutput{Status: status}, nil
 }
 
+// reopenCard undoes a done mark, restoring the pre-done progress from the
+// card's own activity log (fallback: the In Progress nudge).
+func (h *server) reopenCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
+	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	if err := svc.Reopen(ctx, owner, project, in.UID); err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	return h.cardResource(ctx, svc, owner, project, in.UID)
+}
+
 type reorderProcessesInput struct {
 	boardRef
 	Processes []string `json:"processes" jsonschema:"every process name in the desired order (from list_processes)"`

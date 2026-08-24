@@ -91,7 +91,7 @@ func TestMCPListsTools(t *testing.T) {
 		"add_deadline", "delete_deadline", "move_deadline",
 		"list_processes", "add_process", "delete_process", "rename_process",
 		"set_process_project", "set_process_paused",
-		"reorder_processes", "reorder_process_tasks",
+		"reorder_processes", "reorder_process_tasks", "reopen_card",
 		"add_process_task", "update_process_task", "delete_process_task",
 	}
 	for _, w := range want {

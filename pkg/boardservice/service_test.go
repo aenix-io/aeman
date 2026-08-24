@@ -2706,3 +2706,47 @@ func (f *fakeBackend) SetPaused(_ context.Context, _ board.Board, card board.Car
 	}
 	return nil
 }
+
+// Reopen undoes a done mark by RESTORING the progress the card had when done
+// was set — read from its own activity log — instead of inventing 90. An
+// accidental done+undo must round-trip: a card that was at 40 comes back at
+// 40, one that was at 0 comes back at 0 and does not turn "taken into work".
+func TestReopenRestoresPreDoneProgress(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Title: "one", Team: "t", Progress: 40},
+	}, nil)
+	svc := New(fake)
+	ctx := t.Context()
+	if err := svc.SetStage(ctx, "o", 1, "c1", board.StageDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Reopen(ctx, "o", 1, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(ctx, "o", 1)
+	c, _ := findCard(b, "c1")
+	if c.Progress != 40 || c.Stage == board.StageDone {
+		t.Fatalf("after reopen: progress %d stage %q, want 40 and not done", c.Progress, c.Stage)
+	}
+}
+
+// A done card with no recorded pre-done progress (legacy log) falls back to
+// the in-progress nudge — the old behaviour, not an error.
+func TestReopenFallsBackWithoutHistory(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Title: "one", Team: "t", Progress: 100, Stage: board.StageDone},
+	}, nil)
+	svc := New(fake)
+	ctx := t.Context()
+	if err := svc.Reopen(ctx, "o", 1, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(ctx, "o", 1)
+	c, _ := findCard(b, "c1")
+	if c.Stage == board.StageDone {
+		t.Fatal("still done after reopen")
+	}
+	if c.Progress != 90 {
+		t.Fatalf("fallback progress %d, want the in-progress nudge 90", c.Progress)
+	}
+}
