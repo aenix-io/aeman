@@ -472,6 +472,26 @@ func (a *authManager) sessionID(r *http.Request) string {
 	return c.Value
 }
 
+// newestSessionFor finds a login's freshest live session — the startup
+// warmer's way back onto a token after a restart — renewing its GitHub token
+// through the usual gate when it is close to expiry.
+func (a *authManager) newestSessionFor(ctx context.Context, login string) (string, oauthSession, bool) {
+	a.mu.Lock()
+	best := ""
+	var bestAt time.Time
+	for sid, s := range a.sessions {
+		if s.login == login && time.Since(s.created) <= sessionTTL && s.created.After(bestAt) {
+			best, bestAt = sid, s.created
+		}
+	}
+	a.mu.Unlock()
+	if best == "" {
+		return "", oauthSession{}, false
+	}
+	s, ok := a.sessionByID(ctx, best)
+	return best, s, ok
+}
+
 // sessionAlive reports whether sid still maps to a live, unexpired session.
 // The board warmer polls it each tick so a captured token stops being used
 // once its owner's session ends (logout or TTL) — not merely when GitHub

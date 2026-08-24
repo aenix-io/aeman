@@ -224,6 +224,16 @@ func (s *Server) apiClient(r *http.Request) (*ghprojects.Client, error) {
 	return ghprojects.New(tok, opts...), nil
 }
 
+// newGHClient builds the ghprojects client for a bare token — the same
+// construction apiClient does for a request, reused by the startup warmer.
+func (s *Server) newGHClient(token string) *ghprojects.Client {
+	opts := []ghprojects.Option{ghprojects.WithHTTPClient(s.httpClient)}
+	if s.graphqlEndpoint != "" {
+		opts = append(opts, ghprojects.WithEndpoint(s.graphqlEndpoint))
+	}
+	return ghprojects.New(token, opts...)
+}
+
 // defaultService is the production newService: it builds a boardservice over the
 // per-request ghprojects client (*ghprojects.Client satisfies boardservice.Backend).
 func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) {
