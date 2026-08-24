@@ -681,10 +681,14 @@ type boardStore struct {
 	// warmEvery is the warmer's cadence while the board has watchers (open
 	// tabs): it equals boardFreshFor, so an actively watched board is always
 	// fresh and neither reads nor mutations ever block on the full multi-page
-	// GitHub load. warmIdleEvery is the watcher-less cadence (the overnight
-	// window): slower to spare the captured token, but still under
-	// boardStaleMax so the morning's first read gets an instantly served
-	// stale hit instead of a cold load. Set at construction; tests shrink them.
+	// GitHub load. warmIdleEvery is the watcher-less cadence — and it must
+	// ALSO stay within boardFreshFor: an 8-minute idle tick left 5-minute
+	// windows in which the cache was stale, and the first MUTATION landing in
+	// one (mutations cannot take stale data) paid the full 50-second load
+	// with every other request of that board queued behind it — production's
+	// recurring "aeman lost its cache". The token cost of the tighter tick is
+	// accepted; the 16h idle cutoff still bounds it. Set at construction;
+	// tests shrink them.
 	warmEvery     time.Duration
 	warmIdleEvery time.Duration
 	// log receives warmer lifecycle events (start/stop and on whose token it
@@ -710,7 +714,7 @@ func newBoardStore() *boardStore {
 	return &boardStore{
 		entries:       map[string]*boardEntry{},
 		warmEvery:     boardFreshFor,
-		warmIdleEvery: 8 * time.Minute,
+		warmIdleEvery: boardFreshFor,
 	}
 }
 
