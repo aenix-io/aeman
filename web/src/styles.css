@@ -3140,8 +3140,17 @@ button.card-age {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Room for the deadline handles to hang half outside the table. A scroller
+     clips at its PADDING box, so what sits in this strip is visible — and the
+     handles must be inside the grid, because the overscroll bounce is done by
+     the compositor: it moves the picture without moving the layout, so no
+     layer above the board can be made to follow it. The negative margin gives
+     the strip back to the frame, leaving the table where it always sat. */
+  padding-left: 4px;
 
-  margin: 10px 14px 14px;
+  /* 10px on the left, not 14: the 4px of padding above makes up the rest, so
+     the table starts where it always did and the handles have their strip. */
+  margin: 10px 14px 14px 10px;
   border: 1px solid var(--card-border);
   border-radius: 8px;
   background: var(--bg);
@@ -3278,28 +3287,13 @@ button.card-age {
   opacity: 0.55;
 }
 
-/* The handle layer sits over the board, clipped vertically to it (so a handle
-   scrolled under the header disappears) but free to overhang left and right —
-   which is the whole point: a handle straddles the board's edge, and nothing
-   inside a scroll container can do that. */
-.project-handles {
-  position: absolute;
-  width: 0;
-  z-index: 12;
-  pointer-events: none;
-  clip-path: inset(0 -60px);
-}
-
-.project-handles-inner {
-  position: absolute;
-  inset: 0;
-  will-change: transform;
-}
-
 .project-deadline-dot {
-  /* Centred on the board's left edge: half of it inside the table, half out. */
+  /* Centred on the table's left edge: half of it inside, half in the
+     scroller's left padding. Absolute inside the line's head, so it rides
+     the line — and the table — wherever they go. */
   position: absolute;
   left: 0;
+  top: 0;
   transform: translate(-50%, -50%);
   pointer-events: auto;
   width: 9px;
@@ -4232,7 +4226,6 @@ button.card-age {
   background: var(--danger);
 }
 
-.project-slot-late,
-.project-slot-late-taken {
-  box-shadow: inset 3px 0 0 var(--danger);
-}
+/* No line on a late slot: the Project board already tints it red all over,
+   and its left border carries the team colour. The red line belongs to the
+   boards where a debt is not otherwise marked. */

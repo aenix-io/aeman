@@ -227,6 +227,14 @@ export function TeamBoard({
         if (c.parent) {
           return false;
         }
+        // A Project slot lives on the Project board until it joins a sprint —
+        // its multi-week dates would otherwise put it in the day grid's
+        // Unassigned column for every day it spans. The server's TeamGrid has
+        // said so all along; this mirror of it did not, and the weekly fetch
+        // brings the slots into the shared card pool where the mirror ran.
+        if (c.epic && !c.sprintStart) {
+          return false;
+        }
         const today = todayIso();
         // A card with an end date spans a range: it shows on every day from its
         // start through its end (the calendar sets start…end).
