@@ -413,6 +413,8 @@ export function ProjectBoard({
   // scroll container clips at its own edge, so a handle that has to straddle
   // that edge cannot be a child of it. The layer is placed over the board and
   // scrolled by hand, which keeps the handles glued to their rows.
+  const handlesRef = useRef<HTMLDivElement | null>(null);
+  const handlesClipRef = useRef<HTMLDivElement | null>(null);
   // The layer's containing block, measured against explicitly rather than via
   // offsetParent — which is whatever happens to be positioned up the tree.
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -842,6 +844,67 @@ export function ProjectBoard({
     };
   }, [weeks.length, epics.length, colWidth, padBack, padFwd]);
 
+  // Follow the board's vertical scrolling by hand, so the handles never lag a
+  // frame behind their rows (which a re-render would cost).
+  //
+  // Not by scrollTop, though: during the overscroll bounce the content keeps
+  // moving while scrollTop sits clamped at the edge, and the lines sailed off
+  // with the table while the handles stood still. What the handles need is
+  // how far the grid has actually MOVED, which is its at-rest offset inside
+  // the scroller (boardBox.gridTop) less where it is now — equal to scrollTop
+  // whenever nothing is bouncing, and true when something is.
+  useEffect(() => {
+    const board = scrollRef.current;
+    const grid = gridRef.current;
+    if (!board || !grid || !boardBox) {
+      return;
+    }
+    let raf = 0;
+    let settled = 0;
+    let last = NaN;
+    const scrolledBy = () =>
+      boardBox.gridTop -
+      (grid.getBoundingClientRect().top - board.getBoundingClientRect().top);
+    const apply = () => {
+      const layer = handlesRef.current;
+      const clip = handlesClipRef.current;
+      const by = scrolledBy();
+      if (layer) {
+        layer.style.transform = `translateY(${-by}px)`;
+      }
+      if (clip) {
+        // Hide handles that have scrolled up under the sticky header, and let
+        // them overhang left and right so one can straddle the board's edge.
+        const top = Math.max(0, boardBox.gridTop + HEADER_PX - by);
+        clip.style.clipPath = `inset(${top}px -60px 0px -60px)`;
+      }
+      return by;
+    };
+    const settle = () => {
+      const by = apply();
+      // The bounce eases back without emitting scroll events, so keep
+      // following until the position holds still across frames.
+      settled = by === last ? settled + 1 : 0;
+      last = by;
+      raf = settled < 6 ? requestAnimationFrame(settle) : 0;
+    };
+    const follow = () => {
+      apply();
+      settled = 0;
+      last = NaN;
+      if (!raf) {
+        raf = requestAnimationFrame(settle);
+      }
+    };
+    follow();
+    board.addEventListener("scroll", follow, { passive: true });
+    return () => {
+      board.removeEventListener("scroll", follow);
+      if (raf) {
+        cancelAnimationFrame(raf);
+      }
+    };
+  }, [boardBox]);
 
   const beginLineDrag = (
     project: string,
@@ -1394,22 +1457,7 @@ export function ProjectBoard({
                   gridColumn: 1,
                   ...(colour ? { borderTopColor: colour } : {}),
                 }}
-              >
-                {/* The handle belongs to the line, not to a layer above the
-                    board: inside the grid it moves with the table itself —
-                    through the overscroll bounce too, which no amount of
-                    following from outside could manage — while the head's
-                    stickiness keeps it in place as the columns scroll past. */}
-                <span
-                  className={`project-deadline-dot${dragging ? " project-deadline-dot-dragging" : ""}`}
-                  style={colour ? { background: colour } : undefined}
-                  title={`${d.project || "no project"} deadline — drag to another week · ${weekLabel(weeks[at])}`}
-                  onPointerDown={(ev) => beginLineDrag(d.project, d.week, at, ev)}
-                  onPointerMove={moveLineDrag}
-                  onPointerUp={endLineDrag}
-                  onPointerCancel={() => setDragLine(null)}
-                />
-              </div>,
+              />,
               // Stops before the trailing "add a column" gutter: there is no
               // plan out there for a line to cross.
               <div
@@ -1730,6 +1778,46 @@ export function ProjectBoard({
         </div>
       )}
 
+      {/* The handles: centred on the board's left edge, which is why they are
+          here and not inside it. */}
+      {boardBox && (
+        <div
+          ref={handlesClipRef}
+          className="project-handles"
+          style={{ left: boardBox.left, top: boardBox.top, height: boardBox.height }}
+        >
+          <div ref={handlesRef} className="project-handles-inner">
+            {board.deadlines
+              .filter((d) => !filter || filter.includes(d.project))
+              .map((d) => {
+                const dragging =
+                  dragLine?.from === d.week && dragLine.project === d.project;
+                const at = dragging ? dragLine.row : weeks.indexOf(d.week);
+                if (at < 0 || at >= weeks.length) {
+                  return null;
+                }
+                const colour = multi && d.project ? teamColor(d.project) : undefined;
+                return (
+                  <span
+                    key={`${d.project}\u0000${d.week}`}
+                    className={`project-deadline-dot${dragging ? " project-deadline-dot-dragging" : ""}`}
+                    style={{
+                      // The row's bottom edge, less half the line's 2px so
+                      // the handle's centre lands on the line's centre.
+                      top: boardBox.gridTop + HEADER_PX + (at + 1) * ROW_PX - 1,
+                      ...(colour ? { background: colour } : {}),
+                    }}
+                    title={`${d.project || "no project"} deadline — drag to another week · ${weekLabel(weeks[at])}`}
+                    onPointerDown={(ev) => beginLineDrag(d.project, d.week, at, ev)}
+                    onPointerMove={moveLineDrag}
+                    onPointerUp={endLineDrag}
+                    onPointerCancel={() => setDragLine(null)}
+                  />
+                );
+              })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
