@@ -3140,6 +3140,12 @@ button.card-age {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* No rubber band. The deadline dots ride in an overlay outside this
+     scroller and follow it by its scrollTop; during an overscroll bounce the
+     content keeps moving while scrollTop sits clamped at the edge, so the
+     lines sailed off and the dots stayed. Nothing to follow, nothing to
+     diverge — and the board stops chaining its scroll to the page. */
+  overscroll-behavior: none;
 
   margin: 10px 14px 14px;
   border: 1px solid var(--card-border);
