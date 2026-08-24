@@ -32,3 +32,10 @@ web/dist/*
 
 # Claude Code (worktrees, session state)
 .claude/
+
+# Deploy values holding real credentials. The chart's own values.yaml carries
+# the shape; anything matching this pattern is somebody's filled-in copy and
+# never belongs in the repository.
+charts/**/values-secret.yaml
+charts/**/values-*.secret.yaml
+*.secret.yaml
