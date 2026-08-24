@@ -31,9 +31,12 @@ type pendingOp struct {
 	compose bool
 	// desc names the operation for the sync-error message ("set progress on
 	// «title»").
-	desc  string
-	apply func(bd *board.Board)
-	exec  func(ctx context.Context) error
+	desc string
+	// noRetry runs the exec once: a create retried after an ambiguous
+	// failure duplicates the card on the board.
+	noRetry bool
+	apply   func(bd *board.Board)
+	exec    func(ctx context.Context) error
 	// itemID names the card the op writes, so a FAILED write can drop that
 	// card's recent-guard before the rollback reload (or the guard would keep
 	// re-imposing the value GitHub just refused).
@@ -146,13 +149,18 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 
 // execRetry runs the upstream write with a few retries — a transient GitHub
 // hiccup (secondary rate limit, 502) must not roll a user's change back.
+// An op marked noRetry (a create) runs ONCE: an ambiguous failure — the
+// write committed but its response was lost — retried into a SECOND real
+// card on the board, and deleting the visible duplicate then took the
+// original's identity with it. Failing honestly (rollback + sync error)
+// loses a click; retrying blindly loses data.
 func execRetry(ctx context.Context, op pendingOp) error {
 	var err error
 	for attempt := 0; ; attempt++ {
 		if err = op.exec(ctx); err == nil {
 			return nil
 		}
-		if attempt >= len(queueBackoff) {
+		if op.noRetry || attempt >= len(queueBackoff) {
 			return err
 		}
 		select {
