@@ -348,6 +348,10 @@ export interface Provider {
   setProcessProject(board: BoardAddr, process: string, project: string): Promise<void>;
   /** Stop a process filing iterations, or start it again. */
   setProcessPaused(board: BoardAddr, process: string, paused: boolean): Promise<void>;
+  /** Apply a shared process order. */
+  reorderProcesses(board: BoardAddr, processes: string[]): Promise<void>;
+  /** Apply one process's task order; a uid from another process is adopted. */
+  reorderProcessTasks(board: BoardAddr, process: string, uids: string[]): Promise<void>;
   addTask(board: BoardAddr, process: string, input: TaskInput): Promise<string>;
   updateTask(board: BoardAddr, uid: string, patch: TaskInput): Promise<void>;
   deleteTask(board: BoardAddr, uid: string): Promise<void>;

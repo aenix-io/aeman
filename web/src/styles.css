@@ -4229,3 +4229,18 @@ button.card-age {
 /* No line on a late slot: the Project board already tints it red all over,
    and its left border carries the team colour. The red line belongs to the
    boards where a debt is not otherwise marked. */
+
+/* Dragging on the Process tab: the lifted thing dims, the list previews. */
+.process-head-dragging {
+  opacity: 0.6;
+}
+
+.process-task-dragging {
+  opacity: 0.6;
+  background: var(--hover-overlay-soft);
+}
+
+.process-task {
+  touch-action: none;
+  cursor: grab;
+}

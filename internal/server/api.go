@@ -89,6 +89,8 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/processes/actions/rename", s.handleRenameProcess)
 	mux.HandleFunc("POST /api/v1/processes/actions/set-project", s.handleSetProcessProject)
 	mux.HandleFunc("POST /api/v1/processes/actions/set-paused", s.handleSetProcessPaused)
+	mux.HandleFunc("POST /api/v1/processes/actions/reorder", s.handleReorderProcesses)
+	mux.HandleFunc("POST /api/v1/processes/tasks/actions/reorder", s.handleReorderProcessTasks)
 	mux.HandleFunc("POST /api/v1/processes/tasks", s.handleAddTask)
 	mux.HandleFunc("PATCH /api/v1/processes/tasks/{uid}", s.handlePatchTask)
 	mux.HandleFunc("DELETE /api/v1/processes/tasks/{uid}", s.handleDeleteTask)
@@ -163,6 +165,8 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/processes/actions/delete-process", "Delete an EMPTY process ({process}); refused while it has tasks"},
 			{"POST", "/api/v1/processes/actions/rename", "Rename a process; its tasks follow ({process, to})"},
 			{"POST", "/api/v1/processes/actions/set-project", "Move a process to another project ({process, project}; empty project = the no-project bucket)"},
+			{"POST", "/api/v1/processes/actions/reorder", "Apply a shared process order ({processes: [names]})"},
+			{"POST", "/api/v1/processes/tasks/actions/reorder", "Apply one process's task order ({process, uids}); a uid from another process is adopted into this one — how a cross-process drop lands"},
 			{"POST", "/api/v1/processes/actions/set-paused", "Pause a process, or resume it ({process, paused}); a paused process files no iterations"},
 			{"POST", "/api/v1/processes/tasks", "Add what a process iterates on ({process, title, description, recurrence, start, team, assignee, accumulate})"},
 			{"PATCH", "/api/v1/processes/tasks/{uid}", "Change what the NEXT iterations will be; the running one is untouched"},
@@ -1274,6 +1278,45 @@ func (s *Server) handleSetProcessPaused(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := svc.SetProcessPaused(r.Context(), owner, boardNum, in.Process, in.Paused); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleReorderProcesses(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Processes []string `json:"processes"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.ReorderProcesses(r.Context(), owner, boardNum, in.Processes); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleReorderProcessTasks(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Process string   `json:"process"`
+		UIDs    []string `json:"uids"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	svc, owner, boardNum, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := svc.ReorderProcessTasks(r.Context(), owner, boardNum, in.Process, in.UIDs); err != nil {
 		s.apiError(w, r, err)
 		return
 	}

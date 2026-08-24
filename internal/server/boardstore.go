@@ -1600,6 +1600,16 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 		e.board.Projects = moveNameAfter(e.board.Projects, e.board.ProjectStates, project, afterID)
 		e.rosterBroadcast()
 	}
+	// …and for the Process tab's two: processes and their tasks are state
+	// cards whose board position is the order the tab draws.
+	if from := processIndexOf(e.board.Processes, card.ItemID); from >= 0 {
+		e.board.Processes = moveProcessAfter(e.board.Processes, from, afterID)
+		e.rosterBroadcast()
+	}
+	if from := taskIndexOf(e.board.Tasks, card.ItemID); from >= 0 {
+		e.board.Tasks = moveTaskAfter(e.board.Tasks, from, afterID)
+		e.rosterBroadcast()
+	}
 	e.recentMove = time.Now()
 	e.orderingChanged(clientIDFrom(ctx))
 	e.mu.Unlock()
@@ -2080,6 +2090,49 @@ func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card boar
 // its own change. Without one the reload put the old name (or the old pause)
 // back in the cache and broadcast it to every tab, and only the NEXT reload
 // undid that.
+
+// moveProcessAfter and moveTaskAfter reorder the two Process-tab rosters the
+// way moveEpicAfter does the columns: take the entry out, put it back after
+// the anchor ("" = the front).
+func moveProcessAfter(list []board.Process, from int, afterID string) []board.Process {
+	entry := list[from]
+	out := append(append([]board.Process{}, list[:from]...), list[from+1:]...)
+	at := 0
+	if afterID != "" {
+		for i, p := range out {
+			if p.ItemID == afterID {
+				at = i + 1
+				break
+			}
+		}
+	}
+	return append(out[:at:at], append([]board.Process{entry}, out[at:]...)...)
+}
+
+func moveTaskAfter(list []board.Card, from int, afterID string) []board.Card {
+	entry := list[from]
+	out := append(append([]board.Card{}, list[:from]...), list[from+1:]...)
+	at := 0
+	if afterID != "" {
+		for i, t := range out {
+			if t.ItemID == afterID {
+				at = i + 1
+				break
+			}
+		}
+	}
+	return append(out[:at:at], append([]board.Card{entry}, out[at:]...)...)
+}
+
+// taskIndexOf finds a task in the roster by its item id.
+func taskIndexOf(list []board.Card, itemID string) int {
+	for i := range list {
+		if list[i].ItemID == itemID {
+			return i
+		}
+	}
+	return -1
+}
 
 // processIndexOf finds a process in the roster by the item id of the card
 // that declares it.

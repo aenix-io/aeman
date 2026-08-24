@@ -162,6 +162,64 @@ func (s *Service) SetProcessPaused(ctx context.Context, owner string, project in
 	return nil
 }
 
+// ReorderProcesses applies a shared process order: the hidden state cards
+// are moved into the given sequence, and their board position IS the order
+// every client reads back. Names missing from the board are skipped; ones
+// missing from the list keep their positions after the reordered block.
+func (s *Service) ReorderProcesses(ctx context.Context, owner string, project int, names []string) error {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	// The block starts where the first process sits today, so reordering the
+	// processes does not hoist them above unrelated state cards.
+	prev := ""
+	for _, name := range names {
+		p, ok := board.FindProcess(b, name)
+		if !ok || p.ItemID == "" {
+			continue
+		}
+		stub := board.Card{ItemID: p.ItemID, Title: board.ProcessStateTitle, Process: name}
+		if err := s.backend.MoveCard(ctx, b, stub, prev); err != nil {
+			return err
+		}
+		prev = p.ItemID
+	}
+	return nil
+}
+
+// ReorderProcessTasks applies one process's task order — and adopts any task
+// the order names that belongs to ANOTHER process, which is how a drop from
+// one process into another lands: the final order of the target is the whole
+// instruction. A task's turns keep their history; only future ones follow
+// the new process (they name the task, and the task now names this process).
+func (s *Service) ReorderProcessTasks(ctx context.Context, owner string, project int, process string, uids []string) error {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return err
+	}
+	if _, ok := board.FindProcess(b, process); !ok {
+		return fmt.Errorf("%w %q", ErrProcessNotFound, process)
+	}
+	prev := ""
+	for _, uid := range uids {
+		t, ok := findTask(b, uid)
+		if !ok {
+			continue
+		}
+		if t.Process != process {
+			if err := s.backend.SetProcess(ctx, b, t, process); err != nil {
+				return err
+			}
+		}
+		if err := s.backend.MoveCard(ctx, b, t, prev); err != nil {
+			return err
+		}
+		prev = t.ItemID
+	}
+	return nil
+}
+
 // TaskArgs is what a process task says about the iterations it will
 // spawn. Recurrence is the cycle; Start the calendar anchor it is counted
 // from (defaults to today); Team the weekly plan the iterations land in;
