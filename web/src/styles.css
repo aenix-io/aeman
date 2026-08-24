@@ -3146,11 +3146,11 @@ button.card-age {
      the compositor: it moves the picture without moving the layout, so no
      layer above the board can be made to follow it. The negative margin gives
      the strip back to the frame, leaving the table where it always sat. */
-  padding-left: 5px;
+  padding-left: 4px;
 
-  /* 9px on the left, not 14: the 5px of padding above makes up the rest, so
+  /* 10px on the left, not 14: the 4px of padding above makes up the rest, so
      the table starts where it always did and the handles have their strip. */
-  margin: 10px 14px 14px 9px;
+  margin: 10px 14px 14px 10px;
   border: 1px solid var(--card-border);
   border-radius: 8px;
   background: var(--bg);
