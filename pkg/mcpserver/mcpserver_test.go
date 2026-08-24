@@ -84,7 +84,7 @@ func TestMCPListsTools(t *testing.T) {
 		"get_board", "list_cards", "get_card", "create_card", "update_card",
 		"delete_card", "remove_card", "move_card", "defer_card", "in_progress",
 		"send_to_review", "remove_reviewer", "take_into_plan", "release_from_plan",
-		"carry_over", "carry_week",
+		"carry_over",
 		"list_links", "list_log", "list_notes", "add_note", "edit_note", "delete_note",
 		"add_epic", "delete_epic", "set_epic_project", "rename_epic",
 		"add_project", "delete_project", "reorder_projects", "rename_project",

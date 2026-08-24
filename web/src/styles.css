@@ -4194,3 +4194,45 @@ button.card-age {
   border-color: var(--line);
   background: var(--bg);
 }
+
+/* "from <date>" is a control: the date input sits invisibly over the text so
+   a click opens the browser's picker, and the text stays the thing you read. */
+.process-cell-from {
+  position: relative;
+  cursor: pointer;
+}
+
+.process-from-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+}
+
+.process-toggle-all {
+  margin-left: auto;
+}
+
+/* A card from a plan — a slot, a process turn, a weekly-plan card — still open
+   past the day it was owed by. The line says "this is a debt" wherever the
+   card shows: on the day board, in the weekly plan, on the Project board. It
+   does not move the card; carry-over is still how work moves. */
+.card-overdue {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+/* The same edge already carries the plan band's colour; a debt outranks the
+   band it was owed in, so the line takes the edge. */
+.card-overdue.card-plan-wed::before,
+.card-overdue.card-plan-fri::before {
+  background: var(--danger);
+}
+
+.project-slot-late,
+.project-slot-late-taken {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
