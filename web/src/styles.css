@@ -3140,12 +3140,11 @@ button.card-age {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  /* No rubber band. The deadline dots ride in an overlay outside this
-     scroller and follow it by its scrollTop; during an overscroll bounce the
-     content keeps moving while scrollTop sits clamped at the edge, so the
-     lines sailed off and the dots stayed. Nothing to follow, nothing to
-     diverge — and the board stops chaining its scroll to the page. */
-  overscroll-behavior: none;
+  /* Room for the deadline handles to hang half outside the table. A scroller
+     clips at its PADDING box, so what sits in this strip is visible; the
+     handles are inside the grid (they must move with it), and this is how
+     they still straddle its edge. */
+  padding-left: 5px;
 
   margin: 10px 14px 14px;
   border: 1px solid var(--card-border);
@@ -3284,28 +3283,13 @@ button.card-age {
   opacity: 0.55;
 }
 
-/* The handle layer sits over the board, clipped vertically to it (so a handle
-   scrolled under the header disappears) but free to overhang left and right —
-   which is the whole point: a handle straddles the board's edge, and nothing
-   inside a scroll container can do that. */
-.project-handles {
-  position: absolute;
-  width: 0;
-  z-index: 12;
-  pointer-events: none;
-  clip-path: inset(0 -60px);
-}
-
-.project-handles-inner {
-  position: absolute;
-  inset: 0;
-  will-change: transform;
-}
-
 .project-deadline-dot {
-  /* Centred on the board's left edge: half of it inside the table, half out. */
+  /* Centred on the table's left edge: half of it inside, half in the
+     scroller's left padding. Absolute inside the line's head, so it rides
+     the line — and the table — wherever they go. */
   position: absolute;
   left: 0;
+  top: 0;
   transform: translate(-50%, -50%);
   pointer-events: auto;
   width: 9px;
