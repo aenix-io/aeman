@@ -148,6 +148,18 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
 - Recurrent plan cards are **excluded from the weekly progress bar**: it
   describes the week's one-off work only.
 
+### Project-board slots in the Weekly plan
+- A **slot** (an epic-column card: epic + `week` + `day` set) needs **no
+  stored plan band** to be on the Weekly panel: its span IS its plan. It
+  shows on the panel of **every week between its boundaries**.
+- Its band **derives from the end date**: only the week the slot *ends* in
+  can be a by-Wednesday week (`day` ≤ that week's Wednesday); every earlier
+  covered week holds the slot in the by-Friday band — it stays open through
+  that week's end.
+- A **stored band always wins** — hand placement outranks derivation, so
+  deriving never moves a card someone placed. The row's plan stripe in Me and
+  Team uses the same effective band.
+
 ### Subtasks (grouped cards)
 - A card with a **parent** (the `Parent` text field, one level deep) is a
   **subtask**: it never appears as a row of its own in Team/Me — the views

@@ -35,6 +35,7 @@ import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
+import { isSlot, slotBand } from "../weekly";
 
 interface TeamBoardProps {
   board: Board;
@@ -351,6 +352,15 @@ export function TeamBoard({
       ) {
         return true;
       }
+      // A Project-board slot spans weeks by design: it belongs to every
+      // week between its two boundaries, not only the one it starts in.
+      if (
+        isSlot(c) &&
+        (c.week as string) <= currentWeek &&
+        currentWeek <= mondayOf(c.day as string)
+      ) {
+        return true;
+      }
       // History only in weeks whose working days are over (past the week's
       // Friday): while a week runs, a card pushed to a future week leaves its
       // panel — it is not this week's work anymore.
@@ -371,7 +381,14 @@ export function TeamBoard({
       );
     };
     for (const c of board.cards) {
-      if (!c.plan || !showsInWeek(c) || !passesFilter(c)) {
+      // A band-less Project-board slot is still the week's work — its span
+      // is its plan and its band derives from the end date. Any other
+      // band-less card stays off the panel.
+      if ((!c.plan && !isSlot(c)) || !showsInWeek(c) || !passesFilter(c)) {
+        continue;
+      }
+      if (!c.plan) {
+        (slotBand(currentWeek, c.day as string) === "wed" ? wed : fri).push(c);
         continue;
       }
       // A week-history entry (the card has moved on to a later week) sits in
