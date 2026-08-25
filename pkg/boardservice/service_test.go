@@ -2810,3 +2810,66 @@ func TeamGridHas(b board.Board, team, day, itemID string) bool {
 	}
 	return false
 }
+
+// Closing a review card through the STAGE menu passes the review, exactly as
+// dragging its progress to 100 does: the original leaves the review stage.
+// Only the progress paths synced the link, so "mark as done" on the review
+// card left the original stuck on review with nothing in its log to say why.
+func TestReviewDoneByStagePassesTheOriginal(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "orig", Title: "the work", Team: "t", Stage: board.StageReview, Progress: 85},
+		{ItemID: "rev", Title: "review: the work", Team: "t", ReviewOf: "orig",
+			Assignees: []string{"lllamnyp"}, Progress: 50},
+	}, nil)
+	svc := New(fake)
+	ctx := t.Context()
+	if err := svc.SetStage(ctx, "o", 1, "rev", board.StageDone); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(ctx, "o", 1)
+	orig, _ := findCard(b, "orig")
+	if orig.Stage == board.StageReview {
+		t.Fatalf("the original is still on review after its review card was marked done")
+	}
+	// The pass is recorded on the original, naming the reviewer.
+	passed := false
+	for _, e := range orig.Events {
+		if e.Kind == board.EventReviewPassed && e.From == "lllamnyp" {
+			passed = true
+		}
+	}
+	if !passed {
+		t.Fatal("no review-passed event on the original")
+	}
+}
+
+// Reopening a done review card puts its original back on review — the same
+// rule read the other way. Note what does NOT do it: merely clearing the
+// stage, since a card at 100 is complete whatever its stage says. Reopen
+// lowers the progress, and that is what reverses the pass.
+func TestReopeningAReviewCardReturnsTheOriginal(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "orig", Title: "the work", Team: "t", Progress: 85},
+		{ItemID: "rev", Title: "review: the work", Team: "t", ReviewOf: "orig",
+			Assignees: []string{"lllamnyp"}, Stage: board.StageDone, Progress: 100},
+	}, nil)
+	svc := New(fake)
+	ctx := t.Context()
+	// Clearing the stage alone leaves it complete: the original stays passed.
+	if err := svc.SetStage(ctx, "o", 1, "rev", board.StageNone); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(ctx, "o", 1)
+	if orig, _ := findCard(b, "orig"); orig.Stage == board.StageReview {
+		t.Fatal("clearing the stage of a 100% review card must not reopen the review")
+	}
+	// Reopen drops the progress, and the original goes back on review.
+	if err := svc.Reopen(ctx, "o", 1, "rev"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = fake.LoadBoard(ctx, "o", 1)
+	orig, _ := findCard(b, "orig")
+	if orig.Stage != board.StageReview {
+		t.Fatalf("original stage = %q, want review again", orig.Stage)
+	}
+}

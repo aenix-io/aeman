@@ -73,6 +73,8 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 
 | V+ | Echo suppression is scoped to the ADDRESSED card: the author's watch is spared the echo only for the {uid} their request named — a batch fan-out (epic rename over its cards) or a cascade (a subtask following its parent) echoes even to the author, who holds no optimistic copy of those cards. Unscoped suppression made a renamed column's cards vanish from the very board that renamed it | internal/server echoOrigin + clientIDMiddleware | ✅ TestBatchEchoesReachTheirAuthor / TestAddressedCardStaysSuppressed |
 
+| R+ | A review card's own STAGE drives its original exactly as its progress does: marking the review card done passes the review (the original leaves the review stage, a review-passed event names the reviewer), and lowering it below 100 — Reopen — sends the original back on review. Clearing the stage of a card at 100 changes nothing: it is complete whatever the stage says. Only the progress paths synced this, so "mark as done" on a review card left the original stuck on review with nothing in its log | boardservice.SetStage → syncReviewLink | ✅ TestReviewDoneByStagePassesTheOriginal / TestReopeningAReviewCardReturnsTheOriginal |
+
 ## Card object mapping
 
 | # | Rule | Test |
