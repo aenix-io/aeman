@@ -2750,3 +2750,63 @@ func TestReopenFallsBackWithoutHistory(t *testing.T) {
 		t.Fatalf("fallback progress %d, want the in-progress nudge 90", c.Progress)
 	}
 }
+
+// Taking a card into work on day D puts it ON day D. A card scheduled for a
+// later day used to accept the drop, record plan-taken and stay invisible —
+// the deferral rule outranks the sprint in every day view, so the gesture was
+// a silent no-op and people dropped the same card again and again.
+func TestTakeIntoPlanPullsADeferredCardOntoTheDay(t *testing.T) {
+	const today = "2026-08-25"
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Title: "webinar prep", Team: "t", Assignees: []string{"kvaps"},
+			StartDate: "2026-08-26", Day: "2026-08-28", SprintStart: today,
+			Epic: "Webinars", Project: "events"},
+		{ItemID: "st", Title: board.SprintStateTitle, Team: "t"},
+	}, map[string]board.SprintState{"t": {Current: today, ItemID: "st"}})
+	svc := New(fake)
+	ctx := t.Context()
+	if err := svc.TakeIntoPlan(ctx, "o", 1, "c1", "kvaps", board.ZoneYellow, today); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(ctx, "o", 1)
+	c, _ := findCard(b, "c1")
+	if c.StartDate != today {
+		t.Fatalf("start = %q, want %q — the card must land on the day it was taken", c.StartDate, today)
+	}
+	// The far end of a slot's span is its plan and stays where it was.
+	if c.Day != "2026-08-28" {
+		t.Fatalf("end = %q, want the slot's own end 2026-08-28", c.Day)
+	}
+	if !TeamGridHas(b, "t", today, "c1") {
+		t.Fatal("the card is still invisible on the day it was taken into work")
+	}
+}
+
+// A card already scheduled for today (or earlier) keeps its dates: taking it
+// into work must not rewrite a start someone chose.
+func TestTakeIntoPlanKeepsAPresentStart(t *testing.T) {
+	const today = "2026-08-25"
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Title: "one", Team: "t", StartDate: "2026-08-20", Day: "2026-08-27", SprintStart: today},
+		{ItemID: "st", Title: board.SprintStateTitle, Team: "t"},
+	}, map[string]board.SprintState{"t": {Current: today, ItemID: "st"}})
+	svc := New(fake)
+	if err := svc.TakeIntoPlan(t.Context(), "o", 1, "c1", "kvaps", board.ZoneYellow, today); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(t.Context(), "o", 1)
+	c, _ := findCard(b, "c1")
+	if c.StartDate != "2026-08-20" || c.Day != "2026-08-27" {
+		t.Fatalf("dates were rewritten: %s..%s", c.StartDate, c.Day)
+	}
+}
+
+// TeamGridHas reports whether the team's day grid delivers the card.
+func TeamGridHas(b board.Board, team, day, itemID string) bool {
+	for _, c := range board.TeamGrid(b, team, day) {
+		if c.ItemID == itemID {
+			return true
+		}
+	}
+	return false
+}

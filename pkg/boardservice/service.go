@@ -2118,6 +2118,27 @@ func (s *Service) TakeIntoPlan(ctx context.Context, owner string, project int, i
 	if err := s.backend.SetSprintStart(ctx, b, card, sprintStart); err != nil {
 		return err
 	}
+	// Taking a card into work on day D puts it ON day D. A card scheduled for
+	// a later day is DEFERRED, and the deferral outranks the sprint in every
+	// day view — so the drop was accepted, the event recorded, and the card
+	// stayed invisible. On the live board that showed up as four identical
+	// plan-taken events inside one minute: the same card dropped again and
+	// again because nothing appeared. Only the near end moves; a slot's far
+	// end is its plan on the roadmap and stays where it was.
+	if card.StartDate != "" && card.StartDate > day {
+		if err := s.backend.SetStart(ctx, b, card, day); err != nil {
+			return err
+		}
+		end := card.Day
+		if end != "" && end < day {
+			end = day
+			if err := s.backend.SetDay(ctx, b, card, end); err != nil {
+				return err
+			}
+		}
+		s.logEvent(ctx, b, card, board.EventDates,
+			board.DateRange(card.StartDate, card.Day), board.DateRange(day, end))
+	}
 	s.logEvent(ctx, b, card, board.EventPlanTaken, "", engineer)
 	return nil
 }

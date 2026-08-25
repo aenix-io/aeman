@@ -544,11 +544,24 @@ export function TeamBoard({
       assignees: card.assignees,
       zone: card.zone,
       sprintStart: card.sprintStart,
+      startDate: card.startDate,
+      day: card.day,
     };
+    // A card scheduled for a later day is deferred, and the deferral outranks
+    // the sprint in the grid: taking it into work moves its near end onto the
+    // day it was taken, or the row would land nowhere and the drop would look
+    // like it did nothing. The server does the same (TakeIntoPlan).
+    const deferred = !!card.startDate && card.startDate > selectedDate;
     patchCard(card.itemId, {
       assignees: login ? [login] : [],
       zone,
       sprintStart,
+      ...(deferred
+        ? {
+            startDate: selectedDate,
+            ...(card.day && card.day < selectedDate ? { day: selectedDate } : {}),
+          }
+        : {}),
     });
     const request = login
       ? provider.takeIntoPlan(board, card.itemId, login, zone, selectedDate)
