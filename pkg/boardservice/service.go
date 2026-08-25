@@ -1218,6 +1218,16 @@ func (s *Service) SetStage(ctx context.Context, owner string, project int, itemI
 			return err
 		}
 	}
+	// A REVIEW card's own stage drives its original the same way its progress
+	// does: marking it done passes the review, reopening it sends the original
+	// back. Only the progress paths synced the link, so "mark as done" on the
+	// review card left the original stuck on review — with nothing in its log
+	// to say why (seen on the live board: review card done at 13:18, original
+	// still on review).
+	if card.ReviewOf != "" {
+		_, newProgress := board.ApplyStage(stage, card.Progress)
+		return s.syncReviewLink(ctx, b, card, newProgress)
+	}
 	// Leaving review cancels the unfinished linked review card.
 	if card.Stage == board.StageReview && stage != board.StageReview {
 		return s.cancelLinkedReview(ctx, b, card)
