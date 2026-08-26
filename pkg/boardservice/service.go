@@ -1047,6 +1047,10 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 				return err
 			}
 		}
+		// The move is RECORDED. A demote takes the card off today's board,
+		// and writing it silently — while the subtasks dragged along did log
+		// theirs — left the card unexplained in its own history.
+		s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, prev)
 		// The demoted card keeps living in the previous sprint — its subtasks
 		// ride along, staying nested under it there.
 		return s.syncChildrenSprint(ctx, b, c.ItemID, prev)

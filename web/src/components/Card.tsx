@@ -25,6 +25,9 @@ interface CardProps {
   onSelect: (card: CardModel) => void;
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
+  /** The board will put its own question to the user, so the card must not
+   *  ask first. */
+  boardAsks?: boolean;
   onStage: (
     card: CardModel,
     stage: StageKey | null,
@@ -103,6 +106,7 @@ export function Card({
   onSelect,
   onProgress,
   onDelete,
+  boardAsks,
   onStage,
   onInProgress,
   onOpen,
@@ -249,8 +253,11 @@ export function Card({
   const handleDelete = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     // Cards with a linked review card delegate the (combined) confirmation to
-    // the board, which deletes both the original and its review card.
-    if (hasLinkedReview) {
+    // the board, which deletes both the original and its review card. So do
+    // cards the board is going to ask about itself: a browser confirm saying
+    // "Delete?" in front of an action that actually KEEPS the card in the
+    // previous sprint is how the × came to be read as deletion.
+    if (hasLinkedReview || boardAsks) {
       onDelete(card);
       return;
     }

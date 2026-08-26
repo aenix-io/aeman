@@ -37,6 +37,8 @@ import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 import { isSlot, slotBand } from "../weekly";
 import { subtaskShows } from "../subtasks";
+import { removalKind } from "../removal";
+import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
   board: Board;
@@ -123,6 +125,9 @@ export function TeamBoard({
   onOpen,
 }: TeamBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // The card whose × is waiting on a two-way answer (delete, or keep it in
+  // the previous sprint).
+  const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
   const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
   const sprintRef = useRef<HTMLDivElement | null>(null);
   // Subtask UI state: manually expanded parents, the card a drag would group
@@ -1182,6 +1187,15 @@ export function TeamBoard({
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}
       onDelete={handleGridDelete}
+      boardAsks={
+        !card.parent &&
+        !card.plan &&
+        removalKind(card, {
+          current: currentSprint(board, card.team ?? null) ?? undefined,
+          previous: previousSprintFor(card) ?? undefined,
+          today: todayIso(),
+        }) === "ask"
+      }
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
@@ -1466,11 +1480,24 @@ export function TeamBoard({
   // team's current sprint, releases a taken plan card back to plan-only, or
   // deletes for real (cascading the linked review card). The optimistic patch
   // mirrors those rules locally; the re-list converges the server's outcome.
-  const handleGridDelete = (card: CardModel) => {
+  const handleGridDelete = (card: CardModel, forced?: "delete" | "demote") => {
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
       return;
+    }
+    // A worked-on card that would be demoted leaves today's board silently,
+    // subtasks and all — that reads as deletion. Ask which one they mean.
+    if (!forced && !card.parent && !card.plan) {
+      const kind = removalKind(card, {
+        current: currentSprint(board, card.team ?? null) ?? undefined,
+        previous: previousSprintFor(card) ?? undefined,
+        today: todayIso(),
+      });
+      if (kind === "ask") {
+        setRemoveChoice(card);
+        return;
+      }
     }
     // A subtask has no sprint history of its own: the × deletes it outright,
     // gone from under its parent immediately.
@@ -2476,6 +2503,27 @@ export function TeamBoard({
               noSprint,
             )
           }
+        />
+      )}
+      {removeChoice && (
+        <RemoveChoiceDialog
+          title={removeChoice.title}
+          progress={removeChoice.progress ?? 0}
+          previous={previousSprintFor(removeChoice) ?? ""}
+          subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
+          onClose={() => setRemoveChoice(null)}
+          onSubmit={(hardDelete) => {
+            const card = removeChoice;
+            if (hardDelete) {
+              removeCard(card.itemId);
+              void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
+                addCard(card);
+                onError(errMessage(err));
+              });
+              return;
+            }
+            handleGridDelete(card, "demote");
+          }}
         />
       )}
     </div>

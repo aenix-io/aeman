@@ -4244,3 +4244,13 @@ button.card-age {
   touch-action: none;
   cursor: grab;
 }
+
+/* The destructive half of a two-way choice: coloured, but not shouting — it
+   is a legitimate answer, not a trap. */
+.sprint-choice-btn-danger strong {
+  color: var(--danger);
+}
+
+.sprint-choice-btn-danger:hover {
+  border-color: var(--danger);
+}
