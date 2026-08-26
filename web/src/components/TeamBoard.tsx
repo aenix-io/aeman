@@ -36,6 +36,7 @@ import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 import { isSlot, slotBand } from "../weekly";
+import { subtaskShows } from "../subtasks";
 
 interface TeamBoardProps {
   board: Board;
@@ -687,19 +688,9 @@ export function TeamBoard({
   // hides until its day, and one left behind in an earlier sprint stays on
   // that sprint's days. Without this an acked defer (addCard) would put the
   // row right back under the parent on today's board.
-  const subtaskOnDay = (c: CardModel): boolean => {
-    const today = todayIso();
-    if (c.startDate && c.startDate > today && selectedDate < c.startDate) {
-      return false;
-    }
-    if (c.sprintStart) {
-      const as = activeSprint(board, c.team ?? null, selectedDate);
-      if (as && as > c.sprintStart) {
-        return false;
-      }
-    }
-    return true;
-  };
+  // The shared rule (subtasks.ts) — the same one the Me board applies.
+  const subtaskOnDay = (c: CardModel): boolean =>
+    subtaskShows(c, { today: todayIso(), day: selectedDate });
 
   const childrenOf = useMemo(() => {
     const m = new Map<string, CardModel[]>();

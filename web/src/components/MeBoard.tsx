@@ -27,6 +27,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
+import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint } from "../sprint";
 import { avatarUrlFor, displayName, type GhUser } from "../users";
 import { Card } from "./Card";
@@ -365,24 +366,10 @@ export function MeBoard({
 
   // Subtasks grouped by parent. The Me board's team-focus filter applies to
   // subtask rows the same way it applies to cards.
-  // Mirrors the server's subtaskOnDay: a subtask keeps its own day
-  // visibility even though it rides its parent — deferred to the future it
-  // hides until its day, and one left behind in an earlier sprint stays on
-  // that sprint's days. Without this an acked defer (addCard) would put the
-  // row right back under the parent on today's board.
-  const subtaskOnDay = (c: CardModel): boolean => {
-    const today = todayIso();
-    if (c.startDate && c.startDate > today && selectedDate < c.startDate) {
-      return false;
-    }
-    if (c.sprintStart) {
-      const as = activeSprint(board, c.team ?? null, selectedDate);
-      if (as && as > c.sprintStart) {
-        return false;
-      }
-    }
-    return true;
-  };
+  // The shared rule (subtasks.ts): a subtask keeps its own day visibility
+  // even though it rides its parent.
+  const subtaskOnDay = (c: CardModel): boolean =>
+    subtaskShows(c, { today: todayIso(), day: selectedDate });
 
   const childrenOf = useMemo(() => {
     const m = new Map<string, CardModel[]>();
