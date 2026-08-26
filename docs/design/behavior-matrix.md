@@ -79,6 +79,8 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 
 | S2 | Ungrouping hands an OWNERLESS child the parent's person: a subtask usually has no assignee of its own (it rides the parent's), so a pull-out left it in Unassigned and off every personal board — from the person who pulled it, the card vanished. A patch that also names assignees wins, including an explicit empty one: assignees are applied AFTER the parent so a deliberate drop into Unassigned lands | boardservice.SetParent + handlePatchCard ordering | ✅ TestUngroupGivesTheParentsPerson / TestUngroupKeepsItsOwnPerson / TestPatchUngroupRespectsExplicitAssignees |
 
+| S3 | A subtask's PERSON always follows its parent, like its team: grouping hands the child to the parent's assignee, a direct change on a subtask snaps back, and re-assigning (or unassigning) a parent cascades to every subtask. Without it a split family lands on two personal boards, since the Me view admits a card when you own one of its subtasks — one stray child dragged the parent and all its siblings onto a stranger's board | boardservice.SetAssignee + SetParent, mirrored in TeamBoard | ✅ TestSubtaskOwnerFollowsTheParent |
+
 ## Card object mapping
 
 | # | Rule | Test |

@@ -178,6 +178,13 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
   plan slot to the parent instead (the parent replaces it in the Weekly
   panel) — subtasks are never plan cards themselves, though an expanded
   weekly parent shows its subtask rows nested under it.
+- **A subtask's person always follows its parent**, the way its team does:
+  grouping hands the child over to the parent's assignee, a direct change on a
+  subtask snaps back to the parent's, and re-assigning a parent hands the whole
+  family over (unassigning it unassigns them all). A family that drifts apart
+  lands on two personal boards — the Me view admits a card when you own one of
+  its subtasks, so one stray child drags the parent and every sibling onto a
+  board they are not part of.
 - A subtask's team always follows its parent: changing the parent's team
   cascades to its subtasks (sprint pointer included), and a direct team change
   on a subtask snaps back to the parent's team.
