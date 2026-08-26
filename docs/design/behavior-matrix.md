@@ -75,6 +75,8 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 
 | R+ | A review card's own STAGE drives its original exactly as its progress does: marking the review card done passes the review (the original leaves the review stage, a review-passed event names the reviewer), and lowering it below 100 — Reopen — sends the original back on review. Clearing the stage of a card at 100 changes nothing: it is complete whatever the stage says. Only the progress paths synced this, so "mark as done" on a review card left the original stuck on review with nothing in its log | boardservice.SetStage → syncReviewLink | ✅ TestReviewDoneByStagePassesTheOriginal / TestReopeningAReviewCardReturnsTheOriginal |
 
+| S+ | A subtask left BEHIND in an earlier sprint still renders under its parent: a completed subtask stays in the sprint it was finished in while the parent carries on, and the parent's progress bar is derived from exactly those children. Hiding them (the old `activeSprint > sprintStart` rule) left a card handed to someone else reading 90% with no expand arrow and subtasks its new owner could see named in the log but could not open. Only a subtask whose day has not arrived — deferred ahead, or a sprint that had not started on the viewed day — stays hidden | web/src/subtasks.ts (shared by MeBoard and TeamBoard) | ✅ subtasks.test.ts |
+
 ## Card object mapping
 
 | # | Rule | Test |
