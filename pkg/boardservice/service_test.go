@@ -2873,3 +2873,38 @@ func TestReopeningAReviewCardReturnsTheOriginal(t *testing.T) {
 		t.Fatalf("original stage = %q, want review again", orig.Stage)
 	}
 }
+
+// The smart × DEMOTES a worked card instead of deleting it — and used to do
+// so silently: it wrote start, sprint and day but recorded no event, while
+// the subtasks it dragged along DID record theirs. The card left the board
+// with nothing in its log to say who moved it or why, which cost two
+// investigations before anyone noticed the write was unrecorded.
+func TestDemoteRecordsItsMove(t *testing.T) {
+	const today, prev = "2026-08-26", "2026-08-25"
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Title: "worked", Team: "t", Progress: 40,
+			SprintStart: today, StartDate: "2026-08-20", Day: "2026-08-20"},
+		{ItemID: "st", Title: board.SprintStateTitle, Team: "t"},
+	}, map[string]board.SprintState{"t": {Current: today, Previous: prev, ItemID: "st"}})
+	svc := New(fake)
+	if err := svc.Remove(t.Context(), "o", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(t.Context(), "o", 1)
+	c, _ := findCard(b, "c1")
+	if c.SprintStart != prev {
+		t.Fatalf("sprint = %q, want the demote to %q", c.SprintStart, prev)
+	}
+	var moved *board.Event
+	for i := range c.Events {
+		if c.Events[i].Kind == board.EventSprint {
+			moved = &c.Events[i]
+		}
+	}
+	if moved == nil {
+		t.Fatal("the demote left no event: the card leaves the board unexplained")
+	}
+	if moved.From != today || moved.To != prev {
+		t.Fatalf("event says %q -> %q, want %q -> %q", moved.From, moved.To, today, prev)
+	}
+}
