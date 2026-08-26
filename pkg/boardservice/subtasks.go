@@ -39,6 +39,19 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 		if err := s.backend.SetParent(ctx, b, card, ""); err != nil {
 			return err
 		}
+		// A subtask usually has no assignee of its own — it rides the
+		// parent's — so a pull-out left it ownerless: gone from every
+		// personal board and sitting in Unassigned, which from the person
+		// who pulled it looks exactly like the card vanishing.
+		// deleteWithCascade hands a released child the parent's person for
+		// this same reason.
+		if op, ok := findCard(b, card.Parent); ok &&
+			len(card.Assignees) == 0 && len(op.Assignees) > 0 {
+			if err := s.backend.SetAssignee(ctx, b, card, op.Assignees[0]); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, card, board.EventAssignee, "", op.Assignees[0])
+		}
 		// The log keeps titles, not item ids — that is what a human (or an
 		// agent reading list_log) can act on. Both sides record the change.
 		if op, ok := findCard(b, card.Parent); ok {

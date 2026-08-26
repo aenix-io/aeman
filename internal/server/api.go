@@ -551,16 +551,6 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if p.Assignees != nil {
-		login := ""
-		if len(*p.Assignees) > 0 {
-			login = (*p.Assignees)[0]
-		}
-		if err := svc.SetAssignee(ctx, owner, project, uid, login); err != nil {
-			s.apiError(w, r, err)
-			return
-		}
-	}
 	if p.Stage != nil {
 		stage, ok := parseStage(w, *p.Stage)
 		if !ok {
@@ -595,6 +585,20 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Parent != nil {
 		if err := svc.SetParent(ctx, owner, project, uid, *p.Parent); err != nil {
+			s.apiError(w, r, err)
+			return
+		}
+	}
+	// Assignees are applied AFTER the parent on purpose. Ungrouping hands an
+	// ownerless child the parent's person so it does not fall off every
+	// board; a patch that also names assignees means the caller decided who
+	// owns it — including "nobody" — and that decision must land last.
+	if p.Assignees != nil {
+		login := ""
+		if len(*p.Assignees) > 0 {
+			login = (*p.Assignees)[0]
+		}
+		if err := svc.SetAssignee(ctx, owner, project, uid, login); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
