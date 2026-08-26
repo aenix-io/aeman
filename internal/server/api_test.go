@@ -637,3 +637,46 @@ func TestAPIBadCredentialsAnswers401(t *testing.T) {
 		t.Fatalf("the answer must name the cause, got %s", rec.Body.String())
 	}
 }
+
+// A patch that ungroups a card AND names its assignees must land the caller's
+// decision, not the parent-handover default: dropping a subtask into the
+// Unassigned column means nobody owns it. The handover only fills the gap
+// when the patch says nothing about assignees.
+func TestPatchUngroupRespectsExplicitAssignees(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"ungroup alone inherits the parent's person", `{"parent":""}`, "androndo"},
+		{"ungroup into Unassigned stays unowned", `{"parent":"","assignees":[]}`, ""},
+		{"ungroup onto a person takes that person", `{"parent":"","assignees":["kitsunoff"]}`, "kitsunoff"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := boardservicetest.New([]board.Card{
+				{ItemID: "p1", Title: "parent", Team: "portal", Assignees: []string{"androndo"}},
+				{ItemID: "c1", Title: "child", Team: "portal", Parent: "p1"},
+			}, nil)
+			srv := apiServer(t, Options{}, fake)
+			rec := do(t, srv, http.MethodPatch, "/api/v1/cards/c1?owner=acme&board=1", tc.body)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+			}
+			b, _ := fake.LoadBoard(t.Context(), "acme", 1)
+			var got string
+			for _, c := range b.Cards {
+				if c.ItemID == "c1" {
+					if c.Parent != "" {
+						t.Fatalf("still grouped")
+					}
+					if len(c.Assignees) > 0 {
+						got = c.Assignees[0]
+					}
+				}
+			}
+			if got != tc.want {
+				t.Fatalf("assignee = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -413,3 +413,47 @@ func TestGroupPlanCardUnderASlot(t *testing.T) {
 		t.Fatalf("the slot was rewritten: band %q week %q", parent.Plan, parent.Week)
 	}
 }
+
+// Pulling a subtask out of its parent must not make it ownerless. A subtask
+// usually has no assignee of its own — it rides the parent's — so ungrouping
+// dropped it into Unassigned and off every personal board: from the person
+// who pulled it, the card simply vanished. deleteWithCascade already hands a
+// released child the parent's person for exactly this reason; the plain
+// ungroup now does the same.
+func TestUngroupGivesTheParentsPerson(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: "the parent", Team: "portal", Assignees: []string{"androndo"}},
+		{ItemID: "c1", Title: "smoke test", Team: "portal", Parent: "p1"},
+	}, nil)
+	svc := New(fake)
+	ctx := t.Context()
+	if err := svc.SetParent(ctx, "o", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(ctx, "o", 1)
+	c, _ := findCard(b, "c1")
+	if c.Parent != "" {
+		t.Fatalf("still grouped under %q", c.Parent)
+	}
+	if len(c.Assignees) != 1 || c.Assignees[0] != "androndo" {
+		t.Fatalf("assignees = %v, want the parent's person so the card stays on a board", c.Assignees)
+	}
+}
+
+// A subtask that has its OWN assignee keeps them: the pull-out must not hand
+// someone else's work to the parent's owner.
+func TestUngroupKeepsItsOwnPerson(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: "the parent", Team: "portal", Assignees: []string{"androndo"}},
+		{ItemID: "c1", Title: "smoke test", Team: "portal", Parent: "p1", Assignees: []string{"kitsunoff"}},
+	}, nil)
+	svc := New(fake)
+	if err := svc.SetParent(t.Context(), "o", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(t.Context(), "o", 1)
+	c, _ := findCard(b, "c1")
+	if len(c.Assignees) != 1 || c.Assignees[0] != "kitsunoff" {
+		t.Fatalf("assignees = %v, want its own person untouched", c.Assignees)
+	}
+}

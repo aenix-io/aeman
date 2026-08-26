@@ -77,6 +77,8 @@ Legend: ✅ existing Go test · 🆕 new test written for the redesign ·
 
 | S+ | A subtask left BEHIND in an earlier sprint still renders under its parent: a completed subtask stays in the sprint it was finished in while the parent carries on, and the parent's progress bar is derived from exactly those children. Hiding them (the old `activeSprint > sprintStart` rule) left a card handed to someone else reading 90% with no expand arrow and subtasks its new owner could see named in the log but could not open. Only a subtask whose day has not arrived — deferred ahead, or a sprint that had not started on the viewed day — stays hidden | web/src/subtasks.ts (shared by MeBoard and TeamBoard) | ✅ subtasks.test.ts |
 
+| S2 | Ungrouping hands an OWNERLESS child the parent's person: a subtask usually has no assignee of its own (it rides the parent's), so a pull-out left it in Unassigned and off every personal board — from the person who pulled it, the card vanished. A patch that also names assignees wins, including an explicit empty one: assignees are applied AFTER the parent so a deliberate drop into Unassigned lands | boardservice.SetParent + handlePatchCard ordering | ✅ TestUngroupGivesTheParentsPerson / TestUngroupKeepsItsOwnPerson / TestPatchUngroupRespectsExplicitAssignees |
+
 ## Card object mapping
 
 | # | Rule | Test |

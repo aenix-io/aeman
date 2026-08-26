@@ -905,7 +905,14 @@ export function MeBoard({
     // the parent's slot); mirror both locally while the delete round-trips.
     const freed = board.cards.filter((c) => c.parent === card.itemId);
     for (const c of freed) {
-      patchCard(c.itemId, { parent: undefined });
+      patchCard(c.itemId, {
+        parent: undefined,
+        // An ownerless child takes the parent's person — the server does
+        // this so the card lands in a cell instead of falling off the board.
+        ...(c.assignees.length === 0 && card.assignees.length > 0
+          ? { assignees: card.assignees.slice(0, 1) }
+          : {}),
+      });
     }
     if (freed.length > 0) {
       const freedIds = new Set(freed.map((c) => c.itemId));
