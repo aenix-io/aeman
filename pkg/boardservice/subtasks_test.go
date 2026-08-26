@@ -457,3 +457,78 @@ func TestUngroupKeepsItsOwnPerson(t *testing.T) {
 		t.Fatalf("assignees = %v, want its own person untouched", c.Assignees)
 	}
 }
+
+// A subtask always belongs to its parent's PERSON, the way it always belongs
+// to the parent's team. Three doors lead in, and all three must agree, or a
+// family drifts apart and someone else's card lands on your personal board:
+// the Me view admits a card when you own one of its subtasks, so a single
+// stray child drags the parent and all its siblings onto a board they are not
+// part of.
+func TestSubtaskOwnerFollowsTheParent(t *testing.T) {
+	t.Run("grouping hands the child the parent's person", func(t *testing.T) {
+		fake := newFake([]board.Card{
+			{ItemID: "p1", Title: "parent", Team: "portal", Assignees: []string{"IvanStukov"}},
+			{ItemID: "c1", Title: "child", Team: "portal", Assignees: []string{"krakazyabra"}},
+		}, nil)
+		svc := New(fake)
+		if err := svc.SetParent(t.Context(), "o", 1, "c1", "p1"); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := fake.LoadBoard(t.Context(), "o", 1)
+		c, _ := findCard(b, "c1")
+		if len(c.Assignees) != 1 || c.Assignees[0] != "IvanStukov" {
+			t.Fatalf("assignees = %v, want the parent's person", c.Assignees)
+		}
+	})
+
+	t.Run("a direct change on a subtask follows the parent instead of drifting", func(t *testing.T) {
+		fake := newFake([]board.Card{
+			{ItemID: "p1", Title: "parent", Team: "portal", Assignees: []string{"IvanStukov"}},
+			{ItemID: "c1", Title: "child", Team: "portal", Parent: "p1", Assignees: []string{"IvanStukov"}},
+		}, nil)
+		svc := New(fake)
+		if err := svc.SetAssignee(t.Context(), "o", 1, "c1", "krakazyabra"); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := fake.LoadBoard(t.Context(), "o", 1)
+		c, _ := findCard(b, "c1")
+		if len(c.Assignees) != 1 || c.Assignees[0] != "IvanStukov" {
+			t.Fatalf("assignees = %v, want it snapped back to the parent's person", c.Assignees)
+		}
+	})
+
+	t.Run("re-assigning the parent cascades to every subtask", func(t *testing.T) {
+		fake := newFake([]board.Card{
+			{ItemID: "p1", Title: "parent", Team: "portal", Assignees: []string{"IvanStukov"}},
+			{ItemID: "c1", Title: "one", Team: "portal", Parent: "p1", Assignees: []string{"IvanStukov"}},
+			{ItemID: "c2", Title: "two", Team: "portal", Parent: "p1", Assignees: []string{"IvanStukov"}},
+		}, nil)
+		svc := New(fake)
+		if err := svc.SetAssignee(t.Context(), "o", 1, "p1", "krakazyabra"); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := fake.LoadBoard(t.Context(), "o", 1)
+		for _, id := range []string{"p1", "c1", "c2"} {
+			c, _ := findCard(b, id)
+			if len(c.Assignees) != 1 || c.Assignees[0] != "krakazyabra" {
+				t.Fatalf("%s assignees = %v, want the whole family on krakazyabra", id, c.Assignees)
+			}
+		}
+	})
+
+	t.Run("unassigning the parent unassigns the family", func(t *testing.T) {
+		fake := newFake([]board.Card{
+			{ItemID: "p1", Title: "parent", Team: "portal", Assignees: []string{"IvanStukov"}},
+			{ItemID: "c1", Title: "one", Team: "portal", Parent: "p1", Assignees: []string{"IvanStukov"}},
+		}, nil)
+		svc := New(fake)
+		if err := svc.SetAssignee(t.Context(), "o", 1, "p1", ""); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := fake.LoadBoard(t.Context(), "o", 1)
+		c, _ := findCard(b, "c1")
+		if len(c.Assignees) != 0 {
+			t.Fatalf("child assignees = %v, want none", c.Assignees)
+		}
+	})
+}

@@ -94,6 +94,22 @@ func (s *Service) SetParent(ctx context.Context, owner string, project int, item
 			return err
 		}
 	}
+	// A subtask always belongs to its parent's PERSON: grouping hands the
+	// child over, so a family is never split across two personal boards.
+	pLogin := ""
+	if len(p.Assignees) > 0 {
+		pLogin = p.Assignees[0]
+	}
+	cLogin := ""
+	if len(card.Assignees) > 0 {
+		cLogin = card.Assignees[0]
+	}
+	if cLogin != pLogin {
+		if err := s.backend.SetAssignee(ctx, b, card, pLogin); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventAssignee, cLogin, pLogin)
+	}
 	// A subtask always belongs to its parent's team.
 	if card.Team != p.Team {
 		if err := s.backend.SetTeam(ctx, b, card, p.Team); err != nil {

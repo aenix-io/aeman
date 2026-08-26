@@ -1808,6 +1808,20 @@ func (s *Service) SetAssignee(ctx context.Context, owner string, project int, it
 	if err != nil {
 		return err
 	}
+	// A subtask always belongs to its parent's PERSON, the way it always
+	// belongs to the parent's team: a direct change follows the parent
+	// instead of drifting away from it. A family that drifts apart lands on
+	// two personal boards — the Me view admits a card when you own one of its
+	// subtasks, so one stray child drags the parent and every sibling onto a
+	// board they are not part of.
+	if card.Parent != "" {
+		if p, ok := findCard(b, card.Parent); ok {
+			login = ""
+			if len(p.Assignees) > 0 {
+				login = p.Assignees[0]
+			}
+		}
+	}
 	if err := s.backend.SetAssignee(ctx, b, card, login); err != nil {
 		return err
 	}
@@ -1815,7 +1829,32 @@ func (s *Service) SetAssignee(ctx context.Context, owner string, project int, it
 	if len(card.Assignees) > 0 {
 		prev = card.Assignees[0]
 	}
-	s.logEvent(ctx, b, card, board.EventAssignee, prev, login)
+	if prev != login {
+		s.logEvent(ctx, b, card, board.EventAssignee, prev, login)
+	}
+	// Re-assigning a parent hands its whole family over.
+	return s.syncChildrenAssignee(ctx, b, card, login)
+}
+
+// syncChildrenAssignee puts every subtask on the person its parent is on. It
+// is a no-op for a card without subtasks.
+func (s *Service) syncChildrenAssignee(ctx context.Context, b board.Board, parent board.Card, login string) error {
+	if parent.Parent != "" {
+		return nil // a subtask has no subtasks of its own
+	}
+	for _, c := range board.Children(b, parent.ItemID) {
+		cur := ""
+		if len(c.Assignees) > 0 {
+			cur = c.Assignees[0]
+		}
+		if cur == login {
+			continue
+		}
+		if err := s.backend.SetAssignee(ctx, b, c, login); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, c, board.EventAssignee, cur, login)
+	}
 	return nil
 }
 

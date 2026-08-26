@@ -1658,13 +1658,33 @@ export function TeamBoard({
   };
 
   const handleSetAssignee = (card: CardModel, login: string | null) => {
+    // A subtask always belongs to its parent's person (mirrors the server): a
+    // direct change follows the parent, and re-assigning a parent hands the
+    // whole family over. A family split across two people lands on two
+    // personal boards.
+    const target = card.parent ? cardsById.get(card.parent) ?? card : card;
+    const next = card.parent
+      ? target.assignees.slice(0, 1)
+      : login
+        ? [login]
+        : [];
+    const family = card.parent
+      ? []
+      : board.cards.filter((c) => c.parent === card.itemId);
     const prev = card.assignees;
-    patchCard(card.itemId, { assignees: login ? [login] : [] });
+    const prevFamily = family.map((c) => ({ id: c.itemId, was: c.assignees }));
+    patchCard(card.itemId, { assignees: next });
+    for (const c of family) {
+      patchCard(c.itemId, { assignees: next });
+    }
     void provider
-      .patchCard(board, card.itemId, { assignees: login ? [login] : [] })
+      .patchCard(board, card.itemId, { assignees: next })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, { assignees: prev });
+        for (const f of prevFamily) {
+          patchCard(f.id, { assignees: f.was });
+        }
         onError(errMessage(err));
       });
   };
