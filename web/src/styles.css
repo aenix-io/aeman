@@ -4254,3 +4254,100 @@ button.card-age {
 .sprint-choice-btn-danger:hover {
   border-color: var(--danger);
 }
+
+/* ---- Project board zoom ------------------------------------------------ */
+
+/* The scale sits at the right end of the board's toolbar, beside the project
+   chips: two thin sliders and the reading between them. */
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.zoom-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 86px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  cursor: ew-resize;
+}
+
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-3, var(--muted));
+  cursor: ew-resize;
+}
+
+.zoom-slider::-moz-range-thumb {
+  width: 9px;
+  height: 9px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink-3, var(--muted));
+  cursor: ew-resize;
+}
+
+.zoom-slider:hover::-webkit-slider-thumb {
+  background: var(--accent);
+}
+
+.zoom-reset {
+  min-width: 40px;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.zoom-reset:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.zoom-reset:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* The corner above the date column: a quiet way to give every column on the
+   board the same width back. Only there when something has a width of its own. */
+.project-corner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-cols-reset {
+  padding: 0 3px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ink-3, var(--muted));
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.45;
+}
+
+.project-cols-reset:hover {
+  opacity: 1;
+  color: var(--accent);
+}
