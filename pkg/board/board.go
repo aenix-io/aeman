@@ -191,6 +191,25 @@ type Card struct {
 	// review is implicit and left at 0 (round 1 is not shown).
 	ReviewRound int    `json:"reviewRound,omitempty"`
 	CreatedAt   string `json:"createdAt,omitempty"`
+	// Rank is the card's ordering key within its list (see RankBetween): a
+	// plain string compared bytewise, so a reorder rewrites this card alone.
+	Rank string `json:"rank,omitempty"`
+	// DoneFrom is the progress the card had when a write took it to 100; a
+	// reopen restores it. Stored, not derived from history, because an
+	// action must never depend on a log that may be cut at a horizon.
+	DoneFrom int `json:"doneFrom,omitempty"`
+	// Link is a URL the card points at — the only trace an issue-backed
+	// card keeps of its issue. Nothing is fetched through it.
+	Link string `json:"link,omitempty"`
+	// GitHubID is the Projects v2 item id a migrated card came from, kept so
+	// the id can still be resolved for a while; empty on cards born later.
+	GitHubID string `json:"githubId,omitempty"`
+	// Domain names the repository the card lives in ("" = the primary or a
+	// single-domain board). MovedFrom/MovedAt record a cross-domain move,
+	// so a torn move resolves from the tree alone.
+	Domain    string `json:"domain,omitempty"`
+	MovedFrom string `json:"movedFrom,omitempty"`
+	MovedAt   string `json:"movedAt,omitempty"`
 	// Description is the card's free-form details (a draft body minus its appended
 	// action log, or an issue/PR body). Notes are the card's dated work notes.
 	Description string `json:"description,omitempty"`
