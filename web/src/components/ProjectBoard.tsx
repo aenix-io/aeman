@@ -128,6 +128,8 @@ const LS_COLF = "aeman.projectColFactors";
 const LS_ZOOM = "aeman.projectZoom";
 
 /** The cell the board is drawn from before any zoom or per-column width. */
+/** How far a card steps aside to uncover the strip a new one starts from. */
+const NUDGE_PX = 13;
 const BASE_COL = 140;
 const BASE_ROW = 28;
 
@@ -246,6 +248,8 @@ export function ProjectBoard({
   // card), through the latest card plus a quarter of runway to plan into.
   // How far the window reaches beyond the default, in weeks, grown by the
   // buttons at either end — planning is not confined to a fixed horizon.
+  // The card currently stepped aside to leave room for a new one beside it.
+  const [nudged, setNudged] = useState<string | null>(null);
   const [padBack, setPadBack] = useState(0);
   const [padFwd, setPadFwd] = useState(0);
 
@@ -1604,6 +1608,7 @@ export function ProjectBoard({
               }`}
               style={{ gridRow: row + 2, gridColumn: col + 2 }}
               onPointerDown={(ev) => beginDrag(e, row, ev)}
+              onPointerLeave={() => setNudged(null)}
               onPointerCancel={() => setDrag(null)}
             />
           )),
@@ -1713,7 +1718,36 @@ export function ProjectBoard({
               key={card.itemId}
               className={`project-slot ${slotTone(card, today)}${
                 move?.card.itemId === card.itemId ? " project-slot-moving" : ""
-              }`}
+              }${nudged === card.itemId ? " project-slot-nudged" : ""}`}
+              // A card that fills its column leaves nowhere to start the next
+              // one. Hovering its right edge steps it aside just enough to
+              // uncover the cell beneath, which is already the drag surface —
+              // so a new card is pulled out beside an existing one without
+              // moving anything or opening a menu.
+              onPointerMove={(ev) => {
+                if (move || drag) {
+                  return;
+                }
+                const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                const inStrip = ev.clientX > r.right - NUDGE_PX * 2;
+                setNudged(inStrip ? card.itemId : (cur) => (cur === card.itemId ? null : cur));
+              }}
+              // Stepping aside puts the pointer in the gap that just opened —
+              // which the browser reports as leaving the card. Undoing the
+              // nudge there would close the gap under the pointer, reopen it,
+              // and flicker forever; so a pointer inside the strip is not a
+              // pointer that left.
+              onPointerLeave={(ev) => {
+                const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                const intoTheGap =
+                  ev.clientX >= r.right &&
+                  ev.clientX <= r.right + NUDGE_PX + 2 &&
+                  ev.clientY >= r.top &&
+                  ev.clientY <= r.bottom;
+                if (!intoTheGap) {
+                  setNudged((cur) => (cur === card.itemId ? null : cur));
+                }
+              }}
               style={{
                 // While dragged, the slot itself sits where it would land —
                 // the preview IS the card. row/span/col come from the packing,

@@ -4406,3 +4406,11 @@ button.card-age {
   opacity: 1;
   color: var(--accent);
 }
+
+/* A card hovered near its right edge steps aside, uncovering the strip of
+   cell a new card is pulled out from. Small and quick: it is an invitation,
+   not an animation. */
+.project-slot-nudged {
+  margin-right: 13px;
+  transition: margin-right 90ms ease-out;
+}
