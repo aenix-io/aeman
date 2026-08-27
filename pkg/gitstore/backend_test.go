@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -30,6 +31,98 @@ func newBackend(t *testing.T) (*Backend, *Repo) {
 }
 
 func ctxAs(login string) context.Context { return board.WithActor(context.Background(), login) }
+
+// G12 — a move rewrites one file, until the key space between two
+// neighbours is exhausted: then the whole run is renumbered in the SAME
+// commit, the order kept, every key short again. Roster lists rebalance the
+// same way.
+func TestMoveRebalancesTheRunWhenTheKeyIsExhausted(t *testing.T) {
+	// Every key strictly between "a" and "a000…01" (32 chars) is 33+ chars.
+	tight := "a" + strings.Repeat("0", 30) + "1"
+	r := repoWith(t, map[string]string{
+		BoardPath:               "schema: 1\ntitle: b\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: first\nrank: a\n---\n",
+		"cards/b/2/01CARDB2.md": "---\ntitle: second\nrank: " + tight + "\n---\n",
+		"cards/c/3/01CARDC3.md": "---\ntitle: third\nrank: b\n---\n",
+		TeamPath("01T_A"):       "name: alpha\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		TeamPath("01T_B"):       "name: beta\nrank: " + tight + "\ncreated: 2026-06-01T08:00:00Z\n",
+		TeamPath("01T_C"):       "name: gamma\nrank: b\ncreated: 2026-06-01T08:00:00Z\n",
+	})
+	be := NewBackend(r, BackendOptions{})
+	ctx := ctxAs("kvaps")
+	bd, _ := be.LoadBoard(ctx, "x", 1)
+	third, _ := findByID(bd, "01CARDC3")
+	head := r.Head()
+	if err := be.MoveCard(ctx, bd, third, "01CARDA1"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(commitsBetween(t, r, head)); n != 1 {
+		t.Fatalf("the rebalance took %d commits, want 1", n)
+	}
+	after, _ := be.LoadBoard(ctx, "x", 1)
+	var order []string
+	for _, c := range after.Cards {
+		order = append(order, c.ItemID)
+		if board.RankTooLong(c.Rank) || len(c.Rank) > 4 {
+			t.Fatalf("rank of %s after rebalance = %q, want a short key", c.ItemID, c.Rank)
+		}
+	}
+	if strings.Join(order, ",") != "01CARDA1,01CARDC3,01CARDB2" {
+		t.Fatalf("order after move = %v", order)
+	}
+	// The team roster rebalances the same way.
+	gamma := board.Card{ItemID: "01T_C", Title: board.SprintStateTitle, Team: "gamma"}
+	head = r.Head()
+	if err := be.MoveCard(ctx, after, gamma, "01T_A"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(commitsBetween(t, r, head)); n != 1 {
+		t.Fatalf("the roster rebalance took %d commits, want 1", n)
+	}
+	s, _ := Load(r)
+	var teams []string
+	for _, tm := range s.Teams {
+		teams = append(teams, tm.Name)
+		if len(tm.Rank) > 4 {
+			t.Fatalf("team %s rank = %q after rebalance", tm.Name, tm.Rank)
+		}
+	}
+	if strings.Join(teams, ",") != "alpha,gamma,beta" {
+		t.Fatalf("team order after move = %v", teams)
+	}
+	// A move with room to spare still rewrites one file and renumbers nothing.
+	head = r.Head()
+	first, _ := findByID(after, "01CARDA1")
+	if err := be.MoveCard(ctx, after, first, "01CARDC3"); err != nil {
+		t.Fatal(err)
+	}
+	if paths := changedPathsSince(t, r, head); len(paths) != 1 {
+		t.Fatalf("a plain move touched %v, want one file", paths)
+	}
+}
+
+// commitsBetween lists the commits after since, newest first.
+func commitsBetween(t *testing.T, r *Repo, since plumbing.Hash) []plumbing.Hash {
+	t.Helper()
+	var out []plumbing.Hash
+	_ = r.Walk(r.Head(), func(c *object.Commit) (bool, error) {
+		if c.Hash == since {
+			return false, nil
+		}
+		out = append(out, c.Hash)
+		return true, nil
+	})
+	return out
+}
+
+func changedPathsSince(t *testing.T, r *Repo, since plumbing.Hash) []string {
+	t.Helper()
+	paths, err := r.ChangedPaths(since, r.Head())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
 
 // An iteration's id is deterministic — a ULID whose time is the due week's
 // Monday and whose random bits hash the task and the week — so two replicas

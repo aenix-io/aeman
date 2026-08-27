@@ -606,7 +606,58 @@ func (b *Backend) MoveCard(ctx context.Context, _ board.Board, card board.Card, 
 	if err != nil {
 		return err
 	}
+	if board.RankTooLong(rank) {
+		return b.rebalance(ctx, s, card, ranks, afterID)
+	}
 	return b.setRank(ctx, s, card, rank)
+}
+
+// rebalance renumbers the card's whole list — the card placed after afterID
+// — in ONE commit (G12): the key space between two neighbours is exhausted,
+// and a run of short keys is the cure, not an ever longer key. Under the
+// caller's scope the rewrites join its commit; bare, they get their own.
+func (b *Backend) rebalance(ctx context.Context, s Snapshot, card board.Card, ranks []ranked, afterID string) error {
+	order := make([]string, 0, len(ranks)+1)
+	if afterID == "" {
+		order = append(order, card.ItemID)
+	}
+	current := map[string]string{}
+	for _, r := range ranks {
+		current[r.id] = r.rank
+		if r.id == card.ItemID {
+			continue
+		}
+		order = append(order, r.id)
+		if r.id == afterID {
+			order = append(order, card.ItemID)
+		}
+	}
+	if !contains(order, card.ItemID) {
+		order = append(order, card.ItemID) // afterID unknown: the end of the list
+	}
+	keys, err := board.RankRebalance("", "", len(order))
+	if err != nil {
+		return err
+	}
+	flush := func() (plumbing.Hash, error) { return plumbing.ZeroHash, nil }
+	if scopeOf(ctx) == nil {
+		ctx, flush = WithScope(ctx, Action{Name: "move", Actor: board.ActorFrom(ctx), At: b.now(), Cards: cardIDs(card),
+			Summary: "move " + card.ItemID + " (run renumbered)"})
+	}
+	for i, id := range order {
+		if id != card.ItemID && current[id] == keys[i] {
+			continue
+		}
+		sibling := card
+		if id != card.ItemID {
+			sibling = board.Card{ItemID: id, Title: card.Title}
+		}
+		if err := b.setRank(ctx, s, sibling, keys[i]); err != nil {
+			return err
+		}
+	}
+	_, err = flush()
+	return err
 }
 
 type ranked struct{ id, rank string }
