@@ -69,7 +69,16 @@ Every commit rewrites the tree of each directory on the changed file's path. Thr
 | 2 tail chars | 589 | 17 KB | 2.33 ms | 566 MB | 170 MiB | 1 m 46 s |
 | 1 tail char | 16 | 448 B | **1.46 ms** | 402 MB | **34 MiB** | 40 s |
 
-The rewritten intermediate tree is the whole cost. Rule for the design: keep every directory that gets rewritten per commit at a few hundred entries at most, i.e. **balanced two-level sharding** (for ULIDs, one Crockford-base32 char per level → 32 × 32 leaves; the intermediate tree is ~1 KB, a leaf holds a handful of files). Shard by the id's *tail*: ULID heads are time-ordered and near-constant, head-sharding degenerates into one directory.
+The rewritten intermediate tree is the whole cost. Rule for the design: keep every directory that gets rewritten per commit at a few hundred entries at most. Shard by the id's *tail*: ULID heads are time-ordered and near-constant, head-sharding degenerates into one directory.
+
+The spike's ids are GitHub item ids, whose tail alphabet is narrow — that is why "1 tail char" gave 16 directories, not 32. The two-level layout the design prescribes was measured separately on the same replay, with a Crockford-base32 pair derived from a hash of the id (the distribution a ULID tail gives):
+
+| shard | dirs | `cards` tree | one leaf tree | objects in history | go-git push pack |
+|---|---|---|---|---|---|
+| 1 level, 16 dirs | 16 | 448 B | ~150 files, ~9 KB | 91 544 | 34 MiB |
+| 2 levels, 32 × 32 | 925 realized | 896 B | ~5 files, ~300 B | 109 562 | 40 MiB |
+
+Two levels rewrite ~1.2 KB of trees per commit instead of ~9 KB, but add one object per commit: +20 % objects and +18 % pre-gc pack at this board size. The trade is bought for scale — at 10 000 cards a single level of 32 has 19 KB leaf trees, the size that produced the 170 MiB history above, while two levels stay flat. (The spike's per-commit milliseconds are not comparable between these two runs: its tree builder walks every directory per commit and dominates the 925-directory case.)
 
 ## 4. Memory and growth with nobody packing
 

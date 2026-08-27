@@ -30,7 +30,7 @@ A **column** of the Project board is the pair `(project, epic)`. Epic names are 
 
 When started with `--lock-board` (or `AEMAN_LOCK_BOARD=1`), aeman pins the board to its configured `--owner`/`--board` and ignores any client-supplied owner/board. Use this when exposing aeman to clients that must not roam across boards.
 
-> **Planned change — storage moves to git.** [docs/design/git-backend.md](design/git-backend.md) replaces GitHub Projects v2 with git repositories as the only storage. When it lands, the `owner` + `board` *number* pair becomes one `board` *string* (the board's primary repository), the `/api/github/` proxy goes away, the card log gains `truncatedBefore`, and the Board resource gains `domains`. This section describes what is shipped today; the design document describes what changes.
+> **Planned change — storage moves to git.** [docs/design/git-backend.md](design/git-backend.md) replaces GitHub Projects v2 with git repositories as the only storage. When it lands: the `owner` + `board` *number* pair becomes one `board` *string* (the board's primary repository); every card `uid` changes from `PVTI_…` to a ULID at migration, with legacy ids accepted for one major version; `metadata.contentId`, `isDraft`, `url`, `number` and `repository` disappear; note ids change format; the card log gains `truncatedBefore`; the Board resource gains `domains` and its members gain `avatarUrl`; the `/api/github/` proxy goes away. This section describes what is shipped today; the design document describes what changes.
 
 ## HTTP API
 
