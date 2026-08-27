@@ -496,6 +496,16 @@ func (b *storeBackend) maintainNow(ctx context.Context, key string) (int, error)
 	return swept, b.syncNow(ctx, key)
 }
 
+// CardLog is the card's feed from the commits (boardservice.LogReader); the
+// queue may hold writes not yet committed, but the cache already shows them
+// and the feed is what has happened, not what is about to.
+func (b *storeBackend) CardLog(ctx context.Context, bd board.Board, id string) ([]board.Event, time.Time, error) {
+	if b.git == nil {
+		return nil, time.Time{}, nil
+	}
+	return b.git.mb.CardLog(ctx, bd, id)
+}
+
 // mintID is the id a create hands out before its write lands.
 func (b *storeBackend) mintID() string {
 	return gitstore.NewID(time.Now())
@@ -516,6 +526,9 @@ func (b *storeBackend) createMinted(ctx context.Context, bd board.Board, e *boar
 		desc:    "create «" + card.Title + "»",
 		noRetry: true,
 		apply: func(target *board.Board) {
+			if installStub(target, card) {
+				return // a roster entry goes back into the roster, never into the rows
+			}
 			for _, c := range target.Cards {
 				if c.ItemID == in.ItemID {
 					return

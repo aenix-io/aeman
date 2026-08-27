@@ -266,6 +266,9 @@ func TestBoardListsDomainsWithMembers(t *testing.T) {
 			t.Fatalf("assign %s: %d %s", who, rec.Code, rec.Body.String())
 		}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx) // the commits must land before TempDir is removed
 	type domainInfo struct {
 		Name     string   `json:"name"`
 		Writable bool     `json:"writable"`

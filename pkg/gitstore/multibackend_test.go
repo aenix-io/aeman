@@ -2,6 +2,7 @@ package gitstore
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -322,6 +323,57 @@ func TestMultiBackendCreateHonoursDomainFromContext(t *testing.T) {
 	}
 	if _, err := mb.CreateCard(board.WithDomain(ctxAs("kvaps"), "nope"), b, board.CreateInput{Title: board.ProjectStateTitle, Project: "x"}); err == nil {
 		t.Fatal("an unknown domain must be refused")
+	}
+}
+
+// The card's log is its commits — in the domain it lives in and, following
+// Aeman-Moved-From, in the domain it came from (G22): one continuous feed,
+// newest first, each field change an event with the commit's actor and time.
+func TestMultiBackendCardLogFollowsMoveIntoOldDomain(t *testing.T) {
+	mb, _, _ := twoDomains(t)
+	ctx := ctxAs("kvaps")
+	b, _ := mb.LoadBoard(ctx, "x", 1)
+	card, _ := findByID(b, "01CARDA1")
+	if err := mb.SetProgress(ctx, b, card, 30); err != nil {
+		t.Fatal(err)
+	}
+	sctx, flush := WithScope(ctx, Action{Name: "update", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N3", Cards: []string{card.ItemID}})
+	if err := mb.SetProject(sctx, b, card, "secret"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := flush(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = mb.LoadBoard(ctx, "x", 1)
+	moved, _ := findByID(b, card.ItemID)
+	if err := mb.SetProgress(board.WithActor(context.Background(), "timur"), b, moved, 60); err != nil {
+		t.Fatal(err)
+	}
+	events, truncated, err := mb.CardLog(ctx, b, card.ItemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !truncated.IsZero() {
+		t.Fatalf("full clones report a horizon: %v", truncated)
+	}
+	var kinds []string
+	for _, e := range events {
+		kinds = append(kinds, e.Kind+":"+e.From+">"+e.To+"@"+e.Actor)
+	}
+	joined := strings.Join(kinds, " ")
+	for _, want := range []string{"progress:30>60@timur", "project:>secret@kvaps", "progress:>30@kvaps"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("log lacks %q:\n%s", want, joined)
+		}
+	}
+	// Newest first, and the old domain's entries come after the move.
+	if !strings.HasPrefix(joined, "progress:30>60@timur") || strings.Index(joined, "project:>secret") > strings.Index(joined, "progress:>30@kvaps") {
+		t.Fatalf("order:\n%s", joined)
+	}
+	for _, e := range events {
+		if e.At == "" || e.ID == "" {
+			t.Fatalf("event without time or id: %+v", e)
+		}
 	}
 }
 

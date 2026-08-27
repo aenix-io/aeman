@@ -21,6 +21,35 @@ var ErrCardNotFound = errors.New("card not found")
 // theirs to write.
 var ErrForbidden = errors.New("forbidden: no write access to the card's domain")
 
+// LogReader is a backend whose card history lives outside the card — the
+// git store, where the commits are the events. truncatedBefore is the time
+// the loaded history is cut at (a shallow clone); zero when it is whole.
+type LogReader interface {
+	CardLog(ctx context.Context, b board.Board, id string) (events []board.Event, truncatedBefore time.Time, err error)
+}
+
+// Log is a card's activity feed: the card (for its notes) and its events —
+// from the backend's history when it keeps one, else the events recorded on
+// the card — with the horizon the history is cut at, if any.
+func (s *Service) Log(ctx context.Context, owner string, project int, id string) (board.Card, []board.Event, time.Time, error) {
+	b, err := s.backend.LoadBoard(ctx, owner, project)
+	if err != nil {
+		return board.Card{}, nil, time.Time{}, err
+	}
+	card, ok := findCard(b, id)
+	if !ok {
+		return board.Card{}, nil, time.Time{}, ErrCardNotFound
+	}
+	if lr, ok := s.backend.(LogReader); ok {
+		events, truncated, err := lr.CardLog(ctx, b, id)
+		if err != nil {
+			return board.Card{}, nil, time.Time{}, err
+		}
+		return card, events, truncated, nil
+	}
+	return card, card.Events, time.Time{}, nil
+}
+
 // ErrNoteNotFound is returned when a note id is not on the loaded card.
 var ErrNoteNotFound = errors.New("note not found")
 

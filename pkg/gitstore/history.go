@@ -65,8 +65,13 @@ type LogEntry struct {
 	ActionID string
 	Summary  string
 	// Changes: the card's Aeman-Change trailers first, then what the
-	// front-matter diff says, then "description"/"note" for body edits.
+	// front-matter diff says, then "description"/"note" for body edits. A
+	// commit that brings the file into being is one "created" change, one
+	// that removes it one "deleted".
 	Changes []Change
+	// MovedFrom names the domain the card came from when this commit is the
+	// destination half of a move (G22): the log continues there.
+	MovedFrom string
 }
 
 // Log is a card's history within the loaded horizon.
@@ -131,6 +136,7 @@ func (r *Repo) horizon() (time.Time, error) {
 // trailers decide, and failing those, the file's presence.
 func (r *Repo) entryFor(c *object.Commit, id, p string, boundary bool) (LogEntry, bool, error) {
 	tr := ParseTrailers(c.Message)
+	movedIn, movedOut := tr.Extra["Aeman-Moved-From"], tr.Extra["Aeman-Moved-To"]
 	after, err := blobAt(c, p)
 	if err != nil {
 		return LogEntry{}, false, err
@@ -156,7 +162,12 @@ func (r *Repo) entryFor(c *object.Commit, id, p string, boundary bool) (LogEntry
 			return LogEntry{}, false, nil
 		}
 	}
-	e := LogEntry{Hash: c.Hash, At: c.Author.When, Actor: tr.Actor, Action: tr.Action, ActionID: tr.ActionID, Summary: firstLineOf(c.Message)}
+	if movedOut != "" && after == nil && contains(tr.Cards, id) {
+		// The source half of a move: the card went on, its feed with it.
+		return LogEntry{}, false, nil
+	}
+	e := LogEntry{Hash: c.Hash, At: c.Author.When, Actor: tr.Actor, Action: tr.Action, ActionID: tr.ActionID,
+		Summary: firstLineOf(c.Message), MovedFrom: movedIn}
 	covered := map[string]bool{}
 	for _, ch := range tr.Changes {
 		if ch.Card == id {
@@ -164,7 +175,15 @@ func (r *Repo) entryFor(c *object.Commit, id, p string, boundary bool) (LogEntry
 			covered[ch.Kind] = true
 		}
 	}
-	if !boundary {
+	switch {
+	case boundary, movedIn != "":
+		// No parent to diff against, or a file that arrived whole from
+		// another domain: the trailers say what changed, nothing else.
+	case before == nil && after != nil:
+		e.Changes = append(e.Changes, Change{Card: id, Kind: "created"})
+	case before != nil && after == nil:
+		e.Changes = append(e.Changes, Change{Card: id, Kind: "deleted"})
+	default:
 		for _, ch := range diffCard(id, before, after) {
 			if !covered[ch.Kind] {
 				e.Changes = append(e.Changes, ch)

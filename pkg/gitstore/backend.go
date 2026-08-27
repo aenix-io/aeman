@@ -220,8 +220,10 @@ func (b *Backend) write(ctx context.Context, op string, cards []string, p string
 }
 
 // writeWith is write with trailers that belong to this repository's commit
-// only — under a scope they attach to its part, not to the action.
-func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p string, data []byte, trailers map[string]string) error {
+// only — under a scope they attach to its part, not to the action — and
+// with Aeman-Change lines for what the write changed when the file diff
+// cannot say it (a file that arrives whole from another domain).
+func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p string, data []byte, trailers map[string]string, changes ...Change) error {
 	if sc := scopeOf(ctx); sc != nil {
 		sc.mu.Lock()
 		defer sc.mu.Unlock()
@@ -236,13 +238,14 @@ func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p st
 		for k, v := range trailers {
 			part.addTrailer(k, v)
 		}
+		sc.changes = append(sc.changes, changes...)
 		return nil
 	}
 	summary := op
 	if len(cards) == 1 {
 		summary = op + " " + cards[0]
 	}
-	_, err := b.repo.Commit(Action{Name: op, Actor: board.ActorFrom(ctx), At: b.now(), Cards: cards, Summary: summary, Trailers: trailers}, []FileWrite{{Path: p, Data: data}})
+	_, err := b.repo.Commit(Action{Name: op, Actor: board.ActorFrom(ctx), At: b.now(), Cards: cards, Summary: summary, Trailers: trailers, Changes: changes}, []FileWrite{{Path: p, Data: data}})
 	return err
 }
 

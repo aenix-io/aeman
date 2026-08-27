@@ -294,12 +294,12 @@ func (s *Server) handleCardLog(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	card, err := svc.Card(r.Context(), owner, project, r.PathValue("uid"))
+	card, events, truncated, err := svc.Log(r.Context(), owner, project, r.PathValue("uid"))
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, apiserver.CardLog(card))
+	writeJSON(w, http.StatusOK, apiserver.CardLogFrom(card, events, truncated))
 }
 
 // statusResponse is the acknowledgement returned by actions that leave no single

@@ -2502,6 +2502,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		Description: in.Body,
 		ReviewOf:    in.ReviewOf,
 		Parent:      in.Parent,
+		Domain:      in.Domain,
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 		Assignees:   []string{},
 	}
@@ -2517,48 +2518,69 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 func (b *storeBackend) installCreated(ctx context.Context, e *boardEntry, card board.Card) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if installStub(&e.board, card) {
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+		return
+	}
+	e.upsertCard(card)
+	e.markRecent(card.ItemID)
+	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
+}
+
+// installStub puts a roster stub — a process, task, project, column or
+// deadline state card — into the board's roster, idempotently, and records
+// its domain when it carries one. It reports false for a plain card, which
+// is a row and not the roster's business. A queued create's apply uses it
+// too, so a reload that lands while the create is still pending puts the
+// roster entry back where it belongs instead of leaking a stub row.
+func installStub(target *board.Board, card board.Card) bool {
 	switch card.Title {
 	case board.ProcessStateTitle:
-		if _, exists := board.FindProcess(e.board, card.Process); card.Process != "" && !exists {
-			e.board.Processes = append(e.board.Processes,
+		if _, exists := board.FindProcess(*target, card.Process); card.Process != "" && !exists {
+			target.Processes = append(target.Processes,
 				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
 		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
 	case board.ProcessTaskTitle:
-		e.board.Tasks = append(e.board.Tasks, card)
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-	case board.ProjectStateTitle:
-		if card.Project != "" && e.board.ProjectStates[card.Project] == "" {
-			if e.board.ProjectStates == nil {
-				e.board.ProjectStates = map[string]string{}
+		exists := false
+		for _, t := range target.Tasks {
+			if t.ItemID == card.ItemID {
+				exists = true
+				break
 			}
-			e.board.Projects = append(e.board.Projects, card.Project)
-			e.board.ProjectStates[card.Project] = card.ItemID
 		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
+		if !exists {
+			target.Tasks = append(target.Tasks, card)
+		}
+	case board.ProjectStateTitle:
+		if card.Project != "" && target.ProjectStates[card.Project] == "" {
+			if target.ProjectStates == nil {
+				target.ProjectStates = map[string]string{}
+			}
+			target.Projects = append(target.Projects, card.Project)
+			target.ProjectStates[card.Project] = card.ItemID
+		}
 	case board.EpicStateTitle:
-		if _, exists := board.FindEpic(e.board, card.Project, card.Epic); card.Epic != "" && !exists {
-			e.board.Epics = append(e.board.Epics, board.EpicCol{
+		if _, exists := board.FindEpic(*target, card.Project, card.Epic); card.Epic != "" && !exists {
+			target.Epics = append(target.Epics, board.EpicCol{
 				Name: card.Epic, Project: card.Project, ItemID: card.ItemID,
 			})
 		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
 	case board.DeadlineStateTitle:
-		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
-			e.board.Deadlines = append(e.board.Deadlines,
+		if _, exists := board.FindDeadline(*target, card.Project, card.Week); card.Week != "" && !exists {
+			target.Deadlines = append(target.Deadlines,
 				board.Deadline{Week: card.Week, Project: card.Project, ItemID: card.ItemID})
 		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
 	default:
-		e.upsertCard(card)
-		e.markRecent(card.ItemID)
-		e.cardChanged(clientIDFrom(ctx), card, "ADDED")
+		return false
 	}
+	if card.Domain != "" {
+		if target.Domains == nil {
+			target.Domains = map[string]string{}
+		}
+		target.Domains[card.ItemID] = card.Domain
+	}
+	return true
 }
 
 // adoptLocal rewrites a provisional id to the one GitHub answered with:

@@ -7,6 +7,7 @@ package apiserver
 
 import (
 	"sort"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -491,12 +492,23 @@ type LogEntry struct {
 type LogList struct {
 	Kind  string     `json:"kind"`
 	Items []LogEntry `json:"items"`
+	// TruncatedBefore, when set, is the time the loaded history is cut at:
+	// older entries exist on the remote but are not here (a shallow clone).
+	TruncatedBefore string `json:"truncatedBefore,omitempty"`
 }
 
-// CardLog merges a card's events and notes into one chronological feed.
+// CardLog merges a card's recorded events and notes into one chronological
+// feed.
 func CardLog(c board.Card) LogList {
-	items := make([]LogEntry, 0, len(c.Events)+len(c.Notes))
-	for _, e := range c.Events {
+	return CardLogFrom(c, c.Events, time.Time{})
+}
+
+// CardLogFrom merges the given events — a backend's history — with the
+// card's notes into one chronological feed, naming the horizon the history
+// is cut at when there is one.
+func CardLogFrom(c board.Card, events []board.Event, truncatedBefore time.Time) LogList {
+	items := make([]LogEntry, 0, len(events)+len(c.Notes))
+	for _, e := range events {
 		items = append(items, LogEntry{
 			Type: "event", ID: e.ID, At: e.At, Actor: e.Actor,
 			EventKind: e.Kind, From: e.From, To: e.To,
@@ -508,5 +520,9 @@ func CardLog(c board.Card) LogList {
 		})
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].At < items[j].At })
-	return LogList{Kind: "LogList", Items: items}
+	out := LogList{Kind: "LogList", Items: items}
+	if !truncatedBefore.IsZero() {
+		out.TruncatedBefore = truncatedBefore.UTC().Format(time.RFC3339)
+	}
+	return out
 }

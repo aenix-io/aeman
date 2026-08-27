@@ -944,11 +944,11 @@ func (h *server) listLog(ctx context.Context, _ *mcp.CallToolRequest, in cardRef
 	if err != nil {
 		return nil, apiserver.LogList{}, err
 	}
-	_, card, err := h.loadCard(ctx, svc, owner, project, in.UID)
+	card, events, truncated, err := svc.Log(ctx, owner, project, in.UID)
 	if err != nil {
 		return nil, apiserver.LogList{}, err
 	}
-	return nil, apiserver.CardLog(card), nil
+	return nil, apiserver.CardLogFrom(card, events, truncated), nil
 }
 
 // listLinks returns the URLs found in a card's description: GitHub issue/PR

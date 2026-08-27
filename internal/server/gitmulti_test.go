@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5/storage/memory"
 
@@ -88,6 +90,53 @@ func tornMoveRemotes(t *testing.T) (gitstore.Remote, gitstore.Remote) {
 		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nproject: secret\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
 	})
 	return shared, closed
+}
+
+// The activity feed in git mode is read from the commits: a field change is
+// an event with the request's actor and the commit's time, notes ride along,
+// and a full clone reports no horizon.
+func TestCardLogFromCommits(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	srv := gitModeServer(t, remote)
+	uid := cardUID(t, srv, "tester", "one")
+	if rec := do(t, srv, "PATCH", "/api/v1/cards/"+uid, `{"progress":90}`); rec.Code != 200 {
+		t.Fatalf("PATCH: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv, "POST", "/api/v1/cards/"+uid+"/notes", `{"text":"looked into it"}`); rec.Code != 201 {
+		t.Fatalf("POST note: %d %s", rec.Code, rec.Body.String())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx)
+	rec := do(t, srv, "GET", "/api/v1/cards/"+uid+"/log", "")
+	if rec.Code != 200 {
+		t.Fatalf("GET log: %d %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Items []struct {
+			Type, Kind, From, To, Actor, Text string
+		} `json:"items"`
+		TruncatedBefore string `json:"truncatedBefore"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	var progress, note bool
+	for _, it := range got.Items {
+		if it.Type == "event" && it.Kind == "progress" && it.From == "40" && it.To == "90" && it.Actor == "tester" {
+			progress = true
+		}
+		if it.Type == "note" && it.Text == "looked into it" {
+			note = true
+		}
+	}
+	if !progress || !note {
+		t.Fatalf("log = %s", rec.Body.String())
+	}
+	if got.TruncatedBefore != "" {
+		t.Fatalf("a full clone reports a horizon: %s", got.TruncatedBefore)
+	}
 }
 
 // G18 through the server — a repository written by an older server is

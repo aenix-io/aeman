@@ -341,17 +341,81 @@ func (mb *MultiBackend) place(ctx context.Context, op string, f CardFile, p, fro
 	if err != nil {
 		return err
 	}
+	id := f.Card.ItemID
+	// What the move changed, as trailers: the destination commit's file diff
+	// is the whole card, so the log reads the change from these instead.
+	var changes []Change
+	if was, ok, rerr := src.read(ctx, p); rerr == nil && ok {
+		f.Card.MovedFrom, f.Card.MovedAt = "", ""
+		if now, eerr := EncodeCard(f); eerr == nil {
+			changes = diffCard(id, was, now)
+		}
+	}
 	f.Card.MovedFrom = from
 	f.Card.MovedAt = mb.now().UTC().Format(time.RFC3339)
 	out, err := EncodeCard(f)
 	if err != nil {
 		return err
 	}
-	id := f.Card.ItemID
-	if err := dst.writeWith(ctx, op, []string{id}, p, out, map[string]string{"Aeman-Moved-From": from}); err != nil {
+	if err := dst.writeWith(ctx, op, []string{id}, p, out, map[string]string{"Aeman-Moved-From": from}, changes...); err != nil {
 		return err
 	}
 	return src.writeWith(ctx, op, []string{id}, p, nil, map[string]string{"Aeman-Moved-To": to})
+}
+
+// CardLog is the card's feed read from the commits: in the domain it lives
+// in and, following Aeman-Moved-From, in the domain it came from — one
+// continuous list, newest first, each field change an event with the
+// commit's actor and time. truncatedBefore is the horizon of the oldest
+// domain walked when a shallow clone cuts the history; zero otherwise.
+func (mb *MultiBackend) CardLog(_ context.Context, _ board.Board, id string) ([]board.Event, time.Time, error) {
+	s, err := mb.snapshot()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	domain, ok := newResolver(s).cards[id]
+	if !ok {
+		return nil, time.Time{}, fmt.Errorf("%w: %s", ErrCardNotFound, id)
+	}
+	var events []board.Event
+	var truncated time.Time
+	visited := map[string]bool{}
+	for domain != "" && !visited[domain] {
+		visited[domain] = true
+		be, err := mb.backend(domain)
+		if err != nil {
+			return nil, time.Time{}, err
+		}
+		log, err := be.repo.CardLog(id, 0)
+		if err != nil {
+			return nil, time.Time{}, err
+		}
+		next := ""
+		for _, e := range log.Entries {
+			events = append(events, eventsOf(e)...)
+			if e.MovedFrom != "" {
+				next = e.MovedFrom // the oldest move-in decides where the feed continues
+			}
+		}
+		truncated = log.TruncatedBefore
+		domain = next
+	}
+	return events, truncated, nil
+}
+
+// eventsOf turns one commit's entry into events, one per change; a commit
+// that names the card without a field change is one event of its action.
+func eventsOf(e LogEntry) []board.Event {
+	at := e.At.UTC().Format(time.RFC3339)
+	hash := e.Hash.String()[:12]
+	if len(e.Changes) == 0 {
+		return []board.Event{{ID: hash, Kind: e.Action, Actor: e.Actor, At: at}}
+	}
+	out := make([]board.Event, 0, len(e.Changes))
+	for _, ch := range e.Changes {
+		out = append(out, board.Event{ID: hash + ":" + ch.Kind, Kind: ch.Kind, From: ch.From, To: ch.To, Actor: e.Actor, At: at})
+	}
+	return out
 }
 
 // cascade moves what the linked-card rules tie to a moved card — its review
