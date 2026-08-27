@@ -147,6 +147,39 @@ func TestGitModeReopensTheClone(t *testing.T) {
 	}
 }
 
+// aeman mcp --repo owns its own store: OpenGitBackend hands out the backend
+// without an HTTP server, and Drain pushes what a session left behind.
+func TestOpenGitBackendStandalone(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	gb, err := OpenGitBackend(&GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := withAction(context.Background(), "01JB4KA0M2P4R6T8V0X2Z4B6M1", "progress")
+	bd, err := gb.Backend().LoadBoard(ctx, "ignored", 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bd.Cards) != 2 {
+		t.Fatalf("cards = %d", len(bd.Cards))
+	}
+	if err := gb.Backend().SetProgress(ctx, bd, cardByTitle(bd, "one"), 60); err != nil {
+		t.Fatal(err)
+	}
+	if err := gb.Drain(context.Background()); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	other, err := gitstore.Clone(context.Background(), filesystem.NewStorage(osfs.New(t.TempDir()), cache.NewObjectLRUDefault()), remote, gitstore.Options{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := gitstore.CardPath(cardByTitle(bd, "one").ItemID)
+	if data, _ := other.ReadFile(p); !strings.Contains(string(data), "progress: 60") {
+		t.Fatalf("the drained write is not on the remote:\n%s", data)
+	}
+}
+
 // The request's action name comes from its route.
 func TestActionNameFromRoute(t *testing.T) {
 	cases := map[[2]string]string{

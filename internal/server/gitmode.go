@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 
+	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
@@ -54,7 +56,7 @@ type GitConfig struct {
 	AuthorEmail string
 }
 
-// gitBoardKey is the store key of the single configured board.
+// gitBoardOwner is the owner half of the single configured board's key.
 const gitBoardOwner = "git"
 
 // openGit clones or reopens the primary repository and builds the store's
@@ -62,15 +64,61 @@ const gitBoardOwner = "git"
 // it: a server that invents a board on a typo in --repo is worse than one
 // that stops.
 func (s *Server) openGit(cfg *GitConfig) error {
+	be, err := openGitStore(s.store, cfg, s.log)
+	if err != nil {
+		return err
+	}
+	s.gitBE = be
+	s.gitCfg = cfg
+	if cfg.History > 0 {
+		go s.deepenInBackground(be.git.repo, be.git.remote, cfg.History)
+	}
+	return nil
+}
+
+// GitBackend is a git-mode store without an HTTP server — what `aeman mcp
+// --repo` runs on: its own clone, cache, queue and push.
+type GitBackend struct {
+	be *storeBackend
+}
+
+// OpenGitBackend clones or reopens the configured repository and returns a
+// backend over it. log may be nil.
+func OpenGitBackend(cfg *GitConfig, log *slog.Logger) (*GitBackend, error) {
+	if log == nil {
+		log = slog.Default()
+	}
+	store := newBoardStore()
+	store.log = log
+	be, err := openGitStore(store, cfg, log)
+	if err != nil {
+		return nil, err
+	}
+	return &GitBackend{be: be}, nil
+}
+
+// Backend is the boardservice.Backend to build a service on.
+func (g *GitBackend) Backend() boardservice.Backend { return g.be }
+
+// Drain waits for the write queue and pushes — what a stdio MCP process
+// does before it exits, so a client that closes the pipe right after a
+// mutation loses nothing.
+func (g *GitBackend) Drain(ctx context.Context) error {
+	g.be.store.waitDrained(ctx)
+	return g.be.syncNow(ctx, storeKey(gitBoardOwner, 1))
+}
+
+// openGitStore is the shared core: clone or reopen under the data dir, check
+// the board, build the store backend with its sync.
+func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBackend, error) {
 	if len(cfg.Repos) == 0 {
-		return errors.New("git mode needs at least one --repo")
+		return nil, errors.New("git mode needs at least one --repo")
 	}
 	primary := cfg.Repos[0]
 	dir := filepath.Join(cfg.DataDir, "repos", primary.Name)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("data dir: %w", err)
+		return nil, fmt.Errorf("data dir: %w", err)
 	}
-	storer := filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
 	remote := gitstore.Remote{URL: primary.URL}
 	if cfg.Token != "" {
 		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
@@ -83,52 +131,57 @@ func (s *Server) openGit(cfg *GitConfig) error {
 		tpl := cfg.AuthorEmail
 		opts.AuthorEmail = func(login string) string { return strings.ReplaceAll(tpl, "{login}", login) }
 	}
-
-	var repo *gitstore.Repo
-	if existing := gitstore.Open(storer, opts); !existing.Head().IsZero() {
-		// A clone from an earlier run: its unpushed commits are still there.
-		repo = existing
-	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		r, err := gitstore.Clone(ctx, storer, remote, opts, 1)
-		if err != nil && !errors.Is(err, gitstore.ErrEmptyRepository) && !errors.Is(err, transport.ErrEmptyRemoteRepository) {
-			// Not every server speaks shallow (GitHub, GitLab and Gitea do;
-			// a plain daemon may not): fall back to the whole history rather
-			// than refuse the board. The failed attempt left an unborn
-			// repository behind; start the directory over — it holds nothing
-			// yet — and a real failure fails again here.
-			if gitstore.Open(storer, opts).Head().IsZero() {
-				if err := os.RemoveAll(dir); err != nil {
-					return fmt.Errorf("reset clone dir: %w", err)
-				}
-				if err := os.MkdirAll(dir, 0o750); err != nil {
-					return fmt.Errorf("data dir: %w", err)
-				}
-			}
-			storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
-			r, err = gitstore.Clone(ctx, storer, remote, opts, 0)
-		}
-		if err != nil {
-			if errors.Is(err, gitstore.ErrEmptyRepository) || errors.Is(err, transport.ErrEmptyRemoteRepository) {
-				return fmt.Errorf("repository %s has no board yet — run `aeman init --repo %s` first", primary.URL, primary.URL)
-			}
-			return fmt.Errorf("clone %s: %w", primary.URL, err)
-		}
-		repo = r
+	repo, err := cloneOrOpen(dir, remote, opts, primary.URL)
+	if err != nil {
+		return nil, err
 	}
 	if _, err := gitstore.Load(repo); err != nil {
 		if errors.Is(err, gitstore.ErrEmptyRepository) {
-			return fmt.Errorf("repository %s has no board yet — run `aeman init --repo %s` first", primary.URL, primary.URL)
+			return nil, initHint(primary.URL)
 		}
-		return fmt.Errorf("read %s: %w", primary.URL, err)
+		return nil, fmt.Errorf("read %s: %w", primary.URL, err)
 	}
-	s.gitBE = newGitBackend(s.store, repo, remote, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval, Logger: s.log})
-	s.gitCfg = cfg
-	if cfg.History > 0 {
-		go s.deepenInBackground(repo, remote, cfg.History)
+	return newGitBackend(store, repo, remote, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval, Logger: log}), nil
+}
+
+func initHint(url string) error {
+	return fmt.Errorf("repository %s has no board yet — run `aeman init --repo %s` first", url, url)
+}
+
+// cloneOrOpen reopens an existing clone (its unpushed commits included) or
+// makes a shallow one; a server that does not speak shallow gets a full
+// clone instead of a refusal.
+func cloneOrOpen(dir string, remote gitstore.Remote, opts gitstore.Options, url string) (*gitstore.Repo, error) {
+	storer := filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
+	if existing := gitstore.Open(storer, opts); !existing.Head().IsZero() {
+		return existing, nil
 	}
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	r, err := gitstore.Clone(ctx, storer, remote, opts, 1)
+	if err != nil && !errors.Is(err, gitstore.ErrEmptyRepository) && !errors.Is(err, transport.ErrEmptyRemoteRepository) {
+		// Not every server speaks shallow (GitHub, GitLab and Gitea do; a
+		// plain daemon may not). The failed attempt left an unborn
+		// repository behind; start the directory over — it holds nothing
+		// yet — and a real failure fails again here.
+		if gitstore.Open(storer, opts).Head().IsZero() {
+			if err := os.RemoveAll(dir); err != nil {
+				return nil, fmt.Errorf("reset clone dir: %w", err)
+			}
+			if err := os.MkdirAll(dir, 0o750); err != nil {
+				return nil, fmt.Errorf("data dir: %w", err)
+			}
+		}
+		storer = filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault())
+		r, err = gitstore.Clone(ctx, storer, remote, opts, 0)
+	}
+	if err != nil {
+		if errors.Is(err, gitstore.ErrEmptyRepository) || errors.Is(err, transport.ErrEmptyRemoteRepository) {
+			return nil, initHint(url)
+		}
+		return nil, fmt.Errorf("clone %s: %w", url, err)
+	}
+	return r, nil
 }
 
 // deepenInBackground brings the history to the horizon after start-up, so
