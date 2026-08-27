@@ -277,12 +277,20 @@ func TestBoardListsDomainsWithMembers(t *testing.T) {
 	var got struct {
 		Metadata struct {
 			Domains []domainInfo `json:"domains"`
-			Members []string     `json:"members"`
+			Members []struct {
+				Login     string `json:"login"`
+				AvatarURL string `json:"avatarUrl"`
+			} `json:"members"`
 		} `json:"metadata"`
 	}
 	rec := doAs(t, srv, "dave", http.MethodGet, "/api/v1/board", "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
+	}
+	// Members carry the forge's avatar, so the SPA assembles no URL itself.
+	if len(got.Metadata.Members) != 2 || got.Metadata.Members[0].Login != "alice" ||
+		got.Metadata.Members[0].AvatarURL != "https://avatars.githubusercontent.com/alice?size=48" {
+		t.Fatalf("members = %+v", got.Metadata.Members)
 	}
 	if len(got.Metadata.Domains) != 2 || got.Metadata.Domains[0].Name != "shared" || !got.Metadata.Domains[0].Writable || got.Metadata.Domains[1].Name != "closed" || got.Metadata.Domains[1].Writable {
 		t.Fatalf("dave's domains = %+v", got.Metadata.Domains)

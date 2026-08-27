@@ -110,6 +110,7 @@ func New(opts Options) (*Server, error) {
 	s.newService = s.defaultService
 	s.store = newBoardStore()
 	s.store.log = s.log
+	s.store.avatarURL = githubAvatarURL // the forge the identities come from
 	if opts.Git != nil {
 		if err := s.openGit(opts.Git); err != nil {
 			return nil, err

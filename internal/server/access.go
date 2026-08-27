@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -313,6 +314,16 @@ func repoSlug(repoURL string) (string, error) {
 		return "", fmt.Errorf("repository url %q has no owner/repo", repoURL)
 	}
 	return parts[len(parts)-2] + "/" + parts[len(parts)-1], nil
+}
+
+// githubAvatarURL is the forge's avatar image for a login — GitHub's CDN,
+// no API call, sized for the boards. The SPA renders what the server hands
+// it and assembles no forge URL of its own.
+func githubAvatarURL(login string) string {
+	if login == "" {
+		return ""
+	}
+	return "https://avatars.githubusercontent.com/" + url.PathEscape(login) + "?size=48"
 }
 
 // accessMiddleware resolves the visitor's rights for an /api/v1 request in

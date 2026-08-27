@@ -126,6 +126,9 @@ const boardStaleMax = 10 * time.Minute
 // boardEntry is the cached board plus its watcher set for one owner/project.
 type boardEntry struct {
 	mu sync.Mutex
+	// avatar is the store's forge avatar hook, for the roster frames this
+	// entry broadcasts.
+	avatar func(login string) string
 	// loadMu serializes full backend loads so concurrent cache misses (e.g. a
 	// burst of parallel mutations right after an invalidation) share one upstream
 	// fetch instead of stampeding GitHub.
@@ -557,6 +560,10 @@ type boardStore struct {
 	entries map[string]*boardEntry
 	// log receives board load events. Nil-safe via logger().
 	log *slog.Logger
+	// avatarURL is the forge's avatar image for a login, put on the board
+	// resource's members so clients assemble no forge URL themselves. Nil
+	// leaves avatars empty (tests, no forge).
+	avatarURL func(login string) string
 }
 
 // logger returns the store's logger, or a discard logger when none was wired
@@ -585,6 +592,7 @@ func (s *boardStore) entry(key string) *boardEntry {
 		e = &boardEntry{
 			watchers: map[*subscription]struct{}{},
 			presence: map[string]presenceEntry{},
+			avatar:   s.avatarURL,
 		}
 		s.entries[key] = e
 	}
@@ -861,7 +869,7 @@ func (e *boardEntry) rosterBroadcast() {
 	for sub := range e.watchers {
 		view := sub.view(e.board)
 		sub.send(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
-			BoardInfo: apiserver.BoardResource(view),
+			BoardInfo: apiserver.BoardResourceWith(view, e.avatar),
 			Processes: apiserver.ProcessesResource(view, "").Items,
 		}})
 	}

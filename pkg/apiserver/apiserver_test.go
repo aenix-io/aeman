@@ -312,13 +312,33 @@ func TestWeeklyViewMultiTeam(t *testing.T) {
 
 // The board resource carries the people roster (every distinct assignee), so
 // pickers work even though clients load one view at a time.
+// Members are the board's distinct assignees, sorted, each with the avatar
+// the forge hook resolves for the login — the SPA never assembles a forge
+// URL itself. Without a hook the avatar is empty.
 func TestBoardResourceMembers(t *testing.T) {
 	b := testBoard()
 	info := BoardResource(b)
-	got := info.Metadata.Members
-	if !reflect.DeepEqual(got, []string{"lllamnyp", "octocat"}) {
+	if got := memberLogins(info.Metadata.Members); !reflect.DeepEqual(got, []string{"lllamnyp", "octocat"}) {
 		t.Fatalf("members = %v, want [lllamnyp octocat]", got)
 	}
+	for _, m := range info.Metadata.Members {
+		if m.AvatarURL != "" {
+			t.Fatalf("member %s has an avatar without a hook: %q", m.Login, m.AvatarURL)
+		}
+	}
+	with := BoardResourceWith(b, func(login string) string { return "https://cdn.example/" + login })
+	want := []Member{{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp"}, {Login: "octocat", AvatarURL: "https://cdn.example/octocat"}}
+	if !reflect.DeepEqual(with.Metadata.Members, want) {
+		t.Fatalf("members with avatars = %+v", with.Metadata.Members)
+	}
+}
+
+func memberLogins(ms []Member) []string {
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.Login)
+	}
+	return out
 }
 
 // A worked plan card moved forward keeps showing in FINISHED past weeks it was

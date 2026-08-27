@@ -252,9 +252,13 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	info := apiserver.BoardResource(b)
+	info := apiserver.BoardResourceWith(b, s.store.avatarURL)
 	if s.gitCfg != nil && len(s.gitCfg.Repos) > 1 {
-		info.Metadata.Domains = s.domainsFor(r.Context(), info.Metadata.Members)
+		logins := make([]string, 0, len(info.Metadata.Members))
+		for _, m := range info.Metadata.Members {
+			logins = append(logins, m.Login)
+		}
+		info.Metadata.Domains = s.domainsFor(r.Context(), logins)
 	}
 	writeJSON(w, http.StatusOK, info)
 }

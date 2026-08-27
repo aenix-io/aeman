@@ -208,14 +208,23 @@ type BoardMetadata struct {
 	Epics []EpicRef `json:"epics,omitempty"`
 	// Members is every distinct assignee on the board — the people roster for
 	// pickers (assign, review, view-as) now that clients load one view at a
-	// time and cannot derive it from the cards they hold.
-	Members []string `json:"members"`
+	// time and cannot derive it from the cards they hold — with the avatar
+	// the server's forge adapter resolves for each, so a client never
+	// assembles a forge URL of its own.
+	Members []Member `json:"members"`
 	// Domains are the repositories the visitor can read, primary first: which
 	// they may write — a team, project or process is declared in one they
 	// pick when more than one is writable — and which members can read each,
 	// so a reviewer picker offers only people who will see the card. Absent
 	// on a single-domain board.
 	Domains []DomainInfo `json:"domains,omitempty"`
+}
+
+// Member is one person on the board: a login and, when the server knows the
+// forge, an avatar image URL.
+type Member struct {
+	Login     string `json:"login"`
+	AvatarURL string `json:"avatarUrl,omitempty"`
 }
 
 // DomainInfo is one readable domain of the visitor's board.
@@ -423,8 +432,15 @@ func OrderingResource(b board.Board) Ordering {
 	return Ordering{Kind: "Ordering", Spec: OrderingSpec{UIDs: uids}}
 }
 
-// BoardResource is the read-only board identity resource.
+// BoardResource is the read-only board identity resource, members without
+// avatars.
 func BoardResource(b board.Board) BoardInfo {
+	return BoardResourceWith(b, nil)
+}
+
+// BoardResourceWith is BoardResource with the members' avatars resolved by
+// the given hook (nil leaves them empty).
+func BoardResourceWith(b board.Board, avatar func(login string) string) BoardInfo {
 	// Teams come out in BOARD order (the sprint-state cards' positions — the
 	// shared, server-side team order); stragglers the order does not know
 	// (defensive: map entries without an order slot) append sorted.
@@ -455,11 +471,19 @@ func BoardResource(b board.Board) BoardInfo {
 		}
 	}
 	sortStrings(members)
+	people := make([]Member, 0, len(members))
+	for _, login := range members {
+		m := Member{Login: login}
+		if avatar != nil {
+			m.AvatarURL = avatar(login)
+		}
+		people = append(people, m)
+	}
 	return BoardInfo{
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
 			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b),
-			Deadlines: deadlineWeeks(b), Processes: processRefs(b), Members: members},
+			Deadlines: deadlineWeeks(b), Processes: processRefs(b), Members: people},
 	}
 }
 
