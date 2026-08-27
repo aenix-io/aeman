@@ -1238,86 +1238,12 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	return nil
 }
 
-// draftBodySyncer is the one-shot draft-body writer the DeltaFIFO body merge
-// uses when the upstream backend supports it (ghprojects does; test fakes
-// without it fall back to per-op writes).
-type draftBodySyncer interface {
-	SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error)
-}
-
-// bodyMutate queues a draft card's body-affecting change (description, note,
-// event line) as ONE coalescing op per card (key "body:<id>"): the cache
-// changes immediately as usual, and the queued write pushes the card's FINAL
-// cached body state upstream in a single write — rapid note adds, description
-// edits and logged events on one card merge DeltaFIFO-style instead of racing
-// several read-modify-write cycles against the same draft body.
-func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card board.Card, desc string, fn func(c *board.Card), fallback func(ctx context.Context) error) {
-	syncer, ok := b.inner.(draftBodySyncer)
-	if !ok || !card.IsDraft {
-		b.mutateCard(ctx, bd, card.ItemID, "", desc, fn, fallback)
-		return
-	}
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
-	itemID := card.ItemID
-	exec := func(ctx context.Context) error {
-		e.mu.Lock()
-		var snap *board.Card
-		take := func(c board.Card) {
-			cp := c
-			cp.Notes = append([]board.Note(nil), cp.Notes...)
-			cp.Events = append([]board.Event(nil), cp.Events...)
-			snap = &cp
-		}
-		for i := range e.board.Cards {
-			if e.board.Cards[i].ItemID == itemID {
-				take(e.board.Cards[i])
-				break
-			}
-		}
-		// A process task's body is the iteration's title and text; it
-		// lives outside the card rows, and treating "not a row" as "deleted"
-		// silently dropped the very write that gives the task a name.
-		if snap == nil {
-			for i := range e.board.Tasks {
-				if e.board.Tasks[i].ItemID == itemID {
-					take(e.board.Tasks[i])
-					break
-				}
-			}
-		}
-		e.mu.Unlock()
-		if snap == nil {
-			return nil // deleted meanwhile — nothing left to write
-		}
-		notes, events, err := syncer.SyncDraftBody(ctx, card, snap.Description, snap.Notes, snap.Events)
-		if err != nil {
-			return err
-		}
-		// The written body IS the canonical state: swap the cached log to it
-		// (real draft line-index ids included) and replay the still-pending
-		// deltas on top. No upstream re-read — right after a write it is
-		// often stale and would make fresh notes flicker away.
-		e.mu.Lock()
-		for i := range e.board.Cards {
-			if e.board.Cards[i].ItemID != itemID {
-				continue
-			}
-			e.board.Cards[i].Notes = notes
-			e.board.Cards[i].Events = events
-			if e.inflight != nil {
-				e.inflight.apply(&e.board)
-			}
-			for _, op := range e.pending {
-				op.apply(&e.board)
-			}
-			e.markRecent(itemID)
-			e.cardChanged("", e.board.Cards[i], "MODIFIED")
-			break
-		}
-		e.mu.Unlock()
-		return nil
-	}
-	b.mutateCardOp(ctx, bd, itemID, "body", desc, true, fn, exec)
+// bodyMutate queues a card's body-affecting change (description, note, event
+// line): the cache changes immediately as usual and the write rides the
+// queue like any field write — each is one file edit in the request's
+// commit, so nothing needs to merge.
+func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card board.Card, desc string, fn func(c *board.Card), write func(ctx context.Context) error) {
+	b.mutateCard(ctx, bd, card.ItemID, "", desc, fn, write)
 }
 
 // wbSeq makes synthetic (:wb:) ids unique: timestamps alone carry second

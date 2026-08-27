@@ -329,7 +329,17 @@ func (s *Server) accessMiddleware(next http.Handler) http.Handler {
 			rights, err := s.access.rights(r.Context(), tok, login)
 			if err != nil {
 				if errors.Is(err, errBadVisitorToken) {
-					writeJSONError(w, http.StatusUnauthorized, err.Error())
+					// The session was built on a token the forge now refuses:
+					// drop it, so /api/config reports the visitor signed out
+					// and the SPA offers the sign-in instead of failing every
+					// request behind a session that still looks valid.
+					if s.auth != nil {
+						if dropped := s.auth.dropSession(s.auth.sessionID(r)); dropped != "" {
+							s.log.Warn("the forge rejected a session token; session dropped", "login", dropped, "path", r.URL.Path)
+						}
+						s.auth.setCookie(w, sessionCookie, "", -1)
+					}
+					writeJSONError(w, http.StatusUnauthorized, "your authorization is no longer valid: "+err.Error())
 					return
 				}
 				writeJSONError(w, http.StatusForbidden, "access could not be decided: "+err.Error())

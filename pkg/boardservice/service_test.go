@@ -11,12 +11,7 @@ import (
 	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
-	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
-
-// *ghprojects.Client must satisfy Backend structurally (no boardservice import in
-// ghprojects). This line is the compile-time proof.
-var _ Backend = (*ghprojects.Client)(nil)
 
 // fakeBackend implements Backend over an in-memory board, logging every call and
 // mutating its board so the service's views reflect the result.

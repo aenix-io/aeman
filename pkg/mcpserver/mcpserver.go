@@ -12,7 +12,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aenix-io/aeman/pkg/boardservice"
-	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // Config configures the MCP server.
@@ -25,21 +24,16 @@ type Config struct {
 	Lock bool
 	// Version is reported to MCP clients.
 	Version string
-	// ResolveToken returns a GitHub token for the current call.
-	ResolveToken func(ctx context.Context) (string, error)
-	// ResolveLogin returns the caller's own GitHub login, used to scope the
-	// default (unspecified-view) list to their personal Me board. Optional: when
-	// nil or it errors, an unspecified list falls back to the Me view for
+	// ResolveLogin returns the caller's own login, used to scope the default
+	// (unspecified-view) list to their personal Me board. Optional: when nil
+	// or it errors, an unspecified list falls back to the Me view for
 	// everyone in the active sprint rather than a personal one.
 	ResolveLogin func(ctx context.Context) (string, error)
-	// Endpoint overrides the GraphQL endpoint (used in tests).
-	Endpoint string
-	// HTTPClient overrides the HTTP client (used in tests).
-	HTTPClient ghprojects.Doer
-	// WrapBackend, when set, wraps the production backend — the HTTP server uses
-	// it to route MCP mutations through its shared board store, so they update
-	// the cache and reach watch clients like every other write.
-	WrapBackend func(boardservice.Backend) boardservice.Backend
+	// Backend is the board backend every tool call runs on — the server's
+	// shared store, so MCP writes update the cache and reach watch clients
+	// like every other write; the caller's identity and rights ride the
+	// call's context.
+	Backend boardservice.Backend
 }
 
 // Serve runs an MCP server over stdio until ctx is cancelled or the client
@@ -133,25 +127,12 @@ func (h *server) resolve(owner string, project int) (string, int, error) {
 	return o, p, nil
 }
 
-// defaultBackend builds a ghprojects client with a freshly resolved token. It is
-// the production newBackend (*ghprojects.Client satisfies boardservice.Backend).
-func (h *server) defaultBackend(ctx context.Context) (boardservice.Backend, error) {
-	tok, err := h.cfg.ResolveToken(ctx)
-	if err != nil {
-		return nil, err
+// defaultBackend is the production newBackend: the configured backend.
+func (h *server) defaultBackend(context.Context) (boardservice.Backend, error) {
+	if h.cfg.Backend == nil {
+		return nil, fmt.Errorf("mcpserver: no board backend configured")
 	}
-	opts := []ghprojects.Option{}
-	if h.cfg.HTTPClient != nil {
-		opts = append(opts, ghprojects.WithHTTPClient(h.cfg.HTTPClient))
-	}
-	if h.cfg.Endpoint != "" {
-		opts = append(opts, ghprojects.WithEndpoint(h.cfg.Endpoint))
-	}
-	var backend boardservice.Backend = ghprojects.New(tok, opts...)
-	if h.cfg.WrapBackend != nil {
-		backend = h.cfg.WrapBackend(backend)
-	}
-	return backend, nil
+	return h.cfg.Backend, nil
 }
 
 // ref resolves the board reference and builds the board service for a call.

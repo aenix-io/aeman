@@ -1,8 +1,6 @@
 package server
 
 import (
-	"fmt"
-
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,8 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/aenix-io/aeman/pkg/ghprojects"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
@@ -353,20 +349,14 @@ func TestAPIUnknownCardReturns404(t *testing.T) {
 	}
 }
 
-func TestAPIMissingBoardRef(t *testing.T) {
-	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards", "")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d", rec.Code)
-	}
-}
-
-func TestAPILockBoardIgnoresQuery(t *testing.T) {
+// There is one board per server: a client's owner/board parameters, once
+// the way to roam across GitHub projects, are ignored.
+func TestAPIIgnoresOwnerAndBoardParameters(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "x", ItemID: "s1"}})
-	srv := apiServer(t, Options{DefaultOwner: "acme", DefaultProject: 7, LockBoard: true}, fake)
+	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodGet, "/api/v1/board?owner=evil&board=99", "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("locked board should resolve from defaults: status = %d", rec.Code)
+		t.Fatalf("status = %d, want the configured board", rec.Code)
 	}
 }
 
@@ -608,7 +598,7 @@ func TestPresenceUsesAuthenticatedLogin(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
-	e := srv.store.entry(storeKey("acme", 1))
+	e := srv.store.entry(storeKey(srv.gitBoard()))
 	e.mu.Lock()
 	got := e.presence["tab-1"]
 	e.mu.Unlock()
@@ -617,24 +607,6 @@ func TestPresenceUsesAuthenticatedLogin(t *testing.T) {
 	}
 	if got.Card != "c1" {
 		t.Fatalf("presence card = %q, want c1", got.Card)
-	}
-}
-
-// GitHub rejecting the caller's token is not an upstream outage: answering
-// 502 sent people hunting a broken server (an agent even concluded aeman used
-// "its own invalid token" — in OAuth mode it holds none). It is a 401 saying
-// the authorization is gone.
-func TestAPIBadCredentialsAnswers401(t *testing.T) {
-	fake := boardservicetest.New(nil, nil)
-	fake.FailLoad(fmt.Errorf("%w: HTTP 401: Bad credentials", ghprojects.ErrBadCredentials))
-	srv := apiServer(t, Options{}, fake)
-
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?owner=acme&board=1", "")
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401; body = %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "no longer valid") {
-		t.Fatalf("the answer must name the cause, got %s", rec.Body.String())
 	}
 }
 

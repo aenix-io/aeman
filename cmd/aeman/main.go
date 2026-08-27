@@ -110,10 +110,6 @@ Run 'aeman serve --help', 'aeman mcp --help' or 'aeman init --help' for flags.
 func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8765", "address to listen on")
-	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "default GitHub org/user to load projects from")
-	projectDefault, _ := strconv.Atoi(boardEnv())
-	project := fs.Int("board", projectDefault, "GitHub Project number of the board to open")
-	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin the UI to --owner/--project and hide the board picker")
 	open := fs.Bool("open", true, "open the UI in a browser on start")
 	verbose := fs.Bool("verbose", false, "enable debug logging")
 	gf := addGitFlags(fs, os.Getenv)
@@ -124,8 +120,8 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	if gitCfg == nil && *lockBoard && (*owner == "" || *project <= 0) {
-		return fmt.Errorf("--lock-board requires --owner and --board (or AEMAN_OWNER/AEMAN_BOARD)")
+	if gitCfg == nil {
+		return fmt.Errorf("aeman serve needs the board's repository: --repo name=url (or AEMAN_REPOS)")
 	}
 	fillGitToken(context.Background(), gitCfg)
 
@@ -150,14 +146,11 @@ func runServe(args []string) error {
 	}
 
 	srv, err := server.New(server.Options{
-		Addr:           *addr,
-		DefaultOwner:   *owner,
-		DefaultProject: *project,
-		Version:        version,
-		Logger:         logger,
-		Auth:           auth,
-		LockBoard:      *lockBoard,
-		Git:            gitCfg,
+		Addr:    *addr,
+		Version: version,
+		Logger:  logger,
+		Auth:    auth,
+		Git:     gitCfg,
 	})
 	if err != nil {
 		return err
@@ -175,10 +168,6 @@ func runServe(args []string) error {
 
 func runMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
-	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "default GitHub org/user")
-	projectDefault, _ := strconv.Atoi(boardEnv())
-	project := fs.Int("board", projectDefault, "GitHub Project number of the board")
-	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin owner/project, ignoring per-tool overrides")
 	verbose := fs.Bool("verbose", false, "enable debug logging")
 	gf := addGitFlags(fs, os.Getenv)
 	if err := fs.Parse(args); err != nil {
@@ -188,34 +177,30 @@ func runMCP(args []string) error {
 	if err != nil {
 		return err
 	}
+	if gitCfg == nil {
+		return fmt.Errorf("aeman mcp needs the board's repository: --repo name=url (or AEMAN_REPOS)")
+	}
 
 	logger := newLogger(*verbose)
 
+	// This process owns its own clone, cache and push; the board is the
+	// configured repository, whatever owner/board a tool passes.
+	fillGitToken(context.Background(), gitCfg)
+	gb, err := server.OpenGitBackend(gitCfg, logger)
+	if err != nil {
+		return err
+	}
 	cfg := mcpserver.Config{
-		Owner:        *owner,
-		Project:      *project,
-		Lock:         *lockBoard,
-		Version:      version,
-		ResolveToken: resolveGitHubToken,
+		Owner:   "git",
+		Project: 1,
+		Lock:    true,
+		Version: version,
 		// Scope the default (unspecified-view) list to the local user's own Me
 		// board; best-effort via the gh CLI, else the list stays sprint-scoped.
 		ResolveLogin: ghcli.Login,
+		Backend:      gb.Backend(),
 	}
-	var drain func(context.Context) error
-	if gitCfg != nil {
-		// Git mode: this process owns its own clone, cache and push; the
-		// board is the configured repository, whatever owner/board a tool
-		// passes; no GitHub token is needed for the board itself.
-		fillGitToken(context.Background(), gitCfg)
-		gb, err := server.OpenGitBackend(gitCfg, logger)
-		if err != nil {
-			return err
-		}
-		cfg.Owner, cfg.Project, cfg.Lock = "git", 1, true
-		cfg.ResolveToken = func(context.Context) (string, error) { return "", nil }
-		cfg.WrapBackend = func(boardservice.Backend) boardservice.Backend { return gb.Backend() }
-		drain = gb.Drain
-	}
+	drain := gb.Drain
 	srv := mcpserver.New(cfg)
 
 	// Attribute activity events to the local gh identity (cached per process).
@@ -231,16 +216,14 @@ func runMCP(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.Info("aeman MCP server ready on stdio", "owner", cfg.Owner, "board", cfg.Project, "locked", cfg.Lock)
+	logger.Info("aeman MCP server ready on stdio", "repos", len(gitCfg.Repos))
 	err = mcpserver.Serve(ctx, srv)
-	if drain != nil {
-		// The client may close the pipe right after a mutation: wait for the
-		// queue and push before exiting, so nothing is left only on disk.
-		dctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		if derr := drain(dctx); derr != nil {
-			logger.Warn("final push failed; unpushed commits stay in the clone", "err", derr)
-		}
+	// The client may close the pipe right after a mutation: wait for the
+	// queue and push before exiting, so nothing is left only on disk.
+	dctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if derr := drain(dctx); derr != nil {
+		logger.Warn("final push failed; unpushed commits stay in the clone", "err", derr)
 	}
 	return err
 }

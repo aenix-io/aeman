@@ -1,6 +1,8 @@
-// Package server implements the local HTTP server that serves the embedded
-// single-page application and proxies GitHub API requests, injecting a token
-// obtained from the local gh CLI so the browser never has to hold credentials.
+// Package server implements the aeman HTTP server: the embedded single-page
+// application, the /api/v1 resource API and watch stream, the MCP transport,
+// and the board store over the board's git repositories. The browser never
+// holds a credential: identity is resolved server-side (the local gh login,
+// or per-user OAuth sessions) and the push credential is the server's.
 package server
 
 import (
@@ -14,7 +16,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"strings"
 	"time"
@@ -25,7 +26,8 @@ import (
 	"github.com/aenix-io/aeman/web"
 )
 
-// githubAPIBase is the upstream the proxy forwards GitHub requests to.
+// githubAPIBase is the forge's REST base: the visitor's repository
+// permissions and the board members' avatars are asked there.
 const githubAPIBase = "https://api.github.com"
 
 // defaultAddr is used when Options.Addr is empty.
@@ -35,25 +37,16 @@ const defaultAddr = "127.0.0.1:8765"
 type Options struct {
 	// Addr is the listen address, e.g. "127.0.0.1:8765".
 	Addr string
-	// DefaultOwner is the GitHub org/user pre-selected in the UI (optional).
-	DefaultOwner string
-	// DefaultProject is the project number pre-selected in the UI (0 = none).
-	DefaultProject int
-	// LockBoard pins the UI to DefaultOwner/DefaultProject and hides the board
-	// picker. Users without access to that board (their own token can't read it)
-	// just see an access-denied screen. The /api/v1 API honours it too, ignoring
-	// client-supplied owner/project.
-	LockBoard bool
 	// Version is reported to the frontend via /api/config.
 	Version string
 	// Logger receives structured logs; slog.Default() is used when nil.
 	Logger *slog.Logger
-	// Auth, when non-nil, enables GitHub OAuth multi-user mode (each visitor
-	// signs in and the proxy uses their own token).
+	// Auth, when non-nil, enables GitHub OAuth multi-user mode: each visitor
+	// signs in, and their own token decides which of the board's
+	// repositories they may read and write.
 	Auth *OAuthConfig
-	// Git, when non-nil, makes a git repository the board's storage (see
-	// gitmode.go); DefaultOwner/DefaultProject and the GitHub client are
-	// then unused for the board itself.
+	// Git is the board's storage — its repositories (see gitmode.go). A
+	// server without it serves no board; tests inject a service instead.
 	Git *GitConfig
 }
 
@@ -84,15 +77,11 @@ type Server struct {
 	access    domainAccess
 
 	// apiTokens resolves the token (and login) for an /api/v1 request. It
-	// defaults to tokenForRequest — the same resolution the /api/github proxy
-	// uses — and is overridden in tests.
+	// defaults to tokenForRequest and is overridden in tests.
 	apiTokens func(*http.Request) (token, login string, err error)
-	// graphqlEndpoint overrides the GitHub GraphQL endpoint (used in tests).
-	graphqlEndpoint string
-	// newService builds the board service for an /api/v1 request. It defaults to
-	// boardservice.New over the per-request ghprojects client (apiClient resolves
-	// the OAuth-session or gh-CLI token) and is overridden in tests with a fake
-	// Backend.
+	// newService builds the board service for an /api/v1 request. It defaults
+	// to boardservice.New over the visitor's view of the shared store and is
+	// overridden in tests with a fake Backend.
 	newService func(*http.Request) (*boardservice.Service, error)
 }
 
@@ -145,7 +134,6 @@ func New(opts Options) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
 	mux.HandleFunc("/api/config", s.handleConfig)
-	mux.Handle("/api/github/", s.githubProxy())
 	if s.auth != nil {
 		mux.HandleFunc("/auth/login", s.auth.handleLogin)
 		mux.HandleFunc("/auth/callback", s.auth.handleCallback)
@@ -258,48 +246,6 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-type tokenCtxKey struct{}
-
-// githubProxy returns a reverse proxy to the GitHub API that injects the gh
-// token. It short-circuits with 401 when no token is available.
-func (s *Server) githubProxy() http.Handler {
-	target, _ := url.Parse(githubAPIBase)
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(target)
-			pr.Out.URL.Path = strings.TrimPrefix(pr.In.URL.Path, "/api/github")
-			pr.Out.URL.RawPath = ""
-			if pr.Out.URL.Path == "" {
-				pr.Out.URL.Path = "/"
-			}
-			pr.Out.Host = target.Host
-			if tok, ok := pr.In.Context().Value(tokenCtxKey{}).(string); ok {
-				pr.Out.Header.Set("Authorization", "Bearer "+tok)
-			}
-			if pr.Out.Header.Get("Accept") == "" {
-				pr.Out.Header.Set("Accept", "application/vnd.github+json")
-			}
-			pr.Out.Header.Set("User-Agent", "aeman")
-		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
-			s.log.Error("github proxy error", "err", err)
-			writeJSONError(w, http.StatusBadGateway, "github proxy error: "+err.Error())
-		},
-	}
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok, _, err := s.tokenForRequest(r)
-		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
-			return
-		}
-		ctx := context.WithValue(r.Context(), tokenCtxKey{}, tok)
-		proxy.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// tokenForRequest resolves the GitHub token (and login) for a request: from the
-// signed-in session in OAuth mode, or from the local gh CLI otherwise.
 // actorMiddleware stamps the acting user's login onto the request context, so
 // boardservice mutations can attribute the activity events they record. Only
 // /api/v1 mutations read it; resolution is the same session/token lookup the
@@ -374,9 +320,6 @@ type configResponse struct {
 	Authenticated  bool   `json:"authenticated"`
 	AuthURL        string `json:"authUrl,omitempty"`
 	LogoutURL      string `json:"logoutUrl,omitempty"`
-	DefaultOwner   string `json:"defaultOwner,omitempty"`
-	DefaultProject int    `json:"defaultProject,omitempty"`
-	LockBoard      bool   `json:"lockBoard"`
 	// Tz is the board's day time zone (IANA name): the SPA computes "today"
 	// in it so every user sees the same board day.
 	Tz string `json:"tz"`
@@ -387,12 +330,9 @@ type configResponse struct {
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	resp := configResponse{
-		Version:        s.opts.Version,
-		Build:          s.build,
-		DefaultOwner:   s.opts.DefaultOwner,
-		DefaultProject: s.opts.DefaultProject,
-		LockBoard:      s.opts.LockBoard,
-		Tz:             board.LocationName(),
+		Version: s.opts.Version,
+		Build:   s.build,
+		Tz:      board.LocationName(),
 	}
 	if s.auth != nil {
 		resp.Mode = "oauth"

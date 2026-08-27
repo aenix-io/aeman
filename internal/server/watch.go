@@ -29,11 +29,7 @@ var scopedQueryKeys = []string{"view", "team", "day", "user", "week", "stage", "
 // `client` keys echo suppression (changes made with the same X-Aeman-Client
 // header are not echoed back). The stream is read-only.
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
-	owner, project, err := s.boardRef(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	owner, project := s.boardRef(r)
 	svc, _, _, ok := s.service(w, r)
 	if !ok {
 		return

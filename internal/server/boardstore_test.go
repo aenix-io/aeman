@@ -459,7 +459,7 @@ func TestStaleHeaderOnAPIRead(t *testing.T) {
 		t.Fatal("a cold read must not be flagged stale")
 	}
 
-	e := srv.store.entry("acme/1")
+	e := srv.store.entry(storeKey(srv.gitBoard()))
 	e.mu.Lock()
 	e.loadedAt = time.Now().Add(-2 * boardFreshFor)
 	e.mu.Unlock()
@@ -527,7 +527,7 @@ func TestCarryOverServedFromSnapshot(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed read: status = %d (%s)", rec.Code, rec.Body.String())
 	}
-	e := srv.store.entry("acme/1")
+	e := srv.store.entry(storeKey(srv.gitBoard()))
 	e.mu.Lock()
 	e.loadedAt = time.Now().Add(-2 * boardFreshFor)
 	e.mu.Unlock()

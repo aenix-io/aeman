@@ -6,18 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
-	"github.com/aenix-io/aeman/pkg/ghprojects"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
-
-// errMissingBoard is returned when neither query parameters nor server defaults
-// identify a board.
-var errMissingBoard = errors.New("owner and board are required (set ?owner=&board= or server defaults)")
 
 // registerAPI wires the JSON API under /api/v1: a small set of Kubernetes-style
 // resources (Card, Sprint, Note, Ordering) plus actions for everything with
@@ -189,78 +183,34 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// boardRef resolves the target board from query parameters (?owner=&board=),
-// honouring the lock-board pin and server defaults. The GitHub board is
-// addressed by "board": "project" is aeman's own planning entity (a group of
-// epic columns on the Project board) and is a card filter, not an address.
-func (s *Server) boardRef(r *http.Request) (owner string, project int, err error) {
-	if s.gitBE != nil {
-		// Git mode: the configured repository is the one board; a client's
-		// owner/board are ignored, as under --lock-board.
-		owner, project = s.gitBoard()
-		return owner, project, nil
-	}
-	owner = s.opts.DefaultOwner
-	project = s.opts.DefaultProject
-	if !s.opts.LockBoard {
-		if v := r.URL.Query().Get("owner"); v != "" {
-			owner = v
-		}
-		if v := r.URL.Query().Get("board"); v != "" {
-			n, convErr := strconv.Atoi(v)
-			if convErr != nil {
-				return "", 0, fmt.Errorf("invalid board number %q", v)
-			}
-			project = n
-		}
-	}
-	if owner == "" || project == 0 {
-		return "", 0, errMissingBoard
-	}
-	return owner, project, nil
+// boardRef is the board a request addresses: the one this server is
+// configured with. A client's owner/board query parameters are ignored;
+// "project" in the API is aeman's own planning entity (a group of epic
+// columns on the Project board) and is a card filter, not an address.
+func (s *Server) boardRef(*http.Request) (owner string, project int) {
+	return s.gitBoard()
 }
 
-// apiClient builds a Projects v2 client, resolving the token via the same
-// source the /api/github proxy uses (OAuth session or local gh CLI).
-func (s *Server) apiClient(r *http.Request) (*ghprojects.Client, error) {
-	tok, _, err := s.apiTokens(r)
-	if err != nil {
-		return nil, err
+// defaultService is the production newService: the board service over the
+// one shared store, as the visitor may use it — the request brings its
+// identity (actor), its action and its rights; the visible backend projects
+// reads and checks writes against those.
+func (s *Server) defaultService(*http.Request) (*boardservice.Service, error) {
+	if s.visibleBE == nil {
+		return nil, errNoBoard
 	}
-	opts := []ghprojects.Option{ghprojects.WithHTTPClient(s.httpClient)}
-	if s.graphqlEndpoint != "" {
-		opts = append(opts, ghprojects.WithEndpoint(s.graphqlEndpoint))
-	}
-	return ghprojects.New(tok, opts...), nil
+	return boardservice.New(s.visibleBE), nil
 }
 
-// defaultService is the production newService: it builds a boardservice over the
-// per-request ghprojects client (*ghprojects.Client satisfies boardservice.Backend).
-func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) {
-	if s.gitBE != nil {
-		// Git mode: one shared backend over the clones; the request brings
-		// its identity (actor), its action and its rights — the visible
-		// backend projects reads and checks writes against those.
-		return boardservice.New(s.visibleBE), nil
-	}
-	client, err := s.apiClient(r)
-	if err != nil {
-		return nil, err
-	}
-	be := &storeBackend{inner: client, store: s.store}
-	return boardservice.New(be), nil
-}
+// errNoBoard is a server started without a repository.
+var errNoBoard = errors.New("no board is configured: start aeman with --repo")
 
 // service resolves the board reference and builds the per-request board service.
 // On failure it writes the response (400 on a bad ref, 401 on no token) and
 // returns ok=false.
 func (s *Server) service(w http.ResponseWriter, r *http.Request) (svc *boardservice.Service, owner string, project int, ok bool) {
-	owner, project, err := s.boardRef(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return nil, "", 0, false
-	}
-	svc, err = s.newService(r)
+	owner, project = s.boardRef(r)
+	svc, err := s.newService(r)
 	if err != nil {
 		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 		return nil, "", 0, false
@@ -1677,11 +1627,7 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	owner, project, err := s.boardRef(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	owner, project := s.boardRef(r)
 	if _, err := s.newService(r); err != nil {
 		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 		return
@@ -1756,35 +1702,15 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 }
 
 // apiError maps service errors onto HTTP statuses.
-func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
+func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 	switch {
-	case errors.Is(err, ghprojects.ErrBadCredentials):
-		// The session was built on a token GitHub now refuses: drop it, so
-		// /api/config reports the user as signed out and the SPA offers the
-		// sign-in it needs instead of failing every request behind a session
-		// that still looks valid.
-		if s.auth != nil {
-			if login := s.auth.dropSession(s.auth.sessionID(r)); login != "" {
-				s.log.Warn("github rejected a session token; session dropped, re-authorization required",
-					"login", login, "path", r.URL.Path)
-			}
-			s.auth.setCookie(w, sessionCookie, "", -1)
-		}
-		// GitHub rejected the caller's token: nothing downstream can fix it,
-		// and answering 502 ("upstream is broken") sends people hunting the
-		// wrong problem. Say plainly that the authorization is gone; the
-		// session behind it is dropped by handleAPI so the next request has
-		// to sign in again.
-		writeJSONError(w, http.StatusUnauthorized,
-			"your GitHub authorization is no longer valid: "+err.Error())
 	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, boardservice.ErrForbidden):
 		writeJSONError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, gitstore.ErrUnknownDomain):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),
-		errors.Is(err, boardservice.ErrInvalidStage),
+	case errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
 		errors.Is(err, boardservice.ErrNoteTooLong),
 		errors.Is(err, boardservice.ErrSubtaskDepth),
