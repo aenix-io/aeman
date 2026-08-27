@@ -7,7 +7,7 @@
 
 # aeman
 
-A short-term planning system for engineering teams — it keeps engineers focused, runs daily sprints, and makes unplanned work visible. **GitHub Projects v2 is the storage**, so aeman has no database of its own. The whole thing ships as one self-contained Go binary: an embedded React SPA (via `go:embed`), a JSON REST API, a WebSocket **watch** stream that keeps every open board updated live, and an MCP server for AI agents — all driving the same board service, with GitHub as the single source of truth.
+A short-term planning system for engineering teams — it keeps engineers focused, runs daily sprints, and makes unplanned work visible. **A git repository is the storage**: a board is a repository of small YAML/Markdown files and every action is a commit, so aeman has no database of its own and the board's history is a plain git log. The whole thing ships as one self-contained Go binary: an embedded React SPA (via `go:embed`), a JSON REST API, a WebSocket **watch** stream that keeps every open board updated live, and an MCP server for AI agents — all driving the same board service, with the repository as the single source of truth.
 
 ## Concept
 
@@ -36,28 +36,37 @@ Below the team grid sits a weekly plan: business tasks assigned to a team for th
 
 ```
 ┌──────────────────────────────────────────────┐        ┌──────────────────────┐
-│  aeman binary (Go)                           │        │  GitHub Projects v2  │
-│                                              │        │  (data backend)      │
-│  embedded SPA ───► REST /api/v1 ──┐          │        │                      │
-│       ▲                           │  board   │   gh   │                      │
-│       └──── WS /api/v1/watch ◄────┤  service ┼────────┼─►  GraphQL API      │
-│                                   │  + cache │  token │                      │
-│  AI agents ───► MCP (stdio, /mcp)─┘          │        │                      │
+│  aeman binary (Go)                           │        │  git repository      │
+│                                              │        │  (GitHub, GitLab, …) │
+│  embedded SPA ───► REST /api/v1 ──┐          │  push  │                      │
+│       ▲                           │  board   ┼───────►│  cards/…/<id>.md     │
+│       └──── WS /api/v1/watch ◄────┤  service │  fetch │  teams/<id>.yaml     │
+│                                   │  + cache ◄────────┼  projects/…          │
+│  AI agents ───► MCP (stdio, /mcp)─┘  + clone │        │  one commit/action   │
 └──────────────────────────────────────────────┘        └──────────────────────┘
 ```
 
-- **Kubernetes-style API and live sync**: cards, sprints, notes and the board order are resources (`{kind, metadata, spec, status}`); a client LISTs them (`GET /api/v1/cards`) and then applies a WATCH stream of `ADDED / MODIFIED / DELETED` resource events over a WebSocket — optionally scoped to one view by the same selectors LIST takes. Every write — from the UI, the REST API or an agent over MCP — goes through one board service with a shared in-memory store, reloads only the touched card, and reaches every open board in about a second (a client's own changes are not echoed back to it).
-- The store is only a cache: GitHub stays the source of truth and the only persistence.
-- The browser never holds a token: the binary resolves one server-side (local `gh auth token`, or per-user OAuth sessions in the self-hosted mode) for both the board service and the `/api/github/*` proxy used for profile lookups.
-- The frontend keeps a small provider interface (the REST provider is the default; a direct-GraphQL provider remains as a reference), so additional backends (GitLab, Redmine, …) can be added.
+- **Kubernetes-style API and live sync**: cards, sprints, notes and the board order are resources (`{kind, metadata, spec, status}`); a client LISTs them (`GET /api/v1/cards`) and then applies a WATCH stream of `ADDED / MODIFIED / DELETED` resource events over a WebSocket — optionally scoped to one view by the same selectors LIST takes. Every write — from the UI, the REST API or an agent over MCP — goes through one board service with a shared in-memory store, is answered at once, and reaches every open board in about a second (a client's own changes are not echoed back to it).
+- **Every request is one commit.** The server keeps a shallow clone of the board's repositories under `--data`, commits each request's writes as one commit (author = the person, committer = the server, machine-readable `Aeman-*` trailers), pushes in the background and fetches other replicas' commits on a timer; a rejected push is re-applied on the new tip field by field. The card's activity feed *is* this history.
+- **Visibility by repository.** A board may span several repositories (domains): a closed project in a private repository next to the shared one. A visitor sees the union of what they can read — an unreadable domain is absent, not empty — and writes need write access to the repository they land in. Design: [docs/design/git-backend.md](docs/design/git-backend.md).
+- The browser never holds a token: the binary resolves the identity server-side (local `gh` login, or per-user OAuth sessions in the self-hosted mode); the push credential is the server's (`AEMAN_GIT_TOKEN`).
 
-### Fields
+### Repository layout
 
-aeman keeps all of its state in GitHub Project fields and **creates the ones it needs lazily**: point it at any project and the first card or team change provisions the missing fields (Zone, Progress, Stage, Team, Start, Sprint Start, Day, Plan, Week). No manual setup required.
+```
+board.yaml                        # schema, title
+teams/<id>.yaml                   # a team and its sprint pointer (teams/_.yaml = no team)
+projects/<id>/project.yaml        # a project; its epic columns and deadlines beside it
+processes/<id>/process.yaml       # recurring work; its tasks beside it
+cards/<a>/<b>/<id>.md             # a card: YAML front-matter, description, ## Notes
+```
+
+Ids are ULIDs; files keep unknown keys, so hand edits and other tools survive. `aeman init --repo <url>` bootstraps an empty repository; `aeman migrate --owner <org> --board <n> --repo <url>` moves a GitHub Projects v2 board over, once, with its history as commits.
 
 ## Requirements
 
-- [GitHub CLI (`gh`)](https://cli.github.com/) authenticated with the `project` and `repo` scopes (`gh auth login`).
+- A git repository aeman can push to over HTTPS (`AEMAN_GIT_TOKEN`; the local mode falls back to `gh auth token`), or a local path for a single-user setup.
+- [GitHub CLI (`gh`)](https://cli.github.com/) for the local identity and the migration (`gh auth login`).
 - Go 1.26+ and Node.js 20+ to build from source.
 
 ## Build & run
@@ -74,19 +83,19 @@ make frontend       # build the SPA once into web/dist
 make run            # go run ./cmd/aeman serve
 ```
 
-`aeman serve` flags: `--addr` (listen address), `--owner` (default org/user), `--board` (GitHub Project number of the board), `--lock-board` (pin the board and ignore client-supplied owner/board), `--open` (open browser), `--verbose`. The owner/board/lock-board defaults can also be set via `AEMAN_OWNER`, `AEMAN_BOARD` and `AEMAN_LOCK_BOARD`. ("Project" is aeman's own planning entity — a group of epic columns — so the GitHub board is addressed as `board`.)
+`aeman serve` flags: `--repo name=url` (repeatable; the board's repositories, primary first — env `AEMAN_REPOS`), `--data` (where the clones live), `--history` (how far back the log is loaded in the background, default 8 weeks) and `--history-max` (how far a card's log may deepen on demand, default a year), `--sync-interval` (fetch cadence, 15 s), `--unpushed-warn` (age of an unpushed commit that turns `/api/healthz` degraded, 5 m), `--committer` and `--author-email`, `--addr`, `--open`, `--verbose`. Each flag has an `AEMAN_*` environment twin; the push credential is `AEMAN_GIT_TOKEN`, never a flag. ("Project" is aeman's own planning entity — a group of epic columns — not a repository.)
 
 ## API and MCP server
 
-The same binary drives the board three ways: the embedded UI, a JSON HTTP API under `/api/v1`, and an MCP server for AI agents (`aeman mcp` on stdio, or mounted at `/mcp` in the self-hosted OAuth mode). All of them call the same board service, so a change made by an agent shows up on every open board live. `GET /api/v1` returns a machine-readable catalog of every endpoint; see [docs/api.md](docs/api.md) for the endpoints, the card model, the watch protocol, the MCP tool set and client configuration. The board logic itself is importable: the packages under `pkg/` (domain rules, board service, GitHub backend, MCP tool set) let external tools — e.g. a local, privacy-preserving MCP server that talks to GitHub directly — run the exact same board contract; see [docs/embedding.md](docs/embedding.md).
+The same binary drives the board three ways: the embedded UI, a JSON HTTP API under `/api/v1`, and an MCP server for AI agents (`aeman mcp` on stdio, or mounted at `/mcp` in the self-hosted OAuth mode). All of them call the same board service, so a change made by an agent shows up on every open board live. `GET /api/v1` returns a machine-readable catalog of every endpoint; see [docs/api.md](docs/api.md) for the endpoints, the card model, the watch protocol, the MCP tool set and client configuration. The board logic itself is importable: the packages under `pkg/` (domain rules, board service, git storage, MCP tool set) let external tools — e.g. a local, privacy-preserving MCP server over its own clone — run the exact same board contract; see [docs/embedding.md](docs/embedding.md).
 
 ```sh
-aeman mcp --owner acme --board 7     # start the MCP server on stdio
+aeman mcp --repo board=https://github.com/acme/planning.git   # the MCP server on stdio, over its own clone
 ```
 
 ## Self-hosted deploy (multi-user)
 
-For a shared instance where every visitor signs in with GitHub and uses their own token, set the OAuth environment variables and the binary switches from local `gh` mode to a GitHub OAuth web flow with per-user sessions:
+For a shared instance where every visitor signs in with GitHub — their token decides which of the board's repositories they may read and write — set the OAuth environment variables and the binary switches from local `gh` mode to a GitHub OAuth web flow with per-user sessions:
 
 - `AEMAN_GITHUB_CLIENT_ID` / `AEMAN_GITHUB_CLIENT_SECRET` — from a GitHub OAuth App.
 - `AEMAN_BASE_URL` — the public origin; the callback is `<AEMAN_BASE_URL>/auth/callback`.
