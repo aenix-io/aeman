@@ -1008,8 +1008,12 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			return nil
 		}
 		// A pure plan card — unassigned, never worked — is deleted for real.
-		// (Demoting it to an earlier week only made carry-week boomerang it
-		// back into the plan.)
+		// Demoting it to an earlier week does not take it off anyone's screen:
+		// its Wednesday or Friday is then in the past, so the debt rule brings
+		// it back onto the CURRENT week's panel (planShowsInWeekAt). It would
+		// gain a history it never had and still be in the way. (The comment
+		// here used to blame carry-week for the same loop; that action was
+		// retired in v0.19 and the debt rule replaced it.)
 		return s.deleteWithCascade(ctx, b, c)
 	}
 	if c.Plan != board.PlanNone {
