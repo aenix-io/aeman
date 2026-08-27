@@ -4254,3 +4254,163 @@ button.card-age {
 .sprint-choice-btn-danger:hover {
   border-color: var(--danger);
 }
+
+/* ---- Project board zoom ------------------------------------------------ */
+
+/* The scale sits at the right end of the board's toolbar, beside the project
+   chips: one line, with a handle on either side of it. */
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Both sliders ride the SAME line: the track is drawn once, here, and each
+   input contributes only its handle. */
+.zoom-track {
+  position: relative;
+  width: 92px;
+  height: 22px;
+}
+
+.zoom-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  background: var(--line);
+}
+
+.zoom-slider {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 11px;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+  cursor: ew-resize;
+}
+
+/* Column width above the line, row height below it. */
+.zoom-slider-x {
+  top: 0;
+}
+
+.zoom-slider-y {
+  bottom: 0;
+}
+
+.zoom-slider::-webkit-slider-runnable-track,
+.zoom-slider::-moz-range-track {
+  height: 11px;
+  background: none;
+  border: 0;
+}
+
+/* A pentagon with its point at the line it belongs to: the top handle points
+   down, the bottom one up, so which slider is which is read from the shape
+   rather than from a label. */
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  background: var(--muted);
+  border: 0;
+  cursor: ew-resize;
+}
+
+.zoom-slider::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  background: var(--muted);
+  border: 0;
+  cursor: ew-resize;
+}
+
+.zoom-slider-x::-webkit-slider-thumb {
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+}
+
+.zoom-slider-x::-moz-range-thumb {
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+}
+
+.zoom-slider-y::-webkit-slider-thumb {
+  clip-path: polygon(50% 0, 100% 45%, 100% 100%, 0 100%, 0 45%);
+}
+
+.zoom-slider-y::-moz-range-thumb {
+  clip-path: polygon(50% 0, 100% 45%, 100% 100%, 0 100%, 0 45%);
+}
+
+.zoom-slider:hover::-webkit-slider-thumb,
+.zoom-slider:focus-visible::-webkit-slider-thumb {
+  background: var(--accent);
+}
+
+.zoom-slider:hover::-moz-range-thumb,
+.zoom-slider:focus-visible::-moz-range-thumb {
+  background: var(--accent);
+}
+
+.zoom-reset {
+  min-width: 40px;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.zoom-reset:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.zoom-reset:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* The corner above the date column: a quiet way to give every column on the
+   board the same width back. Only there when something has a width of its own. */
+.project-corner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-cols-reset {
+  padding: 0 3px;
+  line-height: 1;
+  color: var(--ink-3, var(--muted));
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.45;
+}
+
+.project-cols-reset:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* A card hovered near its right edge steps aside, uncovering the strip of
+   cell a new card is pulled out from. Small and quick: it is an invitation,
+   not an animation. */
+.project-slot-nudged {
+  margin-right: 13px;
+  transition: margin-right 90ms ease-out;
+}

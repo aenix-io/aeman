@@ -12,6 +12,15 @@ import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
+import { ZoomControl } from "./ZoomControl";
+import {
+  MIN_COL_PX,
+  type Zoom,
+  anchoredScroll,
+  clampZoom,
+  columnFactor,
+  wheelZoom,
+} from "../projectZoom";
 
 interface ProjectBoardProps {
   board: Board;
@@ -54,10 +63,6 @@ function isoWeekNo(monday: string): number {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** One grid row's height in px, and how many weeks each "more" press adds.
- *  ROW_PX must match .project-cell in styles.css — it is what keeps the view
- *  still when rows are prepended. */
-const ROW_PX = 28;
 /** How far the pointer must travel before a press on a card becomes a drag. */
 const DRAG_SLOP = 4;
 const HEADER_PX = 26;
@@ -114,32 +119,30 @@ function colKey(project: string, epic: string): string {
   return `${project}\u0000${epic}`;
 }
 
-/** LS_COLW remembers how wide you dragged the columns — this browser's view
- *  of the board rather than the board's own state, so it stays local. (The
- *  project chips' selection lives in projectFilter.ts, shared with the
- *  Process tab.) */
-const LS_COLW = "aeman.projectColWidth";
 const LS_PROGRESS = "aeman.projectProgressOpen";
+/** Per-column widths, kept as a RATIO to the shared width and keyed by the
+ *  column itself, so a column carries its size from one project selection to
+ *  the next — and the board's zoom scales it along with everything else. */
+const LS_COLF = "aeman.projectColFactors";
+/** The board's own zoom, one entry per axis. */
+const LS_ZOOM = "aeman.projectZoom";
 
-/** The narrowest a column may be dragged: below this a title is unreadable. */
-const MIN_COL = 70;
+/** The cell the board is drawn from before any zoom or per-column width. */
+/** How far a card steps aside to uncover the strip a new one starts from,
+ *  and how long the pointer must rest there first — long enough that merely
+ *  crossing the card on the way somewhere else never moves it. */
+const NUDGE_PX = 13;
+const NUDGE_DELAY_MS = 500;
+const BASE_COL = 140;
+const BASE_ROW = 28;
 
-/** Column widths, one per selection of projects: a plan of 21 columns and one
- *  of a single column want different widths, and a width that followed you
- *  between them would be wrong in one of the two. */
-function readColWidths(): Record<string, number> {
+function readColFactors(): Record<string, number> {
   try {
-    const raw = localStorage.getItem(LS_COLW);
-    const v: unknown = raw ? JSON.parse(raw) : null;
-    // The pre-selection format was one number for the whole board: keep it as
-    // the all-projects width rather than dropping what someone dragged.
-    if (typeof v === "number") {
-      return v >= MIN_COL ? { "*": v } : {};
-    }
+    const v: unknown = JSON.parse(localStorage.getItem(LS_COLF) ?? "null");
     if (v && typeof v === "object") {
       return Object.fromEntries(
         Object.entries(v as Record<string, unknown>).filter(
-          ([, w]) => typeof w === "number" && w >= MIN_COL,
+          ([, f]) => typeof f === "number" && f > 0 && f < 20,
         ),
       ) as Record<string, number>;
     }
@@ -148,6 +151,23 @@ function readColWidths(): Record<string, number> {
   }
   return {};
 }
+
+function readZoom(): Zoom {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(LS_ZOOM) ?? "null");
+    if (v && typeof v === "object") {
+      const z = v as { x?: unknown; y?: unknown };
+      return {
+        x: clampZoom(typeof z.x === "number" ? z.x : 1),
+        y: clampZoom(typeof z.y === "number" ? z.y : 1),
+      };
+    }
+  } catch {
+    // ditto
+  }
+  return { x: 1, y: 1 };
+}
+
 
 /** The Project board: weeks as rows and one project's epics as columns, cards
  *  as slots that may span several weeks (dates start..end). Dragging down an
@@ -231,6 +251,15 @@ export function ProjectBoard({
   // card), through the latest card plus a quarter of runway to plan into.
   // How far the window reaches beyond the default, in weeks, grown by the
   // buttons at either end — planning is not confined to a fixed horizon.
+  // The card currently stepped aside to leave room for a new one beside it.
+  const [nudged, setNudged] = useState<string | null>(null);
+  const nudgeTimer = useRef<number | null>(null);
+  const cancelNudgeTimer = () => {
+    if (nudgeTimer.current !== null) {
+      window.clearTimeout(nudgeTimer.current);
+      nudgeTimer.current = null;
+    }
+  };
   const [padBack, setPadBack] = useState(0);
   const [padFwd, setPadFwd] = useState(0);
 
@@ -238,9 +267,47 @@ export function ProjectBoard({
   // the right default. One width governs every column of the selection,
   // because a plan reads as a grid and columns of assorted widths stop being
   // comparable; a different selection carries its own width.
-  const [colWidths, setColWidths] = useState<Record<string, number>>(readColWidths);
-  const widthsRef = useRef(colWidths);
-  const [resizing, setResizing] = useState<{ x: number; from: number } | null>(null);
+  // How much bigger the board draws its cells, and which columns keep a width
+  // of their own (a ratio to the shared width, so zoom scales it too).
+  const [zoom, setZoomState] = useState<Zoom>(readZoom);
+  const zoomRef = useRef(zoom);
+  const [colFactors, setColFactorsState] = useState<Record<string, number>>(readColFactors);
+  const factorsRef = useRef(colFactors);
+  const [resizing, setResizing] = useState<{
+    key: string;
+    x: number;
+    from: number;
+  } | null>(null);
+
+  const setZoom = (z: Zoom) => {
+    zoomRef.current = z;
+    setZoomState(z);
+    localStorage.setItem(LS_ZOOM, JSON.stringify(z));
+  };
+  // The width a column has when it has no width of its own: what the columns
+  // would share at zoom 1, scaled by the zoom. Measured from the board rather
+  // than assumed, so zooming starts from what is actually on screen instead of
+  // jumping to a constant the first time it is touched.
+  const [boardW, setBoardW] = useState(0);
+  const sharedCol = useMemo(() => {
+    const room = Math.max(0, boardW - 54 - 34);
+    const fill = epics.length > 0 ? room / epics.length : BASE_COL;
+    return Math.max(MIN_COL_PX, Math.max(BASE_COL, fill) * zoom.x);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardW, epics.length, zoom.x]);
+  const rowH = Math.max(12, Math.round(BASE_ROW * zoom.y));
+
+  const setColFactor = (key: string, f: number | null) => {
+    const next = { ...factorsRef.current };
+    if (f === null) {
+      delete next[key];
+    } else {
+      next[key] = f;
+    }
+    factorsRef.current = next;
+    setColFactorsState(next);
+    localStorage.setItem(LS_COLF, JSON.stringify(next));
+  };
 
   // Dragging a column header sideways reorders the columns. A column can
   // always be moved among the columns of ITS OWN project — that order is what
@@ -317,38 +384,26 @@ export function ProjectBoard({
       });
   };
 
-  // Which selection the width belongs to: the chips in view, or every project.
-  const widthKey = filter ? [...filter].sort().join("\u0000") : "*";
-  const colWidth = colWidths[widthKey] ?? null;
-
-  const setColWidth = (w: number | null) => {
-    const next = { ...widthsRef.current };
-    if (w === null) {
-      delete next[widthKey];
-    } else {
-      next[widthKey] = w;
-    }
-    widthsRef.current = next;
-    setColWidths(next);
-  };
-
-  const persistWidths = () =>
-    localStorage.setItem(LS_COLW, JSON.stringify(widthsRef.current));
-
-  const beginResize = (e: React.PointerEvent) => {
+  // Dragging an edge resizes THAT column and nothing else: its width is
+  // remembered as a ratio to the width the others share, so it survives a
+  // zoom and a change of project selection. Dragged back to within a hair of
+  // the others it gives the ratio up and rejoins them — a column should not
+  // stay subtly different from a width nobody can see is different.
+  const beginResize = (key: string) => (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const head = (e.currentTarget as HTMLElement).closest(".project-epic-head");
-    const from = colWidth ?? (head ? head.getBoundingClientRect().width : 140);
+    const from = head ? head.getBoundingClientRect().width : sharedCol;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setResizing({ x: e.clientX, from });
+    setResizing({ key, x: e.clientX, from });
   };
 
   const moveResize = (e: React.PointerEvent) => {
     if (!resizing) {
       return;
     }
-    setColWidth(Math.max(MIN_COL, Math.round(resizing.from + (e.clientX - resizing.x))));
+    const width = Math.max(MIN_COL_PX, Math.round(resizing.from + (e.clientX - resizing.x)));
+    setColFactor(resizing.key, columnFactor(width, sharedCol));
   };
 
   const endResize = () => {
@@ -356,8 +411,54 @@ export function ProjectBoard({
       return;
     }
     setResizing(null);
-    persistWidths();
   };
+
+  // Where the scroller must land after the next zoom-driven re-layout, so the
+  // point under the cursor stays under it.
+  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const want = pendingScroll.current;
+    if (!el || !want) {
+      return;
+    }
+    pendingScroll.current = null;
+    el.scrollLeft = want.left;
+    el.scrollTop = want.top;
+  }, [zoom]);
+
+  // Ctrl/Cmd + wheel zooms the board. Both axes move by the same step from
+  // wherever they are, so the two sliders keep their offset; the browser's
+  // own page zoom is what the modifier would otherwise do, hence preventing
+  // the default.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) {
+      return;
+    }
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) {
+        return;
+      }
+      e.preventDefault();
+      const was = zoomRef.current;
+      const next = wheelZoom(was, e.deltaY);
+      // Zoom around the cursor: work out where the board must be scrolled to
+      // leave the point under the pointer where it is, and apply it AFTER the
+      // grid has been re-laid — a scroll set against the old size is clamped
+      // to it, which is what makes a naive version drift.
+      const box = el.getBoundingClientRect();
+      pendingScroll.current = {
+        left: anchoredScroll(el.scrollLeft, e.clientX - box.left, 54, next.x / was.x),
+        top: anchoredScroll(el.scrollTop, e.clientY - box.top, HEADER_PX, next.y / was.y),
+      };
+      setZoom(next);
+    };
+    // Not passive: the whole point is to take the gesture from the browser.
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const weeks = useMemo(() => {
     let first = addDays(thisMonday, -14 - 7 * padBack);
@@ -386,7 +487,7 @@ export function ProjectBoard({
     setPadBack(padBack + WEEK_STEP);
     if (scroller) {
       requestAnimationFrame(() => {
-        scroller.scrollTop += WEEK_STEP * ROW_PX;
+        scroller.scrollTop += WEEK_STEP * rowH;
       });
     }
   };
@@ -877,6 +978,8 @@ export function ProjectBoard({
         height: b.height,
         gridTop: g.top - b.top + board.scrollTop,
       });
+      // The room the columns divide between them, for the zoom's base width.
+      setBoardW(b.width);
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -886,7 +989,7 @@ export function ProjectBoard({
       ro.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [weeks.length, epics.length, colWidth, padBack, padFwd]);
+  }, [weeks.length, epics.length, sharedCol, padBack, padFwd]);
 
 
   const beginLineDrag = (
@@ -1194,24 +1297,27 @@ export function ProjectBoard({
   // very first week — someone arriving had to scroll past a spent quarter to
   // find out where the team is. Once per project shown: after that the scroll
   // is the reader's, and pressing "earlier weeks" must not yank it back.
+  // Which selection is on screen — the identity the open-on-today scroll
+  // remembers, so switching projects opens on today again.
+  const selectionKey = filter ? [...filter].sort().join("\u0000") : "*";
   const scrolledFor = useRef<string | null>(null);
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
-    if (!scroller || !boardBox || todayRow < 0 || scrolledFor.current === widthKey) {
+    if (!scroller || !boardBox || todayRow < 0 || scrolledFor.current === selectionKey) {
       return;
     }
-    const top = Math.max(0, boardBox.gridTop + HEADER_PX + (todayRow - 2) * ROW_PX);
+    const top = Math.max(0, boardBox.gridTop + HEADER_PX + (todayRow - 2) * rowH);
     // After the paint: switching project rebuilds the grid, and a scroll set
     // before it has its new height is clamped to the old one. The mark is set
     // in the callback, not here — this effect re-runs as the new board is
     // measured, and a mark set up front would cancel the pending frame and
     // then refuse to schedule another, which is why switching never moved.
     const frame = requestAnimationFrame(() => {
-      scrolledFor.current = widthKey;
+      scrolledFor.current = selectionKey;
       scroller.scrollTop = top;
     });
     return () => cancelAnimationFrame(frame);
-  }, [boardBox, todayRow, widthKey, weeks.length]);
+  }, [boardBox, todayRow, selectionKey, weeks.length]);
 
   // The projects the week menu can act on: those in view, or the whole roster
   // when nothing is filtered. The no-project bucket is included in both cases
@@ -1260,6 +1366,7 @@ export function ProjectBoard({
           onManage={onManageProjects}
           noneChip={looseEpics ? "No project" : undefined}
         />
+        {!empty && <ZoomControl zoom={zoom} onChange={setZoom} />}
       </div>
       {empty && (
         <div className="project-empty">
@@ -1323,14 +1430,39 @@ export function ProjectBoard({
           // they all take the width that was chosen.
           // 54px is what "17 Aug" needs and no more — the ISO number that
           // used to share this column is gone.
-          gridTemplateColumns: `54px repeat(${epics.length}, ${
-            colWidth === null ? "minmax(140px, 1fr)" : `${colWidth}px`
-          }) 34px`,
-          gridTemplateRows: `26px repeat(${weeks.length}, 28px)`,
+          // Every column is sized explicitly: a column with a width of its
+          // own takes its ratio of the shared width, the rest take the shared
+          // width itself. Text is never scaled — only the room around it.
+          gridTemplateColumns: `54px ${epics
+            .map((e) => {
+              const f = colFactors[colKey(e.project, e.name)];
+              return `${Math.round(sharedCol * (f ?? 1))}px`;
+            })
+            .join(" ")} 34px`,
+          gridTemplateRows: `26px repeat(${weeks.length}, ${rowH}px)`,
         }}
       >
         {/* header row */}
-        <div className="project-corner" />
+        <div className="project-corner">
+          {epics.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
+            <button
+              type="button"
+              className="project-cols-reset"
+              title="Give the columns on this board the same width again (columns not shown keep theirs)"
+              onClick={() => {
+                const next = { ...factorsRef.current };
+                for (const e of epics) {
+                  delete next[colKey(e.project, e.name)];
+                }
+                factorsRef.current = next;
+                setColFactorsState(next);
+                localStorage.setItem(LS_COLF, JSON.stringify(next));
+              }}
+            >
+              ⇥⇤
+            </button>
+          )}
+        </div>
         {epics.map((e) => {
           const k = colKey(e.project, e.name);
           if (renaming === k) {
@@ -1400,21 +1532,20 @@ export function ProjectBoard({
               >
                 ×
               </button>
-              {/* The border between two headers is the grip: dragging it sets
-                  the width of every column at once, double-click gives the
-                  room back to be shared evenly. */}
+              {/* The border is THIS column's grip: dragging it widens this
+                  column alone and remembers the size as a ratio to the rest,
+                  so it survives a zoom and a change of selection. Dragged
+                  back near the others it lets the ratio go. */}
               <span
                 className="project-col-resize"
-                title="Drag to set every column's width · double-click to fit"
-                onPointerDown={beginResize}
+                title="Drag to size this column · double-click to match the rest"
+                onPointerDown={beginResize(k)}
                 onPointerMove={moveResize}
                 onPointerUp={endResize}
                 onPointerCancel={() => setResizing(null)}
                 onDoubleClick={(ev) => {
-                  // Back to sharing the room evenly — for this selection only.
                   ev.stopPropagation();
-                  setColWidth(null);
-                  persistWidths();
+                  setColFactor(k, null);
                 }}
               />
             </div>
@@ -1487,6 +1618,12 @@ export function ProjectBoard({
               }`}
               style={{ gridRow: row + 2, gridColumn: col + 2 }}
               onPointerDown={(ev) => beginDrag(e, row, ev)}
+              onPointerLeave={() => {
+                if (!drag) {
+                  cancelNudgeTimer();
+                  setNudged(null);
+                }
+              }}
               onPointerCancel={() => setDrag(null)}
             />
           )),
@@ -1596,7 +1733,55 @@ export function ProjectBoard({
               key={card.itemId}
               className={`project-slot ${slotTone(card, today)}${
                 move?.card.itemId === card.itemId ? " project-slot-moving" : ""
-              }`}
+              }${nudged === card.itemId ? " project-slot-nudged" : ""}`}
+              // A card that fills its column leaves nowhere to start the next
+              // one. Hovering its right edge steps it aside just enough to
+              // uncover the cell beneath, which is already the drag surface —
+              // so a new card is pulled out beside an existing one without
+              // moving anything or opening a menu.
+              onPointerMove={(ev) => {
+                if (move || drag) {
+                  return;
+                }
+                const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                const inStrip = ev.clientX > r.right - NUDGE_PX * 2;
+                if (!inStrip) {
+                  cancelNudgeTimer();
+                  setNudged((cur) => (cur === card.itemId ? null : cur));
+                  return;
+                }
+                // Rest there first: a pointer merely crossing the card on its
+                // way somewhere else must not shove it.
+                if (nudged !== card.itemId && nudgeTimer.current === null) {
+                  nudgeTimer.current = window.setTimeout(() => {
+                    nudgeTimer.current = null;
+                    setNudged(card.itemId);
+                  }, NUDGE_DELAY_MS);
+                }
+              }}
+              // Stepping aside puts the pointer in the gap that just opened —
+              // which the browser reports as leaving the card. Undoing the
+              // nudge there would close the gap under the pointer, reopen it,
+              // and flicker forever; so a pointer inside the strip is not a
+              // pointer that left.
+              onPointerLeave={(ev) => {
+                // A drag started in the strip holds the card aside until it
+                // ends: the pointer travels far from the card by design, and
+                // closing the gap mid-pull yanks the ground out from under it.
+                if (drag) {
+                  return;
+                }
+                cancelNudgeTimer();
+                const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                const intoTheGap =
+                  ev.clientX >= r.right &&
+                  ev.clientX <= r.right + NUDGE_PX + 2 &&
+                  ev.clientY >= r.top &&
+                  ev.clientY <= r.bottom;
+                if (!intoTheGap) {
+                  setNudged((cur) => (cur === card.itemId ? null : cur));
+                }
+              }}
               style={{
                 // While dragged, the slot itself sits where it would land —
                 // the preview IS the card. row/span/col come from the packing,
@@ -1609,9 +1794,14 @@ export function ProjectBoard({
                 // of hiding each other. The width holds while the card is
                 // being dragged too: widening it on press made the first click
                 // of a double-click visibly inflate the card.
+                // Cards sharing a column carry an EXPLICIT width, and a
+                // margin cannot shrink that — the step aside has to come out
+                // of the width itself, or a card with neighbours never moves.
                 ...(lanes > 1
                   ? {
-                      width: `calc(${(100 / lanes) * laneWidth}% - 2px)`,
+                      width: `calc(${(100 / lanes) * laneWidth}% - 2px${
+                        nudged === card.itemId ? ` - ${NUDGE_PX}px` : ""
+                      })`,
                       marginLeft: `${(100 / lanes) * lane}%`,
                     }
                   : {}),
