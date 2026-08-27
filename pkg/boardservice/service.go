@@ -91,11 +91,6 @@ func New(backend Backend) *Service {
 
 // findCard returns the card with the given item id, or ok = false.
 func findCard(b board.Board, itemID string) (board.Card, bool) {
-	// An id the client is holding may be a provisional one the cache has
-	// since replaced (see board.Aliases): follow it before giving up.
-	if real, ok := b.Aliases[itemID]; ok && real != "" {
-		itemID = real
-	}
 	for _, c := range b.Cards {
 		if c.ItemID == itemID {
 			return c, true

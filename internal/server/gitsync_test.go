@@ -273,7 +273,7 @@ func TestGitCreateReturnsFinalID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.ItemID) != 26 || strings.HasPrefix(c.ItemID, localIDPrefix) {
+	if len(c.ItemID) != 26 || strings.HasPrefix(c.ItemID, "local-") {
 		t.Fatalf("id = %q, want a final ULID", c.ItemID)
 	}
 	if now, _ := be.LoadBoard(ctx, "acme", 1); cardByTitle(now, "three").ItemID != c.ItemID {

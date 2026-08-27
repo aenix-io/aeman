@@ -140,11 +140,6 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Auth != nil {
 		s.auth = newAuthManager(*opts.Auth, opts.Logger)
-		// The warm roster lives next to the session file: restarts bring the
-		// cache back up instead of leaving a cold-load pit (startupWarm).
-		if opts.Auth.SessionFile != "" {
-			s.store.warmFile = opts.Auth.SessionFile + ".boards"
-		}
 	}
 
 	mux := http.NewServeMux()
@@ -232,13 +227,6 @@ func (s *Server) Run(ctx context.Context) error {
 	httpServer := &http.Server{
 		Handler:           s.handler,
 		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	// Bring the cache up in the background: the boards that were warm before
-	// the restart, or the default board in local mode. Nothing waits on it —
-	// requests that arrive first simply ride the same detached loads.
-	if s.gitBE == nil {
-		go s.startupWarm() // a cold clone is seconds; the git board needs no warmer
 	}
 
 	errCh := make(chan error, 1)

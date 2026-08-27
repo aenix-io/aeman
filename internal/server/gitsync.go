@@ -142,12 +142,20 @@ func sameAction(a, b pendingOp) bool {
 
 // execGroup runs the popped op and every queued op of the same request
 // under one git scope, so they land as one commit. On success the group is
-// recorded for the push; the in-flight marker covers the whole group.
+// recorded for the push; the in-flight marker covers the whole group. An op
+// runs once: a write into the staged tree has no transient failure mode
+// worth a retry, and a create retried after an ambiguous failure would
+// duplicate the card.
 func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendingOp) error {
+	if b.git == nil {
+		// No repository behind the store (the queue's own tests run over a
+		// fake backend): the op runs, nothing commits.
+		return first.exec(ctx)
+	}
 	b.git.applyMu.Lock()
 	defer b.git.applyMu.Unlock()
 	sctx, flush, _ := b.git.scopeFor(ctx, first)
-	if err := execRetry(sctx, first); err != nil {
+	if err := first.exec(sctx); err != nil {
 		return err
 	}
 	for {
@@ -159,7 +167,7 @@ func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendi
 		next := e.pending[0]
 		e.pending = e.pending[1:]
 		e.mu.Unlock()
-		if err := execRetry(sctx, next); err != nil {
+		if err := next.exec(sctx); err != nil {
 			return err
 		}
 	}
@@ -231,8 +239,11 @@ func (b *storeBackend) committed(e *boardEntry) {
 	g := b.git
 	g.mu.Lock()
 	if (g.pushDelay > 0 || g.pushTimer != nil) && g.pushTimer == nil {
+		e.mu.Lock()
+		key := storeKey(e.board.Owner, e.board.Number)
+		e.mu.Unlock()
 		g.pushTimer = time.AfterFunc(g.pushDelay, func() {
-			_ = b.syncNow(context.Background(), storeKeyOf(b.store, e))
+			_ = b.syncNow(context.Background(), key)
 		})
 	}
 	g.mu.Unlock()
@@ -406,7 +417,7 @@ func (b *storeBackend) reloadFromTip(ctx context.Context, e *boardEntry) error {
 	e.recentGone = map[string]time.Time{}
 	e.recentMove = time.Time{}
 	e.mu.Unlock()
-	b.install(e, fresh, "")
+	b.install(e, fresh)
 	return nil
 }
 
@@ -596,10 +607,9 @@ func (b *storeBackend) createMinted(ctx context.Context, bd board.Board, e *boar
 	card.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	b.installCreated(ctx, e, card)
 	b.enqueue(ctx, e, pendingOp{
-		itemID:  in.ItemID,
-		kind:    "create",
-		desc:    "create «" + card.Title + "»",
-		noRetry: true,
+		itemID: in.ItemID,
+		kind:   "create",
+		desc:   "create «" + card.Title + "»",
 		apply: func(target *board.Board) {
 			if installStub(target, card) {
 				return // a roster entry goes back into the roster, never into the rows

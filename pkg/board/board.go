@@ -328,12 +328,6 @@ type Board struct {
 	// out of Cards, like every other state card.
 	Processes []Process `json:"processes,omitempty"`
 	Tasks     []Card    `json:"tasks,omitempty"`
-	// Aliases maps ids a client may still be holding onto the id the card
-	// carries now. Creation answers from the cache with a provisional id and
-	// GitHub's own id arrives later; a client that has not yet applied the
-	// correction keeps being understood. Never serialized — it is the
-	// cache's bookkeeping, not the board's state.
-	Aliases map[string]string `json:"-"`
 	// Projects lists the project roster in board order (the positions of the
 	// hidden project-state cards) and ProjectStates maps each project to the
 	// card that declares it. A project groups epics: the Project board shows

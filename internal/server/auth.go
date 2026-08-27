@@ -463,7 +463,7 @@ func (a *authManager) renewSession(ctx context.Context, sid string, s oauthSessi
 }
 
 // sessionID returns the caller's session cookie value ("" when absent). It
-// does not validate the session — pair it with sessionAlive.
+// does not validate the session.
 func (a *authManager) sessionID(r *http.Request) string {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
@@ -472,9 +472,8 @@ func (a *authManager) sessionID(r *http.Request) string {
 	return c.Value
 }
 
-// newestSessionFor finds a login's freshest live session — the startup
-// warmer's way back onto a token after a restart — renewing its GitHub token
-// through the usual gate when it is close to expiry.
+// newestSessionFor finds a login's freshest live session, renewing its GitHub
+// token through the usual gate when it is close to expiry.
 func (a *authManager) newestSessionFor(ctx context.Context, login string) (string, oauthSession, bool) {
 	a.mu.Lock()
 	best := ""
@@ -490,20 +489,6 @@ func (a *authManager) newestSessionFor(ctx context.Context, login string) (strin
 	}
 	s, ok := a.sessionByID(ctx, best)
 	return best, s, ok
-}
-
-// sessionAlive reports whether sid still maps to a live, unexpired session.
-// The board warmer polls it each tick so a captured token stops being used
-// once its owner's session ends (logout or TTL) — not merely when GitHub
-// finally rejects the token.
-func (a *authManager) sessionAlive(sid string) bool {
-	if sid == "" {
-		return false
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, ok := a.sessions[sid]
-	return ok && time.Since(s.created) <= sessionTTL
 }
 
 func (a *authManager) setCookie(w http.ResponseWriter, name, value string, maxAge int) {

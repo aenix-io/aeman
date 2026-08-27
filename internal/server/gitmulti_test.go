@@ -216,24 +216,6 @@ func TestSweepOnFetchTickFilesThisWeeksTurnsOnce(t *testing.T) {
 	}
 }
 
-// The per-board warmer is GitHub's: in git mode the fetch tick keeps the
-// cache current and the sweep has its own home, so no warmer starts.
-func TestNoWarmerInGitMode(t *testing.T) {
-	remote := gitRemote(t)
-	seedGitRemote(t, remote)
-	be, _ := gitStore(t, remote)
-	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
-		t.Fatal(err)
-	}
-	e := be.store.entry("acme/1")
-	e.mu.Lock()
-	warming := e.warming
-	e.mu.Unlock()
-	if warming {
-		t.Fatal("a warmer started for a git board")
-	}
-}
-
 // On-demand deepening: a log cut by the horizon deepens to the card's
 // creation, bounded by --history-max; a log that reaches the card's creation
 // needs nothing; a card older than the cap deepens to the cap.

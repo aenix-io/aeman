@@ -185,13 +185,9 @@ func TestWriteBehindCoalesces(t *testing.T) {
 	}
 }
 
-// A write that still fails after retries rolls the board back: every watcher
-// gets a SyncError and the board reloads from GitHub (the authority).
+// A write that fails rolls the board back: every watcher gets a SyncError and
+// the board reloads from the backend (the authority).
 func TestWriteBehindFailureRollsBack(t *testing.T) {
-	old := queueBackoff
-	queueBackoff = nil // fail fast: one attempt
-	defer func() { queueBackoff = old }()
-
 	inner := &wbBackend{board: watchBoard(), fail: true}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
@@ -324,7 +320,7 @@ func TestReloadReplaysPending(t *testing.T) {
 	})
 	e.mu.Unlock()
 
-	got := be.install(e, watchBoard(), "")
+	got := be.install(e, watchBoard())
 	for _, c := range got.Cards {
 		if c.ItemID == "c1" && c.Progress != 55 {
 			t.Fatalf("pending change lost on reload: %+v", c)
@@ -462,7 +458,7 @@ func TestRevalidateKeepsRecentWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := be.install(e, stale, "")
+	got := be.install(e, stale)
 	if got.Cards[0].ItemID != "c2" || got.Cards[1].ItemID != "c1" {
 		t.Fatalf("order rolled back: got %s, %s", got.Cards[0].ItemID, got.Cards[1].ItemID)
 	}
@@ -499,7 +495,7 @@ func TestRevalidateRestoresCreatedCardInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := be.install(e, stale, "")
+	got := be.install(e, stale)
 	ids := make([]string, len(got.Cards))
 	for i, c := range got.Cards {
 		ids[i] = c.ItemID

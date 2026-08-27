@@ -58,9 +58,7 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 				// rights ride the context, the credential is the server's.
 				return s.visibleBE
 			}
-			// /mcp is mounted only in OAuth mode, so every request is a distinct
-			// token-bearing user: gate cache hits on per-login authorization.
-			return &storeBackend{inner: &resolvingBackend{inner: b, store: s.store}, store: s.store, multiUser: true}
+			return &storeBackend{inner: b, store: s.store}
 		},
 	})
 	srv.AddReceivingMiddleware(injectGitHubToken, s.injectRights, s.dropSessionOnBadCredentials)
