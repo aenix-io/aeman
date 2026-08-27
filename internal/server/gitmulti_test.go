@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -207,6 +210,10 @@ func TestSweepOnFetchTickFilesThisWeeksTurnsOnce(t *testing.T) {
 	if tr := gitstore.ParseTrailers(c.Message); tr.Action != "sweep" || tr.Actor != "" {
 		t.Fatalf("sweep commit trailers = %+v, want action sweep by the server", tr)
 	}
+	// G6 — the sweep is the server's own work: authored by the server.
+	if c.Author.Name != gitTestOpts.Committer.Name || c.Author.Email != gitTestOpts.Committer.Email {
+		t.Fatalf("sweep commit author = %s <%s>, want the server", c.Author.Name, c.Author.Email)
+	}
 	// Another tick files nothing new.
 	if err := a.tick(ctx, "acme/1"); err != nil {
 		t.Fatal(err)
@@ -241,6 +248,41 @@ func TestDeepenSinceDecision(t *testing.T) {
 	}
 	if _, ok := deepenSince(now.Add(-maxBack), ancient, maxBack, now); ok {
 		t.Fatal("already at the cap: nothing more to fetch")
+	}
+}
+
+// G26 — a push that cannot land is visible: past --unpushed-warn the health
+// status turns degraded, and clears once the commit is on the remote.
+func TestHealthzDegradesPastUnpushedWarn(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	srv, err := New(Options{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Git: &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: t.TempDir(),
+			Committer: gitstore.Identity{Name: "aeman", Email: "aeman@test"}, UnpushedWarn: time.Nanosecond},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "tester", nil }
+	srv.gitBE.git.pushDelay = 0 // nothing pushes until asked
+	if rec := do(t, srv, "GET", "/api/healthz", ""); !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("health before any write: %s", rec.Body.String())
+	}
+	if rec := do(t, srv, "POST", "/api/v1/cards", `{"title":"late","team":"portal","zone":"planned","dates":{"start":"2026-08-27"}}`); rec.Code != 201 {
+		t.Fatalf("POST /cards: %d %s", rec.Code, rec.Body.String())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx)
+	if rec := do(t, srv, "GET", "/api/healthz", ""); !strings.Contains(rec.Body.String(), `"status":"degraded"`) {
+		t.Fatalf("health with an old unpushed commit: %s", rec.Body.String())
+	}
+	if err := srv.drainAndPush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(t, srv, "GET", "/api/healthz", ""); !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("health after the push: %s", rec.Body.String())
 	}
 }
 

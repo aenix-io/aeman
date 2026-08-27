@@ -260,6 +260,18 @@ func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
 			pos[old.ItemID] = at
 		}
 	}
+	// A roster entry created moments ago — a project, process, column,
+	// deadline or task — outweighs a fresh read that predates it the same
+	// way a recent card does: a reload that began before the create's commit
+	// must not drop it. It goes back into the roster with its domain.
+	if len(e.recentCards) > 0 {
+		old := rosterStubs(e.board)
+		for id := range e.recentCards {
+			if stub, ok := old[id]; ok {
+				installStub(&fresh, stub)
+			}
+		}
+	}
 	// The same lag rolls back the ORDER a local move just wrote: while a
 	// recent move is inside the grace window, the cached order wins for the
 	// cards both sides know; fresh-only cards keep their fetched positions.
@@ -1933,6 +1945,30 @@ func (b *storeBackend) installCreated(ctx context.Context, e *boardEntry, card b
 	e.upsertCard(card)
 	e.markRecent(card.ItemID)
 	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
+}
+
+// rosterStubs is every roster entry of a board as the stub card that declared
+// it, by id — what installStub takes to put one back.
+func rosterStubs(b board.Board) map[string]board.Card {
+	out := map[string]board.Card{}
+	for name, id := range b.ProjectStates {
+		out[id] = board.Card{ItemID: id, Title: board.ProjectStateTitle, Project: name, Domain: b.Domains[id]}
+	}
+	for _, p := range b.Processes {
+		out[p.ItemID] = board.Card{ItemID: p.ItemID, Title: board.ProcessStateTitle, Process: p.Name, Project: p.Project, Paused: p.Paused, Domain: b.Domains[p.ItemID]}
+	}
+	for _, e := range b.Epics {
+		out[e.ItemID] = board.Card{ItemID: e.ItemID, Title: board.EpicStateTitle, Epic: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]}
+	}
+	for _, d := range b.Deadlines {
+		out[d.ItemID] = board.Card{ItemID: d.ItemID, Title: board.DeadlineStateTitle, Week: d.Week, Project: d.Project, Domain: b.Domains[d.ItemID]}
+	}
+	for _, k := range b.Tasks {
+		c := k
+		c.Domain = b.Domains[k.ItemID]
+		out[k.ItemID] = c
+	}
+	return out
 }
 
 // installStub puts a roster stub — a process, task, project, column or
