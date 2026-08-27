@@ -143,8 +143,31 @@ func TestLoadAllHidesTornMoveGhost(t *testing.T) {
 	if len(s.Cards) != 1 || s.Cards[0].Domain != "closed" || s.Cards[0].Project != "secret" {
 		t.Fatalf("cards = %+v, want the moved copy only", s.Cards)
 	}
-	if len(s.Ghosts) != 1 || s.Ghosts[0].Domain != "shared" || s.Ghosts[0].ID != "01CARDA1" {
-		t.Fatalf("ghosts = %+v", s.Ghosts)
+	if len(s.Ghosts) != 1 || s.Ghosts[0].Domain != "shared" || s.Ghosts[0].ID != "01CARDA1" || s.Ghosts[0].Current != "closed" {
+		t.Fatalf("ghosts = %+v, want the shared copy, current in closed", s.Ghosts)
+	}
+}
+
+// A card in two domains where neither copy says it moved is a duplicate,
+// not a torn move: the primary side is served, the other is reported as a
+// ghost with no current domain — maintenance must leave it alone.
+func TestLoadAllPlainDuplicateIsNotAMove(t *testing.T) {
+	shared := repoWith(t, map[string]string{
+		BoardPath:               "schema: 1\ntitle: b\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: dup\nteam: portal\nrank: a\n---\n",
+	})
+	closed := repoWith(t, map[string]string{
+		"cards/a/1/01CARDA1.md": "---\ntitle: dup\nproject: secret\nrank: a\n---\n",
+	})
+	s, err := LoadAll([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Cards) != 1 || s.Cards[0].Domain != "shared" {
+		t.Fatalf("cards = %+v, want the primary's copy", s.Cards)
+	}
+	if len(s.Ghosts) != 1 || s.Ghosts[0].Domain != "closed" || s.Ghosts[0].Current != "" {
+		t.Fatalf("ghosts = %+v, want the closed copy with no current domain", s.Ghosts)
 	}
 }
 

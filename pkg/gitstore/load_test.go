@@ -123,7 +123,7 @@ func TestLoadRefusesNewerSchema(t *testing.T) {
 // An unborn branch is a distinct, named condition: `serve` turns it into
 // "run aeman init", not into an empty board.
 func TestLoadEmptyRepositoryIsNamed(t *testing.T) {
-	r, err := Init(memory.NewStorage(), Options{Committer: server})
+	r, err := Init(memory.NewStorage(), Options{Committer: serverID})
 	if err != nil {
 		t.Fatal(err)
 	}

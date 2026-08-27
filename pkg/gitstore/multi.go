@@ -100,10 +100,10 @@ func mergeCards(parts []Snapshot) ([]board.Card, []Ghost) {
 			}
 			switch {
 			case c.MovedFrom == prev.Domain:
-				ghosts = append(ghosts, Ghost{ID: prev.ItemID, Domain: prev.Domain})
+				ghosts = append(ghosts, Ghost{ID: prev.ItemID, Domain: prev.Domain, Current: c.Domain})
 				byID[c.ItemID] = c
 			case prev.MovedFrom == c.Domain:
-				ghosts = append(ghosts, Ghost{ID: c.ItemID, Domain: c.Domain})
+				ghosts = append(ghosts, Ghost{ID: c.ItemID, Domain: c.Domain, Current: prev.Domain})
 			default:
 				// Neither says it moved: keep the first (the primary side
 				// wins), record the other as a ghost so health can say so.

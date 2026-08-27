@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,15 +52,17 @@ var (
 
 type scopeKey struct{}
 
-// scope collects an action's writes so they commit together.
+// scope collects an action's writes so they commit together. An action may
+// touch more than one repository (a move between domains): each gets its
+// own part, and flush commits the parts in the order they were first
+// written — the destination of a move before its source.
 type scope struct {
 	mu      sync.Mutex
 	action  Action
-	staged  map[string][]byte // path → content; nil = delete
-	order   []string
+	parts   map[*Repo]*scopePart
+	repos   []*Repo // first-write order
 	changes []Change
 	cards   map[string]bool
-	repo    *Repo
 	// roster names created inside the scope, so a later write in the same
 	// action can find them before anything is committed.
 	projects  map[string]string
@@ -67,12 +70,48 @@ type scope struct {
 	teams     map[string]string
 }
 
+// scopePart is one repository's staged writes, and the trailers only its
+// commit carries (a move's Aeman-Moved-From on the destination, -To on the
+// source).
+type scopePart struct {
+	staged   map[string][]byte // path → content; nil = delete
+	order    []string
+	trailers map[string]string
+}
+
+// addTrailer records a per-repository trailer; a second, different value
+// for the same key is appended rather than lost.
+func (p *scopePart) addTrailer(key, val string) {
+	if p.trailers == nil {
+		p.trailers = map[string]string{}
+	}
+	cur, ok := p.trailers[key]
+	switch {
+	case !ok:
+		p.trailers[key] = val
+	case cur == val || contains(strings.Fields(cur), val):
+	default:
+		p.trailers[key] = cur + " " + val
+	}
+}
+
+func (sc *scope) part(r *Repo) *scopePart {
+	p, ok := sc.parts[r]
+	if !ok {
+		p = &scopePart{staged: map[string][]byte{}}
+		sc.parts[r] = p
+		sc.repos = append(sc.repos, r)
+	}
+	return p
+}
+
 // WithScope opens an action on the context: every backend write made with
-// the returned context is staged, and flush commits them as one commit
-// carrying the action's trailers. A flush with nothing staged makes no
-// commit and returns the zero hash.
+// the returned context is staged, and flush commits them — one commit per
+// repository touched, all carrying the action's trailers. A flush with
+// nothing staged makes no commit and returns the zero hash; with several
+// repositories it returns the last commit's hash.
 func WithScope(ctx context.Context, a Action) (context.Context, func() (plumbing.Hash, error)) {
-	sc := &scope{action: a, staged: map[string][]byte{}, cards: map[string]bool{},
+	sc := &scope{action: a, parts: map[*Repo]*scopePart{}, cards: map[string]bool{},
 		projects: map[string]string{}, processes: map[string]string{}, teams: map[string]string{}}
 	for _, id := range a.Cards {
 		sc.cards[id] = true
@@ -80,13 +119,6 @@ func WithScope(ctx context.Context, a Action) (context.Context, func() (plumbing
 	flush := func() (plumbing.Hash, error) {
 		sc.mu.Lock()
 		defer sc.mu.Unlock()
-		if sc.repo == nil || len(sc.order) == 0 {
-			return plumbing.ZeroHash, nil
-		}
-		writes := make([]FileWrite, 0, len(sc.order))
-		for _, p := range sc.order {
-			writes = append(writes, FileWrite{Path: p, Data: sc.staged[p]})
-		}
 		act := sc.action
 		act.Changes = append(act.Changes, sc.changes...)
 		act.Cards = append([]string(nil), a.Cards...)
@@ -98,7 +130,35 @@ func WithScope(ctx context.Context, a Action) (context.Context, func() (plumbing
 		if act.Actor == "" {
 			act.Actor = board.ActorFrom(ctx)
 		}
-		return sc.repo.Commit(act, writes)
+		last := plumbing.ZeroHash
+		for _, r := range sc.repos {
+			part := sc.parts[r]
+			if len(part.order) == 0 {
+				continue
+			}
+			writes := make([]FileWrite, 0, len(part.order))
+			for _, p := range part.order {
+				writes = append(writes, FileWrite{Path: p, Data: part.staged[p]})
+			}
+			partAct := act
+			if len(part.trailers) > 0 {
+				partAct.Trailers = make(map[string]string, len(act.Trailers)+len(part.trailers))
+				for k, v := range act.Trailers {
+					partAct.Trailers[k] = v
+				}
+				for k, v := range part.trailers {
+					partAct.Trailers[k] = v
+				}
+			}
+			h, err := r.Commit(partAct, writes)
+			if err != nil {
+				return plumbing.ZeroHash, err
+			}
+			if !h.IsZero() {
+				last = h
+			}
+		}
+		return last, nil
 	}
 	return context.WithValue(ctx, scopeKey{}, sc), flush
 }
@@ -114,7 +174,11 @@ func scopeOf(ctx context.Context) *scope {
 func (b *Backend) read(ctx context.Context, p string) ([]byte, bool, error) {
 	if sc := scopeOf(ctx); sc != nil {
 		sc.mu.Lock()
-		data, staged := sc.staged[p]
+		var data []byte
+		staged := false
+		if part, ok := sc.parts[b.repo]; ok {
+			data, staged = part.staged[p]
+		}
 		sc.mu.Unlock()
 		if staged {
 			return data, data != nil, nil
@@ -133,16 +197,25 @@ func (b *Backend) read(ctx context.Context, p string) ([]byte, bool, error) {
 // write records one file change: staged under a scope, else committed on
 // its own as action op.
 func (b *Backend) write(ctx context.Context, op string, cards []string, p string, data []byte) error {
+	return b.writeWith(ctx, op, cards, p, data, nil)
+}
+
+// writeWith is write with trailers that belong to this repository's commit
+// only — under a scope they attach to its part, not to the action.
+func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p string, data []byte, trailers map[string]string) error {
 	if sc := scopeOf(ctx); sc != nil {
 		sc.mu.Lock()
 		defer sc.mu.Unlock()
-		sc.repo = b.repo
-		if _, seen := sc.staged[p]; !seen {
-			sc.order = append(sc.order, p)
+		part := sc.part(b.repo)
+		if _, seen := part.staged[p]; !seen {
+			part.order = append(part.order, p)
 		}
-		sc.staged[p] = data
+		part.staged[p] = data
 		for _, id := range cards {
 			sc.cards[id] = true
+		}
+		for k, v := range trailers {
+			part.addTrailer(k, v)
 		}
 		return nil
 	}
@@ -150,7 +223,7 @@ func (b *Backend) write(ctx context.Context, op string, cards []string, p string
 	if len(cards) == 1 {
 		summary = op + " " + cards[0]
 	}
-	_, err := b.repo.Commit(Action{Name: op, Actor: board.ActorFrom(ctx), At: b.now(), Cards: cards, Summary: summary}, []FileWrite{{Path: p, Data: data}})
+	_, err := b.repo.Commit(Action{Name: op, Actor: board.ActorFrom(ctx), At: b.now(), Cards: cards, Summary: summary, Trailers: trailers}, []FileWrite{{Path: p, Data: data}})
 	return err
 }
 
@@ -164,38 +237,48 @@ func (b *Backend) LoadBoard(_ context.Context, owner string, project int) (board
 	if err != nil {
 		return board.Board{}, err
 	}
+	bd := boardFromSnapshot(s)
+	bd.Owner = owner
+	bd.Number = project
+	return bd, nil
+}
+
+// boardFromSnapshot hands the service the shape it expects: the roster
+// becomes the state cards NewBoard splits back out, so the duplicate and
+// ordering rules stay in one place. Every synthesized card carries its
+// domain.
+func boardFromSnapshot(s Snapshot) board.Board {
 	cards := make([]board.Card, 0, len(s.Cards)+len(s.Teams)+len(s.Projects)*4)
 	for _, t := range s.Teams {
 		cards = append(cards, board.Card{ItemID: t.ID, Title: board.SprintStateTitle, Team: t.Name,
-			SprintStart: t.Sprint.Current, StartDate: t.Sprint.Previous, Rank: t.Rank, CreatedAt: t.Created})
+			SprintStart: t.Sprint.Current, StartDate: t.Sprint.Previous, Rank: t.Rank, CreatedAt: t.Created, Domain: t.Domain})
 	}
 	for _, p := range s.Projects {
-		cards = append(cards, board.Card{ItemID: p.ID, Title: board.ProjectStateTitle, Project: p.Name, Rank: p.Rank, CreatedAt: p.Created})
+		cards = append(cards, board.Card{ItemID: p.ID, Title: board.ProjectStateTitle, Project: p.Name, Rank: p.Rank, CreatedAt: p.Created, Domain: p.Domain})
 	}
 	for _, p := range s.Projects {
 		for _, e := range p.Epics {
-			cards = append(cards, board.Card{ItemID: e.ID, Title: board.EpicStateTitle, Epic: e.Name, Project: p.Name, Rank: e.Rank, CreatedAt: e.Created})
+			cards = append(cards, board.Card{ItemID: e.ID, Title: board.EpicStateTitle, Epic: e.Name, Project: p.Name, Rank: e.Rank, CreatedAt: e.Created, Domain: e.Domain})
 		}
 		for _, d := range p.Deadlines {
-			cards = append(cards, board.Card{ItemID: d.ID, Title: board.DeadlineStateTitle, Week: d.Week, Project: p.Name, CreatedAt: d.Created})
+			cards = append(cards, board.Card{ItemID: d.ID, Title: board.DeadlineStateTitle, Week: d.Week, Project: p.Name, CreatedAt: d.Created, Domain: d.Domain})
 		}
 	}
 	for _, pr := range s.Processes {
-		cards = append(cards, board.Card{ItemID: pr.ID, Title: board.ProcessStateTitle, Process: pr.Name, Project: pr.Project, Paused: pr.Paused, Rank: pr.Rank, CreatedAt: pr.Created})
+		cards = append(cards, board.Card{ItemID: pr.ID, Title: board.ProcessStateTitle, Process: pr.Name, Project: pr.Project, Paused: pr.Paused, Rank: pr.Rank, CreatedAt: pr.Created, Domain: pr.Domain})
 		for _, k := range pr.Tasks {
 			c := k.Card
 			c.ItemID = k.ID
 			c.Title = board.ProcessTaskTitle
 			c.Process = pr.Name
+			c.Domain = k.Domain
 			cards = append(cards, c)
 		}
 	}
 	cards = append(cards, s.Cards...)
 	bd := board.NewBoard(nil, cards)
-	bd.Owner = owner
-	bd.Number = project
 	bd.Title = s.Board.Title
-	return bd, nil
+	return bd
 }
 
 // LoadCards reads the asked-for cards, in the order asked; missing ones are
@@ -760,7 +843,7 @@ func (b *Backend) AppendEvent(ctx context.Context, _ board.Board, card board.Car
 	if sc := scopeOf(ctx); sc != nil {
 		sc.mu.Lock()
 		defer sc.mu.Unlock()
-		sc.repo = b.repo
+		sc.part(b.repo) // the trailer rides this repository's commit
 		sc.changes = append(sc.changes, Change{Card: card.ItemID, Kind: e.Kind, From: e.From, To: e.To})
 		sc.cards[card.ItemID] = true
 	}

@@ -245,6 +245,9 @@ type Trailers struct {
 	Actor    string
 	Cards    []string
 	Changes  []Change
+	// Extra holds the Aeman-* keys this package does not interpret
+	// (Aeman-Moved-From, Aeman-Migration, …); nil when there are none.
+	Extra map[string]string
 }
 
 // ParseTrailers reads the Aeman-* trailer block: the run of trailer lines
@@ -272,6 +275,11 @@ func ParseTrailers(msg string) Trailers {
 			if len(f) == 4 {
 				tr.Changes = append(tr.Changes, Change{Card: f[0], Kind: f[1], From: undash(f[2]), To: undash(f[3])})
 			}
+		default:
+			if tr.Extra == nil {
+				tr.Extra = map[string]string{}
+			}
+			tr.Extra[key] = val
 		}
 	}
 	return tr

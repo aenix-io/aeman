@@ -14,12 +14,12 @@ import (
 // machine-readable trailers; an action that changes nothing makes no commit.
 // G6 — author is the actor, committer is the server, date is the action time.
 
-var server = Identity{Name: "aeman", Email: "aeman@aenix.io"}
+var serverID = Identity{Name: "aeman", Email: "aeman@aenix.io"}
 
 func newRepo(t *testing.T) *Repo {
 	t.Helper()
 	r, err := Init(memory.NewStorage(), Options{
-		Committer:   server,
+		Committer:   serverID,
 		AuthorEmail: func(login string) string { return login + "@users.noreply.github.com" },
 	})
 	if err != nil {
@@ -132,7 +132,7 @@ func TestCommitIdentity(t *testing.T) {
 	if !c.Author.When.Equal(when) || !c.Committer.When.Equal(when) {
 		t.Fatalf("dates = %v / %v, want %v", c.Author.When, c.Committer.When, when)
 	}
-	if c.Committer.Name != server.Name || c.Committer.Email != server.Email {
+	if c.Committer.Name != serverID.Name || c.Committer.Email != serverID.Email {
 		t.Fatalf("committer = %s <%s>", c.Committer.Name, c.Committer.Email)
 	}
 }
@@ -149,7 +149,7 @@ func TestCommitUnattributedIsTheServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _ := r.CommitObject(h)
-	if c.Author.Name != server.Name || c.Author.Email != server.Email {
+	if c.Author.Name != serverID.Name || c.Author.Email != serverID.Email {
 		t.Fatalf("author = %s <%s>, want the server", c.Author.Name, c.Author.Email)
 	}
 	if strings.Contains(c.Message, "Aeman-Actor:") {
@@ -269,4 +269,27 @@ func changedPaths(t *testing.T, r *Repo, a, b plumbing.Hash) []string {
 		out = append(out, ch.To.Name+ch.From.Name)
 	}
 	return out
+}
+
+// Trailers a caller adds (Aeman-Moved-From, Aeman-Migration, …) come back
+// from ParseTrailers by key, so a reader need not know them in advance.
+func TestParseTrailersKeepsExtraKeys(t *testing.T) {
+	r := newRepo(t)
+	h, err := r.Commit(Action{Name: "update", Actor: "kvaps", Cards: []string{"01CARDA1"},
+		Trailers: map[string]string{"Aeman-Moved-From": "shared"}},
+		[]FileWrite{{Path: "cards/a/1/01CARDA1.md", Data: []byte("---\ntitle: x\n---\n")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := r.CommitObject(h)
+	tr := ParseTrailers(c.Message)
+	if tr.Extra["Aeman-Moved-From"] != "shared" {
+		t.Fatalf("extra = %v", tr.Extra)
+	}
+	if _, known := tr.Extra["Aeman-Action"]; known {
+		t.Fatal("a known key must not be duplicated into Extra")
+	}
+	if ParseTrailers("no trailers here").Extra != nil {
+		t.Fatal("no trailers → nil Extra")
+	}
 }

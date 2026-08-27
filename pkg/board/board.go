@@ -231,7 +231,11 @@ type CreateInput struct {
 	// ItemID, when set, is the id the card is created WITH — a backend that
 	// mints its own ids (the git store) honours it, so the cache can hand out
 	// the final id before the write lands; a backend that cannot ignores it.
-	ItemID      string   `json:"itemId,omitempty"`
+	ItemID string `json:"itemId,omitempty"`
+	// Domain, on a roster stub (a team, project or process state card), is
+	// the repository to declare it in; "" is the primary. Cards never carry
+	// one — their domain is inherited (see DomainOf).
+	Domain      string   `json:"domain,omitempty"`
 	Title       string   `json:"title"`
 	Zone        ZoneKey  `json:"zone,omitempty"`
 	Day         string   `json:"day,omitempty"`

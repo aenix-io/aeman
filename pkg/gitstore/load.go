@@ -45,10 +45,14 @@ type Alias struct {
 	Winner string // the id of the entry that won
 }
 
-// Ghost is the stale copy of a card caught between two domains.
+// Ghost is the stale copy of a card caught between two domains: Domain is
+// where the stale file sits, Current where the served copy is. Current is
+// empty when neither copy says it moved — a duplicate, not a torn move, and
+// not maintenance's to resolve.
 type Ghost struct {
-	ID     string
-	Domain string
+	ID      string
+	Domain  string
+	Current string
 }
 
 // Team is teams/<id>.yaml with its id.
