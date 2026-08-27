@@ -19,12 +19,15 @@ import (
 	"time"
 	_ "time/tzdata" // board timezone by name works even in scratch containers
 
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aenix-io/aeman/internal/ghcli"
 	"github.com/aenix-io/aeman/internal/server"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/gitstore"
 	"github.com/aenix-io/aeman/pkg/mcpserver"
 )
 
@@ -67,6 +70,8 @@ func run(args []string) error {
 		return runServe(args[1:])
 	case "mcp":
 		return runMCP(args[1:])
+	case "init":
+		return runInit(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println("aeman", version)
 		return nil
@@ -79,15 +84,20 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Print(`aeman - backend-less project management on top of GitHub Projects v2
+	fmt.Print(`aeman - short-term planning for engineering teams
 
 Usage:
-  aeman serve [flags]   Start the local server and open the UI
+  aeman serve [flags]   Start the server and open the UI
   aeman mcp [flags]     Start the MCP server on stdio
+  aeman init --repo URL Bootstrap an empty repository as a board
   aeman version         Print the version
   aeman help            Show this help
 
-Run 'aeman serve --help' or 'aeman mcp --help' for flags.
+The board's storage is a git repository: pass --repo name=url (or
+AEMAN_REPOS) to serve and mcp. Without it the GitHub Projects v2 board
+named by --owner/--board is served.
+
+Run 'aeman serve --help', 'aeman mcp --help' or 'aeman init --help' for flags.
 `)
 }
 
@@ -100,10 +110,15 @@ func runServe(args []string) error {
 	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin the UI to --owner/--project and hide the board picker")
 	open := fs.Bool("open", true, "open the UI in a browser on start")
 	verbose := fs.Bool("verbose", false, "enable debug logging")
+	gf := addGitFlags(fs, os.Getenv)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *lockBoard && (*owner == "" || *project <= 0) {
+	gitCfg, err := gf.config()
+	if err != nil {
+		return err
+	}
+	if gitCfg == nil && *lockBoard && (*owner == "" || *project <= 0) {
 		return fmt.Errorf("--lock-board requires --owner and --board (or AEMAN_OWNER/AEMAN_BOARD)")
 	}
 
@@ -135,6 +150,7 @@ func runServe(args []string) error {
 		Logger:         logger,
 		Auth:           auth,
 		LockBoard:      *lockBoard,
+		Git:            gitCfg,
 	})
 	if err != nil {
 		return err
@@ -157,13 +173,18 @@ func runMCP(args []string) error {
 	project := fs.Int("board", projectDefault, "GitHub Project number of the board")
 	lockBoard := fs.Bool("lock-board", os.Getenv("AEMAN_LOCK_BOARD") == "true", "pin owner/project, ignoring per-tool overrides")
 	verbose := fs.Bool("verbose", false, "enable debug logging")
+	gf := addGitFlags(fs, os.Getenv)
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	gitCfg, err := gf.config()
+	if err != nil {
 		return err
 	}
 
 	logger := newLogger(*verbose)
 
-	srv := mcpserver.New(mcpserver.Config{
+	cfg := mcpserver.Config{
 		Owner:        *owner,
 		Project:      *project,
 		Lock:         *lockBoard,
@@ -172,7 +193,22 @@ func runMCP(args []string) error {
 		// Scope the default (unspecified-view) list to the local user's own Me
 		// board; best-effort via the gh CLI, else the list stays sprint-scoped.
 		ResolveLogin: ghcli.Login,
-	})
+	}
+	var drain func(context.Context) error
+	if gitCfg != nil {
+		// Git mode: this process owns its own clone, cache and push; the
+		// board is the configured repository, whatever owner/board a tool
+		// passes; no GitHub token is needed for the board itself.
+		gb, err := server.OpenGitBackend(gitCfg, logger)
+		if err != nil {
+			return err
+		}
+		cfg.Owner, cfg.Project, cfg.Lock = "git", 1, true
+		cfg.ResolveToken = func(context.Context) (string, error) { return "", nil }
+		cfg.WrapBackend = func(boardservice.Backend) boardservice.Backend { return gb.Backend() }
+		drain = gb.Drain
+	}
+	srv := mcpserver.New(cfg)
 
 	// Attribute activity events to the local gh identity (cached per process).
 	srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
@@ -187,8 +223,18 @@ func runMCP(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.Info("aeman MCP server ready on stdio", "owner", *owner, "board", *project, "locked", *lockBoard)
-	return mcpserver.Serve(ctx, srv)
+	logger.Info("aeman MCP server ready on stdio", "owner", cfg.Owner, "board", cfg.Project, "locked", cfg.Lock)
+	err = mcpserver.Serve(ctx, srv)
+	if drain != nil {
+		// The client may close the pipe right after a mutation: wait for the
+		// queue and push before exiting, so nothing is left only on disk.
+		dctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if derr := drain(dctx); derr != nil {
+			logger.Warn("final push failed; unpushed commits stay in the clone", "err", derr)
+		}
+	}
+	return err
 }
 
 // resolveGitHubToken returns a token from GITHUB_TOKEN/GH_TOKEN, falling back to
@@ -208,6 +254,36 @@ func resolveGitHubToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("no GitHub token; set GITHUB_TOKEN or run `gh auth login`")
 	}
 	return tok, nil
+}
+
+// runInit bootstraps an empty repository as a board: board.yaml and the
+// no-team group in one commit, pushed. Safe to run twice; a repository that
+// already holds a board is left alone.
+func runInit(args []string) error {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	title := fs.String("title", "aeman board", "the board's title")
+	gf := addGitFlags(fs, os.Getenv)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := gf.config()
+	if err != nil {
+		return err
+	}
+	if cfg == nil {
+		return fmt.Errorf("init needs --repo URL (or AEMAN_REPOS)")
+	}
+	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
+	if cfg.Token != "" {
+		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := gitstore.InitBoard(ctx, memory.NewStorage(), remote, gitstore.Options{Committer: cfg.Committer}, *title); err != nil {
+		return err
+	}
+	fmt.Printf("board initialised in %s\n", remote.URL)
+	return nil
 }
 
 // newLogger builds a stderr logger. The MCP server speaks JSON-RPC on stdout, so
