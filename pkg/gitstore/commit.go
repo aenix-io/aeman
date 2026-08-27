@@ -148,7 +148,21 @@ func (r *Repo) CommitObject(h plumbing.Hash) (*object.Commit, error) {
 func (r *Repo) Commit(a Action, writes []FileWrite) (plumbing.Hash, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	when := a.At
+	if when.IsZero() {
+		when = time.Now()
+	}
+	committer := object.Signature{Name: r.opts.Committer.Name, Email: r.opts.Committer.Email, When: when}
+	author := committer
+	if a.Actor != "" {
+		author = object.Signature{Name: a.Actor, Email: r.opts.AuthorEmail(a.Actor), When: when}
+	}
+	return r.commitLocked(a.message(), author, committer, writes, a.AllowEmpty)
+}
 
+// commitLocked is Commit with the lock held and the message and signatures
+// already decided — what a replay uses to record a commit again verbatim.
+func (r *Repo) commitLocked(msg string, author, committer object.Signature, writes []FileWrite, allowEmpty bool) (plumbing.Hash, error) {
 	head := r.Head()
 	root, err := r.loadRoot(head)
 	if err != nil {
@@ -162,7 +176,7 @@ func (r *Repo) Commit(a Action, writes []FileWrite) (plumbing.Hash, error) {
 		}
 		changed = changed || ch
 	}
-	if !changed && !a.AllowEmpty {
+	if !changed && !allowEmpty {
 		return plumbing.ZeroHash, nil
 	}
 	treeHash, err := r.writeTree(root)
@@ -172,18 +186,10 @@ func (r *Repo) Commit(a Action, writes []FileWrite) (plumbing.Hash, error) {
 	if !changed && head.IsZero() {
 		return plumbing.ZeroHash, errors.New("gitstore: an empty commit needs a parent")
 	}
-	when := a.At
-	if when.IsZero() {
-		when = time.Now()
-	}
-	author := object.Signature{Name: r.opts.Committer.Name, Email: r.opts.Committer.Email, When: when}
-	if a.Actor != "" {
-		author = object.Signature{Name: a.Actor, Email: r.opts.AuthorEmail(a.Actor), When: when}
-	}
 	c := &object.Commit{
 		Author:    author,
-		Committer: object.Signature{Name: r.opts.Committer.Name, Email: r.opts.Committer.Email, When: when},
-		Message:   a.message(),
+		Committer: committer,
+		Message:   msg,
 		TreeHash:  treeHash,
 	}
 	if !head.IsZero() {

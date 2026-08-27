@@ -238,22 +238,18 @@ func (r *Repo) Push(ctx context.Context, remote Remote) error {
 func (r *Repo) ResetTo(h plumbing.Hash) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.resetLocked(h)
+}
+
+func (r *Repo) resetLocked(h plumbing.Hash) error {
 	return r.s.SetReference(plumbing.NewHashReference(r.branch, h))
 }
 
 // Unpushed counts the local commits the remote has not seen: from the tip
 // back to the last known remote tip (within the loaded history).
 func (r *Repo) Unpushed() (int, error) {
-	remoteTip := r.RemoteTip()
-	n := 0
-	err := r.Walk(r.Head(), func(c *object.Commit) (bool, error) {
-		if c.Hash == remoteTip {
-			return false, nil
-		}
-		n++
-		return true, nil
-	})
-	return n, err
+	cs, err := r.UnpushedCommits()
+	return len(cs), err
 }
 
 // ChangedPaths lists the paths whose content differs between two commits'
