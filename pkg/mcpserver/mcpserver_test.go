@@ -247,12 +247,17 @@ func TestMCPDeleteCardCascades(t *testing.T) {
 }
 
 func TestMCPRemoveCard(t *testing.T) {
-	// A card outside any current sprint has nothing to demote to: real delete.
+	// A card outside any current sprint has nothing to demote to — remove_card
+	// hands it back to the weekly plan; deleting is delete_card's job alone.
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1"}}, nil)
 	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
 	call(t, cs, "remove_card", map[string]any{"uid": "c1"})
-	if fake.Card("c1") != nil {
-		t.Fatalf("card should be deleted")
+	c := fake.Card("c1")
+	if c == nil {
+		t.Fatalf("remove_card must never delete the card")
+	}
+	if c.Plan == board.PlanNone {
+		t.Fatalf("it lands in the weekly plan: %+v", c)
 	}
 	if msg := callErr(t, cs, "remove_card", map[string]any{"uid": "c1", "from": "nowhere"}); !strings.Contains(msg, "unknown from") {
 		t.Fatalf("unknown from must be rejected: %s", msg)
