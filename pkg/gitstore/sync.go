@@ -62,7 +62,10 @@ func Clone(ctx context.Context, s storage.Storer, remote Remote, opts Options, d
 		Depth:         depth,
 	})
 	if err != nil {
-		if errors.Is(err, transport.ErrEmptyRemoteRepository) {
+		// An unborn remote, or one with commits on other branches but no
+		// board branch: for the board both are "not initialised".
+		var noRef git.NoMatchingRefSpecError
+		if errors.Is(err, transport.ErrEmptyRemoteRepository) || errors.As(err, &noRef) {
 			return nil, fmt.Errorf("%w: %s", ErrEmptyRepository, remote.URL)
 		}
 		return nil, fmt.Errorf("gitstore: clone %s: %w", remote.URL, err)

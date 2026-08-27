@@ -127,6 +127,7 @@ func runServe(args []string) error {
 	if gitCfg == nil && *lockBoard && (*owner == "" || *project <= 0) {
 		return fmt.Errorf("--lock-board requires --owner and --board (or AEMAN_OWNER/AEMAN_BOARD)")
 	}
+	fillGitToken(context.Background(), gitCfg)
 
 	logger := newLogger(*verbose)
 
@@ -205,6 +206,7 @@ func runMCP(args []string) error {
 		// Git mode: this process owns its own clone, cache and push; the
 		// board is the configured repository, whatever owner/board a tool
 		// passes; no GitHub token is needed for the board itself.
+		fillGitToken(context.Background(), gitCfg)
 		gb, err := server.OpenGitBackend(gitCfg, logger)
 		if err != nil {
 			return err
@@ -279,6 +281,7 @@ func runInit(args []string) error {
 	if cfg == nil {
 		return fmt.Errorf("init needs --repo URL (or AEMAN_REPOS)")
 	}
+	fillGitToken(context.Background(), cfg)
 	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
 	if cfg.Token != "" {
 		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
@@ -321,6 +324,7 @@ func runMigrate(args []string) error {
 	if err != nil {
 		return err
 	}
+	fillGitToken(ctx, cfg)
 	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
 	if cfg.Token != "" {
 		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}

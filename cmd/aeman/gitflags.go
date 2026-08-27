@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -166,6 +167,19 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 	cfg.AuthorEmail = g.pick(g.authorEmail, "AEMAN_AUTHOR_EMAIL", "")
 	cfg.DataDir = g.pick(g.data, "AEMAN_DATA", defaultDataDir())
 	return cfg, nil
+}
+
+// fillGitToken supplies the push/fetch credential when AEMAN_GIT_TOKEN is
+// unset: the local gh CLI's token, the same source the GitHub board uses in
+// local mode. Best-effort — a remote that needs no credential (a file path,
+// a public repository) works without it.
+func fillGitToken(ctx context.Context, cfg *server.GitConfig) {
+	if cfg == nil || cfg.Token != "" {
+		return
+	}
+	if tok, err := resolveGitHubToken(ctx); err == nil {
+		cfg.Token = tok
+	}
 }
 
 // defaultDataDir is /data when the container's volume is there, else a

@@ -52,3 +52,30 @@ func TestCloneOfUnbornRemoteIsNamed(t *testing.T) {
 		t.Fatalf("err = %v, want ErrEmptyRepository", err)
 	}
 }
+
+// A remote that has commits on OTHER branches but no board branch is, for
+// the board, just as unborn: init creates the branch, serve asks for init.
+func TestCloneWithoutBoardBranchIsUnborn(t *testing.T) {
+	remote, _ := newTestRemote(t)
+	other, err := Init(memory.NewStorage(), Options{Committer: serverID, Branch: "refs/heads/spike"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Commit(Action{Name: "x", Summary: "spike"}, []FileWrite{{Path: "notes.txt", Data: []byte("hi\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Push(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Clone(context.Background(), memory.NewStorage(), remote, Options{Committer: serverID}, 0)
+	if !errors.Is(err, ErrEmptyRepository) {
+		t.Fatalf("err = %v, want ErrEmptyRepository for a remote without the board branch", err)
+	}
+	// And init then creates the board branch beside the other one.
+	if err := InitBoard(context.Background(), memory.NewStorage(), remote, Options{Committer: serverID}, "b"); err != nil {
+		t.Fatalf("init beside another branch: %v", err)
+	}
+	if _, err := Clone(context.Background(), memory.NewStorage(), remote, Options{Committer: serverID}, 0); err != nil {
+		t.Fatalf("clone after init: %v", err)
+	}
+}
