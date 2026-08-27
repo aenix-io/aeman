@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,9 +25,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aenix-io/aeman/internal/ghcli"
+	"github.com/aenix-io/aeman/internal/migrate"
 	"github.com/aenix-io/aeman/internal/server"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/ghprojects"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 	"github.com/aenix-io/aeman/pkg/mcpserver"
 )
@@ -72,6 +75,8 @@ func run(args []string) error {
 		return runMCP(args[1:])
 	case "init":
 		return runInit(args[1:])
+	case "migrate":
+		return runMigrate(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println("aeman", version)
 		return nil
@@ -90,6 +95,7 @@ Usage:
   aeman serve [flags]   Start the server and open the UI
   aeman mcp [flags]     Start the MCP server on stdio
   aeman init --repo URL Bootstrap an empty repository as a board
+  aeman migrate [flags] Copy a GitHub Projects v2 board into a repository
   aeman version         Print the version
   aeman help            Show this help
 
@@ -283,6 +289,65 @@ func runInit(args []string) error {
 		return err
 	}
 	fmt.Printf("board initialised in %s\n", remote.URL)
+	return nil
+}
+
+// runMigrate copies a GitHub Projects v2 board into a repository: snapshot
+// as truth, events as history, verified, idempotent. The Projects board is
+// never written.
+func runMigrate(args []string) error {
+	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	owner := fs.String("owner", os.Getenv("AEMAN_OWNER"), "GitHub org/user that owns the Projects v2 board")
+	boardDefault, _ := strconv.Atoi(boardEnv())
+	number := fs.Int("board", boardDefault, "GitHub Project number of the board to copy")
+	title := fs.String("title", "aeman board", "the migrated board's title")
+	dryRun := fs.Bool("dry-run", false, "build and verify everything, push nothing")
+	force := fs.Bool("force", false, "write over a repository that already holds commits")
+	reportPath := fs.String("report", "", "write the report (and the id table) to this file")
+	gf := addGitFlags(fs, os.Getenv)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := gf.config()
+	if err != nil {
+		return err
+	}
+	if cfg == nil || *owner == "" || *number <= 0 {
+		return fmt.Errorf("migrate needs --owner, --board and --repo URL")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	tok, err := resolveGitHubToken(ctx)
+	if err != nil {
+		return err
+	}
+	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
+	if cfg.Token != "" {
+		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
+	}
+	rep, err := migrate.Run(ctx, ghprojects.New(tok), memory.NewStorage(), remote, migrate.Options{
+		Owner: *owner, Board: *number, Title: *title, Committer: cfg.Committer, DryRun: *dryRun, Force: *force,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Print(rep.String())
+	if *reportPath != "" {
+		var b strings.Builder
+		b.WriteString(rep.String())
+		b.WriteString("\nid table (old → new):\n")
+		keys := make([]string, 0, len(rep.IDMap))
+		for k := range rep.IDMap {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(&b, "%s %s\n", k, rep.IDMap[k])
+		}
+		if err := os.WriteFile(*reportPath, []byte(b.String()), 0o600); err != nil {
+			return fmt.Errorf("write report: %w", err)
+		}
+	}
 	return nil
 }
 
