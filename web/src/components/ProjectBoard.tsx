@@ -16,6 +16,7 @@ import { ZoomControl } from "./ZoomControl";
 import {
   MIN_COL_PX,
   type Zoom,
+  anchoredScroll,
   clampZoom,
   columnFactor,
   wheelZoom,
@@ -398,6 +399,20 @@ export function ProjectBoard({
     setResizing(null);
   };
 
+  // Where the scroller must land after the next zoom-driven re-layout, so the
+  // point under the cursor stays under it.
+  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const want = pendingScroll.current;
+    if (!el || !want) {
+      return;
+    }
+    pendingScroll.current = null;
+    el.scrollLeft = want.left;
+    el.scrollTop = want.top;
+  }, [zoom]);
+
   // Ctrl/Cmd + wheel zooms the board. Both axes move by the same step from
   // wherever they are, so the two sliders keep their offset; the browser's
   // own page zoom is what the modifier would otherwise do, hence preventing
@@ -412,7 +427,18 @@ export function ProjectBoard({
         return;
       }
       e.preventDefault();
-      setZoom(wheelZoom(zoomRef.current, e.deltaY));
+      const was = zoomRef.current;
+      const next = wheelZoom(was, e.deltaY);
+      // Zoom around the cursor: work out where the board must be scrolled to
+      // leave the point under the pointer where it is, and apply it AFTER the
+      // grid has been re-laid — a scroll set against the old size is clamped
+      // to it, which is what makes a naive version drift.
+      const box = el.getBoundingClientRect();
+      pendingScroll.current = {
+        left: anchoredScroll(el.scrollLeft, e.clientX - box.left, 54, next.x / was.x),
+        top: anchoredScroll(el.scrollTop, e.clientY - box.top, HEADER_PX, next.y / was.y),
+      };
+      setZoom(next);
     };
     // Not passive: the whole point is to take the gesture from the browser.
     el.addEventListener("wheel", onWheel, { passive: false });

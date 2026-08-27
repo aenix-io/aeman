@@ -6,6 +6,7 @@ import {
   clampZoom,
   columnFactor,
   wheelZoom,
+  anchoredScroll,
 } from "./projectZoom";
 
 describe("clampZoom", () => {
@@ -51,5 +52,36 @@ describe("columnFactor", () => {
     const f = columnFactor(10, 140);
     expect(f).not.toBeNull();
     expect(140 * (f as number)).toBeGreaterThanOrEqual(60);
+  });
+});
+
+// Zooming around the cursor: the point of the board under the pointer must
+// still be under it afterwards, or the board slides out from under the hand.
+// Only the cells scale — the date column on the left and the header row on
+// top keep their size — so the fixed part is subtracted before scaling and
+// added back after.
+describe("anchoredScroll", () => {
+  it("keeps the point under the cursor still", () => {
+    // 200px into the content, gutter 54, scaled 2x: that point moves to
+    // 54 + (200-54)*2 = 346, so the scroll must grow by the same 146.
+    expect(anchoredScroll(0, 200, 54, 2)).toBeCloseTo(146);
+  });
+
+  it("does not move when the zoom does not change", () => {
+    expect(anchoredScroll(120, 300, 54, 1)).toBeCloseTo(120);
+  });
+
+  it("leaves a cursor over the gutter alone", () => {
+    expect(anchoredScroll(0, 30, 54, 2)).toBe(0);
+  });
+
+  it("never scrolls to a negative offset", () => {
+    expect(anchoredScroll(0, 60, 54, 0.5)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("works from a board already scrolled", () => {
+    // content point = 500 + 100 = 600; scaled: 54 + (600-54)*1.5 = 873;
+    // the cursor stays 100 from the edge, so the scroll is 773.
+    expect(anchoredScroll(500, 100, 54, 1.5)).toBeCloseTo(773);
   });
 });

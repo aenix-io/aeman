@@ -4258,50 +4258,106 @@ button.card-age {
 /* ---- Project board zoom ------------------------------------------------ */
 
 /* The scale sits at the right end of the board's toolbar, beside the project
-   chips: two thin sliders and the reading between them. */
+   chips: one line, with a handle on either side of it. */
 .zoom-control {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-left: auto;
 }
 
-.zoom-sliders {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* Both sliders ride the SAME line: the track is drawn once, here, and each
+   input contributes only its handle. */
+.zoom-track {
+  position: relative;
+  width: 92px;
+  height: 22px;
+}
+
+.zoom-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  background: var(--line);
 }
 
 .zoom-slider {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 11px;
+  margin: 0;
+  padding: 0;
   -webkit-appearance: none;
   appearance: none;
-  width: 86px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--line);
+  background: none;
   cursor: ew-resize;
 }
 
+/* Column width above the line, row height below it. */
+.zoom-slider-x {
+  top: 0;
+}
+
+.zoom-slider-y {
+  bottom: 0;
+}
+
+.zoom-slider::-webkit-slider-runnable-track,
+.zoom-slider::-moz-range-track {
+  height: 11px;
+  background: none;
+  border: 0;
+}
+
+/* A pentagon with its point at the line it belongs to: the top handle points
+   down, the bottom one up, so which slider is which is read from the shape
+   rather than from a label. */
 .zoom-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--ink-3, var(--muted));
+  width: 11px;
+  height: 11px;
+  background: var(--muted);
+  border: 0;
   cursor: ew-resize;
 }
 
 .zoom-slider::-moz-range-thumb {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
+  background: var(--muted);
   border: 0;
-  border-radius: 50%;
-  background: var(--ink-3, var(--muted));
   cursor: ew-resize;
 }
 
-.zoom-slider:hover::-webkit-slider-thumb {
+.zoom-slider-x::-webkit-slider-thumb {
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+}
+
+.zoom-slider-x::-moz-range-thumb {
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+}
+
+.zoom-slider-y::-webkit-slider-thumb {
+  clip-path: polygon(50% 0, 100% 45%, 100% 100%, 0 100%, 0 45%);
+}
+
+.zoom-slider-y::-moz-range-thumb {
+  clip-path: polygon(50% 0, 100% 45%, 100% 100%, 0 100%, 0 45%);
+}
+
+.zoom-slider:hover::-webkit-slider-thumb,
+.zoom-slider:focus-visible::-webkit-slider-thumb {
+  background: var(--accent);
+}
+
+.zoom-slider:hover::-moz-range-thumb,
+.zoom-slider:focus-visible::-moz-range-thumb {
   background: var(--accent);
 }
 
@@ -4337,7 +4393,6 @@ button.card-age {
 
 .project-cols-reset {
   padding: 0 3px;
-  font-size: 10px;
   line-height: 1;
   color: var(--ink-3, var(--muted));
   background: none;

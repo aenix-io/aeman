@@ -5,19 +5,16 @@ interface ZoomControlProps {
   onChange: (z: Zoom) => void;
 }
 
-/** ZoomControl is the board's scale, as two thin sliders stacked around a
- *  reading of the current size: the top one widens the columns, the bottom one
- *  heightens the rows, and the button between puts both back to 100%. The same
- *  scale answers Ctrl/Cmd + wheel over the board, which moves both at once. */
+/** ZoomControl is the board's scale: one line with a handle on either side of
+ *  it — above for column width, below for row height — each pointing at the
+ *  line it rides. The reading beside them puts both back to 100%. Ctrl/Cmd +
+ *  wheel over the board moves both at once, around the cursor. */
 export function ZoomControl({ zoom, onChange }: ZoomControlProps) {
   const at100 = Math.abs(zoom.x - 1) < 0.005 && Math.abs(zoom.y - 1) < 0.005;
-  const slider = (
-    axis: "x" | "y",
-    label: string,
-  ) => (
+  const slider = (axis: "x" | "y", label: string) => (
     <input
       type="range"
-      className="zoom-slider"
+      className={`zoom-slider zoom-slider-${axis}`}
       min={MIN_ZOOM}
       max={MAX_ZOOM}
       step={0.05}
@@ -29,8 +26,9 @@ export function ZoomControl({ zoom, onChange }: ZoomControlProps) {
   );
 
   return (
-    <div className="zoom-control" title="Ctrl/Cmd + scroll over the board zooms both">
-      <div className="zoom-sliders">
+    <div className="zoom-control" title="Ctrl/Cmd + scroll over the board zooms around the cursor">
+      <div className="zoom-track">
+        <div className="zoom-line" />
         {slider("x", "Column width")}
         {slider("y", "Row height")}
       </div>

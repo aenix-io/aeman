@@ -45,3 +45,30 @@ export function columnFactor(widthPx: number, sharedPx: number): number | null {
   const factor = Math.max(floor, widthPx / sharedPx);
   return Math.abs(factor - 1) < SNAP ? null : factor;
 }
+
+/** anchoredScroll keeps the point under the cursor where it is while the board
+ *  scales around it.
+ *
+ *  Only the cells scale: the date column on the left and the header row on top
+ *  keep their size whatever the zoom, so `fixed` is subtracted before scaling
+ *  and added back after. A cursor over that fixed part has nothing to anchor —
+ *  the scroll stays put.
+ *
+ *  @param scroll  the scroller's current offset
+ *  @param cursor  the cursor's distance from the scroller's own edge
+ *  @param fixed   the gutter that does not scale (54px column, 26px header)
+ *  @param k       the scale change — new zoom over old
+ */
+export function anchoredScroll(
+  scroll: number,
+  cursor: number,
+  fixed: number,
+  k: number,
+): number {
+  const point = scroll + cursor;
+  if (point <= fixed) {
+    return scroll;
+  }
+  const scaled = fixed + (point - fixed) * k;
+  return Math.max(0, scaled - cursor);
+}
