@@ -336,7 +336,7 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 	now := b.now()
 	id := in.ItemID // the cache may have minted it already, so it can hand it out at once
 	if id == "" {
-		id = NewID(now)
+		id = MintID(in, now)
 	}
 	created := now.UTC().Format(time.RFC3339)
 	s, err := b.snapshot(ctx)

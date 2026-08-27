@@ -31,6 +31,42 @@ func newBackend(t *testing.T) (*Backend, *Repo) {
 
 func ctxAs(login string) context.Context { return board.WithActor(context.Background(), login) }
 
+// An iteration's id is deterministic — a ULID whose time is the due week's
+// Monday and whose random bits hash the task and the week — so two replicas
+// sweeping the same due task write the SAME path, and the loser's create is
+// a no-op on re-apply (G11); everything else gets a fresh id.
+func TestCreateIterationIDIsDeterministic(t *testing.T) {
+	a, _ := newBackend(t)
+	b, _ := newBackend(t)
+	ctx := ctxAs("aeman")
+	in := board.CreateInput{Title: "weekly turn", Team: "portal", Task: "01TASK0000000000000000000A", Week: "2026-08-24", Plan: board.PlanFri}
+	ba, _ := a.LoadBoard(ctx, "x", 1)
+	bb, _ := b.LoadBoard(ctx, "x", 1)
+	ca, err := a.CreateCard(ctx, ba, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb, err := b.CreateCard(ctx, bb, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ca.ItemID != cb.ItemID || ca.ItemID != IterationID(in.Task, in.Week) {
+		t.Fatalf("iteration ids %s / %s, want both = %s", ca.ItemID, cb.ItemID, IterationID(in.Task, in.Week))
+	}
+	if got, _ := IDTime(ca.ItemID); got.Format("2006-01-02") != "2026-08-24" {
+		t.Fatalf("iteration id time = %v, want the week's Monday", got)
+	}
+	if IterationID(in.Task, "2026-08-31") == ca.ItemID || IterationID("01TASK0000000000000000000B", in.Week) == ca.ItemID {
+		t.Fatal("another week or task must not collide")
+	}
+	// A caller's explicit id still wins, and a plain card is never derived.
+	other, _ := a.CreateCard(ctx, ba, board.CreateInput{Title: "plain", Team: "portal"})
+	again, _ := a.CreateCard(ctx, ba, board.CreateInput{Title: "plain", Team: "portal"})
+	if other.ItemID == again.ItemID {
+		t.Fatal("plain cards must get fresh ids")
+	}
+}
+
 func TestBackendLoadBoardFromFiles(t *testing.T) {
 	be, _ := newBackend(t)
 	b, err := be.LoadBoard(context.Background(), "acme", 7)

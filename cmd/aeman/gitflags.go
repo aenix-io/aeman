@@ -152,7 +152,7 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 	if cfg.History, err = parseSpan(g.pick(g.history, "AEMAN_HISTORY", "8w")); err != nil {
 		return nil, fmt.Errorf("--history: %w", err)
 	}
-	if _, err = parseSpan(g.pick(g.historyMax, "AEMAN_HISTORY_MAX", "365d")); err != nil {
+	if cfg.HistoryMax, err = parseSpan(g.pick(g.historyMax, "AEMAN_HISTORY_MAX", "365d")); err != nil {
 		return nil, fmt.Errorf("--history-max: %w", err)
 	}
 	if cfg.SyncInterval, err = parseSpan(g.pick(g.syncInterval, "AEMAN_SYNC_INTERVAL", "15s")); err != nil {

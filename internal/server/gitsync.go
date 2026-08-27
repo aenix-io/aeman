@@ -13,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
@@ -38,7 +39,9 @@ type gitOptions struct {
 	// MaintainEvery is the maintenance cadence — repack, and the removal of
 	// torn-move ghosts whose destination has landed; zero disables it.
 	MaintainEvery time.Duration
-	Logger        *slog.Logger
+	// HistoryMax caps on-demand deepening for a card's log; zero disables it.
+	HistoryMax time.Duration
+	Logger     *slog.Logger
 }
 
 // gitDomain is one of the board's repositories and where it pushes.
@@ -49,10 +52,11 @@ type gitDomain struct {
 
 // gitSync is the per-store sync state.
 type gitSync struct {
-	domains   []gitDomain // primary first
-	mb        *gitstore.MultiBackend
-	pushDelay time.Duration
-	log       *slog.Logger
+	domains    []gitDomain // primary first
+	mb         *gitstore.MultiBackend
+	pushDelay  time.Duration
+	historyMax time.Duration
+	log        *slog.Logger
 
 	// applyMu serializes the queue's commits with the sync's resets and
 	// replays: a group in flight finishes its commit before a rebase moves
@@ -82,7 +86,7 @@ func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *sto
 	be := &storeBackend{
 		inner: mb,
 		store: store,
-		git:   &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, log: opts.Logger},
+		git:   &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, log: opts.Logger},
 	}
 	if opts.SyncInterval > 0 {
 		go be.runSync(context.Background(), opts.SyncInterval)
@@ -406,8 +410,8 @@ func (b *storeBackend) reloadFromTip(ctx context.Context, e *boardEntry) error {
 	return nil
 }
 
-// runSync is the fetch ticker: every interval, one sync cycle per known
-// board, until ctx ends.
+// runSync is the fetch ticker: every interval, one tick per known board,
+// until ctx ends.
 func (b *storeBackend) runSync(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		return
@@ -426,12 +430,64 @@ func (b *storeBackend) runSync(ctx context.Context, interval time.Duration) {
 			}
 			b.store.mu.Unlock()
 			for _, k := range keys {
-				if err := b.syncNow(ctx, k); err != nil && !errors.Is(err, context.Canceled) {
+				if err := b.tick(ctx, k); err != nil && !errors.Is(err, context.Canceled) {
 					b.git.log.Warn("sync", "board", k, "err", err)
 				}
 			}
 		}
 	}
+}
+
+// tick is one fetch-tick cycle for a board: sync, then file the week's due
+// process turns as the server identity — the sweep's home now that no
+// warmer rides anyone's session — then sync again so the turns land. Every
+// replica sweeps; the turns' ids are deterministic, so the second writer's
+// create is a no-op on re-apply and one turn exists (G11).
+func (b *storeBackend) tick(ctx context.Context, key string) error {
+	if err := b.syncNow(ctx, key); err != nil {
+		return err
+	}
+	n, err := b.sweepDue(ctx, key)
+	if err != nil {
+		return fmt.Errorf("sweep: %w", err)
+	}
+	if n == 0 {
+		return nil
+	}
+	b.git.log.Info("process turns filed", "board", key, "turns", n)
+	b.store.waitDrained(ctx)
+	return b.syncNow(ctx, key)
+}
+
+// sweepDue files the current week's due turns through the store, as the
+// server: one action, so they land as one commit.
+func (b *storeBackend) sweepDue(ctx context.Context, key string) (int, error) {
+	e := b.store.entry(key)
+	e.mu.Lock()
+	owner, number, loaded := e.board.Owner, e.board.Number, e.loaded
+	e.mu.Unlock()
+	if !loaded {
+		return 0, nil // nobody has asked for this board yet; the first read loads it
+	}
+	sctx := withAction(ctx, gitstore.NewID(time.Now()), "sweep")
+	return boardservice.New(b).SpawnDue(sctx, owner, number)
+}
+
+// deepenSince decides whether a card's log, cut at truncated, is worth
+// fetching more history for: back to the card's creation, never further
+// than maxBack before now, and not when the clone already reaches that far.
+func deepenSince(truncated, created time.Time, maxBack time.Duration, now time.Time) (time.Time, bool) {
+	if truncated.IsZero() || maxBack <= 0 || created.IsZero() || !created.Before(truncated) {
+		return time.Time{}, false
+	}
+	since := created
+	if floor := now.Add(-maxBack); since.Before(floor) {
+		since = floor
+	}
+	if !since.Before(truncated) {
+		return time.Time{}, false
+	}
+	return since, true
 }
 
 // runMaintain is the maintenance ticker: every interval, one pass per known
@@ -503,19 +559,38 @@ func (b *storeBackend) CardLog(ctx context.Context, bd board.Board, id string) (
 	if b.git == nil {
 		return nil, time.Time{}, nil
 	}
+	events, truncated, err := b.git.mb.CardLog(ctx, bd, id)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	// A log cut by the horizon deepens on demand, back to the card's
+	// creation and no further than --history-max, then reads again.
+	var created time.Time
+	for _, c := range bd.Cards {
+		if c.ItemID == id {
+			created, _ = time.Parse(time.RFC3339, c.CreatedAt)
+		}
+	}
+	since, ok := deepenSince(truncated, created, b.git.historyMax, time.Now())
+	if !ok {
+		return events, truncated, nil
+	}
+	for _, d := range b.git.domains {
+		if err := d.Repo.DeepenSince(ctx, d.remote, since); err != nil {
+			b.git.log.Warn("history deepen for a log failed", "domain", d.Name, "err", err)
+			return events, truncated, nil
+		}
+	}
 	return b.git.mb.CardLog(ctx, bd, id)
 }
 
-// mintID is the id a create hands out before its write lands.
-func (b *storeBackend) mintID() string {
-	return gitstore.NewID(time.Now())
-}
-
-// createMinted is the git path of CreateCard: the store mints the final id,
-// installs the card under it at once and queues the write — no provisional
-// id, nothing to alias later. The write joins its request's commit.
+// createMinted is the git path of CreateCard: the store mints the final id
+// — the same way the backend would, so an iteration's id is the
+// deterministic one — installs the card under it at once and queues the
+// write; no provisional id, nothing to alias later. The write joins its
+// request's commit.
 func (b *storeBackend) createMinted(ctx context.Context, bd board.Board, e *boardEntry, in board.CreateInput) (board.Card, error) {
-	in.ItemID = b.mintID()
+	in.ItemID = gitstore.MintID(in, time.Now())
 	card := cardFromInput(in, in.ItemID)
 	card.Author = board.ActorFrom(ctx)
 	card.CreatedAt = time.Now().UTC().Format(time.RFC3339)

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // Ids are ULIDs: a 48-bit millisecond timestamp then 80 random bits, in 26
@@ -18,6 +20,29 @@ const crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 // ErrBadIDFormat is returned for a string that is not a ULID.
 var ErrBadIDFormat = errors.New("gitstore: not a ulid")
+
+// IterationID is the deterministic id of a process turn: a ULID whose time
+// is the due week's Monday and whose random bits hash the task and the
+// week. Two replicas sweeping the same due task write the SAME path, so the
+// loser's create is a no-op on re-apply (G11) and one turn exists.
+func IterationID(task, week string) string {
+	monday, err := time.Parse("2006-01-02", week)
+	if err != nil {
+		monday = time.Now()
+	}
+	return DeriveID(monday.UTC(), "iteration", task, week)
+}
+
+// MintID is the id a create gets when the caller brings none: a turn's
+// deterministic id, a fresh one for everything else. The cache and the
+// backend both mint this way, so the id handed out before the write lands
+// is the id the file gets.
+func MintID(in board.CreateInput, now time.Time) string {
+	if in.Task != "" && in.Week != "" {
+		return IterationID(in.Task, in.Week)
+	}
+	return NewID(now)
+}
 
 // NewID mints an id for the given moment with random tail bits.
 func NewID(t time.Time) string {

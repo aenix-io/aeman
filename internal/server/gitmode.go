@@ -45,6 +45,10 @@ type GitConfig struct {
 	DataDir string
 	// History is the background deepening horizon; zero disables it.
 	History time.Duration
+	// HistoryMax caps on-demand deepening — a card's log cut by the horizon
+	// fetches back to the card's creation, but never further than this.
+	// Zero means no on-demand deepening.
+	HistoryMax time.Duration
 	// SyncInterval is the fetch cadence; zero disables the ticker.
 	SyncInterval time.Duration
 	// UnpushedWarn is the age of the oldest unpushed commit that turns
@@ -164,7 +168,8 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		}
 		domains = append(domains, gitDomain{Domain: gitstore.Domain{Name: spec.Name, Repo: repo}, remote: remote})
 	}
-	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval, MaintainEvery: 24 * time.Hour, Logger: log}), nil
+	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval,
+		MaintainEvery: 24 * time.Hour, HistoryMax: cfg.HistoryMax, Logger: log}), nil
 }
 
 func initHint(url string) error {

@@ -139,6 +139,129 @@ func TestCardLogFromCommits(t *testing.T) {
 	}
 }
 
+// processRemote seeds a board with the process "weekly" and one task due
+// every week from this week's Monday, owned by kvaps.
+func processRemote(t *testing.T, remote gitstore.Remote) (taskID, monday string) {
+	t.Helper()
+	monday = board.MondayOf(board.TodayIso())
+	taskID = "01JB4TASK0000000000000000A"
+	seedRemoteFiles(t, remote, map[string]string{
+		gitstore.BoardPath:                      "schema: 1\ntitle: t\n",
+		gitstore.TeamPath("_"):                  "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		gitstore.TeamPath("01JB4TEAM"):          "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: " + monday + "\n",
+		gitstore.ProcessPath("01JB4PROCWEEKLY"): "name: weekly\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		// A task's name is the first line of its body, marked — the title
+		// field is the marker that hides it from the card rows.
+		gitstore.TaskPath("01JB4PROCWEEKLY", taskID): "---\ntitle: aeman:process-task\nteam: portal\nassignees: [kvaps]\nrecurrence: week\nstart: " + monday + "\nrank: a\ncreated: 2026-06-01T08:00:00Z\n---\n\n# weekly report\n",
+	})
+	return taskID, monday
+}
+
+// The process sweep rides the fetch tick, as the server identity: after a
+// sync, the week's due turns are filed through the store — one action, one
+// commit, pushed — with deterministic ids, so a second replica sweeping the
+// same minute writes the same path and its create is dropped on re-apply:
+// one iteration on the remote, not two.
+func TestSweepOnFetchTickFilesThisWeeksTurnsOnce(t *testing.T) {
+	remote := gitRemote(t)
+	taskID, monday := processRemote(t, remote)
+	a, _ := gitStore(t, remote)
+	b, _ := gitStore(t, remote)
+	ctx := context.Background()
+	if _, err := a.LoadBoard(ctx, "acme", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.LoadBoard(ctx, "acme", 1); err != nil {
+		t.Fatal(err)
+	}
+	want := gitstore.IterationID(taskID, monday)
+	if err := a.tick(ctx, "acme/1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.tick(ctx, "acme/1"); err != nil {
+		t.Fatal(err)
+	}
+	for name, be := range map[string]*storeBackend{"a": a, "b": b} {
+		bd, _ := be.LoadBoard(ctx, "acme", 1)
+		turns := board.Iterations(bd, taskID)
+		if len(turns) != 1 || turns[0].ItemID != want || turns[0].Week != monday {
+			t.Fatalf("%s serves %d turn(s) %+v, want one with id %s", name, len(turns), turns, want)
+		}
+		if n, _ := be.git.primary().Unpushed(); n != 0 {
+			t.Fatalf("%s left %d unpushed commit(s) after the tick", name, n)
+		}
+	}
+	check, err := gitstore.Clone(ctx, memory.NewStorage(), remote, gitTestOpts, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := gitstore.CardPath(want)
+	data, err := check.ReadFile(p)
+	if err != nil {
+		t.Fatalf("the turn is not on the remote: %v", err)
+	}
+	if !strings.Contains(string(data), "task: "+taskID) || !strings.Contains(string(data), "week: "+monday) {
+		t.Fatalf("turn file:\n%s", data)
+	}
+	c, _ := check.CommitObject(check.Head())
+	if tr := gitstore.ParseTrailers(c.Message); tr.Action != "sweep" || tr.Actor != "" {
+		t.Fatalf("sweep commit trailers = %+v, want action sweep by the server", tr)
+	}
+	// Another tick files nothing new.
+	if err := a.tick(ctx, "acme/1"); err != nil {
+		t.Fatal(err)
+	}
+	if bd, _ := a.LoadBoard(ctx, "acme", 1); len(board.Iterations(bd, taskID)) != 1 {
+		t.Fatal("a second tick filed another turn")
+	}
+}
+
+// The per-board warmer is GitHub's: in git mode the fetch tick keeps the
+// cache current and the sweep has its own home, so no warmer starts.
+func TestNoWarmerInGitMode(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	be, _ := gitStore(t, remote)
+	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
+		t.Fatal(err)
+	}
+	e := be.store.entry("acme/1")
+	e.mu.Lock()
+	warming := e.warming
+	e.mu.Unlock()
+	if warming {
+		t.Fatal("a warmer started for a git board")
+	}
+}
+
+// On-demand deepening: a log cut by the horizon deepens to the card's
+// creation, bounded by --history-max; a log that reaches the card's creation
+// needs nothing; a card older than the cap deepens to the cap.
+func TestDeepenSinceDecision(t *testing.T) {
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	horizon := now.Add(-8 * 7 * 24 * time.Hour)
+	maxBack := 365 * 24 * time.Hour
+	if _, ok := deepenSince(time.Time{}, now.Add(-100*24*time.Hour), maxBack, now); ok {
+		t.Fatal("a whole history needs no deepening")
+	}
+	if _, ok := deepenSince(horizon, horizon.Add(24*time.Hour), maxBack, now); ok {
+		t.Fatal("a card created inside the horizon needs no deepening")
+	}
+	created := now.Add(-200 * 24 * time.Hour)
+	since, ok := deepenSince(horizon, created, maxBack, now)
+	if !ok || !since.Equal(created) {
+		t.Fatalf("deepen to the card's creation: %v %v", since, ok)
+	}
+	ancient := now.Add(-3 * 365 * 24 * time.Hour)
+	since, ok = deepenSince(horizon, ancient, maxBack, now)
+	if !ok || !since.Equal(now.Add(-maxBack)) {
+		t.Fatalf("deepen to the cap: %v %v", since, ok)
+	}
+	if _, ok := deepenSince(now.Add(-maxBack), ancient, maxBack, now); ok {
+		t.Fatal("already at the cap: nothing more to fetch")
+	}
+}
+
 // G18 through the server — a repository written by an older server is
 // brought to the current schema at start-up, in one commit, before it is
 // served.

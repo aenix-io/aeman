@@ -1127,6 +1127,9 @@ func storeKeyOf(s *boardStore, e *boardEntry) string {
 // access-gone answer, end the loop. The next user-driven load restarts it.
 // Single-flight per entry via e.warming.
 func (b *storeBackend) ensureWarm(e *boardEntry, owner string, project int) {
+	if b.git != nil {
+		return // the fetch tick keeps a git board current and files its turns
+	}
 	e.mu.Lock()
 	if e.warming || e.warmSrc == nil {
 		e.mu.Unlock()
