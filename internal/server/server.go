@@ -355,6 +355,24 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		if age > s.unpushedWarn() {
 			resp["status"] = "degraded"
 		}
+		// What the merge of the domains had to resolve: duplicate roster
+		// names (a maintainer merges them by hand) and torn-move ghosts
+		// (maintenance removes them once the destination has landed).
+		aliases, ghosts := s.gitBE.git.mb.Issues()
+		if len(aliases) > 0 {
+			list := make([]map[string]string, 0, len(aliases))
+			for _, a := range aliases {
+				list = append(list, map[string]string{"kind": a.Kind, "name": a.Name, "domain": a.Domain, "id": a.ID, "winner": a.Winner})
+			}
+			resp["aliases"] = list
+		}
+		if len(ghosts) > 0 {
+			list := make([]map[string]string, 0, len(ghosts))
+			for _, g := range ghosts {
+				list = append(list, map[string]string{"id": g.ID, "domain": g.Domain, "current": g.Current})
+			}
+			resp["ghosts"] = list
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

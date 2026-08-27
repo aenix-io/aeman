@@ -129,8 +129,13 @@ func older(aCreated, aID, bCreated, bID string) bool {
 
 func mergeTeams(parts []Snapshot, aliases []Alias) ([]Team, []Alias) {
 	byName := map[string]Team{}
-	for _, p := range parts {
+	for i, p := range parts {
 		for _, t := range p.Teams {
+			if t.Name == "" && i > 0 {
+				// The no-team group is the primary's; `aeman init` writes a
+				// `_` file into every repository and those are not aliases.
+				continue
+			}
 			prev, seen := byName[t.Name]
 			if !seen {
 				byName[t.Name] = t

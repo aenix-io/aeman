@@ -49,6 +49,134 @@ func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 	}
 }
 
+// seedRemoteFiles pushes an arbitrary set of files as one import commit.
+func seedRemoteFiles(t *testing.T, remote gitstore.Remote, files map[string]string) {
+	t.Helper()
+	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes := make([]gitstore.FileWrite, 0, len(files))
+	for p, data := range files {
+		writes = append(writes, gitstore.FileWrite{Path: p, Data: []byte(data)})
+	}
+	if _, err := r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, writes); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Push(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// tornMoveRemotes seed a shared and a closed domain with the team "portal"
+// declared in both (the closed one older: an alias in shared) and the card
+// A1 present in both, the closed copy saying it moved from shared (a ghost
+// in shared).
+func tornMoveRemotes(t *testing.T) (gitstore.Remote, gitstore.Remote) {
+	t.Helper()
+	shared, closed := gitRemoteN(t, "shared"), gitRemoteN(t, "closed")
+	seedRemoteFiles(t, shared, map[string]string{
+		gitstore.BoardPath:                        "schema: 1\ntitle: t\n",
+		gitstore.TeamPath("_"):                    "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		gitstore.TeamPath("01JB4TEAMNEW"):         "name: portal\nrank: b\ncreated: 2026-07-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
+		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+	})
+	seedRemoteFiles(t, closed, map[string]string{
+		gitstore.BoardPath:                        "schema: 1\ntitle: closed\n",
+		gitstore.TeamPath("01JB4TEAMOLD"):         "name: portal\nrank: z\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
+		gitstore.ProjectPath("01JB4PROJSECRET"):   "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nproject: secret\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+	})
+	return shared, closed
+}
+
+// G18 through the server — a repository written by an older server is
+// brought to the current schema at start-up, in one commit, before it is
+// served.
+func TestGitModeMigratesOlderSchemaAtStartup(t *testing.T) {
+	remote := gitRemote(t)
+	seedRemoteFiles(t, remote, map[string]string{
+		gitstore.BoardPath:     "title: old\n",
+		gitstore.TeamPath("_"): "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+	})
+	srv := gitModeServer(t, remote)
+	primary := srv.gitBE.git.primary()
+	data, err := primary.ReadFile(gitstore.BoardPath)
+	if err != nil || !strings.Contains(string(data), "schema: 1") || !strings.Contains(string(data), "title: old") {
+		t.Fatalf("board.yaml after start-up = %q (%v)", data, err)
+	}
+	c, _ := primary.CommitObject(primary.Head())
+	if gitstore.ParseTrailers(c.Message).Action != "schema" {
+		t.Fatalf("head commit = %q, want the schema migration", c.Message)
+	}
+	if rec := do(t, srv, "GET", "/api/v1/board", ""); rec.Code != 200 {
+		t.Fatalf("GET /board after migration: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Health names what the merge had to resolve: the alias team and the ghost.
+func TestHealthzReportsAliasesAndGhosts(t *testing.T) {
+	shared, closed := tornMoveRemotes(t)
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"bob": rightsOn([]string{"shared", "closed"}, []string{"shared", "closed"})}}, shared, closed)
+	if rec := doAs(t, srv, "bob", "GET", "/api/v1/board", ""); rec.Code != 200 {
+		t.Fatalf("GET /board: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := do(t, srv, "GET", "/api/healthz", "")
+	body := rec.Body.String()
+	for _, want := range []string{`"aliases"`, `"portal"`, `"01JB4TEAMNEW"`, `"ghosts"`, `"01JB4K2E7QZMX3R8V0N5T9WYA1"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("healthz lacks %s: %s", want, body)
+		}
+	}
+}
+
+// G22 — the maintenance tick removes a torn move's ghost once the destination
+// has landed, commits the removal in the ghost's domain and pushes it; the
+// board keeps serving the card once, from its current domain.
+func TestMaintenanceSweepsGhosts(t *testing.T) {
+	shared, closed := tornMoveRemotes(t)
+	be := gitStoreOver(t, shared, closed)
+	ctx := context.Background()
+	if _, err := be.LoadBoard(ctx, "acme", 1); err != nil {
+		t.Fatal(err)
+	}
+	n, err := be.maintainNow(ctx, "acme/1")
+	if err != nil || n != 1 {
+		t.Fatalf("swept %d (%v), want 1", n, err)
+	}
+	p, _ := gitstore.CardPath("01JB4K2E7QZMX3R8V0N5T9WYA1")
+	if _, err := be.git.domains[0].Repo.ReadFile(p); err == nil {
+		t.Fatal("ghost still in the shared clone")
+	}
+	if n, _ := be.git.domains[0].Repo.Unpushed(); n != 0 {
+		t.Fatalf("the sweep left %d unpushed commit(s): maintenance must push what it removed", n)
+	}
+	check, err := gitstore.Clone(ctx, memory.NewStorage(), shared, gitTestOpts, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := check.ReadFile(p); err == nil {
+		t.Fatal("ghost still on the shared remote")
+	}
+	bd, _ := be.LoadBoard(ctx, "acme", 1)
+	count := 0
+	for _, c := range bd.Cards {
+		if c.ItemID == "01JB4K2E7QZMX3R8V0N5T9WYA1" {
+			count++
+			if c.Domain != "closed" {
+				t.Fatalf("card served from %q after the sweep", c.Domain)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("card served %d times after the sweep", count)
+	}
+	// Nothing left: the next tick is a no-op.
+	if n, _ := be.maintainNow(ctx, "acme/1"); n != 0 {
+		t.Fatalf("second sweep removed %d", n)
+	}
+}
+
 // gitStoreOver is one replica over several remotes, primary first, named
 // shared / closed / third.
 func gitStoreOver(t *testing.T, remotes ...gitstore.Remote) *storeBackend {

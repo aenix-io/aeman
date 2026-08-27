@@ -35,7 +35,10 @@ type gitOptions struct {
 	// SyncInterval is the fetch cadence; zero disables the ticker (tests
 	// drive syncNow by hand).
 	SyncInterval time.Duration
-	Logger       *slog.Logger
+	// MaintainEvery is the maintenance cadence — repack, and the removal of
+	// torn-move ghosts whose destination has landed; zero disables it.
+	MaintainEvery time.Duration
+	Logger        *slog.Logger
 }
 
 // gitDomain is one of the board's repositories and where it pushes.
@@ -83,6 +86,9 @@ func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *sto
 	}
 	if opts.SyncInterval > 0 {
 		go be.runSync(context.Background(), opts.SyncInterval)
+	}
+	if opts.MaintainEvery > 0 {
+		go be.runMaintain(context.Background(), opts.MaintainEvery)
 	}
 	return be
 }
@@ -426,6 +432,68 @@ func (b *storeBackend) runSync(ctx context.Context, interval time.Duration) {
 			}
 		}
 	}
+}
+
+// runMaintain is the maintenance ticker: every interval, one pass per known
+// board.
+func (b *storeBackend) runMaintain(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			b.store.mu.Lock()
+			keys := make([]string, 0, len(b.store.entries))
+			for k := range b.store.entries {
+				keys = append(keys, k)
+			}
+			b.store.mu.Unlock()
+			for _, k := range keys {
+				if _, err := b.maintainNow(ctx, k); err != nil && !errors.Is(err, context.Canceled) {
+					b.git.log.Warn("maintenance", "board", k, "err", err)
+				}
+			}
+		}
+	}
+}
+
+// maintainNow is one maintenance pass: the stale copies of torn moves whose
+// destination has landed are removed (G22) — one commit per domain, pushed
+// at once — and the clones are repacked. It returns how many ghosts went.
+func (b *storeBackend) maintainNow(ctx context.Context, key string) (int, error) {
+	g := b.git
+	g.applyMu.Lock()
+	landed := func(domain string) bool {
+		for _, d := range g.domains {
+			if d.Name == domain {
+				n, err := d.Repo.Unpushed()
+				return err == nil && n == 0
+			}
+		}
+		return false
+	}
+	swept, err := g.mb.SweepGhosts(ctx, landed)
+	if err == nil {
+		for _, d := range g.domains {
+			if merr := d.Repo.Maintain(); merr != nil {
+				g.log.Warn("repack failed", "domain", d.Name, "err", merr)
+			}
+		}
+	}
+	g.applyMu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	if swept == 0 {
+		return 0, nil
+	}
+	g.log.Info("maintenance removed torn-move ghosts", "count", swept)
+	if err := b.reloadFromTip(ctx, b.store.entry(key)); err != nil {
+		return swept, err
+	}
+	return swept, b.syncNow(ctx, key)
 }
 
 // mintID is the id a create hands out before its write lands.

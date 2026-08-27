@@ -145,6 +145,17 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		if err != nil {
 			return nil, err
 		}
+		if !repo.Head().IsZero() {
+			// G18: an older schema is brought up to date before anything is
+			// served; a newer one is refused right here.
+			migrated, err := gitstore.MigrateSchema(repo)
+			if err != nil {
+				return nil, fmt.Errorf("schema of %s: %w", spec.URL, err)
+			}
+			if migrated {
+				log.Info("repository schema migrated", "repo", spec.Name, "schema", gitstore.SchemaVersion)
+			}
+		}
 		if _, err := gitstore.Load(repo); err != nil {
 			if errors.Is(err, gitstore.ErrEmptyRepository) {
 				return nil, initHint(spec.URL)
@@ -153,7 +164,7 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		}
 		domains = append(domains, gitDomain{Domain: gitstore.Domain{Name: spec.Name, Repo: repo}, remote: remote})
 	}
-	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval, Logger: log}), nil
+	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval, MaintainEvery: 24 * time.Hour, Logger: log}), nil
 }
 
 func initHint(url string) error {

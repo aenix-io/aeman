@@ -273,6 +273,34 @@ func fileExists(r *Repo, p string) bool {
 	return err == nil
 }
 
+// Health learns what the merge had to resolve: duplicate roster names (G13)
+// and torn-move ghosts (G22), as of the last load.
+func TestMultiBackendIssuesReportAliasesAndGhosts(t *testing.T) {
+	shared := repoWith(t, map[string]string{
+		BoardPath:               "schema: 1\ntitle: b\n",
+		TeamPath("01T_NEWER"):   "name: portal\nrank: a\ncreated: 2026-07-01T08:00:00Z\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
+	})
+	closed := repoWith(t, map[string]string{
+		TeamPath("01T_OLDER"):   "name: portal\nrank: z\ncreated: 2026-06-01T08:00:00Z\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nproject: secret\nrank: a\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+	})
+	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}}, BackendOptions{})
+	if aliases, ghosts := mb.Issues(); aliases != nil || ghosts != nil {
+		t.Fatalf("issues before any load = %v / %v, want none yet", aliases, ghosts)
+	}
+	if _, err := mb.LoadBoard(context.Background(), "x", 1); err != nil {
+		t.Fatal(err)
+	}
+	aliases, ghosts := mb.Issues()
+	if len(aliases) != 1 || aliases[0].Kind != "team" || aliases[0].Name != "portal" || aliases[0].Domain != "shared" {
+		t.Fatalf("aliases = %+v", aliases)
+	}
+	if len(ghosts) != 1 || ghosts[0].ID != "01CARDA1" || ghosts[0].Domain != "shared" || ghosts[0].Current != "closed" {
+		t.Fatalf("ghosts = %+v", ghosts)
+	}
+}
+
 // LoadCards resolves a torn move like LoadAll does: the moved copy, not the
 // first domain's.
 func TestMultiBackendLoadCardsPrefersMovedCopy(t *testing.T) {

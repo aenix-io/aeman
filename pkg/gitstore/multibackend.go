@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -19,6 +20,12 @@ type MultiBackend struct {
 	domains  []Domain
 	backends map[string]*Backend
 	now      func() time.Time
+
+	// issues is what the last merge had to resolve — duplicate roster names
+	// and torn-move ghosts — for health to report.
+	mu      sync.Mutex
+	aliases []Alias
+	ghosts  []Ghost
 }
 
 // ErrUnknownDomain names a domain that is not part of the board.
@@ -51,7 +58,22 @@ func (mb *MultiBackend) backend(domain string) (*Backend, error) {
 }
 
 func (mb *MultiBackend) snapshot() (Snapshot, error) {
-	return LoadAll(mb.domains)
+	s, err := LoadAll(mb.domains)
+	if err != nil {
+		return s, err
+	}
+	mb.mu.Lock()
+	mb.aliases, mb.ghosts = s.Aliases, s.Ghosts
+	mb.mu.Unlock()
+	return s, nil
+}
+
+// Issues reports what the last load had to resolve: duplicate roster names
+// (G13) and torn-move ghosts (G22). Nil before any load.
+func (mb *MultiBackend) Issues() ([]Alias, []Ghost) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	return append([]Alias(nil), mb.aliases...), append([]Ghost(nil), mb.ghosts...)
 }
 
 // LoadBoard merges every domain into the board the service expects.

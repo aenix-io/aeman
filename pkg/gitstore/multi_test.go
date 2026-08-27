@@ -98,6 +98,30 @@ func TestLoadAllDuplicateNamesResolveToOldest(t *testing.T) {
 	}
 }
 
+// The no-team group belongs to the primary: a `_` fragment in another
+// domain — what `aeman init` writes for every repository — is ignored, not
+// an alias, however old it is.
+func TestLoadAllNoTeamFragmentOutsidePrimaryIgnored(t *testing.T) {
+	shared := repoWith(t, map[string]string{
+		BoardPath:     "schema: 1\ntitle: b\n",
+		TeamPath("_"): "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+	})
+	closed := repoWith(t, map[string]string{
+		BoardPath:     "schema: 1\ntitle: closed\n",
+		TeamPath("_"): "rank: a\ncreated: 2026-05-01T08:00:00Z\n",
+	})
+	s, err := LoadAll([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Teams) != 1 || s.Teams[0].Name != "" || s.Teams[0].Domain != "shared" {
+		t.Fatalf("teams = %+v, want the primary's no-team group only", s.Teams)
+	}
+	if len(s.Aliases) != 0 {
+		t.Fatalf("aliases = %+v, want none for a `_` fragment", s.Aliases)
+	}
+}
+
 // An alias project's columns and deadline lines show as the winner's.
 func TestLoadAllAliasProjectMergesColumns(t *testing.T) {
 	shared := repoWith(t, map[string]string{
