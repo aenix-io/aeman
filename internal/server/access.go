@@ -200,13 +200,19 @@ var errBadVisitorToken = errors.New("the forge rejected the visitor's token")
 // git@host:owner/repo.git and plain owner/repo all work.
 func repoSlug(repoURL string) (string, error) {
 	s := strings.TrimSuffix(strings.TrimSuffix(repoURL, "/"), ".git")
+	hosted := false
 	if i := strings.Index(s, "://"); i >= 0 {
-		s = s[i+3:]
+		s = s[i+3:] // scheme://host/owner/repo — the host goes below
+		hosted = true
 	}
 	if i := strings.Index(s, ":"); i >= 0 && !strings.Contains(s[:i], "/") {
-		s = s[i+1:] // scp-like git@host:owner/repo
+		s = s[i+1:] // scp-like git@host:owner/repo — the host is gone already
+		hosted = false
 	}
 	parts := strings.Split(strings.Trim(s, "/"), "/")
+	if hosted && len(parts) > 0 {
+		parts = parts[1:]
+	}
 	if len(parts) < 2 || parts[len(parts)-1] == "" || parts[len(parts)-2] == "" {
 		return "", fmt.Errorf("repository url %q has no owner/repo", repoURL)
 	}
