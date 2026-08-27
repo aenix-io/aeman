@@ -49,29 +49,43 @@ which is where it already lives for the code.
 ### One axis of inheritance
 
 Every object lives in exactly one domain, and nothing is chosen per
-card. The domain of a card is decided by one rule, in this order:
+card. A card's domain is decided by one rule, evaluated in this order —
+**linked cards first**, because a linked card has no domain of its own:
 
-1. a card filed under a **project** (it has an epic column, or a
-   `project` without a column) lives where that project lives;
-2. otherwise it lives where its **team** lives (the no-team group is a
-   team for this purpose and lives in the primary domain);
-3. a **review card** lives where the card it reviews lives, whatever its
-   reviewer's team — a review is part of the reviewed work;
-4. a **subtask** lives where its parent lives;
-5. a process **iteration** lives where its task lives, which is where
-   the task's process lives, which is where that process's project
-   lives.
+1. a **review card** (`reviewOf` set) lives where the card it reviews
+   lives — a review is part of the reviewed work. Its `team` is the
+   original's team and its `project` is empty (`sendToReview`), which is
+   exactly why this rule must come before the team rule: a review of a
+   closed-project card would otherwise land in the shared team
+   repository;
+2. a **subtask** (`parent` set) lives where its parent lives, whatever
+   column it carries itself;
+3. a process **iteration** (`task` set) lives where its task lives,
+   which is where the task's process lives;
+4. an unlinked card filed under a **project** (an epic column, or a
+   `project` without one) lives where that project lives;
+5. any other card lives where its **team** lives (the no-team group is a
+   team for this purpose and lives in the primary domain).
 
 Project before team because that is what a closed project needs: a
 closed project's cards must not sit in a shared team repository, or the
 closed project is not closed. A project that owns a column is the unit
 of sensitivity; a team is an organizational unit that spans projects.
 
-Teams, projects, processes are declared in the domain the user picks
-when creating them — asked only when more than one writable domain
-exists, labelled by access ("shared — everyone", "closed — 4 people"),
-never by repository name. Epics and deadlines live with their project;
-tasks with their process.
+Teams and projects are declared in the domain the user picks when
+creating them — asked only when more than one writable domain exists,
+labelled by access ("shared — everyone", "closed — 4 people"), never by
+repository name. A **process** that belongs to a project lives with that
+project and asks nothing; a process without a project (allowed today,
+`AddProcess` takes an empty project) is declared like a team, in a
+picked domain. Epics and deadlines live with their project; tasks with
+their process.
+
+Teams normally live in the **primary** domain. A team declared in a
+closed domain is visible only to that domain's readers; the server,
+which reads every domain, still evaluates its sprint pointer for
+everyone's visibility rules, so filtering does not depend on who is
+looking.
 
 ### Moving between domains
 
@@ -79,20 +93,27 @@ A write that changes what rule 1–5 evaluates to — filing a team card
 under a closed project, taking a closed card out of its project, moving
 a team or a project to another domain — is a **move**. A move is not a
 rename inside one repository (there is no such thing across two); it is
-a delete in the old domain and a create in the new one, **with the same
-id**, in two commits that share one `Aeman-Action-Id` and carry
-`Aeman-Moved-To: <domain>` and `Aeman-Moved-From: <domain>`
-respectively. The card keeps its history: the log walker follows
+a create in the new domain and a delete in the old one, **with the same
+id**, in two commits that share one `Aeman-Action-Id`; the create
+carries `Aeman-Moved-From: <domain>`, the delete `Aeman-Moved-To:
+<domain>`. The card keeps its history: the log walker follows
 `Aeman-Moved-From` into the old domain (within the horizon) and shows
-one continuous log.
+one continuous log. A move of a card **cascades** to what rules 1–3 tie
+to it — its review card and its subtasks move with it, in the same
+action.
 
-A torn move — one push landed, the other not yet — leaves the card in
-two domains for a while. The reader resolves it by the trailers: a file
-whose domain a later `Aeman-Moved-To` points away from is a ghost and is
-hidden; the next maintenance tick deletes it once the destination has
-been pushed. A move never loses the card: until both commits are pushed,
-the cache is authoritative for every reader of this replica, and the
-local commits are on disk.
+**Create before delete, always.** The destination commit is written to
+disk first, then the source delete; a crash between the two leaves a
+duplicate, never a missing card. The moved file records where it came
+from in its front-matter — `movedFrom: <domain>`, `movedAt: <time>` —
+because state must be readable from the tree alone: a fresh depth-1
+clone has no commit history to consult. A torn move — one push landed,
+the other not yet — therefore resolves without history: a card present
+in two domains is current in the one whose file says `movedFrom: <the
+other>`, and the other file is a ghost, hidden by every reader and
+deleted by the next maintenance tick once the destination has been
+pushed. Until both commits are pushed, the cache is authoritative for
+every reader of this replica, and both commits are on disk.
 
 Mass moves (a team or a project to another domain) are one explicit
 action with one `Aeman-Action-Id` across two domains, never a drag.
@@ -108,8 +129,8 @@ Each link is closed by its own mechanism, so an orphan cannot be created:
 | link | how it stays inside |
 | --- | --- |
 | `parent`, `task`, `reviewOf` | the inheritance rule above places the child where the referenced card is |
-| the team's sprint pointer | lives in the team file; a card in another domain than its team is a project card and does not read it across the boundary — its sprint is its own `sprint` field, as today |
-| `mirrors` (when `feat/card-mirrors` lands) | a fourth guard in `boardservice.Mirror` after the three it has on that branch (column exists, not the card's own, not already mirrored): the target column must be in the same domain, `ErrCrossDomain` |
+| `team` on a project-domain card | the one reference that legitimately points across: a closed project's card names a team whose file lives in the primary. The **server** reads every domain, so the visibility rules (`CurrentSprint(b, team)` in `MeView`/`TeamGrid`, `sendToReview`, carry selection) see the pointer for everyone. For a **visitor**: the primary domain must be readable or there is no board at all (403 — `board.yaml` lives there); a card whose team file the visitor cannot read is still shown, under its team name, with the team's controls (sprint, carry) unavailable to that visitor |
+| `mirrors` (when `feat/card-mirrors` lands) | a guard in `boardservice.Mirror`: the target column must be in the same domain, `ErrCrossDomain`. The branch is not in this repository yet; the exact guard order is pinned when it lands |
 | the reviewer | not a stored link but a choice: the reviewer picker offers only people who can read the card's domain. You cannot review what you cannot see; the UI says so instead of failing later |
 
 Splitting goes by **sensitivity**, never by team or by project as such:
@@ -131,7 +152,8 @@ where the name already exists, can still race a duplicate into being.
 The reader resolves duplicates deterministically: the file with the
 oldest `created` is the team (or project, or process) — its rank and
 attributes win — and the others are **aliases** of it: their cards
-count as its cards, nothing is dropped. `/api/healthz` reports the
+count as its cards, an alias project's epics and deadlines show as the
+winner's columns and lines, nothing is dropped. `/api/healthz` reports the
 duplicates so a maintainer can merge them by hand; the server never
 renames or deletes on its own.
 
@@ -228,11 +250,17 @@ Rules:
   `locked|review|done|recurrent`), not display names. Derived states
   (In Progress, Done-by-100%) are **not stored**, exactly as today.
 - `doneFrom` is the progress the card had when a write took it to 100:
-  written by that write, cleared by a reopen. `Reopen` reads it — today
-  it walks the card's event log for the last jump to ≥100
-  (`service.go` `Reopen`), and a log behind a time horizon cannot be
-  relied on for a value the action depends on. Stored, it is
-  horizon-independent and costs nine bytes.
+  written by that write — the slider, or a review passing (`applyStage`
+  takes 90 → 100, so `doneFrom: 90`) — and cleared by a reopen. `Reopen`
+  reads it. Today it walks the card's event log for the last jump to
+  ≥100 (`service.go` `Reopen`), and a log behind a time horizon cannot
+  be relied on for a value the action depends on. Stored, it is
+  horizon-independent and costs nine bytes. The migration seeds it for
+  every card that is done at migration time, by the same walk `Reopen`
+  does today, so no card regresses to the nudge on its first reopen.
+- `movedFrom` / `movedAt` name the domain a card was moved out of and
+  when (see "Moving between domains"); absent on a card that never
+  moved.
 - `team`, `project`, `epic`, `process` are **names**, as in the domain
   and the API (a column is `(project, epic)`). Renaming an epic rewrites
   every card that names it plus the epic file — in **one commit**, which
@@ -304,8 +332,11 @@ there is no shared index file to fight over. When two neighbours have no
 room left (the key would exceed a length cap), the mover rebalances the
 run between the nearest neighbours that have room — a rare, bounded
 rewrite in the same commit, **confined to the mover's domain**: a run
-never reaches into a repository the mover cannot write. The key logic is
-pure and lives in `pkg/board` (`rank.go`).
+never reaches into a repository the mover cannot write. When the only
+roomy neighbours sit in another domain (a merged roster), the cap is
+soft — the key grows past it rather than any file being written across
+the boundary. The key logic is pure and lives in `pkg/board`
+(`rank.go`).
 
 The same key orders teams, projects, epics, processes, tasks and
 deadlines. Because it is a plain string, roster fragments from different
@@ -357,7 +388,7 @@ Aeman-Action: carry-over
 Aeman-Action-Id: 01JB4KA0M2P4R6T8V0X2Z4B6D8
 Aeman-Actor: kvaps
 Aeman-Cards: 01JB4K2E7QZMX3R8V0N5T9WYC1 01JB4K3M8XTR…
-Aeman-Change: 01JB4K2E7QZMX3R8V0N5T9WYC1 review-sent  timur
+Aeman-Change: 01JB4K2E7QZMX3R8V0N5T9WYC1 review-sent - timur
 ```
 
 The first line is for humans. The trailers are the machine-readable
@@ -368,7 +399,8 @@ event), `Aeman-Action-Id` ties the commits of one action together,
 `Aeman-Change: <card> <kind> <from> <to>` carries a change whose payload
 is **not a field diff** — `review-sent`/`review-passed` name the
 reviewer, `reviewer-removed`, `subtask` names the child's title,
-`reopened` — one line per such change. A card's activity log is the
+`reopened` — one line per such change; an empty side is written as `-`
+so the four tokens always split. A card's activity log is the
 list of commits whose `Aeman-Cards` names it or whose diff touches its
 file; each log line's *from → to* comes from an `Aeman-Change` trailer
 when there is one for that card and kind, else from the diff of the
@@ -398,9 +430,10 @@ client is **go-git** (v5.19). Objects are written and read through the
 plumbing API — blob, trees along the path, commit — never through a
 worktree: a checkout is a second copy of the data with nothing to do.
 
-The clone lives in a directory under `--data`, next to the session file.
-**On a persistent volume**, which is what the shipped compose file
-mounts: a container restart *and* a node reboot keep unpushed commits.
+The clone lives in a directory under `--data`, next to the session file;
+**each replica has its own `--data`** — a clone is a working copy with
+local commits, never shared between processes. **On a persistent
+volume**, which is what the shipped compose file mounts: a container restart *and* a node reboot keep unpushed commits.
 A tmpfs volume is acceptable and is the same code — the trade is
 stated, not hidden: it survives a container restart but not a reboot,
 and the loose objects (below) live in RAM. Either way the clone is
@@ -436,8 +469,10 @@ The optimistic cache **stays**. The order of a write is:
 
 1. mutate the in-memory board (as today) and answer the client — the
    same milliseconds as now;
-2. enqueue the write; the queue coalesces as today, keyed by
-   `(operation, card, actor)`;
+2. enqueue the write; a progress write coalesces with the pending
+   progress write of the same `(card, actor)` — today every field
+   setter coalesces, here only the one continuous gesture does; every
+   other request is an action and commits at once;
 3. **commit locally** when the entry's window closes (immediately for
    actions — after flushing the touched cards' coalesced entries — and
    500 ms after the last write for a coalesced one) — ~1.5 ms, disk, no
@@ -478,18 +513,23 @@ home that does not depend on anyone being logged in. Replicas will
 sweep the same due task in the same minute; the iteration's id is
 therefore **deterministic** — a ULID whose time is the due week's
 Monday and whose random bits are a hash of `(task id, week)` — so two
-replicas write the same path with the same content, and per-card
-last-write-wins collapses them into one iteration. `spawnIfDue`'s
-idempotency check then holds across replicas, not just within one.
+replicas write the **same path**. The contents differ in `created` and
+`rank`; a create whose path already exists on the new tip is a no-op on
+re-apply (a create is idempotent by path), so the loser emits no second
+commit and one iteration exists. `spawnIfDue`'s idempotency check then
+holds across replicas, not just within one.
 
 ### Push, rejection, retry
 
 Push rejected → fetch → if nothing new arrived, the push really failed
 (log, keep the commits, retry later) → otherwise **re-apply the local
-queue on the new tip**: the queue holds each card's intended final state
-(that is what DeltaFIFO keeps), so re-application is "write these files
-again on top of the new tree" — no merge machinery, last write wins per
-card, exactly today's semantics. Then push again.
+queue on the new tip**: the queue holds each write as a mutation closure
+over the card (`pendingOp.apply`, `mutateCard(fn)` today), and
+re-application runs those closures against the card as it now is on the
+new tip and writes the result. That is **field-level**: two writers on
+different fields of one card both land, as they do today with per-field
+GraphQL mutations; two writers on the same field resolve last write
+wins, also as today. No merge machinery. Then push again.
 
 Rank keys keep concurrent reorders from colliding on a shared file;
 concurrent edits to *one* card resolve last-write-wins, as they do today.
@@ -645,6 +685,11 @@ aeman migrate --owner aenix-org --board 37 \
    reference to an item that is not on the board is cleared and
    reported.
 3. **Snapshot**: build every file of the layout from the current state.
+   Note ids are ULIDs derived the same way from `(item id, line index)`,
+   so a re-run is byte-identical. Every card that is done gets its
+   `doneFrom` seeded by the walk `Reopen` does today (the last progress
+   event to ≥100 → its from-side); the report counts how many were
+   seeded and how many done cards had no such event.
 4. **History**: the event lines in every draft body become **synthetic
    commits**, ordered by time, dated and authored from the event, with
    the same trailers a live action would carry (`Aeman-Change` for the
@@ -734,12 +779,14 @@ go-git server transport** (`plumbing/transport/server`) — no git binary,
 fast, hermetic. That server **does not implement shallow**
 (`server.go`: "shallow not supported"), so the shallow paths —
 clone at depth 1, deepen-since, unshallow, push from a shallow clone,
-the walker at the boundary (G8–G11) — run against the real
-`git-upload-pack`/`git-receive-pack` binaries over the file transport,
-skipped with `t.Skip` when the binaries are absent; CI's Ubuntu runners
-have them, and the distroless constraint is a runtime constraint only.
-One integration test, behind an environment flag, runs the same paths
-against a real remote.
+push from a shallow clone (G9–G11) — run against the real
+`git-upload-pack`/`git-receive-pack` binaries over the file transport.
+Locally they `t.Skip` when the binaries are absent; in CI
+`AEMAN_TEST_REQUIRE_GIT=1` turns that skip into a failure, so a
+misconfigured runner cannot silently drop them. The walker at the
+boundary (G8) needs no server at all: `SetShallow` on a local repository
+pins it hermetically. One integration test, behind an environment flag,
+runs the same paths against a real remote.
 
 ## Rules, and the tests that pin them
 
@@ -751,26 +798,26 @@ The tests are the second documentation: each names its edges.
 | --- | --- | --- |
 | G1 | A card's path is `cards/<a>/<b>/<id>.md` with `a`,`b` = the id's last two chars; the path never changes while the card exists in a domain | rename, move, re-zone, re-team: same path; two ids differing only in the tail land in different leaves |
 | G2 | Empty fields are omitted; unknown keys survive a rewrite | a file with `foo: bar` rewritten by a setter still has `foo: bar`; a cleared field disappears from the file |
-| G3 | Derived states are never written | 100% progress writes `progress: 100` and `doneFrom`, never `stage: done`; In Progress is absent from every file |
-| G4 | One action = one commit per touched domain, sharing `Aeman-Action-Id`; `Aeman-Cards` lists every id; zero changes → no commit | Carry Over of N cards in one domain → one commit; the same with the team file in another domain → two commits, one id; nothing to carry → no commit |
+| G3 | Derived states are never written | 100% progress writes `progress: 100` and `doneFrom`, never `stage: done`; a review passing (90 → 100) writes `doneFrom: 90`; In Progress is absent from every file |
+| G4 | One action = one commit per touched domain, sharing `Aeman-Action-Id`; `Aeman-Cards` lists every id; zero changes → no commit | Carry Over of N cards in one domain → one commit; the same with the team file in another domain → two commits, one id; zero cards but the pointer advances → one commit touching the team file only; already on today's sprint → no commit |
 | G5 | Coalesced writes commit once with the final value, keyed by actor; an action on a card flushes its pending coalesced writes first | 5 slider writes by A → 1 commit `progress: 80`; A and B interleaved → 2 commits; slider→100 then send-to-review → progress commit precedes the review commit, final progress 90 |
 | G6 | Author = actor, committer = server, date = action time; the sweep, title resolution, import and schema migration are authored `aeman` | trailers present; email template applied; a sweep commit has author `aeman` and no `Aeman-Actor` |
 | G7 | The activity log of a card = commits touching it within the horizon, across `Aeman-Moved-From`; from/to from `Aeman-Change` first, front-matter diff second | a commit touching two cards appears in both logs; `review-sent` shows the reviewer; a commit past the horizon is absent and `truncatedBefore` is set; a moved card's log spans both domains |
 | G8 | The history walker stops AT the shallow boundary | depth-1 clone: log has exactly 1 entry, no error; after deepening: the boundary commit is included, its parent is not walked |
 | G9 | Deepening applies `unshallow` and lands exactly at the horizon | deepen to date T: oldest reachable commit ≤ T, all commits > T present; a second deepen further back; deepening past the root leaves no shallow entry |
 | G10 | Push rejection is detected by fetching, not by error type | rejected push whose fetch brings nothing → reported as failed, commits kept, healthz age grows; rejected push whose fetch brings new commits → re-applied and pushed |
-| G11 | Re-apply on a new tip is per-card last-write-wins | two writers, disjoint cards: both changes present; same card: the later re-application's content wins, history has both commits; two replicas spawning the same iteration → one file |
+| G11 | Re-apply on a new tip re-runs the queued mutations on the card as it now is: field-level, last write wins per field | two writers, disjoint cards: both changes present; same card, different fields: both land; same field: the later re-application wins, history has both commits; two replicas spawning the same iteration → one file, the loser's create is a no-op with no second commit |
 | G12 | Rank insertion touches one file; rebalancing is bounded to the run and to the mover's domain | insert between neighbours: one file changes; exhausted key space: only the run between the nearest roomy neighbours is rewritten, in the same commit; a run that would cross into another domain stops at the boundary |
 | G13 | Roster fragments merge into one order across domains; duplicate names resolve to the oldest, the rest are aliases | interleaved ranks come out interleaved; identical ranks tie-break by id; two fragments declaring `portal` → one team, the older file's rank and sprint, both fragments' cards, healthz names the duplicate |
-| G14 | Domain follows the inheritance rule and is never chosen per card | a card under a closed project → closed repository; a team card without a project → the team's domain; a review card → the reviewed card's domain even when the reviewer's team lives elsewhere; a subtask → its parent's; an iteration → its task's |
+| G14 | Domain follows the inheritance rule, linked cards first, and is never chosen per card | a card under a closed project → closed repository; a team card without a project → the team's domain; a review card of a **closed-project** original whose `team` lives in shared → closed, not shared (the review card carries the original's team and no project, so the team rule would leak it); a subtask carrying its own column → its parent's domain regardless; an iteration → its task's; moving a card moves its review card and subtasks in the same action |
 | G15 | (when `feat/card-mirrors` lands) Mirror refuses a target column in another domain | `ErrCrossDomain`; same-domain mirror still works; the guard order (exists, not own, not mirrored, same domain) is pinned |
 | G16 | The reviewer picker offers only readers of the card's domain | a login without access to the closed domain is absent; with access present |
-| G17 | An unreadable domain is absent from the snapshot AND the watch stream | a visitor who can read one of two domains gets exactly that domain's teams, projects and cards, no placeholders; a closed-domain commit applied from remote is not delivered to that visitor's socket |
+| G17 | An unreadable domain is absent from the snapshot AND the watch stream; the primary is required | a visitor who can read one of two domains gets exactly that domain's teams, projects and cards, no placeholders; a closed-domain commit applied from remote is not delivered to that visitor's socket; a visitor who cannot read the primary gets 403 and no board; a card whose team file is unreadable is still served, under its team name, with the team's sprint controls unavailable |
 | G18 | A newer `schema` is refused; an older one is migrated in a commit | `schema: 99` → clear error at startup; `schema: 0` → one commit, `schema: 1`, files rewritten |
 | G19 | Remote changes reach the cache by diff | a commit pushed from elsewhere touching one card updates that card only and is broadcast once, to readers of its domain only |
 | G20 | Restart keeps unpushed commits | commit, no push, reopen the store → the commit is in the queue and pushed; the same for `aeman mcp` exiting right after a mutation |
 | G21 | Repack keeps every object reachable | after RepackObjects+Prune every commit, tree and blob of the history still reads |
-| G22 | A cross-domain move is delete + create with the same id and one action id; a torn move shows the card once | filing a team card under a closed project → two commits, same ULID, `Aeman-Moved-To/From`; only the delete pushed → the card is still served from the cache; both files present → the ghost is hidden and removed by maintenance |
+| G22 | A cross-domain move is create-then-delete with the same id and one action id; a torn move shows the card once, from the tree alone | filing a team card under a closed project → two commits, same ULID, the create carries `Aeman-Moved-From` and `movedFrom:` in the file, the delete `Aeman-Moved-To`; the create is committed to disk before the delete; only the create pushed → a fresh **depth-1** clone of both domains shows the card once (the source file is the ghost); only the delete pushed → the card is still served from this replica's cache; maintenance removes the ghost after the destination landed |
 | G23 | `Reopen` restores `doneFrom` regardless of history depth | a card done past the horizon reopens to its pre-done progress; a card with no `doneFrom` falls back to the in-progress nudge |
 | G24 | An unborn remote is refused with the init hint; `aeman init` bootstraps in one commit | `serve` against an empty repository exits naming `aeman init`; `init` writes `board.yaml` + `teams/_.yaml`, pushes, and a second `init` is a no-op |
 | G25 | Mutations require `CanWrite` on the target domain(s) | a read-only collaborator gets 403 on every mutation and 200 on every read; a move checks both domains |
