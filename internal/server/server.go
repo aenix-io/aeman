@@ -51,6 +51,10 @@ type Options struct {
 	// Auth, when non-nil, enables GitHub OAuth multi-user mode (each visitor
 	// signs in and the proxy uses their own token).
 	Auth *OAuthConfig
+	// Git, when non-nil, makes a git repository the board's storage (see
+	// gitmode.go); DefaultOwner/DefaultProject and the GitHub client are
+	// then unused for the board itself.
+	Git *GitConfig
 }
 
 // Server is the aeman local HTTP server.
@@ -69,6 +73,10 @@ type Server struct {
 	// store is the in-memory board cache and watch hub the /api/v1 watch and
 	// snapshot read from; it also keeps API/MCP mutations fast.
 	store *boardStore
+	// gitBE is the store's backend in git mode — one shared backend over the
+	// clone, not one per request; nil otherwise. gitCfg is its config.
+	gitBE  *storeBackend
+	gitCfg *GitConfig
 
 	// apiTokens resolves the token (and login) for an /api/v1 request. It
 	// defaults to tokenForRequest — the same resolution the /api/github proxy
@@ -108,6 +116,11 @@ func New(opts Options) (*Server, error) {
 	s.newService = s.defaultService
 	s.store = newBoardStore()
 	s.store.log = s.log
+	if opts.Git != nil {
+		if err := s.openGit(opts.Git); err != nil {
+			return nil, err
+		}
+	}
 	if opts.Auth != nil {
 		s.auth = newAuthManager(*opts.Auth, opts.Logger)
 		// The warm roster lives next to the session file: restarts bring the
@@ -132,7 +145,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
-	s.handler = logRequests(s.log, clientIDMiddleware(s.csrfGuard(s.actorMiddleware(staleMiddleware(mux)))))
+	s.handler = logRequests(s.log, clientIDMiddleware(s.csrfGuard(s.actorMiddleware(actionMiddleware(staleMiddleware(mux))))))
 	return s, nil
 }
 
@@ -207,7 +220,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// Bring the cache up in the background: the boards that were warm before
 	// the restart, or the default board in local mode. Nothing waits on it —
 	// requests that arrive first simply ride the same detached loads.
-	go s.startupWarm()
+	if s.gitBE == nil {
+		go s.startupWarm() // a cold clone is seconds; the git board needs no warmer
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -222,7 +237,10 @@ func (s *Server) Run(ctx context.Context) error {
 		// users already saw applied. The container's stop grace period has to
 		// exceed drain + shutdown.
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), 20*time.Second)
-		s.store.waitDrained(drainCtx)
+		if err := s.drainAndPush(drainCtx); err != nil {
+			// The commits are on disk for the next start; say so and go.
+			s.log.Warn("final push failed; unpushed commits stay in the clone", "err", err)
+		}
 		drainCancel()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -309,7 +327,19 @@ func (s *Server) tokenForRequest(r *http.Request) (token, login string, err erro
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	resp := map[string]any{"status": "ok"}
+	if s.gitBE != nil {
+		// A push that cannot land must not be discovered a week later: the
+		// oldest unpushed commit's age is here, and past the threshold the
+		// status says so.
+		owner, number := s.gitBoard()
+		age := s.gitBE.unpushedAge(storeKey(owner, number))
+		resp["unpushedAgeSeconds"] = int(age.Seconds())
+		if age > s.unpushedWarn() {
+			resp["status"] = "degraded"
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // configResponse is returned by /api/config to bootstrap the frontend.

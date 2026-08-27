@@ -193,6 +193,12 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 // addressed by "board": "project" is aeman's own planning entity (a group of
 // epic columns on the Project board) and is a card filter, not an address.
 func (s *Server) boardRef(r *http.Request) (owner string, project int, err error) {
+	if s.gitBE != nil {
+		// Git mode: the configured repository is the one board; a client's
+		// owner/board are ignored, as under --lock-board.
+		owner, project = s.gitBoard()
+		return owner, project, nil
+	}
 	owner = s.opts.DefaultOwner
 	project = s.opts.DefaultProject
 	if !s.opts.LockBoard {
@@ -240,6 +246,11 @@ func (s *Server) newGHClient(token string) *ghprojects.Client {
 // defaultService is the production newService: it builds a boardservice over the
 // per-request ghprojects client (*ghprojects.Client satisfies boardservice.Backend).
 func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) {
+	if s.gitBE != nil {
+		// Git mode: one shared backend over the clone; the request brings
+		// its identity (actor) and its action, nothing else is per-request.
+		return boardservice.New(s.gitBE), nil
+	}
 	client, err := s.apiClient(r)
 	if err != nil {
 		return nil, err

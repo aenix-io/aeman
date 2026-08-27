@@ -53,6 +53,11 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 		// Route MCP writes through the shared board store, so agent edits update
 		// the cache and reach the UI's watch stream like every other write.
 		WrapBackend: func(b boardservice.Backend) boardservice.Backend {
+			if s.gitBE != nil {
+				// Git mode: the one shared store; the caller's identity rides
+				// the context, the credential is the server's.
+				return s.gitBE
+			}
 			// /mcp is mounted only in OAuth mode, so every request is a distinct
 			// token-bearing user: gate cache hits on per-login authorization.
 			return &storeBackend{inner: &resolvingBackend{inner: b, store: s.store}, store: s.store, multiUser: true}
