@@ -128,8 +128,11 @@ const LS_COLF = "aeman.projectColFactors";
 const LS_ZOOM = "aeman.projectZoom";
 
 /** The cell the board is drawn from before any zoom or per-column width. */
-/** How far a card steps aside to uncover the strip a new one starts from. */
+/** How far a card steps aside to uncover the strip a new one starts from,
+ *  and how long the pointer must rest there first — long enough that merely
+ *  crossing the card on the way somewhere else never moves it. */
 const NUDGE_PX = 13;
+const NUDGE_DELAY_MS = 500;
 const BASE_COL = 140;
 const BASE_ROW = 28;
 
@@ -250,6 +253,13 @@ export function ProjectBoard({
   // buttons at either end — planning is not confined to a fixed horizon.
   // The card currently stepped aside to leave room for a new one beside it.
   const [nudged, setNudged] = useState<string | null>(null);
+  const nudgeTimer = useRef<number | null>(null);
+  const cancelNudgeTimer = () => {
+    if (nudgeTimer.current !== null) {
+      window.clearTimeout(nudgeTimer.current);
+      nudgeTimer.current = null;
+    }
+  };
   const [padBack, setPadBack] = useState(0);
   const [padFwd, setPadFwd] = useState(0);
 
@@ -1608,7 +1618,12 @@ export function ProjectBoard({
               }`}
               style={{ gridRow: row + 2, gridColumn: col + 2 }}
               onPointerDown={(ev) => beginDrag(e, row, ev)}
-              onPointerLeave={() => setNudged(null)}
+              onPointerLeave={() => {
+                if (!drag) {
+                  cancelNudgeTimer();
+                  setNudged(null);
+                }
+              }}
               onPointerCancel={() => setDrag(null)}
             />
           )),
@@ -1730,7 +1745,19 @@ export function ProjectBoard({
                 }
                 const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
                 const inStrip = ev.clientX > r.right - NUDGE_PX * 2;
-                setNudged(inStrip ? card.itemId : (cur) => (cur === card.itemId ? null : cur));
+                if (!inStrip) {
+                  cancelNudgeTimer();
+                  setNudged((cur) => (cur === card.itemId ? null : cur));
+                  return;
+                }
+                // Rest there first: a pointer merely crossing the card on its
+                // way somewhere else must not shove it.
+                if (nudged !== card.itemId && nudgeTimer.current === null) {
+                  nudgeTimer.current = window.setTimeout(() => {
+                    nudgeTimer.current = null;
+                    setNudged(card.itemId);
+                  }, NUDGE_DELAY_MS);
+                }
               }}
               // Stepping aside puts the pointer in the gap that just opened —
               // which the browser reports as leaving the card. Undoing the
@@ -1738,6 +1765,13 @@ export function ProjectBoard({
               // and flicker forever; so a pointer inside the strip is not a
               // pointer that left.
               onPointerLeave={(ev) => {
+                // A drag started in the strip holds the card aside until it
+                // ends: the pointer travels far from the card by design, and
+                // closing the gap mid-pull yanks the ground out from under it.
+                if (drag) {
+                  return;
+                }
+                cancelNudgeTimer();
                 const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
                 const intoTheGap =
                   ev.clientX >= r.right &&
@@ -1760,9 +1794,14 @@ export function ProjectBoard({
                 // of hiding each other. The width holds while the card is
                 // being dragged too: widening it on press made the first click
                 // of a double-click visibly inflate the card.
+                // Cards sharing a column carry an EXPLICIT width, and a
+                // margin cannot shrink that — the step aside has to come out
+                // of the width itself, or a card with neighbours never moves.
                 ...(lanes > 1
                   ? {
-                      width: `calc(${(100 / lanes) * laneWidth}% - 2px)`,
+                      width: `calc(${(100 / lanes) * laneWidth}% - 2px${
+                        nudged === card.itemId ? ` - ${NUDGE_PX}px` : ""
+                      })`,
                       marginLeft: `${(100 / lanes) * lane}%`,
                     }
                   : {}),
