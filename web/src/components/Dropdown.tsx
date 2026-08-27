@@ -79,6 +79,11 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     // preventDefault() on the pointer event, and that suppresses the
     // compatibility mouse events entirely — so a menu opened over the board
     // would never hear the press that was meant to dismiss it.
+    //
+    // And in the CAPTURE phase, because the same drag handlers call
+    // stopPropagation(): a press on a board cell never reached a listener
+    // waiting on the document, so clicking away from an open menu left it
+    // open. Capture runs on the way DOWN, where nothing can stop it.
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (menuRef.current?.contains(t) || anchorRef.current?.contains(t)) {
@@ -88,11 +93,11 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     };
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
-    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("pointerdown", onDown, true);
     return () => {
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition);
-      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("pointerdown", onDown, true);
     };
   }, [open, place, onClose, anchorRef]);
 

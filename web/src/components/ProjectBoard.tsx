@@ -1743,6 +1743,19 @@ export function ProjectBoard({
                 if (move || drag) {
                   return;
                 }
+                // The card's own controls live at that same right edge — the
+                // team badge, the delete button. Stepping aside under a
+                // pointer that came to press one of them shrinks the card out
+                // from under the click.
+                if (
+                  (ev.target as HTMLElement).closest(
+                    "button, .project-slot-team, .project-slot-actions",
+                  )
+                ) {
+                  cancelNudgeTimer();
+                  setNudged((cur) => (cur === card.itemId ? null : cur));
+                  return;
+                }
                 const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
                 const inStrip = ev.clientX > r.right - NUDGE_PX * 2;
                 if (!inStrip) {
