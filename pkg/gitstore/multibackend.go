@@ -221,7 +221,14 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 		return board.Card{}, err
 	}
 	r := newResolver(s)
-	target := in.Domain
+	// The caller's choice — the input's, else the context's (board.WithDomain)
+	// — counts only for what has no home by rule: a team, a project, a
+	// process without a project.
+	choice := in.Domain
+	if choice == "" {
+		choice = board.DomainFrom(ctx)
+	}
+	target := ""
 	switch in.Title {
 	case board.EpicStateTitle, board.DeadlineStateTitle:
 		if d, ok := r.projects[in.Project]; ok {
@@ -236,9 +243,11 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 			if d, ok := r.projects[in.Project]; ok {
 				target = d
 			}
+		} else {
+			target = choice
 		}
 	case board.ProjectStateTitle, board.SprintStateTitle:
-		// the caller's choice, default the primary
+		target = choice
 	default:
 		probe := cardFromInput(in, in.ItemID, "", "")
 		target = mb.homeOf(r, probe)
@@ -666,9 +675,12 @@ func (mb *MultiBackend) SetSprintState(ctx context.Context, bd board.Board, team
 	if err != nil {
 		return err
 	}
-	d := mb.primary()
-	if td, ok := newResolver(s).teams[team]; ok {
-		d = td
+	// An existing team's pointer stays where the team is declared; a new
+	// team is declared where the caller chose (board.WithDomain), default
+	// the primary.
+	d, ok := newResolver(s).teams[team]
+	if !ok {
+		d = board.DomainFrom(ctx)
 	}
 	be, err := mb.backend(d)
 	if err != nil {

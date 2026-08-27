@@ -273,6 +273,58 @@ func fileExists(r *Repo, p string) bool {
 	return err == nil
 }
 
+// The domain a new team, project or process is declared in is the caller's
+// choice, carried on the context (board.WithDomain) when the input does not
+// name one: a service that builds the stub itself need not know about
+// domains. Unknown domains are refused; cards never take one.
+func TestMultiBackendCreateHonoursDomainFromContext(t *testing.T) {
+	mb, shared, closed := twoDomains(t)
+	ctx := board.WithDomain(ctxAs("kvaps"), "closed")
+	b, _ := mb.LoadBoard(ctx, "x", 1)
+	proj, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "vault"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := closed.ReadFile(ProjectPath(proj.ItemID)); err != nil {
+		t.Fatalf("project not declared in the chosen domain: %v", err)
+	}
+	proc, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProcessStateTitle, Process: "audit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := closed.ReadFile(ProcessPath(proc.ItemID)); err != nil {
+		t.Fatalf("process not declared in the chosen domain: %v", err)
+	}
+	if err := mb.SetSprintState(ctx, b, "ops", "2026-08-31", ""); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := LoadAll(mb.domains)
+	for _, tm := range s.Teams {
+		if tm.Name == "ops" && tm.Domain != "closed" {
+			t.Fatalf("new team declared in %q, want the chosen domain", tm.Domain)
+		}
+	}
+	// A card ignores the choice: its domain follows the rule.
+	card, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "team item", Team: "portal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := CardPath(card.ItemID)
+	if _, err := shared.ReadFile(p); err != nil {
+		t.Fatalf("a card must follow the rule, not the context choice: %v", err)
+	}
+	// An existing team's pointer stays where the team is, whatever the context says.
+	if err := mb.SetSprintState(ctx, b, "portal", "2026-08-31", "2026-08-24"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := closed.ReadFile(TeamPath("01T_PORTAL")); err == nil {
+		t.Fatal("an existing team must not be re-declared in the chosen domain")
+	}
+	if _, err := mb.CreateCard(board.WithDomain(ctxAs("kvaps"), "nope"), b, board.CreateInput{Title: board.ProjectStateTitle, Project: "x"}); err == nil {
+		t.Fatal("an unknown domain must be refused")
+	}
+}
+
 // Health learns what the merge had to resolve: duplicate roster names (G13)
 // and torn-move ghosts (G22), as of the last load.
 func TestMultiBackendIssuesReportAliasesAndGhosts(t *testing.T) {

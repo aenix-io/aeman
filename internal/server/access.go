@@ -74,14 +74,17 @@ func rightsFrom(ctx context.Context) *domainRights {
 	return r
 }
 
-// domainAccess decides a visitor's rights from their token and login.
+// domainAccess decides a visitor's rights from their token and login, and
+// which of the board's members can read a domain (G16) — asked with the
+// server's credential, since it is about other people.
 type domainAccess interface {
 	rights(ctx context.Context, token, login string) (*domainRights, error)
+	readers(ctx context.Context, domain string, logins []string) ([]string, error)
 }
 
 // openAccess is the single-identity answer: every configured domain, read
-// and write — the local mode, where the one visitor is the gh user and the
-// forge's own check happens on push.
+// and write, by everyone — the local mode, where the one visitor is the gh
+// user and the forge's own check happens on push.
 type openAccess struct {
 	domains []string
 }
@@ -98,19 +101,30 @@ func (o openAccess) rights(context.Context, string, string) (*domainRights, erro
 	return r, nil
 }
 
+func (o openAccess) readers(_ context.Context, _ string, logins []string) ([]string, error) {
+	return append([]string(nil), logins...), nil
+}
+
+// membersTTL is how long a login's read access to a domain, asked with the
+// server credential, is trusted.
+const membersTTL = 5 * time.Minute
+
 // forgeAccess asks the forge — GitHub's repository permissions block — with
 // the visitor's token, one request per domain, and caches the answer per
 // visitor. A stale answer stands in while the forge is unreachable; without
-// one the error is the visitor's.
+// one the error is the visitor's. Who else can read a domain is asked with
+// the server's token, per login, and cached longer.
 type forgeAccess struct {
-	api     string // REST base, https://api.github.com
-	client  *http.Client
-	domains []RepoSpec
-	ttl     time.Duration
-	now     func() time.Time
+	api         string // REST base, https://api.github.com
+	client      *http.Client
+	domains     []RepoSpec
+	serverToken string
+	ttl         time.Duration
+	now         func() time.Time
 
-	mu    sync.Mutex
-	cache map[string]cachedRights // by login
+	mu      sync.Mutex
+	cache   map[string]cachedRights // by login
+	members map[string]cachedBool   // by domain + login
 }
 
 type cachedRights struct {
@@ -118,8 +132,90 @@ type cachedRights struct {
 	at     time.Time
 }
 
-func newForgeAccess(api string, client *http.Client, domains []RepoSpec) *forgeAccess {
-	return &forgeAccess{api: api, client: client, domains: domains, ttl: accessTTL, now: time.Now, cache: map[string]cachedRights{}}
+type cachedBool struct {
+	ok bool
+	at time.Time
+}
+
+func newForgeAccess(api string, client *http.Client, domains []RepoSpec, serverToken string) *forgeAccess {
+	return &forgeAccess{api: api, client: client, domains: domains, serverToken: serverToken, ttl: accessTTL, now: time.Now,
+		cache: map[string]cachedRights{}, members: map[string]cachedBool{}}
+}
+
+// readers is the subset of logins that can read the domain, by the forge's
+// collaborator permission for each, asked with the server's token. A login
+// the forge cannot answer for (an outage, no server token) is left out —
+// the picker offers fewer people, never the wrong ones.
+func (f *forgeAccess) readers(ctx context.Context, domain string, logins []string) ([]string, error) {
+	var url string
+	for _, d := range f.domains {
+		if d.Name == domain {
+			url = d.URL
+		}
+	}
+	if url == "" {
+		return nil, fmt.Errorf("unknown domain %q", domain)
+	}
+	slug, err := repoSlug(url)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(logins))
+	for _, login := range logins {
+		key := domain + "\x00" + login
+		f.mu.Lock()
+		c, ok := f.members[key]
+		f.mu.Unlock()
+		if !ok || f.now().Sub(c.at) >= membersTTL {
+			can, err := f.collaboratorReads(ctx, slug, login)
+			if err != nil {
+				if !ok {
+					continue
+				}
+				can = c.ok // the last answer stands during an outage
+			}
+			c = cachedBool{ok: can, at: f.now()}
+			f.mu.Lock()
+			f.members[key] = c
+			f.mu.Unlock()
+		}
+		if c.ok {
+			out = append(out, login)
+		}
+	}
+	return out, nil
+}
+
+// collaboratorReads asks GET /repos/{slug}/collaborators/{login}/permission
+// with the server token: any permission but "none" reads.
+func (f *forgeAccess) collaboratorReads(ctx context.Context, slug, login string) (bool, error) {
+	if f.serverToken == "" {
+		return false, errors.New("no server credential to ask the forge with")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.api+"/repos/"+slug+"/collaborators/"+login+"/permission", nil) //nolint:gosec // operator-configured repository and a board member's login
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+f.serverToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := f.client.Do(req) //nolint:gosec // see above
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return false, nil // not a collaborator
+	case resp.StatusCode/100 != 2:
+		return false, fmt.Errorf("forge answered %s", resp.Status)
+	}
+	var body struct {
+		Permission string `json:"permission"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return false, err
+	}
+	return body.Permission != "" && body.Permission != "none", nil
 }
 
 func (f *forgeAccess) rights(ctx context.Context, token, login string) (*domainRights, error) {

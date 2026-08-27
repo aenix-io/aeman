@@ -1,9 +1,29 @@
 package board
 
+import "context"
+
 // A domain is the repository a thing lives in. A board is an ordered list of
 // domains; the first is the primary and is what "" names. Nothing is chosen
 // per card: a card's domain follows one rule, linked cards first — a linked
 // card has no domain of its own — then the project, then the team.
+
+type domainCtxKey struct{}
+
+// WithDomain carries the caller's choice of domain for a team, project or
+// process being declared — asked only when more than one is writable. Cards
+// never take one; a backend ignores the choice for them.
+func WithDomain(ctx context.Context, domain string) context.Context {
+	if domain == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, domainCtxKey{}, domain)
+}
+
+// DomainFrom is the caller's choice of domain, or "" for the default.
+func DomainFrom(ctx context.Context) string {
+	d, _ := ctx.Value(domainCtxKey{}).(string)
+	return d
+}
 
 // DomainResolver answers where the things a card refers to live. A false ok
 // means the reference is unknown and does not decide.

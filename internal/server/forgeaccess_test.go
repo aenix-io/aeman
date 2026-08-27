@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,10 +16,30 @@ import (
 // the answer is cached per visitor for the TTL, and a stale answer stands in
 // while the forge is unreachable.
 
+// collaborators is what the forge answers for
+// /repos/{slug}/collaborators/{login}/permission, asked with the server
+// token: login → permission.
+var collaborators = map[string]string{"alice": "write", "bob": "read", "carol": "none"}
+
 func fakeForge(t *testing.T, perms map[string]map[string]bool, calls *atomic.Int32) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
+		if i := strings.Index(r.URL.Path, "/collaborators/"); i >= 0 {
+			if r.Header.Get("Authorization") != "Bearer srv-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			login := strings.TrimSuffix(r.URL.Path[i+len("/collaborators/"):], "/permission")
+			p, ok := collaborators[login]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"permission":"` + p + `"}`))
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer tok-alice" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -53,7 +74,7 @@ func TestForgeAccessReadsPermissionsPerDomain(t *testing.T) {
 		{Name: "shared", URL: "https://github.com/acme/shared.git"},
 		{Name: "closed", URL: "git@github.com:acme/closed.git"},
 		{Name: "hidden", URL: "https://github.com/acme/hidden"},
-	})
+	}, "srv-token")
 	r, err := fa.rights(context.Background(), "tok-alice", "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +99,7 @@ func TestForgeAccessReadsPermissionsPerDomain(t *testing.T) {
 func TestForgeAccessCachesPerVisitorAndSurvivesOutage(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true, "push": true}}, &calls)
-	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}})
+	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token")
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 	fa.now = func() time.Time { return now }
 	if _, err := fa.rights(context.Background(), "tok-alice", "alice"); err != nil {
@@ -114,9 +135,39 @@ func TestForgeAccessCachesPerVisitorAndSurvivesOutage(t *testing.T) {
 func TestForgeAccessRefusesABadToken(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true}}, &calls)
-	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}})
+	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token")
 	if _, err := fa.rights(context.Background(), "tok-expired", "alice"); err == nil {
 		t.Fatal("a rejected token must be an error, not an empty right set")
+	}
+}
+
+// G16 — who can read a domain is the forge's collaborator permission for
+// each board member, asked with the server token: any permission but "none"
+// reads; someone the forge does not know is left out; answers are cached.
+func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
+	var calls atomic.Int32
+	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true}}, &calls)
+	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token")
+	got, err := fa.readers(context.Background(), "shared", []string{"alice", "bob", "carol", "stranger"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "alice,bob" {
+		t.Fatalf("readers = %v, want alice,bob (write and read; none and unknown left out)", got)
+	}
+	if _, err := fa.readers(context.Background(), "shared", []string{"alice", "bob", "carol", "stranger"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := calls.Load(); n != 4 {
+		t.Fatalf("%d forge calls, want 4 (one per login, then cached)", n)
+	}
+	if _, err := fa.readers(context.Background(), "nope", []string{"alice"}); err == nil {
+		t.Fatal("an unknown domain must be an error")
+	}
+	// No server credential: nobody can be vouched for, and that is not an error.
+	bare := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "")
+	if got, err := bare.readers(context.Background(), "shared", []string{"alice"}); err != nil || len(got) != 0 {
+		t.Fatalf("without a server token: %v, %v", got, err)
 	}
 }
 

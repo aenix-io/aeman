@@ -125,15 +125,15 @@ func New(opts Options) (*Server, error) {
 		if err := s.openGit(opts.Git); err != nil {
 			return nil, err
 		}
-		s.visibleBE = &visibleBackend{Backend: s.gitBE, primary: opts.Git.Repos[0].Name}
 		names := make([]string, 0, len(opts.Git.Repos))
 		for _, r := range opts.Git.Repos {
 			names = append(names, r.Name)
 		}
+		s.visibleBE = &visibleBackend{Backend: s.gitBE, primary: names[0], domains: names}
 		if opts.Auth != nil {
 			// Each visitor brings their own token: the forge says what it
 			// may read and write, per domain.
-			s.access = newForgeAccess(githubAPIBase, s.httpClient, opts.Git.Repos)
+			s.access = newForgeAccess(githubAPIBase, s.httpClient, opts.Git.Repos, opts.Git.Token)
 		} else {
 			s.access = openAccess{domains: names}
 		}

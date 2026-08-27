@@ -36,6 +36,7 @@ func gitModeServer(t *testing.T, remote gitstore.Remote) *Server {
 	}
 	// Identity without a GitHub token: git mode needs none for the API.
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "tester", nil }
+	srv.gitBE.git.pushDelay = 0 // tests push by hand; a timer firing after the test races TempDir's cleanup
 	return srv
 }
 

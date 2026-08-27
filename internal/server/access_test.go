@@ -32,6 +32,17 @@ func (f fakeAccess) rights(_ context.Context, _, login string) (*domainRights, e
 	return r, nil
 }
 
+// readers are the known logins whose rights read the domain.
+func (f fakeAccess) readers(_ context.Context, domain string, logins []string) ([]string, error) {
+	var out []string
+	for _, l := range logins {
+		if r, ok := f.byLogin[l]; ok && r.canRead(domain) {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+
 func rightsOn(read, write []string) *domainRights {
 	r := &domainRights{primary: "shared", read: map[string]bool{}, write: map[string]bool{}}
 	for _, d := range read {
@@ -68,6 +79,7 @@ func gitModeServerOver(t *testing.T, access fakeAccess, remotes ...gitstore.Remo
 		return "", login, nil
 	}
 	srv.access = access
+	srv.gitBE.git.pushDelay = 0 // tests push by hand; a timer firing after the test races TempDir's cleanup
 	return srv
 }
 
@@ -201,6 +213,93 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	// Alice, who cannot read closed, no longer sees the moved card.
 	if rec := doAs(t, srv, "alice", http.MethodGet, "/api/v1/cards/"+sharedUID, ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("alice still sees the card moved into closed: %d", rec.Code)
+	}
+}
+
+// Teams, projects and processes are declared in the domain the caller picks
+// — a body field, refused unless the visitor can write there, unknown names
+// refused outright; without a choice they land in the primary.
+func TestCreateRosterEntryInChosenDomain(t *testing.T) {
+	srv := twoDomainServer(t)
+	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"closed"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave declares a closed project: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"nope"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown domain: %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/projects", `{"name":"vault","domain":"closed"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("bob declares a closed project: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "bob", http.MethodPost, "/api/v1/processes", `{"name":"audit","domain":"closed"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("bob declares a closed process: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/sprints", `{"team":"ops","current":"2026-08-31","domain":"closed"}`); rec.Code != http.StatusOK {
+		t.Fatalf("bob declares a closed team: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "alice", http.MethodPost, "/api/v1/projects", `{"name":"open"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("alice declares a primary project: %d %s", rec.Code, rec.Body.String())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx)
+	// Alice sees the primary's project, not the closed ones.
+	rec := doAs(t, srv, "alice", http.MethodGet, "/api/v1/board", "")
+	if body := rec.Body.String(); !strings.Contains(body, `"open"`) || strings.Contains(body, `"vault"`) || strings.Contains(body, `"audit"`) || strings.Contains(body, `"ops"`) {
+		t.Fatalf("alice's board: %s", body)
+	}
+	rec = doAs(t, srv, "bob", http.MethodGet, "/api/v1/board", "")
+	if body := rec.Body.String(); !strings.Contains(body, `"vault"`) || !strings.Contains(body, `"audit"`) || !strings.Contains(body, `"ops"`) {
+		t.Fatalf("bob's board: %s", body)
+	}
+}
+
+// G16 — GET /board names the visitor's domains: which they may write, and
+// who can read each one, so the reviewer picker offers only logins that can
+// read the card's domain.
+func TestBoardListsDomainsWithMembers(t *testing.T) {
+	srv := twoDomainServer(t)
+	// Assignees make members: kvaps on the shared card, timur on the closed.
+	sharedUID := cardUID(t, srv, "bob", "one")
+	closedUID := cardUID(t, srv, "bob", "three-closed")
+	for uid, who := range map[string]string{sharedUID: "alice", closedUID: "bob"} {
+		if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/cards/"+uid, `{"assignees":["`+who+`"]}`); rec.Code != http.StatusOK {
+			t.Fatalf("assign %s: %d %s", who, rec.Code, rec.Body.String())
+		}
+	}
+	type domainInfo struct {
+		Name     string   `json:"name"`
+		Writable bool     `json:"writable"`
+		Members  []string `json:"members"`
+	}
+	var got struct {
+		Metadata struct {
+			Domains []domainInfo `json:"domains"`
+			Members []string     `json:"members"`
+		} `json:"metadata"`
+	}
+	rec := doAs(t, srv, "dave", http.MethodGet, "/api/v1/board", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Metadata.Domains) != 2 || got.Metadata.Domains[0].Name != "shared" || !got.Metadata.Domains[0].Writable || got.Metadata.Domains[1].Name != "closed" || got.Metadata.Domains[1].Writable {
+		t.Fatalf("dave's domains = %+v", got.Metadata.Domains)
+	}
+	// Members are the board's assignees; per domain, those who can read it:
+	// alice cannot read closed, bob can read both.
+	if m := got.Metadata.Domains[0].Members; strings.Join(m, ",") != "alice,bob" {
+		t.Fatalf("shared members = %v", m)
+	}
+	if m := got.Metadata.Domains[1].Members; strings.Join(m, ",") != "bob" {
+		t.Fatalf("closed members = %v", m)
+	}
+	// Alice's board names only what she can read.
+	rec = doAs(t, srv, "alice", http.MethodGet, "/api/v1/board", "")
+	got.Metadata.Domains = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Metadata.Domains) != 1 || got.Metadata.Domains[0].Name != "shared" {
+		t.Fatalf("alice's domains = %+v", got.Metadata.Domains)
 	}
 }
 

@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
 // visibleBackend is the store's backend as one visitor may use it (G17,
@@ -16,6 +18,26 @@ import (
 type visibleBackend struct {
 	boardservice.Backend
 	primary string
+	domains []string // every configured domain, primary first
+}
+
+// chosen is the caller's domain choice for a new team, project or process:
+// the input's, else the context's, else the primary — and an unknown name
+// is refused here, as a bad request, before any right is checked.
+func (v *visibleBackend) chosen(ctx context.Context, explicit string) (string, error) {
+	d := explicit
+	if d == "" {
+		d = board.DomainFrom(ctx)
+	}
+	if d == "" {
+		return v.primary, nil
+	}
+	for _, name := range v.domains {
+		if name == d {
+			return d, nil
+		}
+	}
+	return "", fmt.Errorf("%w: %q", gitstore.ErrUnknownDomain, d)
 }
 
 // full is the whole board, for deciding domains: the visible board cannot
@@ -159,13 +181,18 @@ func (v *visibleBackend) CreateCard(ctx context.Context, bd board.Board, in boar
 			return board.Card{}, err
 		}
 		probe := cardFromInput(in, "")
-		target := in.Domain
-		if target == "" {
-			if board.IsStateTitle(in.Title) {
-				target = v.stubHome(whole, probe)
-			} else {
-				target = board.DomainOf(probe, board.Resolver(whole, v.primary))
+		var target string
+		switch {
+		case in.Title == board.ProjectStateTitle, in.Title == board.SprintStateTitle,
+			in.Title == board.ProcessStateTitle && in.Project == "":
+			// The caller's choice, default the primary.
+			if target, err = v.chosen(ctx, in.Domain); err != nil {
+				return board.Card{}, err
 			}
+		case board.IsStateTitle(in.Title):
+			target = v.stubHome(whole, probe)
+		default:
+			target = board.DomainOf(probe, board.Resolver(whole, v.primary))
 		}
 		if !r.canWrite(target) {
 			return board.Card{}, boardservice.ErrForbidden
@@ -380,7 +407,10 @@ func (v *visibleBackend) SetSprintState(ctx context.Context, bd board.Board, tea
 		}
 		d, ok := board.Resolver(whole, v.primary).TeamDomain(team)
 		if !ok {
-			d = v.primary
+			// A new team: declared where the caller chose, default the primary.
+			if d, err = v.chosen(ctx, ""); err != nil {
+				return err
+			}
 		}
 		if !r.canWrite(d) {
 			return boardservice.ErrForbidden

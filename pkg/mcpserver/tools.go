@@ -448,6 +448,9 @@ type processInput struct {
 	Name    string `json:"name" jsonschema:"the process's name"`
 	Project string `json:"project,omitempty" jsonschema:"add_process: the project the process is part of (from get_board metadata.projects)"`
 	To      string `json:"to,omitempty" jsonschema:"rename_process only: the new name"`
+	// Domain is the repository to declare a project-less process in; a
+	// process with a project lives with its project.
+	Domain string `json:"domain,omitempty" jsonschema:"add_process only, without a project: the domain (repository) to declare the process in, from get_board metadata.domains; empty = the primary"`
 }
 
 func (h *server) addProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
@@ -455,7 +458,7 @@ func (h *server) addProcess(ctx context.Context, _ *mcp.CallToolRequest, in proc
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddProcess(ctx, owner, boardNum, in.Name, in.Project); err != nil {
+	if err := svc.AddProcess(board.WithDomain(ctx, in.Domain), owner, boardNum, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil
@@ -684,6 +687,9 @@ type projectInput struct {
 	boardRef
 	Name string `json:"name" jsonschema:"the project's name — the chip on the Project board"`
 	To   string `json:"to,omitempty" jsonschema:"rename_project only: the project's new name"`
+	// Domain is the repository to declare the project in, when the board
+	// spans several (get_board metadata.domains); empty is the primary.
+	Domain string `json:"domain,omitempty" jsonschema:"add_project only: the domain (repository) to declare the project in, from get_board metadata.domains; empty = the primary"`
 }
 
 // renameProject renames a project in place, columns and cards along with it.
@@ -703,7 +709,7 @@ func (h *server) addProject(ctx context.Context, _ *mcp.CallToolRequest, in proj
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddProject(ctx, owner, boardNum, in.Name); err != nil {
+	if err := svc.AddProject(board.WithDomain(ctx, in.Domain), owner, boardNum, in.Name); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil

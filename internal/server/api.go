@@ -12,6 +12,7 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/ghprojects"
+	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
 // errMissingBoard is returned when neither query parameters nor server defaults
@@ -319,7 +320,35 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, apiserver.BoardResource(b))
+	info := apiserver.BoardResource(b)
+	if s.gitCfg != nil && len(s.gitCfg.Repos) > 1 {
+		info.Metadata.Domains = s.domainsFor(r.Context(), info.Metadata.Members)
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// domainsFor lists the visitor's readable domains, primary first, with
+// whether they may write each and which of the board's members can read it
+// (G16). Rights come from the request; who else reads a domain is the
+// forge's answer with the server credential.
+func (s *Server) domainsFor(ctx context.Context, members []string) []apiserver.DomainInfo {
+	rights := rightsFrom(ctx)
+	out := make([]apiserver.DomainInfo, 0, len(s.gitCfg.Repos))
+	for _, d := range s.gitCfg.Repos {
+		if !rights.canRead(d.Name) {
+			continue
+		}
+		readers, err := s.access.readers(ctx, d.Name, members)
+		if err != nil {
+			s.log.Warn("domain members", "domain", d.Name, "err", err)
+			readers = []string{}
+		}
+		if readers == nil {
+			readers = []string{}
+		}
+		out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: readers})
+	}
+	return out
 }
 
 func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
@@ -1004,6 +1033,9 @@ func (s *Server) handlePatchSprint(w http.ResponseWriter, r *http.Request) {
 		Team     string `json:"team"`
 		Current  string `json:"current"`
 		Previous string `json:"previous"`
+		// Domain is the repository a NEW team is declared in; an existing
+		// team's pointer stays where the team is.
+		Domain string `json:"domain"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
@@ -1012,7 +1044,7 @@ func (s *Server) handlePatchSprint(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := svc.SetSprintState(r.Context(), owner, project, in.Team, in.Current, in.Previous); err != nil {
+	if err := svc.SetSprintState(board.WithDomain(r.Context(), in.Domain), owner, project, in.Team, in.Current, in.Previous); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1231,11 +1263,14 @@ func (s *Server) handleAddProcess(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name    string `json:"name"`
 		Project string `json:"project"`
+		// Domain is the repository to declare a project-less process in;
+		// a process with a project lives with the project.
+		Domain string `json:"domain"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	r = r.WithContext(staleOK(r.Context()))
+	r = r.WithContext(board.WithDomain(staleOK(r.Context()), in.Domain))
 	svc, owner, boardNum, ok := s.service(w, r)
 	if !ok {
 		return
@@ -1524,6 +1559,9 @@ func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
+		// Domain is the repository to declare the project in (git mode with
+		// several); empty is the primary.
+		Domain string `json:"domain"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
@@ -1536,7 +1574,7 @@ func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 	// ids into the write; a snapshot minutes old answers both, and
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
+	r = r.WithContext(board.WithDomain(staleOK(r.Context()), in.Domain))
 	if err := svc.AddProject(r.Context(), owner, boardNum, in.Name); err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1761,6 +1799,8 @@ func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSONError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, boardservice.ErrForbidden):
 		writeJSONError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, gitstore.ErrUnknownDomain):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),
 		errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),

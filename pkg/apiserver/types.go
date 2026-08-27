@@ -209,6 +209,19 @@ type BoardMetadata struct {
 	// pickers (assign, review, view-as) now that clients load one view at a
 	// time and cannot derive it from the cards they hold.
 	Members []string `json:"members"`
+	// Domains are the repositories the visitor can read, primary first: which
+	// they may write — a team, project or process is declared in one they
+	// pick when more than one is writable — and which members can read each,
+	// so a reviewer picker offers only people who will see the card. Absent
+	// on a single-domain board.
+	Domains []DomainInfo `json:"domains,omitempty"`
+}
+
+// DomainInfo is one readable domain of the visitor's board.
+type DomainInfo struct {
+	Name     string   `json:"name"`
+	Writable bool     `json:"writable"`
+	Members  []string `json:"members"`
 }
 
 // EpicRef is one Project-board column: its name and the project that owns it.
