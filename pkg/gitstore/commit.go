@@ -69,6 +69,14 @@ type Action struct {
 	Cards []string
 	// Changes carry payloads that are not field diffs.
 	Changes []Change
+	// Trailers are extra "Aeman-Key: value" lines a caller adds — the
+	// migration marks its reconcile commit this way. Keys are written
+	// verbatim and must start with "Aeman-".
+	Trailers map[string]string
+	// AllowEmpty makes a commit even when no file changed: an annotation —
+	// the migration records an event whose payload is not a field. Live
+	// actions never set it; a no-op stays a no-op.
+	AllowEmpty bool
 }
 
 // Change is one Aeman-Change trailer: a change on a card whose from/to
@@ -154,12 +162,15 @@ func (r *Repo) Commit(a Action, writes []FileWrite) (plumbing.Hash, error) {
 		}
 		changed = changed || ch
 	}
-	if !changed {
+	if !changed && !a.AllowEmpty {
 		return plumbing.ZeroHash, nil
 	}
 	treeHash, err := r.writeTree(root)
 	if err != nil {
 		return plumbing.ZeroHash, err
+	}
+	if !changed && head.IsZero() {
+		return plumbing.ZeroHash, errors.New("gitstore: an empty commit needs a parent")
 	}
 	when := a.At
 	if when.IsZero() {
@@ -208,6 +219,14 @@ func (a Action) message() string {
 	}
 	for _, ch := range a.Changes {
 		b.WriteString("Aeman-Change: " + ch.Card + " " + ch.Kind + " " + dash(ch.From) + " " + dash(ch.To) + "\n")
+	}
+	keys := make([]string, 0, len(a.Trailers))
+	for k := range a.Trailers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // a stable order keeps identical actions byte-identical
+	for _, k := range keys {
+		b.WriteString(k + ": " + a.Trailers[k] + "\n")
 	}
 	return b.String()
 }
