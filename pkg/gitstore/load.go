@@ -28,17 +28,40 @@ type Snapshot struct {
 	// paths that are, but could not be read. Neither fails the load.
 	Unknown []string
 	Broken  []BrokenFile
+	// Aliases are roster names declared in more than one domain: the
+	// oldest declaration is the entry, these are the others (their cards
+	// still count). Ghosts are cards present in two domains mid-move: the
+	// copy that is NOT current. Both are for health, not for the board.
+	Aliases []Alias
+	Ghosts  []Ghost
+}
+
+// Alias is a roster entry that lost the duplicate-name resolution.
+type Alias struct {
+	Kind   string // team | project | process
+	Name   string
+	Domain string
+	ID     string
+	Winner string // the id of the entry that won
+}
+
+// Ghost is the stale copy of a card caught between two domains.
+type Ghost struct {
+	ID     string
+	Domain string
 }
 
 // Team is teams/<id>.yaml with its id.
 type Team struct {
-	ID string
+	ID     string
+	Domain string
 	TeamFile
 }
 
 // Project is a project with its columns and deadline lines.
 type Project struct {
-	ID string
+	ID     string
+	Domain string
 	ProjectFile
 	Epics     []Epic
 	Deadlines []Deadline
@@ -46,26 +69,30 @@ type Project struct {
 
 // Epic is one column.
 type Epic struct {
-	ID string
+	ID     string
+	Domain string
 	EpicFile
 }
 
 // Deadline is one deadline line.
 type Deadline struct {
-	ID string
+	ID     string
+	Domain string
 	DeadlineFile
 }
 
 // Process is a process with its tasks.
 type Process struct {
-	ID string
+	ID     string
+	Domain string
 	ProcessFile
 	Tasks []Task
 }
 
 // Task is one process task — a card file.
 type Task struct {
-	ID string
+	ID     string
+	Domain string
 	CardFile
 }
 
