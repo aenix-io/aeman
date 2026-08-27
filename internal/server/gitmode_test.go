@@ -73,7 +73,7 @@ func TestGitModeServesTheConfiguredBoard(t *testing.T) {
 	defer cancel()
 	srv.store.waitDrained(ctx)
 	p, _ := gitstore.CardPath(created.Metadata.UID)
-	if _, err := srv.gitBE.git.repo.ReadFile(p); err != nil {
+	if _, err := srv.gitBE.git.primary().ReadFile(p); err != nil {
 		t.Fatalf("created card not committed locally: %v", err)
 	}
 
@@ -142,7 +142,7 @@ func TestGitModeReopensTheClone(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"offline"`) {
 		t.Fatalf("the unpushed card did not survive the restart: %s", rec.Body.String())
 	}
-	if n, _ := second.gitBE.git.repo.Unpushed(); n != 1 {
+	if n, _ := second.gitBE.git.primary().Unpushed(); n != 1 {
 		t.Fatalf("unpushed after reopen = %d, want 1", n)
 	}
 }

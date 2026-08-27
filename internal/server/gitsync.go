@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"reflect"
 	"sync"
 	"time"
 
@@ -37,39 +38,48 @@ type gitOptions struct {
 	Logger       *slog.Logger
 }
 
+// gitDomain is one of the board's repositories and where it pushes.
+type gitDomain struct {
+	gitstore.Domain
+	remote gitstore.Remote
+}
+
 // gitSync is the per-store sync state.
 type gitSync struct {
-	repo      *gitstore.Repo
-	remote    gitstore.Remote
+	domains   []gitDomain // primary first
+	mb        *gitstore.MultiBackend
 	pushDelay time.Duration
 	log       *slog.Logger
 
-	mu sync.Mutex
-	// unpushed are the executed groups the remote has not confirmed, oldest
-	// first — what a rebase re-applies. firstUnpushed is when the oldest
-	// was committed.
-	unpushed      []executedGroup
-	firstUnpushed time.Time
-	lastPushErr   error
-	pushTimer     *time.Timer
-	pushing       bool
+	// applyMu serializes the queue's commits with the sync's resets and
+	// replays: a group in flight finishes its commit before a rebase moves
+	// the branch, so the replay carries it instead of a stale flush
+	// clobbering the other replica's fields.
+	applyMu sync.Mutex
+
+	mu          sync.Mutex
+	lastPushErr error
+	pushTimer   *time.Timer
+	pushing     bool
 }
 
-// executedGroup is one action's ops after they committed.
-type executedGroup struct {
-	action gitstore.Action
-	ops    []pendingOp
-}
+// primary is the repository that names the board.
+func (g *gitSync) primary() *gitstore.Repo { return g.domains[0].Repo }
 
-// newGitBackend builds the store's backend over a repository clone.
-func newGitBackend(store *boardStore, repo *gitstore.Repo, remote gitstore.Remote, opts gitOptions) *storeBackend {
+// newGitBackend builds the store's backend over the board's clones.
+func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *storeBackend {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
+	ds := make([]gitstore.Domain, len(domains))
+	for i, d := range domains {
+		ds[i] = d.Domain
+	}
+	mb := gitstore.NewMultiBackend(ds, gitstore.BackendOptions{})
 	be := &storeBackend{
-		inner: gitstore.NewBackend(repo, gitstore.BackendOptions{}),
+		inner: mb,
 		store: store,
-		git:   &gitSync{repo: repo, remote: remote, pushDelay: opts.PushDelay, log: opts.Logger},
+		git:   &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, log: opts.Logger},
 	}
 	if opts.SyncInterval > 0 {
 		go be.runSync(context.Background(), opts.SyncInterval)
@@ -124,8 +134,9 @@ func sameAction(a, b pendingOp) bool {
 // under one git scope, so they land as one commit. On success the group is
 // recorded for the push; the in-flight marker covers the whole group.
 func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendingOp) error {
-	sctx, flush, act := b.git.scopeFor(ctx, first)
-	group := executedGroup{action: act, ops: []pendingOp{first}}
+	b.git.applyMu.Lock()
+	defer b.git.applyMu.Unlock()
+	sctx, flush, _ := b.git.scopeFor(ctx, first)
 	if err := execRetry(sctx, first); err != nil {
 		return err
 	}
@@ -141,53 +152,105 @@ func (b *storeBackend) execGroup(ctx context.Context, e *boardEntry, first pendi
 		if err := execRetry(sctx, next); err != nil {
 			return err
 		}
-		group.ops = append(group.ops, next)
 	}
 	hash, err := flush()
 	if err != nil {
 		return err
 	}
 	if !hash.IsZero() {
-		b.committed(e, group)
+		b.refreshCards(sctx, e, gitstore.ScopeCards(sctx))
+		b.committed(e)
 	}
 	return nil
 }
 
+// refreshCards brings the cards a commit named up to date from the tree —
+// what the optimistic apply could not know: a moved card's new domain, the
+// cascade that followed it, doneFrom on reaching 100 — and tells the
+// watchers about the ones that actually differ. Refresh, never resurrect: a
+// card no longer in the cache was deleted by this very request.
+func (b *storeBackend) refreshCards(ctx context.Context, e *boardEntry, ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	fresh, err := b.inner.LoadCards(ctx, board.Board{}, ids)
+	if err != nil {
+		b.git.log.Warn("refresh after commit failed", "err", err)
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var changed []string
+	for _, c := range fresh {
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID != c.ItemID {
+				continue
+			}
+			if !reflect.DeepEqual(e.board.Cards[i], c) {
+				e.board.Cards[i] = c
+				changed = append(changed, c.ItemID)
+			}
+			break
+		}
+	}
+	if len(changed) == 0 {
+		return
+	}
+	// Later queued writes to these cards predate nothing on the tree yet;
+	// replay them so the cache keeps saying what the user asked.
+	if e.inflight != nil {
+		e.inflight.apply(&e.board)
+	}
+	for _, op := range e.pending {
+		op.apply(&e.board)
+	}
+	for _, id := range changed {
+		for i := range e.board.Cards {
+			if e.board.Cards[i].ItemID == id {
+				e.cardChanged("", e.board.Cards[i], "MODIFIED")
+				break
+			}
+		}
+	}
+}
+
 // ---- push ------------------------------------------------------------------------------
 
-// committed records a group that just committed and schedules a push.
-func (b *storeBackend) committed(e *boardEntry, group executedGroup) {
+// committed schedules a push after a group committed.
+func (b *storeBackend) committed(e *boardEntry) {
 	g := b.git
 	g.mu.Lock()
-	if len(g.unpushed) == 0 {
-		g.firstUnpushed = time.Now()
-	}
-	g.unpushed = append(g.unpushed, group)
-	if g.pushDelay > 0 || g.pushTimer != nil {
-		if g.pushTimer == nil {
-			g.pushTimer = time.AfterFunc(g.pushDelay, func() {
-				_ = b.syncNow(context.Background(), storeKeyOf(b.store, e))
-			})
-		}
+	if (g.pushDelay > 0 || g.pushTimer != nil) && g.pushTimer == nil {
+		g.pushTimer = time.AfterFunc(g.pushDelay, func() {
+			_ = b.syncNow(context.Background(), storeKeyOf(b.store, e))
+		})
 	}
 	g.mu.Unlock()
 }
 
-// unpushedAge is how long the oldest unpushed commit has been waiting; zero
-// when everything is on the remote.
+// unpushedAge is how long the oldest unpushed commit, in any domain, has
+// been waiting; zero when everything is on the remotes. The commits are
+// read from the clones, so what an earlier run left behind counts too.
 func (b *storeBackend) unpushedAge(_ string) time.Duration {
-	g := b.git
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if len(g.unpushed) == 0 {
+	var oldest time.Time
+	for _, d := range b.git.domains {
+		cs, err := d.Repo.UnpushedCommits()
+		if err != nil || len(cs) == 0 {
+			continue
+		}
+		if w := cs[0].Committer.When; oldest.IsZero() || w.Before(oldest) {
+			oldest = w
+		}
+	}
+	if oldest.IsZero() {
 		return 0
 	}
-	return time.Since(g.firstUnpushed)
+	return time.Since(oldest)
 }
 
-// syncNow runs one sync cycle for the board: push what is unpushed; on a
-// rejection fetch, re-apply on the new tip and push again; with nothing to
-// push, fetch and adopt what others pushed.
+// syncNow runs one sync cycle for the board: push every domain with
+// unpushed commits; on a rejection re-apply that domain on the new tip and
+// push again; then fetch and adopt what others pushed.
 func (b *storeBackend) syncNow(ctx context.Context, key string) error {
 	g := b.git
 	g.mu.Lock()
@@ -209,61 +272,111 @@ func (b *storeBackend) syncNow(ctx context.Context, key string) error {
 
 	e := b.store.entry(key)
 	for attempt := 0; ; attempt++ {
-		g.mu.Lock()
-		hasUnpushed := len(g.unpushed) > 0
-		g.mu.Unlock()
-		if !hasUnpushed {
-			return b.adoptRemote(ctx, e)
+		rejected, tip, err := g.pushAll(ctx)
+		if err != nil {
+			return err
 		}
-		err := g.repo.Push(ctx, g.remote)
-		if err == nil {
-			g.mu.Lock()
-			g.unpushed = nil
-			g.lastPushErr = nil
-			g.mu.Unlock()
-			return nil
-		}
-		// Rejected or unreachable: the fetch decides which.
-		tip, moved, ferr := g.repo.Fetch(ctx, g.remote)
-		if ferr != nil || !moved {
-			g.mu.Lock()
-			g.lastPushErr = err
-			g.mu.Unlock()
-			if ferr != nil {
-				return fmt.Errorf("push failed and the remote is unreachable: %w", err)
-			}
-			return fmt.Errorf("push failed with nothing new on the remote: %w", err)
+		if rejected == nil {
+			break
 		}
 		if attempt >= 5 {
-			return fmt.Errorf("push kept losing races: %w", err)
+			return fmt.Errorf("push kept losing races on %s", rejected.Name)
 		}
-		if err := b.rebaseOnto(ctx, e, tip); err != nil {
+		if err := b.rebaseDomain(ctx, e, rejected, tip); err != nil {
 			return err
 		}
 		// Backoff with jitter so two replicas do not lock-step.
 		time.Sleep(time.Duration(rand.IntN(50)+10*attempt) * time.Millisecond) //nolint:gosec // jitter, not security
 	}
+	return b.adoptRemote(ctx, e)
 }
 
-// adoptRemote fetches and, when the remote moved and nothing local is
-// pending, resets onto its tip and reloads the cache — the diff becomes
-// watch events for everyone.
-func (b *storeBackend) adoptRemote(ctx context.Context, e *boardEntry) error {
-	tip, moved, err := b.git.repo.Fetch(ctx, b.git.remote)
+// pushAll pushes every domain with unpushed commits. It returns the first
+// domain whose push was rejected because its remote moved, with the tip
+// fetched; a push that fails with nothing new on the remote, or an
+// unreachable remote, is an error (G10) and the commits stay.
+func (g *gitSync) pushAll(ctx context.Context) (*gitDomain, plumbing.Hash, error) {
+	for i := range g.domains {
+		d := &g.domains[i]
+		n, err := d.Repo.Unpushed()
+		if err != nil {
+			return nil, plumbing.ZeroHash, err
+		}
+		if n == 0 {
+			continue
+		}
+		err = d.Repo.Push(ctx, d.remote)
+		if err == nil {
+			continue
+		}
+		// Rejected or unreachable: the fetch decides which.
+		tip, moved, ferr := d.Repo.Fetch(ctx, d.remote)
+		if ferr != nil || !moved {
+			g.mu.Lock()
+			g.lastPushErr = err
+			g.mu.Unlock()
+			if ferr != nil {
+				return nil, plumbing.ZeroHash, fmt.Errorf("push %s failed and the remote is unreachable: %w", d.Name, err)
+			}
+			return nil, plumbing.ZeroHash, fmt.Errorf("push %s failed with nothing new on the remote: %w", d.Name, err)
+		}
+		return d, tip, nil
+	}
+	g.mu.Lock()
+	g.lastPushErr = nil
+	g.mu.Unlock()
+	return nil, plumbing.ZeroHash, nil
+}
+
+// rebaseDomain re-applies one domain's unpushed commits on its remote's new
+// tip and refreshes the cache from the result.
+func (b *storeBackend) rebaseDomain(ctx context.Context, e *boardEntry, d *gitDomain, tip plumbing.Hash) error {
+	g := b.git
+	g.applyMu.Lock()
+	defer g.applyMu.Unlock()
+	res, err := d.Repo.Rebase(tip)
 	if err != nil {
 		return err
 	}
+	g.log.Info("re-applied on the remote's tip", "domain", d.Name, "replayed", res.Replayed, "dropped", res.Dropped)
+	return b.reloadFromTip(ctx, e)
+}
+
+// adoptRemote fetches every domain and, when a remote moved and nothing
+// local is pending, moves onto its tip — a plain reset, or a replay when the
+// domain still holds unpushed commits — and reloads the cache once; the
+// diff becomes watch events for everyone.
+func (b *storeBackend) adoptRemote(ctx context.Context, e *boardEntry) error {
+	g := b.git
+	g.applyMu.Lock()
+	defer g.applyMu.Unlock()
+	moved := false
+	for i := range g.domains {
+		d := &g.domains[i]
+		tip, m, err := d.Repo.Fetch(ctx, d.remote)
+		if err != nil {
+			return err
+		}
+		if !m {
+			continue
+		}
+		e.mu.Lock()
+		busy := len(e.pending) > 0 || e.inflight != nil
+		e.mu.Unlock()
+		if busy {
+			return nil // the drain will bring its own push; the rebase there adopts the tip
+		}
+		if n, _ := d.Repo.Unpushed(); n > 0 {
+			if _, err := d.Repo.Rebase(tip); err != nil {
+				return err
+			}
+		} else if err := d.Repo.ResetTo(tip); err != nil {
+			return err
+		}
+		moved = true
+	}
 	if !moved {
 		return nil
-	}
-	e.mu.Lock()
-	busy := len(e.pending) > 0 || e.inflight != nil
-	e.mu.Unlock()
-	if busy {
-		return nil // the drain will bring its own push; the rebase there adopts the tip
-	}
-	if err := b.git.repo.ResetTo(tip); err != nil {
-		return err
 	}
 	return b.reloadFromTip(ctx, e)
 }
@@ -285,45 +398,6 @@ func (b *storeBackend) reloadFromTip(ctx context.Context, e *boardEntry) error {
 	e.mu.Unlock()
 	b.install(e, fresh, "")
 	return nil
-}
-
-// rebaseOnto moves the local branch to the remote's tip and re-runs every
-// unpushed group on top of it — each op re-reads its file, so the result is
-// field-level: the other replica's changes to other fields survive.
-func (b *storeBackend) rebaseOnto(ctx context.Context, e *boardEntry, tip plumbing.Hash) error {
-	g := b.git
-	g.mu.Lock()
-	groups := g.unpushed
-	g.unpushed = nil
-	g.mu.Unlock()
-	if err := g.repo.ResetTo(tip); err != nil {
-		return err
-	}
-	if err := b.reloadFromTip(ctx, e); err != nil {
-		return err
-	}
-	var kept []executedGroup
-	for _, grp := range groups {
-		sctx, flush := gitstore.WithScope(context.WithoutCancel(ctx), grp.action)
-		for _, op := range grp.ops {
-			if err := op.exec(sctx); err != nil {
-				g.log.Warn("re-apply dropped a write", "op", op.desc, "err", err)
-			}
-		}
-		if _, err := flush(); err != nil {
-			return err
-		}
-		kept = append(kept, grp)
-	}
-	// The re-applied groups are unpushed again; the cache is refreshed from
-	// the new tip so it agrees with what was just committed.
-	g.mu.Lock()
-	g.unpushed = append(kept, g.unpushed...)
-	if len(g.unpushed) > 0 && g.firstUnpushed.IsZero() {
-		g.firstUnpushed = time.Now()
-	}
-	g.mu.Unlock()
-	return b.reloadFromTip(ctx, e)
 }
 
 // runSync is the fetch ticker: every interval, one sync cycle per known

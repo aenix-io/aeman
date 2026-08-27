@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -166,6 +167,24 @@ func WithScope(ctx context.Context, a Action) (context.Context, func() (plumbing
 func scopeOf(ctx context.Context) *scope {
 	sc, _ := ctx.Value(scopeKey{}).(*scope)
 	return sc
+}
+
+// ScopeCards lists the cards the action has touched so far, in id order —
+// after flush, exactly what its commits name in Aeman-Cards (a move's
+// cascade included). Nil without a scope.
+func ScopeCards(ctx context.Context) []string {
+	sc := scopeOf(ctx)
+	if sc == nil {
+		return nil
+	}
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	ids := make([]string, 0, len(sc.cards))
+	for id := range sc.cards {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // read returns a file as the action currently sees it: staged content first,

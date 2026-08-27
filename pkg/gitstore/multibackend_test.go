@@ -273,6 +273,23 @@ func fileExists(r *Repo, p string) bool {
 	return err == nil
 }
 
+// LoadCards resolves a torn move like LoadAll does: the moved copy, not the
+// first domain's.
+func TestMultiBackendLoadCardsPrefersMovedCopy(t *testing.T) {
+	shared := repoWith(t, map[string]string{
+		BoardPath:               "schema: 1\ntitle: b\n",
+		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nteam: portal\nrank: a\n---\n",
+	})
+	closed := repoWith(t, map[string]string{
+		"cards/a/1/01CARDA1.md": "---\ntitle: moving\nproject: secret\nrank: a\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+	})
+	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}}, BackendOptions{})
+	got, err := mb.LoadCards(context.Background(), board.Board{}, []string{"01CARDA1"})
+	if err != nil || len(got) != 1 || got[0].Domain != "closed" || got[0].Project != "secret" {
+		t.Fatalf("LoadCards = %+v (%v), want the closed copy once", got, err)
+	}
+}
+
 // G22 — maintenance removes a torn move's ghost, but only once the
 // destination has landed; a duplicate that is not a move (neither copy says
 // movedFrom) is a maintainer's problem and is never touched.

@@ -78,10 +78,12 @@ func (mb *MultiBackend) LoadCards(ctx context.Context, bd board.Board, ids []str
 		}
 		out = append(out, got...)
 	}
-	// Keep the asked-for order.
+	// Keep the asked-for order; a card caught mid-move (G22) is the copy
+	// whose movedFrom names the other domain.
 	byID := map[string]board.Card{}
 	for _, c := range out {
-		if _, seen := byID[c.ItemID]; !seen {
+		prev, seen := byID[c.ItemID]
+		if !seen || c.MovedFrom == prev.Domain {
 			byID[c.ItemID] = c
 		}
 	}

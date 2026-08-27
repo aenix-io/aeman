@@ -65,7 +65,7 @@ func gitStore(t *testing.T, remote gitstore.Remote) (*storeBackend, *gitstore.Re
 		t.Fatal(err)
 	}
 	store := newBoardStore()
-	be := newGitBackend(store, repo, remote, gitOptions{})
+	be := newGitBackend(store, []gitDomain{{Domain: gitstore.Domain{Name: "board", Repo: repo}, remote: remote}}, gitOptions{})
 	be.git.pushDelay = 0 // tests drive the sync by hand
 	return be, repo
 }
@@ -360,7 +360,7 @@ func TestGitRejectedPushReappliesAndRetries(t *testing.T) {
 	if err := b.syncNow(context.Background(), "acme/1"); err != nil {
 		t.Fatalf("b sync: %v", err)
 	}
-	if n, _ := b.git.repo.Unpushed(); n != 0 {
+	if n, _ := b.git.primary().Unpushed(); n != 0 {
 		t.Fatalf("b still has %d unpushed commits", n)
 	}
 	// A third replica sees both fields.
@@ -382,7 +382,7 @@ func TestGitUnpushedAge(t *testing.T) {
 	remote := gitRemote(t)
 	seedGitRemote(t, remote)
 	be, _ := gitStore(t, remote)
-	be.git.remote = gitstore.Remote{URL: "gittest://remotes/gone.git"}
+	be.git.domains[0].remote = gitstore.Remote{URL: "gittest://remotes/gone.git"}
 	ctx := withAction(board.WithActor(context.Background(), "alice"), "01JB4KA0M2P4R6T8V0X2Z4B6L1", "progress")
 	bd, _ := be.LoadBoard(ctx, "acme", 1)
 	if age := be.unpushedAge("acme/1"); age != 0 {
@@ -399,7 +399,7 @@ func TestGitUnpushedAge(t *testing.T) {
 		t.Fatalf("unpushed age = %v, want > 0", age)
 	}
 	// The commit is still there for the next attempt.
-	if n, _ := be.git.repo.Unpushed(); n != 1 {
+	if n, _ := be.git.primary().Unpushed(); n != 1 {
 		t.Fatalf("unpushed = %d", n)
 	}
 }

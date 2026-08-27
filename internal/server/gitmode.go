@@ -71,7 +71,9 @@ func (s *Server) openGit(cfg *GitConfig) error {
 	s.gitBE = be
 	s.gitCfg = cfg
 	if cfg.History > 0 {
-		go s.deepenInBackground(be.git.repo, be.git.remote, cfg.History)
+		for _, d := range be.git.domains {
+			go s.deepenInBackground(d.Repo, d.remote, cfg.History)
+		}
 	}
 	return nil
 }
@@ -108,20 +110,13 @@ func (g *GitBackend) Drain(ctx context.Context) error {
 	return g.be.syncNow(ctx, storeKey(gitBoardOwner, 1))
 }
 
-// openGitStore is the shared core: clone or reopen under the data dir, check
-// the board, build the store backend with its sync.
+// openGitStore is the shared core: clone or reopen every domain under the
+// data dir, check each has a board, build the store backend with its sync.
+// Every configured repository must be initialised — a server that invents
+// a domain on a typo in --repo is worse than one that stops.
 func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBackend, error) {
 	if len(cfg.Repos) == 0 {
 		return nil, errors.New("git mode needs at least one --repo")
-	}
-	primary := cfg.Repos[0]
-	dir := filepath.Join(cfg.DataDir, "repos", primary.Name)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("data dir: %w", err)
-	}
-	remote := gitstore.Remote{URL: primary.URL}
-	if cfg.Token != "" {
-		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
 	}
 	opts := gitstore.Options{Committer: cfg.Committer}
 	if opts.Committer.Name == "" {
@@ -131,17 +126,34 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		tpl := cfg.AuthorEmail
 		opts.AuthorEmail = func(login string) string { return strings.ReplaceAll(tpl, "{login}", login) }
 	}
-	repo, err := cloneOrOpen(dir, remote, opts, primary.URL)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := gitstore.Load(repo); err != nil {
-		if errors.Is(err, gitstore.ErrEmptyRepository) {
-			return nil, initHint(primary.URL)
+	domains := make([]gitDomain, 0, len(cfg.Repos))
+	seen := map[string]bool{}
+	for _, spec := range cfg.Repos {
+		if spec.Name == "" || seen[spec.Name] {
+			return nil, fmt.Errorf("--repo needs a distinct name per repository (%q given twice or empty)", spec.Name)
 		}
-		return nil, fmt.Errorf("read %s: %w", primary.URL, err)
+		seen[spec.Name] = true
+		dir := filepath.Join(cfg.DataDir, "repos", spec.Name)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return nil, fmt.Errorf("data dir: %w", err)
+		}
+		remote := gitstore.Remote{URL: spec.URL}
+		if cfg.Token != "" {
+			remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
+		}
+		repo, err := cloneOrOpen(dir, remote, opts, spec.URL)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := gitstore.Load(repo); err != nil {
+			if errors.Is(err, gitstore.ErrEmptyRepository) {
+				return nil, initHint(spec.URL)
+			}
+			return nil, fmt.Errorf("read %s: %w", spec.URL, err)
+		}
+		domains = append(domains, gitDomain{Domain: gitstore.Domain{Name: spec.Name, Repo: repo}, remote: remote})
 	}
-	return newGitBackend(store, repo, remote, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval, Logger: log}), nil
+	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval, Logger: log}), nil
 }
 
 func initHint(url string) error {
