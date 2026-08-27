@@ -183,3 +183,35 @@ plan progress (V2). Each is pinned by the 🆕 tests above.
 | R7 | Re-review pulls the review card into the original's current sprint and onto today (reappears in the new sprint) and bumps the round | boardservice.reactivateReviewCard | ✅ TestReReviewRelocatesToNewSprintWithCounter |
 | V1 | The Team board loads its day grid PLUS the weekly plan of the shown teams (view=weekly accepts a comma set); the plan panel renders from the same card set | apiserver weekly multi-team + App dual fetch | ✅ TestWeeklyViewMultiTeam / viewquery.test |
 | V2 | GET /board carries the people roster (members: every distinct assignee), so assign/review/view-as pickers work with per-view card loading; Me view-as sends the impersonated user explicitly | apiserver BoardResource + App viewAs | ✅ TestBoardResourceMembers / viewquery.test |
+
+## Storage: git backend (2026-08-27)
+
+Companion to [git-backend.md](git-backend.md). These rules are pinned BEFORE the backend exists: each test is written first against `pkg/gitstore` (or `pkg/boardservice`) and must fail before the code lands. Rules about dates, sprints, visibility, review and carry-over do not change and keep their rows above.
+
+| # | Rule | Lives in | Test |
+| --- | --- | --- | --- |
+| G1 | Card path = `cards/<a>/<b>/<id>.md`, `a`,`b` = the id's LAST two chars; the path never changes while the card exists (rename, move, re-zone, re-team keep it) | gitstore layout | 🆕 gitstore `TestCardPath*` |
+| G2 | Empty fields are omitted on write; unknown front-matter keys survive a rewrite | gitstore file format | 🆕 gitstore `TestRewriteKeepsUnknownKeys`, `TestClearedFieldIsOmitted` |
+| G3 | Derived states are never written: 100% writes `progress: 100`, never `stage: done`; In Progress is absent from every file | gitstore file format | 🆕 gitstore `TestDerivedStateNotStored` |
+| G4 | One action = one commit touching all its files; `Aeman-Cards` lists every id; an action that changes nothing makes no commit | gitstore commit | 🆕 gitstore `TestCarryOverIsOneCommit`, `TestNoopMakesNoCommit` |
+| G5 | Coalesced field writes commit once with the final value, keyed by `(op, card, actor)`; two actors on one slider → two attributed commits | server write queue | 🆕 server `TestCoalescedWritesCommitOnce`, `TestTwoActorsTwoCommits` |
+| G6 | Author = actor login (email from template), committer = server identity, date = action time; unattributed → author `aeman` | gitstore commit | 🆕 gitstore `TestCommitIdentity*` |
+| G7 | A card's log = commits touching it within the horizon; from/to read from the front-matter diff; `truncatedBefore` set when the horizon cuts it | gitstore history | 🆕 gitstore `TestCardLog*`, `TestLogTruncatedBefore` |
+| G8 | The history walker visits the shallow boundary commit and does not cross it (no error on a depth-1 clone) | gitstore history | 🆕 gitstore `TestWalkerStopsAtBoundary` |
+| G9 | Deepening to a date applies `unshallow` and lands exactly at the horizon; a second deepen goes further; past the root leaves no shallow entry | gitstore sync | 🆕 gitstore `TestDeepenSince*` |
+| G10 | Push rejection is detected by fetching, never by error type: nothing new → failed (commits kept); new commits → re-apply and retry | gitstore sync | 🆕 gitstore `TestRejectedPush*` |
+| G11 | Re-apply on a new tip is per-card last-write-wins; disjoint cards both land; same card → the re-applied content wins, both commits in history | gitstore sync | 🆕 gitstore `TestReapplyDisjoint`, `TestReapplySameCardLastWins` |
+| G12 | A rank insertion touches one file; an exhausted key space rebalances only the run between the nearest roomy neighbours, in the same commit | board rank | 🆕 board `TestRankBetween*`, `TestRankRebalanceBounded` |
+| G13 | Roster fragments from several domains merge into one order; equal ranks tie-break by id | gitstore roster | 🆕 gitstore `TestRosterMergeAcrossDomains` |
+| G14 | Domain is inherited, never chosen per card: a card under a closed project is written to the closed repository; a subtask where its parent is | gitstore + boardservice | 🆕 `TestCardInheritsProjectDomain`, `TestSubtaskInheritsParentDomain` |
+| G15 | Mirror refuses a target column in another domain (`ErrCrossDomain`); guard order exists → not own → not mirrored → same domain | boardservice.Mirror | 🆕 `TestMirrorRefusesCrossDomain` |
+| G16 | The reviewer picker offers only logins that can read the card's domain | server people roster | 🆕 server `TestReviewersFilteredByDomain` |
+| G17 | An unreadable domain is absent from the visitor's board — no teams, projects, cards or placeholders from it | server board composition | 🆕 server `TestUnreadableDomainAbsent` |
+| G18 | A newer `schema` is refused at startup; an older one is migrated in one commit | gitstore schema | 🆕 gitstore `TestSchemaNewerRefused`, `TestSchemaOlderMigrated` |
+| G19 | Remote changes reach the cache by tree diff: a pushed commit touching one card updates that card only and is broadcast once | server sync | 🆕 server `TestRemoteCommitUpdatesOneCard` |
+| G20 | Restart keeps unpushed commits: commit without push, reopen the store → queued and pushed | gitstore | 🆕 gitstore `TestUnpushedSurvivesReopen` |
+| G21 | Repack + prune keep every object reachable | gitstore maintenance | 🆕 gitstore `TestRepackKeepsHistoryReadable` |
+| M1 | Migration: the final tree equals the snapshot byte for byte, whatever the event log says | migrate | 🆕 migrate `TestFinalTreeEqualsSnapshot` |
+| M2 | Migration is idempotent: a second run on the migrated repository is a no-op without `--force` | migrate | 🆕 migrate `TestSecondRunNoop` |
+| M3 | Migration ids are deterministic: the same GitHub item id yields the same ULID on every run | migrate | 🆕 migrate `TestDeterministicIDs` |
+| M4 | Migration reports everything it dropped or approximated: the `Status` field, issue cards reduced to `link`, unattributed notes, unapplied events | migrate | 🆕 migrate `TestReportNamesDrops` |
