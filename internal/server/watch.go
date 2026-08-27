@@ -82,7 +82,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 
 	key := storeKey(owner, project)
 	clientID := q.Get("client")
-	sub, cancel := s.store.subscribe(key, clientID, sel, resources)
+	sub, cancel := s.store.subscribeAs(key, clientID, sel, resources, rightsFrom(r.Context()))
 	defer cancel()
 	// A closed tab takes its live selection with it.
 	defer s.store.ClearPresence(key, clientID)

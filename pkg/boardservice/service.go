@@ -16,6 +16,11 @@ import (
 // ErrCardNotFound is returned when an item id is not on the loaded board.
 var ErrCardNotFound = errors.New("card not found")
 
+// ErrForbidden is a write the caller may not make: the domain it targets —
+// the card's repository, or the one a move would file it into — is not
+// theirs to write.
+var ErrForbidden = errors.New("forbidden: no write access to the card's domain")
+
 // ErrNoteNotFound is returned when a note id is not on the loaded card.
 var ErrNoteNotFound = errors.New("note not found")
 

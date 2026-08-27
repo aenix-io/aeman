@@ -38,6 +38,18 @@ type subscription struct {
 	sel       *apiserver.Selector
 	resources map[string]bool
 	members   map[string]bool
+	// rights is what the subscriber may read, per domain (G17): a frame from
+	// a domain they cannot read never reaches the socket, and roster frames
+	// carry their projection of the board. Nil = everything.
+	rights *domainRights
+}
+
+// view is the board as this subscriber sees it.
+func (sub *subscription) view(b board.Board) board.Board {
+	if sub.rights == nil {
+		return b
+	}
+	return board.Visible(b, sub.rights.primary, sub.rights.readable)
 }
 
 // send marshals and delivers one frame; a slow subscriber drops it and
@@ -469,7 +481,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	}
 	res := apiserver.CardResource(e.board, c)
 	for sub := range e.watchers {
-		if !sub.resources["cards"] {
+		if !sub.resources["cards"] || !sub.rights.canRead(c.Domain) {
 			continue
 		}
 		suppressed := origin != "" && sub.clientID == origin
@@ -511,7 +523,7 @@ func (e *boardEntry) reevaluate(origin string) {
 		}
 		suppressed := origin != "" && sub.clientID == origin
 		now := map[string]bool{}
-		for _, c := range apiserver.FilterCards(e.board, *sub.sel) {
+		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			if !sub.members[c.ItemID] && !suppressed {
 				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
@@ -544,8 +556,9 @@ func (e *boardEntry) sprintChanged(origin, team string) {
 		Metadata: apiserver.SprintMetadata{Team: team},
 		Spec:     apiserver.SprintSpec{Current: st.Current, Previous: st.Previous},
 	}
+	teamDomain := e.board.Domains[st.ItemID]
 	for sub := range e.watchers {
-		if !sub.resources["sprints"] || (origin != "" && sub.clientID == origin) {
+		if !sub.resources["sprints"] || (origin != "" && sub.clientID == origin) || !sub.rights.canRead(teamDomain) {
 			continue
 		}
 		sub.send(watchFrame{Type: "MODIFIED", Kind: "Sprint", Object: res})
@@ -556,12 +569,11 @@ func (e *boardEntry) sprintChanged(origin, team string) {
 // orderingChanged announces the board's new manual order. The caller holds
 // e.mu with the cache already reordered; membership is unaffected.
 func (e *boardEntry) orderingChanged(origin string) {
-	res := apiserver.OrderingResource(e.board)
 	for sub := range e.watchers {
 		if !sub.resources["ordering"] || (origin != "" && sub.clientID == origin) {
 			continue
 		}
-		sub.send(watchFrame{Type: "MODIFIED", Kind: "Ordering", Object: res})
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Ordering", Object: apiserver.OrderingResource(sub.view(e.board))})
 	}
 }
 
@@ -744,6 +756,12 @@ func (s *boardStore) entry(key string) *boardEntry {
 // subscription's membership is seeded from the cached board, so subscribe
 // after the board is loaded and LIST after subscribing.
 func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, resources map[string]bool) (*subscription, func()) {
+	return s.subscribeAs(key, clientID, sel, resources, nil)
+}
+
+// subscribeAs is subscribe for a visitor with domain rights: frames from
+// domains they cannot read never reach them (G17).
+func (s *boardStore) subscribeAs(key, clientID string, sel *apiserver.Selector, resources map[string]bool, rights *domainRights) (*subscription, func()) {
 	e := s.entry(key)
 	sub := &subscription{
 		ch:        make(chan []byte, 64),
@@ -751,10 +769,11 @@ func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, re
 		sel:       sel,
 		resources: resources,
 		members:   map[string]bool{},
+		rights:    rights,
 	}
 	e.mu.Lock()
 	if sel != nil && e.loaded {
-		for _, c := range apiserver.FilterCards(e.board, *sel) {
+		for _, c := range apiserver.FilterCards(sub.view(e.board), *sel) {
 			sub.members[c.ItemID] = true
 		}
 	}
@@ -1309,12 +1328,12 @@ func (e *boardEntry) rosterBroadcast() {
 	// signal sent every open tab back to GET /board — a full snapshot each,
 	// which is the opposite of what a cache is for. Processes ride along as
 	// their full structure, since the Process tab is drawn from it.
-	frame := watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
-		BoardInfo: apiserver.BoardResource(e.board),
-		Processes: apiserver.ProcessesResource(e.board, "").Items,
-	}}
 	for sub := range e.watchers {
-		sub.send(frame)
+		view := sub.view(e.board)
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
+			BoardInfo: apiserver.BoardResource(view),
+			Processes: apiserver.ProcessesResource(view, "").Items,
+		}})
 	}
 }
 

@@ -247,9 +247,10 @@ func (s *Server) newGHClient(token string) *ghprojects.Client {
 // per-request ghprojects client (*ghprojects.Client satisfies boardservice.Backend).
 func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) {
 	if s.gitBE != nil {
-		// Git mode: one shared backend over the clone; the request brings
-		// its identity (actor) and its action, nothing else is per-request.
-		return boardservice.New(s.gitBE), nil
+		// Git mode: one shared backend over the clones; the request brings
+		// its identity (actor), its action and its rights — the visible
+		// backend projects reads and checks writes against those.
+		return boardservice.New(s.visibleBE), nil
 	}
 	client, err := s.apiClient(r)
 	if err != nil {
@@ -1758,6 +1759,8 @@ func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
 			"your GitHub authorization is no longer valid: "+err.Error())
 	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, boardservice.ErrForbidden):
+		writeJSONError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),
 		errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),

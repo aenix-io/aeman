@@ -77,6 +77,11 @@ type Server struct {
 	// clone, not one per request; nil otherwise. gitCfg is its config.
 	gitBE  *storeBackend
 	gitCfg *GitConfig
+	// visibleBE is gitBE as a visitor may use it — reads projected onto the
+	// domains the request's rights can read, writes checked against them;
+	// access decides those rights per visitor. Both nil outside git mode.
+	visibleBE *visibleBackend
+	access    domainAccess
 
 	// apiTokens resolves the token (and login) for an /api/v1 request. It
 	// defaults to tokenForRequest — the same resolution the /api/github proxy
@@ -120,6 +125,18 @@ func New(opts Options) (*Server, error) {
 		if err := s.openGit(opts.Git); err != nil {
 			return nil, err
 		}
+		s.visibleBE = &visibleBackend{Backend: s.gitBE, primary: opts.Git.Repos[0].Name}
+		names := make([]string, 0, len(opts.Git.Repos))
+		for _, r := range opts.Git.Repos {
+			names = append(names, r.Name)
+		}
+		if opts.Auth != nil {
+			// Each visitor brings their own token: the forge says what it
+			// may read and write, per domain.
+			s.access = newForgeAccess(githubAPIBase, s.httpClient, opts.Git.Repos)
+		} else {
+			s.access = openAccess{domains: names}
+		}
 	}
 	if opts.Auth != nil {
 		s.auth = newAuthManager(*opts.Auth, opts.Logger)
@@ -145,7 +162,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
-	s.handler = logRequests(s.log, clientIDMiddleware(s.csrfGuard(s.actorMiddleware(actionMiddleware(staleMiddleware(mux))))))
+	s.handler = logRequests(s.log, clientIDMiddleware(s.csrfGuard(s.actorMiddleware(s.accessMiddleware(actionMiddleware(staleMiddleware(mux)))))))
 	return s, nil
 }
 

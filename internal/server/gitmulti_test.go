@@ -39,6 +39,7 @@ func seedClosedRemote(t *testing.T, remote gitstore.Remote) {
 		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: closed\n")},
 		{Path: gitstore.ProjectPath("01JB4PROJSECRET"), Data: []byte("name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
 		{Path: gitstore.EpicPath("01JB4PROJSECRET", "01JB4EPICRISK"), Data: []byte("name: Risk\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: three-closed\nteam: portal\nproject: secret\nepic: Risk\nzone: yellow\nprogress: 20\nrank: c\ncreated: 2026-08-26T09:16:03Z\n---\n")},
 	})
 	if err != nil {
 		t.Fatal(err)

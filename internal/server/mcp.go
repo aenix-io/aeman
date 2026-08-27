@@ -54,17 +54,37 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 		// the cache and reach the UI's watch stream like every other write.
 		WrapBackend: func(b boardservice.Backend) boardservice.Backend {
 			if s.gitBE != nil {
-				// Git mode: the one shared store; the caller's identity rides
-				// the context, the credential is the server's.
-				return s.gitBE
+				// Git mode: the one shared store; the caller's identity and
+				// rights ride the context, the credential is the server's.
+				return s.visibleBE
 			}
 			// /mcp is mounted only in OAuth mode, so every request is a distinct
 			// token-bearing user: gate cache hits on per-login authorization.
 			return &storeBackend{inner: &resolvingBackend{inner: b, store: s.store}, store: s.store, multiUser: true}
 		},
 	})
-	srv.AddReceivingMiddleware(injectGitHubToken, s.dropSessionOnBadCredentials)
+	srv.AddReceivingMiddleware(injectGitHubToken, s.injectRights, s.dropSessionOnBadCredentials)
 	return srv
+}
+
+// injectRights resolves the MCP caller's domain rights from the token and
+// login injectGitHubToken placed on the context — the same decision the
+// HTTP accessMiddleware makes for a browser visitor.
+func (s *Server) injectRights(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		if s.access != nil {
+			tok, _ := ctx.Value(mcpTokenCtxKey{}).(string)
+			login, _ := ctx.Value(mcpLoginCtxKey{}).(string)
+			if tok != "" || login != "" {
+				rights, err := s.access.rights(ctx, tok, login)
+				if err != nil {
+					return nil, fmt.Errorf("access could not be decided: %w", err)
+				}
+				ctx = withRights(ctx, rights)
+			}
+		}
+		return next(ctx, method, req)
+	}
 }
 
 // injectGitHubToken copies the GitHub token from the request's verified

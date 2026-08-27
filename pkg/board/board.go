@@ -340,6 +340,11 @@ type Board struct {
 	// one project's epics as its columns.
 	Projects      []string          `json:"projects,omitempty"`
 	ProjectStates map[string]string `json:"projectStates,omitempty"`
+	// Domains maps a roster entry's id — a team's sprint-state card, a
+	// project, an epic column, a deadline, a process, a task — to the domain
+	// (repository) it was declared in; cards carry their own Domain. Nil on
+	// a single-domain board, where nothing records one.
+	Domains map[string]string `json:"domains,omitempty"`
 }
 
 // NewBoard builds a Board snapshot from a board's fields and full card list,
@@ -361,6 +366,12 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 	processSeen := map[string]bool{}
 	epicKey := func(project, name string) string { return project + "\x00" + name }
 	for _, c := range cards {
+		if c.Domain != "" && IsStateTitle(c.Title) {
+			if b.Domains == nil {
+				b.Domains = map[string]string{}
+			}
+			b.Domains[c.ItemID] = c.Domain
+		}
 		if c.Title == ProcessStateTitle {
 			if c.Process != "" && !processSeen[c.Process] {
 				processSeen[c.Process] = true
