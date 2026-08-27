@@ -2803,6 +2803,40 @@ func TestReopenRestoresPreDoneProgress(t *testing.T) {
 	}
 }
 
+// G23 — the stored doneFrom is what a reopen restores, and it wins over the
+// event log: a card done past the history horizon, with no events loaded at
+// all, still comes back to where it was — never to the nudge.
+func TestReopenRestoresDoneFromWithoutAnyHistory(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "c1", Title: "one", Team: "t", Progress: 100, DoneFrom: 40},
+	}, nil)
+	svc := New(fake)
+	ctx := t.Context()
+	if err := svc.Reopen(ctx, "o", 1, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(ctx, "o", 1)
+	c, _ := findCard(b, "c1")
+	if c.Progress != 40 {
+		t.Fatalf("reopened to %d, want the stored doneFrom 40", c.Progress)
+	}
+	// And when both exist, the stored value is the truth: the log may be
+	// the older, stale record of an earlier done.
+	fake = newFake([]board.Card{
+		{ItemID: "c2", Title: "two", Team: "t", Progress: 100, DoneFrom: 70,
+			Events: []board.Event{{Kind: board.EventProgress, From: "20", To: "100"}}},
+	}, nil)
+	svc = New(fake)
+	if err := svc.Reopen(ctx, "o", 1, "c2"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = fake.LoadBoard(ctx, "o", 1)
+	c, _ = findCard(b, "c2")
+	if c.Progress != 70 {
+		t.Fatalf("reopened to %d, want doneFrom 70 over the log's 20", c.Progress)
+	}
+}
+
 // A done card with no recorded pre-done progress (legacy log) falls back to
 // the in-progress nudge — the old behaviour, not an error.
 func TestReopenFallsBackWithoutHistory(t *testing.T) {

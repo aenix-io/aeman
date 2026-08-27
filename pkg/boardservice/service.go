@@ -1390,16 +1390,25 @@ func (s *Service) Reopen(ctx context.Context, owner string, project int, itemID 
 	if err != nil {
 		return err
 	}
+	// The write that took the card to 100 stored where it came from
+	// (DoneFrom): that is the value owed back, and it does not depend on a
+	// history that a horizon may have cut. Cards written before the field
+	// existed still carry the jump in their event log — the old source, kept
+	// as the fallback.
 	restored := -1
-	for _, e := range card.Events {
-		if e.Kind != board.EventProgress {
-			continue
-		}
-		// The LAST recorded jump onto a completing value is the done we are
-		// undoing; its from-side is what the card is owed back.
-		if to, err := strconv.Atoi(e.To); err == nil && to >= 100 {
-			if from, err := strconv.Atoi(e.From); err == nil {
-				restored = from
+	if card.DoneFrom > 0 {
+		restored = card.DoneFrom
+	} else {
+		for _, e := range card.Events {
+			if e.Kind != board.EventProgress {
+				continue
+			}
+			// The LAST recorded jump onto a completing value is the done we
+			// are undoing; its from-side is what the card is owed back.
+			if to, err := strconv.Atoi(e.To); err == nil && to >= 100 {
+				if from, err := strconv.Atoi(e.From); err == nil {
+					restored = from
+				}
 			}
 		}
 	}
