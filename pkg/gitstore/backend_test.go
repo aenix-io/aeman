@@ -440,6 +440,26 @@ func TestBackendRosterStubs(t *testing.T) {
 	}
 }
 
+// A pre-minted id is used verbatim: the server's cache mints ids so it can
+// answer with the final one before the write lands.
+func TestBackendCreateHonoursPremintedID(t *testing.T) {
+	be, r := newBackend(t)
+	ctx := ctxAs("kvaps")
+	b, _ := be.LoadBoard(ctx, "acme", 7)
+	id := NewID(at("2026-08-27T13:00:00Z"))
+	c, err := be.CreateCard(ctx, b, board.CreateInput{ItemID: id, Title: "pre-minted", Team: "portal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ItemID != id {
+		t.Fatalf("id = %s, want the pre-minted %s", c.ItemID, id)
+	}
+	p, _ := CardPath(id)
+	if _, err := r.ReadFile(p); err != nil {
+		t.Fatalf("file at the pre-minted path: %v", err)
+	}
+}
+
 // LoadCards is the partial read: the asked-for cards, in the order asked,
 // deleted ones omitted.
 func TestBackendLoadCards(t *testing.T) {

@@ -798,6 +798,10 @@ func (s *boardStore) reevaluateAll(key string) {
 type storeBackend struct {
 	inner boardservice.Backend
 	store *boardStore
+	// git, when set, is the sync behind a git backend: executed queue groups
+	// become local commits (one per request) and a background push sends
+	// them; nil for every other backend.
+	git *gitSync
 	// multiUser is set in OAuth mode, where each request carries a distinct
 	// user's token: a cache hit is then gated on that login having proven
 	// token-scoped access. Off in local-proxy mode (a single gh identity).
@@ -1396,6 +1400,9 @@ func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.
 	e := b.store.entry(storeKey(bd.Owner, bd.Number))
 	if in.Title == board.SprintStateTitle {
 		return b.createSync(ctx, bd, e, in)
+	}
+	if b.git != nil {
+		return b.createMinted(ctx, bd, e, in)
 	}
 	e.mu.Lock()
 	e.nextLocal++

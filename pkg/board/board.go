@@ -228,6 +228,10 @@ type Card struct {
 // board package (not boardservice) so a backend can implement the create method
 // without importing boardservice. An empty field is left unset.
 type CreateInput struct {
+	// ItemID, when set, is the id the card is created WITH — a backend that
+	// mints its own ids (the git store) honours it, so the cache can hand out
+	// the final id before the write lands; a backend that cannot ignores it.
+	ItemID      string   `json:"itemId,omitempty"`
 	Title       string   `json:"title"`
 	Zone        ZoneKey  `json:"zone,omitempty"`
 	Day         string   `json:"day,omitempty"`

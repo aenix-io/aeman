@@ -43,6 +43,18 @@ type pendingOp struct {
 	itemID string
 	// requeues counts fresh-node-lag retries (unresolved node, see drain).
 	requeues int
+	// kind is the coalescing kind ("progress", "stage", …), kept apart from
+	// key so the git commit can be named after it.
+	kind string
+	// action is the request the op belongs to (git backend): consecutive ops
+	// of one action drain under one scope and become one commit.
+	action actionRef
+	// actor is the login behind the op — part of the coalescing key, so two
+	// people on one slider are two commits, and the commit's author.
+	actor string
+	// notBefore delays a coalescable op so the next value of the same
+	// gesture can replace it before it commits (coalesceWindow).
+	notBefore time.Time
 }
 
 // queueBackoff is the wait between upstream retries (variable for tests).
@@ -55,11 +67,36 @@ var queueBackoff = []time.Duration{time.Second, 3 * time.Second}
 // The context is detached so the upstream write survives the request.
 func (b *storeBackend) enqueue(ctx context.Context, e *boardEntry, op pendingOp) {
 	bctx := context.WithoutCancel(ctx)
+	op.action = actionFrom(ctx)
+	op.actor = board.ActorFrom(ctx)
+	if op.key != "" {
+		// Two people on one slider are two writes, both attributed — never
+		// one silently overwriting the other.
+		op.key += "@" + op.actor
+	}
+	if b.git != nil && op.kind == "progress" {
+		// A drag is many writes for one intent: hold the commit open for
+		// the next value. Order per card is kept — the queue is FIFO — so an
+		// action that follows on the same card still commits after it.
+		op.notBefore = time.Now().Add(coalesceWindow)
+	}
 	e.mu.Lock()
 	merged := false
 	if op.key != "" {
+		// Coalesce only past the last op of ANOTHER kind on this card: once
+		// an action on the card sits behind the earlier value, that value
+		// must commit first — slider→100 then send-to-review commits the
+		// 100, then the review's clamp, never the review over a stale 100.
+		// Another actor's write of the same kind does not block: two people
+		// on one slider are two coalesced writes, one each.
+		barrier := -1
 		for i := range e.pending {
-			if e.pending[i].key == op.key {
+			if op.itemID != "" && e.pending[i].itemID == op.itemID && e.pending[i].kind != op.kind {
+				barrier = i
+			}
+		}
+		for i := range e.pending {
+			if e.pending[i].key == op.key && i > barrier {
 				if op.compose {
 					prev, next := e.pending[i].apply, op.apply
 					op.apply = func(bd *board.Board) {
@@ -102,11 +139,27 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		// op already on the wire) and keep it visible as in-flight — the
 		// counter and reload replays must still cover it.
 		op := e.pending[0]
+		if wait := time.Until(op.notBefore); wait > 0 {
+			// A coalescable write is still collecting values; every op
+			// behind it waits too, which is what keeps the card's order.
+			e.mu.Unlock()
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
 		e.pending = e.pending[1:]
 		e.inflight = &op
 		e.mu.Unlock()
 
-		err := execRetry(ctx, op)
+		var err error
+		if b.git != nil {
+			err = b.execGroup(ctx, e, op)
+		} else {
+			err = execRetry(ctx, op)
+		}
 		// An unresolvable node id is either a target deleted mid-queue (drop
 		// the write: the cache already matches the user's intent) or a FRESH
 		// node GitHub's read path has not caught up with yet — requeue that
@@ -258,7 +311,7 @@ func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID,
 	if kind != "" {
 		key = kind + ":" + itemID
 	}
-	b.enqueue(ctx, e, pendingOp{key: key, desc: desc, compose: compose, apply: apply, exec: exec, itemID: itemID})
+	b.enqueue(ctx, e, pendingOp{key: key, kind: kind, desc: desc, compose: compose, apply: apply, exec: exec, itemID: itemID})
 }
 
 // waitDrained blocks until every board's write-behind queue is empty or the
