@@ -16,15 +16,18 @@ import (
 	"github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	"github.com/aenix-io/aeman/internal/migrate/ghsource"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
-// Source is where the board is read from — *ghprojects.Client in production,
+// Source is where the board is read from — *ghsource.Client in production,
 // a fake in tests.
 type Source interface {
 	LoadBoard(ctx context.Context, owner string, project int) (board.Board, error)
 }
+
+var _ Source = (*ghsource.Client)(nil)
 
 // Options configures one migration.
 type Options struct {

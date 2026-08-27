@@ -26,10 +26,10 @@ import (
 
 	"github.com/aenix-io/aeman/internal/ghcli"
 	"github.com/aenix-io/aeman/internal/migrate"
+	"github.com/aenix-io/aeman/internal/migrate/ghsource"
 	"github.com/aenix-io/aeman/internal/server"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
-	"github.com/aenix-io/aeman/pkg/ghprojects"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 	"github.com/aenix-io/aeman/pkg/mcpserver"
 )
@@ -329,7 +329,7 @@ func runMigrate(args []string) error {
 	if cfg.Token != "" {
 		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
 	}
-	rep, err := migrate.Run(ctx, ghprojects.New(tok), memory.NewStorage(), remote, migrate.Options{
+	rep, err := migrate.Run(ctx, ghsource.New(tok), memory.NewStorage(), remote, migrate.Options{
 		Owner: *owner, Board: *number, Title: *title, Committer: cfg.Committer, DryRun: *dryRun, Force: *force,
 	})
 	if err != nil {
