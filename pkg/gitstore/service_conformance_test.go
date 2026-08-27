@@ -130,6 +130,22 @@ func TestServiceReviewThroughTheBackend(t *testing.T) {
 	if len(rc.Notes) != 1 || rc.Notes[0].Author != "kvaps" {
 		t.Fatalf("note = %+v", rc.Notes)
 	}
+	// G3 — the review passes 90 → 100: the review card records doneFrom: 90
+	// and the original leaves the review stage.
+	if err := svc.SetProgress(ctx, "acme", 1, review.ItemID, 90); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetProgress(ctx, "acme", 1, review.ItemID, 100); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = svc.Board(ctx, "acme", 1)
+	rc, _ = findByID(b, review.ItemID)
+	if rc.DoneFrom != 90 || rc.Progress != 100 {
+		t.Fatalf("review card after passing = progress %d doneFrom %d", rc.Progress, rc.DoneFrom)
+	}
+	if orig, _ = findByID(b, card.ItemID); orig.Stage == board.StageReview {
+		t.Fatal("original still on review after the review passed")
+	}
 }
 
 func TestServiceCarryOverThroughTheBackend(t *testing.T) {
@@ -157,6 +173,30 @@ func TestServiceCarryOverThroughTheBackend(t *testing.T) {
 	data, err := r.ReadFile(TeamPath(st.ItemID))
 	if err != nil || !strings.Contains(string(data), "previous: 2026-08-20") {
 		t.Fatalf("team file: %v\n%s", err, data)
+	}
+	// G4 — already on today's sprint: nothing to say, no commit.
+	head := r.Head()
+	if _, err := svc.CarryOver(ctx, "acme", 1, "portal", false); err != nil {
+		t.Fatal(err)
+	}
+	if r.Head() != head {
+		t.Fatal("a carry-over already on today's sprint made a commit")
+	}
+	// G4 — a team with nothing to carry still advances its pointer: one
+	// commit, the team file only.
+	if err := svc.SetSprintState(ctx, "acme", 1, "ops", "2026-08-10", ""); err != nil {
+		t.Fatal(err)
+	}
+	head = r.Head()
+	if _, err := svc.CarryOver(ctx, "acme", 1, "ops", false); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(commitsBetween(t, r, head)); n != 1 {
+		t.Fatalf("zero-card carry-over made %d commits, want 1", n)
+	}
+	b, _ = svc.Board(ctx, "acme", 1)
+	if paths := changedPathsSince(t, r, head); len(paths) != 1 || paths[0] != TeamPath(b.SprintStates["ops"].ItemID) {
+		t.Fatalf("zero-card carry-over touched %v, want the team file only", paths)
 	}
 }
 

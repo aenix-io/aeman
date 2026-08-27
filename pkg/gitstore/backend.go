@@ -129,7 +129,7 @@ func WithScope(ctx context.Context, a Action) (context.Context, func() (plumbing
 			}
 		}
 		if act.Actor == "" {
-			act.Actor = board.ActorFrom(ctx)
+			act.Actor = actorOf(ctx)
 		}
 		last := plumbing.ZeroHash
 		for _, r := range sc.repos {
@@ -167,6 +167,17 @@ func WithScope(ctx context.Context, a Action) (context.Context, func() (plumbing
 func scopeOf(ctx context.Context) *scope {
 	sc, _ := ctx.Value(scopeKey{}).(*scope)
 	return sc
+}
+
+// actorOf is the commit's author: the request's actor, or nobody — the
+// server — when the context is marked Unattributed (G6): work the server
+// does on its own behalf inside a user's request, a background title
+// resolve, is not that user's doing.
+func actorOf(ctx context.Context) string {
+	if board.IsUnattributed(ctx) {
+		return ""
+	}
+	return board.ActorFrom(ctx)
 }
 
 // ScopeCards lists the cards the action has touched so far, in id order —
@@ -245,7 +256,7 @@ func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p st
 	if len(cards) == 1 {
 		summary = op + " " + cards[0]
 	}
-	_, err := b.repo.Commit(Action{Name: op, Actor: board.ActorFrom(ctx), At: b.now(), Cards: cards, Summary: summary, Trailers: trailers, Changes: changes}, []FileWrite{{Path: p, Data: data}})
+	_, err := b.repo.Commit(Action{Name: op, Actor: actorOf(ctx), At: b.now(), Cards: cards, Summary: summary, Trailers: trailers, Changes: changes}, []FileWrite{{Path: p, Data: data}})
 	return err
 }
 
@@ -641,7 +652,7 @@ func (b *Backend) rebalance(ctx context.Context, s Snapshot, card board.Card, ra
 	}
 	flush := func() (plumbing.Hash, error) { return plumbing.ZeroHash, nil }
 	if scopeOf(ctx) == nil {
-		ctx, flush = WithScope(ctx, Action{Name: "move", Actor: board.ActorFrom(ctx), At: b.now(), Cards: cardIDs(card),
+		ctx, flush = WithScope(ctx, Action{Name: "move", Actor: actorOf(ctx), At: b.now(), Cards: cardIDs(card),
 			Summary: "move " + card.ItemID + " (run renumbered)"})
 	}
 	for i, id := range order {

@@ -27,6 +27,10 @@ func TestMigrateSchemaOlderInOneCommit(t *testing.T) {
 	if c.ParentHashes[0] != head || ParseTrailers(c.Message).Action != "schema" {
 		t.Fatalf("migration commit = %q on %v", c.Message, c.ParentHashes)
 	}
+	// G6 — the server's own work is authored by the server.
+	if c.Author.Name != serverID.Name || c.Author.Email != serverID.Email {
+		t.Fatalf("schema commit author = %s <%s>, want the server", c.Author.Name, c.Author.Email)
+	}
 	// Idempotent: a current repository is left alone.
 	again, err := MigrateSchema(r)
 	if err != nil || again || r.Head() != c.Hash {

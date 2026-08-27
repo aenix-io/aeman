@@ -32,6 +32,42 @@ func newBackend(t *testing.T) (*Backend, *Repo) {
 
 func ctxAs(login string) context.Context { return board.WithActor(context.Background(), login) }
 
+// G6 — work the server does on its own behalf inside a user's request (a
+// background title resolve marks its context Unattributed) is authored by
+// the server, not by whoever happened to trigger it — bare and under a scope.
+func TestUnattributedWriteIsAuthoredByTheServer(t *testing.T) {
+	be, r := newBackend(t)
+	bd, _ := be.LoadBoard(context.Background(), "x", 1)
+	card, _ := findByID(bd, "01JB4K2E7QZMX3R8V0N5T9WYC1")
+	ctx := board.Unattributed(ctxAs("kvaps"))
+	if err := be.RenameCard(ctx, bd, card, "resolved title"); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := r.CommitObject(r.Head())
+	if c.Author.Name != serverID.Name || ParseTrailers(c.Message).Actor != "" {
+		t.Fatalf("bare unattributed write: author %s, actor %q", c.Author.Name, ParseTrailers(c.Message).Actor)
+	}
+	sctx, flush := WithScope(ctx, Action{Name: "resolve-title", Cards: []string{card.ItemID}})
+	if err := be.RenameCard(sctx, bd, card, "resolved again"); err != nil {
+		t.Fatal(err)
+	}
+	h, err := flush()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ = r.CommitObject(h)
+	if c.Author.Name != serverID.Name || ParseTrailers(c.Message).Actor != "" {
+		t.Fatalf("scoped unattributed write: author %s, actor %q", c.Author.Name, ParseTrailers(c.Message).Actor)
+	}
+	// The plain attributed write still names its actor.
+	if err := be.RenameCard(ctxAs("kvaps"), bd, card, "by hand"); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := r.CommitObject(r.Head()); c.Author.Name != "kvaps" {
+		t.Fatalf("attributed write author = %s", c.Author.Name)
+	}
+}
+
 // G12 — a move rewrites one file, until the key space between two
 // neighbours is exhausted: then the whole run is renumbered in the SAME
 // commit, the order kept, every key short again. Roster lists rebalance the
