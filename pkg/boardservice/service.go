@@ -984,8 +984,10 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 		// roadmap that happens to be in a weekly plan because someone gave it
 		// a team; taking it out of the plan means exactly that, and its dates
 		// and its column stay. (Its row is derived from its start, so the
-		// week is not cleared either.)
-		if c.Epic != "" {
+		// week is not cleared either.) A column is the PAIR (project, epic),
+		// so either side is enough to mark the card as a project's — a card
+		// filed under a project must not hinge on the epic side being set.
+		if c.Epic != "" || c.Project != "" {
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
@@ -1006,8 +1008,12 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 			return nil
 		}
 		// A pure plan card — unassigned, never worked — is deleted for real.
-		// (Demoting it to an earlier week only made carry-week boomerang it
-		// back into the plan.)
+		// Demoting it to an earlier week does not take it off anyone's screen:
+		// its Wednesday or Friday is then in the past, so the debt rule brings
+		// it back onto the CURRENT week's panel (planShowsInWeekAt). It would
+		// gain a history it never had and still be in the way. (The comment
+		// here used to blame carry-week for the same loop; that action was
+		// retired in v0.19 and the debt rule replaced it.)
 		return s.deleteWithCascade(ctx, b, c)
 	}
 	if c.Plan != board.PlanNone {
@@ -1055,7 +1061,48 @@ func (s *Service) Remove(ctx context.Context, owner string, project int, itemID,
 		// ride along, staying nested under it there.
 		return s.syncChildrenSprint(ctx, b, c.ItemID, prev)
 	}
-	return s.deleteWithCascade(ctx, b, c)
+	// Nothing left to demote into: the × hands the card back instead of
+	// destroying it. Taking a card off someone is not a statement that the work
+	// is gone, and this branch used to delete for real — a card created and
+	// assigned the same day vanished from the board on its first ×, project
+	// column and all. Deleting is its own gesture (DeleteCard), never a
+	// side effect of removing a card from a person.
+	return s.releaseToPlan(ctx, b, c)
+}
+
+// releaseToPlan gives a card back: it loses its person and its sprint
+// membership and lands somewhere it can still be seen. A card that belongs to
+// a Project-board column already has a home — its column and its dates — and a
+// card already in a plan band keeps that band. One with neither is filed into
+// this week's plan, because a card in no sprint, no plan and no column is
+// invisible, which is what once made deleting it look like the tidy option.
+func (s *Service) releaseToPlan(ctx context.Context, b board.Board, c board.Card) error {
+	if len(c.Assignees) > 0 {
+		if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, c, board.EventAssignee, c.Assignees[0], "")
+	}
+	if c.SprintStart != "" {
+		if err := s.backend.SetSprintStart(ctx, b, c, ""); err != nil {
+			return err
+		}
+	}
+	if c.Epic != "" || c.Project != "" || c.Plan != board.PlanNone {
+		return nil
+	}
+	if err := s.backend.SetPlan(ctx, b, c, board.PlanWed); err != nil {
+		return err
+	}
+	week := c.Week
+	if week == "" {
+		week = board.MondayOf(board.TodayIso())
+	}
+	if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, c, board.EventPlanAdded, "", string(board.PlanWed))
+	return nil
 }
 
 // carryFollowers collects the subtasks that ride a carried parent into the

@@ -339,7 +339,9 @@ func TestDeleteParentReleasedChildInheritsAssignee(t *testing.T) {
 	}
 }
 
-func TestSmartRemoveCreatedTodayDeletesForReal(t *testing.T) {
+// A card created today has no earlier sprint to demote into — which used to
+// mean the × deleted it, subtasks and all. It is handed back instead.
+func TestSmartRemoveCreatedTodayReleasesTheParent(t *testing.T) {
 	today := board.TodayIso()
 	f := newFake([]board.Card{
 		{ItemID: "p", Team: "alpha", StartDate: today, SprintStart: today, Assignees: []string{"bob"}},
@@ -350,13 +352,18 @@ func TestSmartRemoveCreatedTodayDeletesForReal(t *testing.T) {
 	if err := f2svc(f).Remove(ctx, "acme", 1, "p", "grid"); err != nil {
 		t.Fatal(err)
 	}
-	if f.get("p") != nil {
-		t.Fatalf("created-today parent demoted instead of deleted: %+v", f.get("p"))
+	p := f.get("p")
+	if p == nil {
+		t.Fatalf("a created-today card is handed back, not deleted; log=%v", f.log)
 	}
-	// The child is released in place with the parent's person.
+	if len(p.Assignees) != 0 || p.SprintStart != "" || p.Plan == board.PlanNone {
+		t.Fatalf("it leaves the person and the sprint for the weekly plan: %+v", p)
+	}
+	// Nothing was destroyed, so the subtask stays nested under its parent
+	// instead of being orphaned into a standalone card.
 	c := f.get("c")
-	if c == nil || c.Parent != "" || len(c.Assignees) != 1 || c.Assignees[0] != "bob" {
-		t.Fatalf("released child = %+v, want standalone with bob", c)
+	if c == nil || c.Parent != "p" {
+		t.Fatalf("the subtask rides along under its parent: %+v", c)
 	}
 }
 

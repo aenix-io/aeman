@@ -5,6 +5,10 @@ export interface RemovableCard {
   sprintStart?: string;
   startDate?: string;
   progress?: number;
+  /** A Project-board column is the PAIR (project, epic); either side filed
+   *  means the card belongs to one. */
+  epic?: string;
+  project?: string;
 }
 
 export interface RemovalContext {
@@ -36,6 +40,12 @@ export function removalKind(c: RemovableCard, ctx: RemovalContext): Removal {
     c.startDate !== ctx.today;
   if (!demotable) {
     return "delete";
+  }
+  // A card filed under a Project-board column is never destroyed by the ×:
+  // the server hands it back — demoted, or released to the plan — whatever
+  // the person picked. With no destructive option there is nothing to ask.
+  if (c.epic || c.project) {
+    return "demote";
   }
   return (c.progress ?? 0) > 0 ? "ask" : "demote";
 }

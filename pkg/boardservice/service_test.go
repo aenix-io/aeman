@@ -1230,25 +1230,98 @@ func TestRemoveGridDemotesFromCurrentSprint(t *testing.T) {
 	}
 }
 
-func TestRemoveGridDeletesOutsideCurrentSprint(t *testing.T) {
+// A card outside the team's current sprint has no earlier sprint to demote
+// into, so the x hands it back to the weekly plan rather than destroying it.
+func TestRemoveGridReleasesCardOutsideCurrentSprint(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-03"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if f.get("c1") != nil {
-		t.Fatalf("a card no longer in the current sprint is deleted for real")
+	c := f.get("c1")
+	if c == nil {
+		t.Fatalf("the grid x never deletes a top-level card; log=%v", f.log)
+	}
+	if c.SprintStart != "" || c.Plan == board.PlanNone {
+		t.Fatalf("it leaves the sprint and lands in the weekly plan: %+v", c)
 	}
 }
 
-func TestRemoveGridDeletesWhenNoPreviousSprint(t *testing.T) {
+func TestRemoveGridReleasesWhenNoPreviousSprint(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-10"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10"}})
 	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if f.get("c1") != nil {
-		t.Fatalf("no earlier sprint to demote into: delete")
+	c := f.get("c1")
+	if c == nil {
+		t.Fatalf("no earlier sprint to demote into is not a reason to delete; log=%v", f.log)
+	}
+	if c.Plan == board.PlanNone {
+		t.Fatalf("it lands in the weekly plan: %+v", c)
+	}
+}
+
+// --- The grid x hands a card back; it never destroys one (matrix A1) --------
+
+// The incident this rule exists for: a project card created and assigned the
+// same day, removed from the person's grid, was deleted outright — gone from
+// the weekly plan AND from the Project board, because the grid x had no
+// project-card guard and a same-day card has no earlier sprint to demote into.
+func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Epic: "Journal", Project: "Portal",
+		StartDate: board.TodayIso(), SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("c1")
+	if c == nil {
+		t.Fatalf("a project card is never deleted by the grid x; log=%v", f.log)
+	}
+	if len(c.Assignees) != 0 || c.SprintStart != "" {
+		t.Fatalf("removing from a person hands the card back: %+v", c)
+	}
+	if c.Epic != "Journal" || c.Project != "Portal" {
+		t.Fatalf("it keeps its Project-board column: %+v", c)
+	}
+}
+
+// A card with no column and no plan band would be invisible once released, so
+// the x files it into the current week's plan instead of deleting it.
+func TestRemoveGridReleasesPlainCardIntoTheWeeklyPlan(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: board.TodayIso(),
+		SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("c1")
+	if c == nil {
+		t.Fatalf("the grid x never deletes a top-level card; log=%v", f.log)
+	}
+	if len(c.Assignees) != 0 || c.SprintStart != "" {
+		t.Fatalf("removing from a person hands the card back: %+v", c)
+	}
+	if c.Plan == board.PlanNone || c.Week != board.MondayOf(board.TodayIso()) {
+		t.Fatalf("a card with nowhere else to live lands in this week's plan: %+v", c)
+	}
+}
+
+// The plan x spares a project card by its column, and a column is the PAIR
+// (project, epic) — so the project side alone must be enough to spare it.
+func TestRemovePlanKeepsProjectCardWithoutEpic(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Project: "Portal",
+		Plan: board.PlanWed, Week: "2026-01-05"}}, nil)
+	if err := f2svc(f).Remove(ctx, "acme", 1, "c1", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("c1")
+	if c == nil {
+		t.Fatalf("a card that belongs to a project is never deleted by the plan x; log=%v", f.log)
+	}
+	if c.Plan != board.PlanNone {
+		t.Fatalf("it leaves the plan: %+v", c)
 	}
 }
 

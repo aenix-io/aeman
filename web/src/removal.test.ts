@@ -36,3 +36,23 @@ describe("removalKind", () => {
     expect(removalKind({ ...card, startDate: "2026-08-26", progress: 40 }, ctx)).toBe("delete");
   });
 });
+
+// The two rules meet here. A card filed under a Project-board column must
+// never be destroyed by the ×, so the choice dialog must not offer deletion
+// for one: with a column there is nothing to choose, and the server hands the
+// card back (demote, or release to the plan) either way.
+describe("removalKind on a card that belongs to a column", () => {
+  const worked = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 40 };
+
+  it("never asks for a card with an epic", () => {
+    expect(removalKind({ ...worked, epic: "Cozystack Core" }, ctx)).toBe("demote");
+  });
+
+  it("never asks for a card with a project — a column is the (project, epic) pair", () => {
+    expect(removalKind({ ...worked, project: "freedom" }, ctx)).toBe("demote");
+  });
+
+  it("still asks for a worked card that belongs to no column", () => {
+    expect(removalKind(worked, ctx)).toBe("ask");
+  });
+})

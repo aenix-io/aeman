@@ -1533,57 +1533,27 @@ export function TeamBoard({
         });
         rollback = () => patchCard(card.itemId, prev);
       } else {
-        // Delete for real; the server cascades to a linked review card.
-        const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-        if (
-          linkedReview &&
-          !window.confirm(
-            `Delete this card and its linked review card «${linkedReview.title}»?`,
-          )
-        ) {
-          return;
-        }
-        removeCard(card.itemId);
-        if (linkedReview) {
-          removeCard(linkedReview.itemId);
-        }
-        // The server releases the subtasks (they return standalone, keeping
-        // their zone and slot); mirror it locally so they don't vanish while
-        // the delete round-trips.
-        const freed = board.cards.filter((c) => c.parent === card.itemId);
-        for (const c of freed) {
-          patchCard(c.itemId, {
-            parent: undefined,
-            ...(c.assignees.length === 0 && card.assignees.length > 0
-              ? { assignees: card.assignees.slice(0, 1) }
-              : {}),
-          });
-        }
-        if (freed.length > 0) {
-          // The freed rows take the parent's slot, in their nested order.
-          const freedIds = new Set(freed.map((c) => c.itemId));
-          const order: string[] = [];
-          for (const c of board.cards) {
-            if (freedIds.has(c.itemId)) {
-              continue;
-            }
-            if (c.itemId === card.itemId) {
-              order.push(...freed.map((f) => f.itemId));
-              continue;
-            }
-            order.push(c.itemId);
-          }
-          reorderCards(order);
-        }
-        rollback = () => {
-          addCard(card);
-          if (linkedReview) {
-            addCard(linkedReview);
-          }
-          for (const c of freed) {
-            patchCard(c.itemId, { parent: card.itemId });
-          }
+        // Nothing to demote into: the server hands the card back rather than
+        // deleting it (mirrors boardservice.releaseToPlan). It loses its person
+        // and its sprint, and — when it has no Project-board column and no plan
+        // band to return to — lands in this week's plan, because a card in no
+        // sprint, no plan and no column would be invisible. Subtasks ride along
+        // under it: nothing is destroyed, so nothing is orphaned.
+        const prev: Partial<CardModel> = {
+          assignees: card.assignees,
+          sprintStart: card.sprintStart,
+          plan: card.plan,
+          week: card.week,
         };
+        const homeless = !card.epic && !card.project && !card.plan;
+        patchCard(card.itemId, {
+          assignees: [],
+          sprintStart: undefined,
+          ...(homeless
+            ? { plan: "wed" as const, week: card.week ?? mondayOf(todayIso()) }
+            : {}),
+        });
+        rollback = () => patchCard(card.itemId, prev);
       }
     } else {
       // An untouched taken plan card is released (assignee + sprint cleared),
@@ -1625,10 +1595,17 @@ export function TeamBoard({
       return;
     }
     let rollback: () => void;
-    if (card.assignees.length === 0 && (card.progress ?? 0) === 0) {
-      // A pure plan card is deleted for real (a previous-week demote would
-      // boomerang back on the next carry-week); the server cascades to a
-      // linked review card.
+    if (
+      !card.epic &&
+      !card.project &&
+      card.assignees.length === 0 &&
+      (card.progress ?? 0) === 0
+    ) {
+      // A pure plan card — one that belongs to no Project-board column, that
+      // nobody took and nobody worked — is deleted for real (a previous-week
+      // demote would boomerang back on the next carry-week); the server
+      // cascades to a linked review card. A card filed under a project is
+      // never deleted here: it only leaves the plan.
       const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
       if (
         linkedReview &&
