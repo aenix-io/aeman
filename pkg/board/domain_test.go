@@ -85,3 +85,72 @@ func TestDomainOfUnknownReferencesFallThrough(t *testing.T) {
 		t.Fatalf("unknown project and team: domain = %q, want the primary", got)
 	}
 }
+
+// A card's project decides where it lives and its team does not get a say
+// (DomainOf, rule 4). So a card filed under a project of one repository and
+// handed to a team of another is a card that says one thing and lives
+// somewhere else: the team's people cannot see it, and the project's people
+// can. The pair is refused rather than resolved — the board tells the caller
+// which two repositories disagree.
+func TestATeamAndAProjectFromDifferentRepositoriesAreARefusal(t *testing.T) {
+	b := Board{
+		SprintStates: map[string]SprintState{
+			"backoffice": {ItemID: "team-backoffice"},
+			"founders":   {ItemID: "team-founders"},
+			"cozystack":  {ItemID: "team-cozystack"},
+		},
+		ProjectStates: map[string]string{
+			"backoffice": "project-backoffice",
+			"strategy":   "project-strategy",
+		},
+		Domains: map[string]string{
+			"team-founders":    "founders",
+			"project-strategy": "founders",
+			// The primary's own entries record no domain at all.
+		},
+	}
+	cases := []struct {
+		name            string
+		team, project   string
+		wantTeamDomain  string
+		wantOtherDomain string
+		wantConflict    bool
+	}{
+		{name: "both in the primary", team: "backoffice", project: "backoffice"},
+		{name: "both in the same secondary", team: "founders", project: "strategy", wantTeamDomain: "founders", wantOtherDomain: "founders"},
+		{name: "a team elsewhere than its project", team: "founders", project: "backoffice",
+			wantTeamDomain: "founders", wantConflict: true},
+		{name: "a project elsewhere than its team", team: "backoffice", project: "strategy",
+			wantOtherDomain: "founders", wantConflict: true},
+		{name: "no project at all constrains nothing", team: "founders", wantTeamDomain: "founders"},
+		{name: "no team at all constrains nothing", project: "strategy", wantOtherDomain: "founders"},
+		{name: "a team the roster does not declare yet decides nothing", team: "brand-new", project: "strategy",
+			wantOtherDomain: "founders"},
+		{name: "a project the roster does not declare yet decides nothing", team: "founders", project: "brand-new",
+			wantTeamDomain: "founders"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := TeamDomain(b, tc.team); got != tc.wantTeamDomain {
+				t.Errorf("TeamDomain(%q) = %q, want %q", tc.team, got, tc.wantTeamDomain)
+			}
+			if got := ProjectDomain(b, tc.project); got != tc.wantOtherDomain {
+				t.Errorf("ProjectDomain(%q) = %q, want %q", tc.project, got, tc.wantOtherDomain)
+			}
+			team, project, conflict := RosterConflict(b, tc.team, tc.project)
+			if conflict != tc.wantConflict {
+				t.Fatalf("RosterConflict(%q, %q) = %v, want %v", tc.team, tc.project, conflict, tc.wantConflict)
+			}
+			if conflict && (team != tc.wantTeamDomain || project != tc.wantOtherDomain) {
+				t.Fatalf("the refusal must name both sides: team %q, project %q", team, project)
+			}
+		})
+	}
+	// A board of one repository records no domains at all: nothing can
+	// conflict there, and the guard must not invent a refusal.
+	single := Board{SprintStates: map[string]SprintState{"backoffice": {ItemID: "team-backoffice"}},
+		ProjectStates: map[string]string{"strategy": "project-strategy"}}
+	if _, _, conflict := RosterConflict(single, "backoffice", "strategy"); conflict {
+		t.Fatal("a single-repository board has nothing to conflict")
+	}
+}

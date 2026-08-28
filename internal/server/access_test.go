@@ -186,8 +186,17 @@ func TestWriteNeedsWriteAccessToTheDomain(t *testing.T) {
 	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"progress":50}`); rec.Code != http.StatusOK {
 		t.Fatalf("dave PATCH shared card: %d %s", rec.Code, rec.Body.String())
 	}
-	// Filing the shared card under the closed project moves it into a domain
-	// dave cannot write: refused, and the card stays where it was.
+	// A team of one repository and a project of another cannot both be
+	// honoured, so that pair is refused before rights are even consulted
+	// (G46): the card carries the shared team "portal".
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","epic":"Risk"}`); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("dave files a shared team's card under a closed project: %d %s, want 422", rec.Code, rec.Body.String())
+	}
+	// Without a team the pair is valid and the move is a real one — into a
+	// domain dave cannot write: refused, and the card stays where it was.
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"team":""}`); rec.Code != http.StatusOK {
+		t.Fatalf("dave clears the team: %d %s", rec.Code, rec.Body.String())
+	}
 	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"project":"secret","epic":"Risk"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("dave moves into closed: %d %s, want 403", rec.Code, rec.Body.String())
 	}

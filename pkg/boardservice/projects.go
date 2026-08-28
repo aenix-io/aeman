@@ -119,6 +119,16 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 			return err
 		}
 	}
+	// The column's cards travel with it, so the destination must not put any
+	// of them in a repository their team does not live in.
+	for _, c := range b.Cards {
+		if !board.InEpic(c, from, epic) {
+			continue
+		}
+		if err := guardRoster(b, c.Team, to); err != nil {
+			return err
+		}
+	}
 	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: epic, Project: from}
 	if err := s.backend.SetProject(ctx, b, stub, to); err != nil {
 		return err
