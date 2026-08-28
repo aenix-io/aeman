@@ -5,7 +5,7 @@ import "testing"
 // stateBoard builds a snapshot with two hidden sprint-state cards (team "A" and
 // the no-team group) plus a few ordinary cards, exercising the mapProject split.
 func stateBoard() Board {
-	return NewBoard(nil, []Card{
+	return NewBoard([]Card{
 		{ItemID: "ss-a", Title: SprintStateTitle, Team: "A", SprintStart: "2026-06-22", StartDate: "2026-06-15"},
 		{ItemID: "ss-none", Title: SprintStateTitle, Team: "", SprintStart: "2026-06-20", StartDate: "2026-06-13"},
 		{ItemID: "1", Title: "real card", Team: "A", SprintStart: "2026-06-22", StartDate: "2026-06-22"},
@@ -65,7 +65,7 @@ func TestCurrentAndPreviousSprint(t *testing.T) {
 }
 
 func TestActiveSprint(t *testing.T) {
-	b := NewBoard(nil, []Card{
+	b := NewBoard([]Card{
 		// Team A: current 06-26, previous 06-20 (both tracked).
 		{ItemID: "ss-a", Title: SprintStateTitle, Team: "A", SprintStart: "2026-06-26", StartDate: "2026-06-20"},
 		// Team B: only a current sprint, no previous.

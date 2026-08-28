@@ -323,7 +323,7 @@ func TestAPIOrdering(t *testing.T) {
 }
 
 func TestAPINotes(t *testing.T) {
-	fake := boardservicetest.New([]board.Card{{ItemID: "c1", ContentID: "D1", IsDraft: true}}, nil)
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1"}}, nil)
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/notes", `{"text":"hello"}`)
 	if rec.Code != http.StatusCreated {
@@ -544,10 +544,13 @@ func TestAPIListDefaultsToMe(t *testing.T) {
 func TestAPICardLogUnifiedFeed(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Team: "alpha", Progress: 40,
-			Notes: []board.Note{{ID: "n1", Body: "human note", CreatedAt: "2026-07-06T09:00:00Z", Source: "draft"}},
-			Events: []board.Event{{ID: "e1", Kind: board.EventProgress, Actor: "kvaps",
-				From: "20", To: "40", At: "2026-07-06T10:00:00Z"}}},
+			Notes: []board.Note{{ID: "n1", Body: "human note", CreatedAt: "2026-07-06T09:00:00Z", Source: "draft"}}},
 	}, nil)
+	// The history lives in the backend, not on the card.
+	if err := fake.AppendEvent(t.Context(), board.Board{}, board.Card{ItemID: "c1"}, board.Event{
+		Kind: board.EventProgress, Actor: "kvaps", From: "20", To: "40", At: "2026-07-06T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodGet, "/api/v1/cards/c1/log", "")
 	if rec.Code != http.StatusOK {

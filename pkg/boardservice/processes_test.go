@@ -277,7 +277,7 @@ func TestOwnedIterationsAreDated(t *testing.T) {
 // slot stays on the Project board, where a plan belongs.
 func TestOwnedSlotsShowOnTheDayBoard(t *testing.T) {
 	today := board.TodayIso()
-	b := board.NewBoard(nil, []board.Card{
+	b := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
 		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
 		{ItemID: "owned", Title: "owned slot", Epic: "E", Project: "P",
@@ -599,7 +599,7 @@ func TestATaskTitleIsOneLine(t *testing.T) {
 func TestAnOrphanedTaskStopsFiling(t *testing.T) {
 	today := board.TodayIso()
 	week := board.MondayOf(today)
-	b := board.NewBoard(nil, []board.Card{
+	b := board.NewBoard([]board.Card{
 		{ItemID: "task", Title: board.ProcessTaskTitle, Process: "Ghost",
 			Description: "# Orphan", Recurrence: "week", StartDate: week, Team: "alpha"},
 	})

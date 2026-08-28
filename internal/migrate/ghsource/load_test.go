@@ -66,16 +66,14 @@ func TestMapDomainBoard(t *testing.T) {
 	if err := json.Unmarshal([]byte(domainBoardJSON), &raw); err != nil {
 		t.Fatalf("unmarshal fixture: %v", err)
 	}
-	b := mapDomainBoard("acme", &raw)
+	ex := mapDomainBoard("acme", &raw)
+	b := ex.Board
 
 	if b.Board != "acme/9" {
 		t.Fatalf("board provenance = %q, want acme/9", b.Board)
 	}
 	if len(b.Cards) != 2 {
 		t.Fatalf("want 2 visible cards (state card split out), got %d", len(b.Cards))
-	}
-	if len(b.Fields) != 10 {
-		t.Fatalf("want 10 fields, got %d", len(b.Fields))
 	}
 
 	// The sprint-state card is split into SprintStates, not Cards.
@@ -90,14 +88,11 @@ func TestMapDomainBoard(t *testing.T) {
 	}
 
 	orig := cardOf(t, b, "I_ORIG")
-	if !orig.IsDraft || orig.ContentID != "DI_ORIG" || orig.Title != "Build feature" {
+	if !ex.Items["I_ORIG"].IsDraft || orig.Title != "Build feature" {
 		t.Fatalf("orig identity = %+v", orig)
 	}
 	if orig.Zone != board.ZoneRed {
 		t.Errorf("orig zone = %q, want red", orig.Zone)
-	}
-	if orig.ZoneOptionID != "o_red" {
-		t.Errorf("orig zoneOptionId = %q, want o_red", orig.ZoneOptionID)
 	}
 	if orig.Progress != 40 {
 		t.Errorf("orig progress = %d, want 40", orig.Progress)
@@ -166,14 +161,15 @@ func TestMapDomainItemContent(t *testing.T) {
 	if err := json.Unmarshal([]byte(contentBoardJSON), &raw); err != nil {
 		t.Fatalf("unmarshal fixture: %v", err)
 	}
-	b := mapDomainBoard("acme", &raw)
+	ex := mapDomainBoard("acme", &raw)
+	b := ex.Board
 	if b.Title != "Content" || b.URL != "https://example/11" {
 		t.Fatalf("board title/url = %q / %q", b.Title, b.URL)
 	}
 
 	draft := cardOf(t, b, "I_DRAFT")
-	if !draft.IsDraft {
-		t.Errorf("draft.IsDraft = false, want true")
+	if !ex.Items["I_DRAFT"].IsDraft {
+		t.Errorf("draft IsDraft = false, want true")
 	}
 	if draft.Author != "dave" {
 		t.Errorf("draft author = %q, want dave (creator)", draft.Author)
@@ -181,14 +177,8 @@ func TestMapDomainItemContent(t *testing.T) {
 	if draft.Day != "2026-06-25" {
 		t.Errorf("draft day = %q, want 2026-06-25", draft.Day)
 	}
-	if draft.ZoneOptionID != "o_red" || draft.Zone != board.ZoneRed {
-		t.Errorf("draft zone/optionId = %q / %q", draft.Zone, draft.ZoneOptionID)
-	}
-	if draft.SprintTitle != "Sprint 7" {
-		t.Errorf("draft sprintTitle = %q, want Sprint 7", draft.SprintTitle)
-	}
-	if draft.Status != "In Progress" {
-		t.Errorf("draft status = %q, want In Progress", draft.Status)
+	if draft.Zone != board.ZoneRed {
+		t.Errorf("draft zone = %q, want red", draft.Zone)
 	}
 	if draft.Description != "Ship the thing" {
 		t.Errorf("draft description = %q, want %q", draft.Description, "Ship the thing")
@@ -205,16 +195,14 @@ func TestMapDomainItemContent(t *testing.T) {
 	}
 
 	issue := cardOf(t, b, "I_ISSUE")
-	if issue.IsDraft {
-		t.Errorf("issue.IsDraft = true, want false")
+	if ex.Items["I_ISSUE"].IsDraft {
+		t.Errorf("issue IsDraft = true, want false")
 	}
 	if issue.Author != "erin" {
 		t.Errorf("issue author = %q, want erin", issue.Author)
 	}
-	if issue.URL != "https://github.com/acme/repo/issues/42" || issue.Number != 42 ||
-		issue.Repository != "acme/repo" || issue.State != "OPEN" {
-		t.Errorf("issue url/number/repo/state = %q / %d / %q / %q",
-			issue.URL, issue.Number, issue.Repository, issue.State)
+	if ex.Items["I_ISSUE"].URL != "https://github.com/acme/repo/issues/42" {
+		t.Errorf("issue url = %q", ex.Items["I_ISSUE"].URL)
 	}
 	if issue.Description != "The bug is real." {
 		t.Errorf("issue description = %q", issue.Description)

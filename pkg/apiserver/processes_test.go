@@ -30,7 +30,7 @@ func TestProcessHistoryIsBoundedButCountsAll(t *testing.T) {
 		cards = append(cards, c)
 		week = board.AddDays(week, 7)
 	}
-	b := board.NewBoard(nil, cards)
+	b := board.NewBoard(cards)
 	got := ProcessesResource(b, "")
 	if len(got.Items) != 1 || len(got.Items[0].Tasks) != 1 {
 		t.Fatalf("resource = %+v", got)

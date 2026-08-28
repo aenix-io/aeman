@@ -434,7 +434,6 @@ export function TeamBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: [],
       plan,
       week: currentWeek,
@@ -1119,7 +1118,6 @@ export function TeamBoard({
     addCard({
       itemId: tempId,
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: parent.assignees.slice(0, 1),
       zone: parent.zone ?? "gray",
       team: parent.team,
@@ -1773,7 +1771,6 @@ export function TeamBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: [reviewerLogin],
       zone,
       day: selectedDate,
@@ -1911,7 +1908,6 @@ export function TeamBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: engineer ? [engineer] : [],
       zone,
       day,

@@ -176,7 +176,7 @@ func TestCreateCardUnderEpic(t *testing.T) {
 // The board parses the hidden state cards into the ordered project and column
 // rosters, and binds each column to its project.
 func TestBoardParsesProjectsAndEpics(t *testing.T) {
-	b := board.NewBoard(nil, []board.Card{
+	b := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
 		{ItemID: "e2", Title: board.EpicStateTitle, Epic: "Console", Project: "Cozystack"},
 		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
@@ -203,7 +203,7 @@ func TestBoardParsesProjectsAndEpics(t *testing.T) {
 		t.Fatalf("the no-project bucket = %v", got)
 	}
 	// The same column name in two projects is two columns, not a clash.
-	two := board.NewBoard(nil, []board.Card{
+	two := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "A"},
 		{ItemID: "p2", Title: board.ProjectStateTitle, Project: "B"},
 		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Docs", Project: "A"},
@@ -514,7 +514,7 @@ func TestSlotWeekIsNotSettable(t *testing.T) {
 // A board read repairs the rows of cards written before the rule, so nobody
 // has to migrate anything: the dates are the truth, whatever is stored.
 func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
-	b := board.NewBoard(nil, []board.Card{
+	b := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
 		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
 		// Written by the old code: dates moved, the week stayed behind.

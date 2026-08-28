@@ -812,7 +812,6 @@ export function ProjectBoard({
     addCard({
       itemId: tempId,
       title: title.trim(),
-      isDraft: true,
       assignees: [],
       epic: epic.name,
       project: epic.project,

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
@@ -400,16 +399,6 @@ func (v *visibleBackend) SetReviewRound(ctx context.Context, bd board.Board, car
 		return err
 	}
 	return v.Backend.SetReviewRound(ctx, bd, card, round)
-}
-
-// CardLog is the card's history when the backend keeps one; the visibility
-// check happened when the service found the card on the visitor's board.
-func (v *visibleBackend) CardLog(ctx context.Context, bd board.Board, id string) ([]board.Event, time.Time, error) {
-	lr, ok := v.Backend.(boardservice.LogReader)
-	if !ok {
-		return nil, time.Time{}, nil
-	}
-	return lr.CardLog(ctx, bd, id)
 }
 
 // SetSprintState writes a team's pointer in the team's domain; a team not

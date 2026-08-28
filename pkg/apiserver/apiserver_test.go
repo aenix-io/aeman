@@ -14,7 +14,7 @@ func testBoard() board.Board {
 	return board.Board{
 		Board: "acme", Title: "board", URL: "https://x",
 		Cards: []board.Card{
-			{ItemID: "c1", ContentID: "D1", IsDraft: true, Title: "Wire the API",
+			{ItemID: "c1", Title: "Wire the API",
 				Team: "alpha", Zone: board.ZoneRed, Progress: 40, Stage: board.StageReview,
 				StartDate: "2026-01-10", SprintStart: "2026-01-10", Day: "2026-01-12",
 				Assignees: []string{"octocat"}, Author: "octocat",
@@ -41,8 +41,7 @@ func testBoard() board.Board {
 func TestCardResourceMapsEveryField(t *testing.T) {
 	b := testBoard()
 	r := CardResource(b, b.Cards[0])
-	if r.Kind != "Card" || r.Metadata.UID != "c1" || r.Metadata.ContentID != "D1" ||
-		!r.Metadata.IsDraft || r.Metadata.Author != "octocat" ||
+	if r.Kind != "Card" || r.Metadata.UID != "c1" || r.Metadata.Author != "octocat" ||
 		r.Metadata.CreatedAt != "2026-01-10T08:00:00Z" {
 		t.Fatalf("metadata = %+v", r.Metadata)
 	}

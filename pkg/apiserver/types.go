@@ -44,14 +44,9 @@ type Card struct {
 
 // CardMetadata is the card's identity and immutable facts.
 type CardMetadata struct {
-	UID        string `json:"uid"`
-	ContentID  string `json:"contentId,omitempty"`
-	IsDraft    bool   `json:"isDraft,omitempty"`
-	URL        string `json:"url,omitempty"`
-	Number     int    `json:"number,omitempty"`
-	Repository string `json:"repository,omitempty"`
-	Author     string `json:"author,omitempty"`
-	CreatedAt  string `json:"createdAt,omitempty"`
+	UID       string `json:"uid"`
+	Author    string `json:"author,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
 }
 
 // CardDates is the card's date model: its scheduled start, the end of its
@@ -370,14 +365,9 @@ func CardResource(b board.Board, c board.Card) Card {
 	return Card{
 		Kind: "Card",
 		Metadata: CardMetadata{
-			UID:        c.ItemID,
-			ContentID:  c.ContentID,
-			IsDraft:    c.IsDraft,
-			URL:        c.URL,
-			Number:     c.Number,
-			Repository: c.Repository,
-			Author:     c.Author,
-			CreatedAt:  c.CreatedAt,
+			UID:       c.ItemID,
+			Author:    c.Author,
+			CreatedAt: c.CreatedAt,
 		},
 		Spec:   spec,
 		Status: status,
@@ -519,12 +509,6 @@ type LogList struct {
 	// TruncatedBefore, when set, is the time the loaded history is cut at:
 	// older entries exist on the remote but are not here (a shallow clone).
 	TruncatedBefore string `json:"truncatedBefore,omitempty"`
-}
-
-// CardLog merges a card's recorded events and notes into one chronological
-// feed.
-func CardLog(c board.Card) LogList {
-	return CardLogFrom(c, c.Events, time.Time{})
 }
 
 // CardLogFrom merges the given events — a backend's history — with the

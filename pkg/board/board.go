@@ -85,52 +85,17 @@ type Note struct {
 	Source string `json:"source"`
 }
 
-// SingleSelectOption is one choice of a single-select project field. It mirrors
-// the SingleSelectOption interface in web/src/providers/types.ts.
-type SingleSelectOption struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Color string `json:"color"`
-}
-
-// ProjectField is a column/field defined on a project board. It mirrors the
-// ProjectField interface in web/src/providers/types.ts.
-type ProjectField struct {
-	ID       string               `json:"id"`
-	Name     string               `json:"name"`
-	DataType string               `json:"dataType"`
-	Options  []SingleSelectOption `json:"options,omitempty"`
-}
-
-// Card is a single project item with the well-known field values the boards
-// orient by. It mirrors the Card interface in web/src/providers/types.ts (kept
-// distinct from ghprojects.Card, which has no typed Stage/Plan/Week/ReviewOf and
-// stores them only in a generic map).
+// Card is a single board item with the well-known field values the boards
+// orient by. It mirrors the Card interface in web/src/providers/types.ts.
 type Card struct {
 	ItemID string `json:"itemId"`
-	// ContentID is the node id of the underlying issue/PR/draft and IsDraft marks
-	// a draft-issue card. They mirror the contentId/isDraft fields on the frontend
-	// Card; a backend needs them to rename, reassign or note on the card (the pure
-	// views never read them).
-	ContentID string `json:"contentId,omitempty"`
-	IsDraft   bool   `json:"isDraft,omitempty"`
-	Title     string `json:"title"`
-	// URL/Number/Repository/State describe the underlying issue or PR (empty on a
-	// draft card). Author is the card's creator (draft-issue creator or issue
-	// author). They mirror the url/number/repository/state/author fields on the
-	// frontend Card.
-	URL        string   `json:"url,omitempty"`
-	Number     int      `json:"number,omitempty"`
-	Repository string   `json:"repository,omitempty"`
-	State      string   `json:"state,omitempty"`
-	Assignees  []string `json:"assignees"`
-	Author     string   `json:"author,omitempty"`
+	Title  string `json:"title"`
+	// Assignees are logins; Author is the login that created the card.
+	Assignees []string `json:"assignees"`
+	Author    string   `json:"author,omitempty"`
 	// Team is the card's team label ("" = the no-team group).
 	Team string  `json:"team,omitempty"`
 	Zone ZoneKey `json:"zone,omitempty"`
-	// ZoneOptionID is the raw single-select option id backing Zone, so a backend
-	// can round-trip the value. It mirrors zoneOptionId on the frontend Card.
-	ZoneOptionID string `json:"zoneOptionId,omitempty"`
 	// Progress is the readiness percentage (0..100); 0 also stands for unset,
 	// matching the frontend's `progress ?? 0`.
 	Progress int      `json:"progress"`
@@ -141,10 +106,6 @@ type Card struct {
 	// sprint it belongs to (what the day boards orient by).
 	StartDate   string `json:"startDate,omitempty"`
 	SprintStart string `json:"sprintStart,omitempty"`
-	// SprintTitle/Status are the board's Sprint (iteration) title and Status
-	// single-select value, kept for the frontend (distinct from Stage).
-	SprintTitle string `json:"sprintTitle,omitempty"`
-	Status      string `json:"status,omitempty"`
 	// Plan/Week place the card in the founders' weekly plan (Week is a Monday).
 	Plan PlanBand `json:"plan,omitempty"`
 	Week string   `json:"week,omitempty"`
@@ -214,13 +175,6 @@ type Card struct {
 	// action log, or an issue/PR body). Notes are the card's dated work notes.
 	Description string `json:"description,omitempty"`
 	Notes       []Note `json:"notes,omitempty"`
-	// Events is the card's recorded activity log (stage/progress/review/plan
-	// changes), stored alongside the notes — see Event.
-	Events []Event `json:"events,omitempty"`
-	// EventLogID is the id of the dedicated log comment holding an issue/PR
-	// card's events ("" when none exists yet, or on draft cards, whose events
-	// live in the body log). Internal plumbing for the event writer.
-	EventLogID string `json:"-"`
 }
 
 // CreateInput is the payload for creating a card on a board: the fields a create
@@ -308,10 +262,7 @@ type Board struct {
 	// Title/URL identify the board for display, mirroring the frontend Board.
 	Title string `json:"title,omitempty"`
 	URL   string `json:"url,omitempty"`
-	// Fields is what a GitHub Projects v2 export carried; only the migration's
-	// reader fills it, nothing on a git board reads it.
-	Fields []ProjectField `json:"fields,omitempty"`
-	Cards  []Card         `json:"cards"`
+	Cards []Card `json:"cards"`
 	// SprintStates maps each team key ("" = the no-team group) to its pointer.
 	SprintStates map[string]SprintState `json:"sprintStates"`
 	// TeamOrder lists the SprintStates keys in board order — the position of
@@ -341,14 +292,12 @@ type Board struct {
 	Domains map[string]string `json:"domains,omitempty"`
 }
 
-// NewBoard builds a Board snapshot from a board's fields and full card list,
-// splitting the hidden sprint-state cards out of Cards into SprintStates (keyed
+// NewBoard builds a Board snapshot from the full card list, splitting the hidden sprint-state cards out of Cards into SprintStates (keyed
 // by team, "" = the no-team group). It mirrors mapProject's split: a sprint-state
 // card's Team is its key, its SprintStart is the team's current sprint and its
 // StartDate (the "Start" field) is the previous sprint.
-func NewBoard(fields []ProjectField, cards []Card) Board {
+func NewBoard(cards []Card) Board {
 	b := Board{
-		Fields:       fields,
 		Cards:        make([]Card, 0, len(cards)),
 		SprintStates: map[string]SprintState{},
 	}

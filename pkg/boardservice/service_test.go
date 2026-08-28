@@ -22,6 +22,7 @@ type fakeBackend struct {
 	mu      sync.Mutex
 	refs    map[string]board.Link
 	b       board.Board
+	events  map[string][]board.Event // the history AppendEvent recorded, by card
 	log     []string
 	creates []board.CreateInput
 	nextID  int
@@ -166,7 +167,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
-		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
+		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
@@ -208,10 +209,27 @@ func (f *fakeBackend) AppendEvent(_ context.Context, _ board.Board, card board.C
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("AppendEvent %s %s %s->%s", card.ItemID, e.Kind, e.From, e.To)
-	if c := f.get(card.ItemID); c != nil {
-		c.Events = append(c.Events, e)
+	if f.get(card.ItemID) != nil {
+		if f.events == nil {
+			f.events = map[string][]board.Event{}
+		}
+		f.events[card.ItemID] = append(f.events[card.ItemID], e)
 	}
 	return nil
+}
+
+// CardLog is the history AppendEvent recorded, oldest first; the fake holds all
+// of it, so it is never truncated.
+func (f *fakeBackend) CardLog(_ context.Context, _ board.Board, id string) ([]board.Event, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]board.Event(nil), f.events[id]...), time.Time{}, nil
+}
+
+// eventsOf is the card's recorded history, for assertions.
+func (f *fakeBackend) eventsOf(id string) []board.Event {
+	evs, _, _ := f.CardLog(context.Background(), board.Board{}, id)
+	return evs
 }
 
 func (f *fakeBackend) AddNote(_ context.Context, _ board.Board, card board.Card, text string) error {
@@ -270,6 +288,14 @@ func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.C
 	defer f.mu.Unlock()
 	f.rec("SetProgress %s %d", card.ItemID, progress)
 	if c := f.get(card.ItemID); c != nil {
+		// The storage's rule (gitstore): reaching 100 remembers where the
+		// card came from, dropping below forgets it.
+		switch {
+		case progress >= 100 && c.Progress < 100:
+			c.DoneFrom = c.Progress
+		case progress < 100:
+			c.DoneFrom = 0
+		}
 		c.Progress = progress
 	}
 	return nil
@@ -2063,7 +2089,7 @@ func TestMutationsRecordEvents(t *testing.T) {
 	if err := svc.TakeIntoPlan(actx, "acme", "p1", "dan", "", today); err != nil {
 		t.Fatal(err)
 	}
-	evs := f.get("c1").Events
+	evs := f.eventsOf("c1")
 	if len(evs) != 2 {
 		t.Fatalf("c1 events = %+v, want progress + stage", evs)
 	}
@@ -2073,7 +2099,7 @@ func TestMutationsRecordEvents(t *testing.T) {
 	if evs[1].Kind != board.EventStage || evs[1].To != "locked" || evs[1].Actor != "kvaps" {
 		t.Fatalf("stage event = %+v", evs[1])
 	}
-	pevs := f.get("p1").Events
+	pevs := f.eventsOf("p1")
 	if len(pevs) != 1 || pevs[0].Kind != board.EventPlanTaken || pevs[0].To != "dan" {
 		t.Fatalf("plan-taken event = %+v", pevs)
 	}
@@ -2094,16 +2120,16 @@ func TestReviewCycleRecordsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sent bool
-	for _, e := range f.get("orig").Events {
+	for _, e := range f.eventsOf("orig") {
 		if e.Kind == board.EventReviewSent && e.To == "lllamnyp" && e.Actor == "kvaps" {
 			sent = true
 		}
 	}
 	if !sent {
-		t.Fatalf("orig events = %+v, want review-sent", f.get("orig").Events)
+		t.Fatalf("orig events = %+v, want review-sent", f.eventsOf("orig"))
 	}
-	if revEvs := f.get(rev.ItemID).Events; len(revEvs) == 0 || revEvs[0].Kind != board.EventCreated {
-		t.Fatalf("review card events = %+v, want created", f.get(rev.ItemID).Events)
+	if revEvs := f.eventsOf(rev.ItemID); len(revEvs) == 0 || revEvs[0].Kind != board.EventCreated {
+		t.Fatalf("review card events = %+v, want created", f.eventsOf(rev.ItemID))
 	}
 	// The reviewer finishes: the original records review-passed.
 	rctx := WithActor(ctx, "lllamnyp")
@@ -2111,13 +2137,13 @@ func TestReviewCycleRecordsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	var passed bool
-	for _, e := range f.get("orig").Events {
+	for _, e := range f.eventsOf("orig") {
 		if e.Kind == board.EventReviewPassed && e.From == "lllamnyp" {
 			passed = true
 		}
 	}
 	if !passed {
-		t.Fatalf("orig events = %+v, want review-passed", f.get("orig").Events)
+		t.Fatalf("orig events = %+v, want review-passed", f.eventsOf("orig"))
 	}
 }
 
@@ -2140,7 +2166,7 @@ func TestDateAndSprintEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	var dates, sprint bool
-	for _, e := range f.get("c1").Events {
+	for _, e := range f.eventsOf("c1") {
 		if e.Kind == board.EventDates && e.From == "2026-07-01..2026-07-02" && e.To == "2026-07-03..2026-07-04" {
 			dates = true
 		}
@@ -2149,10 +2175,10 @@ func TestDateAndSprintEvents(t *testing.T) {
 		}
 	}
 	if !dates || !sprint {
-		t.Fatalf("c1 events = %+v, want dates + sprint", f.get("c1").Events)
+		t.Fatalf("c1 events = %+v, want dates + sprint", f.eventsOf("c1"))
 	}
 	var week, band bool
-	for _, e := range f.get("p1").Events {
+	for _, e := range f.eventsOf("p1") {
 		if e.Kind == board.EventWeek && e.From == "2026-06-29" && e.To == "2026-07-06" {
 			week = true
 		}
@@ -2161,7 +2187,7 @@ func TestDateAndSprintEvents(t *testing.T) {
 		}
 	}
 	if !week || !band {
-		t.Fatalf("p1 events = %+v, want week + plan-band", f.get("p1").Events)
+		t.Fatalf("p1 events = %+v, want week + plan-band", f.eventsOf("p1"))
 	}
 }
 
@@ -2182,26 +2208,26 @@ func TestReviewCrossEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	var round bool
-	for _, e := range f.get("rev").Events {
+	for _, e := range f.eventsOf("rev") {
 		if e.Kind == board.EventReviewRound && e.From == "2" && e.To == "3" {
 			round = true
 		}
 	}
 	if !round {
-		t.Fatalf("rev events = %+v, want review-round", f.get("rev").Events)
+		t.Fatalf("rev events = %+v, want review-round", f.eventsOf("rev"))
 	}
 	// Leaving review cancels the fresh round: the original records it.
 	if err := svc.SetStage(actx, "acme", "orig", board.StageNone); err != nil {
 		t.Fatal(err)
 	}
 	var removed bool
-	for _, e := range f.get("orig").Events {
+	for _, e := range f.eventsOf("orig") {
 		if e.Kind == board.EventReviewerRemoved && e.From == "bob" {
 			removed = true
 		}
 	}
 	if !removed {
-		t.Fatalf("orig events = %+v, want reviewer-removed", f.get("orig").Events)
+		t.Fatalf("orig events = %+v, want reviewer-removed", f.eventsOf("orig"))
 	}
 }
 
@@ -2215,7 +2241,7 @@ func TestPlanCreateRecordsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	evs := f.get(card.ItemID).Events
+	evs := f.eventsOf(card.ItemID)
 	if len(evs) != 1 || evs[0].Kind != board.EventCreated || evs[0].Actor != "kvaps" {
 		t.Fatalf("plan card events = %+v, want created", evs)
 	}
@@ -2239,7 +2265,7 @@ func TestSetPlanRecordsSemanticEvents(t *testing.T) {
 	if err := svc.SetPlan(actx, "acme", "c1", board.PlanNone); err != nil {
 		t.Fatal(err)
 	}
-	evs := f.get("c1").Events
+	evs := f.eventsOf("c1")
 	if len(evs) != 3 ||
 		evs[0].Kind != board.EventPlanAdded || evs[0].To != "wed" ||
 		evs[1].Kind != board.EventPlanBand || evs[1].From != "wed" || evs[1].To != "fri" ||
@@ -2265,27 +2291,27 @@ func TestCarryRecordsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sprint bool
-	for _, e := range f.get("c1").Events {
+	for _, e := range f.eventsOf("c1") {
 		if e.Kind == board.EventSprint && e.From == "2026-07-01" && e.Actor == "kvaps" {
 			sprint = true
 		}
 	}
 	if !sprint {
-		t.Fatalf("c1 events = %+v, want a sprint event from the carry", f.get("c1").Events)
+		t.Fatalf("c1 events = %+v, want a sprint event from the carry", f.eventsOf("c1"))
 	}
 	if _, err := svc.CarryWeek(actx, "acme", "alpha", "2026-07-06", false); err != nil {
 		t.Fatal(err)
 	}
 	// A debt is not moved, so nothing about it is logged: the card's own
 	// week and band are unchanged, and an event saying otherwise would lie.
-	if evs := f.get("p1").Events; len(evs) != 0 {
+	if evs := f.eventsOf("p1"); len(evs) != 0 {
 		t.Fatalf("p1 events = %+v, want none — the debt did not move", evs)
 	}
 	// The reseeded recurrent copy records created.
 	var reseeded bool
 	for _, c := range f.b.Cards {
 		if c.ItemID != "habit" && c.Title == f.get("habit").Title && c.Week == "2026-07-06" {
-			for _, e := range c.Events {
+			for _, e := range f.eventsOf(c.ItemID) {
 				if e.Kind == board.EventCreated {
 					reseeded = true
 				}
@@ -2325,7 +2351,7 @@ func TestLogEventRetriesTransientFailures(t *testing.T) {
 	if err := svc.SetProgress(WithActor(ctx, "kvaps"), "acme", "c1", 60); err != nil {
 		t.Fatal(err)
 	}
-	evs := inner.get("c1").Events
+	evs := inner.eventsOf("c1")
 	if len(evs) != 1 || evs[0].Kind != board.EventProgress {
 		t.Fatalf("events = %+v, want the retried progress event", evs)
 	}
@@ -2334,7 +2360,7 @@ func TestLogEventRetriesTransientFailures(t *testing.T) {
 	if err := svc.SetProgress(WithActor(ctx, "kvaps"), "acme", "c1", 80); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(inner.get("c1").Events); got != 1 {
+	if got := len(inner.eventsOf("c1")); got != 1 {
 		t.Fatalf("events = %d, want still 1 (dropped after retries)", got)
 	}
 }
@@ -2776,7 +2802,7 @@ func (f *fakeBackend) SetPaused(_ context.Context, _ board.Board, card board.Car
 }
 
 // Reopen undoes a done mark by RESTORING the progress the card had when done
-// was set — read from its own activity log — instead of inventing 90. An
+// was set — the doneFrom the storage remembered — instead of inventing 90. An
 // accidental done+undo must round-trip: a card that was at 40 comes back at
 // 40, one that was at 0 comes back at 0 and does not turn "taken into work".
 func TestReopenRestoresPreDoneProgress(t *testing.T) {
@@ -2814,21 +2840,6 @@ func TestReopenRestoresDoneFromWithoutAnyHistory(t *testing.T) {
 	c, _ := findCard(b, "c1")
 	if c.Progress != 40 {
 		t.Fatalf("reopened to %d, want the stored doneFrom 40", c.Progress)
-	}
-	// And when both exist, the stored value is the truth: the log may be
-	// the older, stale record of an earlier done.
-	fake = newFake([]board.Card{
-		{ItemID: "c2", Title: "two", Team: "t", Progress: 100, DoneFrom: 70,
-			Events: []board.Event{{Kind: board.EventProgress, From: "20", To: "100"}}},
-	}, nil)
-	svc = New(fake)
-	if err := svc.Reopen(ctx, "o", "c2"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = fake.LoadBoard(ctx, "o")
-	c, _ = findCard(b, "c2")
-	if c.Progress != 70 {
-		t.Fatalf("reopened to %d, want doneFrom 70 over the log's 20", c.Progress)
 	}
 }
 
@@ -2935,7 +2946,7 @@ func TestReviewDoneByStagePassesTheOriginal(t *testing.T) {
 	}
 	// The pass is recorded on the original, naming the reviewer.
 	passed := false
-	for _, e := range orig.Events {
+	for _, e := range fake.eventsOf("orig") {
 		if e.Kind == board.EventReviewPassed && e.From == "lllamnyp" {
 			passed = true
 		}
@@ -2998,9 +3009,10 @@ func TestDemoteRecordsItsMove(t *testing.T) {
 		t.Fatalf("sprint = %q, want the demote to %q", c.SprintStart, prev)
 	}
 	var moved *board.Event
-	for i := range c.Events {
-		if c.Events[i].Kind == board.EventSprint {
-			moved = &c.Events[i]
+	evs := fake.eventsOf("c1")
+	for i := range evs {
+		if evs[i].Kind == board.EventSprint {
+			moved = &evs[i]
 		}
 	}
 	if moved == nil {

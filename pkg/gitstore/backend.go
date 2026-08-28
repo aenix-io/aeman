@@ -308,7 +308,7 @@ func boardFromSnapshot(s Snapshot) board.Board {
 		}
 	}
 	cards = append(cards, s.Cards...)
-	bd := board.NewBoard(nil, cards)
+	bd := board.NewBoard(cards)
 	bd.Title = s.Board.Title
 	return bd
 }
@@ -931,6 +931,22 @@ func (b *Backend) AppendEvent(ctx context.Context, _ board.Board, card board.Car
 		sc.cards[card.ItemID] = true
 	}
 	return nil
+}
+
+// CardLog is the card's feed read from this repository's commits — each
+// field change an event with the commit's actor and time — and the horizon
+// a shallow clone cuts it at (zero when whole). MultiBackend.CardLog is the
+// cross-domain version that follows a move.
+func (b *Backend) CardLog(_ context.Context, _ board.Board, id string) ([]board.Event, time.Time, error) {
+	log, err := b.repo.CardLog(id, 0)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	var events []board.Event
+	for _, e := range log.Entries {
+		events = append(events, eventsOf(e)...)
+	}
+	return events, log.TruncatedBefore, nil
 }
 
 // ---- setters ----------------------------------------------------------------------------

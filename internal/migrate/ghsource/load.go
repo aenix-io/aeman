@@ -8,67 +8,100 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
+// Export is what the reader hands the migration: the domain board, plus what
+// Projects v2 carried per item that the domain card no longer does.
+type Export struct {
+	Board board.Board
+	// Items is keyed by item id and covers every card NewBoard sorted into
+	// Board.Cards, Board.Tasks or the roster.
+	Items map[string]Item
+}
+
+// Item is the GitHub side of one project item.
+type Item struct {
+	// IsDraft marks a draft-issue card — the kind the boards were made of.
+	IsDraft bool
+	// URL is the underlying issue or PR (empty on a draft); it becomes the
+	// card's link.
+	URL string
+	// Events is the action log parsed out of the draft body (or the log
+	// comment on an issue card), in source order.
+	Events []board.Event
+}
+
+// Field is a Projects v2 field definition — what the roles are resolved from.
+type Field struct {
+	ID       string
+	Name     string
+	DataType string
+	Options  []FieldOption
+}
+
+// FieldOption is one single-select choice; a zone is read by its colour.
+type FieldOption struct {
+	ID    string
+	Name  string
+	Color string
+}
+
 // LoadBoard loads a project board and maps it into the domain board.Board the
-// migration consumes (fields + cards, with the hidden sprint-state cards split
-// out by board.NewBoard).
-func (c *Client) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
+// migration consumes (with the hidden sprint-state cards split out by
+// board.NewBoard), alongside the per-item GitHub data.
+func (c *Client) LoadBoard(ctx context.Context, owner string, project int) (Export, error) {
 	raw, err := c.loadProject(ctx, owner, project)
 	if err != nil {
-		return board.Board{}, err
+		return Export{}, err
 	}
 	return mapDomainBoard(owner, raw), nil
 }
 
 // mapDomainBoard maps a raw project onto the domain board.Board, calling
 // board.NewBoard so the per-team sprint-state cards are split out of Cards.
-func mapDomainBoard(owner string, raw *rawProject) board.Board {
-	fields := make([]board.ProjectField, 0, len(raw.Fields.Nodes))
+func mapDomainBoard(owner string, raw *rawProject) Export {
+	fields := make([]Field, 0, len(raw.Fields.Nodes))
 	for _, f := range raw.Fields.Nodes {
 		if f.ID == "" || f.Name == "" {
 			continue
 		}
-		field := board.ProjectField{ID: f.ID, Name: f.Name, DataType: f.DataType}
+		field := Field{ID: f.ID, Name: f.Name, DataType: f.DataType}
 		for _, o := range f.Options {
-			field.Options = append(field.Options, board.SingleSelectOption{ID: o.ID, Name: o.Name, Color: o.Color})
+			field.Options = append(field.Options, FieldOption{ID: o.ID, Name: o.Name, Color: o.Color})
 		}
 		fields = append(fields, field)
 	}
 	roles := domainRoles(fields)
 	cards := make([]board.Card, 0, len(raw.Items.Nodes))
+	items := make(map[string]Item, len(raw.Items.Nodes))
 	for i := range raw.Items.Nodes {
-		cards = append(cards, mapDomainItem(&raw.Items.Nodes[i], roles))
+		card, item := mapDomainItem(&raw.Items.Nodes[i], roles)
+		cards = append(cards, card)
+		items[card.ItemID] = item
 	}
-	b := board.NewBoard(fields, cards)
+	b := board.NewBoard(cards)
 	b.Board = fmt.Sprintf("%s/%d", owner, raw.Number) // provenance: the Projects v2 board this came from
 	b.Title = raw.Title
 	b.URL = raw.URL
-	return b
+	return Export{Board: b, Items: items}
 }
 
 // mapDomainItem maps one raw item onto a domain board.Card, reading the typed
-// roles aeman orients by plus the content fields (url, number, repository,
-// state, author, description and notes).
-func mapDomainItem(item *rawItem, roles domainFieldRoles) board.Card {
+// roles aeman orients by plus the content fields (author, description and
+// notes), and returns the GitHub side apart.
+func mapDomainItem(item *rawItem, roles domainFieldRoles) (board.Card, Item) {
 	content := item.Content
 	isDraft := item.Type == "DRAFT_ISSUE" || (content != nil && content.Typename == "DraftIssue")
 	card := board.Card{
 		ItemID:    item.ID,
 		Title:     "(untitled)",
-		IsDraft:   isDraft,
 		CreatedAt: item.CreatedAt,
 		Assignees: []string{},
 	}
+	gh := Item{IsDraft: isDraft}
 	if content != nil {
-		card.ContentID = content.ID
 		if content.Title != "" {
 			card.Title = content.Title
 		}
-		card.URL = content.URL
-		card.Number = content.Number
-		card.State = content.State
-		if content.Repository != nil {
-			card.Repository = content.Repository.NameWithOwner
-		}
+		gh.URL = content.URL
 		if isDraft {
 			if content.Creator != nil {
 				card.Author = content.Creator.Login
@@ -83,17 +116,17 @@ func mapDomainItem(item *rawItem, roles domainFieldRoles) board.Card {
 		}
 		if isDraft {
 			card.Description, card.Notes = domainParseDraftBody(content.Body, item.ID)
-			card.Notes, card.Events = board.PartitionEvents(card.Notes)
+			card.Notes, gh.Events = board.PartitionEvents(card.Notes)
 		} else {
 			card.Description = content.Body
 			card.Notes = domainCommentNotes(content)
-			card.Notes, card.Events, card.EventLogID = domainSplitLogComments(content, card.Notes)
+			card.Notes, gh.Events, _ = domainSplitLogComments(content, card.Notes)
 		}
 	}
 	for i := range item.FieldValues.Nodes {
 		applyDomainRole(&card, &item.FieldValues.Nodes[i], roles)
 	}
-	return card
+	return card, gh
 }
 
 // domainLogMarker separates a draft card's description from its appended action
@@ -241,7 +274,6 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 	id := v.Field.ID
 	switch {
 	case roles.Zone != nil && id == roles.Zone.ID && v.OptionID != "":
-		card.ZoneOptionID = v.OptionID
 		for _, o := range roles.Zone.Options {
 			if o.ID == v.OptionID {
 				card.Zone = zoneFromColor(o.Color)
@@ -257,14 +289,6 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		card.StartDate = v.Date
 	case roles.SprintStart != nil && id == roles.SprintStart.ID && v.Date != "":
 		card.SprintStart = v.Date
-	case roles.Sprint != nil && id == roles.Sprint.ID && (v.Title != "" || v.Name != ""):
-		if v.Title != "" {
-			card.SprintTitle = v.Title
-		} else {
-			card.SprintTitle = v.Name
-		}
-	case roles.Status != nil && id == roles.Status.ID && v.Name != "":
-		card.Status = v.Name
 	case roles.Plan != nil && id == roles.Plan.ID && v.Name != "":
 		if strings.EqualFold(v.Name, "fri") {
 			card.Plan = board.PlanFri
@@ -301,27 +325,27 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 // domainFieldRoles resolves the board's fields onto the well-known roles the
 // domain reads.
 type domainFieldRoles struct {
-	Zone        *board.ProjectField
-	Progress    *board.ProjectField
-	Day         *board.ProjectField
-	Start       *board.ProjectField
-	SprintStart *board.ProjectField
-	Sprint      *board.ProjectField
-	Status      *board.ProjectField
-	Plan        *board.ProjectField
-	Week        *board.ProjectField
-	Epic        *board.ProjectField
-	Project     *board.ProjectField
-	Process     *board.ProjectField
-	Task        *board.ProjectField
-	Accumulate  *board.ProjectField
-	Paused      *board.ProjectField
-	Stage       *board.ProjectField
-	Team        *board.ProjectField
-	ReviewOf    *board.ProjectField
-	Parent      *board.ProjectField
-	ReviewRound *board.ProjectField
-	Recurrence  *board.ProjectField
+	Zone        *Field
+	Progress    *Field
+	Day         *Field
+	Start       *Field
+	SprintStart *Field
+	Sprint      *Field
+	Status      *Field
+	Plan        *Field
+	Week        *Field
+	Epic        *Field
+	Project     *Field
+	Process     *Field
+	Task        *Field
+	Accumulate  *Field
+	Paused      *Field
+	Stage       *Field
+	Team        *Field
+	ReviewOf    *Field
+	Parent      *Field
+	ReviewRound *Field
+	Recurrence  *Field
 }
 
 // domainRoleAliases maps each role to the field names (case-insensitive) that
@@ -351,7 +375,7 @@ var domainRoleAliases = map[string][]string{
 }
 
 // domainRoles maps the board's fields onto the typed roles by name.
-func domainRoles(fields []board.ProjectField) domainFieldRoles {
+func domainRoles(fields []Field) domainFieldRoles {
 	var r domainFieldRoles
 	for i := range fields {
 		f := &fields[i]

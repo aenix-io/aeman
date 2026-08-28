@@ -21,16 +21,8 @@ var ErrCardNotFound = errors.New("card not found")
 // theirs to write.
 var ErrForbidden = errors.New("forbidden: no write access to the card's domain")
 
-// LogReader is a backend whose card history lives outside the card — the
-// git store, where the commits are the events. truncatedBefore is the time
-// the loaded history is cut at (a shallow clone); zero when it is whole.
-type LogReader interface {
-	CardLog(ctx context.Context, b board.Board, id string) (events []board.Event, truncatedBefore time.Time, err error)
-}
-
-// Log is a card's activity feed: the card (for its notes) and its events —
-// from the backend's history when it keeps one, else the events recorded on
-// the card — with the horizon the history is cut at, if any.
+// Log is a card's activity feed: the card (for its notes) and the backend's
+// history of it, with the horizon that history is cut at, if any.
 func (s *Service) Log(ctx context.Context, boardID string, id string) (board.Card, []board.Event, time.Time, error) {
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
@@ -40,14 +32,11 @@ func (s *Service) Log(ctx context.Context, boardID string, id string) (board.Car
 	if !ok {
 		return board.Card{}, nil, time.Time{}, ErrCardNotFound
 	}
-	if lr, ok := s.backend.(LogReader); ok {
-		events, truncated, err := lr.CardLog(ctx, b, id)
-		if err != nil {
-			return board.Card{}, nil, time.Time{}, err
-		}
-		return card, events, truncated, nil
+	events, truncated, err := s.backend.CardLog(ctx, b, id)
+	if err != nil {
+		return board.Card{}, nil, time.Time{}, err
 	}
-	return card, card.Events, time.Time{}, nil
+	return card, events, truncated, nil
 }
 
 // ErrNoteNotFound is returned when a note id is not on the loaded card.
@@ -1421,25 +1410,12 @@ func (s *Service) Reopen(ctx context.Context, boardID string, itemID string) err
 	}
 	// The write that took the card to 100 stored where it came from
 	// (DoneFrom): that is the value owed back, and it does not depend on a
-	// history that a horizon may have cut. Cards written before the field
-	// existed still carry the jump in their event log — the old source, kept
-	// as the fallback.
+	// history that a horizon may have cut. A card without one (done before
+	// the field existed, and the migration found no recorded jump to seed it
+	// from) goes back to the implicit In Progress.
 	restored := -1
 	if card.DoneFrom > 0 {
 		restored = card.DoneFrom
-	} else {
-		for _, e := range card.Events {
-			if e.Kind != board.EventProgress {
-				continue
-			}
-			// The LAST recorded jump onto a completing value is the done we
-			// are undoing; its from-side is what the card is owed back.
-			if to, err := strconv.Atoi(e.To); err == nil && to >= 100 {
-				if from, err := strconv.Atoi(e.From); err == nil {
-					restored = from
-				}
-			}
-		}
 	}
 	if restored < 0 {
 		return s.SetInProgress(ctx, boardID, itemID)

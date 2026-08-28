@@ -170,11 +170,11 @@ func TestLoadBoardPaginatesItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadBoard: %v", err)
 	}
-	if len(b.Cards) != 2 {
-		t.Fatalf("want 2 cards across 2 pages, got %d", len(b.Cards))
+	if len(b.Board.Cards) != 2 {
+		t.Fatalf("want 2 cards across 2 pages, got %d", len(b.Board.Cards))
 	}
-	cardOf(t, b, "I_P1")
-	cardOf(t, b, "I_P2")
+	cardOf(t, b.Board, "I_P1")
+	cardOf(t, b.Board, "I_P2")
 
 	projectQueries := 0
 	for _, r := range fake.reqs {

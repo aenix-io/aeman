@@ -11,6 +11,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/server"
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	"github.com/aenix-io/aeman/internal/migrate/ghsource"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 	"github.com/aenix-io/aeman/pkg/gitstore"
@@ -53,19 +54,12 @@ func fixture() *boardservicetest.Backend {
 			Notes: []board.Note{
 				{ID: "PVTI_a:5", Body: "reproduced", CreatedAt: "2026-08-24T10:00:00Z", Author: "kitsunoff", Source: "draft"},
 				{ID: "PVTI_a:6", Body: "legacy note, nobody signed it", CreatedAt: "2026-08-24T11:00:00Z", Source: "draft"},
-			},
-			Events: []board.Event{
-				{ID: "PVTI_a:1", Kind: board.EventCreated, Actor: "kvaps", At: "2026-08-24T09:00:00Z"},
-				{ID: "PVTI_a:2", Kind: board.EventProgress, Actor: "kitsunoff", From: "0", To: "40", At: "2026-08-25T09:00:00Z"},
-				{ID: "PVTI_a:3", Kind: board.EventProgress, Actor: "kitsunoff", From: "40", To: "100", At: "2026-08-26T09:00:00Z"},
-				{ID: "PVTI_a:4", Kind: board.EventReviewSent, Actor: "kvaps", To: "timur", At: "2026-08-26T10:00:00Z"},
 			}},
-		{ItemID: "PVTI_b", Title: "done without a jump", Team: "portal", Zone: board.ZoneGray, Progress: 100, CreatedAt: "2026-08-20T09:00:00Z",
-			Events: []board.Event{{ID: "PVTI_b:1", Kind: board.EventCreated, Actor: "kvaps", At: "2026-08-20T09:00:00Z"}}},
+		{ItemID: "PVTI_b", Title: "done without a jump", Team: "portal", Zone: board.ZoneGray, Progress: 100, CreatedAt: "2026-08-20T09:00:00Z"},
 		{ItemID: "PVTI_sub", Title: "a subtask", Team: "portal", Parent: "PVTI_a", Zone: board.ZoneYellow, CreatedAt: "2026-08-24T12:00:00Z"},
 		{ItemID: "PVTI_rev", Title: "review: leak", Team: "portal", ReviewOf: "PVTI_a", Assignees: []string{"timur"}, Zone: board.ZoneRed, CreatedAt: "2026-08-26T10:00:00Z"},
 		{ItemID: "PVTI_orphan", Title: "points at a deleted parent", Team: "portal", Parent: "PVTI_gone", CreatedAt: "2026-08-25T09:00:00Z"},
-		{ItemID: "PVTI_issue", Title: "an issue card", Team: "portal", URL: "https://github.com/acme/repo/issues/7", Number: 7, Repository: "acme/repo", CreatedAt: "2026-08-22T09:00:00Z"},
+		{ItemID: "PVTI_issue", Title: "an issue card", Team: "portal", CreatedAt: "2026-08-22T09:00:00Z"},
 	}
 	return boardservicetest.New(cards, map[string]board.SprintState{
 		"portal": {Current: "2026-08-24", Previous: "2026-08-21", ItemID: "PVTI_team"},
@@ -73,12 +67,31 @@ func fixture() *boardservicetest.Backend {
 	})
 }
 
+// fixtureItems is the GitHub side of the fixture: the action logs the
+// migration replays into commits, and the one issue-backed card's URL.
+func fixtureItems() map[string]ghsource.Item {
+	return map[string]ghsource.Item{
+		"PVTI_a": {IsDraft: true, Events: []board.Event{
+			{ID: "PVTI_a:1", Kind: board.EventCreated, Actor: "kvaps", At: "2026-08-24T09:00:00Z"},
+			{ID: "PVTI_a:2", Kind: board.EventProgress, Actor: "kitsunoff", From: "0", To: "40", At: "2026-08-25T09:00:00Z"},
+			{ID: "PVTI_a:3", Kind: board.EventProgress, Actor: "kitsunoff", From: "40", To: "100", At: "2026-08-26T09:00:00Z"},
+			{ID: "PVTI_a:4", Kind: board.EventReviewSent, Actor: "kvaps", To: "timur", At: "2026-08-26T10:00:00Z"},
+		}},
+		"PVTI_b":     {IsDraft: true, Events: []board.Event{{ID: "PVTI_b:1", Kind: board.EventCreated, Actor: "kvaps", At: "2026-08-20T09:00:00Z"}}},
+		"PVTI_issue": {URL: "https://github.com/acme/repo/issues/7"},
+	}
+}
+
 // fakeSource reads the Projects v2 export the way the migration does — by
 // owner and board number — out of the in-memory fake.
 type fakeSource struct{ *boardservicetest.Backend }
 
-func (f fakeSource) LoadBoard(ctx context.Context, owner string, _ int) (board.Board, error) {
-	return f.Backend.LoadBoard(ctx, owner)
+func (f fakeSource) LoadBoard(ctx context.Context, owner string, _ int) (ghsource.Export, error) {
+	b, err := f.Backend.LoadBoard(ctx, owner)
+	if err != nil {
+		return ghsource.Export{}, err
+	}
+	return ghsource.Export{Board: b, Items: fixtureItems()}, nil
 }
 
 func run(t *testing.T, remote gitstore.Remote, opts Options) Report {
@@ -254,7 +267,7 @@ func TestReportNamesDrops(t *testing.T) {
 	// The issue card kept its URL as a link and nothing else of the issue.
 	s, _ := gitstore.Load(clone(t, remote))
 	for _, c := range s.Cards {
-		if c.GitHubID == "PVTI_issue" && (c.Link != "https://github.com/acme/repo/issues/7" || c.URL != "" || c.Number != 0) {
+		if c.GitHubID == "PVTI_issue" && c.Link != "https://github.com/acme/repo/issues/7" {
 			t.Fatalf("issue card = %+v", c)
 		}
 	}

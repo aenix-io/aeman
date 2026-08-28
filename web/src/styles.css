@@ -1552,16 +1552,6 @@ button.card-age {
   font-weight: 500;
 }
 
-.card-ticket {
-  flex: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--line-soft);
-  border-radius: 4px;
-  padding: 0 5px;
-}
-
 .card-avatars {
   display: flex;
   gap: 2px;

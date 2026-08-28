@@ -631,7 +631,6 @@ export function MeBoard({
     addCard({
       itemId: tempId,
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: viewMe ? [viewMe] : [],
       zone: parent.zone ?? "gray",
       team: parent.team,
@@ -1022,7 +1021,6 @@ export function MeBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: [reviewerLogin],
       zone,
       day: selectedDate,
@@ -1216,7 +1214,6 @@ export function MeBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: viewMe ? [viewMe] : [],
       zone,
       day: selectedDate,
@@ -1275,7 +1272,7 @@ export function MeBoard({
       body: text,
       createdAt: new Date().toISOString(),
       author: viewMe || undefined,
-      source: selectedCard.isDraft ? "draft" : "comment",
+      source: "draft",
     };
     const uid = selectedCard.itemId;
     // Functional updates: rapid Enter-Enter-Enter adds must each build on the

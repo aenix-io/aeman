@@ -24,7 +24,7 @@ import (
 // Source is where the board is read from — *ghsource.Client in production,
 // a fake in tests.
 type Source interface {
-	LoadBoard(ctx context.Context, owner string, project int) (board.Board, error)
+	LoadBoard(ctx context.Context, owner string, project int) (ghsource.Export, error)
 }
 
 var _ Source = (*ghsource.Client)(nil)
@@ -113,11 +113,11 @@ func Run(ctx context.Context, src Source, storer storage.Storer, remote gitstore
 		return rep, err
 	}
 
-	b, err := src.LoadBoard(ctx, opts.Owner, opts.Board)
+	ex, err := src.LoadBoard(ctx, opts.Owner, opts.Board)
 	if err != nil {
 		return rep, fmt.Errorf("load board: %w", err)
 	}
-	m := newMapper(b, &rep)
+	m := newMapper(ex, &rep)
 	snapshot := m.files(opts.Title)
 	events := m.events()
 	rep.Events = len(events)
@@ -212,6 +212,7 @@ type event struct {
 // mapper turns the loaded board into layout files with derived ids.
 type mapper struct {
 	b     board.Board
+	items map[string]ghsource.Item // the GitHub side of each source card
 	rep   *Report
 	ids   map[string]string // old item id → new
 	cards []*board.Card     // converted cards (rows + tasks)
@@ -224,8 +225,9 @@ type mapper struct {
 	processID map[string]string
 }
 
-func newMapper(b board.Board, rep *Report) *mapper {
-	m := &mapper{b: b, rep: rep, ids: rep.IDMap, paths: map[string]string{}, logs: map[string][]board.Event{},
+func newMapper(ex ghsource.Export, rep *Report) *mapper {
+	b := ex.Board
+	m := &mapper{b: b, items: ex.Items, rep: rep, ids: rep.IDMap, paths: map[string]string{}, logs: map[string][]board.Event{},
 		teamID: map[string]string{}, projectID: map[string]string{}, processID: map[string]string{}}
 	// A board loaded without an explicit team order (a fake, an old snapshot)
 	// still has its teams in the sprint pointers: no-team group first, then
@@ -298,14 +300,13 @@ func (m *mapper) convert() {
 		src := all[i]
 		c := src
 		isTask := i >= len(m.b.Cards)
+		gh := m.items[src.ItemID]
 		c.ItemID = m.ids[src.ItemID]
 		c.GitHubID = src.ItemID
-		if src.URL != "" {
-			c.Link = src.URL
+		if gh.URL != "" {
+			c.Link = gh.URL
 			m.rep.IssueCards = append(m.rep.IssueCards, src.ItemID)
 		}
-		c.ContentID, c.IsDraft, c.ZoneOptionID, c.EventLogID = "", false, "", ""
-		c.URL, c.Number, c.Repository, c.State, c.SprintTitle, c.Status = "", 0, "", "", "", ""
 		c.Parent = m.ref(src.ItemID, "parent", src.Parent)
 		c.ReviewOf = m.ref(src.ItemID, "reviewOf", src.ReviewOf)
 		c.Task = m.ref(src.ItemID, "task", src.Task)
@@ -322,10 +323,9 @@ func (m *mapper) convert() {
 			when := createdAt(board.Card{CreatedAt: n.CreatedAt})
 			c.Notes = append(c.Notes, board.Note{ID: gitstore.DeriveID(when, "note", src.ItemID, strconv.Itoa(j)), Body: n.Body, CreatedAt: n.CreatedAt, Author: n.Author, Source: "draft"})
 		}
-		c.Events = nil
-		m.logs[c.ItemID] = src.Events
+		m.logs[c.ItemID] = gh.Events
 		if c.Progress >= 100 {
-			if from, ok := lastJump(src.Events); ok {
+			if from, ok := lastJump(gh.Events); ok {
 				c.DoneFrom = from
 				m.rep.DoneFromSeeded++
 			} else {

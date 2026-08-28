@@ -1270,19 +1270,11 @@ func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card boar
 // cache apply would silently swallow all but the first.
 var wbSeq atomic.Int64
 
+// AppendEvent changes nothing in the cache — the history is read from the
+// store — but rides the queue like every write, so the event joins the same
+// commit as the change it describes.
 func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card board.Card, ev board.Event) error {
-	// Synthesize a stable id for the cached copy (the real one appears on the
-	// next full read); the presence guard keeps the replayed append from
-	// duplicating the event once GitHub starts returning it.
-	ev.ID = fmt.Sprintf("%s:wb:%s:%s:%d", card.ItemID, ev.At, ev.Kind, wbSeq.Add(1))
-	b.bodyMutate(ctx, bd, card, "log a change on "+cardRef(card), func(c *board.Card) {
-		for _, x := range c.Events {
-			if x.Kind == ev.Kind && x.At == ev.At && x.From == ev.From && x.To == ev.To {
-				return
-			}
-		}
-		c.Events = append(c.Events, ev)
-	}, func(ctx context.Context) error {
+	b.bodyMutate(ctx, bd, card, "log a change on "+cardRef(card), func(*board.Card) {}, func(ctx context.Context) error {
 		return b.inner.AppendEvent(ctx, bd, card, ev)
 	})
 	return nil
@@ -1303,9 +1295,6 @@ func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.C
 		CreatedAt: now,
 		Author:    board.ActorFrom(ctx),
 		Source:    "draft",
-	}
-	if !card.IsDraft {
-		note.Source = "comment"
 	}
 	b.bodyMutate(ctx, bd, card, "add a note on "+cardRef(card), func(c *board.Card) {
 		for _, n := range c.Notes {
@@ -1412,11 +1401,7 @@ func (b *storeBackend) SetDescription(ctx context.Context, bd board.Board, card 
 	exec := func(ctx context.Context) error {
 		return b.inner.SetDescription(ctx, bd, card, description)
 	}
-	if card.IsDraft {
-		b.bodyMutate(ctx, bd, card, "edit the description of "+cardRef(card), apply, exec)
-		return nil
-	}
-	b.mutateCard(ctx, bd, card.ItemID, "description", "edit the description of "+cardRef(card), apply, exec)
+	b.bodyMutate(ctx, bd, card, "edit the description of "+cardRef(card), apply, exec)
 	return nil
 }
 
@@ -1905,7 +1890,6 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 func cardFromInput(in board.CreateInput, itemID string) board.Card {
 	c := board.Card{
 		ItemID:      itemID,
-		IsDraft:     true,
 		Title:       in.Title,
 		Zone:        in.Zone,
 		Day:         in.Day,

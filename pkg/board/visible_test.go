@@ -13,7 +13,7 @@ import (
 // primary.
 
 func twoDomainBoard() Board {
-	return NewBoard(nil, []Card{
+	return NewBoard([]Card{
 		{ItemID: "T_", Title: SprintStateTitle, Team: "", Domain: "shared"},
 		{ItemID: "T_PORTAL", Title: SprintStateTitle, Team: "portal", SprintStart: "2026-08-24", Domain: "shared"},
 		{ItemID: "T_OPS", Title: SprintStateTitle, Team: "ops", SprintStart: "2026-08-24", Domain: "closed"},
@@ -47,7 +47,7 @@ func TestNewBoardRecordsRosterDomains(t *testing.T) {
 		t.Fatalf("Domains = %v\nwant %v", b.Domains, want)
 	}
 	// A single-domain board records nothing.
-	if one := NewBoard(nil, []Card{{ItemID: "T", Title: SprintStateTitle, Team: "x"}}); one.Domains != nil {
+	if one := NewBoard([]Card{{ItemID: "T", Title: SprintStateTitle, Team: "x"}}); one.Domains != nil {
 		t.Fatalf("Domains on a single-domain board = %v", one.Domains)
 	}
 }

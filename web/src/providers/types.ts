@@ -31,18 +31,12 @@ export interface CardEvent {
   at: string;
 }
 
-/** Card is a single project item (issue, PR or draft). */
+/** Card is a single board item. */
 export interface Card {
   itemId: string;
-  /** Node id of the underlying issue/PR/draft, used for comments and assignees. */
-  contentId?: string;
   title: string;
-  isDraft: boolean;
-  url?: string;
-  number?: number;
-  repository?: string;
   assignees: string[];
-  /** GitHub login of the card's creator (draft-issue creator or issue author). */
+  /** Login of the card's creator. */
   author?: string;
   /** ISO timestamp the item was added to the project (its age on the board). */
   createdAt?: string;

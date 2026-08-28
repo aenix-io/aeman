@@ -86,14 +86,6 @@ interface CardProps {
 
 const SEGMENTS = 10;
 
-/** ticket renders the monospace ticket reference for a card with a number. */
-function ticket(card: CardModel): string | null {
-  if (card.number === undefined) {
-    return null;
-  }
-  return card.repository ? `${card.repository}#${card.number}` : `#${card.number}`;
-}
-
 /** barColor is the fill colour for the progress segments, driven by stage. */
 function barColor(stage?: StageKey): string {
   return stage ? STAGES[stage].color : DEFAULT_BAR_COLOR;
@@ -144,7 +136,6 @@ export function Card({
       ? Math.min(90, Math.max(10, rawValue))
       : rawValue;
   const fill = barColor(doneish ? "done" : card.stage);
-  const ref = ticket(card);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [recOpen, setRecOpen] = useState(false);
@@ -614,7 +605,6 @@ export function Card({
         {card.title}
       </span>
 
-      {ref && <span className="card-ticket">{ref}</span>}
 
       <span className="card-actions" aria-hidden={false}>
         {!card.itemId.startsWith("tmp-") && (
