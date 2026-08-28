@@ -294,6 +294,13 @@ func (v *visibleBackend) SetDay(ctx context.Context, bd board.Board, card board.
 	return v.Backend.SetDay(ctx, bd, card, day)
 }
 
+func (v *visibleBackend) SetLeftAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
+	if err := v.write(ctx, bd, card); err != nil {
+		return err
+	}
+	return v.Backend.SetLeftAt(ctx, bd, card, day)
+}
+
 func (v *visibleBackend) SetStart(ctx context.Context, bd board.Board, card board.Card, date string) error {
 	if err := v.write(ctx, bd, card); err != nil {
 		return err

@@ -1,6 +1,9 @@
 package board
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // A personal domain is named after its owner, with a marker no repository
 // name carries, so the two never collide and the owner is readable off the
@@ -40,9 +43,13 @@ func TestPersonalViewOpenAndDoneToday(t *testing.T) {
 		{ItemID: "planned-today", Title: "planned for today", Domain: "~kvaps", StartDate: today},
 		{ItemID: "planned-past", Title: "planned for yesterday", Domain: "~kvaps", StartDate: yesterday, Progress: 20},
 		{ItemID: "done-later", Title: "done, dated later", Domain: "~kvaps", StartDate: "2026-08-29", Progress: 100, DoneAt: today},
+		// Left behind: the × on a worked-on card leaves it on a past day's
+		// board — seen there and before, off the board from the next day.
+		{ItemID: "left-yesterday", Title: "left behind yesterday", Domain: "~kvaps", StartDate: "2026-08-20", Progress: 40, LeftAt: yesterday},
+		{ItemID: "left-today", Title: "left behind today", Domain: "~kvaps", StartDate: "2026-08-20", Progress: 40, LeftAt: today},
 	}}
 	got := PersonalView(b, "kvaps", today)
-	want := []string{"open", "fresh", "done-today", "sub", "planned-today", "planned-past"}
+	want := []string{"open", "fresh", "done-today", "sub", "planned-today", "planned-past", "left-today"}
 	if len(got) != len(want) {
 		t.Fatalf("personal view = %v, want %v", idsOf(got), want)
 	}
@@ -58,6 +65,34 @@ func TestPersonalViewOpenAndDoneToday(t *testing.T) {
 	// has arrived: open, fresh, sub, later, planned-today, planned-past.
 	if got := idsOf(PersonalView(b, "kvaps", "2026-08-29")); len(got) != 6 || got[3] != "later" {
 		t.Fatalf("the next day = %v", got)
+	}
+	// Stepping back to yesterday finds the card left there.
+	if got := idsOf(PersonalView(b, "kvaps", yesterday)); !slices.Contains(got, "left-yesterday") || !slices.Contains(got, "left-today") {
+		t.Fatalf("yesterday = %v, want both left-behind cards on it", got)
+	}
+}
+
+// The × on a personal card: one that has been worked on and did not start
+// today is left behind on yesterday's board (history kept); an untouched
+// one, or one that started today, is simply deleted. A team card is the
+// carry-over's business, never this rule's.
+func TestPersonalLeavesWorkedCardsBehind(t *testing.T) {
+	const today = "2026-08-28"
+	for name, tc := range map[string]struct {
+		card Card
+		want bool
+	}{
+		"worked, started earlier":    {Card{Domain: "~kvaps", Progress: 40, StartDate: "2026-08-20"}, true},
+		"finished, started earlier":  {Card{Domain: "~kvaps", Progress: 100, StartDate: "2026-08-20", DoneAt: "2026-08-27"}, true},
+		"worked, no start on record": {Card{Domain: "~kvaps", Progress: 10}, true},
+		"untouched":                  {Card{Domain: "~kvaps", Progress: 0, StartDate: "2026-08-20"}, false},
+		"worked but started today":   {Card{Domain: "~kvaps", Progress: 60, StartDate: today}, false},
+		"planned for later":          {Card{Domain: "~kvaps", Progress: 20, StartDate: "2026-08-30"}, false},
+		"a team card":                {Card{Domain: "aeman-db", Progress: 40, StartDate: "2026-08-20"}, false},
+	} {
+		if got := PersonalLeaves(tc.card, today); got != tc.want {
+			t.Errorf("%s: PersonalLeaves = %v, want %v", name, got, tc.want)
+		}
 	}
 }
 

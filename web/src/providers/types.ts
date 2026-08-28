@@ -85,6 +85,9 @@ export interface Card {
   /** The board day (yyyy-mm-dd) the card reached done; cleared when it
    *  reopens. The personal column shows a done card that day, not the next. */
   doneAt?: string;
+  /** The board day a personal card was left behind on by the × — on the
+   *  column that day and before, off it from the next; cleared by re-dating. */
+  leftAt?: string;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */

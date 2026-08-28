@@ -76,6 +76,7 @@ export interface CardResource {
     domain?: string;
     /** The board day the card reached done (yyyy-mm-dd); cleared on reopen. */
     doneAt?: string;
+    leftAt?: string;
     links?: {
       kind: string;
       url: string;
@@ -195,6 +196,7 @@ export function resourceToCard(res: CardResource): Card {
     reviewRound: res.status?.reviewRound,
     overdue: res.status?.overdue ?? false,
     doneAt: res.status?.doneAt || undefined,
+    leftAt: res.status?.leftAt || undefined,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,

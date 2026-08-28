@@ -150,6 +150,66 @@ func TestDatesOnAPersonalCardKeepItOutOfSprints(t *testing.T) {
 	}
 }
 
+// The × on a personal board (Remove from the grid) has no sprint to demote
+// into: a worked-on card is left behind on yesterday's board — leftAt set on
+// it and on its subtasks, nothing deleted — and an untouched one, or one that
+// started today, is deleted for real. Re-dating a left card brings it back:
+// the calendar and the defer clear leftAt on it and its subtasks.
+func TestRemoveOnAPersonalCardLeavesItBehindOrDeletes(t *testing.T) {
+	today := board.TodayIso()
+	yesterday := board.AddDays(today, -1)
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: "half done", Domain: "~kvaps", Progress: 40, StartDate: "2026-08-20", Assignees: []string{"kvaps"}},
+		{ItemID: "s1", Title: "a step", Domain: "~kvaps", Parent: "p1", StartDate: "2026-08-20"},
+		{ItemID: "p2", Title: "untouched", Domain: "~kvaps", Progress: 0, StartDate: "2026-08-20"},
+		{ItemID: "p3", Title: "started today", Domain: "~kvaps", Progress: 60, StartDate: today},
+	}, nil)
+	svc := New(fake)
+	ctx := board.WithActor(t.Context(), "kvaps")
+
+	if err := svc.Remove(ctx, "o", "p1", "grid"); err != nil {
+		t.Fatal(err)
+	}
+	if c := fake.get("p1"); c == nil || c.LeftAt != yesterday || c.Progress != 40 {
+		t.Fatalf("worked card after ×: %+v; want kept, leftAt %s", c, yesterday)
+	}
+	if c := fake.get("s1"); c == nil || c.LeftAt != yesterday {
+		t.Fatalf("its subtask after ×: %+v; want left with its parent", c)
+	}
+	if fake.count("DeleteCard") != 0 {
+		t.Fatalf("the × must delete nothing here; log = %v", fake.log)
+	}
+	for _, id := range []string{"p2", "p3"} {
+		if err := svc.Remove(ctx, "o", id, "grid"); err != nil {
+			t.Fatal(err)
+		}
+		if fake.get(id) != nil {
+			t.Fatalf("%s: an untouched or just-started card is deleted by the ×", id)
+		}
+	}
+
+	// Back on the board by re-dating it (to yesterday…today: a card that
+	// started today would be deleted by the next ×, not left behind).
+	if err := svc.SetDates(ctx, "o", "p1", yesterday, today); err != nil {
+		t.Fatal(err)
+	}
+	if c := fake.get("p1"); c.LeftAt != "" || c.StartDate != yesterday {
+		t.Fatalf("after the calendar: %+v; want leftAt cleared", c)
+	}
+	if c := fake.get("s1"); c.LeftAt != "" {
+		t.Fatalf("its subtask after the calendar: %+v; want leftAt cleared", c)
+	}
+	if err := svc.Remove(ctx, "o", "p1", "grid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Defer(ctx, "o", "p1", 1); err != nil {
+		t.Fatal(err)
+	}
+	if c := fake.get("p1"); c.LeftAt != "" || c.StartDate != board.AddDays(today, 1) {
+		t.Fatalf("after the defer: %+v; want leftAt cleared and the start moved", c)
+	}
+}
+
 func TestCreatePersonalCardRefusesPlacementAndAnonymity(t *testing.T) {
 	fake := newFake(nil, map[string]board.SprintState{"portal": {Current: "2026-08-24", ItemID: "st"}})
 	svc := New(fake)

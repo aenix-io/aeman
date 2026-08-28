@@ -68,7 +68,9 @@ export function splitPersonal(
  *  `startDate` the day it is scheduled for. */
 export function personalShows(card: Card, today: string): boolean {
   const arrived = !card.startDate || card.startDate <= today;
-  return arrived && (!card.doneAt || card.doneAt >= today);
+  // A card left behind by the × stays on the day it was left and before.
+  const stillHere = !card.leftAt || card.leftAt >= today;
+  return arrived && stillHere && (!card.doneAt || card.doneAt >= today);
 }
 
 /** RecurrenceCycle is a recurrent card's stored reseed cycle: "" is the

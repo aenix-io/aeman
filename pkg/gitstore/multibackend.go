@@ -726,6 +726,15 @@ func (mb *MultiBackend) SetDay(ctx context.Context, bd board.Board, card board.C
 	return be.SetDay(ctx, bd, card, day)
 }
 
+// SetLeftAt writes in the card's domain.
+func (mb *MultiBackend) SetLeftAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetLeftAt(ctx, bd, card, day)
+}
+
 // SetStart writes in the card's domain.
 func (mb *MultiBackend) SetStart(ctx context.Context, bd board.Board, card board.Card, date string) error {
 	be, err := mb.route(ctx, card)

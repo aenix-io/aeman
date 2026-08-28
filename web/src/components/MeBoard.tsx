@@ -28,17 +28,19 @@ import type {
 import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
-import { activeSprint, currentSprint } from "../sprint";
+import { activeSprint, currentSprint, previousSprint } from "../sprint";
+import { personalRemovalKind, removalKind } from "../removal";
 import type { Avatars } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
-import { personalRepoName, personalShows, splitPersonal } from "../personal";
+import { isPersonalCard, personalRepoName, personalShows, splitPersonal } from "../personal";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
+import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
@@ -137,6 +139,9 @@ export function MeBoard({
   onPresence,
 }: MeBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // The card whose × is waiting on a two-way answer: delete, or keep it —
+  // in the previous sprint (a team card), on yesterday's board (a personal one).
+  const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
   // Broadcast the selection as shared presence: teammates' Team boards
   // highlight this card with our avatar. Cleared on deselect and unmount.
   useEffect(() => {
@@ -921,13 +926,96 @@ export function MeBoard({
       });
   };
 
-  const handleDelete = (card: CardModel) => {
+  // Demote a Me card to its team's previous sprint instead of deleting it
+  // (mirrors handleGridDelete in TeamBoard.tsx): all dates pulled along, so
+  // it leaves today's board and is found by stepping back; the server records
+  // the move and the re-list converges its outcome.
+  const demoteCard = (card: CardModel, prevSprint: string) => {
+    const prev = {
+      startDate: card.startDate,
+      sprintStart: card.sprintStart,
+      day: card.day,
+    };
+    patchCard(card.itemId, {
+      startDate: prevSprint,
+      sprintStart: prevSprint,
+      ...(card.day ? { day: prevSprint } : {}),
+    });
+    void provider
+      .removeCard(card.itemId, "grid")
+      .then(() => reload())
+      .catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  // Leave a personal card behind on yesterday's board (mirrors
+  // boardservice.removePersonal): leftAt set on it and its subtasks, so the
+  // column drops them at once; stepping back a day finds them.
+  const leaveBehind = (card: CardModel) => {
+    const yesterday = addDays(todayIso(), -1);
+    const prev = { leftAt: card.leftAt };
+    patchCard(card.itemId, { leftAt: yesterday });
+    for (const c of childrenOf.get(card.itemId) ?? []) {
+      patchCard(c.itemId, { leftAt: yesterday });
+    }
+    void provider
+      .removeCard(card.itemId, "grid")
+      .then(() => reload())
+      .catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  // The ×. As on the Team board, a worked-on card is not taken off the board
+  // silently: a Me card still in its team's current sprint can be kept in the
+  // previous one, a personal card on yesterday's board — the person is asked
+  // which they mean. A column card (a slot) is never destroyed by the ×: it
+  // demotes. Everything else deletes for real, as it always did here.
+  const handleDelete = (card: CardModel, forced?: "delete" | "keep") => {
     // A just-created optimistic card has no server twin yet: drop it locally
     // (deleting it via the API would 404 and resurrect a phantom copy).
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
       return;
+    }
+    const today = todayIso();
+    const personal = isPersonalCard(card, board.personal);
+    const prevSprint = personal ? null : previousSprint(board, card.team ?? null);
+    if (forced === "keep") {
+      if (personal) {
+        leaveBehind(card);
+      } else if (prevSprint) {
+        demoteCard(card, prevSprint);
+      }
+      return;
+    }
+    // A subtask has no history of its own: the × deletes it outright.
+    if (!forced && !card.parent) {
+      const kind = personal
+        ? personalRemovalKind(card, today)
+        : removalKind(card, {
+            current: currentSprint(board, card.team ?? null) ?? undefined,
+            previous: prevSprint ?? undefined,
+            today,
+          });
+      if (kind === "ask") {
+        setRemoveChoice(card);
+        return;
+      }
+      if (kind === "demote" && prevSprint) {
+        demoteCard(card, prevSprint);
+        return;
+      }
     }
     // The server cascades the delete to a linked review card; one confirm for
     // both, one request, both removed optimistically.
@@ -1873,6 +1961,22 @@ export function MeBoard({
         </button>
       </div>
       {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} />}
+      {removeChoice && (
+        <RemoveChoiceDialog
+          title={removeChoice.title}
+          progress={removeChoice.progress ?? 0}
+          previous={
+            isPersonalCard(removeChoice, board.personal)
+              ? addDays(todayIso(), -1)
+              : (previousSprint(board, removeChoice.team ?? null) ?? "")
+          }
+          subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
+          onClose={() => setRemoveChoice(null)}
+          onSubmit={(hardDelete) =>
+            handleDelete(removeChoice, hardDelete ? "delete" : "keep")
+          }
+        />
+      )}
     </div>
   );
 }

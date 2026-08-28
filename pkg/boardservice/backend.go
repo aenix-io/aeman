@@ -57,6 +57,9 @@ type Backend interface {
 	SetProgress(ctx context.Context, b board.Board, card board.Card, progress int) error
 	SetZone(ctx context.Context, b board.Board, card board.Card, zone board.ZoneKey) error
 	SetDay(ctx context.Context, b board.Board, card board.Card, day string) error
+	// SetLeftAt writes (or clears, with "") the board day a personal card
+	// was left behind on by the ×.
+	SetLeftAt(ctx context.Context, b board.Board, card board.Card, day string) error
 	SetStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetSprintStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetPlan(ctx context.Context, b board.Board, card board.Card, plan board.PlanBand) error

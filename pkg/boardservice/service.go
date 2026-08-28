@@ -915,6 +915,9 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 		base = c.StartDate
 	}
 	target := board.AddDays(base, days)
+	if err := s.bringBack(ctx, b, c); err != nil {
+		return err
+	}
 	if err := s.backend.SetStart(ctx, b, c, target); err != nil {
 		return err
 	}
@@ -979,6 +982,9 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 	if board.IsPersonalDomain(c.Domain) {
 		sprint = ""
 	}
+	if err := s.bringBack(ctx, b, c); err != nil {
+		return err
+	}
 	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
 		return err
 	}
@@ -1027,6 +1033,9 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
+	}
+	if board.IsPersonalDomain(c.Domain) {
+		return s.removePersonal(ctx, b, c)
 	}
 	if from == "plan" {
 		// A slot of a plan is never deleted by the plan ×. It is a piece of a
@@ -1117,6 +1126,44 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	// column and all. Deleting is its own gesture (DeleteCard), never a
 	// side effect of removing a card from a person.
 	return s.releaseToPlan(ctx, b, c)
+}
+
+// removePersonal is the × on a personal board, which has no sprint to demote
+// into: a worked-on card is left behind on yesterday's board — leftAt set on
+// it and on its subtasks, which ride with it — and an untouched one, or one
+// that started today, is deleted for real (mirrors personalRemovalKind in
+// removal.ts; the UI asks first when there is progress to lose).
+func (s *Service) removePersonal(ctx context.Context, b board.Board, c board.Card) error {
+	today := board.TodayIso()
+	if !board.PersonalLeaves(c, today) {
+		return s.deleteWithCascade(ctx, b, c)
+	}
+	return s.setLeftAt(ctx, b, c, board.AddDays(today, -1))
+}
+
+// setLeftAt writes a personal card's left-behind day — "" brings it back —
+// on the card and its subtasks, recording the move on each.
+func (s *Service) setLeftAt(ctx context.Context, b board.Board, c board.Card, day string) error {
+	for _, k := range append([]board.Card{c}, board.Children(b, c.ItemID)...) {
+		if k.LeftAt == day {
+			continue
+		}
+		if err := s.backend.SetLeftAt(ctx, b, k, day); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, k, board.EventLeft, k.LeftAt, day)
+	}
+	return nil
+}
+
+// bringBack clears a left-behind personal card's leftAt when it is re-dated:
+// the calendar and the defer put it on a day again, so it is on the board
+// again. A no-op for every other card.
+func (s *Service) bringBack(ctx context.Context, b board.Board, c board.Card) error {
+	if !board.IsPersonalDomain(c.Domain) || c.LeftAt == "" {
+		return nil
+	}
+	return s.setLeftAt(ctx, b, c, "")
 }
 
 // releaseToPlan gives a card back: it loses its person and its sprint

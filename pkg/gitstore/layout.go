@@ -86,6 +86,7 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	wi("progress", c.Progress)
 	wi("doneFrom", c.DoneFrom)
 	w("doneAt", c.DoneAt)
+	w("leftAt", c.LeftAt)
 	w("start", c.StartDate)
 	w("day", c.Day)
 	w("sprint", c.SprintStart)
@@ -255,6 +256,8 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 		c.DoneFrom = num()
 	case "doneAt":
 		c.DoneAt = val.Value
+	case "leftAt":
+		c.LeftAt = val.Value
 	case "reviewRound":
 		c.ReviewRound = num()
 	case "accumulate":

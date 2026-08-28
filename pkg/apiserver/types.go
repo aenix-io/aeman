@@ -116,6 +116,9 @@ type CardStatus struct {
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
 	DoneAt string `json:"doneAt,omitempty"`
+	// LeftAt is the board day a personal card was left behind on by the ×
+	// (remove): the personal board shows it that day and before, not after.
+	LeftAt string `json:"leftAt,omitempty"`
 	// Links are the references extracted from the card's description —
 	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).
 	// They ride the status so a summary listing, which omits the description
@@ -364,6 +367,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		ReviewRound: c.ReviewRound,
 		Domain:      c.Domain,
 		DoneAt:      c.DoneAt,
+		LeftAt:      c.LeftAt,
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a

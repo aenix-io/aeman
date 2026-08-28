@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -164,10 +165,10 @@ func TestPersonalViewReseedsARecurrentCardTheNextDay(t *testing.T) {
 	const finishedYesterday, finishedToday = "01JB4K2E7QZMX3R8V0N5T9WYP1", "01JB4K2E7QZMX3R8V0N5T9WYP2"
 	seedRemoteFiles(t, mine, map[string]string{
 		gitstore.BoardPath: "schema: 1\ntitle: kvaps\n",
-		"cards/a/1/" + finishedYesterday + ".md": encode(board.Card{Title: "inbox zero", Zone: board.ZoneGreen,
+		cardPathOf(t, finishedYesterday): encode(board.Card{Title: "inbox zero", Zone: board.ZoneGreen,
 			Stage: board.StageRecurrent, Progress: 100, StartDate: yesterday, Day: yesterday, DoneAt: yesterday,
 			Assignees: []string{"kvaps"}, Rank: "a", CreatedAt: yesterday + "T09:00:00Z", Description: "clear the inbox"}),
-		"cards/a/1/" + finishedToday + ".md": encode(board.Card{Title: "stretch", Zone: board.ZoneGreen,
+		cardPathOf(t, finishedToday): encode(board.Card{Title: "stretch", Zone: board.ZoneGreen,
 			Stage: board.StageRecurrent, Progress: 100, StartDate: today, Day: today, DoneAt: today,
 			Assignees: []string{"kvaps"}, Rank: "b", CreatedAt: today + "T09:00:00Z"}),
 	})
@@ -230,6 +231,86 @@ func TestPersonalViewReseedsARecurrentCardTheNextDay(t *testing.T) {
 	if again := list(today); len(again) != 2 {
 		t.Fatalf("reading again must not reseed twice: %+v", again)
 	}
+}
+
+// The × on a personal card over the API: a worked-on card is left behind on
+// yesterday's board — off today's view, on yesterday's, status.leftAt says
+// so — and an untouched one is deleted.
+func TestRemovingAWorkedPersonalCardLeavesItOnYesterday(t *testing.T) {
+	today := board.TodayIso()
+	yesterday := board.AddDays(today, -1)
+	shared := gitRemoteN(t, "shared")
+	mine := gitRemoteN(t, "mine")
+	seedRemoteFiles(t, shared, map[string]string{
+		gitstore.BoardPath:         "schema: 1\ntitle: t\n",
+		gitstore.TeamPath("_"):     "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		gitstore.UserPath("kvaps"): "personal: " + mine.URL + "\ncreated: 2026-08-28T10:00:00Z\n",
+	})
+	encode := func(c board.Card) string {
+		data, err := gitstore.EncodeCard(gitstore.CardFile{Card: c})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	const worked, untouched = "01JB4K2E7QZMX3R8V0N5T9WYP3", "01JB4K2E7QZMX3R8V0N5T9WYP4"
+	seedRemoteFiles(t, mine, map[string]string{
+		gitstore.BoardPath: "schema: 1\ntitle: kvaps\n",
+		cardPathOf(t, worked): encode(board.Card{Title: "half done", Zone: board.ZoneGreen, Progress: 40,
+			StartDate: "2026-08-20", Assignees: []string{"kvaps"}, Rank: "a", CreatedAt: "2026-08-20T09:00:00Z"}),
+		cardPathOf(t, untouched): encode(board.Card{Title: "untouched", Zone: board.ZoneGreen,
+			StartDate: "2026-08-20", Assignees: []string{"kvaps"}, Rank: "b", CreatedAt: "2026-08-20T09:00:00Z"}),
+	})
+	both := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": both}}, shared)
+
+	uids := func(day string) []string {
+		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal&day="+day, "")
+		var l struct {
+			Items []struct{ Metadata struct{ UID string } }
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &l); err != nil {
+			t.Fatalf("%s: %d %s", day, rec.Code, rec.Body.String())
+		}
+		out := make([]string, 0, len(l.Items))
+		for _, it := range l.Items {
+			out = append(out, it.Metadata.UID)
+		}
+		return out
+	}
+	if got := uids(today); len(got) != 2 {
+		t.Fatalf("before: %v", got)
+	}
+	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+worked+"/actions/remove", `{}`); rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
+		t.Fatalf("remove worked: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+worked, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"leftAt":"`+yesterday+`"`) {
+		t.Fatalf("the worked card after ×: %d %s (want kept, leftAt %s)", rec.Code, rec.Body.String(), yesterday)
+	}
+	if got := uids(today); len(got) != 1 || got[0] != untouched {
+		t.Fatalf("today after ×: %v (want the untouched card alone)", got)
+	}
+	if got := uids(yesterday); !slices.Contains(got, worked) {
+		t.Fatalf("yesterday after ×: %v (want the left-behind card there)", got)
+	}
+	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+untouched+"/actions/remove", `{}`); rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
+		t.Fatalf("remove untouched: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+untouched, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("the untouched card after ×: %d (want deleted)", rec.Code)
+	}
+}
+
+// cardPathOf is where the store files (and looks for) a card: a seed placed
+// anywhere else loads, but no write finds it.
+func cardPathOf(t *testing.T, id string) string {
+	t.Helper()
+	p, err := gitstore.CardPath(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func TestPersonalBoardIsAttachedWhenTheOwnerReturns(t *testing.T) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { removalKind } from "./removal";
+import { personalRemovalKind, removalKind } from "./removal";
 
 const ctx = { current: "2026-08-26", previous: "2026-08-25", today: "2026-08-26" };
 const card = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 0 };
@@ -56,3 +56,18 @@ describe("removalKind on a card that belongs to a column", () => {
     expect(removalKind(worked, ctx)).toBe("ask");
   });
 })
+
+describe("personalRemovalKind", () => {
+  const today = "2026-08-28";
+  it("asks about a worked-on card that did not start today — its history is at stake", () => {
+    expect(personalRemovalKind({ progress: 40, startDate: "2026-08-20" }, today)).toBe("ask");
+    expect(personalRemovalKind({ progress: 100, startDate: "2026-08-20" }, today)).toBe("ask");
+    expect(personalRemovalKind({ progress: 10 }, today)).toBe("ask");
+  });
+  it("deletes an untouched card, or one that started today, without asking", () => {
+    expect(personalRemovalKind({ progress: 0, startDate: "2026-08-20" }, today)).toBe("delete");
+    expect(personalRemovalKind({ startDate: "2026-08-20" }, today)).toBe("delete");
+    expect(personalRemovalKind({ progress: 60, startDate: today }, today)).toBe("delete");
+    expect(personalRemovalKind({ progress: 20, startDate: "2026-08-30" }, today)).toBe("delete");
+  });
+});

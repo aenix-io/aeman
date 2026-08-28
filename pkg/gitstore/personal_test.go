@@ -66,6 +66,26 @@ func TestLoadAllUsersFromThePrimaryOnly(t *testing.T) {
 	}
 }
 
+// leftAt — the board day a personal card was left behind on by the × — is a
+// card field like doneAt: written to the file, read back, absent when empty.
+func TestLeftAtRoundTripsThroughTheCardFile(t *testing.T) {
+	data, err := EncodeCard(CardFile{Card: board.Card{Title: "half done", Progress: 40, LeftAt: "2026-08-27"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "leftAt: 2026-08-27") {
+		t.Fatalf("card file lacks leftAt:\n%s", data)
+	}
+	f, err := DecodeCard("01JB4K2E7QZMX3R8V0N5T9WYP1", data)
+	if err != nil || f.Card.LeftAt != "2026-08-27" {
+		t.Fatalf("decoded leftAt = %q, %v", f.Card.LeftAt, err)
+	}
+	data, err = EncodeCard(CardFile{Card: board.Card{Title: "back", Progress: 40}})
+	if err != nil || strings.Contains(string(data), "leftAt") {
+		t.Fatalf("a card not left behind carries no leftAt: %v\n%s", err, data)
+	}
+}
+
 // doneAt is the board day a write took the card to 100 — what lets a done
 // card be shown that day and hidden the next without reading history — and
 // it goes when the card drops below 100, like doneFrom.

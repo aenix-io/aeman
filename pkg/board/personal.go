@@ -49,9 +49,25 @@ func PersonalView(b Board, login, day string) []Card {
 		if c.StartDate != "" && c.StartDate > day {
 			continue
 		}
+		// Left behind: the × on a worked-on card leaves it on a past day's
+		// board — seen on that day and before, off the board from the next.
+		if c.LeftAt != "" && day > c.LeftAt {
+			continue
+		}
 		out = append(out, c)
 	}
 	return out
+}
+
+// PersonalLeaves reports whether the × on a personal card leaves it behind
+// on yesterday's board instead of deleting it — the personal analogue of a
+// team card demoting to the previous sprint. A card that has been worked on
+// (progress above 0, finished included) and did not start today has a history
+// worth keeping; an untouched one, or one that started today, has none and
+// is deleted. Never true for a card of any other domain.
+func PersonalLeaves(c Card, today string) bool {
+	return IsPersonalDomain(c.Domain) && c.Progress > 0 && c.StartDate != today &&
+		(c.StartDate == "" || c.StartDate < today)
 }
 
 // PersonalReseed lists the finished recurrent cards of login's personal

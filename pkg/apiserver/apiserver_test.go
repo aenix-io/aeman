@@ -445,9 +445,9 @@ func memberLogins2(cards []board.Card) []string {
 func TestCardResourceCarriesDoneAtAndPersonalDomain(t *testing.T) {
 	b := testBoard()
 	c := b.Cards[0]
-	c.Progress, c.DoneAt, c.Domain = 100, "2026-08-28", "~kvaps"
+	c.Progress, c.DoneAt, c.Domain, c.LeftAt = 100, "2026-08-28", "~kvaps", "2026-08-27"
 	r := CardResource(b, c)
-	if r.Status.DoneAt != "2026-08-28" || r.Status.Domain != "~kvaps" {
+	if r.Status.DoneAt != "2026-08-28" || r.Status.Domain != "~kvaps" || r.Status.LeftAt != "2026-08-27" {
 		t.Fatalf("status = %+v", r.Status)
 	}
 	d := DomainInfo{Name: "~kvaps", Writable: true, Personal: true}

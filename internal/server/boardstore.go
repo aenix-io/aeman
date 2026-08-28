@@ -1472,6 +1472,19 @@ func (b *storeBackend) SetDay(ctx context.Context, bd board.Board, card board.Ca
 	return nil
 }
 
+func (b *storeBackend) SetLeftAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
+	summary := "leave " + cardRef(card) + " behind"
+	if day == "" {
+		summary = "bring " + cardRef(card) + " back"
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "left", summary, func(c *board.Card) {
+		c.LeftAt = day
+	}, func(ctx context.Context) error {
+		return b.inner.SetLeftAt(ctx, bd, card, day)
+	})
+	return nil
+}
+
 func (b *storeBackend) SetStart(ctx context.Context, bd board.Board, card board.Card, date string) error {
 	b.mutateCard(ctx, bd, card.ItemID, "start", "set the start date on "+cardRef(card), func(c *board.Card) {
 		c.StartDate = date

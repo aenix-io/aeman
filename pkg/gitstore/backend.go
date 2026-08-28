@@ -988,6 +988,12 @@ func (b *Backend) SetZone(ctx context.Context, _ board.Board, card board.Card, z
 	return b.editCard(ctx, "zone", card, func(f *CardFile) { f.Card.Zone = zone })
 }
 
+// SetLeftAt sets or clears the day a personal card was left behind on.
+func (b *Backend) SetLeftAt(ctx context.Context, _ board.Board, card board.Card, day string) error {
+	err := b.editCard(ctx, "left", card, func(f *CardFile) { f.Card.LeftAt = day })
+	return err
+}
+
 // SetDay sets or clears the end day.
 func (b *Backend) SetDay(ctx context.Context, _ board.Board, card board.Card, day string) error {
 	return b.editCard(ctx, "day", card, func(f *CardFile) { f.Card.Day = day })

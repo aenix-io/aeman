@@ -152,3 +152,15 @@ describe("personalShows and planning", () => {
     expect(personalShows(card({ startDate: "2026-08-20", progress: 100, doneAt: "2026-08-27" }), today)).toBe(false);
   });
 });
+
+describe("personalShows and the left-behind card", () => {
+  const today = "2026-08-28";
+  const card = (extra: Partial<Card>): Card => ({ itemId: "p", title: "p", assignees: [], ...extra });
+  it("shows a card on the day it was left and before, hides it from the next day", () => {
+    const left = card({ startDate: "2026-08-20", progress: 40, leftAt: "2026-08-27" });
+    expect(personalShows(left, today)).toBe(false);
+    expect(personalShows(left, "2026-08-27")).toBe(true);
+    expect(personalShows(left, "2026-08-25")).toBe(true);
+    expect(personalShows(card({ progress: 40, leftAt: today }), today)).toBe(true);
+  });
+});
