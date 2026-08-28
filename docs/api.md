@@ -24,7 +24,7 @@ Each repository of the board is a **domain** — a visibility boundary. A card's
 
 Teams, projects and processes are declared in the domain the caller picks: the optional `domain` field on `POST /projects`, `POST /processes` and `PATCH /sprints` (a team is declared by its first sprint write), default the primary. A process with a project lives with the project.
 
-`GET /board` lists the visitor's readable domains as `metadata.domains` (primary first, each with a `writable` flag and the logins that can read it); every card carries `status.domain`. A domain the visitor cannot read is simply absent — no cards, teams or projects from it, no watch frames about it — not empty.
+On a board of more than one repository, `GET /board` lists the visitor's readable domains as `metadata.domains` (primary first, each with a `writable` flag and the logins that can read it) and every card carries `status.domain`; a single-repository board shows nothing of this. A domain the visitor cannot read is simply absent — no cards, teams or projects from it, no watch frames about it — not empty.
 
 ### The planning entities
 
@@ -70,7 +70,7 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | `POST /api/v1/deadlines` | Mark a week with a project's deadline `{week, project}` (201). Any day resolves to its Monday; asking twice changes nothing. |
 | `GET /api/v1/ordering` | The board-level manual card order (a uid list). |
 | `GET /api/v1/watch` | WebSocket stream of resource events (below). |
-| `GET /healthz` | Liveness and the storage's state (below). |
+| `GET /api/healthz` | Liveness and the storage's state (below). |
 
 Note mutations return the card's full `NoteList`, so clients converge on the server's view of the thread.
 
@@ -225,7 +225,7 @@ Changes that reach the repository from elsewhere — another aeman replica, a pl
 
 ### Health
 
-`GET /healthz` answers `{"status": "ok"}` and, in addition, what the storage has to say:
+`GET /api/healthz` answers `{"status": "ok"}` and, in addition, what the storage has to say:
 
 ```json
 {
@@ -291,7 +291,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards' \
 | `--history` | `AEMAN_HISTORY` | `8w` | How far back the history is loaded in the background after start-up. The cold start is a depth-1 clone; the log fills in behind it. |
 | `--history-max` | `AEMAN_HISTORY_MAX` | `1y` | Cap for on-demand deepening when a card's log is cut by the horizon. |
 | `--sync-interval` | `AEMAN_SYNC_INTERVAL` | `15s` | How often other replicas' and direct commits are fetched (and the weekly process turns filed). |
-| `--unpushed-warn` | `AEMAN_UNPUSHED_WARN` | `5m` | Age of the oldest unpushed commit that turns `/healthz` degraded. |
+| `--unpushed-warn` | `AEMAN_UNPUSHED_WARN` | `5m` | Age of the oldest unpushed commit that turns `/api/healthz` degraded. |
 | `--committer` | `AEMAN_COMMITTER` | `aeman <aeman@localhost>` | The committer identity; also the author of the server's own actions (the weekly sweep, a schema migration). |
 | `--author-email` | `AEMAN_AUTHOR_EMAIL` | `{login}@aeman` | How a visitor's login becomes the commit author's email. |
 
