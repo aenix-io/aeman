@@ -101,7 +101,7 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 // filters, mirroring GET /api/v1/cards.
 type listCardsInput struct {
 	boardRef
-	View     string `json:"view,omitempty" jsonschema:"view to scope to: team, me, weekly or project; empty lists every card"`
+	View     string `json:"view,omitempty" jsonschema:"view to scope to: team, me, personal (your own personal board), weekly or project; empty lists every card"`
 	Team     string `json:"team,omitempty" jsonschema:"team key for the team/weekly views; on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
@@ -123,9 +123,9 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User, Week: in.Week,
 		Project: in.Project, Assignee: in.Assignee, Focus: in.Focus}
 	switch sel.View {
-	case "", "all", "team", "me", "weekly", "project":
+	case "", "all", "team", "me", "personal", "weekly", "project":
 	default:
-		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use all, team, me, weekly or project)", sel.View)
+		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use all, team, me, personal, weekly or project)", sel.View)
 	}
 	// An unspecified view defaults to the caller's personal Me board (their own
 	// cards); Team is the lead view and view=all is the whole board. "Who am I"
@@ -133,7 +133,7 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	if sel.View == "" {
 		sel.View = "me"
 	}
-	if sel.View == "me" && sel.User == "" && h.cfg.ResolveLogin != nil {
+	if (sel.View == "me" || sel.View == "personal") && sel.User == "" && h.cfg.ResolveLogin != nil {
 		if login, err := h.cfg.ResolveLogin(ctx); err == nil {
 			sel.User = login
 		}
@@ -202,6 +202,9 @@ type createCardInput struct {
 	// running sprint, else start one today), true to force a new sprint today,
 	// false to force-join the current sprint.
 	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
+	// Personal files the card on the caller's personal board — their own
+	// repository, seen by them alone — instead of the team board.
+	Personal bool `json:"personal,omitempty" jsonschema:"true = a card on YOUR personal board (your own linked repository, for you alone): a backlog item with a zone, dates and a body and no team, column or plan band. Requires a linked personal repository (GET /api/v1/me/personal)"`
 }
 
 func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -227,6 +230,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		Project:        in.Project,
 		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
+		Personal:       in.Personal,
 	})
 	if err != nil {
 		return nil, apiserver.Card{}, err

@@ -183,6 +183,11 @@ func (v *visibleBackend) CreateCard(ctx context.Context, bd board.Board, in boar
 		probe := cardFromInput(in, "")
 		var target string
 		switch {
+		case in.Personal:
+			// A personal card goes to the visitor's own domain and nowhere
+			// else — the service named it from the actor; the write check
+			// below is what keeps it theirs.
+			target = in.Domain
 		case in.Title == board.ProjectStateTitle, in.Title == board.SprintStateTitle,
 			in.Title == board.ProcessStateTitle && in.Project == "":
 			// The caller's choice, default the primary.

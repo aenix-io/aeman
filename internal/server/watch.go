@@ -47,6 +47,12 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	// The me and personal views are the caller's own unless they say whose.
+	if sel != nil && (sel.View == "me" || sel.View == "personal") && sel.User == "" {
+		if _, login, err := s.apiTokens(r); err == nil {
+			sel.User = login
+		}
+	}
 	resources := map[string]bool{"cards": true, "sprints": true, "ordering": true, "presence": true}
 	if raw := q.Get("resources"); raw != "" {
 		resources = map[string]bool{}
