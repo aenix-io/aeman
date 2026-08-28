@@ -48,7 +48,28 @@ var (
 	ErrBadToken = errors.New("forge: the token was rejected")
 	// ErrNotFound is a login the forge does not know.
 	ErrNotFound = errors.New("forge: no such person")
+	// ErrRateLimited is the forge throttling us. It shares the 403 of "you
+	// may not see this" and must never be read as one: a moment of
+	// throttling would otherwise be remembered as a visitor's lack of
+	// access to their own board.
+	ErrRateLimited = errors.New("forge: rate limited")
 )
+
+// throttled reports whether a refusal is the forge throttling rather than
+// answering: 429, or a 403 that names a spent budget or a retry delay.
+// GitHub uses 403 for both its primary and secondary rate limits; GitLab
+// answers 429 and, behind some proxies, a 403 with Retry-After.
+func throttled(resp *http.Response) bool {
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return true
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		return false
+	}
+	return resp.Header.Get("Retry-After") != "" ||
+		resp.Header.Get("X-RateLimit-Remaining") == "0" ||
+		resp.Header.Get("RateLimit-Remaining") == "0"
+}
 
 // Forge is one code host.
 type Forge interface {

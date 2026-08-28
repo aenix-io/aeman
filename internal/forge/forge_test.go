@@ -274,6 +274,54 @@ func TestLookupFindsAPersonByLogin(t *testing.T) {
 	}
 }
 
+// A forge that is rate-limiting says 403 — the same code it uses for a
+// repository the visitor may not see. Told apart by what the answer carries
+// (GitHub: a spent rate-limit budget or a Retry-After; GitLab: the same, or
+// 429), being throttled is an ErrRateLimited, never "you have no access":
+// the difference decides whether the last answer stands or the visitor is
+// locked out of a board they own.
+func TestBeingThrottledIsNotTheSameAsHavingNoAccess(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  int
+		headers map[string]string
+		limited bool
+	}{
+		{"primary rate limit", http.StatusForbidden, map[string]string{"X-RateLimit-Remaining": "0"}, true},
+		{"secondary rate limit", http.StatusForbidden, map[string]string{"Retry-After": "60"}, true},
+		{"too many requests", http.StatusTooManyRequests, nil, true},
+		{"genuinely forbidden", http.StatusForbidden, map[string]string{"X-RateLimit-Remaining": "4823"}, false},
+		{"forbidden, nothing said", http.StatusForbidden, nil, false},
+	}
+	for _, tc := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			for k, v := range tc.headers {
+				w.Header().Set(k, v)
+			}
+			w.WriteHeader(tc.status)
+		}))
+		for _, f := range []Forge{NewGitHubAt(srv.URL), NewGitLab(srv.URL)} {
+			repo := "https://host/acme/repo.git"
+			read, write, err := f.Access(context.Background(), srv.Client(), "tok", repo)
+			switch {
+			case tc.limited && !errors.Is(err, ErrRateLimited):
+				t.Errorf("%s/%s: Access err = %v, want ErrRateLimited", f.Kind(), tc.name, err)
+			case !tc.limited && err != nil:
+				t.Errorf("%s/%s: Access err = %v, want none", f.Kind(), tc.name, err)
+			case !tc.limited && (read || write):
+				t.Errorf("%s/%s: Access = %v %v, want no access", f.Kind(), tc.name, read, write)
+			}
+			// Readers is asked with the server's credential and must not
+			// swallow the throttling either: an empty roster would quietly
+			// empty every picker on the board.
+			if _, err := f.Readers(context.Background(), srv.Client(), "srv", repo, []string{"alice"}); tc.limited && !errors.Is(err, ErrRateLimited) {
+				t.Errorf("%s/%s: Readers err = %v, want ErrRateLimited", f.Kind(), tc.name, err)
+			}
+		}
+		srv.Close()
+	}
+}
+
 // fakeGitHub is the GitHub REST surface the GitHub forge uses.
 func fakeGitHub(t *testing.T) *httptest.Server {
 	t.Helper()
