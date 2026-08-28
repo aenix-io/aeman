@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -84,6 +85,9 @@ type Log struct {
 
 // CardLog lists the commits that touched the card, newest first. limit
 // caps the list (0 = all); it never hides that the history is truncated.
+// The candidates come from the path index; each is then read the precise
+// way (entryFor), so a commit the index over-includes — a boundary, a
+// trailer naming the card without a change — is judged, not trusted.
 func (r *Repo) CardLog(id string, limit int) (Log, error) {
 	p, err := CardPath(id)
 	if err != nil {
@@ -97,17 +101,164 @@ func (r *Repo) CardLog(id string, limit int) (Log, error) {
 	if err != nil {
 		return Log{}, err
 	}
-	err = r.Walk(r.Head(), func(c *object.Commit) (bool, error) {
-		entry, touched, err := r.entryFor(c, id, p, shallow[c.Hash])
+	hashes, err := r.commitsTouching(p)
+	if err != nil {
+		return Log{}, err
+	}
+	for _, h := range hashes {
+		c, err := object.GetCommit(r.s, h)
 		if err != nil {
-			return false, err
+			return Log{}, err
+		}
+		entry, touched, err := r.entryFor(c, id, p, shallow[h])
+		if err != nil {
+			return Log{}, err
 		}
 		if touched {
 			log.Entries = append(log.Entries, entry)
 		}
-		return limit <= 0 || len(log.Entries) < limit, nil
-	})
-	return log, err
+		if limit > 0 && len(log.Entries) >= limit {
+			break
+		}
+	}
+	return log, nil
+}
+
+// pathIndex is the history seen per path: for every commit the clone holds,
+// the paths it touched — by the tree diff against its parent, or by naming
+// a card in Aeman-Cards. Without it a card's log walks every commit and
+// reads the card's file twice per commit: on a 20k-commit history that is
+// seconds per lookup; with it, the walk with one tree diff per commit runs
+// once, and a lookup is a map read. The index follows the head: new commits
+// extend it, a head that is not a descendant of the indexed one (a reset)
+// or a moved shallow boundary (a deepen) rebuilds it.
+type pathIndex struct {
+	head    plumbing.Hash
+	shallow string                     // the shallow list, sorted — the boundary's fingerprint
+	paths   map[string][]plumbing.Hash // path → commits touching it, newest first
+	builds  int                        // full builds so far (tests watch it)
+}
+
+// commitsTouching lists the commits that may have touched the path, newest
+// first — a superset a caller narrows with entryFor.
+func (r *Repo) commitsTouching(p string) ([]plumbing.Hash, error) {
+	r.idxMu.Lock()
+	defer r.idxMu.Unlock()
+	if err := r.syncIndex(); err != nil {
+		return nil, err
+	}
+	return append([]plumbing.Hash(nil), r.idx.paths[p]...), nil
+}
+
+// indexBuilds is how many times the index was built from scratch.
+func (r *Repo) indexBuilds() int {
+	r.idxMu.Lock()
+	defer r.idxMu.Unlock()
+	if r.idx == nil {
+		return 0
+	}
+	return r.idx.builds
+}
+
+// syncIndex brings the index to the current head: nothing when it is there
+// already, an extension when the head grew on top of the indexed one, a
+// rebuild otherwise. Callers hold idxMu.
+func (r *Repo) syncIndex() error {
+	head := r.Head()
+	shallow, err := r.shallows()
+	if err != nil {
+		return err
+	}
+	fp := shallowFingerprint(shallow)
+	if r.idx != nil && r.idx.head == head && r.idx.shallow == fp {
+		return nil
+	}
+	if r.idx != nil && r.idx.shallow == fp {
+		fresh, reached, err := r.indexWalk(head, r.idx.head, shallow)
+		if err != nil {
+			return err
+		}
+		if reached {
+			for p, hs := range fresh.paths {
+				r.idx.paths[p] = append(hs, r.idx.paths[p]...)
+			}
+			r.idx.head = head
+			return nil
+		}
+	}
+	full, _, err := r.indexWalk(head, plumbing.ZeroHash, shallow)
+	if err != nil {
+		return err
+	}
+	builds := 0
+	if r.idx != nil {
+		builds = r.idx.builds
+	}
+	full.head, full.shallow, full.builds = head, fp, builds+1
+	r.idx = full
+	return nil
+}
+
+// indexWalk walks from `from` back along first parents — stopping before
+// `until` (zero: the whole history), at a shallow boundary or at a root —
+// and records each commit under the paths it touched. reached reports
+// whether `until` was met.
+//
+// An aeman commit names every card it touched in Aeman-Cards (G4), so for
+// it the message is the whole answer and no tree is read — the walk costs a
+// commit read per commit, under a second for 20k of them. Only a commit
+// without that trailer (a direct git write, an old import) is diffed
+// against its parent; a boundary or a root has no readable parent and is
+// diffed against nothing, so every path in its tree counts as touched.
+func (r *Repo) indexWalk(from, until plumbing.Hash, shallow map[plumbing.Hash]bool) (*pathIndex, bool, error) {
+	idx := &pathIndex{paths: map[string][]plumbing.Hash{}}
+	for h := from; !h.IsZero(); {
+		if !until.IsZero() && h == until {
+			return idx, true, nil
+		}
+		c, err := object.GetCommit(r.s, h)
+		if err != nil {
+			return nil, false, err
+		}
+		var paths []string
+		if named := ParseTrailers(c.Message).Cards; len(named) > 0 {
+			for _, id := range named {
+				if p, err := CardPath(id); err == nil {
+					paths = append(paths, p)
+				}
+			}
+		} else {
+			parent := plumbing.ZeroHash
+			if !shallow[h] && c.NumParents() > 0 {
+				parent = c.ParentHashes[0]
+			}
+			if paths, err = r.ChangedPaths(parent, h); err != nil {
+				return nil, false, err
+			}
+		}
+		seen := map[string]bool{}
+		for _, p := range paths {
+			if !seen[p] {
+				seen[p] = true
+				idx.paths[p] = append(idx.paths[p], h)
+			}
+		}
+		if shallow[h] || c.NumParents() == 0 {
+			return idx, until.IsZero(), nil
+		}
+		h = c.ParentHashes[0]
+	}
+	return idx, until.IsZero(), nil
+}
+
+// shallowFingerprint names a shallow list regardless of order.
+func shallowFingerprint(shallow map[plumbing.Hash]bool) string {
+	hs := make([]string, 0, len(shallow))
+	for h := range shallow {
+		hs = append(hs, h.String())
+	}
+	sort.Strings(hs)
+	return strings.Join(hs, ",")
 }
 
 // horizon is the earliest time still in the clone: the oldest shallow

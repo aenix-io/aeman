@@ -368,14 +368,20 @@ func (mb *MultiBackend) place(ctx context.Context, op string, f CardFile, p, fro
 // continuous list, newest first, each field change an event with the
 // commit's actor and time. truncatedBefore is the horizon of the oldest
 // domain walked when a shallow clone cuts the history; zero otherwise.
-func (mb *MultiBackend) CardLog(_ context.Context, _ board.Board, id string) ([]board.Event, time.Time, error) {
-	s, err := mb.snapshot()
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	domain, ok := newResolver(s).cards[id]
-	if !ok {
-		return nil, time.Time{}, fmt.Errorf("%w: %s", ErrCardNotFound, id)
+func (mb *MultiBackend) CardLog(_ context.Context, bd board.Board, id string) ([]board.Event, time.Time, error) {
+	// The board handed in already says where the card lives (the store
+	// stamps every card); decoding the whole tree again for that one fact
+	// is what made a log read cost as much as a board load.
+	domain := stampedDomain(bd, id)
+	if domain == "" {
+		s, err := mb.snapshot()
+		if err != nil {
+			return nil, time.Time{}, err
+		}
+		var ok bool
+		if domain, ok = newResolver(s).cards[id]; !ok {
+			return nil, time.Time{}, fmt.Errorf("%w: %s", ErrCardNotFound, id)
+		}
 	}
 	var events []board.Event
 	var truncated time.Time
@@ -416,6 +422,22 @@ func eventsOf(e LogEntry) []board.Event {
 		out = append(out, board.Event{ID: hash + ":" + ch.Kind, Kind: ch.Kind, From: ch.From, To: ch.To, Actor: e.Actor, At: at})
 	}
 	return out
+}
+
+// stampedDomain is the domain a loaded board records for a card or task, or
+// "" when the board does not carry the card (or was built without stamps).
+func stampedDomain(bd board.Board, id string) string {
+	for _, c := range bd.Cards {
+		if c.ItemID == id {
+			return c.Domain
+		}
+	}
+	for _, c := range bd.Tasks {
+		if c.ItemID == id {
+			return c.Domain
+		}
+	}
+	return ""
 }
 
 // cascade moves what the linked-card rules tie to a moved card — its review
