@@ -32,6 +32,7 @@ import { activeSprint, currentSprint } from "../sprint";
 import type { Avatars } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
+import { personalRepoName, personalShows, splitPersonal } from "../personal";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
@@ -187,6 +188,22 @@ export function MeBoard({
   }, []);
   const impRef = useRef<HTMLDivElement | null>(null);
   const viewMe = impersonated ?? me;
+
+  // The personal board's cards come out of the shared list first, so the day
+  // zones never pick them up. The column is the viewer's own (the server
+  // resolves who), so it shows only while the board is viewed as oneself; a
+  // card done before today has left it (mirrors view=personal).
+  const split = useMemo(
+    () => splitPersonal(board.cards, board.personal),
+    [board.cards, board.personal],
+  );
+  const teamCards = split.team;
+  const personalOn = board.personal !== undefined && !impersonated;
+  const personalCards = useMemo(
+    () =>
+      personalOn ? split.personal.filter((c) => personalShows(c, todayIso())) : [],
+    [split.personal, personalOn],
+  );
   // Other people with cards — offered in the "View as" impersonate picker.
   const others = useMemo(
     () =>
@@ -222,16 +239,16 @@ export function MeBoard({
   // subtasks along (mirrors MeView + withSubtasks server-side).
   const mine = useMemo(() => {
     if (!viewMe) {
-      return board.cards;
+      return teamCards;
     }
     const owned = new Set<string>();
-    for (const c of board.cards) {
+    for (const c of teamCards) {
       if (c.assignees.includes(viewMe)) {
         owned.add(c.parent ?? c.itemId);
       }
     }
-    return board.cards.filter((c) => owned.has(c.parent ?? c.itemId));
-  }, [board.cards, viewMe]);
+    return teamCards.filter((c) => owned.has(c.parent ?? c.itemId));
+  }, [teamCards, viewMe]);
 
   // In Me a card shows when it belongs to the sprint that was active on the viewed
   // day (activeSprint) and its scheduled day has arrived (startDate empty or on or
@@ -310,6 +327,20 @@ export function MeBoard({
     return buckets;
   }, [myCards]);
 
+  // The personal column's bands: the same four zones, the viewer's own cards.
+  const personalByZone = useMemo(() => {
+    const buckets: Record<ZoneKey, CardModel[]> = {
+      gray: [],
+      green: [],
+      yellow: [],
+      red: [],
+    };
+    for (const card of personalCards) {
+      buckets[card.zone ?? "gray"].push(card);
+    }
+    return buckets;
+  }, [personalCards]);
+
   // Overall completion across the day's cards (a done card counts as 100%) — the
   // thin bar under the zones, mirroring the weekly plan's progress strip.
   const dayProgress = useMemo(() => {
@@ -355,6 +386,7 @@ export function MeBoard({
   // to the full board state so the notes composer works on them.
   const selectedCard =
     myCards.find((c) => c.itemId === selectedCardId) ??
+    personalCards.find((c) => c.itemId === selectedCardId) ??
     board.cards.find((c) => c.itemId === selectedCardId && c.parent) ??
     null;
 
@@ -403,20 +435,23 @@ export function MeBoard({
     for (const c of myCards) {
       out.push(c, ...(childrenOf.get(c.itemId) ?? []));
     }
+    out.push(...personalCards);
     return out;
-  }, [myCards, childrenOf]);
+  }, [myCards, childrenOf, personalCards]);
 
   // Card item ids in board (display) order, for grouping notes by card;
   // subtasks group right after their parent.
   const noteCardOrder = useMemo(
-    () =>
-      ZONE_ORDER.flatMap((z) =>
+    () => [
+      ...ZONE_ORDER.flatMap((z) =>
         byZone[z].flatMap((c) => [
           c.itemId,
           ...(childrenOf.get(c.itemId) ?? []).map((s) => s.itemId),
         ]),
       ),
-    [byZone, childrenOf],
+      ...ZONE_ORDER.flatMap((z) => personalByZone[z].map((c) => c.itemId)),
+    ],
+    [byZone, childrenOf, personalByZone],
   );
 
   const dayNotes = useMemo<DayNote[]>(() => {
@@ -1079,6 +1114,17 @@ export function MeBoard({
     [byZone, childrenOf, expandedSubs],
   );
 
+  // The personal column's groups: flat rows (no subtasks) in the same bands.
+  const personalGroups = useMemo<BoardGroup<MeMeta>[]>(
+    () =>
+      ZONE_ORDER.map((zone) => ({
+        key: `personal:${zone}`,
+        meta: { zone },
+        cards: personalByZone[zone],
+      })),
+    [personalByZone],
+  );
+
   // Keyboard navigation over the visible day list (zone bands top to bottom):
   // arrows move the selection, Shift+arrows reorder the selected card, Escape
   // deselects. Ignored while typing in an input.
@@ -1270,6 +1316,43 @@ export function MeBoard({
       });
   };
 
+  // A personal card: filed in the viewer's own repository and assigned to
+  // them, with nothing of the day board (no team, dates or plan) — the server
+  // takes `personal: true` and does the rest.
+  const handleCreatePersonal = (zone: ZoneKey, title: string) => {
+    const tempId = `tmp-${new Date().toISOString()}`;
+    addCard({
+      itemId: tempId,
+      title: optimisticTitle(title),
+      assignees: me ? [me] : [],
+      zone,
+      domain: board.personal?.domain,
+      createdAt: new Date().toISOString(),
+      description: "",
+      notes: [],
+    });
+    const creating = provider.createCard({ title, zone, personal: true });
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
+      .then((card) => {
+        if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
+          void provider.deleteCard(card.itemId).catch(() => undefined);
+          return;
+        }
+        replaceCard(tempId, card);
+        migrateCardId(tempId, card.itemId);
+      })
+      .catch((err: unknown) => {
+        consumePendingCancel(tempId);
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
+  };
+
   const handleAddNote = (text: string) => {
     if (!selectedCard) {
       return;
@@ -1356,8 +1439,9 @@ export function MeBoard({
   };
 
   // renderMeCard is the zone-band card used both for top-level rows and for
-  // subtask rows (a subtask works exactly like any card).
-  const renderMeCard = (card: CardModel): ReactNode => (
+  // subtask rows (a subtask works exactly like any card). A personal card is
+  // the same card without the day board's affordances: no team, no subtasks.
+  const renderMeCard = (card: CardModel, personal = false): ReactNode => (
     <Card
       card={card}
       onLoadLinks={loadCardLinks}
@@ -1368,24 +1452,28 @@ export function MeBoard({
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
-      teams={teams}
+      teams={personal ? undefined : teams}
       people={people}
       reviewers={reviewerCandidates(people, board.domains, card.domain)}
       avatars={avatars}
       domainBadge={cardDomainBadge(board.domains, card.domain)}
-      onSetTeam={handleSetTeam}
+      onSetTeam={personal ? undefined : handleSetTeam}
       hasLinkedReview={reviewedItemIds.has(card.itemId)}
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      dimAvatar={teamFilter === null || !teamFilter.includes(card.team ?? "")}
+      dimAvatar={!personal && (teamFilter === null || !teamFilter.includes(card.team ?? ""))}
       subCount={(childrenOf.get(card.itemId) ?? []).length}
       expanded={subsOpen(card.itemId)}
       onToggleExpand={(c) => toggleSubs(c.itemId)}
-      onAddSubtask={(c) => {
-        setExpandedSubs((cur) => new Set(cur).add(c.itemId));
-        setAddingSub(c.itemId);
-      }}
+      onAddSubtask={
+        personal
+          ? undefined
+          : (c) => {
+              setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+              setAddingSub(c.itemId);
+            }
+      }
       groupTarget={groupHover === card.itemId}
     />
   );
@@ -1557,6 +1645,7 @@ export function MeBoard({
 
       <div className="me-panes">
         <div className="me-left">
+          <div className="me-boards">
           <div className="me-zones">
             <SortableBoard<MeMeta>
               groups={groups}
@@ -1613,6 +1702,66 @@ export function MeBoard({
                 );
               }}
             />
+          </div>
+          {personalOn && board.personal && (
+            <aside className="me-personal" aria-label="Personal board">
+              <div className="me-personal-head">
+                <span className="me-personal-title">Personal</span>
+                <span className="me-personal-repo" title={board.personal.url}>
+                  {personalRepoName(board.personal.url)}
+                </span>
+              </div>
+              <div className="me-personal-zones">
+                <SortableBoard<MeMeta>
+                  groups={personalGroups}
+                  onDrop={handleDrop}
+                  renderCard={(card) => renderMeCard(card, true)}
+                  renderOverlay={(card) => (
+                    <Card
+                      card={card}
+                      onLoadLinks={loadCardLinks}
+                      selected={false}
+                      onSelect={() => {}}
+                      onProgress={() => {}}
+                      onDelete={() => {}}
+                      onStage={() => {}}
+                      onInProgress={() => {}}
+                      onOpen={() => {}}
+                    />
+                  )}
+                  renderGroup={(group, body, { isOver, dropRef }) => {
+                    const def = ZONES[group.meta.zone];
+                    return (
+                      <section
+                        key={group.key}
+                        ref={dropRef as Ref<HTMLElement>}
+                        className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
+                        style={
+                          {
+                            background: def.background,
+                            borderLeftColor: def.accent,
+                            "--zone-accent": def.accent,
+                          } as CSSProperties
+                        }
+                      >
+                        <span className="zone-spine">{def.spine}</span>
+                        <div className="zone-cards">
+                          {body}
+                          <AddCard
+                            forcedTeam={null}
+                            placeholder="Add a personal card…"
+                            onCreate={(title) =>
+                              handleCreatePersonal(group.meta.zone, title)
+                            }
+                          />
+                        </div>
+                      </section>
+                    );
+                  }}
+                />
+              </div>
+            </aside>
+          )}
           </div>
         </div>
 

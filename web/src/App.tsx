@@ -25,7 +25,8 @@ import { Logo } from "./components/Logo";
 import { avatarsFrom } from "./users";
 import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
-import { queryString, viewQueries, watchQuery } from "./viewquery";
+import { queryString, viewQueries, watchQueries } from "./viewquery";
+import { PersonalDialog } from "./components/PersonalDialog";
 import { todayIso, setBoardTimezone } from "./date";
 import { mergeNotes } from "./notes";
 import { nameConflict } from "./names";
@@ -437,6 +438,9 @@ export function App() {
   // shows (the filter, or the whole roster) and loads the day grid PLUS the
   // weekly plan. activeKey / watchKey are stable serialisations used to
   // re-fetch and re-subscribe only when the selection actually changes.
+  // A linked personal board rides beside the Me view: fetched and watched
+  // with it (its own selector, its own socket), never while impersonating.
+  const hasPersonal = board?.personal !== undefined;
   const activeQueries = useMemo(
     // No filter means ALL: the roster's teams plus the no-team group, so an
     // unfiltered Team board misses nothing (the client filter mirrors this —
@@ -447,21 +451,25 @@ export function App() {
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
+        hasPersonal,
       ),
-    [view, selectedDate, teamFilter, roster, viewAs],
+    [view, selectedDate, teamFilter, roster, viewAs, hasPersonal],
   );
   const activeKey = activeQueries.map(queryString).join("|");
-  const watchSel = useMemo(
+  const watchKeys = useMemo(
     () =>
-      watchQuery(
+      watchQueries(
         view,
         selectedDate,
         teamFilter ?? [...new Set([...roster, ""])],
         viewAs ?? undefined,
-      ),
-    [view, selectedDate, teamFilter, roster, viewAs],
+        hasPersonal,
+      ).map(queryString),
+    [view, selectedDate, teamFilter, roster, viewAs, hasPersonal],
   );
-  const watchKey = queryString(watchSel);
+  // One string for the watch effect's dep: the sockets are rebuilt only when
+  // the selections actually change.
+  const watchKey = watchKeys.join("|");
 
   // Reorder the whole roster (from the manage dialog). Teams the server knows
   // (sprint pointer) get the order pushed to the board itself — their hidden
@@ -765,9 +773,16 @@ export function App() {
     if (!boardLoaded) {
       return;
     }
-    let socket: WebSocket | null = null;
+    // One socket per selector (Me + its personal board). Any of them dropping
+    // rebuilds the whole set after a re-LIST, so the two stay in step.
+    const sockets: WebSocket[] = [];
     let closed = false;
     let retry: number | undefined;
+    const closeAll = () => {
+      for (const s of sockets.splice(0)) {
+        s.close();
+      }
+    };
     const applyFrame = (frame: WatchFrame) => {
       // Sync marks a finished server-side reload; the diff already arrived as
       // ordinary events, so there is nothing left to do here.
@@ -871,37 +886,45 @@ export function App() {
       setPresenceMap({});
       queuePendingSync(0);
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // Scope the watch to the active view: Me watches its day selection, Team
-      // watches every card of the teams it shows (grid + weekly plan). A card
-      // entering the selection arrives as ADDED, one leaving as DELETED.
-      // ?client= keeps our own mutations from echoing back. Re-subscribes when
-      // watchKey changes (a dep below).
-      const url = `${proto}//${window.location.host}/api/v1/watch?client=${clientId}&${watchKey}`;
-      socket = new WebSocket(url);
-      socket.addEventListener("message", (e) => {
-        let frame: WatchFrame;
-        try {
-          frame = JSON.parse(e.data as string) as WatchFrame;
-        } catch {
-          return;
-        }
-        applyFrame(frame);
-      });
-      socket.addEventListener("close", () => {
-        if (closed) {
-          return;
-        }
-        retry = window.setTimeout(() => {
-          reloadRef.current();
-          connect();
-        }, 3000);
-      });
+      // Scope the watch to the active view: Me watches its day selection (and
+      // the personal board on a second socket), Team watches every card of the
+      // teams it shows (grid + weekly plan). A card entering the selection
+      // arrives as ADDED, one leaving as DELETED. ?client= keeps our own
+      // mutations from echoing back. Re-subscribes when watchKey changes (a
+      // dep below).
+      for (const key of watchKey.split("|")) {
+        const url = `${proto}//${window.location.host}/api/v1/watch?client=${clientId}&${key}`;
+        const socket = new WebSocket(url);
+        sockets.push(socket);
+        socket.addEventListener("message", (e) => {
+          let frame: WatchFrame;
+          try {
+            frame = JSON.parse(e.data as string) as WatchFrame;
+          } catch {
+            return;
+          }
+          applyFrame(frame);
+        });
+        socket.addEventListener("close", () => {
+          // A socket we closed ourselves (teardown, or the rebuild below) is
+          // no longer in the set and must not schedule another rebuild.
+          if (closed || !sockets.includes(socket) || retry !== undefined) {
+            return;
+          }
+          retry = window.setTimeout(() => {
+            retry = undefined;
+            closeAll();
+            reloadRef.current();
+            connect();
+          }, 3000);
+        });
+      }
     };
     connect();
     return () => {
       closed = true;
       window.clearTimeout(retry);
-      socket?.close();
+      closeAll();
     };
   }, [
     boardLoaded,
@@ -915,6 +938,31 @@ export function App() {
   ]);
 
   const onError = useCallback((message: string) => setError(message), []);
+
+  // The personal board: linked from the user menu through a small dialog,
+  // unlinked from the same menu after a confirm. Either way the board reloads
+  // — its metadata carries the link, and the Me fetch follows it.
+  const [personalDialog, setPersonalDialog] = useState(false);
+  const linkPersonal = useCallback(
+    async (url: string) => {
+      await provider.linkPersonal(url);
+      reload();
+    },
+    [provider, reload],
+  );
+  const unlinkPersonal = useCallback(() => {
+    if (
+      !window.confirm(
+        "Unlink your personal board? The repository itself is left untouched.",
+      )
+    ) {
+      return;
+    }
+    void provider
+      .unlinkPersonal()
+      .then(() => reload())
+      .catch((err: unknown) => setError(errMessage(err)));
+  }, [provider, reload]);
 
   // Rename a team everywhere: the roster, the filter, and every card using it.
   const renameTeam = useCallback(
@@ -1007,6 +1055,9 @@ export function App() {
                 ? (config.logoutUrl ?? "/auth/logout")
                 : null
             }
+            personal={board ? (board.personal ?? null) : undefined}
+            onLinkPersonal={() => setPersonalDialog(true)}
+            onUnlinkPersonal={unlinkPersonal}
           />
         </div>
       </header>
@@ -1238,6 +1289,13 @@ export function App() {
           onRemove={deleteProject}
           onReorder={reorderProjects}
           onClose={() => setManagingProjects(false)}
+        />
+      )}
+
+      {personalDialog && (
+        <PersonalDialog
+          onClose={() => setPersonalDialog(false)}
+          onLink={linkPersonal}
         />
       )}
 

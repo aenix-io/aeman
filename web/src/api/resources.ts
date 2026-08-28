@@ -74,6 +74,8 @@ export interface CardResource {
     reviewRound?: number;
     /** The repository the card lives in; absent on an older server. */
     domain?: string;
+    /** The board day the card reached done (yyyy-mm-dd); cleared on reopen. */
+    doneAt?: string;
     links?: {
       kind: string;
       url: string;
@@ -119,7 +121,14 @@ export interface BoardResource {
     epics?: { name: string; project?: string }[];
     members?: { login: string; avatarUrl?: string }[];
     /** The repositories the board spans, primary first. */
-    domains?: { name: string; writable?: boolean; members?: string[] }[];
+    domains?: {
+      name: string;
+      writable?: boolean;
+      members?: string[];
+      personal?: boolean;
+    }[];
+    /** The visitor's personal board, when they linked one. */
+    personal?: { domain: string; url: string };
   };
 }
 
@@ -185,6 +194,7 @@ export function resourceToCard(res: CardResource): Card {
     parent: spec.parent || undefined,
     reviewRound: res.status?.reviewRound,
     overdue: res.status?.overdue ?? false,
+    doneAt: res.status?.doneAt || undefined,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,
