@@ -203,9 +203,7 @@ export function MeBoard({
     [board.cards, board.personal],
   );
   const teamCards = split.team;
-  // The personal column is the viewer's own and stays up whoever the day
-  // board is viewed as: its cards are created for `me`, never for `viewMe`.
-  const personalOn = board.personal !== undefined;
+  const personalOn = board.personal !== undefined && !impersonated;
   // The column follows the day being looked at, like the day board beside
   // it: flipped to tomorrow, it shows what is planned for tomorrow.
   const personalCards = useMemo(

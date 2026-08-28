@@ -36,16 +36,9 @@ describe("viewQueries", () => {
     ]);
   });
 
-  it("keeps the viewer's own personal board beside someone else's day while impersonating", () => {
-    // The personal query names no user: the server answers with the
-    // caller's own board, whoever the day board is viewed as.
+  it("leaves the personal board out while impersonating — it is the viewer's own, not theirs", () => {
     expect(viewQueries("me", "2026-07-04", [], "lllamnyp", true)).toEqual([
       { view: "me", day: "2026-07-04", reviews: "true", user: "lllamnyp" },
-      { view: "personal", day: "2026-07-04" },
-    ]);
-    expect(watchQueries("me", "2026-07-04", [], "lllamnyp", true)).toEqual([
-      watchQuery("me", "2026-07-04", [], "lllamnyp"),
-      { view: "personal", day: "2026-07-04" },
     ]);
   });
 
@@ -71,11 +64,11 @@ describe("watchQueries", () => {
     ]);
   });
 
-  it("does not watch it on the other boards", () => {
+  it("does not watch it while impersonating or on the other boards", () => {
+    expect(watchQueries("me", "2026-07-04", [], "lllamnyp", true)).toHaveLength(1);
     expect(watchQueries("team", "2026-07-04", ["alpha"], undefined, true)).toEqual([
       watchQuery("team", "2026-07-04", ["alpha"]),
     ]);
-    expect(watchQueries("project", "2026-07-04", [], undefined, true)).toHaveLength(1);
   });
 });
 
