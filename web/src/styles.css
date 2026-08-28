@@ -4490,3 +4490,10 @@ button.card-age {
 .modal-log-notice {
   font-style: italic;
 }
+
+/* An inline refusal under a form field: a name the board already has. */
+.form-error {
+  color: var(--err-line);
+  font-size: 12px;
+  margin: 4px 0 0;
+}

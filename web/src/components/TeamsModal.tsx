@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { teamColor } from "../avatar";
 import { declareDomain, type DomainInfo } from "../domains";
+import { nameConflict, type RosterKind } from "../names";
 import { DomainSelect } from "./DomainSelect";
 import {
   DndContext,
@@ -133,6 +134,10 @@ export function TeamsModal({
   const [newDomain, setNewDomain] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  // Why the last add or rename was not sent: a name another entry has. Names
+  // are one namespace across the board's repositories, and the server would
+  // refuse it too — the dialog says so before anything leaves.
+  const [error, setError] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -140,9 +145,16 @@ export function TeamsModal({
 
   const addNew = () => {
     const t = newName.trim();
-    if (t) {
-      onAdd(t, declareDomain(domains, newDomain));
+    if (!t) {
+      return;
     }
+    const conflict = nameConflict(entity as RosterKind, teams, t);
+    if (conflict) {
+      setError(conflict);
+      return;
+    }
+    setError(null);
+    onAdd(t, declareDomain(domains, newDomain));
     setNewName("");
   };
 
@@ -154,9 +166,16 @@ export function TeamsModal({
   const commitEdit = (from: string) => {
     const to = editValue.trim();
     setEditing(null);
-    if (to && to !== from) {
-      onRename(from, to);
+    if (!to || to === from) {
+      return;
     }
+    const conflict = nameConflict(entity as RosterKind, teams, to, from);
+    if (conflict) {
+      setError(conflict);
+      return;
+    }
+    setError(null);
+    onRename(from, to);
   };
 
   const onDragEnd = (e: DragEndEvent) => {
@@ -220,6 +239,11 @@ export function TeamsModal({
             </SortableContext>
           </DndContext>
 
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
           <div className="teams-manage-add">
             <DomainSelect domains={domains} value={newDomain} onChange={setNewDomain} />
             <input
@@ -227,7 +251,10 @@ export function TeamsModal({
               className="add-card-input"
               placeholder={`New ${entity} name…`}
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              onChange={(e) => {
+                setNewName(e.target.value);
+                setError(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   addNew();

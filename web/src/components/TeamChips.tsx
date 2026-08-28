@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { declareDomain, type DomainInfo } from "../domains";
+import { nameConflict, type RosterKind } from "../names";
 import { DomainSelect, blurredIntoDomainSelect } from "./DomainSelect";
 
 interface TeamChipsProps {
@@ -57,12 +58,21 @@ export function TeamChips({
   const [addDomain, setAddDomain] = useState("");
   const [editingTeam, setEditingTeam] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  // Why the last add or rename was not sent: a name another chip already
+  // has (names are one namespace across the board's repositories).
+  const [error, setError] = useState<string | null>(null);
 
   const commitAdd = () => {
     const t = addValue.trim();
     if (t) {
+      const conflict = nameConflict(entity as RosterKind, teams, t);
+      if (conflict) {
+        setError(conflict);
+        return; // keep the field and its value: the person edits, not retypes
+      }
       onAdd(t, declareDomain(domains, addDomain));
     }
+    setError(null);
     setAddValue("");
     setAdding(false);
   };
@@ -70,9 +80,16 @@ export function TeamChips({
   const commitEdit = (from: string) => {
     const to = editValue.trim();
     setEditingTeam(null);
-    if (to && to !== from) {
-      onRename?.(from, to);
+    if (!to || to === from) {
+      return;
     }
+    const conflict = nameConflict(entity as RosterKind, teams, to, from);
+    if (conflict) {
+      setError(conflict);
+      return;
+    }
+    setError(null);
+    onRename?.(from, to);
   };
 
   // Plain click selects just this chip (clearing it if it was the only one);
@@ -229,7 +246,10 @@ export function TeamChips({
                 autoFocus
                 value={addValue}
                 placeholder={`${entity} name…`}
-                onChange={(e) => setAddValue(e.target.value)}
+                onChange={(e) => {
+                  setAddValue(e.target.value);
+                  setError(null);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     commitAdd();
@@ -250,6 +270,11 @@ export function TeamChips({
               + add
             </button>
           ))}
+        {error && (
+          <span className="form-error" role="alert">
+            {error}
+          </span>
+        )}
         {onManage && (
           <button type="button" className="add-card" onClick={onManage}>
             manage

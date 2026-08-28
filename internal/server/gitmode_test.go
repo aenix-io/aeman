@@ -13,6 +13,7 @@ import (
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
@@ -201,6 +202,41 @@ func TestActionNameFromRoute(t *testing.T) {
 	for in, want := range cases {
 		if got := actionName(in[0], in[1]); got != want {
 			t.Fatalf("actionName(%s %s) = %q, want %q", in[0], in[1], got, want)
+		}
+	}
+}
+
+// Two repositories that already declare the same team (or project, or
+// process) cannot be served as one board: the store would merge them into
+// one and the cards of two different teams would mix. The server refuses to
+// start and names both files, so a maintainer renames one and starts again.
+func TestGitModeRefusesCollidingRosterNames(t *testing.T) {
+	shared, closed := gitRemoteN(t, "shared"), gitRemoteN(t, "closed")
+	seedGitRemote(t, shared) // team portal at teams/01JB4TEAM.yaml
+	r, err := gitstore.Init(memory.NewStorage(), gitstore.Options{Committer: gitstore.Identity{Name: "aeman", Email: "a@x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
+		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: closed\n")},
+		{Path: gitstore.TeamPath("01JB4TEAMX"), Data: []byte("name: portal\nrank: a\ncreated: 2026-07-01T08:00:00Z\n")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Push(context.Background(), closed); err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Options{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Git: &GitConfig{Repos: []RepoSpec{{Name: "shared", URL: shared.URL}, {Name: "closed", URL: closed.URL}},
+			DataDir: t.TempDir()},
+	})
+	if err == nil {
+		t.Fatal("two domains declaring team portal must not be served as one board")
+	}
+	for _, want := range []string{`team "portal"`, "shared/teams/01JB4TEAM.yaml", "closed/teams/01JB4TEAMX.yaml", "rename"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal %q lacks %q", err.Error(), want)
 		}
 	}
 }

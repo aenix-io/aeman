@@ -312,10 +312,44 @@ func TestGitModeMigratesOlderSchemaAtStartup(t *testing.T) {
 
 // Health names what the merge had to resolve: the alias team and the ghost.
 func TestHealthzReportsAliasesAndGhosts(t *testing.T) {
-	shared, closed := tornMoveRemotes(t)
+	// The torn move is there from the start; the colliding team is not — two
+	// repositories that already collide are refused at start-up (G38), so a
+	// running server only ever meets a collision that arrives behind its
+	// back: a direct push to one of its repositories.
+	shared, closed := gitRemoteN(t, "shared"), gitRemoteN(t, "closed")
+	seedRemoteFiles(t, shared, map[string]string{
+		gitstore.BoardPath:                        "schema: 1\ntitle: t\n",
+		gitstore.TeamPath("_"):                    "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		gitstore.TeamPath("01JB4TEAMNEW"):         "name: portal\nrank: b\ncreated: 2026-07-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
+		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+	})
+	seedRemoteFiles(t, closed, map[string]string{
+		gitstore.BoardPath:                        "schema: 1\ntitle: closed\n",
+		gitstore.ProjectPath("01JB4PROJSECRET"):   "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYA1.md": "---\ntitle: moving\nteam: portal\nproject: secret\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\nmovedFrom: shared\nmovedAt: 2026-08-28T10:00:00Z\n---\n",
+	})
 	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"bob": rightsOn([]string{"shared", "closed"}, []string{"shared", "closed"})}}, shared, closed)
 	if rec := doAs(t, srv, "bob", "GET", "/api/v1/board", ""); rec.Code != 200 {
 		t.Fatalf("GET /board: %d %s", rec.Code, rec.Body.String())
+	}
+	// An older "portal" lands in closed by a direct push; the fetch tick
+	// brings it in. The merge keeps serving — the older declaration wins,
+	// the newer is the alias health names — instead of falling over.
+	ctx := context.Background()
+	other, err := gitstore.Clone(ctx, memory.NewStorage(), closed, gitTestOpts, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Commit(gitstore.Action{Name: "import", Summary: "a second portal"}, []gitstore.FileWrite{
+		{Path: gitstore.TeamPath("01JB4TEAMOLD"), Data: []byte("name: portal\nrank: z\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Push(ctx, closed); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.gitBE.syncNow(ctx, storeKey(srv.gitBoard())); err != nil {
+		t.Fatal(err)
 	}
 	rec := do(t, srv, "GET", "/api/healthz", "")
 	body := rec.Body.String()

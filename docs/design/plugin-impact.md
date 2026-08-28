@@ -71,7 +71,7 @@ Same shape as a card. Its `title` field is the marker `aeman:process-task`; the 
 - `projects/<pid>/deadlines/<id>.yaml`: `week`, `created`. One deadline per project per week.
 - `processes/<id>/process.yaml`: `name`, `project` (name, optional), `paused`, `rank`, `created`.
 
-**Names are one namespace across every domain**: a team, project or process name may be declared once on the whole board, whichever repository it lands in — the server refuses a create or a rename into a taken name (G38), and a plugin writing files must check every domain before declaring one. Duplicate names that reach the files anyway resolve on read to the **oldest** `created` (ties by id); the others are aliases whose cards still count and which `GET /api/healthz` lists for a maintainer to rename (G13). A `teams/_.yaml` outside the primary is ignored. Renaming a team is one action: the team file's `name` changes and every card's `team:` follows in the same commit.
+**Names are one namespace across every domain**: a team, project or process name may be declared once on the whole board, whichever repository it lands in — the server refuses a create or a rename into a taken name (G38) and refuses to start at all when the repositories it is given already collide, and a plugin writing files must check every domain before declaring one. Duplicate names that reach the files anyway resolve on read to the **oldest** `created` (ties by id); the others are aliases whose cards still count and which `GET /api/healthz` lists for a maintainer to rename (G13). A `teams/_.yaml` outside the primary is ignored. Renaming a team is one action: the team file's `name` changes and every card's `team:` follows in the same commit.
 
 ## Ordering
 

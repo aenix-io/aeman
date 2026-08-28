@@ -166,11 +166,61 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		}
 		domains = append(domains, gitDomain{Domain: gitstore.Domain{Name: spec.Name, Repo: repo}, remote: remote})
 	}
+	if len(domains) > 1 {
+		// Two repositories that already declare the same team, project or
+		// process cannot be served as one board — the merge would fold two
+		// different things into one. Refuse, naming both files.
+		plain := make([]gitstore.Domain, 0, len(domains))
+		for _, d := range domains {
+			plain = append(plain, d.Domain)
+		}
+		snap, err := gitstore.LoadAll(plain)
+		if err != nil {
+			return nil, fmt.Errorf("read the board: %w", err)
+		}
+		if err := rosterCollision(snap); err != nil {
+			return nil, err
+		}
+	}
 	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval,
 		MaintainEvery: 24 * time.Hour, HistoryMax: cfg.HistoryMax, Logger: log,
 		// Issue/PR titles in card descriptions are read with the push
 		// credential — the store has no per-visitor token any more.
 		Links: newForgeLinks(githubAPIBase, &http.Client{Timeout: 10 * time.Second}, cfg.Token)}), nil
+}
+
+// rosterCollision is the start-up refusal for a name two domains declare:
+// one line per collision, both files named, so the fix is a rename away.
+func rosterCollision(s gitstore.Snapshot) error {
+	if len(s.Aliases) == 0 {
+		return nil
+	}
+	domainOf := map[string]string{}
+	for _, t := range s.Teams {
+		domainOf[t.ID] = t.Domain
+	}
+	for _, p := range s.Projects {
+		domainOf[p.ID] = p.Domain
+	}
+	for _, p := range s.Processes {
+		domainOf[p.ID] = p.Domain
+	}
+	pathOf := func(kind, id string) string {
+		switch kind {
+		case "team":
+			return gitstore.TeamPath(id)
+		case "project":
+			return gitstore.ProjectPath(id)
+		default:
+			return gitstore.ProcessPath(id)
+		}
+	}
+	var b strings.Builder
+	b.WriteString("the repositories declare the same name twice; rename one of each pair and start again:")
+	for _, a := range s.Aliases {
+		fmt.Fprintf(&b, "\n  %s %q: %s/%s and %s/%s", a.Kind, a.Name, domainOf[a.Winner], pathOf(a.Kind, a.Winner), a.Domain, pathOf(a.Kind, a.ID))
+	}
+	return errors.New(b.String())
 }
 
 func initHint(url string) error {

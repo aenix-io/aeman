@@ -28,6 +28,7 @@ import { migrateBoardScopedKeys } from "./storage";
 import { queryString, viewQueries, watchQuery } from "./viewquery";
 import { todayIso, setBoardTimezone } from "./date";
 import { mergeNotes } from "./notes";
+import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
@@ -138,6 +139,13 @@ export function App() {
     if (!board || !name.trim()) {
       return;
     }
+    // Names are one namespace across the board's repositories; the server
+    // would refuse this too, but the form should say so first.
+    const conflict = nameConflict("project", board.projects, name);
+    if (conflict) {
+      setError(conflict);
+      return;
+    }
     setProjectFilter([name.trim()]);
     void provider
       .addProject(name.trim(), domain)
@@ -154,6 +162,11 @@ export function App() {
   };
   const renameProject = (from: string, to: string) => {
     if (!board) {
+      return;
+    }
+    const conflict = nameConflict("project", board.projects, to, from);
+    if (conflict) {
+      setError(conflict);
       return;
     }
     if (projectFilter?.includes(from)) {

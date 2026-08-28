@@ -10,6 +10,7 @@ import { teamColor } from "../avatar";
 import type { Avatars } from "../users";
 import { Avatar } from "./Avatar";
 import { declareDomain } from "../domains";
+import { nameConflict } from "../names";
 import { DomainSelect, blurredIntoDomainSelect } from "./DomainSelect";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
@@ -169,6 +170,11 @@ export function ProcessBoard({
     setAddingProcess(null);
     const n = name.trim();
     if (!n) {
+      return;
+    }
+    const conflict = nameConflict("process", board.processes.map((p) => p.name), n);
+    if (conflict) {
+      fail(new Error(conflict));
       return;
     }
     setOpen((cur) => new Set(cur).add(n));
@@ -382,6 +388,11 @@ export function ProcessBoard({
     setRenaming(null);
     const n = to.trim();
     if (!n || n === from) {
+      return;
+    }
+    const conflict = nameConflict("process", board.processes.map((p) => p.name), n, from);
+    if (conflict) {
+      fail(new Error(conflict));
       return;
     }
     void provider.renameProcess(from, n).catch(fail);
