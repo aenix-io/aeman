@@ -142,9 +142,10 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	}
 	// The owner reading their personal board turns its day over: the
 	// finished recurrent cards that came due are reseeded before listing
-	// (a personal board has no carry-over), as the REST handler does.
+	// (a personal board has no carry-over), as the REST handler does — as
+	// of the real today; a `day` asked for is a lens, not a turn of the day.
 	if sel.View == "personal" && self {
-		if _, err := svc.ReseedPersonal(ctx, boardID, sel.User, sel.Day); err != nil {
+		if _, err := svc.ReseedPersonal(ctx, boardID, sel.User, ""); err != nil {
 			return nil, apiserver.CardList{}, err
 		}
 	}

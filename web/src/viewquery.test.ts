@@ -27,10 +27,12 @@ describe("viewQueries", () => {
     expect(viewQueries("team", "2026-07-04", [])[0].team).toBe("");
   });
 
-  it("fetches the personal board beside the Me view when one is linked", () => {
+  it("fetches the personal board beside the Me view when one is linked, on the same day", () => {
+    // The personal column follows the day being looked at: a card sent to
+    // tomorrow shows up when the board is flipped to tomorrow.
     expect(viewQueries("me", "2026-07-04", [], undefined, true)).toEqual([
       { view: "me", day: "2026-07-04", reviews: "true" },
-      { view: "personal" },
+      { view: "personal", day: "2026-07-04" },
     ]);
   });
 
@@ -55,10 +57,10 @@ describe("watchQueries", () => {
     ]);
   });
 
-  it("adds the personal selection on the Me board when one is linked", () => {
+  it("adds the personal selection on the Me board when one is linked, on the same day", () => {
     expect(watchQueries("me", "2026-07-04", [], undefined, true)).toEqual([
       watchQuery("me", "2026-07-04", []),
-      { view: "personal" },
+      { view: "personal", day: "2026-07-04" },
     ]);
   });
 

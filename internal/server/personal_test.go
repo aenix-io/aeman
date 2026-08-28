@@ -139,38 +139,44 @@ func TestPersonalBoardLinkCreateListUnlink(t *testing.T) {
 // A link outlives the server: the users file is in the primary, and the
 // owner's repository is attached again the first time they show up — that is
 // when their credential is at hand.
-// Reading the personal view is what turns the day over on a personal board:
-// a recurrent card finished today is listed again the next day as a fresh
-// copy at 0%, the finished one gone; reading again does not add another.
+// Reading the personal view is what turns the day over on a personal board —
+// as of the real today: a recurrent card finished yesterday is listed today
+// as a fresh copy at 0%, the finished one gone; reading again adds nothing;
+// and looking at tomorrow (`day=`) is a lens, not a turn of the day — a card
+// finished today gets no copy early.
 func TestPersonalViewReseedsARecurrentCardTheNextDay(t *testing.T) {
+	today := board.TodayIso()
+	yesterday, tomorrow := board.AddDays(today, -1), board.AddDays(today, 1)
 	shared := gitRemoteN(t, "shared")
-	seedGitRemote(t, shared)
 	mine := gitRemoteN(t, "mine")
+	seedRemoteFiles(t, shared, map[string]string{
+		gitstore.BoardPath:         "schema: 1\ntitle: t\n",
+		gitstore.TeamPath("_"):     "rank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		gitstore.UserPath("kvaps"): "personal: " + mine.URL + "\ncreated: 2026-08-28T10:00:00Z\n",
+	})
+	encode := func(c board.Card) string {
+		data, err := gitstore.EncodeCard(gitstore.CardFile{Card: c})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	const finishedYesterday, finishedToday = "01JB4K2E7QZMX3R8V0N5T9WYP1", "01JB4K2E7QZMX3R8V0N5T9WYP2"
+	seedRemoteFiles(t, mine, map[string]string{
+		gitstore.BoardPath: "schema: 1\ntitle: kvaps\n",
+		"cards/a/1/" + finishedYesterday + ".md": encode(board.Card{Title: "inbox zero", Zone: board.ZoneGreen,
+			Stage: board.StageRecurrent, Progress: 100, StartDate: yesterday, Day: yesterday, DoneAt: yesterday,
+			Assignees: []string{"kvaps"}, Rank: "a", CreatedAt: yesterday + "T09:00:00Z", Description: "clear the inbox"}),
+		"cards/a/1/" + finishedToday + ".md": encode(board.Card{Title: "stretch", Zone: board.ZoneGreen,
+			Stage: board.StageRecurrent, Progress: 100, StartDate: today, Day: today, DoneAt: today,
+			Assignees: []string{"kvaps"}, Rank: "b", CreatedAt: today + "T09:00:00Z"}),
+	})
 	both := rightsOn([]string{"shared"}, []string{"shared"})
 	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": both}}, shared)
-	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+mine.URL+`"}`); rec.Code != http.StatusOK {
-		t.Fatalf("link: %d %s", rec.Code, rec.Body.String())
-	}
-	rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards", `{"title":"inbox zero","zone":"planned","personal":true}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
-	}
-	var created struct {
-		Metadata struct{ UID string }
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
-		t.Fatal(err)
-	}
-	if rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/"+created.Metadata.UID, `{"stage":"recurrent"}`); rec.Code != http.StatusOK {
-		t.Fatalf("recurrent: %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/"+created.Metadata.UID, `{"progress":100}`); rec.Code != http.StatusOK {
-		t.Fatalf("done: %d %s", rec.Code, rec.Body.String())
-	}
+
 	type row struct {
-		UID      string
-		Progress int
-		Stage    string
+		UID, Title, Stage string
+		Progress          int
 	}
 	list := func(day string) []row {
 		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal&day="+day, "")
@@ -178,6 +184,7 @@ func TestPersonalViewReseedsARecurrentCardTheNextDay(t *testing.T) {
 			Items []struct {
 				Metadata struct{ UID string }
 				Spec     struct {
+					Title    string
 					Progress int
 					Stage    string
 				}
@@ -188,20 +195,39 @@ func TestPersonalViewReseedsARecurrentCardTheNextDay(t *testing.T) {
 		}
 		out := make([]row, 0, len(l.Items))
 		for _, it := range l.Items {
-			out = append(out, row{it.Metadata.UID, it.Spec.Progress, it.Spec.Stage})
+			out = append(out, row{it.Metadata.UID, it.Spec.Title, it.Spec.Stage, it.Spec.Progress})
 		}
 		return out
 	}
-	today := board.TodayIso()
-	if rows := list(today); len(rows) != 1 || rows[0].UID != created.Metadata.UID || rows[0].Progress != 100 {
+	// Today: the card finished yesterday has turned — its fresh copy at 0% is
+	// on the board, itself gone; the one finished today is seen as done.
+	rows := list(today)
+	if len(rows) != 2 {
 		t.Fatalf("today: %+v", rows)
 	}
-	tomorrow := board.AddDays(today, 1)
-	rows := list(tomorrow)
-	if len(rows) != 1 || rows[0].UID == created.Metadata.UID || rows[0].Progress != 0 || rows[0].Stage != "recurrent" {
-		t.Fatalf("tomorrow: %+v (want one fresh recurrent copy, not %s)", rows, created.Metadata.UID)
+	var fresh row
+	for _, r := range rows {
+		switch r.Title {
+		case "inbox zero":
+			if r.UID == finishedYesterday || r.Progress != 0 || r.Stage != "recurrent" {
+				t.Fatalf("today: want a fresh recurrent copy of the card finished yesterday, got %+v", r)
+			}
+			fresh = r
+		case "stretch":
+			if r.UID != finishedToday || r.Progress != 100 {
+				t.Fatalf("today: the card finished today is seen as done, got %+v", r)
+			}
+		default:
+			t.Fatalf("today: %+v", rows)
+		}
 	}
-	if again := list(tomorrow); len(again) != 1 || again[0].UID != rows[0].UID {
+	// Looking at tomorrow turns nothing over: the fresh copy (started today,
+	// open) is there, the card finished today has left — and got no copy early.
+	if rows := list(tomorrow); len(rows) != 1 || rows[0].UID != fresh.UID {
+		t.Fatalf("tomorrow: %+v (want the fresh copy alone, no early copy of %q)", rows, "stretch")
+	}
+	// Reading today again reseeds nothing more.
+	if again := list(today); len(again) != 2 {
 		t.Fatalf("reading again must not reseed twice: %+v", again)
 	}
 }

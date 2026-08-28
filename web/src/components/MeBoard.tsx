@@ -199,10 +199,12 @@ export function MeBoard({
   );
   const teamCards = split.team;
   const personalOn = board.personal !== undefined && !impersonated;
+  // The column follows the day being looked at, like the day board beside
+  // it: flipped to tomorrow, it shows what is planned for tomorrow.
   const personalCards = useMemo(
     () =>
-      personalOn ? split.personal.filter((c) => personalShows(c, todayIso())) : [],
-    [split.personal, personalOn],
+      personalOn ? split.personal.filter((c) => personalShows(c, selectedDate)) : [],
+    [split.personal, personalOn, selectedDate],
   );
   // Other people with cards — offered in the "View as" impersonate picker.
   const others = useMemo(
@@ -1327,11 +1329,21 @@ export function MeBoard({
       assignees: me ? [me] : [],
       zone,
       domain: board.personal?.domain,
+      startDate: selectedDate,
+      day: selectedDate,
       createdAt: new Date().toISOString(),
       description: "",
       notes: [],
     });
-    const creating = provider.createCard({ title, zone, personal: true });
+    // Created on the day being looked at, like a day-board card: a card
+    // added while planning tomorrow belongs to tomorrow.
+    const creating = provider.createCard({
+      title,
+      zone,
+      start: selectedDate,
+      day: selectedDate,
+      personal: true,
+    });
     registerPendingCard(
       tempId,
       creating.then((c) => c.itemId),

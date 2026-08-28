@@ -330,8 +330,11 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 	// The owner reading their personal board is what turns its day over: a
 	// personal board has no carry-over, so the finished recurrent cards that
 	// came due are reseeded here, and the list answers with the fresh copies.
+	// As of the real today, whatever day the list asks for — `day` is a lens
+	// (the column follows the day the board is flipped to), and looking at
+	// tomorrow must not create tomorrow's copies early.
 	if sel.View == "personal" && sel.User != "" && sel.User == board.ActorFrom(r.Context()) {
-		if _, err := svc.ReseedPersonal(r.Context(), boardID, sel.User, sel.Day); err != nil {
+		if _, err := svc.ReseedPersonal(r.Context(), boardID, sel.User, ""); err != nil {
 			s.apiError(w, r, err)
 			return
 		}

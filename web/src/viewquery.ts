@@ -26,7 +26,9 @@ export function viewQueries(
     if (viewAs) {
       q.user = viewAs;
     }
-    return personal && !viewAs ? [q, { view: "personal" }] : [q];
+    // The personal column follows the day being looked at, like the day
+    // board beside it: flipped to tomorrow, it shows tomorrow's plan.
+    return personal && !viewAs ? [q, { view: "personal", day }] : [q];
   }
   if (view === "project" || view === "process") {
     // Every epic-filed card of every project, all weeks: the Project board
@@ -76,7 +78,7 @@ export function watchQueries(
   personal = false,
 ): Record<string, string>[] {
   const base = watchQuery(view, day, teams, viewAs);
-  return view === "me" && personal && !viewAs ? [base, { view: "personal" }] : [base];
+  return view === "me" && personal && !viewAs ? [base, { view: "personal", day }] : [base];
 }
 
 // queryString serialises a selector to a URL fragment with a stable key order,
