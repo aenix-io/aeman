@@ -94,3 +94,59 @@ export function reviewerCandidates(
   const readers = new Set(domain.members);
   return members.filter((m) => readers.has(m));
 }
+
+/** RosterDomains names the repository a team or project was declared in, for
+ *  the entries that live outside the primary. A board of one repository (and
+ *  an older server) sends none. */
+export type RosterDomains = Record<string, string> | undefined;
+
+/** rosterDomain is the repository an entry was declared in; "" is the
+ *  primary, which is never named. */
+export function rosterDomain(domains: RosterDomains, name: string): string {
+  if (!name || !domains) {
+    return "";
+  }
+  return domains[name] ?? "";
+}
+
+/** offerableTeams keeps the teams a card filed under `project` may be handed
+ *  to: those declared in the same repository. The project decides where the
+ *  card lives, so a team from another repository would put the card out of
+ *  reach of the very people it names — the server refuses that pair, and the
+ *  menu must not offer it. A card under no project is constrained by
+ *  nothing, and `current` — what the card already carries — always stays in
+ *  the list, so a pair written before this rule can still be seen and
+ *  fixed. */
+export function offerableTeams(
+  teams: readonly string[],
+  teamDomains: RosterDomains,
+  projectDomains: RosterDomains,
+  project: string,
+  current = "",
+): string[] {
+  if (!project) {
+    return [...teams];
+  }
+  const home = rosterDomain(projectDomains, project);
+  return teams.filter(
+    (t) => t === "" || t === current || rosterDomain(teamDomains, t) === home,
+  );
+}
+
+/** offerableProjects is the same rule from the other side: a card carrying a
+ *  team may only be filed under a project of that team's repository. */
+export function offerableProjects(
+  projects: readonly string[],
+  projectDomains: RosterDomains,
+  teamDomains: RosterDomains,
+  team: string,
+  current = "",
+): string[] {
+  if (!team) {
+    return [...projects];
+  }
+  const home = rosterDomain(teamDomains, team);
+  return projects.filter(
+    (p) => p === current || rosterDomain(projectDomains, p) === home,
+  );
+}

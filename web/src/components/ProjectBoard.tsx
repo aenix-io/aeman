@@ -8,7 +8,7 @@ import type {
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
-import { cardDomainBadge } from "../domains";
+import { cardDomainBadge, offerableTeams } from "../domains";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
@@ -1894,21 +1894,35 @@ export function ProjectBoard({
                   {complete(card) ? "Reopen" : "Mark as done"}
                 </button>
                 {/* The roster carries "" for the no-team group; the explicit
-                    "No team" entry below is that, so skip the blank one. */}
-                {board.teams.filter((t) => t !== "").map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
-                    onClick={() => assignTeam(card, t)}
-                  >
-                    <span
-                      className="card-stage-dot"
-                      style={{ background: teamColor(t) }}
-                    />
-                    {t}
-                  </button>
-                ))}
+                    "No team" entry below is that, so skip the blank one. And
+                    only the teams of the card's own repository are offered:
+                    its project decides where it lives, so a team from another
+                    repository would put the card out of reach of the people
+                    it names — the server refuses that pair. What the card
+                    already carries stays on the list, so a pair written
+                    before the rule can be seen and fixed. */}
+                {offerableTeams(
+                  board.teams,
+                  board.teamDomains,
+                  board.projectDomains,
+                  card.project ?? "",
+                  card.team ?? "",
+                )
+                  .filter((t) => t !== "")
+                  .map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
+                      onClick={() => assignTeam(card, t)}
+                    >
+                      <span
+                        className="card-stage-dot"
+                        style={{ background: teamColor(t) }}
+                      />
+                      {t}
+                    </button>
+                  ))}
                 <button
                   type="button"
                   className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}

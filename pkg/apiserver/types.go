@@ -223,6 +223,14 @@ type BoardMetadata struct {
 	// so a reviewer picker offers only people who will see the card. Absent
 	// on a single-domain board.
 	Domains []DomainInfo `json:"domains,omitempty"`
+	// TeamDomains and ProjectDomains name the repository a team or a project
+	// was declared in, for the entries that live OUTSIDE the primary — the
+	// primary is the default and needs no entry, and a single-repository
+	// board names none at all. A client needs them to keep a card's team and
+	// project in one repository: the pair cannot both be honoured, so the
+	// pickers must not offer it (boardservice.ErrDomainConflict).
+	TeamDomains    map[string]string `json:"teamDomains,omitempty"`
+	ProjectDomains map[string]string `json:"projectDomains,omitempty"`
 	// Personal is the visitor's own repository when they linked one: the
 	// personal board lives there (view=personal, create with personal=true).
 	Personal *PersonalInfo `json:"personal,omitempty"`
@@ -513,7 +521,11 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
 			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b),
-			Deadlines: deadlineWeeks(b), Processes: processRefs(b), Members: people},
+			Deadlines: deadlineWeeks(b), Processes: processRefs(b), Members: people,
+			TeamDomains: rosterDomains(teams, func(name string) string { return board.TeamDomain(b, name) }),
+			ProjectDomains: rosterDomains(b.Projects, func(name string) string {
+				return board.ProjectDomain(b, name)
+			})},
 	}
 }
 
@@ -612,6 +624,23 @@ func CardLogFrom(c board.Card, events []board.Event, truncatedBefore time.Time) 
 	out := LogList{Kind: "LogList", Items: items}
 	if !truncatedBefore.IsZero() {
 		out.TruncatedBefore = truncatedBefore.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+// rosterDomains names the repository of the entries that live outside the
+// primary; nil when they all live in it.
+func rosterDomains(names []string, domainOf func(string) string) map[string]string {
+	var out map[string]string
+	for _, name := range names {
+		d := domainOf(name)
+		if d == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[name] = d
 	}
 	return out
 }

@@ -129,6 +129,11 @@ export interface BoardResource {
       members?: string[];
       personal?: boolean;
     }[];
+    /** The repository a team or a project was declared in, for the entries
+     *  outside the primary (which is never named). A board of one repository
+     *  sends neither. */
+    teamDomains?: Record<string, string>;
+    projectDomains?: Record<string, string>;
     /** The visitor's personal board, when they linked one. */
     personal?: { domain: string; url: string };
   };

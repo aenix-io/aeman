@@ -50,6 +50,8 @@ export function boardMetadata(
   | "epics"
   | "members"
   | "domains"
+  | "teamDomains"
+  | "projectDomains"
   | "personal"
 > {
   return {
@@ -78,6 +80,10 @@ export function boardMetadata(
       members: d.members ?? [],
       personal: d.personal || undefined,
     })),
+    // Which repository a team or project lives in: what keeps the pickers
+    // from offering a pair the server will refuse.
+    teamDomains: info.metadata.teamDomains ?? undefined,
+    projectDomains: info.metadata.projectDomains ?? undefined,
     personal: info.metadata.personal
       ? { domain: info.metadata.personal.domain, url: info.metadata.personal.url }
       : undefined,
