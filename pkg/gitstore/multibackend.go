@@ -94,6 +94,22 @@ func (mb *MultiBackend) Users() []User {
 // ErrUnknownDomain names a domain that is not part of the board.
 var ErrUnknownDomain = fmt.Errorf("gitstore: unknown domain")
 
+// ErrPersonalRoster refuses a team, project or process in a personal
+// domain: a personal board holds cards and nothing else — a roster entry
+// there would sit in a repository nobody else can read, on a board with no
+// place to show it.
+var ErrPersonalRoster = fmt.Errorf("gitstore: a personal board holds no teams, projects or processes")
+
+// rosterDomain is where a roster entry is declared: the caller's pick, and
+// never a personal domain — the primary is not silently substituted, since
+// a request that named a personal board asked for something that cannot be.
+func rosterDomain(domain string) (string, error) {
+	if board.IsPersonalDomain(domain) {
+		return "", fmt.Errorf("%w: %q", ErrPersonalRoster, domain)
+	}
+	return domain, nil
+}
+
 // NewMultiBackend builds the backend; domains[0] is the primary.
 func NewMultiBackend(domains []Domain, opts BackendOptions) *MultiBackend {
 	if opts.Now == nil {
@@ -323,11 +339,13 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 			if d, ok := r.projects[in.Project]; ok {
 				target = d
 			}
-		} else {
-			target = choice
+		} else if target, err = rosterDomain(choice); err != nil {
+			return board.Card{}, err
 		}
 	case board.ProjectStateTitle, board.SprintStateTitle:
-		target = choice
+		if target, err = rosterDomain(choice); err != nil {
+			return board.Card{}, err
+		}
 	default:
 		if in.Personal {
 			// A personal card goes where the caller says — their own domain —
@@ -909,7 +927,9 @@ func (mb *MultiBackend) SetSprintState(ctx context.Context, bd board.Board, team
 	// the primary.
 	d, ok := newResolver(s).teams[team]
 	if !ok {
-		d = board.DomainFrom(ctx)
+		if d, err = rosterDomain(board.DomainFrom(ctx)); err != nil {
+			return err
+		}
 	}
 	be, err := mb.backend(d)
 	if err != nil {

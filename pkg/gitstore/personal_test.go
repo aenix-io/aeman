@@ -119,6 +119,39 @@ func TestSetProgressWritesDoneAtAndReopenClearsIt(t *testing.T) {
 	}
 }
 
+// A personal board holds cards, nothing else: a team, project or process
+// declared there would be a roster entry on a board nobody else can read,
+// and the personal view has no room for one. Asked to declare one in a
+// personal domain, the store refuses instead of writing a file that would
+// never be seen — whichever door the request came through.
+func TestMultiBackendRefusesRosterEntriesInAPersonalDomain(t *testing.T) {
+	mb, _, _ := twoDomains(t)
+	personal := repoWith(t, map[string]string{BoardPath: "schema: 1\ntitle: kvaps\n"})
+	if err := mb.AddDomain(Domain{Name: "~kvaps", Repo: personal}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := board.WithDomain(ctxAs("kvaps"), "~kvaps")
+	b, _ := mb.LoadBoard(ctx, "x")
+	declare := func(in board.CreateInput) func() error {
+		return func() error { _, err := mb.CreateCard(ctx, b, in); return err }
+	}
+	for name, write := range map[string]func() error{
+		"team":      func() error { return mb.SetSprintState(ctx, b, "newteam", "2026-08-28", "") },
+		"team card": declare(board.CreateInput{Title: board.SprintStateTitle, Team: "newteam"}),
+		"project":   declare(board.CreateInput{Title: board.ProjectStateTitle, Project: "newproject"}),
+		"process":   declare(board.CreateInput{Title: board.ProcessStateTitle, Process: "newprocess"}),
+	} {
+		if err := write(); !errors.Is(err, ErrPersonalRoster) {
+			t.Errorf("declaring a %s in a personal domain: err = %v, want ErrPersonalRoster", name, err)
+		}
+	}
+	// The primary still takes them.
+	shared := board.WithDomain(ctxAs("kvaps"), "shared")
+	if err := mb.SetSprintState(shared, b, "newteam", "2026-08-28", ""); err != nil {
+		t.Fatalf("the primary must still take a team: %v", err)
+	}
+}
+
 // A personal domain is a repository one person owns; its cards are pinned to
 // it: the home rule (team → project → primary) never moves them out, and a
 // card linked to a personal card (a subtask, a review) follows it in.

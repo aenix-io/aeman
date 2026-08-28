@@ -52,9 +52,11 @@ export function cardDomainBadge(
 }
 
 /** writableDomains keeps the repositories the visitor may declare things in,
- *  in board order. */
+ *  in board order. A personal board is not one of them: it holds no teams,
+ *  projects or processes (the server refuses them there), so offering it as
+ *  a place to declare one only leads to a refusal. */
 export function writableDomains(domains: readonly DomainInfo[]): DomainInfo[] {
-  return domains.filter((d) => d.writable);
+  return domains.filter((d) => d.writable && !d.personal && !isPersonalDomain(d.name));
 }
 
 /** declareDomain resolves the create flows' pick: undefined (the server's
