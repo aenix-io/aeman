@@ -69,3 +69,50 @@ func DomainOf(c Card, r DomainResolver) string {
 	}
 	return ""
 }
+
+// TeamDomain is the repository a team was declared in, "" for the primary
+// and for a team the roster does not declare (which decides nothing).
+func TeamDomain(b Board, team string) string {
+	if team == "" {
+		return ""
+	}
+	st, ok := b.SprintStates[team]
+	if !ok {
+		return ""
+	}
+	return b.Domains[st.ItemID]
+}
+
+// ProjectDomain is the repository a project was declared in, "" for the
+// primary and for a project the roster does not declare.
+func ProjectDomain(b Board, project string) string {
+	if project == "" {
+		return ""
+	}
+	id, ok := b.ProjectStates[project]
+	if !ok {
+		return ""
+	}
+	return b.Domains[id]
+}
+
+// RosterConflict reports a team and a project that live in different
+// repositories, and names both. It is the pair DomainOf cannot honour: the
+// project decides where the card lives (rule 4), so the team's people would
+// not see a card carrying their name while the project's people would.
+// Neither answer is right, so the pair is refused where it is made rather
+// than resolved silently. A name the roster does not declare yet decides
+// nothing — it will be declared in the card's own domain.
+func RosterConflict(b Board, team, project string) (teamDomain, projectDomain string, conflict bool) {
+	if team == "" || project == "" {
+		return TeamDomain(b, team), ProjectDomain(b, project), false
+	}
+	if _, ok := b.SprintStates[team]; !ok {
+		return "", ProjectDomain(b, project), false
+	}
+	if _, ok := b.ProjectStates[project]; !ok {
+		return TeamDomain(b, team), "", false
+	}
+	td, pd := TeamDomain(b, team), ProjectDomain(b, project)
+	return td, pd, td != pd
+}

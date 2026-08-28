@@ -146,9 +146,17 @@ For a plugin that talks to a running server (REST or MCP) instead of the reposit
 - **Log.** `GET /cards/{uid}/log` carries `truncatedBefore` when the loaded history is cut by the clone's horizon; events come from the commits, so a change made by a direct git write shows up too.
 - **Domain choice.** `POST /projects`, `POST /processes` and `PATCH /sprints` take an optional `domain`; the MCP `add_project`, `add_process` and the team declaration take the same argument.
 
+## The team/project pair (G46)
+
+A card's team and its project must be declared in the SAME repository. The domain rule reads the project first, so a card filed under a project of one repository and handed to a team of another lives where the team's people cannot read it — the server refuses that pair (422) on every door: setting a team, filing under a column, creating a card, moving an epic between projects.
+
+A plugin writing the repositories directly must refuse it too, or it will produce cards this server would never create: a founders card sitting in the shared repository under a founders team name, visible to everyone the shared repository is visible to. The check is local — resolve the team's and the project's declaring repository and compare — and a name no roster declares yet is not a conflict, since it is declared in the card's own repository on the way.
+
+Over the API the two maps are served for exactly this: `GET /board` `metadata.teamDomains` and `metadata.projectDomains` name the repository of the entries outside the primary, so a client narrows its pickers instead of offering a pair the server rejects.
+
 ## What the plugin docs must change
 
-`model.md`: replace the Projects v2 field/option model with the file formats above; state the domain rule and the move protocol; state that events are commits.
+`model.md`: replace the Projects v2 field/option model with the file formats above; state the domain rule and the move protocol; state that a card's team and project must live in one repository (G46); state that events are commits.
 
 `reference.md`: replace every `gh api graphql` recipe with the git equivalent (clone/fetch, edit the file, commit with trailers, push) or with the aeman API/MCP call; replace `PVTI_` ids with ULIDs; document the rank rules and the iteration id derivation; document the board addressing once it lands.
 

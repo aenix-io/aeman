@@ -1843,7 +1843,8 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrProcessInUse),
-		errors.Is(err, boardservice.ErrTaskNotFound):
+		errors.Is(err, boardservice.ErrTaskNotFound),
+		errors.Is(err, boardservice.ErrDomainConflict):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

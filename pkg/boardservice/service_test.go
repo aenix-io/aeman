@@ -92,11 +92,21 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	var tasks []board.Card
 	seenEpic := map[string]bool{}
 	projectStates := map[string]string{}
+	// Which repository each roster entry was declared in, as board.NewBoard
+	// records it — from the state cards, plus what a test seeded directly
+	// (sprint states are seeded without cards).
+	domains := map[string]string{}
+	for k, v := range f.b.Domains {
+		domains[k] = v
+	}
 	for _, c := range f.b.Cards {
 		// Mirror board.NewBoard's split for the hidden state cards, so the
 		// service sees the same Projects/Epics rosters it would on a real
 		// board. Sprint states stay seeded directly (tests set them without
 		// state cards).
+		if c.Domain != "" && board.IsStateTitle(c.Title) {
+			domains[c.ItemID] = c.Domain
+		}
 		if c.Title == board.ProcessStateTitle {
 			if c.Process != "" {
 				processes = append(processes, board.Process{
@@ -139,8 +149,11 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	for k, v := range f.b.SprintStates {
 		states[k] = v
 	}
+	if len(domains) == 0 {
+		domains = nil // a single-repository board records none
+	}
 	return board.Board{Board: f.b.Board, Cards: cards,
-		SprintStates: states, Epics: epics,
+		SprintStates: states, Epics: epics, Domains: domains,
 		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
 		Processes: processes, Tasks: tasks}, nil
 }

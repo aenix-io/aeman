@@ -9,7 +9,7 @@ import type {
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
-import { declareDomain } from "../domains";
+import { declareDomain, offerableTeams } from "../domains";
 import { nameConflict } from "../names";
 import { DomainSelect, blurredIntoDomainSelect } from "./DomainSelect";
 import { Dropdown } from "./Dropdown";
@@ -617,6 +617,7 @@ export function ProcessBoard({
                     <TaskForm
                       key={t.uid}
                       board={board}
+                      project={p.project ?? ""}
                       initial={t}
                       onSave={(input) => saveTask(p.name, t.uid, input)}
                       onCancel={() => setEditing(null)}
@@ -646,6 +647,7 @@ export function ProcessBoard({
                 {adding === p.name ? (
                   <TaskForm
                     board={board}
+                    project={p.project ?? ""}
                     onSave={(input) => saveTask(p.name, null, input)}
                     onCancel={() => setAdding(null)}
                   />
@@ -1089,11 +1091,16 @@ function StackIcon() {
 
 function TaskForm({
   board,
+  project,
   initial,
   onSave,
   onCancel,
 }: {
   board: Board;
+  /** The project the process files its iterations under: it decides which
+   *  repository they land in, so only that repository's teams may own
+   *  them — a task pairing the two would spawn cards the server refuses. */
+  project: string;
   initial?: ProcessTask;
   onSave: (input: TaskInput) => void;
   onCancel: () => void;
@@ -1157,11 +1164,13 @@ function TaskForm({
           <span>Team</span>
           <select value={team} onChange={(e) => setTeam(e.target.value)}>
             <option value="">— none —</option>
-            {board.teams.filter((t) => t !== "").map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
+            {offerableTeams(board.teams, board.teamDomains, board.projectDomains, project, team)
+              .filter((t) => t !== "")
+              .map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
           </select>
         </label>
         <label>

@@ -179,6 +179,9 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	if card.Epic == epic && card.Project == projectName {
 		return nil
 	}
+	if err := guardRoster(b, card.Team, projectName); err != nil {
+		return err
+	}
 	if card.Epic != epic {
 		if err := s.backend.SetEpic(ctx, b, card, epic); err != nil {
 			return err

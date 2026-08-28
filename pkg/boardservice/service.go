@@ -50,6 +50,34 @@ var ErrInvalidStage = errors.New("invalid stage for this card")
 // board — the caller must reassign or delete them first.
 var ErrTeamInUse = errors.New("team still has cards")
 
+// ErrDomainConflict is a team and a project declared in different
+// repositories put on one card. The project decides where the card lives
+// (board.DomainOf, rule 4), so such a card sits in the project's repository
+// carrying the name of a team whose people cannot read it. Neither side can
+// be honoured, so the pair is refused where it is made instead of being
+// accepted and quietly ignored.
+var ErrDomainConflict = errors.New("the team and the project live in different repositories")
+
+// guardRoster refuses a team/project pair from two repositories, naming
+// both. A name the roster does not declare yet decides nothing: it will be
+// declared in the card's own repository on the way.
+func guardRoster(b board.Board, team, project string) error {
+	td, pd, conflict := board.RosterConflict(b, team, project)
+	if !conflict {
+		return nil
+	}
+	return fmt.Errorf("%w: team %q lives in %s, project %q in %s",
+		ErrDomainConflict, team, repoName(td), project, repoName(pd))
+}
+
+// repoName is a domain for a message: the primary has no name of its own.
+func repoName(domain string) string {
+	if domain == "" {
+		return "the primary repository"
+	}
+	return strconv.Quote(domain)
+}
+
 // MaxDescriptionLen caps a card description (in runes). The description shares
 // a draft card's body with the note and event logs, and GitHub caps the body
 // at ~64K — an oversized description would break log appends.
@@ -254,6 +282,11 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		linkDescription = ref.URL
 		args.Title = ref.FallbackTitle()
 		pendingRef = &ref
+	}
+	// A team and a project from two repositories cannot both be honoured, so
+	// the card is not created carrying them.
+	if err := guardRoster(b, args.Team, args.Project); err != nil {
+		return board.Card{}, err
 	}
 	// A personal card lives in the actor's own repository, outside the team
 	// board's placement: it has a zone, dates and a body, and none of team,
@@ -2023,6 +2056,9 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	}
 	if day == "" {
 		day = board.TodayIso()
+	}
+	if err := guardRoster(b, team, card.Project); err != nil {
+		return err
 	}
 	// A team the board does not declare is declared by the assignment: over
 	// the API and MCP a name the roster lacks would otherwise sit on the card

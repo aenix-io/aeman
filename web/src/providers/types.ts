@@ -215,6 +215,11 @@ export interface Board {
   /** The repositories the board spans, primary first; a single entry on a
    *  one-repository board, none from an older server. */
   domains: DomainInfo[];
+  /** Which repository each team and project was declared in, for the entries
+   *  outside the primary. A card's team and project must live in the same
+   *  one, so the pickers narrow themselves by these. */
+  teamDomains?: Record<string, string>;
+  projectDomains?: Record<string, string>;
   /** The visitor's personal board, when they linked one. */
   personal?: PersonalBoard;
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
