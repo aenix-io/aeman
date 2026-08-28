@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { clientId, fetchConfig, fetchHealth, type AppConfig } from "./api/client";
 import { apiProvider } from "./providers/api/apiProvider";
 import { guardSignedOut } from "./session";
+import { mergeCardLists } from "./cardmerge";
 import {
   resourceToCard,
   sprintStateFrom,
@@ -85,19 +86,6 @@ function readFilter(): string[] | null {
 
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
-
-// mergeCardLists flattens a view's lists (e.g. the Team grid + its weekly
-// plan), deduping by item id; board order within each list is preserved.
-function mergeCardLists(lists: CardModel[][]): CardModel[] {
-  const seen = new Set<string>();
-  return lists.flat().filter((c) => {
-    if (seen.has(c.itemId)) {
-      return false;
-    }
-    seen.add(c.itemId);
-    return true;
-  });
-}
 
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -608,7 +596,11 @@ export function App() {
         // Board watch frame keeps it current afterwards.
         provider.listProcesses().catch(() => [] as ProcessInfo[]),
       ]);
-      setBoard({ ...loaded, cards: mergeCardLists(lists), processes });
+      setBoard((cur) => ({
+        ...loaded,
+        cards: mergeCardLists(lists, cur?.cards),
+        processes,
+      }));
     } catch (err: unknown) {
       setError(errMessage(err));
     } finally {
@@ -632,7 +624,12 @@ export function App() {
         if (cancelled) {
           return;
         }
-        setBoard((cur) => (cur ? { ...cur, cards: mergeCardLists(lists) } : cur));
+        // The listing is the row view; the notes, events and bodies already
+        // fetched are kept, so switching views costs one request, not one
+        // per card all over again.
+        setBoard((cur) =>
+          cur ? { ...cur, cards: mergeCardLists(lists, cur.cards) } : cur,
+        );
       })
       .catch((err: unknown) => {
         if (!cancelled) {
