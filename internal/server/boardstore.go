@@ -1176,6 +1176,16 @@ func moveEpicAfter(cols []board.EpicCol, from int, afterID string) []board.EpicC
 }
 
 // nameOfState finds the roster entry whose state card has the item id.
+// teamOfState is the team whose sprint pointer is the given state card.
+func teamOfState(states map[string]board.SprintState, itemID string) (string, bool) {
+	for name, st := range states {
+		if st.ItemID == itemID {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 func nameOfState(ids map[string]string, itemID string) (string, bool) {
 	for name, id := range ids {
 		if id == itemID {
@@ -1518,6 +1528,37 @@ func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.C
 }
 
 func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
+	if card.Title == board.SprintStateTitle {
+		// The team's own stub is not a card the cache holds: its name is the
+		// key of the sprint pointer and an entry of the team order, so the
+		// rename re-keys both in place — the next read says the new name
+		// before the queue has written a byte.
+		rekey := func(bd *board.Board) {
+			old, ok := teamOfState(bd.SprintStates, card.ItemID)
+			if !ok {
+				return
+			}
+			st := bd.SprintStates[old]
+			delete(bd.SprintStates, old)
+			bd.SprintStates[team] = st
+			bd.TeamOrder = renameInList(bd.TeamOrder, old, team)
+		}
+		e := b.store.entry(storeKey(bd.Board))
+		e.mu.Lock()
+		rekey(&e.board)
+		e.rosterBroadcast()
+		e.mu.Unlock()
+		b.enqueue(ctx, e, pendingOp{
+			key:    "team:" + card.ItemID,
+			itemID: card.ItemID,
+			desc:   "rename the team " + card.Team,
+			apply:  rekey,
+			exec: func(ctx context.Context) error {
+				return b.inner.SetTeam(ctx, bd, card, team)
+			},
+		})
+		return nil
+	}
 	b.mutateCard(ctx, bd, card.ItemID, "team", "move "+cardRef(card)+" to another team", func(c *board.Card) {
 		c.Team = team
 	}, func(ctx context.Context) error {
