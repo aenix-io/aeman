@@ -210,6 +210,10 @@ type CreateCardArgs struct {
 	Project string
 	// ReviewOf marks the new card as the review of the given item.
 	ReviewOf string
+	// Personal files the card in the actor's personal domain — a backlog item
+	// of their own: no team, no sprint, no column, no plan band. The service
+	// names the domain from the actor; the caller only asks for it.
+	Personal bool
 	// Parent groups the new card as a subtask of the given item on create.
 	Parent         string
 	StartNewSprint *bool
@@ -250,6 +254,12 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		linkDescription = ref.URL
 		args.Title = ref.FallbackTitle()
 		pendingRef = &ref
+	}
+	// A personal card lives in the actor's own repository, outside the team
+	// board's placement: it has a zone, dates and a body, and none of team,
+	// sprint, column or plan band — those are the team board's coordinates.
+	if args.Personal {
+		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	// An epic card lives on the Plan board: filed under its column, anchored
 	// to its week row, optionally spanning several weeks via start..day. It

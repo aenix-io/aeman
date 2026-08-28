@@ -113,6 +113,9 @@ type CardStatus struct {
 	// the inheritance rule, never a client's choice; empty when the store did
 	// not stamp it (a card in the primary is shown without a badge).
 	Domain string `json:"domain,omitempty"`
+	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
+	// personal board shows a done card that day and drops it the next.
+	DoneAt string `json:"doneAt,omitempty"`
 	// Links are the references extracted from the card's description —
 	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).
 	// They ride the status so a summary listing, which omits the description
@@ -217,6 +220,9 @@ type BoardMetadata struct {
 	// so a reviewer picker offers only people who will see the card. Absent
 	// on a single-domain board.
 	Domains []DomainInfo `json:"domains,omitempty"`
+	// Personal is the visitor's own repository when they linked one: the
+	// personal board lives there (view=personal, create with personal=true).
+	Personal *PersonalInfo `json:"personal,omitempty"`
 }
 
 // Member is one person on the board: a login and, when the server knows the
@@ -231,6 +237,15 @@ type DomainInfo struct {
 	Name     string   `json:"name"`
 	Writable bool     `json:"writable"`
 	Members  []string `json:"members"`
+	// Personal marks the visitor's own repository, attached for them alone.
+	Personal bool `json:"personal,omitempty"`
+}
+
+// PersonalInfo is the visitor's personal repository as the board knows it:
+// the domain it is served as and the repository it is.
+type PersonalInfo struct {
+	Domain string `json:"domain"`
+	URL    string `json:"url"`
 }
 
 // EpicRef is one Project-board column: its name and the project that owns it.
@@ -348,6 +363,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Overdue:     board.Overdue(c, board.TodayIso()),
 		ReviewRound: c.ReviewRound,
 		Domain:      c.Domain,
+		DoneAt:      c.DoneAt,
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a

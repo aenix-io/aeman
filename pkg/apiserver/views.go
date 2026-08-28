@@ -12,7 +12,7 @@ import (
 // exactly what the UI renders (the Team grid, the Me day board, the Weekly
 // plan); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "weekly" or "project". "" and "all" both list every
+	// View is "", "all", "team", "me", "personal", "weekly" or "project". "" and "all" both list every
 	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
 	View string
 	// Team is the team key for the team/weekly views ("" = the no-team group).
@@ -78,7 +78,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Zone = &v
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "weekly", "project":
+	case "", "all", "team", "me", "personal", "weekly", "project":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -87,7 +87,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 
 // normalized fills the selector's day/week defaults against the wall clock.
 func (s Selector) normalized() Selector {
-	if s.View == "team" || s.View == "me" {
+	if s.View == "team" || s.View == "me" || s.View == "personal" {
 		if s.Day == "" {
 			s.Day = board.TodayIso()
 		}
@@ -118,6 +118,10 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 	case "me":
 		base = board.MeView(b, sel.User, sel.Day)
+	case "personal":
+		// The caller's personal repository as a backlog: open cards and the
+		// ones done today; the user is who-am-i, filled in by the handler.
+		base = board.PersonalView(b, sel.User, sel.Day)
 	case "project":
 		// The Project board: every card filed under an epic, whatever its week
 		// — the client lays rows (weeks) and columns (epics) out itself. The
