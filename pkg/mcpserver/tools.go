@@ -681,6 +681,26 @@ func (h *server) moveDeadline(ctx context.Context, _ *mcp.CallToolRequest, in de
 	return nil, statusOutput{Status: "moved"}, nil
 }
 
+// teamInput names one team of the board and, for a rename, its new name.
+type teamInput struct {
+	boardRef
+	Team string `json:"team" jsonschema:"the team's current name (its chip on the boards)"`
+	To   string `json:"to" jsonschema:"the team's new name; a name another team has — in any of the board's repositories — is refused"`
+}
+
+// renameTeam renames a team in place, its cards and process tasks along
+// with it.
+func (h *server) renameTeam(ctx context.Context, _ *mcp.CallToolRequest, in teamInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.RenameTeam(ctx, boardID, in.Team, in.To); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "renamed"}, nil
+}
+
 // projectInput names one project of the Project board.
 type projectInput struct {
 	boardRef

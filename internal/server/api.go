@@ -98,6 +98,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/actions/delete-project", s.handleDeleteProject)
 	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
 	mux.HandleFunc("POST /api/v1/projects/actions/rename", s.handleRenameProject)
+	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
 	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
@@ -176,6 +177,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/projects/actions/delete-project", "Delete an EMPTY project; refused while it owns epic columns ({project})"},
 			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
 			{"POST", "/api/v1/projects/actions/rename", "Rename a project in place, columns and cards along with it ({project, to})"},
+			{"POST", "/api/v1/teams/actions/rename", "Rename a team in place, its cards and process tasks along with it ({team, to}); a name another team has is refused"},
 			{"GET", "/api/v1/ordering", "The board-level manual card order"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
 			{"GET", "/api/v1/watch", "WebSocket stream of Card/Sprint/Ordering events; selector-scoped with view params"},
@@ -1166,6 +1168,28 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleRenameTeam renames a team where it is declared, its cards and process
+// tasks along with it.
+func (s *Server) handleRenameTeam(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Team string `json:"team"`
+		To   string `json:"to"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	if err := svc.RenameTeam(r.Context(), boardID, in.Team, in.To); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // patchColumn re-files a card under a column — the (project, epic) pair.
 // Naming only the project keeps the column name the card is already under,
 // which is what moving a card between projects means.
@@ -1714,7 +1738,10 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		writeJSONError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, gitstore.ErrUnknownDomain):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, boardservice.ErrInvalidStage),
+	case errors.Is(err, gitstore.ErrNameTaken),
+		errors.Is(err, boardservice.ErrTeamExists),
+		errors.Is(err, boardservice.ErrTeamNotFound),
+		errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
 		errors.Is(err, boardservice.ErrNoteTooLong),
 		errors.Is(err, boardservice.ErrSubtaskDepth),

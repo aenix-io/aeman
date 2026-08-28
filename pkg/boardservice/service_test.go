@@ -365,6 +365,13 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("SetTeam %s %s", card.ItemID, team)
+	if card.Title == board.SprintStateTitle {
+		if st, ok := f.b.SprintStates[card.Team]; ok {
+			delete(f.b.SprintStates, card.Team)
+			f.b.SprintStates[team] = st
+		}
+		return nil
+	}
 	if c := f.get(card.ItemID); c != nil {
 		c.Team = team
 	}

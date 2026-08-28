@@ -345,6 +345,9 @@ export interface Provider {
   reorderProjects(names: string[]): Promise<void>;
   /** Rename a project in place; its columns and their cards follow. */
   renameProject(from: string, to: string): Promise<void>;
+  /** Rename a declared team where it lives; its cards and process tasks
+   *  follow. A name another team has is refused by the server. */
+  renameTeam(from: string, to: string): Promise<void>;
   /** The Process tab: every process with its tasks and their history. */
   listProcesses(project?: string): Promise<ProcessInfo[]>;
   /** Declare a process in a project; `domain` picks its repository. */

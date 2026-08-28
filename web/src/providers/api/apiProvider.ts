@@ -447,6 +447,10 @@ export const apiProvider: Provider = {
     });
   },
 
+  async renameTeam(from: string, to: string): Promise<void> {
+    await api("POST", "/teams/actions/rename", { team: from, to });
+  },
+
   async renameProject(
     from: string,
     to: string,

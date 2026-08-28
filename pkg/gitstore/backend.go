@@ -1023,6 +1023,10 @@ func (b *Backend) SetWeek(ctx context.Context, _ board.Board, card board.Card, w
 
 // SetTeam sets or clears the team.
 func (b *Backend) SetTeam(ctx context.Context, _ board.Board, card board.Card, team string) error {
+	if card.Title == board.SprintStateTitle {
+		// The team's own stub: this is the rename of the team file.
+		return b.editTeam(ctx, "rename-team", TeamPath(card.ItemID), func(f *TeamFile) { f.Name = team })
+	}
 	return b.editCard(ctx, "team", card, func(f *CardFile) { f.Card.Team = team })
 }
 

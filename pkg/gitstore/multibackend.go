@@ -221,6 +221,21 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 		return board.Card{}, err
 	}
 	r := newResolver(s)
+	// A declaration takes a name no domain has yet.
+	switch in.Title {
+	case board.ProjectStateTitle:
+		if err := nameFree(r, "project", in.Project); err != nil {
+			return board.Card{}, err
+		}
+	case board.SprintStateTitle:
+		if err := nameFree(r, "team", in.Team); err != nil {
+			return board.Card{}, err
+		}
+	case board.ProcessStateTitle:
+		if err := nameFree(r, "process", in.Process); err != nil {
+			return board.Card{}, err
+		}
+	}
 	// The caller's choice — the input's, else the context's (board.WithDomain)
 	// — counts only for what has no home by rule: a team, a project, a
 	// process without a project.
@@ -672,7 +687,39 @@ func (mb *MultiBackend) SetWeek(ctx context.Context, bd board.Board, card board.
 
 // SetTeam may move a team card to another domain.
 func (mb *MultiBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
+	if card.Title == board.SprintStateTitle && team != card.Team {
+		if err := mb.checkName("team", team); err != nil {
+			return err
+		}
+	}
 	return mb.refile(ctx, "team", card, func(c *board.Card) { c.Team = team }, func(be *Backend) error { return be.SetTeam(ctx, bd, card, team) })
+}
+
+// nameFree refuses a roster name some domain already declares (ErrNameTaken).
+func nameFree(r resolver, kind, name string) error {
+	var taken bool
+	switch kind {
+	case "team":
+		_, taken = r.teams[name]
+	case "project":
+		_, taken = r.projects[name]
+	case "process":
+		_, taken = r.processes[name]
+	}
+	if taken {
+		return fmt.Errorf("%w: %s %q", ErrNameTaken, kind, name)
+	}
+	return nil
+}
+
+// checkName is nameFree against the current snapshot — for a rename, which
+// has no snapshot of its own yet.
+func (mb *MultiBackend) checkName(kind, name string) error {
+	s, err := mb.snapshot()
+	if err != nil {
+		return err
+	}
+	return nameFree(newResolver(s), kind, name)
 }
 
 // SetEpic may move a card into another project's domain.
@@ -682,6 +729,11 @@ func (mb *MultiBackend) SetEpic(ctx context.Context, bd board.Board, card board.
 
 // SetProcess writes in the stub's or task's domain.
 func (mb *MultiBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
+	if card.Title == board.ProcessStateTitle && process != card.Process {
+		if err := mb.checkName("process", process); err != nil {
+			return err
+		}
+	}
 	be, err := mb.route(ctx, card)
 	if err != nil {
 		return err
@@ -714,6 +766,11 @@ func (mb *MultiBackend) SetAccumulate(ctx context.Context, bd board.Board, card 
 
 // SetProject may move a card into another project's domain.
 func (mb *MultiBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
+	if card.Title == board.ProjectStateTitle && project != card.Project {
+		if err := mb.checkName("project", project); err != nil {
+			return err
+		}
+	}
 	return mb.refile(ctx, "project", card, func(c *board.Card) { c.Project = project }, func(be *Backend) error { return be.SetProject(ctx, bd, card, project) })
 }
 

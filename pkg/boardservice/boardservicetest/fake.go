@@ -450,6 +450,14 @@ func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, tea
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("SetTeam %s %s", card.ItemID, team)
+	if card.Title == board.SprintStateTitle {
+		// The team's own stub: the declaration moves to the new name.
+		if st, ok := f.board.SprintStates[card.Team]; ok {
+			delete(f.board.SprintStates, card.Team)
+			f.board.SprintStates[team] = st
+		}
+		return nil
+	}
 	if c := f.card(card.ItemID); c != nil {
 		c.Team = team
 	}

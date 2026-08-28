@@ -910,35 +910,44 @@ export function App() {
       if (!t || t === from) {
         return;
       }
-      setAddedTeams((cur) => {
-        const next = [...new Set(cur.map((x) => (x === from ? t : x)))];
-        writeStringList(LS_TEAM_ROSTER, next);
-        return next;
-      });
-      setTeamFilter((cur) =>
-        cur === null ? cur : cur.map((k) => (k === from ? t : k)),
-      );
-      setBoard((cur) => {
-        if (!cur) {
-          return cur;
-        }
-        for (const card of cur.cards) {
-          if (card.team === from) {
-            void provider
-              .patchCard(card.itemId, { team: t })
-              .catch((err: unknown) => {
-                patchCard(card.itemId, { team: from });
-                setError(errMessage(err));
-              });
+      // The local side of a rename: the roster, the filter, and the loaded
+      // board (its cards and the team's sprint pointer) read the new name.
+      const relabel = () => {
+        setAddedTeams((cur) => {
+          const next = [...new Set(cur.map((x) => (x === from ? t : x)))];
+          writeStringList(LS_TEAM_ROSTER, next);
+          return next;
+        });
+        setTeamFilter((cur) =>
+          cur === null ? cur : cur.map((k) => (k === from ? t : k)),
+        );
+        setBoard((cur) => {
+          if (!cur) {
+            return cur;
           }
-        }
-        return {
-          ...cur,
-          cards: cur.cards.map((c) => (c.team === from ? { ...c, team: t } : c)),
-        };
-      });
+          const { [from]: pointer, ...others } = cur.sprintStates;
+          return {
+            ...cur,
+            teams: cur.teams.map((x) => (x === from ? t : x)),
+            sprintStates: pointer === undefined ? cur.sprintStates : { ...others, [t]: pointer },
+            cards: cur.cards.map((c) => (c.team === from ? { ...c, team: t } : c)),
+          };
+        });
+      };
+      // A team the board declares is renamed by the server — its file and
+      // every card that names it, in one action; a name another team has
+      // is refused there. A chip the board does not know yet is only a
+      // local label.
+      if (boardRef.current?.teams.includes(from)) {
+        void provider
+          .renameTeam(from, t)
+          .then(relabel)
+          .catch((err: unknown) => setError(errMessage(err)));
+        return;
+      }
+      relabel();
     },
-    [patchCard, provider],
+    [provider],
   );
 
   const showTokenWarning =

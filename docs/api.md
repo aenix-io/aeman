@@ -24,6 +24,8 @@ Each repository of the board is a **domain** — a visibility boundary. A card's
 
 Teams, projects and processes are declared in the domain the caller picks: the optional `domain` field on `POST /projects`, `POST /processes` and `PATCH /sprints` (a team is declared by its first sprint write), default the primary. A process with a project lives with the project.
 
+**Names are one namespace across the board.** A team, project or process name is what cards refer to (`team: portal`) and what the domain rule resolves, so the same name cannot be declared twice — in one repository or in two. A create or a rename into a name any domain already carries is refused (422), whether or not the caller can read that domain. A collision that reaches the files anyway (a direct git write, two replicas racing) resolves on read to the oldest declaration; the other is an alias whose cards still count, listed by `GET /api/healthz` for a maintainer to rename by hand.
+
 On a board of more than one repository, `GET /board` lists the visitor's readable domains as `metadata.domains` (primary first, each with a `writable` flag and the logins that can read it) and every card carries `status.domain`; a single-repository board shows nothing of this. A domain the visitor cannot read is simply absent — no cards, teams or projects from it, no watch frames about it — not empty.
 
 ### The planning entities
@@ -96,6 +98,7 @@ Actions carry the board rules — the client never reimplements them.
 | `POST /api/v1/projects/actions/delete-project` | `{project}` | Delete an EMPTY project; 422 while it still owns columns. |
 | `POST /api/v1/projects/actions/reorder-projects` | `{projects:[...]}` | Apply the shared project order. |
 | `POST /api/v1/projects/actions/rename` | `{project, to}` | Rename a project in place; its columns and their cards follow. |
+| `POST /api/v1/teams/actions/rename` | `{team, to}` | Rename a team in place: its declaration keeps its sprint pointer, and every card and process task that names it follows. A name another team has is refused (422); the no-team group cannot be renamed. |
 | `POST /api/v1/processes/actions/delete-process` | `{process}` | Delete an EMPTY process; 422 while it has tasks. |
 | `POST /api/v1/processes/actions/rename` | `{process, to}` | Rename a process; its tasks follow. |
 | `POST /api/v1/processes/actions/set-project` | `{process, project}` | Move a process to another project (`""` = the no-project bucket). |
@@ -323,6 +326,7 @@ Bootstrapping: `aeman init --repo <url> [--title …]` writes an empty board (on
 | `add_process_task` / `update_process_task` / `delete_process_task` | What a process iterates on: title, body, cycle (`week` / `2weeks` / `month` / `quarter`), start, team, owner, `accumulate`. |
 | `add_deadline` / `delete_deadline` / `move_deadline` | A project's deadline lines: mark a week, clear it, drag one to another week (two of the same project on one week become one). |
 | `add_project` / `delete_project` / `rename_project` / `reorder_projects` | The project roster: declare one (it may start empty; optional `domain`), delete an EMPTY one, rename one (its columns and cards follow), set the chip order. |
+| `rename_team` | Rename a team in place (`team`, `to`); its cards and process tasks follow, a taken name is refused. |
 | `add_epic` / `delete_epic` / `rename_epic` / `set_epic_project` | The columns of a project, each named by the `(project, epic)` pair: `add_epic` requires `project=`, `delete_epic` refuses a column with cards, `rename_epic` rewrites the column and its cards, `set_epic_project` moves one between projects (an empty target detaches it). |
 
 The tools act on the configured board; a `board` argument, if a client passes one, is ignored. Changes made by agents are committed and streamed to every open board over the watch, like any other write; the stdio server pushes what accumulated when the client closes the pipe.

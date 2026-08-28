@@ -655,3 +655,25 @@ func TestPatchUngroupRespectsExplicitAssignees(t *testing.T) {
 		})
 	}
 }
+
+// A team is renamed where it is declared, cards along with it; the route
+// mirrors the project rename.
+func TestAPIRenameTeam(t *testing.T) {
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Team: "test"}}, map[string]board.SprintState{
+		"test":   {Current: "2026-08-24", ItemID: "st1"},
+		"portal": {Current: "2026-08-24", ItemID: "st2"},
+	})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"test","to":"platform"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rename: %d %s", rec.Code, rec.Body.String())
+	}
+	if c := fake.Card("c1"); c == nil || c.Team != "platform" {
+		t.Fatalf("card team = %+v, want platform", c)
+	}
+	// A taken name is a 422, like a project's.
+	rec = do(t, srv, http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"platform","to":"portal"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("rename into a taken name: %d %s", rec.Code, rec.Body.String())
+	}
+}

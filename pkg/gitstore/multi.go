@@ -23,6 +23,14 @@ type Domain struct {
 // ErrNoDomains is returned when a board has nothing to read.
 var ErrNoDomains = errors.New("gitstore: a board needs at least its primary domain")
 
+// ErrNameTaken refuses a roster name — a team, a project, a process — that
+// some domain of the board already declares. Names are one namespace across
+// the board: a card refers to its team and project by name, and the domain
+// rule resolves them by name, so two of a kind would leave a card's home
+// undecidable. The store checks every domain, readable by the caller or not;
+// the read-side alias merge is left for collisions made behind its back.
+var ErrNameTaken = errors.New("gitstore: name already declared on the board")
+
 // LoadAll reads every domain at its branch tip and merges the snapshots.
 func LoadAll(domains []Domain) (Snapshot, error) {
 	if len(domains) == 0 {
