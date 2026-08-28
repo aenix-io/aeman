@@ -144,11 +144,15 @@ func (r *Repo) entryFor(c *object.Commit, id, p string, boundary bool) (LogEntry
 	var before []byte
 	switch {
 	case boundary || c.NumParents() == 0:
-		if boundary {
-			named := len(tr.Cards) > 0
-			if (named && !contains(tr.Cards, id)) || (!named && after == nil) {
-				return LogEntry{}, false, nil
-			}
+		named := len(tr.Cards) > 0
+		switch {
+		case boundary && ((named && !contains(tr.Cards, id)) || (!named && after == nil)):
+			return LogEntry{}, false, nil
+		case !boundary && after == nil && !contains(tr.Cards, id):
+			// A root commit (an import) is in a card's log only when the
+			// card is in its tree or its trailers name it — a card created
+			// later never inherits the import as its first event.
+			return LogEntry{}, false, nil
 		}
 	default:
 		parent, err := c.Parent(0)
@@ -180,9 +184,15 @@ func (r *Repo) entryFor(c *object.Commit, id, p string, boundary bool) (LogEntry
 		// No parent to diff against, or a file that arrived whole from
 		// another domain: the trailers say what changed, nothing else.
 	case before == nil && after != nil:
-		e.Changes = append(e.Changes, Change{Card: id, Kind: "created"})
+		// The file appearing IS the creation; a trailer saying so too (the
+		// service records the event) is the same fact, not a second one.
+		if !covered["created"] {
+			e.Changes = append(e.Changes, Change{Card: id, Kind: "created"})
+		}
 	case before != nil && after == nil:
-		e.Changes = append(e.Changes, Change{Card: id, Kind: "deleted"})
+		if !covered["deleted"] {
+			e.Changes = append(e.Changes, Change{Card: id, Kind: "deleted"})
+		}
 	default:
 		for _, ch := range diffCard(id, before, after) {
 			if !covered[ch.Kind] {
