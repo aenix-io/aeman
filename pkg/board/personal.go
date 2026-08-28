@@ -44,6 +44,11 @@ func PersonalView(b Board, login, day string) []Card {
 		if Complete(c.Stage, c.Progress) && c.DoneAt != day {
 			continue
 		}
+		// Planning: a card scheduled for a later day — dated so, or deferred
+		// there — waits out of sight until that day, as on the day boards.
+		if c.StartDate != "" && c.StartDate > day {
+			continue
+		}
 		out = append(out, c)
 	}
 	return out

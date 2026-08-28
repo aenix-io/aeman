@@ -61,11 +61,14 @@ export function splitPersonal(
   return { team, personal: mine };
 }
 
-/** personalShows mirrors view=personal: every open card, plus the ones done
- *  today — a card done before today has left the column. `doneAt` is the
- *  board day (yyyy-mm-dd) the card reached done. */
+/** personalShows mirrors view=personal: every open card scheduled for today
+ *  or earlier, plus the ones done today — a card done before today has left
+ *  the column, and one planned (or deferred) for a later day has not arrived
+ *  yet. `doneAt` is the board day (yyyy-mm-dd) the card reached done,
+ *  `startDate` the day it is scheduled for. */
 export function personalShows(card: Card, today: string): boolean {
-  return !card.doneAt || card.doneAt >= today;
+  const arrived = !card.startDate || card.startDate <= today;
+  return arrived && (!card.doneAt || card.doneAt >= today);
 }
 
 /** RecurrenceCycle is a recurrent card's stored reseed cycle: "" is the

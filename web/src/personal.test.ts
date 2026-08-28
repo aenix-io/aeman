@@ -128,3 +128,27 @@ describe("recurrence labels", () => {
     }
   });
 });
+
+describe("personalShows and planning", () => {
+  const today = "2026-08-28";
+  const card = (extra: Partial<Card>): Card => ({ itemId: "p", title: "p", assignees: [], ...extra });
+
+  it("hides a card planned for a later day until that day", () => {
+    const later = card({ startDate: "2026-08-29" });
+    expect(personalShows(later, today)).toBe(false);
+    expect(personalShows(later, "2026-08-29")).toBe(true);
+    expect(personalShows(later, "2026-09-05")).toBe(true);
+  });
+
+  it("shows a card planned for today or earlier, and one without a start", () => {
+    expect(personalShows(card({ startDate: today }), today)).toBe(true);
+    expect(personalShows(card({ startDate: "2026-08-20", progress: 20 }), today)).toBe(true);
+    expect(personalShows(card({}), today)).toBe(true);
+  });
+
+  it("keeps the done-today rule alongside the start rule", () => {
+    expect(personalShows(card({ startDate: "2026-08-29", progress: 100, doneAt: today }), today)).toBe(false);
+    expect(personalShows(card({ startDate: "2026-08-20", progress: 100, doneAt: today }), today)).toBe(true);
+    expect(personalShows(card({ startDate: "2026-08-20", progress: 100, doneAt: "2026-08-27" }), today)).toBe(false);
+  });
+});

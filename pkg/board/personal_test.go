@@ -34,9 +34,15 @@ func TestPersonalViewOpenAndDoneToday(t *testing.T) {
 		{ItemID: "sub", Title: "a step", Domain: "~kvaps", Parent: "open"},
 		{ItemID: "team", Title: "team card", Domain: "aeman-db", Progress: 40},
 		{ItemID: "bobs", Title: "bob's", Domain: "~bob", Progress: 40},
+		// Planning: a card scheduled for a later day waits out of sight until
+		// that day; one scheduled for today or earlier is on the board.
+		{ItemID: "later", Title: "planned for tomorrow", Domain: "~kvaps", StartDate: "2026-08-29"},
+		{ItemID: "planned-today", Title: "planned for today", Domain: "~kvaps", StartDate: today},
+		{ItemID: "planned-past", Title: "planned for yesterday", Domain: "~kvaps", StartDate: yesterday, Progress: 20},
+		{ItemID: "done-later", Title: "done, dated later", Domain: "~kvaps", StartDate: "2026-08-29", Progress: 100, DoneAt: today},
 	}}
 	got := PersonalView(b, "kvaps", today)
-	want := []string{"open", "fresh", "done-today", "sub"}
+	want := []string{"open", "fresh", "done-today", "sub", "planned-today", "planned-past"}
 	if len(got) != len(want) {
 		t.Fatalf("personal view = %v, want %v", idsOf(got), want)
 	}
@@ -48,9 +54,10 @@ func TestPersonalViewOpenAndDoneToday(t *testing.T) {
 	if len(PersonalView(b, "nobody", today)) != 0 {
 		t.Fatal("a person without a personal repository has an empty personal view")
 	}
-	// Tomorrow the card done today is gone too.
-	if len(PersonalView(b, "kvaps", "2026-08-29")) != 3 {
-		t.Fatalf("the next day = %v", idsOf(PersonalView(b, "kvaps", "2026-08-29")))
+	// Tomorrow the card done today is gone, and the one planned for tomorrow
+	// has arrived: open, fresh, sub, later, planned-today, planned-past.
+	if got := idsOf(PersonalView(b, "kvaps", "2026-08-29")); len(got) != 6 || got[3] != "later" {
+		t.Fatalf("the next day = %v", got)
 	}
 }
 

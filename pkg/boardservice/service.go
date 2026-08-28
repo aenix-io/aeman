@@ -927,8 +927,12 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(target, c.Day))
 	if board.LocalDateIso(c.CreatedAt) == today {
-		if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
-			return err
+		// A personal card has no sprint to relocate; its end date follows
+		// all the same.
+		if !board.IsPersonalDomain(c.Domain) {
+			if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
+				return err
+			}
 		}
 		if c.Day != "" && c.Day < target {
 			return s.backend.SetDay(ctx, b, c, target)
@@ -968,6 +972,12 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 	// subtasks with it.
 	if c.Epic != "" {
 		sprint = c.SprintStart
+	}
+	// A personal board has no sprints: planning there is dates alone, and
+	// the card must not be pinned to the no-team group's sprint pointer or
+	// to its own start day the way a team card is.
+	if board.IsPersonalDomain(c.Domain) {
+		sprint = ""
 	}
 	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
 		return err

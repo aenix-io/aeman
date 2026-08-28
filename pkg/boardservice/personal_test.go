@@ -2,7 +2,9 @@ package boardservice
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -90,6 +92,61 @@ func TestReseedPersonalSeedsTheNextIterationOnce(t *testing.T) {
 	// Nobody's board, or no login at all: a no-op, never an error.
 	if n, err := svc.ReseedPersonal(ctx, "o", "", "2026-09-02"); err != nil || n != 0 {
 		t.Fatalf("no login: %d, %v", n, err)
+	}
+}
+
+// Planning on a personal board is dates alone: the calendar and the defer
+// move a personal card's start (and end) exactly as on a team card, but the
+// card joins no sprint on the way — the team rule would pin it to the sprint
+// active on its start day, and a personal board has none.
+func TestDatesOnAPersonalCardKeepItOutOfSprints(t *testing.T) {
+	today := board.TodayIso()
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: "read the paper", Domain: "~kvaps", Assignees: []string{"kvaps"},
+			StartDate: today, Day: today, CreatedAt: time.Now().UTC().Format(time.RFC3339)},
+		{ItemID: "t1", Title: "team card", Domain: "aeman-db", Team: "", StartDate: today, Day: today,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339)},
+	}, nil)
+	svc := New(fake)
+	ctx := board.WithActor(t.Context(), "kvaps")
+
+	// The calendar: a start on or before today would give a team card the
+	// sprint active that day (or the day itself); the personal card gets none.
+	yesterday := board.AddDays(today, -1)
+	if err := svc.SetDates(ctx, "o", "p1", yesterday, today); err != nil {
+		t.Fatal(err)
+	}
+	if c := fake.get("p1"); c.StartDate != yesterday || c.Day != today || c.SprintStart != "" {
+		t.Fatalf("personal card after SetDates = start %q end %q sprint %q; want the dates and no sprint", c.StartDate, c.Day, c.SprintStart)
+	}
+	if err := svc.SetDates(ctx, "o", "t1", yesterday, today); err != nil {
+		t.Fatal(err)
+	}
+	if c := fake.get("t1"); c.SprintStart == "" {
+		t.Fatal("the team rule is unchanged: a team card dated to a past day joins a sprint")
+	}
+
+	// Defer a week ahead: a card created today relocates fully on a team
+	// board (sprint and end date follow); the personal card's dates follow,
+	// its sprint stays empty.
+	if err := svc.Defer(ctx, "o", "p1", 7); err != nil {
+		t.Fatal(err)
+	}
+	week := board.AddDays(today, 7)
+	if c := fake.get("p1"); c.StartDate != week || c.Day != week || c.SprintStart != "" {
+		t.Fatalf("personal card after Defer = start %q end %q sprint %q; want %s, %s and no sprint", c.StartDate, c.Day, c.SprintStart, week, week)
+	}
+	// Presses stack: another day from the deferred slot, not from today.
+	if err := svc.Defer(ctx, "o", "p1", 1); err != nil {
+		t.Fatal(err)
+	}
+	if c := fake.get("p1"); c.StartDate != board.AddDays(week, 1) || c.SprintStart != "" {
+		t.Fatalf("second defer = start %q sprint %q", c.StartDate, c.SprintStart)
+	}
+	for _, line := range fake.log {
+		if strings.HasPrefix(line, "SetSprintStart p1 ") && !strings.HasSuffix(line, " ") {
+			t.Fatalf("a sprint was written on the personal card: %q", line)
+		}
 	}
 }
 

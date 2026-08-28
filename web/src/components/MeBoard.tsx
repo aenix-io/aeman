@@ -1441,6 +1441,53 @@ export function MeBoard({
   // renderMeCard is the zone-band card used both for top-level rows and for
   // subtask rows (a subtask works exactly like any card). A personal card is
   // the same card without the day board's affordances: no team, no subtasks.
+  // Planning on the personal column is dates alone — there is no sprint to
+  // join or leave (mirrors boardservice.SetDates / Defer on a personal card):
+  // the calendar sets the start and end, the defer pushes the start N days
+  // ahead of today or of the already-deferred slot. The column hides a card
+  // until its start day (personalShows), so a card sent ahead leaves at once.
+  const handleSetPersonalDates = (
+    card: CardModel,
+    start: string | null,
+    end: string | null,
+  ) => {
+    const prev = { startDate: card.startDate, day: card.day };
+    patchCard(card.itemId, {
+      startDate: start ?? undefined,
+      day: end ?? undefined,
+    });
+    void provider
+      .patchCard(card.itemId, {
+        dates: { start: start ?? "", end: end ?? "" },
+      })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  const handleDeferPersonal = (card: CardModel, days: number) => {
+    const today = todayIso();
+    const base =
+      card.startDate && card.startDate > today ? card.startDate : today;
+    const newStart = addDays(base, days);
+    // A card created today relocates fully: a stale end date follows.
+    const full = !!card.createdAt && localDateIso(card.createdAt) === today;
+    const prev = { startDate: card.startDate, day: card.day };
+    patchCard(card.itemId, {
+      startDate: newStart,
+      ...(full && card.day && card.day < newStart ? { day: newStart } : {}),
+    });
+    void provider
+      .deferCard(card.itemId, days)
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
   const renderMeCard = (card: CardModel, personal = false): ReactNode => (
     <Card
       card={card}
@@ -1463,6 +1510,8 @@ export function MeBoard({
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
       personal={personal}
+      onSetDates={personal ? handleSetPersonalDates : undefined}
+      onDefer={personal ? handleDeferPersonal : undefined}
       dimAvatar={!personal && (teamFilter === null || !teamFilter.includes(card.team ?? ""))}
       subCount={(childrenOf.get(card.itemId) ?? []).length}
       expanded={subsOpen(card.itemId)}
