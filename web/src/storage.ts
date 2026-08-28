@@ -1,7 +1,9 @@
 // localStorage housekeeping for the single-board UI. The server serves exactly
 // one board now, so the per-board keys of the picker era (`<base>.<owner>/<n>`)
 // collapse onto plain `<base>` keys; this module carries the one-time move so a
-// returning user keeps the roster and filter they last saw.
+// returning user keeps the team filter they last saw. (The picker era also
+// saved a team roster per board; teams are the server's now and that key is
+// neither read nor migrated any more.)
 
 /** StorageLike is the slice of the Web Storage API this module touches, so
  *  tests can hand in a plain map. */
