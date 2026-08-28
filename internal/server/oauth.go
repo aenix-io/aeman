@@ -214,6 +214,7 @@ func (a *authManager) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	gh := url.Values{}
 	gh.Set("client_id", a.cfg.ClientID)
 	gh.Set("redirect_uri", a.redirectURI())
+	gh.Set("response_type", "code") // GitLab refuses the request without it
 	gh.Set("scope", a.cfg.Scopes)
 	gh.Set("state", state)
 	http.Redirect(w, r, a.authorizeURL+"?"+gh.Encode(), http.StatusFound)

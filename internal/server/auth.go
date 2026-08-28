@@ -519,6 +519,9 @@ func (a *authManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 	q := url.Values{}
 	q.Set("client_id", a.cfg.ClientID)
 	q.Set("redirect_uri", a.redirectURI())
+	// The authorization-code grant, named: GitHub never minded the parameter
+	// missing, GitLab refuses the request without it.
+	q.Set("response_type", "code")
 	q.Set("scope", a.cfg.Scopes)
 	q.Set("state", state)
 	http.Redirect(w, r, a.authorizeURL+"?"+q.Encode(), http.StatusFound)
