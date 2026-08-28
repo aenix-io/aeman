@@ -119,6 +119,9 @@ func (o openAccess) readers(_ context.Context, _ string, logins []string) ([]str
 // server credential, is trusted.
 const membersTTL = 5 * time.Minute
 
+// membersRefreshTimeout bounds a member refresh running behind an answer.
+const membersRefreshTimeout = 30 * time.Second
+
 // forgeAccess asks the forge — a repository's permissions, in the forge's
 // own terms — with the visitor's token, one request per domain, and caches
 // the answer per visitor. A stale answer stands in while the forge is
@@ -169,47 +172,97 @@ func newForgeAccess(f forge.Forge, client *http.Client, domains []RepoSpec, serv
 }
 
 // readers is the subset of logins that can read the domain, by the forge's
-// answer for each, asked with the server's token — one question per domain
-// for the logins whose answer is stale. A login the forge cannot answer for
-// (an outage, no server token) is left out — the picker offers fewer
+// answer, asked with the server's token. What is already known is returned
+// at once and refreshed behind the answer — a visitor coming back to a
+// board must not wait for the forge to re-confirm a list that was true a
+// few minutes ago. A login nobody has ever asked about IS waited for: an
+// answer of "not a reader" from nothing would quietly shrink the picker. A
+// login the forge cannot answer for is left out — the picker offers fewer
 // people, never the wrong ones — unless an earlier answer stands.
 func (f *forgeAccess) readers(ctx context.Context, domain string, logins []string) ([]string, error) {
-	var url string
-	for _, d := range f.domains {
-		if d.Name == domain {
-			url = d.URL
-		}
-	}
+	url := f.urlFor(domain)
 	if url == "" {
 		return nil, fmt.Errorf("unknown domain %q", domain)
 	}
 	if _, err := f.forge.RepoRef(url); err != nil {
 		return nil, err
 	}
-	stale := make([]string, 0, len(logins))
+	unknown, stale := f.splitMembers(domain, logins)
+	switch {
+	case unknown:
+		f.askMembers(ctx, domain, url, logins)
+	case stale:
+		f.refreshMembers(domain, url, logins)
+	}
+	return f.knownReaders(domain, logins), nil
+}
+
+// splitMembers reports whether any of the logins has no answer at all, and
+// whether any answer has aged past the TTL.
+func (f *forgeAccess) splitMembers(domain string, logins []string) (unknown, stale bool) {
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	for _, login := range logins {
-		if c, ok := f.members[domain+"\x00"+login]; !ok || f.now().Sub(c.at) >= membersTTL {
-			stale = append(stale, login)
+		c, ok := f.members[domain+"\x00"+login]
+		switch {
+		case !ok:
+			unknown = true
+		case f.now().Sub(c.at) >= membersTTL:
+			stale = true
 		}
 	}
+	return unknown, stale
+}
+
+// askMembers asks the forge who reads the domain and records the answer.
+// An error leaves the answers that stand — an outage must not empty a
+// picker — and is logged, since the caller has an answer either way.
+func (f *forgeAccess) askMembers(ctx context.Context, domain, url string, logins []string) {
+	found, err := f.forge.Readers(ctx, f.client, f.tokenFor(domain), url, logins)
+	if err != nil {
+		f.log("domain members", domain, err)
+		return
+	}
+	if f.people != nil {
+		f.people.learn(found)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, login := range logins {
+		_, reads := found[login]
+		f.members[domain+"\x00"+login] = cachedBool{ok: reads, at: f.now()}
+	}
+}
+
+// refreshMembers re-asks behind the answer, one refresh at a time per
+// domain: the requests of one page load share the one they triggered.
+func (f *forgeAccess) refreshMembers(domain, url string, logins []string) {
+	f.mu.Lock()
+	if f.refreshing["members\x00"+domain] {
+		f.mu.Unlock()
+		return
+	}
+	if f.refreshing == nil {
+		f.refreshing = map[string]bool{}
+	}
+	f.refreshing["members\x00"+domain] = true
 	f.mu.Unlock()
-	if len(stale) > 0 {
-		found, err := f.forge.Readers(ctx, f.client, f.tokenFor(domain), url, stale)
-		if err == nil {
-			if f.people != nil {
-				f.people.learn(found)
-			}
+	go func() {
+		defer func() {
 			f.mu.Lock()
-			for _, login := range stale {
-				_, reads := found[login]
-				f.members[domain+"\x00"+login] = cachedBool{ok: reads, at: f.now()}
-			}
+			delete(f.refreshing, "members\x00"+domain)
 			f.mu.Unlock()
-		}
-		// On an error the stale answers stand (an outage), and a login never
-		// answered for is left out below.
-	}
+		}()
+		// The request that triggered this is long answered: its context is
+		// gone, and the refresh gets a bound of its own.
+		ctx, cancel := context.WithTimeout(context.Background(), membersRefreshTimeout)
+		defer cancel()
+		f.askMembers(ctx, domain, url, logins)
+	}()
+}
+
+// knownReaders is what the cache says of the asked logins.
+func (f *forgeAccess) knownReaders(domain string, logins []string) []string {
 	out := make([]string, 0, len(logins))
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -218,7 +271,17 @@ func (f *forgeAccess) readers(ctx context.Context, domain string, logins []strin
 			out = append(out, login)
 		}
 	}
-	return out, nil
+	return out
+}
+
+// urlFor is the repository a domain names.
+func (f *forgeAccess) urlFor(domain string) string {
+	for _, d := range f.domains {
+		if d.Name == domain {
+			return d.URL
+		}
+	}
+	return ""
 }
 
 // tokenFor is the server credential a domain is asked about — its own when

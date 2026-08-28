@@ -221,3 +221,92 @@ func TestADeadTokenIsForgottenRatherThanServedStale(t *testing.T) {
 		t.Fatalf("after the token died: %v, want a bad-token error", err)
 	}
 }
+
+// memberForge answers the collaborator listing, slowly, and counts how often
+// it was asked.
+func memberForge(t *testing.T, calls *atomic.Int32, delay time.Duration) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		time.Sleep(delay)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"login":"kvaps","permissions":{"pull":true,"push":true}},{"login":"lex","permissions":{"pull":true}}]`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Who else may read a domain is asked with the server's credential and
+// trusted for five minutes — so the first board request after a five-minute
+// break paid for it, and with one question per person across two domains
+// that was seconds of a page load. The list a page needs is the one already
+// known; the check runs behind it.
+func TestTheMemberListIsServedWhileItRefreshes(t *testing.T) {
+	const probeTime = 300 * time.Millisecond
+	var calls atomic.Int32
+	srv := memberForge(t, &calls, probeTime)
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
+	clock := &fakeClock{at: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)}
+	fa.now = clock.now
+	ctx := context.Background()
+
+	// Nobody has been asked about yet: this one is paid for, or the picker
+	// would silently lose people it has never heard of.
+	first, err := fa.readers(ctx, "shared", []string{"kvaps", "lex"})
+	if err != nil || len(first) != 2 {
+		t.Fatalf("first answer: %v, %v", first, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("%d listings for the first answer, want 1", calls.Load())
+	}
+
+	// A break longer than the member TTL. The page must not wait again.
+	clock.wind(membersTTL + time.Second)
+	started := time.Now()
+	stale, err := fa.readers(ctx, "shared", []string{"kvaps", "lex"})
+	took := time.Since(started)
+	if err != nil || len(stale) != 2 {
+		t.Fatalf("the stale answer: %v, %v", stale, err)
+	}
+	if took > probeTime/3 {
+		t.Fatalf("the member list took %s — it waited for the forge", took)
+	}
+	for i := 0; i < 3; i++ {
+		started := time.Now()
+		if _, err := fa.readers(ctx, "shared", []string{"kvaps", "lex"}); err != nil {
+			t.Fatal(err)
+		}
+		if took := time.Since(started); took > probeTime/3 {
+			t.Fatalf("request %d waited %s for the member list", i, took)
+		}
+	}
+	waitForCalls(t, &calls, 2)
+	time.Sleep(50 * time.Millisecond)
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("%d listings in total, want 2 (the first and one refresh)", n)
+	}
+}
+
+// A login the server has never asked about is asked about — an answer of
+// "not a reader" from nothing would quietly shrink the reviewer picker.
+func TestAPersonNobodyHasAskedAboutIsAskedAbout(t *testing.T) {
+	var calls atomic.Int32
+	srv := memberForge(t, &calls, 0)
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
+	ctx := context.Background()
+	if _, err := fa.readers(ctx, "shared", []string{"kvaps"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := fa.readers(ctx, "shared", []string{"kvaps", "lex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("readers = %v; the newcomer must be asked about, not assumed away", got)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("%d listings, want 2 — the second for the login never seen", calls.Load())
+	}
+}
