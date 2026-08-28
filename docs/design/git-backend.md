@@ -644,8 +644,9 @@ remote is a URL and a credential; the code never assembles
 visitor" (OAuth provider), "may they read / write this repository", and
 "what is their avatar" — and GitHub is the first implementation.
 GitLab, Gitea and a bare repository on a server (with static users) are
-additional adapters, not redesigns. None of them is built now; the
-design just does not prevent them.
+additional adapters, not redesigns. GitLab is now the second adapter,
+beside GitHub in the package `internal/forge`; Gitea and the bare
+repository are not built, the design just does not prevent them.
 
 ## Configuration
 

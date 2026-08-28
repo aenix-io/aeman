@@ -7,12 +7,24 @@ services:
     image: aeman:latest
     restart: unless-stopped
     environment:
-      # GitHub OAuth App credentials (enables multi-user mode).
-      AEMAN_GITHUB_CLIENT_ID: ${AEMAN_GITHUB_CLIENT_ID:?set in .env}
-      AEMAN_GITHUB_CLIENT_SECRET: ${AEMAN_GITHUB_CLIENT_SECRET:?set in .env}
+      # The board's repositories (name=url, comma-separated, primary first) and
+      # the server's own credential for them (fetch, push, membership checks).
+      AEMAN_REPOS: ${AEMAN_REPOS:?set in .env}
+      AEMAN_GIT_TOKEN: ${AEMAN_GIT_TOKEN:?set in .env}
+      # Forge: github or gitlab. Empty follows the primary repository's host.
+      AEMAN_FORGE: ${AEMAN_FORGE:-}
+      # Base URL of a self-hosted GitLab; empty means the primary repository's host.
+      AEMAN_GITLAB_URL: ${AEMAN_GITLAB_URL:-}
+      # OAuth application credentials (enable multi-user mode). Exactly ONE pair
+      # is required: the GitHub one or the GitLab one.
+      AEMAN_GITHUB_CLIENT_ID: ${AEMAN_GITHUB_CLIENT_ID:-}
+      AEMAN_GITHUB_CLIENT_SECRET: ${AEMAN_GITHUB_CLIENT_SECRET:-}
+      AEMAN_GITLAB_CLIENT_ID: ${AEMAN_GITLAB_CLIENT_ID:-}
+      AEMAN_GITLAB_CLIENT_SECRET: ${AEMAN_GITLAB_CLIENT_SECRET:-}
       # Public origin; the OAuth callback is <AEMAN_BASE_URL>/auth/callback.
       AEMAN_BASE_URL: ${AEMAN_BASE_URL:?set in .env}
-      AEMAN_SCOPES: ${AEMAN_SCOPES:-repo project}
+      # OAuth scopes; empty means the forge's default.
+      AEMAN_SCOPES: ${AEMAN_SCOPES:-}
       # Optional: pin the UI to one board (set all three to lock it).
       AEMAN_OWNER: ${AEMAN_OWNER:-}
       # The board number. AEMAN_PROJECT is the pre-rename name, still read as a
@@ -23,6 +35,7 @@ services:
       # Persist sessions so a restart doesn't sign everyone out.
       AEMAN_SESSION_FILE: ${AEMAN_SESSION_FILE:-/data/sessions.json}
     volumes:
+      # Sessions and the repository clones (AEMAN_DATA defaults to /data).
       - aeman_sessions:/data
     # Only Caddy talks to aeman, over the compose network.
     expose:
