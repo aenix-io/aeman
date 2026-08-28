@@ -180,6 +180,44 @@ func TestForgeAccessAsksEachDomainWithItsOwnToken(t *testing.T) {
 	}
 }
 
+// Being throttled by the forge is not a loss of access. GitHub answers a
+// rate limit with the same 403 it uses for a repository one may not see, and
+// reading it as "no access" locked a visitor out of their own board for the
+// cache's minute — the write guard refused every card. The throttled answer
+// is an error now, so the last answer stands and nothing false is cached.
+func TestForgeAccessKeepsTheLastAnswerWhenThrottled(t *testing.T) {
+	var limited atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if limited.Load() {
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"permissions":{"admin":true,"push":true,"pull":true}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared.git"}}, "srv-token", nil)
+	now := time.Date(2026, 8, 28, 18, 0, 0, 0, time.UTC)
+	fa.now = func() time.Time { return now }
+	if r, err := fa.rights(context.Background(), "tok", "kvaps"); err != nil || !r.canWrite("shared") {
+		t.Fatalf("first answer: %+v %v", r, err)
+	}
+	// The forge starts throttling and the cached answer goes stale.
+	limited.Store(true)
+	now = now.Add(accessTTL + time.Second)
+	r, err := fa.rights(context.Background(), "tok", "kvaps")
+	if err != nil || r == nil || !r.canWrite("shared") {
+		t.Fatalf("throttled: rights = %+v, err = %v; want the last answer to stand", r, err)
+	}
+	// A visitor never seen before gets an error, not a silent lockout.
+	if _, err := fa.rights(context.Background(), "tok2", "newcomer"); err == nil {
+		t.Fatal("an unknown visitor during throttling must be an error, not an empty right set")
+	}
+}
+
 func TestForgeAccessRefusesABadToken(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true}}, &calls)

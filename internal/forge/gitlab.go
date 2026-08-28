@@ -130,6 +130,9 @@ func (g *gitlab) Access(ctx context.Context, client *http.Client, token, repoURL
 		return false, false, err
 	}
 	switch {
+	case throttled(resp):
+		_ = resp.Body.Close()
+		return false, false, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
 	case resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusForbidden:
 		_ = resp.Body.Close()
 		return false, false, nil
@@ -185,6 +188,10 @@ func (g *gitlab) Readers(ctx context.Context, client *http.Client, serverToken, 
 		resp, err := g.get(ctx, client, serverToken, "/projects/"+ref+"/members/all?per_page=100&page="+strconv.Itoa(page))
 		if err != nil {
 			return nil, err
+		}
+		if throttled(resp) {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
 		}
 		if resp.StatusCode/100 != 2 {
 			_ = resp.Body.Close()

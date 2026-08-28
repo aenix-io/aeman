@@ -118,6 +118,9 @@ func (g *github) Access(ctx context.Context, client *http.Client, token, repoURL
 		return false, false, err
 	}
 	switch {
+	case throttled(resp):
+		_ = resp.Body.Close()
+		return false, false, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
 	case resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusForbidden:
 		_ = resp.Body.Close()
 		return false, false, nil
@@ -161,6 +164,9 @@ func (g *github) Readers(ctx context.Context, client *http.Client, serverToken, 
 			return nil, err
 		}
 		switch {
+		case throttled(resp):
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
 		case resp.StatusCode == http.StatusNotFound:
 			_ = resp.Body.Close()
 			continue
