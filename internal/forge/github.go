@@ -122,7 +122,16 @@ func (g *github) Access(ctx context.Context, client *http.Client, token, repoURL
 		_ = resp.Body.Close()
 		return false, false, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
 	case resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusForbidden:
+		stale := staleScope(resp)
 		_ = resp.Body.Close()
+		if stale {
+			// A token minted before this server asked for `repo` cannot see
+			// a private repository, and GitHub says 404 either way. Read as
+			// "no access" it strands the visitor — every write refused until
+			// they happen to sign in again — so it is what it is: an
+			// authorization that no longer covers what the board needs.
+			return false, false, fmt.Errorf("%w: the sign-in predates the scopes this board needs", ErrBadToken)
+		}
 		return false, false, nil
 	case resp.StatusCode == http.StatusUnauthorized:
 		_ = resp.Body.Close()
@@ -194,6 +203,24 @@ func (g *github) Lookup(_ context.Context, _ *http.Client, _, login string) (Per
 		return Person{}, ErrNotFound
 	}
 	return Person{Login: login, AvatarURL: githubAvatarURL(login)}, nil
+}
+
+// staleScope reports whether a refusal is the token's scopes rather than
+// the visitor's access: GitHub names an OAuth token's scopes in every
+// answer, and one without `repo` cannot see a private repository at all. A
+// forge that names no scopes (a fine-grained token, another server) tells
+// us nothing, and the refusal is taken at face value.
+func staleScope(resp *http.Response) bool {
+	scopes, named := resp.Header["X-Oauth-Scopes"]
+	if !named {
+		return false
+	}
+	for _, s := range strings.Split(strings.Join(scopes, ","), ",") {
+		if strings.TrimSpace(s) == "repo" {
+			return false
+		}
+	}
+	return true
 }
 
 // githubAvatarURL is GitHub's avatar image for a login — the CDN, sized

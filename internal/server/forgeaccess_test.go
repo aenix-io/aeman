@@ -103,8 +103,10 @@ func TestForgeAccessCachesPerVisitorAndSurvivesOutage(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true, "push": true}}, &calls)
 	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
-	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	fa.now = func() time.Time { return now }
+	// A revalidation runs behind the answer and reads the clock from its own
+	// goroutine, so the clock the test winds forward has to be one.
+	clock := &fakeClock{at: time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)}
+	fa.now = clock.now
 	if _, err := fa.rights(context.Background(), "tok-alice", "alice"); err != nil {
 		t.Fatal(err)
 	}
@@ -114,18 +116,18 @@ func TestForgeAccessCachesPerVisitorAndSurvivesOutage(t *testing.T) {
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("%d forge calls within the TTL, want 1", n)
 	}
-	// Past the TTL the forge is asked again.
-	now = now.Add(accessTTL + time.Second)
+	// Past the TTL the answer still comes from the cache — a visitor never
+	// waits on the forge for rights that were true a minute ago — and the
+	// forge is asked behind it.
+	clock.wind(accessTTL + time.Second)
 	if _, err := fa.rights(context.Background(), "tok-alice", "alice"); err != nil {
 		t.Fatal(err)
 	}
-	if n := calls.Load(); n != 2 {
-		t.Fatalf("%d forge calls after the TTL, want 2", n)
-	}
+	waitForCalls(t, &calls, 2)
 	// The forge goes away: the stale answer stands for a known visitor, a
 	// new visitor gets the error.
 	forge.Close()
-	now = now.Add(accessTTL + time.Second)
+	clock.wind(accessTTL + time.Second)
 	r, err := fa.rights(context.Background(), "tok-alice", "alice")
 	if err != nil || !r.canWrite("shared") {
 		t.Fatalf("stale answer during an outage: %+v, %v", r, err)
@@ -255,4 +257,36 @@ func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
 	if got, err := bare.readers(context.Background(), "shared", []string{"alice"}); err != nil || len(got) != 0 {
 		t.Fatalf("without a server token: %v, %v", got, err)
 	}
+}
+
+// waitForCalls waits for the background revalidation to reach the forge.
+func waitForCalls(t *testing.T, calls *atomic.Int32, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if calls.Load() >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("%d forge calls, want %d", calls.Load(), want)
+}
+
+// fakeClock is a clock a test can wind while the code under test reads it
+// from another goroutine.
+type fakeClock struct {
+	mu sync.Mutex
+	at time.Time
+}
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
+}
+
+func (c *fakeClock) wind(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.at = c.at.Add(d)
 }
