@@ -245,12 +245,14 @@ Changes that reach the repository from elsewhere — another aeman replica, a pl
 {
   "status": "degraded",
   "unpushedAgeSeconds": 412,
+  "cacheAgeSeconds": 9,
   "aliases": [{ "kind": "project", "name": "Docs", "domain": "closed", "id": "01JB…", "winner": "01JB…" }],
   "ghosts": [{ "id": "01JB…", "domain": "aeman-db", "current": "closed" }]
 }
 ```
 
 - `unpushedAgeSeconds` is the age of the oldest commit not yet pushed; past `--unpushed-warn` (5 min) the status is `degraded` — a push that cannot land must not be discovered a week later. Commits are never lost: they stay in the clone and are pushed when the remote is reachable again.
+- `cacheAgeSeconds` is how long ago the cache was last known to be the remote — a full read, or a fetch that found nothing new. It should stay within the fetch interval; a number that keeps growing means the sync is not running, and the next visitor after a break pays for a blocking re-read.
 - `aliases` names roster entries (teams, projects, processes) declared under the same name in two domains; the oldest wins, the others' cards still count. A maintainer merges them by hand.
 - `ghosts` are cards left behind by a move that landed in the destination but whose source-side delete has not yet; maintenance removes them.
 
