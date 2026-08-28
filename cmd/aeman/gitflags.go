@@ -111,7 +111,7 @@ func addGitFlags(fs *flag.FlagSet, env func(string) string) *gitFlags {
 		return g.repos.Set(v)
 	})
 	fs.StringVar(&g.data, "data", "", "directory for clones and the session file (env AEMAN_DATA; default /data if it exists, else the user cache dir)")
-	fs.StringVar(&g.history, "history", "", "history horizon to load in the background, e.g. 8w (env AEMAN_HISTORY; default 8w)")
+	fs.StringVar(&g.history, "history", "", "history horizon to load in the background, e.g. 2w (env AEMAN_HISTORY; default 2w)")
 	fs.StringVar(&g.historyMax, "history-max", "", "cap for on-demand history deepening (env AEMAN_HISTORY_MAX; default 1y)")
 	fs.StringVar(&g.syncInterval, "sync-interval", "", "how often to fetch other replicas' commits (env AEMAN_SYNC_INTERVAL; default 15s)")
 	fs.StringVar(&g.unpushed, "unpushed-warn", "", "age of the oldest unpushed commit that turns health degraded (env AEMAN_UNPUSHED_WARN; default 5m)")
@@ -149,7 +149,7 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 	}
 	cfg := &server.GitConfig{Repos: repos, Token: g.env("AEMAN_GIT_TOKEN")}
 	var err error
-	if cfg.History, err = parseSpan(g.pick(g.history, "AEMAN_HISTORY", "8w")); err != nil {
+	if cfg.History, err = parseSpan(g.pick(g.history, "AEMAN_HISTORY", "2w")); err != nil {
 		return nil, fmt.Errorf("--history: %w", err)
 	}
 	if cfg.HistoryMax, err = parseSpan(g.pick(g.historyMax, "AEMAN_HISTORY_MAX", "365d")); err != nil {

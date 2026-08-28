@@ -141,3 +141,24 @@ func TestGitConfigFromFlagsAndEnv(t *testing.T) {
 		t.Fatal("a data dir default is required")
 	}
 }
+
+// With only the repository given, the background horizon defaults to two
+// weeks: a sprint and the one before it are what the boards look back at, and
+// a card's log deepens on demand past that (up to --history-max, a year).
+func TestGitConfigDefaultsHorizonToTwoWeeks(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	gf := addGitFlags(fs, func(string) string { return "" })
+	if err := fs.Parse([]string{"--repo", "board=https://x/board.git"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := gf.config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.History != 14*24*time.Hour {
+		t.Fatalf("default --history = %v, want 2w", cfg.History)
+	}
+	if cfg.HistoryMax != 365*24*time.Hour || cfg.SyncInterval != 15*time.Second {
+		t.Fatalf("other defaults moved: history-max %v, sync-interval %v", cfg.HistoryMax, cfg.SyncInterval)
+	}
+}

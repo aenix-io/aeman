@@ -288,7 +288,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards' \
 | `--repo name=url` | `AEMAN_REPOS` (comma-separated) | — (required) | A domain of the board; repeatable, the primary first. The name is the domain's name on the API and the board's name for the primary. |
 | — | `AEMAN_GIT_TOKEN` | `GITHUB_TOKEN`, `GH_TOKEN`, then `gh auth token` | The server's own credential: fetch, push, and resolving issue titles. |
 | `--data` | `AEMAN_DATA` | `/data` if it exists, else the user cache dir | Where the clones live (`<data>/repos/<name>`) and the session file. |
-| `--history` | `AEMAN_HISTORY` | `8w` | How far back the history is loaded in the background after start-up. The cold start is a depth-1 clone; the log fills in behind it. |
+| `--history` | `AEMAN_HISTORY` | `2w` | How far back the history is loaded in the background after start-up. The cold start is a depth-1 clone; the log fills in behind it. |
 | `--history-max` | `AEMAN_HISTORY_MAX` | `1y` | Cap for on-demand deepening when a card's log is cut by the horizon. |
 | `--sync-interval` | `AEMAN_SYNC_INTERVAL` | `15s` | How often other replicas' and direct commits are fetched (and the weekly process turns filed). |
 | `--unpushed-warn` | `AEMAN_UNPUSHED_WARN` | `5m` | Age of the oldest unpushed commit that turns `/api/healthz` degraded. |

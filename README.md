@@ -83,7 +83,7 @@ make frontend       # build the SPA once into web/dist
 make run            # go run ./cmd/aeman serve
 ```
 
-`aeman serve` flags: `--repo name=url` (repeatable; the board's repositories, primary first — env `AEMAN_REPOS`), `--data` (where the clones live), `--history` (how far back the log is loaded in the background, default 8 weeks) and `--history-max` (how far a card's log may deepen on demand, default a year), `--sync-interval` (fetch cadence, 15 s), `--unpushed-warn` (age of an unpushed commit that turns `/api/healthz` degraded, 5 m), `--committer` and `--author-email`, `--addr`, `--open`, `--verbose`. Each flag has an `AEMAN_*` environment twin; the push credential is `AEMAN_GIT_TOKEN`, never a flag. ("Project" is aeman's own planning entity — a group of epic columns — not a repository.)
+`aeman serve` flags: `--repo name=url` (repeatable; the board's repositories, primary first — env `AEMAN_REPOS`), `--data` (where the clones live), `--history` (how far back the log is loaded in the background, default 2 weeks) and `--history-max` (how far a card's log may deepen on demand, default a year), `--sync-interval` (fetch cadence, 15 s), `--unpushed-warn` (age of an unpushed commit that turns `/api/healthz` degraded, 5 m), `--committer` and `--author-email`, `--addr`, `--open`, `--verbose`. Each flag has an `AEMAN_*` environment twin; the push credential is `AEMAN_GIT_TOKEN`, never a flag. ("Project" is aeman's own planning entity — a group of epic columns — not a repository.)
 
 ## API and MCP server
 

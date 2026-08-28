@@ -557,7 +557,7 @@ restart; the drain pushes what it can with the old token first.
 ### Horizon
 
 The clone starts at **depth 1** (the board's current state) and deepens
-in the background to a **time horizon** (`--history`, default `8w`,
+in the background to a **time horizon** (`--history`, default `2w`,
 i.e. roughly four sprints). One knob serves both consumers of history:
 
 - **A card's log** — the commits within the horizon that touch it,
@@ -654,7 +654,7 @@ design just does not prevent them.
 | `--repo name=url` (repeatable) | `AEMAN_REPOS` | — | the board's domains, primary first |
 | — | `AEMAN_GIT_TOKEN` | — | push/fetch credential (HTTPS) |
 | `--data` | `AEMAN_DATA` | `/data` | clones and session file |
-| `--history` | `AEMAN_HISTORY` | `8w` | background deepening horizon |
+| `--history` | `AEMAN_HISTORY` | `2w` | background deepening horizon |
 | `--history-max` | `AEMAN_HISTORY_MAX` | `1y` | cap for on-demand deepening |
 | `--sync-interval` | `AEMAN_SYNC_INTERVAL` | `15s` | fetch cadence for remote changes |
 | `--unpushed-warn` | `AEMAN_UNPUSHED_WARN` | `5m` | age of the oldest unpushed commit that turns healthz red |
