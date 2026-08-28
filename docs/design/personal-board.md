@@ -1,0 +1,32 @@
+# Personal board
+
+A person's own backlog beside the team board: the same four zones, their own cards, in a repository of their own. Decided 2026-08-28; the rules are pinned in [behavior-matrix.md](behavior-matrix.md) rows P1–P6.
+
+## The model: a domain for one person
+
+A personal board is not a new kind of thing. It is a **domain** — a repository of the board, like the closed project repositories of [git-backend.md](git-backend.md) — with one difference: it belongs to one person and is served to that person alone. Everything a domain already has applies: the layout, the commit-per-action, the sync, the card log from commits, `status.domain` on every card.
+
+- **Name.** `~<login>`. No configured repository is named with a `~` (`--repo name=url` names are plain), so a personal domain never collides with one, and the owner is readable off the name wherever it shows up.
+- **Link.** `users/<login>.yaml` in the primary: `personal: <repository url>`, `created`. Only the primary's users files count. The link is the one thing about a personal board that lives outside the personal repository, because it is what tells the server the repository exists; it is visible to whoever reads the primary — a URL, not access.
+- **Credential.** The server's own token has no business in someone's private repository. The clone, its commits and its pushes use the **owner's** credential: the session token in the self-hosted mode, the local `gh` token on a local server. Credentials are not kept across restarts, so the domain is attached the first time its owner shows up after a start, re-credentialed when their token changes, and detached when they unlink. The repository itself is never touched by attach or detach.
+- **Visibility.** The owner alone, whatever the forge says about who else can read the repository. Personal cards are absent from everyone else's board and watch — the same projection that hides a closed domain, fed by a right the middleware adds for the owner only.
+- **Placement.** A card is personal because it was created so (`personal: true`); the service files it in the actor's domain. From then on it is **pinned**: the home rule (team → project → primary) never moves it out, whatever team or project it is later given; a card linked to it (a subtask, a review) follows it in by the usual rule. No team, column or plan band is accepted on a personal create — those are the team board's coordinates.
+- **The view.** `view=personal` is the domain as a backlog: every open card, plus the cards finished **today**. There is no carry-over on a personal board, so a done card is seen the day it was done and is gone the next morning. That needs the day a card was done — `doneAt`, written by the store when progress reaches 100 and cleared on reopen, the way `doneFrom` is.
+
+## What was decided against
+
+- **Browser-side storage of the link.** Only the server writes to repositories, and an agent over MCP cannot read a browser's localStorage; the link is server state, in the primary.
+- **Personal projects and processes.** Roster names are one namespace across the board; ten people with an `Inbox` project would be ten collisions, resolvable only by owner-scoped names — the qualified-name scheme deferred elsewhere. The Project board is a team artifact. Cards with zones cover what was asked for.
+- **Deleting done cards.** They are hidden from the personal view the next day, not deleted: the file and its history stay.
+
+## Surface
+
+- `GET /api/v1/me/personal` → `{domain, url}` / 404; `PUT` `{url}` links (the visitor must be able to push there — checked with the forge in the self-hosted mode; an empty repository is given a board); `DELETE` unlinks.
+- `POST /api/v1/cards` with `personal: true`; `GET /api/v1/cards?view=personal`; the watch takes the same selector.
+- `GET /api/v1/board`: `metadata.personal {domain, url}` for the owner; their `~<login>` entry in `metadata.domains` with `personal: true`.
+- MCP: `create_card personal=true`, `list_cards view=personal`. `aeman mcp` attaches the local user's personal board at start with the token it pushes with.
+- UI: a personal column at the right of the Me screen with the same four zones; a "Personal board" entry in the user menu to link or unlink a repository.
+
+## Companion plugin
+
+A plugin writing repositories directly learns three things: `users/<login>.yaml` and what it means; that a card in a `~`-named domain stays there whatever its fields say; and `doneAt` on a card. See [plugin-impact.md](plugin-impact.md).
