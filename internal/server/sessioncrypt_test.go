@@ -34,7 +34,7 @@ func TestSessionEncryptRoundTrip(t *testing.T) {
 func quietAuth(t *testing.T, cfg OAuthConfig) *authManager {
 	t.Helper()
 	cfg.ClientID, cfg.ClientSecret, cfg.BaseURL = "id", "sec", "https://aeman.test"
-	return newAuthManager(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return newAuthManager(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 // With a SessionKey, sessions survive a restart (a fresh authManager over the

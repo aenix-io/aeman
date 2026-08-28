@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	forgepkg "github.com/aenix-io/aeman/internal/forge"
 )
 
 // The forge adapter: GitHub's repository permissions block, read with the
@@ -70,11 +72,11 @@ func TestForgeAccessReadsPermissionsPerDomain(t *testing.T) {
 		"acme/shared": {"pull": true, "push": true},
 		"acme/closed": {"pull": true},
 	}, &calls)
-	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{
 		{Name: "shared", URL: "https://github.com/acme/shared.git"},
 		{Name: "closed", URL: "git@github.com:acme/closed.git"},
 		{Name: "hidden", URL: "https://github.com/acme/hidden"},
-	}, "srv-token")
+	}, "srv-token", nil)
 	r, err := fa.rights(context.Background(), "tok-alice", "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +101,7 @@ func TestForgeAccessReadsPermissionsPerDomain(t *testing.T) {
 func TestForgeAccessCachesPerVisitorAndSurvivesOutage(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true, "push": true}}, &calls)
-	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token")
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 	fa.now = func() time.Time { return now }
 	if _, err := fa.rights(context.Background(), "tok-alice", "alice"); err != nil {
@@ -135,7 +137,7 @@ func TestForgeAccessCachesPerVisitorAndSurvivesOutage(t *testing.T) {
 func TestForgeAccessRefusesABadToken(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true}}, &calls)
-	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token")
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
 	if _, err := fa.rights(context.Background(), "tok-expired", "alice"); err == nil {
 		t.Fatal("a rejected token must be an error, not an empty right set")
 	}
@@ -147,7 +149,7 @@ func TestForgeAccessRefusesABadToken(t *testing.T) {
 func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
 	var calls atomic.Int32
 	forge := fakeForge(t, map[string]map[string]bool{"acme/shared": {"pull": true}}, &calls)
-	fa := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token")
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "srv-token", nil)
 	got, err := fa.readers(context.Background(), "shared", []string{"alice", "bob", "carol", "stranger"})
 	if err != nil {
 		t.Fatal(err)
@@ -165,30 +167,8 @@ func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
 		t.Fatal("an unknown domain must be an error")
 	}
 	// No server credential: nobody can be vouched for, and that is not an error.
-	bare := newForgeAccess(forge.URL, forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "")
+	bare := newForgeAccess(forgepkg.NewGitHubAt(forge.URL), forge.Client(), []RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "", nil)
 	if got, err := bare.readers(context.Background(), "shared", []string{"alice"}); err != nil || len(got) != 0 {
 		t.Fatalf("without a server token: %v, %v", got, err)
-	}
-}
-
-func TestRepoSlugForms(t *testing.T) {
-	for in, want := range map[string]string{
-		"https://github.com/acme/shared.git":  "acme/shared",
-		"https://github.com/acme/shared":      "acme/shared",
-		"https://github.com/acme/shared/":     "acme/shared",
-		"git@github.com:acme/shared.git":      "acme/shared",
-		"ssh://git@github.com/acme/shared":    "acme/shared",
-		"https://gitlab.example/grp/sub/repo": "sub/repo",
-		"acme/shared":                         "acme/shared",
-	} {
-		got, err := repoSlug(in)
-		if err != nil || got != want {
-			t.Errorf("repoSlug(%q) = %q, %v; want %q", in, got, err, want)
-		}
-	}
-	for _, bad := range []string{"", "https://github.com/acme", "shared"} {
-		if _, err := repoSlug(bad); err == nil {
-			t.Errorf("repoSlug(%q) must fail", bad)
-		}
 	}
 }

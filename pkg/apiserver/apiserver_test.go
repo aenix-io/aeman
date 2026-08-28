@@ -442,6 +442,34 @@ func memberLogins2(cards []board.Card) []string {
 
 // The resource says when a card was done (status.doneAt) and which domains
 // are personal.
+// The board's members carry what the forge knows about each person — the
+// avatar and, on a forge that has them, the display name — through one hook;
+// the login stays the identity. The avatar-only hook is that hook without
+// names, for callers that have no more.
+func TestBoardResourceMembersCarryNamesAndAvatarsFromTheHook(t *testing.T) {
+	b := testBoard()
+	info := BoardResourceWithPeople(b, func(login string) Member {
+		return Member{Login: login, Name: "Person " + login, AvatarURL: "https://forge.example/avatars/" + login}
+	})
+	if len(info.Metadata.Members) == 0 {
+		t.Fatal("test board has no assignees")
+	}
+	for _, m := range info.Metadata.Members {
+		if m.Name != "Person "+m.Login || m.AvatarURL != "https://forge.example/avatars/"+m.Login {
+			t.Fatalf("member = %+v; want name and avatar from the hook", m)
+		}
+	}
+	plain := BoardResourceWith(b, func(login string) string { return "https://cdn/" + login })
+	for _, m := range plain.Metadata.Members {
+		if m.Name != "" || m.AvatarURL != "https://cdn/"+m.Login {
+			t.Fatalf("avatar-only member = %+v", m)
+		}
+	}
+	if BoardResource(b).Metadata.Members[0].AvatarURL != "" {
+		t.Fatal("without a hook the members carry no avatar")
+	}
+}
+
 func TestCardResourceCarriesDoneAtAndPersonalDomain(t *testing.T) {
 	b := testBoard()
 	c := b.Cards[0]

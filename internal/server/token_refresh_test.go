@@ -58,7 +58,7 @@ func TestSessionRenewsItsGitHubToken(t *testing.T) {
 	srv := httptest.NewServer(stub.handler())
 	defer srv.Close()
 
-	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "sec", BaseURL: "http://localhost"}, slog.Default())
+	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "sec", BaseURL: "http://localhost"}, nil, slog.Default())
 	a.tokenURL = srv.URL + "/token"
 	a.client = srv.Client()
 
@@ -112,7 +112,7 @@ func TestRenewalFailureKeepsALiveToken(t *testing.T) {
 	stub := &ghStub{valid: map[string]bool{}} // every refresh is refused
 	srv := httptest.NewServer(stub.handler())
 	defer srv.Close()
-	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "sec", BaseURL: "http://localhost"}, slog.Default())
+	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "sec", BaseURL: "http://localhost"}, nil, slog.Default())
 	a.tokenURL = srv.URL + "/token"
 	a.client = srv.Client()
 	a.mu.Lock()

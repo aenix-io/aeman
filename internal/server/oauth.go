@@ -309,7 +309,7 @@ func (a *authManager) promptConsent(w http.ResponseWriter, grant ghGrant, login 
 	}
 	a.mu.Unlock()
 	a.setCookie(w, consentCookie, browserToken, int(consentTTL/time.Second))
-	renderConsentPage(w, consentID, login, p.clientID, p.redirectURI)
+	renderConsentPage(w, consentID, login, p.clientID, p.redirectURI, a.forge.Label())
 }
 
 // handleConsent finalizes an MCP authorization the user approved (or aborts the
@@ -575,7 +575,7 @@ func (a *authManager) pruneClientsLocked() {
 // renderConsentPage writes the MCP authorization approval screen. Every
 // interpolated value is HTML-escaped: redirect_uri and client_id come from the
 // (attacker-controllable) authorize request, and login from GitHub.
-func renderConsentPage(w http.ResponseWriter, consentID, login, clientID, redirectURI string) {
+func renderConsentPage(w http.ResponseWriter, consentID, login, clientID, redirectURI, forgeLabel string) {
 	page := `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -593,12 +593,12 @@ func renderConsentPage(w http.ResponseWriter, consentID, login, clientID, redire
   .approve{background:#1f6feb;color:#fff;border-color:#1f6feb}
 </style></head><body>
 <h1>Authorize MCP access</h1>
-<p>An application wants to connect to aeman as <strong>@` + html.EscapeString(login) + `</strong> using your GitHub access.</p>
+<p>An application wants to connect to aeman as <strong>@` + html.EscapeString(login) + `</strong> using your ` + html.EscapeString(forgeLabel) + ` access.</p>
 <div class="card"><dl>
   <dt>Client</dt><dd>` + html.EscapeString(clientID) + `</dd>
   <dt>Redirects to</dt><dd>` + html.EscapeString(redirectURI) + `</dd>
 </dl></div>
-<p class="warn">Only approve if you started this from a tool you trust and recognize the address above. Approving lets it act on your GitHub projects.</p>
+<p class="warn">Only approve if you started this from a tool you trust and recognize the address above. Approving lets it act on your ` + html.EscapeString(forgeLabel) + ` repositories.</p>
 <form method="POST" action="/oauth/consent" class="row">
   <input type="hidden" name="consent_id" value="` + html.EscapeString(consentID) + `">
   <button class="approve" type="submit" name="action" value="approve">Approve</button>

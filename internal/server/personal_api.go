@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -58,14 +59,15 @@ func (s *Server) handleLinkPersonal(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "this server has no git store")
 		return
 	}
-	if fa, ok := s.access.(*forgeAccess); ok {
+	if s.access != nil {
 		// Self-hosted: the forge says whether the visitor may push there —
-		// which needs a repository the forge knows (owner/repo in the URL).
-		if _, err := repoSlug(in.URL); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "not a repository URL: "+err.Error())
+		// which needs a repository the forge knows how to name from the URL.
+		// A single-user server says yes and lets the push itself decide.
+		write, err := s.access.canPush(r.Context(), tok, in.URL)
+		if errors.Is(err, errNotARepository) {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		_, write, err := fa.probe(r.Context(), tok, in.URL)
 		if err != nil {
 			writeJSONError(w, http.StatusBadGateway, "could not check the repository: "+err.Error())
 			return

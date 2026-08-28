@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/gitstore"
@@ -45,6 +46,9 @@ type gitOptions struct {
 	// their live title and state with the server credential; nil leaves
 	// them as written.
 	Links *forgeLinks
+	// Forge says how a token travels over HTTPS when a repository is
+	// attached at run time (a personal board); GitHub when nil.
+	Forge forge.Forge
 	// DataDir and RepoOpts are what a personal domain's clone is made with
 	// when its owner shows up.
 	DataDir  string
@@ -60,6 +64,7 @@ type gitDomain struct {
 
 // gitSync is the per-store sync state.
 type gitSync struct {
+	forge      forge.Forge // the code host; nil reads as GitHub (gitAuth)
 	domains    []gitDomain // primary first; personal domains join at run time (personal.go)
 	mb         *gitstore.MultiBackend
 	pushDelay  time.Duration
@@ -100,7 +105,7 @@ func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *sto
 	be := &storeBackend{
 		inner: mb,
 		store: store,
-		git: &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, links: opts.Links, log: opts.Logger,
+		git: &gitSync{forge: opts.Forge, domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, links: opts.Links, log: opts.Logger,
 			dataDir: opts.DataDir, repoOpts: opts.RepoOpts},
 	}
 	if opts.SyncInterval > 0 {

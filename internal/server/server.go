@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/ghcli"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
@@ -41,13 +42,21 @@ type Options struct {
 	Version string
 	// Logger receives structured logs; slog.Default() is used when nil.
 	Logger *slog.Logger
-	// Auth, when non-nil, enables GitHub OAuth multi-user mode: each visitor
-	// signs in, and their own token decides which of the board's
+	// Auth, when non-nil, enables OAuth multi-user mode: each visitor signs
+	// in with the forge, and their own token decides which of the board's
 	// repositories they may read and write.
 	Auth *OAuthConfig
 	// Git is the board's storage — its repositories (see gitmode.go). A
 	// server without it serves no board; tests inject a service instead.
 	Git *GitConfig
+	// Forge is the code host behind the board — the identity provider,
+	// the authority on repository access, the directory of names and
+	// avatars, the git credential's dialect. GitHub when nil.
+	Forge forge.Forge
+	// CLI is the forge's command-line tool standing in for the signed-in
+	// person on a single-user server (gh, glab); the gh CLI when nil. Unused
+	// in OAuth mode.
+	CLI forge.CLI
 }
 
 // Server is the aeman local HTTP server.
@@ -57,9 +66,14 @@ type Server struct {
 	// its index.html. The SPA compares it against the one it started with and
 	// offers a reload when a new build is being served, which is the only way
 	// a long-open tab learns it is running yesterday's code.
-	build      string
-	log        *slog.Logger
-	tokens     *ghcli.TokenSource
+	build string
+	log   *slog.Logger
+	// forge is the code host behind the board; cli its command-line tool
+	// standing in for the signed-in person on a single-user server; people
+	// the directory of names and avatars the forge fills.
+	forge      forge.Forge
+	cli        forge.CLI
+	people     *people
 	auth       *authManager
 	httpClient *http.Client
 	handler    http.Handler
@@ -99,18 +113,51 @@ func New(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("load embedded frontend: %w", err)
 	}
 
+	// One forge behind everything: the sign-in, the access checks, the
+	// people directory and the git credential agree on which code host the
+	// board lives on. Named by the options, else by the git config, else
+	// GitHub — the forge this code base grew up on.
+	f := opts.Forge
+	if f == nil && opts.Git != nil {
+		f = opts.Git.Forge
+	}
+	if f == nil {
+		f = forge.NewGitHub()
+	}
+	if opts.Git != nil && opts.Git.Forge == nil {
+		opts.Git.Forge = f
+	}
+	cli := opts.CLI
+	if cli == nil {
+		cli = ghcli.NewTokenSource()
+	}
 	s := &Server{
 		opts:       opts,
 		build:      frontendBuild(dist),
 		log:        opts.Logger,
-		tokens:     ghcli.NewTokenSource(),
+		forge:      f,
+		cli:        cli,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 	s.apiTokens = s.tokenForRequest
 	s.newService = s.defaultService
+	// The directory of people is read with the server's own credential in
+	// OAuth mode and with the CLI's on a single-user server.
+	var peopleToken func(context.Context) string
+	switch {
+	case opts.Auth != nil && opts.Git != nil:
+		tok := opts.Git.Token
+		peopleToken = func(context.Context) string { return tok }
+	case opts.Auth == nil:
+		peopleToken = func(ctx context.Context) string {
+			tok, _ := cli.Token(ctx)
+			return tok
+		}
+	}
+	s.people = newPeople(f, s.httpClient, peopleToken)
 	s.store = newBoardStore()
 	s.store.log = s.log
-	s.store.avatarURL = githubAvatarURL // the forge the identities come from
+	s.store.member = s.people.member // the forge the identities come from
 	if opts.Git != nil {
 		if err := s.openGit(opts.Git); err != nil {
 			return nil, err
@@ -123,13 +170,14 @@ func New(opts Options) (*Server, error) {
 		if opts.Auth != nil {
 			// Each visitor brings their own token: the forge says what it
 			// may read and write, per domain.
-			s.access = newForgeAccess(githubAPIBase, s.httpClient, opts.Git.Repos, opts.Git.Token)
+			s.access = newForgeAccess(f, s.httpClient, opts.Git.Repos, opts.Git.Token, s.people)
 		} else {
 			s.access = openAccess{domains: names}
 		}
 	}
 	if opts.Auth != nil {
-		s.auth = newAuthManager(*opts.Auth, opts.Logger)
+		s.auth = newAuthManager(*opts.Auth, f, opts.Logger)
+		s.auth.learned = s.people.learnUser
 	}
 
 	mux := http.NewServeMux()
@@ -270,11 +318,11 @@ func (s *Server) tokenForRequest(r *http.Request) (token, login string, err erro
 		}
 		return sess.token, sess.login, nil
 	}
-	tok, err := s.tokens.Token(r.Context())
+	tok, err := s.cli.Token(r.Context())
 	if err != nil {
 		return "", "", err
 	}
-	login, _ = ghcli.Login(r.Context())
+	login, _ = s.cli.Login(r.Context())
 	return tok, login, nil
 }
 
@@ -327,13 +375,39 @@ type configResponse struct {
 	// Build identifies the served frontend bundle; a running SPA whose own
 	// build differs is looking at stale code and says so.
 	Build string `json:"build,omitempty"`
+	// Forge names the code host behind the board (github, gitlab);
+	// ForgeLabel is its display name for the sign-in copy; ForgeHost the
+	// host the board's repositories live on; CLI the tool a single-user
+	// server reads the identity from (gh, glab).
+	Forge      string `json:"forge"`
+	ForgeLabel string `json:"forgeLabel"`
+	ForgeHost  string `json:"forgeHost,omitempty"`
+	CLI        string `json:"cli"`
+}
+
+// forgeHost is the host the board's repositories live on — the primary's,
+// else the forge's public one.
+func (s *Server) forgeHost() string {
+	if s.gitCfg != nil && len(s.gitCfg.Repos) > 0 {
+		if h := forge.HostOf(s.gitCfg.Repos[0].URL); h != "" {
+			return h
+		}
+	}
+	if s.forge.Kind() == forge.GitLab {
+		return "gitlab.com"
+	}
+	return "github.com"
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	resp := configResponse{
-		Version: s.opts.Version,
-		Build:   s.build,
-		Tz:      board.LocationName(),
+		Version:    s.opts.Version,
+		Build:      s.build,
+		Tz:         board.LocationName(),
+		Forge:      string(s.forge.Kind()),
+		ForgeLabel: s.forge.Label(),
+		ForgeHost:  s.forgeHost(),
+		CLI:        cliName(s.forge),
 	}
 	if s.auth != nil {
 		resp.Mode = "oauth"
@@ -346,10 +420,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		resp.Mode = "local-proxy"
-		if _, err := s.tokens.Token(r.Context()); err == nil {
+		if _, err := s.cli.Token(r.Context()); err == nil {
 			resp.Authenticated = true
 			resp.TokenAvailable = true
-			if login, err := ghcli.Login(r.Context()); err == nil {
+			if login, err := s.cli.Login(r.Context()); err == nil {
 				resp.Login = login
 			}
 		}
