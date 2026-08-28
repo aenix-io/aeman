@@ -9,6 +9,7 @@ import (
 	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/ghcli"
 	"github.com/aenix-io/aeman/internal/glabcli"
+	"github.com/aenix-io/aeman/internal/server"
 )
 
 // cliFor is the forge's command-line tool — gh for GitHub, glab for GitLab
@@ -85,6 +86,21 @@ func oauthPair(f forge.Forge, env func(string) string) (id, secret string, err e
 		return env("AEMAN_GITLAB_CLIENT_ID"), env("AEMAN_GITLAB_CLIENT_SECRET"), nil
 	}
 	return "", "", nil
+}
+
+// missingTokens names the board's repositories that have no credential —
+// each with the variable that would give it one. In the OAuth mode the
+// server needs one per repository: it pushes them and asks the forge who
+// may read them with its own. Empty when every repository is covered,
+// whether by its own token or by the shared one.
+func missingTokens(cfg *server.GitConfig) []string {
+	var out []string
+	for _, r := range cfg.Repos {
+		if r.Token == "" {
+			out = append(out, r.Name+" ("+tokenEnvFor(r.Name)+")")
+		}
+	}
+	return out
 }
 
 // osEnv is os.Getenv with the surrounding whitespace dropped.
