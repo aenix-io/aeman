@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, fetchHealth, type AppConfig } from "./api/client";
 import { apiProvider } from "./providers/api/apiProvider";
+import { guardSignedOut } from "./session";
 import {
   resourceToCard,
   sprintStateFrom,
@@ -22,9 +23,11 @@ import { boardMetadata, processesFrom } from "./providers/api/apiProvider";
 import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
-import { avatarsFrom } from "./users";
+import { avatarsFrom, namesFrom } from "./users";
+import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
+import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
 import { queryString, viewQueries, watchQueries } from "./viewquery";
 import { PersonalDialog } from "./components/PersonalDialog";
 import { todayIso, setBoardTimezone } from "./date";
@@ -36,7 +39,6 @@ import { applyAppearance, persistAppearance, readAppearance, type Appearance } f
 type ViewMode = "me" | "team" | "project" | "process";
 
 const LS_VIEW = "aeman.view";
-const LS_TEAM_ROSTER = "aeman.teamRoster";
 const LS_TEAM_FILTER = "aeman.teamFilter";
 const LS_VIEW_AS = "aeman.viewAs";
 
@@ -69,38 +71,16 @@ function readStringList(key: string): string[] | null {
   }
 }
 
-function writeStringList(key: string, value: string[]) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore persistence failures
-  }
-}
-
-// The server serves one board, so the roster and filter live under plain keys.
-// The picker era scoped them per board; the first load under this build moves
-// the last board's values over (once — see storage.ts).
-function settleStorage() {
-  migrateBoardScopedKeys(localStorage, [LS_TEAM_ROSTER, LS_TEAM_FILTER]);
-}
-
-function readRoster(): string[] {
-  settleStorage();
-  return readStringList(LS_TEAM_ROSTER) ?? [];
-}
-
+// The team filter is the one piece of team state this browser keeps — a
+// preference. The server serves one board, so it lives under a plain key; the
+// picker era scoped it per board, and the first load under this build moves
+// the last board's value over (once — see storage.ts). The teams themselves
+// are the server's (board.teams) and are never remembered here: a remembered
+// roster once leaked from one board onto the next served from the same origin.
 function readFilter(): string[] | null {
-  settleStorage();
-  const v = localStorage.getItem(LS_TEAM_FILTER);
-  if (!v) {
-    return null;
-  }
-  try {
-    const arr: unknown = JSON.parse(v);
-    return Array.isArray(arr) && arr.length ? (arr as string[]) : null;
-  } catch {
-    return null;
-  }
+  migrateBoardScopedKeys(localStorage, [LS_TEAM_FILTER]);
+  const arr = readStringList(LS_TEAM_FILTER);
+  return arr && arr.length ? arr : null;
 }
 
 const errMessage = (err: unknown) =>
@@ -227,6 +207,12 @@ export function App() {
   // Avatars come with the roster (GET /board members); a login outside it —
   // an assignee who is not a member — is drawn as initials.
   const avatars = useMemo(() => avatarsFrom(board?.members ?? []), [board?.members]);
+  // Display names come with the roster too (a GitLab board has them, a GitHub
+  // one does not); they decorate labels only — the login stays the identifier.
+  const names = useMemo(() => namesFrom(board?.members ?? []), [board?.members]);
+  // The forge (GitHub / GitLab) spells the sign-in and token copy; before the
+  // config answers, and on an older server, that is GitHub.
+  const forge = useMemo(() => forgeCopy(config), [config]);
   // Count of in-flight data loads (initial load + per-view card fetches);
   // any of them showing keeps the top progress bar visible.
   const [pendingLoads, setPendingLoads] = useState(0);
@@ -260,18 +246,33 @@ export function App() {
       setPendingSync(pendingSyncNext.current);
     }, 300);
   }, []);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<string | null>(null);
+  // While a sign-out is being confirmed (see onSignedOut) the messages the
+  // failing calls produce — every one of them "not signed in" — are held
+  // back: the sign-in gate is the answer, not a banner. The last one held is
+  // shown after all if the session turns out to be fine (a transient 401).
+  const holdingErrors = useRef(false);
+  const heldError = useRef<string | null>(null);
+  const setError = useCallback((message: string | null) => {
+    if (message !== null && holdingErrors.current) {
+      heldError.current = message;
+      return;
+    }
+    setErrorState(message);
+  }, []);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
 
-  // Team roster + filter, persisted in localStorage. The roster is the union of
-  // the teams found on the board and any teams the user has added by hand; the
-  // filter is the subset of the roster currently shown (defaults to everything).
-  const [addedTeams, setAddedTeams] = useState<string[]>(readRoster);
+  // Teams are the server's (board.teams). The only team state here is the
+  // just-added ones whose create is in flight — shown at once, and gone from
+  // this list as soon as the board declares them (see teams.ts). Nothing of it
+  // is persisted.
+  const [pendingTeams, setPendingTeams] = useState<string[]>([]);
   // Team filter: null = all, else the selected groups ("" = no-team). Multi-select
-  // — Shift-click a chip to add/remove it.
+  // — Shift-click a chip to add/remove it. Persisted, and pruned to the teams
+  // the board has once it is loaded.
   const [teamFilter, setTeamFilter] = useState<string[] | null>(readFilter);
 
   // A tab can stay open across deploys (and, on a dev box, across dozens of
@@ -385,52 +386,74 @@ export function App() {
     };
   }, []);
 
-  const provider = apiProvider;
-
-  // The roster: user-arranged teams first (in their saved order), then any team
-  // present on the board that isn't in that list yet. No alphabetical sort, so a
-  // hand-picked order sticks.
-  const roster = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    // The board's own teams come FIRST, in the server-side order (the
-    // sprint-state cards' positions) — shared by everyone, on every device.
-    for (const t of board?.teams ?? []) {
-      if (t && !seen.has(t)) {
-        seen.add(t);
-        out.push(t);
-      }
+  // A session can end under an open tab: the server restarted with memory-only
+  // sessions, the session TTL passed, the forge refused a refresh. From then on
+  // every request is a 401. In OAuth mode that is not an error to read but a
+  // sign-in to offer: the config is re-read and, once it says "not
+  // authenticated", the gate below renders in place of the board. In
+  // local-proxy mode a 401 is an ordinary error — there is nothing to sign in
+  // to. One re-check at a time, however many calls fail meanwhile; every
+  // provider call on the board goes through the guard, so whichever saw the
+  // 401 first starts it.
+  const configRef = useRef(config);
+  configRef.current = config;
+  const recheck = useRef<Promise<void> | null>(null);
+  const onSignedOut = useCallback(() => {
+    if (configRef.current?.mode !== "oauth" || recheck.current) {
+      return;
     }
-    // Hand-added drafts (no sprint pointer yet) follow in their local order,
-    // then any team present only on loaded cards as a fallback.
-    for (const t of [...addedTeams, ...(board?.cards ?? []).map((c) => c.team ?? "")]) {
-      if (t && !seen.has(t)) {
-        seen.add(t);
-        out.push(t);
-      }
-    }
-    return out;
-  }, [addedTeams, board]);
+    holdingErrors.current = true;
+    recheck.current = fetchConfig()
+      .then((cfg) => {
+        if (!cfg.authenticated) {
+          heldError.current = null;
+          setConfig(cfg);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        // Still signed in (a transient 401), or no answer at all: the error
+        // was real — show what was held.
+        recheck.current = null;
+        holdingErrors.current = false;
+        if (heldError.current !== null) {
+          setErrorState(heldError.current);
+          heldError.current = null;
+        }
+      });
+  }, []);
+  const provider = useMemo(() => guardSignedOut(apiProvider, onSignedOut), [onSignedOut]);
 
-  // A saved filter can outlive its teams (a team renamed away, or stale
-  // data): entries no team backs would silently blank the board, so prune
-  // them — and an emptied filter means "all" again. Only once the board is
-  // loaded: before that the roster is the saved list alone.
+  // The roster: the board's teams in the server-side order (the sprint-state
+  // cards' positions — shared by everyone, on every device), then the ones
+  // just added here that the server has not declared yet. Every team a card
+  // names is declared (the server writes the team file on every path that
+  // puts a team on a card), so nothing is read off the cards.
+  const boardTeams = board?.teams;
+  const roster = useMemo(
+    () => teamRoster(boardTeams ?? [], pendingTeams),
+    [boardTeams, pendingTeams],
+  );
+
+  // A just-added team is the board's once the Board frame carries it; the
+  // pending list only bridges the moment in between.
+  useEffect(() => {
+    if (boardTeams) {
+      setPendingTeams((cur) => settlePendingTeams(cur, boardTeams));
+    }
+  }, [boardTeams]);
+
+  // A saved filter can outlive its teams (a team renamed away, another board
+  // served from this origin before): entries no team backs would silently
+  // blank the board, so prune them — and an emptied filter means "all" again.
+  // Only once the board is loaded: before that there is nothing to prune
+  // against.
   const boardLoaded = board !== null;
   useEffect(() => {
     if (!boardLoaded) {
       return;
     }
-    setTeamFilter((cur) => {
-      if (!cur) {
-        return cur;
-      }
-      const next = cur.filter((t) => t === "" || roster.includes(t));
-      if (next.length === cur.length) {
-        return cur;
-      }
-      return next.length ? next : null;
-    });
+    setTeamFilter((cur) => pruneTeamFilter(cur, roster));
   }, [boardLoaded, roster]);
 
   // What the active board loads and watches: Me is personal (the server fills in
@@ -474,11 +497,10 @@ export function App() {
   // Reorder the whole roster (from the manage dialog). Teams the server knows
   // (sprint pointer) get the order pushed to the board itself — their hidden
   // sprint-state cards are moved, so the order is shared by the whole team.
-  // Hand-added drafts keep their relative order locally as before.
+  // Teams still pending keep their relative order until the server has them.
   const reorderTeams = useCallback(
     (ordered: string[]) => {
-      setAddedTeams(ordered);
-      writeStringList(LS_TEAM_ROSTER, ordered);
+      setPendingTeams((cur) => ordered.filter((t) => cur.includes(t)));
       const cur = board;
       if (!cur) {
         return;
@@ -497,29 +519,24 @@ export function App() {
     [board, provider],
   );
 
-  // Add a team: shown at once from the local list, and declared on the server
-  // as a sprint pointer with no dates yet — `domain` picks the repository its
-  // roster entry is written to (the primary unless chosen). The Board frame
-  // then carries it as one of the board's own teams.
+  // Add a team: shown at once from the pending list, and declared on the
+  // server as a sprint pointer with no dates yet — `domain` picks the
+  // repository its roster entry is written to (the primary unless chosen).
+  // The Board frame then carries it as one of the board's own teams and the
+  // pending entry settles away.
   const addTeam = useCallback(
     (team: string, domain?: string) => {
       const t = team.trim();
-      if (!t) {
+      if (!t || !board || board.teams.includes(t)) {
         return;
       }
-      setAddedTeams((cur) => {
-        if (cur.includes(t)) {
-          return cur;
-        }
-        const next = [...cur, t];
-        writeStringList(LS_TEAM_ROSTER, next);
-        return next;
+      setPendingTeams((cur) => (cur.includes(t) ? cur : [...cur, t]));
+      void provider.setSprintState(t, null, null, domain).catch((err: unknown) => {
+        // Refused (a taken name, no write access): the chip must not outlive
+        // the refusal — it was never the board's.
+        setPendingTeams((cur) => cur.filter((x) => x !== t));
+        setError(errMessage(err));
       });
-      if (board && !board.teams.includes(t)) {
-        void provider
-          .setSprintState(t, null, null, domain)
-          .catch((err: unknown) => setError(errMessage(err)));
-      }
     },
     [board, provider],
   );
@@ -527,11 +544,7 @@ export function App() {
   const removeTeam = useCallback(
     (team: string) => {
       const dropLocal = () => {
-        setAddedTeams((cur) => {
-          const next = cur.filter((t) => t !== team);
-          writeStringList(LS_TEAM_ROSTER, next);
-          return next;
-        });
+        setPendingTeams((cur) => cur.filter((t) => t !== team));
         // Drop the removed team from the filter (clearing it if it becomes empty).
         setTeamFilter((cur) => {
           if (cur === null) {
@@ -543,7 +556,7 @@ export function App() {
       };
       const cur = board;
       if (!cur || !cur.teams.includes(team)) {
-        // A hand-added draft lives only in this browser.
+        // Still pending: the server has nothing to delete yet.
         dropLocal();
         return;
       }
@@ -769,8 +782,12 @@ export function App() {
   reloadRef.current = reload;
   const boardRef = useRef(board);
   boardRef.current = board;
+  // Not while signed out: the server refuses the socket, and rebuilding it
+  // every few seconds behind the sign-in gate helps nobody. The tear-down
+  // below runs the moment the re-check flips the config.
+  const authenticated = config?.authenticated === true;
   useEffect(() => {
-    if (!boardLoaded) {
+    if (!boardLoaded || !authenticated) {
       return;
     }
     // One socket per selector (Me + its personal board). Any of them dropping
@@ -928,6 +945,7 @@ export function App() {
     };
   }, [
     boardLoaded,
+    authenticated,
     watchKey,
     provider,
     addCard,
@@ -937,7 +955,7 @@ export function App() {
     queuePendingSync,
   ]);
 
-  const onError = useCallback((message: string) => setError(message), []);
+  const onError = useCallback((message: string) => setError(message), [setError]);
 
   // The personal board: linked from the user menu through a small dialog,
   // unlinked from the same menu after a confirm. Either way the board reloads
@@ -971,14 +989,11 @@ export function App() {
       if (!t || t === from) {
         return;
       }
-      // The local side of a rename: the roster, the filter, and the loaded
-      // board (its cards and the team's sprint pointer) read the new name.
+      // The local side of a rename: the pending list, the filter, and the
+      // loaded board (its cards and the team's sprint pointer) read the new
+      // name.
       const relabel = () => {
-        setAddedTeams((cur) => {
-          const next = [...new Set(cur.map((x) => (x === from ? t : x)))];
-          writeStringList(LS_TEAM_ROSTER, next);
-          return next;
-        });
+        setPendingTeams((cur) => [...new Set(cur.map((x) => (x === from ? t : x)))]);
         setTeamFilter((cur) =>
           cur === null ? cur : cur.map((k) => (k === from ? t : k)),
         );
@@ -1014,7 +1029,7 @@ export function App() {
   const showTokenWarning =
     config !== null && !config.tokenAvailable && !tokenWarningDismissed;
 
-  // OAuth mode: gate the whole UI behind a GitHub sign-in.
+  // OAuth mode: gate the whole UI behind the forge's sign-in.
   if (config && config.mode === "oauth" && !config.authenticated) {
     return (
       <div className="app">
@@ -1025,10 +1040,10 @@ export function App() {
           </div>
         </header>
         <div className="signin">
-          <h2>Sign in to aeman</h2>
-          <p>Connect your GitHub account to open the board.</p>
+          <h2>{forge.signInTitle}</h2>
+          <p>{forge.signInLead}</p>
           <a className="btn btn-primary signin-btn" href={config.authUrl ?? "/auth/login"}>
-            Sign in with GitHub
+            {forge.signInButton}
           </a>
         </div>
       </div>
@@ -1083,9 +1098,10 @@ export function App() {
 
       {showTokenWarning && (
         <div className="banner banner-warning" role="alert">
+          {/* forge.noTokenHint, with the command set in <code>. */}
           <span>
-            No GitHub token — run <code>gh auth login</code> in the terminal where aeman
-            runs.
+            No {forge.label} token — run <code>{forge.cli} auth login</code> in the
+            terminal where aeman runs.
           </span>
           <button
             type="button"
@@ -1199,6 +1215,8 @@ export function App() {
             provider={provider}
             me={config?.login ?? ""}
             avatars={avatars}
+            names={names}
+            connectHint={forge.connectHint}
             teams={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
@@ -1246,6 +1264,7 @@ export function App() {
             onSetFilter={setProjectFilter}
             onManageProjects={() => setManagingProjects(true)}
             avatars={avatars}
+            names={names}
             onError={onError}
           />
         )}
@@ -1257,6 +1276,7 @@ export function App() {
             provider={provider}
             me={config?.login ?? ""}
             avatars={avatars}
+            names={names}
             roster={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
@@ -1296,6 +1316,7 @@ export function App() {
         <PersonalDialog
           onClose={() => setPersonalDialog(false)}
           onLink={linkPersonal}
+          repoPlaceholder={forge.repoPlaceholder}
         />
       )}
 

@@ -644,8 +644,9 @@ remote is a URL and a credential; the code never assembles
 visitor" (OAuth provider), "may they read / write this repository", and
 "what is their avatar" — and GitHub is the first implementation.
 GitLab, Gitea and a bare repository on a server (with static users) are
-additional adapters, not redesigns. None of them is built now; the
-design just does not prevent them.
+additional adapters, not redesigns. GitLab is now the second adapter,
+beside GitHub in the package `internal/forge`; Gitea and the bare
+repository are not built, the design just does not prevent them.
 
 ## Configuration
 
@@ -718,7 +719,9 @@ aeman migrate --owner aenix-org --board 37 \
 
 Idempotence: a repository that already carries the migration's final
 commit for this board (marked in its message) is left alone unless
-`--force`. The Projects v2 board is never written. The migration is the
+`--force`, which writes the new history over the remote's (a forced
+push — the earlier import and anything written since are replaced by the
+verified snapshot). The Projects v2 board is never written. The migration is the
 last code that reads Projects v2; it stays in the tree as long as it is
 useful and is deleted after.
 

@@ -260,7 +260,7 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
-	info := apiserver.BoardResourceWith(b, s.store.avatarURL)
+	info := apiserver.BoardResourceWithPeople(b, s.store.member)
 	login, personal, linked := s.personalOf(r)
 	attached := linked && s.gitBE != nil && s.gitBE.hasPersonal(login)
 	if s.gitCfg != nil && (len(s.gitCfg.Repos) > 1 || attached) {

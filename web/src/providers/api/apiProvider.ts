@@ -66,6 +66,7 @@ export function boardMetadata(
     members: (info.metadata.members ?? []).map((m) => ({
       login: m.login,
       avatarUrl: m.avatarUrl || undefined,
+      name: m.name || undefined,
     })),
     // The repositories the board spans, primary first. An older server names
     // none; the UI then shows nothing of domains at all.

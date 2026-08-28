@@ -14,16 +14,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aenix-io/aeman/internal/forge"
 )
 
 const (
-	githubAuthorizeURL = "https://github.com/login/oauth/authorize"
-	githubTokenURL     = "https://github.com/login/oauth/access_token" //nolint:gosec // OAuth endpoint, not a credential
-	sessionCookie      = "aeman_session"
-	stateCookie        = "aeman_oauth_state"
-	consentCookie      = "aeman_mcp_consent"
-	sessionTTL         = 14 * 24 * time.Hour
-	consentTTL         = 10 * time.Minute
+	sessionCookie = "aeman_session"
+	stateCookie   = "aeman_oauth_state"
+	consentCookie = "aeman_mcp_consent"
+	sessionTTL    = 14 * 24 * time.Hour
+	consentTTL    = 10 * time.Minute
 	// maxClients caps the dynamic MCP client registry: registration is public
 	// and unauthenticated, so the cap plus per-IP-agnostic pruning stops an
 	// attacker growing it (and the persisted file) without bound.
@@ -115,11 +115,16 @@ type authManager struct {
 	// when no SessionKey is configured, i.e. sessions are memory-only).
 	sessionKey []byte
 
-	// GitHub endpoints. They default to the real GitHub URLs and are overridden
+	// forge is the identity provider: its OAuth endpoints, token dialect and
+	// user lookup. The two URLs default to the forge's and are overridden
 	// in tests to point at a stub server.
+	forge        forge.Forge
 	authorizeURL string
 	tokenURL     string
-	apiBase      string
+	// learned is told about each person who signs in — the forge describes
+	// them (name, avatar) in the same breath as the token, and the board's
+	// directory of people should not have to ask again.
+	learned func(forge.User)
 
 	mu       sync.Mutex
 	sessions map[string]oauthSession
@@ -223,9 +228,12 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
+func newAuthManager(cfg OAuthConfig, f forge.Forge, log *slog.Logger) *authManager {
+	if f == nil {
+		f = forge.NewGitHub()
+	}
 	if cfg.Scopes == "" {
-		cfg.Scopes = "repo project"
+		cfg.Scopes = f.DefaultScopes()
 	}
 	a := &authManager{
 		cfg:            cfg,
@@ -234,9 +242,9 @@ func newAuthManager(cfg OAuthConfig, log *slog.Logger) *authManager {
 		client:         &http.Client{Timeout: 15 * time.Second},
 		path:           cfg.SessionFile,
 		sessionKey:     deriveSessionKey(cfg.SessionKey),
-		authorizeURL:   githubAuthorizeURL,
-		tokenURL:       githubTokenURL,
-		apiBase:        githubAPIBase,
+		forge:          f,
+		authorizeURL:   f.AuthorizeURL(),
+		tokenURL:       f.TokenURL(),
 		sessions:       map[string]oauthSession{},
 		clients:        map[string]oauthClient{},
 		pendingAuth:    map[string]pendingAuth{},
@@ -397,6 +405,26 @@ func (a *authManager) sessionByID(ctx context.Context, sid string) (oauthSession
 	return a.renewSession(ctx, sid, s)
 }
 
+// renewNow renews a session's token on demand — the forge has just refused
+// the one it holds, and the refresh token may still buy a fresh one — and
+// returns the renewed session. False when there is nothing to renew with,
+// or the refresh was refused (the session is gone then), or the renewal
+// kept the very token the forge refused (a refresh failure inside the
+// token's lifetime keeps it; here that is of no use).
+func (a *authManager) renewNow(ctx context.Context, sid string) (oauthSession, bool) {
+	a.mu.Lock()
+	s, ok := a.sessions[sid]
+	if !ok || s.refresh == "" {
+		a.mu.Unlock()
+		return oauthSession{}, false
+	}
+	renewed, ok := a.renewSession(ctx, sid, s)
+	if !ok || renewed.token == s.token {
+		return oauthSession{}, false
+	}
+	return renewed, true
+}
+
 // tokenRenewAhead is how early a session's GitHub token is renewed. Well
 // inside the 8h lifetime, and long enough that a request never has to use a
 // token in its final seconds.
@@ -443,11 +471,11 @@ func (a *authManager) renewSession(ctx context.Context, sid string, s oauthSessi
 			delete(a.sessions, sid)
 			a.saveLocked()
 			a.mu.Unlock()
-			a.log.Warn("github token renewal failed; session dropped", "login", cur.login, "err", err)
+			a.log.Warn("token renewal failed; session dropped", "forge", a.forge.Kind(), "login", cur.login, "err", err)
 			return oauthSession{}, false
 		}
 		a.mu.Unlock()
-		a.log.Warn("github token renewal failed; keeping the current token", "login", cur.login, "err", err)
+		a.log.Warn("token renewal failed; keeping the current token", "forge", a.forge.Kind(), "login", cur.login, "err", err)
 		return cur, true
 	}
 	cur.token = grant.token
@@ -458,7 +486,7 @@ func (a *authManager) renewSession(ctx context.Context, sid string, s oauthSessi
 	a.sessions[sid] = cur
 	a.saveLocked()
 	a.mu.Unlock()
-	a.log.Info("github token renewed", "login", cur.login)
+	a.log.Info("token renewed", "forge", a.forge.Kind(), "login", cur.login)
 	return cur, true
 }
 
@@ -511,6 +539,9 @@ func (a *authManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 	q := url.Values{}
 	q.Set("client_id", a.cfg.ClientID)
 	q.Set("redirect_uri", a.redirectURI())
+	// The authorization-code grant, named: GitHub never minded the parameter
+	// missing, GitLab refuses the request without it.
+	q.Set("response_type", "code")
 	q.Set("scope", a.cfg.Scopes)
 	q.Set("state", state)
 	http.Redirect(w, r, a.authorizeURL+"?"+q.Encode(), http.StatusFound)
@@ -550,11 +581,15 @@ func (a *authManager) handleCallback(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadGateway, "token exchange failed")
 		return
 	}
-	login, err := a.fetchLogin(r.Context(), grant.token)
+	user, err := a.forge.User(r.Context(), a.client, grant.token)
 	if err != nil {
-		a.log.Error("oauth user lookup failed", "err", err)
-		writeJSONError(w, http.StatusBadGateway, "could not read GitHub user")
+		a.log.Error("oauth user lookup failed", "forge", a.forge.Kind(), "err", err)
+		writeJSONError(w, http.StatusBadGateway, "could not read the "+a.forge.Label()+" user")
 		return
+	}
+	login := user.Login
+	if a.learned != nil {
+		a.learned(user)
 	}
 
 	sid := randToken()
@@ -592,27 +627,18 @@ type ghGrant struct {
 }
 
 func (a *authManager) exchange(ctx context.Context, code string) (ghGrant, error) {
-	form := url.Values{}
-	form.Set("client_id", a.cfg.ClientID)
-	form.Set("client_secret", a.cfg.ClientSecret)
-	form.Set("code", code)
-	form.Set("redirect_uri", a.redirectURI())
-
-	return a.tokenGrant(ctx, form)
+	return a.tokenGrant(ctx, a.forge.ExchangeForm(a.cfg.ClientID, a.cfg.ClientSecret, code, a.redirectURI()))
 }
 
-// refreshGrant renews an expiring GitHub App user token. The refresh token is
-// single-use: the grant that comes back carries its replacement.
+// refreshGrant renews an expiring access token in the forge's dialect (a
+// GitHub App's refresh token is single-use — the grant that comes back
+// carries its replacement; GitLab wants the redirect URI repeated).
 func (a *authManager) refreshGrant(ctx context.Context, refresh string) (ghGrant, error) {
-	form := url.Values{}
-	form.Set("client_id", a.cfg.ClientID)
-	form.Set("client_secret", a.cfg.ClientSecret)
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", refresh)
-	return a.tokenGrant(ctx, form)
+	return a.tokenGrant(ctx, a.forge.RefreshForm(a.cfg.ClientID, a.cfg.ClientSecret, refresh, a.redirectURI()))
 }
 
-// tokenGrant posts a form to GitHub's token endpoint and reads the grant.
+// tokenGrant posts a form to the forge's token endpoint and reads the grant
+// (the RFC 6749 shape both forges answer with).
 func (a *authManager) tokenGrant(ctx context.Context, form url.Values) (ghGrant, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -621,7 +647,7 @@ func (a *authManager) tokenGrant(ctx context.Context, form url.Values) (ghGrant,
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := a.client.Do(req)
+	resp, err := a.client.Do(req) //nolint:gosec // G704: the token endpoint is the operator-configured forge's, not visitor input
 	if err != nil {
 		return ghGrant{}, err
 	}
@@ -647,28 +673,14 @@ func (a *authManager) tokenGrant(ctx context.Context, form url.Values) (ghGrant,
 	return g, nil
 }
 
+// fetchLogin is who a token belongs to, by the forge.
 func (a *authManager) fetchLogin(ctx context.Context, token string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.apiBase+"/user", nil)
+	u, err := a.forge.User(ctx, a.client, token)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "aeman")
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("user endpoint returned %s", resp.Status)
-	}
-	var u struct {
-		Login string `json:"login"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
-		return "", err
+	if a.learned != nil {
+		a.learned(u)
 	}
 	return u.Login, nil
 }

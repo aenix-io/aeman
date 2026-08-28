@@ -7,7 +7,7 @@ import type {
   TaskInput,
 } from "../providers/types";
 import { teamColor } from "../avatar";
-import type { Avatars } from "../users";
+import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { declareDomain } from "../domains";
 import { nameConflict } from "../names";
@@ -27,6 +27,9 @@ interface ProcessBoardProps {
   onManageProjects: () => void;
   /** Avatars by login (the board roster), as the Me and Team boards have them. */
   avatars: Avatars;
+  /** Display names by login (the board roster); a login without one is shown
+   *  as is. */
+  names: Names;
   onError: (message: string) => void;
 }
 
@@ -53,6 +56,7 @@ export function ProcessBoard({
   onSetFilter,
   onManageProjects,
   avatars,
+  names,
   onError,
 }: ProcessBoardProps) {
   // The processes are part of the board, loaded with it and refreshed by the
@@ -627,6 +631,7 @@ export function ProcessBoard({
                       teams={board.teams}
                       members={board.members.map((m) => m.login)}
                       avatars={avatars}
+                      names={names}
                       onSetRecurrence={(recurrence) => saveTask(p.name, t.uid, { recurrence })}
                       onSetStart={(start) => saveTask(p.name, t.uid, { start })}
                       onSetTeam={(team) => saveTask(p.name, t.uid, { team })}
@@ -794,6 +799,7 @@ function TaskRow({
   teams,
   members,
   avatars,
+  names,
   onSetRecurrence,
   onSetStart,
   onSetTeam,
@@ -811,6 +817,7 @@ function TaskRow({
   teams: string[];
   members: string[];
   avatars: Avatars;
+  names: Names;
   onSetRecurrence: (recurrence: string) => void;
   onSetStart: (start: string) => void;
   onSetTeam: (team: string) => void;
@@ -956,7 +963,7 @@ function TaskRow({
             className="process-cell-owner"
             title={
               t.assignee
-                ? `Assigned to ${t.assignee} — click to change`
+                ? `Assigned to ${displayName(t.assignee, names)} — click to change`
                 : "Nobody owns the iterations — click to assign"
             }
             label={
@@ -965,11 +972,12 @@ function TaskRow({
                   <Avatar
                     login={t.assignee}
                     avatars={avatars}
+                    names={names}
                     className="avatar-img process-owner-avatar"
                   />
-                  {/* The name alone in the row — the login is in the tooltip
-                      and in the menu, and it is the half that gets cut. */}
-                  {t.assignee}
+                  {/* The name alone in the row — it is in the tooltip and in
+                      the menu too, and it is the half that gets cut. */}
+                  {displayName(t.assignee, names)}
                 </>
               ) : (
                 <span className="process-task-none">nobody</span>
@@ -981,8 +989,8 @@ function TaskRow({
                 active: m === t.assignee,
                 label: (
                   <>
-                    <Avatar login={m} avatars={avatars} />
-                    {m}
+                    <Avatar login={m} avatars={avatars} names={names} />
+                    {displayName(m, names)}
                   </>
                 ),
               })),

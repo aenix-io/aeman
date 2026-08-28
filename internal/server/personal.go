@@ -13,6 +13,7 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
@@ -79,7 +80,7 @@ func (b *storeBackend) attachPersonal(ctx context.Context, login, token string) 
 	}
 	remote := gitstore.Remote{URL: url}
 	if token != "" {
-		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
+		remote.Auth = g.gitAuth(token)
 	}
 	// One clone per repository, not per person: relinking to another
 	// repository must not reopen the old clone. The old one stays on disk as
@@ -203,8 +204,17 @@ func (g *gitSync) setAuth(name, token string) {
 			if cur, ok := g.domains[i].remote.Auth.(*githttp.BasicAuth); ok && cur.Password == token {
 				return
 			}
-			g.domains[i].remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
+			g.domains[i].remote.Auth = g.gitAuth(token)
 			return
 		}
 	}
+}
+
+// gitAuth is a token as the forge takes it over HTTPS.
+func (g *gitSync) gitAuth(token string) *githttp.BasicAuth {
+	f := g.forge
+	if f == nil {
+		f = forge.NewGitHub()
+	}
+	return f.GitAuth(token)
 }

@@ -229,9 +229,11 @@ type BoardMetadata struct {
 }
 
 // Member is one person on the board: a login and, when the server knows the
-// forge, an avatar image URL.
+// forge, an avatar image URL and — on a forge that has them (GitLab) — a
+// display name. The login is the identity everywhere; the name is for eyes.
 type Member struct {
 	Login     string `json:"login"`
+	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatarUrl,omitempty"`
 }
 
@@ -456,6 +458,18 @@ func BoardResource(b board.Board) BoardInfo {
 // BoardResourceWith is BoardResource with the members' avatars resolved by
 // the given hook (nil leaves them empty).
 func BoardResourceWith(b board.Board, avatar func(login string) string) BoardInfo {
+	if avatar == nil {
+		return BoardResourceWithPeople(b, nil)
+	}
+	return BoardResourceWithPeople(b, func(login string) Member {
+		return Member{Login: login, AvatarURL: avatar(login)}
+	})
+}
+
+// BoardResourceWithPeople is BoardResource with the members resolved by the
+// given hook — the forge's avatar and display name for a login (nil leaves
+// both empty). The hook's Login is ignored: the board's login is the identity.
+func BoardResourceWithPeople(b board.Board, person func(login string) Member) BoardInfo {
 	// Teams come out in BOARD order (the sprint-state cards' positions — the
 	// shared, server-side team order); stragglers the order does not know
 	// (defensive: map entries without an order slot) append sorted.
@@ -489,8 +503,9 @@ func BoardResourceWith(b board.Board, avatar func(login string) string) BoardInf
 	people := make([]Member, 0, len(members))
 	for _, login := range members {
 		m := Member{Login: login}
-		if avatar != nil {
-			m.AvatarURL = avatar(login)
+		if person != nil {
+			p := person(login)
+			m.Name, m.AvatarURL = p.Name, p.AvatarURL
 		}
 		people = append(people, m)
 	}

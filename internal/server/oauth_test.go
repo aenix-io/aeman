@@ -19,6 +19,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
+
+	"github.com/aenix-io/aeman/internal/forge"
 )
 
 const testRemoteRedirectURI = "https://client.example/cb"
@@ -60,7 +62,7 @@ func newOAuthServer(t *testing.T) (*Server, *httptest.Server) {
 	}
 	srv.auth.authorizeURL = gh.URL + "/login/oauth/authorize"
 	srv.auth.tokenURL = gh.URL + "/login/oauth/access_token"
-	srv.auth.apiBase = gh.URL
+	srv.auth.forge = forge.NewGitHubAt(gh.URL)
 	return srv, gh
 }
 
@@ -784,7 +786,7 @@ func TestVerifyTokenCarriesSessionID(t *testing.T) {
 
 // newestSessionFor picks the login's freshest live session.
 func TestNewestSessionFor(t *testing.T) {
-	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "s", BaseURL: "http://x"}, nil)
+	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "s", BaseURL: "http://x"}, nil, nil)
 	now := time.Now()
 	a.sessions["old"] = oauthSession{token: "t-old", login: "kvaps", created: now.Add(-2 * time.Hour)}
 	a.sessions["new"] = oauthSession{token: "t-new", login: "kvaps", created: now.Add(-time.Minute)}

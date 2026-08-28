@@ -72,6 +72,8 @@ Same shape as a card. Its `title` field is the marker `aeman:process-task`; the 
 - `projects/<pid>/deadlines/<id>.yaml`: `week`, `created`. One deadline per project per week.
 - `processes/<id>/process.yaml`: `name`, `project` (name, optional), `paused`, `rank`, `created`.
 
+**A card never names a team the roster lacks** (G39): a write that gives a card a `team:` no `teams/<id>.yaml` declares must create that file (`name`, `rank`, `created`; no `sprint`) in the same commit — the server does so on every path (create, sprint-less create, assignment). A plugin writing `team:` onto a card must do the same, or the card sits on a team that is on no roster and in no column.
+
 **Names are one namespace across every domain**: a team, project or process name may be declared once on the whole board, whichever repository it lands in — the server refuses a create or a rename into a taken name (G38) and refuses to start at all when the repositories it is given already collide, and a plugin writing files must check every domain before declaring one. Duplicate names that reach the files anyway resolve on read to the **oldest** `created` (ties by id); the others are aliases whose cards still count and which `GET /api/healthz` lists for a maintainer to rename (G13). A `teams/_.yaml` outside the primary is ignored. Renaming a team is one action: the team file's `name` changes and every card's `team:` follows in the same commit.
 
 ## Ordering

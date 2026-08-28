@@ -14,9 +14,9 @@ import (
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/transport"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
@@ -41,6 +41,10 @@ type GitConfig struct {
 	// Token is the push/fetch credential (HTTPS basic auth); empty means an
 	// unauthenticated transport (local file remotes, tests).
 	Token string
+	// Forge is the code host the repositories live on: it says how the
+	// token travels over HTTPS (the basic-auth username differs per forge).
+	// GitHub when nil.
+	Forge forge.Forge
 	// DataDir holds the clones (<DataDir>/repos/<name>).
 	DataDir string
 	// History is the background deepening horizon; zero disables it.
@@ -124,6 +128,16 @@ func (g *GitBackend) Drain(ctx context.Context) error {
 // Every configured repository must be initialised — a server that invents
 // a domain on a typo in --repo is worse than one that stops.
 func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBackend, error) {
+	f := cfg.Forge
+	if f == nil {
+		f = forge.NewGitHub()
+	}
+	// Issue/PR titles are still resolved against GitHub only; another
+	// forge's token has no business there, so the lookups go unauthenticated.
+	linksToken := cfg.Token
+	if f.Kind() != forge.GitHub {
+		linksToken = ""
+	}
 	if len(cfg.Repos) == 0 {
 		return nil, errors.New("git mode needs at least one --repo")
 	}
@@ -148,7 +162,7 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		}
 		remote := gitstore.Remote{URL: spec.URL}
 		if cfg.Token != "" {
-			remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
+			remote.Auth = f.GitAuth(cfg.Token)
 		}
 		repo, err := cloneOrOpen(dir, remote, opts, spec.URL)
 		if err != nil {
@@ -191,10 +205,10 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 	}
 	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval,
 		MaintainEvery: 24 * time.Hour, HistoryMax: cfg.HistoryMax, Logger: log,
-		DataDir: cfg.DataDir, RepoOpts: opts,
+		DataDir: cfg.DataDir, RepoOpts: opts, Forge: f,
 		// Issue/PR titles in card descriptions are read with the push
 		// credential — the store has no per-visitor token any more.
-		Links: newForgeLinks(githubAPIBase, &http.Client{Timeout: 10 * time.Second}, cfg.Token)}), nil
+		Links: newForgeLinks(githubAPIBase, &http.Client{Timeout: 10 * time.Second}, linksToken)}), nil
 }
 
 // rosterCollision is the start-up refusal for a name two domains declare:

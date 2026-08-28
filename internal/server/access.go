@@ -2,15 +2,14 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
@@ -83,6 +82,10 @@ func rightsFrom(ctx context.Context) *domainRights {
 type domainAccess interface {
 	rights(ctx context.Context, token, login string) (*domainRights, error)
 	readers(ctx context.Context, domain string, logins []string) ([]string, error)
+	// canPush says whether the visitor's token may push to a repository
+	// that is not one of the board's — their personal one, on linking. An
+	// error is a URL the forge cannot name a repository in.
+	canPush(ctx context.Context, token, repoURL string) (bool, error)
 }
 
 // openAccess is the single-identity answer: every configured domain, read
@@ -104,6 +107,9 @@ func (o openAccess) rights(context.Context, string, string) (*domainRights, erro
 	return r, nil
 }
 
+// canPush: on a single-user server the forge's own check happens on push.
+func (o openAccess) canPush(context.Context, string, string) (bool, error) { return true, nil }
+
 func (o openAccess) readers(_ context.Context, _ string, logins []string) ([]string, error) {
 	return append([]string(nil), logins...), nil
 }
@@ -112,16 +118,19 @@ func (o openAccess) readers(_ context.Context, _ string, logins []string) ([]str
 // server credential, is trusted.
 const membersTTL = 5 * time.Minute
 
-// forgeAccess asks the forge — GitHub's repository permissions block — with
-// the visitor's token, one request per domain, and caches the answer per
-// visitor. A stale answer stands in while the forge is unreachable; without
-// one the error is the visitor's. Who else can read a domain is asked with
-// the server's token, per login, and cached longer.
+// forgeAccess asks the forge — a repository's permissions, in the forge's
+// own terms — with the visitor's token, one request per domain, and caches
+// the answer per visitor. A stale answer stands in while the forge is
+// unreachable; without one the error is the visitor's. Who else can read a
+// domain is asked with the server's token and cached longer; what the forge
+// says about those people on the way (names, avatars) is handed to the
+// board's directory.
 type forgeAccess struct {
-	api         string // REST base, https://api.github.com
+	forge       forge.Forge
 	client      *http.Client
 	domains     []RepoSpec
 	serverToken string
+	people      *people
 	ttl         time.Duration
 	now         func() time.Time
 
@@ -140,15 +149,16 @@ type cachedBool struct {
 	at time.Time
 }
 
-func newForgeAccess(api string, client *http.Client, domains []RepoSpec, serverToken string) *forgeAccess {
-	return &forgeAccess{api: api, client: client, domains: domains, serverToken: serverToken, ttl: accessTTL, now: time.Now,
-		cache: map[string]cachedRights{}, members: map[string]cachedBool{}}
+func newForgeAccess(f forge.Forge, client *http.Client, domains []RepoSpec, serverToken string, people *people) *forgeAccess {
+	return &forgeAccess{forge: f, client: client, domains: domains, serverToken: serverToken, people: people,
+		ttl: accessTTL, now: time.Now, cache: map[string]cachedRights{}, members: map[string]cachedBool{}}
 }
 
 // readers is the subset of logins that can read the domain, by the forge's
-// collaborator permission for each, asked with the server's token. A login
-// the forge cannot answer for (an outage, no server token) is left out —
-// the picker offers fewer people, never the wrong ones.
+// answer for each, asked with the server's token — one question per domain
+// for the logins whose answer is stale. A login the forge cannot answer for
+// (an outage, no server token) is left out — the picker offers fewer
+// people, never the wrong ones — unless an earlier answer stands.
 func (f *forgeAccess) readers(ctx context.Context, domain string, logins []string) ([]string, error) {
 	var url string
 	for _, d := range f.domains {
@@ -159,68 +169,60 @@ func (f *forgeAccess) readers(ctx context.Context, domain string, logins []strin
 	if url == "" {
 		return nil, fmt.Errorf("unknown domain %q", domain)
 	}
-	slug, err := repoSlug(url)
-	if err != nil {
+	if _, err := f.forge.RepoRef(url); err != nil {
 		return nil, err
 	}
-	out := make([]string, 0, len(logins))
+	stale := make([]string, 0, len(logins))
+	f.mu.Lock()
 	for _, login := range logins {
-		key := domain + "\x00" + login
-		f.mu.Lock()
-		c, ok := f.members[key]
-		f.mu.Unlock()
-		if !ok || f.now().Sub(c.at) >= membersTTL {
-			can, err := f.collaboratorReads(ctx, slug, login)
-			if err != nil {
-				if !ok {
-					continue
-				}
-				can = c.ok // the last answer stands during an outage
+		if c, ok := f.members[domain+"\x00"+login]; !ok || f.now().Sub(c.at) >= membersTTL {
+			stale = append(stale, login)
+		}
+	}
+	f.mu.Unlock()
+	if len(stale) > 0 {
+		found, err := f.forge.Readers(ctx, f.client, f.serverToken, url, stale)
+		if err == nil {
+			if f.people != nil {
+				f.people.learn(found)
 			}
-			c = cachedBool{ok: can, at: f.now()}
 			f.mu.Lock()
-			f.members[key] = c
+			for _, login := range stale {
+				_, reads := found[login]
+				f.members[domain+"\x00"+login] = cachedBool{ok: reads, at: f.now()}
+			}
 			f.mu.Unlock()
 		}
-		if c.ok {
+		// On an error the stale answers stand (an outage), and a login never
+		// answered for is left out below.
+	}
+	out := make([]string, 0, len(logins))
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, login := range logins {
+		if c, ok := f.members[domain+"\x00"+login]; ok && c.ok {
 			out = append(out, login)
 		}
 	}
 	return out, nil
 }
 
-// collaboratorReads asks GET /repos/{slug}/collaborators/{login}/permission
-// with the server token: any permission but "none" reads.
-func (f *forgeAccess) collaboratorReads(ctx context.Context, slug, login string) (bool, error) {
-	if f.serverToken == "" {
-		return false, errors.New("no server credential to ask the forge with")
+// canPush asks the forge, as the visitor, whether they may write the
+// repository — for linking a personal board. A URL the forge cannot name a
+// repository in is errNotARepository; anything else is the forge's answer.
+func (f *forgeAccess) canPush(ctx context.Context, token, repoURL string) (bool, error) {
+	if _, err := f.forge.RepoRef(repoURL); err != nil {
+		return false, fmt.Errorf("%w: %w", errNotARepository, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.api+"/repos/"+slug+"/collaborators/"+login+"/permission", nil) //nolint:gosec // operator-configured repository and a board member's login
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Authorization", "Bearer "+f.serverToken)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := f.client.Do(req) //nolint:gosec // see above
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode == http.StatusNotFound:
-		return false, nil // not a collaborator
-	case resp.StatusCode/100 != 2:
-		return false, fmt.Errorf("forge answered %s", resp.Status)
-	}
-	var body struct {
-		Permission string `json:"permission"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return false, err
-	}
-	return body.Permission != "" && body.Permission != "none", nil
+	_, write, err := f.probe(ctx, token, repoURL)
+	return write, err
 }
 
+// errNotARepository is a URL the forge cannot name a repository in.
+var errNotARepository = errors.New("not a repository URL")
+
+// collaboratorReads asks GET /repos/{slug}/collaborators/{login}/permission
+// with the server token: any permission but "none" reads.
 func (f *forgeAccess) rights(ctx context.Context, token, login string) (*domainRights, error) {
 	f.mu.Lock()
 	c, ok := f.cache[login]
@@ -246,87 +248,16 @@ func (f *forgeAccess) rights(ctx context.Context, token, login string) (*domainR
 	return r, nil
 }
 
-// probe asks GET /repos/{owner}/{repo} as the visitor: the permissions block
-// says what they may do; a 404 is what GitHub says for a repository the
-// visitor cannot see.
+// probe asks the forge, as the visitor, what they may do with the repository
+// — the forge's own permission model, translated to read and write. A
+// repository the visitor cannot see is neither; a rejected token is
+// errBadVisitorToken.
 func (f *forgeAccess) probe(ctx context.Context, token, repoURL string) (read, write bool, err error) {
-	slug, err := repoSlug(repoURL)
-	if err != nil {
-		return false, false, err
-	}
-	// The URL is the operator's --repo (owner/repo) under the forge's API
-	// base, never anything a visitor supplied.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.api+"/repos/"+slug, nil) //nolint:gosec // operator-configured repository, not visitor input
-	if err != nil {
-		return false, false, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := f.client.Do(req) //nolint:gosec // see above
-	if err != nil {
-		return false, false, err
-	}
-	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusForbidden:
-		return false, false, nil
-	case resp.StatusCode == http.StatusUnauthorized:
-		return false, false, errBadVisitorToken
-	case resp.StatusCode/100 != 2:
-		return false, false, fmt.Errorf("forge answered %s", resp.Status)
-	}
-	var body struct {
-		Permissions struct {
-			Admin    bool `json:"admin"`
-			Maintain bool `json:"maintain"`
-			Push     bool `json:"push"`
-			Triage   bool `json:"triage"`
-			Pull     bool `json:"pull"`
-		} `json:"permissions"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return false, false, err
-	}
-	p := body.Permissions
-	return p.Pull || p.Triage || p.Push || p.Maintain || p.Admin, p.Push || p.Maintain || p.Admin, nil
+	return f.forge.Access(ctx, f.client, token, repoURL)
 }
 
 // errBadVisitorToken is the forge refusing the visitor's own token.
-var errBadVisitorToken = errors.New("the forge rejected the visitor's token")
-
-// repoSlug is the owner/repo of a repository URL, for the forge's REST API:
-// the last two path segments, .git dropped — https://host/owner/repo.git,
-// git@host:owner/repo.git and plain owner/repo all work.
-func repoSlug(repoURL string) (string, error) {
-	s := strings.TrimSuffix(strings.TrimSuffix(repoURL, "/"), ".git")
-	hosted := false
-	if i := strings.Index(s, "://"); i >= 0 {
-		s = s[i+3:] // scheme://host/owner/repo — the host goes below
-		hosted = true
-	}
-	if i := strings.Index(s, ":"); i >= 0 && !strings.Contains(s[:i], "/") {
-		s = s[i+1:] // scp-like git@host:owner/repo — the host is gone already
-		hosted = false
-	}
-	parts := strings.Split(strings.Trim(s, "/"), "/")
-	if hosted && len(parts) > 0 {
-		parts = parts[1:]
-	}
-	if len(parts) < 2 || parts[len(parts)-1] == "" || parts[len(parts)-2] == "" {
-		return "", fmt.Errorf("repository url %q has no owner/repo", repoURL)
-	}
-	return parts[len(parts)-2] + "/" + parts[len(parts)-1], nil
-}
-
-// githubAvatarURL is the forge's avatar image for a login — GitHub's CDN,
-// no API call, sized for the boards. The SPA renders what the server hands
-// it and assembles no forge URL of its own.
-func githubAvatarURL(login string) string {
-	if login == "" {
-		return ""
-	}
-	return "https://avatars.githubusercontent.com/" + url.PathEscape(login) + "?size=48"
-}
+var errBadVisitorToken = forge.ErrBadToken
 
 // accessMiddleware resolves the visitor's rights for an /api/v1 request in
 // git mode and stamps them on the context; a visitor the forge does not
@@ -355,6 +286,18 @@ func (s *Server) accessMiddleware(next http.Handler) http.Handler {
 				return
 			}
 			rights, err := s.access.rights(r.Context(), tok, login)
+			if errors.Is(err, errBadVisitorToken) && s.auth != nil {
+				// The forge refused the session's token. The refresh token
+				// may still buy a fresh one — a GitLab token lives two hours,
+				// and a token issued a moment ago has been seen refused by a
+				// lagging replica — so renew once and ask again before the
+				// session is given up.
+				if sess, ok := s.auth.renewNow(r.Context(), s.auth.sessionID(r)); ok {
+					tok = sess.token
+					rights, err = s.access.rights(r.Context(), tok, login)
+					s.log.Info("session token renewed after the forge refused it", "login", login)
+				}
+			}
 			if err != nil {
 				if errors.Is(err, errBadVisitorToken) {
 					// The session was built on a token the forge now refuses:

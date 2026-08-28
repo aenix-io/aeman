@@ -218,14 +218,30 @@ func (r *Repo) has(h plumbing.Hash) bool {
 // the caller does not classify: it fetches, and if the remote moved it
 // re-applies and retries. On success the tracking ref is the pushed tip.
 func (r *Repo) Push(ctx context.Context, remote Remote) error {
+	return r.push(ctx, remote, false)
+}
+
+// PushForce writes the local branch over the remote's whatever it holds —
+// a migration re-run with --force replaces the earlier import and anything
+// written since. Nothing on the request path uses it: a rejected push there
+// is re-applied on the remote's tip (Rebase), never forced.
+func (r *Repo) PushForce(ctx context.Context, remote Remote) error {
+	return r.push(ctx, remote, true)
+}
+
+func (r *Repo) push(ctx context.Context, remote Remote, force bool) error {
 	head := r.Head()
 	if head.IsZero() {
 		return errors.New("gitstore: nothing to push")
 	}
+	spec := r.branch.String() + ":" + r.branch.String()
+	if force {
+		spec = "+" + spec
+	}
 	rem := git.NewRemote(r.s, &config.RemoteConfig{Name: remoteName, URLs: []string{remote.URL}})
 	err := rem.PushContext(ctx, &git.PushOptions{
 		Auth:     remote.Auth,
-		RefSpecs: []config.RefSpec{config.RefSpec(r.branch.String() + ":" + r.branch.String())},
+		RefSpecs: []config.RefSpec{config.RefSpec(spec)},
 	})
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("gitstore: push: %w", err)

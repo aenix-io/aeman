@@ -484,6 +484,56 @@ var ctx = context.Background()
 
 // --- CreateCard ------------------------------------------------------------
 
+// A card never names a team the board does not declare. The sprint-joining
+// create declares one on the way (the sprint pointer); the sprint-less
+// creates — a next-sprint card, a card for a later day — used to leave the
+// team as a bare label on the card: on the card but on no roster, in no
+// column. They now declare it too, with an empty pointer, and a team the
+// board already has keeps the pointer it had.
+func TestSprintlessCreateDeclaresAnUnknownTeam(t *testing.T) {
+	f := newFake(nil, nil)
+	if _, err := f2svc(f).CreateCard(ctx, "acme", CreateCardArgs{Team: "alpha", Title: "later", NoSprint: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !f.saw("SetSprintState alpha cur= prev=") {
+		t.Fatalf("a sprint-less create must declare the team it names; log=%v", f.log)
+	}
+	if f.creates[0].SprintStart != "" {
+		t.Fatalf("the card itself stays sprint-less: %+v", f.creates[0])
+	}
+	// The team is known already, with a sprint: not touched.
+	g := newFake(nil, map[string]board.SprintState{"alpha": {Current: "2026-08-24", ItemID: "st"}})
+	if _, err := f2svc(g).CreateCard(ctx, "acme", CreateCardArgs{Team: "alpha", Title: "later", NoSprint: true}); err != nil {
+		t.Fatal(err)
+	}
+	if g.count("SetSprintState") != 0 {
+		t.Fatalf("a declared team's pointer must not be touched by a sprint-less create; log=%v", g.log)
+	}
+}
+
+// Assigning a team the board does not declare declares it: over the API and
+// MCP a typo'd or foreign team name would otherwise sit on the card alone.
+func TestSetTeamDeclaresAnUnknownTeam(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Title: "t", Team: "", SprintStart: "2026-08-24"}}, nil)
+	if err := f2svc(f).SetTeam(ctx, "acme", "c1", "beta", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !f.saw("SetSprintState beta cur= prev=") {
+		t.Fatalf("assigning an unknown team must declare it; log=%v", f.log)
+	}
+	if c := f.get("c1"); c.Team != "beta" {
+		t.Fatalf("card = %+v", c)
+	}
+	g := newFake([]board.Card{{ItemID: "c1", Title: "t", SprintStart: "2026-08-24"}},
+		map[string]board.SprintState{"beta": {Current: "2026-08-24", ItemID: "st"}})
+	if err := f2svc(g).SetTeam(ctx, "acme", "c1", "beta", ""); err != nil {
+		t.Fatal(err)
+	}
+	if g.count("SetSprintState") != 0 {
+		t.Fatalf("a declared team is not re-declared; log=%v", g.log)
+	}
+}
+
 func TestCreateCardStartsNewSprintForTeamWithNone(t *testing.T) {
 	f := newFake(nil, nil)
 	today := board.TodayIso()
@@ -565,12 +615,15 @@ func TestCreateCardNextSprint(t *testing.T) {
 func TestCreateCardNoSprintSkipsFirstSprintRecord(t *testing.T) {
 	f := newFake(nil, nil)
 	// Even a team with no sprint yet must not have one started by a
-	// "next sprint" create.
+	// "next sprint" create — the team is declared (an empty pointer, see
+	// TestSprintlessCreateDeclaresAnUnknownTeam), but no sprint is recorded.
 	if _, err := f2svc(f).CreateCard(ctx, "acme", CreateCardArgs{Team: "alpha", Title: "task", NoSprint: true}); err != nil {
 		t.Fatal(err)
 	}
-	if f.count("SetSprintState") != 0 {
-		t.Fatalf("a no-sprint create must not record a first sprint; log=%v", f.log)
+	for _, line := range f.log {
+		if strings.HasPrefix(line, "SetSprintState alpha cur=") && line != "SetSprintState alpha cur= prev=" {
+			t.Fatalf("a no-sprint create must not record a first sprint; log=%v", f.log)
+		}
 	}
 	if f.creates[0].SprintStart != "" {
 		t.Fatalf("create input = %+v", f.creates[0])

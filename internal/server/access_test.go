@@ -24,6 +24,8 @@ import (
 // fakeAccess answers rights per login; an unknown login is refused.
 type fakeAccess struct{ byLogin map[string]*domainRights }
 
+func (f fakeAccess) canPush(context.Context, string, string) (bool, error) { return true, nil }
+
 func (f fakeAccess) rights(_ context.Context, _, login string) (*domainRights, error) {
 	r, ok := f.byLogin[login]
 	if !ok {

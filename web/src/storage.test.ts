@@ -8,9 +8,12 @@ import {
   type StorageLike,
 } from "./storage";
 
-const ROSTER = "aeman.teamRoster";
+// The app migrates the team filter alone now; a second base keeps the
+// several-bases paths (a board saved under one base and not the other)
+// exercised.
 const FILTER = "aeman.teamFilter";
-const BASES = [ROSTER, FILTER];
+const OTHER = "aeman.other";
+const BASES = [OTHER, FILTER];
 
 function fakeStorage(seed: Record<string, string> = {}): StorageLike & {
   dump: () => Record<string, string>;
@@ -29,16 +32,16 @@ function fakeStorage(seed: Record<string, string> = {}): StorageLike & {
 }
 
 describe("migrateBoardScopedKeys", () => {
-  it("copies the last board's roster and filter (named by the legacy owner/project keys) onto the single keys", () => {
+  it("copies the last board's saved values (named by the legacy owner/project keys) onto the single keys", () => {
     const s = fakeStorage({
       [LS_LEGACY_OWNER]: "acme",
       [LS_LEGACY_PROJECT]: "37",
-      [`${ROSTER}.acme/37`]: '["alpha","beta"]',
+      [`${OTHER}.acme/37`]: '["alpha","beta"]',
       [`${FILTER}.acme/37`]: '["alpha"]',
-      [`${ROSTER}.acme/36`]: '["old"]',
+      [`${OTHER}.acme/36`]: '["old"]',
     });
     expect(migrateBoardScopedKeys(s, BASES)).toBe("acme/37");
-    expect(s.getItem(ROSTER)).toBe('["alpha","beta"]');
+    expect(s.getItem(OTHER)).toBe('["alpha","beta"]');
     expect(s.getItem(FILTER)).toBe('["alpha"]');
     expect(s.getItem(LS_SINGLE_BOARD_MARK)).toBe("1");
     // The pointer to a board is meaningless now and goes away with it.
@@ -50,14 +53,14 @@ describe("migrateBoardScopedKeys", () => {
     const s = fakeStorage({
       [LS_LEGACY_OWNER]: "acme",
       [LS_LEGACY_PROJECT]: "37",
-      [`${ROSTER}.acme/37`]: '["alpha"]',
+      [`${OTHER}.acme/37`]: '["alpha"]',
     });
     migrateBoardScopedKeys(s, BASES);
-    s.setItem(`${ROSTER}.acme/37`, '["changed"]');
+    s.setItem(`${OTHER}.acme/37`, '["changed"]');
     s.setItem(LS_LEGACY_OWNER, "acme");
     s.setItem(LS_LEGACY_PROJECT, "37");
     expect(migrateBoardScopedKeys(s, BASES)).toBeNull();
-    expect(s.getItem(ROSTER)).toBe('["alpha"]');
+    expect(s.getItem(OTHER)).toBe('["alpha"]');
   });
 
   it("replaces a pre-scoping leftover under the plain key with the board's saved state", () => {
@@ -66,18 +69,18 @@ describe("migrateBoardScopedKeys", () => {
     const s = fakeStorage({
       [LS_LEGACY_OWNER]: "acme",
       [LS_LEGACY_PROJECT]: "37",
-      [ROSTER]: '["stale"]',
-      [`${ROSTER}.acme/37`]: '["alpha"]',
+      [OTHER]: '["stale"]',
+      [`${OTHER}.acme/37`]: '["alpha"]',
     });
     migrateBoardScopedKeys(s, BASES);
-    expect(s.getItem(ROSTER)).toBe('["alpha"]');
+    expect(s.getItem(OTHER)).toBe('["alpha"]');
   });
 
   it("leaves a plain key alone when the board never saved that value", () => {
     const s = fakeStorage({
       [LS_LEGACY_OWNER]: "acme",
       [LS_LEGACY_PROJECT]: "37",
-      [`${ROSTER}.acme/37`]: '["alpha"]',
+      [`${OTHER}.acme/37`]: '["alpha"]',
     });
     migrateBoardScopedKeys(s, BASES);
     expect(s.getItem(FILTER)).toBeNull();
@@ -85,23 +88,23 @@ describe("migrateBoardScopedKeys", () => {
 
   it("without the legacy pointer (a pinned deployment), migrates from the only board with saved state", () => {
     const s = fakeStorage({
-      [`${ROSTER}.acme/37`]: '["alpha"]',
+      [`${OTHER}.acme/37`]: '["alpha"]',
       [`${FILTER}.acme/37`]: '["alpha"]',
       // Another scoped-looking key of an unrelated base is not a board.
       ["aeman.notesCollapsed.narrow"]: "1",
     });
     expect(migrateBoardScopedKeys(s, BASES)).toBe("acme/37");
-    expect(s.getItem(ROSTER)).toBe('["alpha"]');
+    expect(s.getItem(OTHER)).toBe('["alpha"]');
     expect(s.getItem(FILTER)).toBe('["alpha"]');
   });
 
   it("without the legacy pointer, several boards are ambiguous and nothing is copied", () => {
     const s = fakeStorage({
-      [`${ROSTER}.acme/37`]: '["alpha"]',
+      [`${OTHER}.acme/37`]: '["alpha"]',
       [`${FILTER}.acme/36`]: '["beta"]',
     });
     expect(migrateBoardScopedKeys(s, BASES)).toBeNull();
-    expect(s.getItem(ROSTER)).toBeNull();
+    expect(s.getItem(OTHER)).toBeNull();
     expect(s.getItem(FILTER)).toBeNull();
     expect(s.getItem(LS_SINGLE_BOARD_MARK)).toBe("1");
   });

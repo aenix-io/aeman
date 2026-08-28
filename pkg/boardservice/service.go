@@ -318,8 +318,13 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	if args.NoSprint || futureDay {
 		// A "next sprint" create: the card is scheduled for its day but joins
 		// no sprint (and starts none) — the first carry-over whose day reaches
-		// the card's start adopts it into the sprint it opens.
+		// the card's start adopts it into the sprint it opens. The team it
+		// names is declared all the same: a card on a team the board does not
+		// list is on no roster and in no column.
 		sprint = ""
+		if err := s.declareTeam(ctx, b, args.Team); err != nil {
+			return board.Card{}, err
+		}
 	} else {
 		cur := board.CurrentSprint(b, args.Team)
 		startNew := cur == ""
@@ -2019,6 +2024,12 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	if day == "" {
 		day = board.TodayIso()
 	}
+	// A team the board does not declare is declared by the assignment: over
+	// the API and MCP a name the roster lacks would otherwise sit on the card
+	// alone — on no roster, in no column.
+	if err := s.declareTeam(ctx, b, team); err != nil {
+		return err
+	}
 	sprintStart := board.CurrentSprint(b, team)
 	if sprintStart == "" {
 		sprintStart = day
@@ -2074,6 +2085,20 @@ func (s *Service) syncSlotPlan(ctx context.Context, b board.Board, card board.Ca
 }
 
 // setTeamOne moves a single card to a team + sprint, logging what changed.
+// declareTeam puts a team the board does not list yet on its roster — a
+// sprint pointer with no sprint — so no card ever names a team the board
+// lacks. A team already declared keeps the pointer it has; the no-team
+// group needs no declaring.
+func (s *Service) declareTeam(ctx context.Context, b board.Board, team string) error {
+	if team == "" {
+		return nil
+	}
+	if _, known := b.SprintStates[team]; known {
+		return nil
+	}
+	return s.backend.SetSprintState(ctx, b, team, "", "")
+}
+
 func (s *Service) setTeamOne(ctx context.Context, b board.Board, card board.Card, team, sprintStart string) error {
 	if card.Team != team {
 		if err := s.backend.SetTeam(ctx, b, card, team); err != nil {
