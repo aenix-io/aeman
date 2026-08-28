@@ -49,6 +49,8 @@ docker compose up -d --build
 
 `AEMAN_REPOS` names the board's repositories as `name=url`, comma-separated, the primary first — HTTPS clone URLs on the forge, e.g. `aeman-db=https://github.com/acme/aeman-db.git` or `aeman-db=https://gitlab.com/acme/aeman-db.git`. `AEMAN_GIT_TOKEN` is the server's own credential for them (fetch, push, and the membership checks behind the assignee pickers); it is required in this mode. An **empty** repository becomes a board first, on either forge: `aeman init --repo <url>` — from this directory, `docker compose run --rm aeman init --repo https://gitlab.com/acme/aeman-db.git`. `serve` refuses an unborn remote and names that command.
 
+`AEMAN_GIT_TOKEN` is the server's own credential for all of them. A board whose repositories live in **two organisations** gives each its own instead: `AEMAN_GIT_TOKEN_<NAME>`, named after the domain (upper-cased, anything but a letter or a digit an underscore — `founders` → `AEMAN_GIT_TOKEN_FOUNDERS`). This is what lets each token stay narrow: a fine-grained GitHub token belongs to one organisation, so one token cannot cover repositories in two, and a classic token that could is wider than either repository needs. Pass the variables you use through the compose file's `environment` block.
+
 Caddy issues the certificate on first start (needs DNS + ports 80/443 already in place). Open `https://aeman.example.com`, click **Sign in with GitHub** (or **GitLab**), and you're in.
 
 ## Choosing the forge (optional)

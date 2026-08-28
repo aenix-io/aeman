@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -131,6 +132,51 @@ func TestForgeAccessCachesPerVisitorAndSurvivesOutage(t *testing.T) {
 	}
 	if _, err := fa.rights(context.Background(), "tok-bob", "bob"); err == nil {
 		t.Fatal("an unknown visitor during an outage must not be admitted")
+	}
+}
+
+// A board spanning two organisations holds a credential per organisation:
+// each domain is asked about with its own token, and a domain naming none
+// falls back to the shared one. One token wide enough for both would be
+// wider than either repository needs.
+func TestForgeAccessAsksEachDomainWithItsOwnToken(t *testing.T) {
+	seen := map[string]string{} // slug → the Authorization header it was asked with
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		i := strings.Index(r.URL.Path, "/collaborators/")
+		if i < 0 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		mu.Lock()
+		seen[strings.TrimPrefix(r.URL.Path[:i], "/repos/")] = r.Header.Get("Authorization")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"permission":"write"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(), []RepoSpec{
+		{Name: "aeman-db", URL: "https://github.com/aenix-org/aeman-db.git", Token: "org-token"},
+		{Name: "founders", URL: "https://github.com/aenix-founders/aeman-db.git", Token: "founders-token"},
+		{Name: "shared", URL: "https://github.com/acme/shared.git"}, // no token of its own
+	}, "fallback-token", nil)
+	for _, d := range []string{"aeman-db", "founders", "shared"} {
+		if _, err := fa.readers(context.Background(), d, []string{"alice"}); err != nil {
+			t.Fatalf("%s: %v", d, err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := map[string]string{
+		"aenix-org/aeman-db":      "Bearer org-token",
+		"aenix-founders/aeman-db": "Bearer founders-token",
+		"acme/shared":             "Bearer fallback-token",
+	}
+	for slug, auth := range want {
+		if seen[slug] != auth {
+			t.Errorf("%s was asked with %q, want %q", slug, seen[slug], auth)
+		}
 	}
 }
 

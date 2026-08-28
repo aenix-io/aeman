@@ -152,6 +152,17 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 		return nil, nil //nolint:nilnil // no git mode configured is not an error
 	}
 	cfg := &server.GitConfig{Repos: repos, Token: g.env("AEMAN_GIT_TOKEN")}
+	// A board may span two organisations, and one token narrow enough for
+	// either cannot reach both: every domain may name its own credential,
+	// falling back to the shared one. A domain still without one here is
+	// filled by fillGitToken from the forge's CLI.
+	for i := range cfg.Repos {
+		if tok := strings.TrimSpace(g.env(tokenEnvFor(cfg.Repos[i].Name))); tok != "" {
+			cfg.Repos[i].Token = tok
+			continue
+		}
+		cfg.Repos[i].Token = cfg.Token
+	}
 	var err error
 	if cfg.Forge, err = forge.Detect(repos[0].URL, forge.Kind(g.pick(g.forge, "AEMAN_FORGE", "")), g.pick(g.gitlabURL, "AEMAN_GITLAB_URL", "")); err != nil {
 		return nil, fmt.Errorf("--forge: %w", err)
@@ -182,12 +193,50 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 // remote that needs no credential (a file path, a public repository) works
 // without it.
 func fillGitToken(ctx context.Context, cfg *server.GitConfig) {
-	if cfg == nil || cfg.Token != "" {
+	if cfg == nil {
 		return
 	}
-	if tok, err := resolveForgeToken(ctx, cfg.Forge, cliFor(cfg.Forge, cfg.Repos[0].URL), osEnv); err == nil {
-		cfg.Token = tok
+	if cfg.Token == "" && !allDomainsHaveTokens(cfg) {
+		if tok, err := resolveForgeToken(ctx, cfg.Forge, cliFor(cfg.Forge, cfg.Repos[0].URL), osEnv); err == nil {
+			cfg.Token = tok
+		}
 	}
+	// Every domain ends up with a credential of its own: its variable, else
+	// the shared one. From here nothing has to remember the fallback.
+	for i := range cfg.Repos {
+		if cfg.Repos[i].Token == "" {
+			cfg.Repos[i].Token = cfg.Token
+		}
+	}
+}
+
+// allDomainsHaveTokens reports whether every repository already names its
+// own credential — then the shared one is not needed and the forge's CLI is
+// not asked for it.
+func allDomainsHaveTokens(cfg *server.GitConfig) bool {
+	for _, r := range cfg.Repos {
+		if r.Token == "" {
+			return false
+		}
+	}
+	return len(cfg.Repos) > 0
+}
+
+// tokenEnvFor is the environment variable a domain's credential is read
+// from: AEMAN_GIT_TOKEN_<NAME>, the name upper-cased with anything but a
+// letter or a digit as an underscore.
+func tokenEnvFor(domain string) string {
+	var b strings.Builder
+	b.WriteString("AEMAN_GIT_TOKEN_")
+	for _, r := range strings.ToUpper(domain) {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
 
 // defaultDataDir is /data when the container's volume is there, else a

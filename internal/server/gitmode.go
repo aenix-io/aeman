@@ -31,6 +31,18 @@ import (
 type RepoSpec struct {
 	Name string
 	URL  string
+	// Token is this repository's own credential — a board may span two
+	// organisations, and one token narrow enough for either cannot reach
+	// both. Empty falls back to GitConfig.Token.
+	Token string
+}
+
+// token is the credential this repository is read and written with.
+func (s RepoSpec) token(fallback string) string {
+	if s.Token != "" {
+		return s.Token
+	}
+	return fallback
 }
 
 // GitConfig enables git mode.
@@ -38,7 +50,8 @@ type GitConfig struct {
 	// Repos are the board's domains, primary first. Only the primary is
 	// served for now.
 	Repos []RepoSpec
-	// Token is the push/fetch credential (HTTPS basic auth); empty means an
+	// Token is the push/fetch credential (HTTPS basic auth) for the
+	// repositories that name none of their own; empty means an
 	// unauthenticated transport (local file remotes, tests).
 	Token string
 	// Forge is the code host the repositories live on: it says how the
@@ -133,10 +146,12 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		f = forge.NewGitHub()
 	}
 	// Issue/PR titles are still resolved against GitHub only; another
-	// forge's token has no business there, so the lookups go unauthenticated.
-	linksToken := cfg.Token
-	if f.Kind() != forge.GitHub {
-		linksToken = ""
+	// forge's token has no business there, so the lookups go
+	// unauthenticated. The primary's credential does the asking — the
+	// links point anywhere, and a per-domain token is not more entitled.
+	linksToken := ""
+	if f.Kind() == forge.GitHub && len(cfg.Repos) > 0 {
+		linksToken = cfg.Repos[0].token(cfg.Token)
 	}
 	if len(cfg.Repos) == 0 {
 		return nil, errors.New("git mode needs at least one --repo")
@@ -161,8 +176,8 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 			return nil, fmt.Errorf("data dir: %w", err)
 		}
 		remote := gitstore.Remote{URL: spec.URL}
-		if cfg.Token != "" {
-			remote.Auth = f.GitAuth(cfg.Token)
+		if tok := spec.token(cfg.Token); tok != "" {
+			remote.Auth = f.GitAuth(tok)
 		}
 		repo, err := cloneOrOpen(dir, remote, opts, spec.URL)
 		if err != nil {
