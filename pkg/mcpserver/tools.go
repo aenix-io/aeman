@@ -12,12 +12,11 @@ import (
 	"github.com/aenix-io/aeman/pkg/boardservice"
 )
 
-// boardRef is embedded in every tool input to select the target board. It is
-// addressed by owner+board: "project" is aeman's own planning entity (a group
-// of epic columns on the Project board), not the GitHub board.
+// boardRef is embedded in every tool input to select the target board — the
+// name of its primary repository. "project" is aeman's own planning entity (a
+// group of epic columns on the Project board), not the board.
 type boardRef struct {
-	Owner string `json:"owner,omitempty" jsonschema:"GitHub org or user that owns the board; defaults to the server configuration"`
-	Board int    `json:"board,omitempty" jsonschema:"GitHub Project number of the board; defaults to the server configuration. Not to be confused with an aeman project, which groups epic columns"`
+	Board string `json:"board,omitempty" jsonschema:"the board's name (its primary repository); defaults to the server configuration and is ignored when the server pins its board. Not to be confused with an aeman project, which groups epic columns"`
 }
 
 // cardRef identifies a single card on a board.
@@ -62,8 +61,8 @@ func domainZone(name string) (board.ZoneKey, error) {
 }
 
 // loadCard loads the board and resolves a card by uid.
-func (h *server) loadCard(ctx context.Context, svc *boardservice.Service, owner string, project int, uid string) (board.Board, board.Card, error) {
-	b, err := svc.Board(ctx, owner, project)
+func (h *server) loadCard(ctx context.Context, svc *boardservice.Service, boardID string, uid string) (board.Board, board.Card, error) {
+	b, err := svc.Board(ctx, boardID)
 	if err != nil {
 		return board.Board{}, board.Card{}, err
 	}
@@ -76,8 +75,8 @@ func (h *server) loadCard(ctx context.Context, svc *boardservice.Service, owner 
 
 // cardResource reloads the board and returns a card as its API resource — the
 // standard mutation result, mirroring the way the UI re-renders what changed.
-func (h *server) cardResource(ctx context.Context, svc *boardservice.Service, owner string, project int, uid string) (*mcp.CallToolResult, apiserver.Card, error) {
-	b, card, err := h.loadCard(ctx, svc, owner, project, uid)
+func (h *server) cardResource(ctx context.Context, svc *boardservice.Service, boardID string, uid string) (*mcp.CallToolResult, apiserver.Card, error) {
+	b, card, err := h.loadCard(ctx, svc, boardID, uid)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
@@ -87,11 +86,11 @@ func (h *server) cardResource(ctx context.Context, svc *boardservice.Service, ow
 // --- Board / read ------------------------------------------------------------
 
 func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardRef) (*mcp.CallToolResult, apiserver.BoardInfo, error) {
-	svc, owner, project, err := h.ref(ctx, in)
+	svc, boardID, err := h.ref(ctx, in)
 	if err != nil {
 		return nil, apiserver.BoardInfo{}, err
 	}
-	b, err := svc.Board(ctx, owner, project)
+	b, err := svc.Board(ctx, boardID)
 	if err != nil {
 		return nil, apiserver.BoardInfo{}, err
 	}
@@ -117,7 +116,7 @@ type listCardsInput struct {
 }
 
 func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listCardsInput) (*mcp.CallToolResult, apiserver.CardList, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.CardList{}, err
 	}
@@ -156,7 +155,7 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	if in.Full {
 		sel.Fields = "full"
 	}
-	b, err := svc.Board(ctx, owner, project)
+	b, err := svc.Board(ctx, boardID)
 	if err != nil {
 		return nil, apiserver.CardList{}, err
 	}
@@ -175,11 +174,11 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 }
 
 func (h *server) getCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, in.UID)
+	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 // --- Create / update / delete ------------------------------------------------
@@ -206,7 +205,7 @@ type createCardInput struct {
 }
 
 func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
@@ -214,7 +213,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	card, err := svc.CreateCard(ctx, owner, project, boardservice.CreateCardArgs{
+	card, err := svc.CreateCard(ctx, boardID, boardservice.CreateCardArgs{
 		Team:           in.Team,
 		Zone:           zone,
 		Title:          in.Title,
@@ -232,7 +231,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, card.ItemID)
+	return h.cardResource(ctx, svc, boardID, card.ItemID)
 }
 
 // updateCardInput is a card patch, mirroring PATCH /api/v1/cards/{uid}: only
@@ -259,36 +258,36 @@ type updateCardInput struct {
 }
 
 func (h *server) updateCard(ctx context.Context, _ *mcp.CallToolRequest, in updateCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	_, card, err := h.loadCard(ctx, svc, owner, project, in.UID)
+	_, card, err := h.loadCard(ctx, svc, boardID, in.UID)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	if err := h.applyCardPatch(ctx, svc, owner, project, card, in); err != nil {
+	if err := h.applyCardPatch(ctx, svc, boardID, card, in); err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, in.UID)
+	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 // applyCardPatch runs the provided spec edits through the service methods, in
 // a fixed order: plain fields first, then plan, then dates (an explicit sprint
 // wins over the one the calendar derives from start).
-func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, owner string, project int, card board.Card, in updateCardInput) error {
+func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, boardID string, card board.Card, in updateCardInput) error {
 	if in.Title != nil {
-		if err := svc.Rename(ctx, owner, project, in.UID, *in.Title); err != nil {
+		if err := svc.Rename(ctx, boardID, in.UID, *in.Title); err != nil {
 			return err
 		}
 	}
 	if in.Description != nil {
-		if err := svc.SetDescription(ctx, owner, project, in.UID, *in.Description); err != nil {
+		if err := svc.SetDescription(ctx, boardID, in.UID, *in.Description); err != nil {
 			return err
 		}
 	}
 	if in.Team != nil {
-		if err := svc.SetTeam(ctx, owner, project, in.UID, *in.Team, ""); err != nil {
+		if err := svc.SetTeam(ctx, boardID, in.UID, *in.Team, ""); err != nil {
 			return err
 		}
 	}
@@ -300,7 +299,7 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 		if in.Epic != nil {
 			epic = *in.Epic
 		}
-		if err := svc.SetEpic(ctx, owner, project, in.UID, epic, in.Project); err != nil {
+		if err := svc.SetEpic(ctx, boardID, in.UID, epic, in.Project); err != nil {
 			return err
 		}
 	}
@@ -309,73 +308,73 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 		if err != nil {
 			return err
 		}
-		if err := svc.SetZone(ctx, owner, project, in.UID, zone); err != nil {
+		if err := svc.SetZone(ctx, boardID, in.UID, zone); err != nil {
 			return err
 		}
 	}
 	if in.Assignee != nil {
-		if err := svc.SetAssignee(ctx, owner, project, in.UID, *in.Assignee); err != nil {
+		if err := svc.SetAssignee(ctx, boardID, in.UID, *in.Assignee); err != nil {
 			return err
 		}
 	}
 	if in.Progress != nil {
-		if err := svc.SetProgress(ctx, owner, project, in.UID, *in.Progress); err != nil {
+		if err := svc.SetProgress(ctx, boardID, in.UID, *in.Progress); err != nil {
 			return err
 		}
 	}
 	if in.Stage != nil {
-		if err := svc.SetStage(ctx, owner, project, in.UID, board.StageKey(*in.Stage)); err != nil {
+		if err := svc.SetStage(ctx, boardID, in.UID, board.StageKey(*in.Stage)); err != nil {
 			return err
 		}
 	}
 	if in.Recurrence != nil {
-		if err := svc.SetRecurrence(ctx, owner, project, in.UID, *in.Recurrence); err != nil {
+		if err := svc.SetRecurrence(ctx, boardID, in.UID, *in.Recurrence); err != nil {
 			return err
 		}
 	}
 	if in.Parent != nil {
-		if err := svc.SetParent(ctx, owner, project, in.UID, *in.Parent); err != nil {
+		if err := svc.SetParent(ctx, boardID, in.UID, *in.Parent); err != nil {
 			return err
 		}
 	}
 	if in.ReviewOf != nil {
-		if err := svc.SetReviewOf(ctx, owner, project, in.UID, *in.ReviewOf); err != nil {
+		if err := svc.SetReviewOf(ctx, boardID, in.UID, *in.ReviewOf); err != nil {
 			return err
 		}
 	}
 	if in.PlanBand != nil {
-		if err := svc.SetPlan(ctx, owner, project, in.UID, board.PlanBand(*in.PlanBand)); err != nil {
+		if err := svc.SetPlan(ctx, boardID, in.UID, board.PlanBand(*in.PlanBand)); err != nil {
 			return err
 		}
 	}
 	if in.PlanWeek != nil {
-		if err := svc.SetWeek(ctx, owner, project, in.UID, *in.PlanWeek); err != nil {
+		if err := svc.SetWeek(ctx, boardID, in.UID, *in.PlanWeek); err != nil {
 			return err
 		}
 	}
-	return h.applyDatePatch(ctx, svc, owner, project, card, in)
+	return h.applyDatePatch(ctx, svc, boardID, card, in)
 }
 
 // applyDatePatch applies the date part of a card patch: a start relocates the
 // card with the calendar semantics (end kept unless also provided), an end
 // alone moves the due day, and an explicit sprint overrides the membership.
-func (h *server) applyDatePatch(ctx context.Context, svc *boardservice.Service, owner string, project int, card board.Card, in updateCardInput) error {
+func (h *server) applyDatePatch(ctx context.Context, svc *boardservice.Service, boardID string, card board.Card, in updateCardInput) error {
 	switch {
 	case in.Start != nil:
 		end := card.Day
 		if in.End != nil {
 			end = *in.End
 		}
-		if err := svc.SetDates(ctx, owner, project, in.UID, *in.Start, end); err != nil {
+		if err := svc.SetDates(ctx, boardID, in.UID, *in.Start, end); err != nil {
 			return err
 		}
 	case in.End != nil:
-		if err := svc.SetDay(ctx, owner, project, in.UID, *in.End); err != nil {
+		if err := svc.SetDay(ctx, boardID, in.UID, *in.End); err != nil {
 			return err
 		}
 	}
 	if in.Sprint != nil {
-		return svc.SetSprintStart(ctx, owner, project, in.UID, *in.Sprint)
+		return svc.SetSprintStart(ctx, boardID, in.UID, *in.Sprint)
 	}
 	return nil
 }
@@ -390,11 +389,11 @@ type epicInput struct {
 }
 
 func (h *server) addEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddEpic(ctx, owner, boardNum, in.Name, in.Project); err != nil {
+	if err := svc.AddEpic(ctx, boardID, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil
@@ -402,11 +401,11 @@ func (h *server) addEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInp
 
 // setEpicProject moves a column to another project (empty detaches it).
 func (h *server) setEpicProject(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.SetEpicProject(ctx, owner, boardNum, in.From, in.Name, in.Project); err != nil {
+	if err := svc.SetEpicProject(ctx, boardID, in.From, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "updated"}, nil
@@ -414,11 +413,11 @@ func (h *server) setEpicProject(ctx context.Context, _ *mcp.CallToolRequest, in 
 
 // renameEpic renames a column in place, cards and all.
 func (h *server) renameEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.RenameEpic(ctx, owner, boardNum, in.Project, in.Name, in.To); err != nil {
+	if err := svc.RenameEpic(ctx, boardID, in.Project, in.Name, in.To); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "renamed"}, nil
@@ -432,11 +431,11 @@ type listProcessesInput struct {
 }
 
 func (h *server) listProcesses(ctx context.Context, _ *mcp.CallToolRequest, in listProcessesInput) (*mcp.CallToolResult, apiserver.ProcessList, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.ProcessList{}, err
 	}
-	b, err := svc.Board(ctx, owner, boardNum)
+	b, err := svc.Board(ctx, boardID)
 	if err != nil {
 		return nil, apiserver.ProcessList{}, err
 	}
@@ -448,36 +447,39 @@ type processInput struct {
 	Name    string `json:"name" jsonschema:"the process's name"`
 	Project string `json:"project,omitempty" jsonschema:"add_process: the project the process is part of (from get_board metadata.projects)"`
 	To      string `json:"to,omitempty" jsonschema:"rename_process only: the new name"`
+	// Domain is the repository to declare a project-less process in; a
+	// process with a project lives with its project.
+	Domain string `json:"domain,omitempty" jsonschema:"add_process only, without a project: the domain (repository) to declare the process in, from get_board metadata.domains; empty = the primary"`
 }
 
 func (h *server) addProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddProcess(ctx, owner, boardNum, in.Name, in.Project); err != nil {
+	if err := svc.AddProcess(board.WithDomain(ctx, in.Domain), boardID, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil
 }
 
 func (h *server) deleteProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteProcess(ctx, owner, boardNum, in.Name); err != nil {
+	if err := svc.DeleteProcess(ctx, boardID, in.Name); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted"}, nil
 }
 
 func (h *server) renameProcess(ctx context.Context, _ *mcp.CallToolRequest, in processInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.RenameProcess(ctx, owner, boardNum, in.Name, in.To); err != nil {
+	if err := svc.RenameProcess(ctx, boardID, in.Name, in.To); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "renamed"}, nil
@@ -490,11 +492,11 @@ type setProcessProjectInput struct {
 }
 
 func (h *server) setProcessProject(ctx context.Context, _ *mcp.CallToolRequest, in setProcessProjectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.SetProcessProject(ctx, owner, boardNum, in.Process, in.Project); err != nil {
+	if err := svc.SetProcessProject(ctx, boardID, in.Process, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "moved"}, nil
@@ -507,11 +509,11 @@ type pauseProcessInput struct {
 }
 
 func (h *server) setProcessPaused(ctx context.Context, _ *mcp.CallToolRequest, in pauseProcessInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.SetProcessPaused(ctx, owner, boardNum, in.Process, in.Paused); err != nil {
+	if err := svc.SetProcessPaused(ctx, boardID, in.Process, in.Paused); err != nil {
 		return nil, statusOutput{}, err
 	}
 	status := "resumed"
@@ -524,14 +526,14 @@ func (h *server) setProcessPaused(ctx context.Context, _ *mcp.CallToolRequest, i
 // reopenCard undoes a done mark, restoring the pre-done progress from the
 // card's own activity log (fallback: the In Progress nudge).
 func (h *server) reopenCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	if err := svc.Reopen(ctx, owner, project, in.UID); err != nil {
+	if err := svc.Reopen(ctx, boardID, in.UID); err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, in.UID)
+	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 type reorderProcessesInput struct {
@@ -540,11 +542,11 @@ type reorderProcessesInput struct {
 }
 
 func (h *server) reorderProcesses(ctx context.Context, _ *mcp.CallToolRequest, in reorderProcessesInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.ReorderProcesses(ctx, owner, boardNum, in.Processes); err != nil {
+	if err := svc.ReorderProcesses(ctx, boardID, in.Processes); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "reordered"}, nil
@@ -557,11 +559,11 @@ type reorderProcessTasksInput struct {
 }
 
 func (h *server) reorderProcessTasks(ctx context.Context, _ *mcp.CallToolRequest, in reorderProcessTasksInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.ReorderProcessTasks(ctx, owner, boardNum, in.Process, in.UIDs); err != nil {
+	if err := svc.ReorderProcessTasks(ctx, boardID, in.Process, in.UIDs); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "reordered"}, nil
@@ -580,11 +582,11 @@ type addTaskInput struct {
 }
 
 func (h *server) addProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in addTaskInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	tpl, err := svc.AddProcessTask(ctx, owner, boardNum, in.Process, boardservice.TaskArgs{
+	tpl, err := svc.AddProcessTask(ctx, boardID, in.Process, boardservice.TaskArgs{
 		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
 		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
 	})
@@ -607,11 +609,11 @@ type updateTaskInput struct {
 }
 
 func (h *server) updateProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in updateTaskInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	err = svc.UpdateProcessTask(ctx, owner, boardNum, in.UID, boardservice.TaskPatch{
+	err = svc.UpdateProcessTask(ctx, boardID, in.UID, boardservice.TaskPatch{
 		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
 		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
 	})
@@ -627,11 +629,11 @@ type taskRef struct {
 }
 
 func (h *server) deleteProcessTask(ctx context.Context, _ *mcp.CallToolRequest, in taskRef) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteProcessTask(ctx, owner, boardNum, in.UID); err != nil {
+	if err := svc.DeleteProcessTask(ctx, boardID, in.UID); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
@@ -647,36 +649,56 @@ type deadlineInput struct {
 }
 
 func (h *server) addDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddDeadline(ctx, owner, boardNum, in.Week, in.Project); err != nil {
+	if err := svc.AddDeadline(ctx, boardID, in.Week, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil
 }
 
 func (h *server) deleteDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteDeadline(ctx, owner, boardNum, in.Week, in.Project); err != nil {
+	if err := svc.DeleteDeadline(ctx, boardID, in.Week, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted"}, nil
 }
 
 func (h *server) moveDeadline(ctx context.Context, _ *mcp.CallToolRequest, in deadlineInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.MoveDeadline(ctx, owner, boardNum, in.Project, in.Week, in.To); err != nil {
+	if err := svc.MoveDeadline(ctx, boardID, in.Project, in.Week, in.To); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "moved"}, nil
+}
+
+// teamInput names one team of the board and, for a rename, its new name.
+type teamInput struct {
+	boardRef
+	Team string `json:"team" jsonschema:"the team's current name (its chip on the boards)"`
+	To   string `json:"to" jsonschema:"the team's new name; a name another team has — in any of the board's repositories — is refused"`
+}
+
+// renameTeam renames a team in place, its cards and process tasks along
+// with it.
+func (h *server) renameTeam(ctx context.Context, _ *mcp.CallToolRequest, in teamInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.RenameTeam(ctx, boardID, in.Team, in.To); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "renamed"}, nil
 }
 
 // projectInput names one project of the Project board.
@@ -684,37 +706,40 @@ type projectInput struct {
 	boardRef
 	Name string `json:"name" jsonschema:"the project's name — the chip on the Project board"`
 	To   string `json:"to,omitempty" jsonschema:"rename_project only: the project's new name"`
+	// Domain is the repository to declare the project in, when the board
+	// spans several (get_board metadata.domains); empty is the primary.
+	Domain string `json:"domain,omitempty" jsonschema:"add_project only: the domain (repository) to declare the project in, from get_board metadata.domains; empty = the primary"`
 }
 
 // renameProject renames a project in place, columns and cards along with it.
 func (h *server) renameProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.RenameProject(ctx, owner, boardNum, in.Name, in.To); err != nil {
+	if err := svc.RenameProject(ctx, boardID, in.Name, in.To); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "renamed"}, nil
 }
 
 func (h *server) addProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddProject(ctx, owner, boardNum, in.Name); err != nil {
+	if err := svc.AddProject(board.WithDomain(ctx, in.Domain), boardID, in.Name); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "added"}, nil
 }
 
 func (h *server) deleteProject(ctx context.Context, _ *mcp.CallToolRequest, in projectInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteProject(ctx, owner, boardNum, in.Name); err != nil {
+	if err := svc.DeleteProject(ctx, boardID, in.Name); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted"}, nil
@@ -727,33 +752,33 @@ type reorderProjectsInput struct {
 }
 
 func (h *server) reorderProjects(ctx context.Context, _ *mcp.CallToolRequest, in reorderProjectsInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, boardNum, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.ReorderProjects(ctx, owner, boardNum, in.Projects); err != nil {
+	if err := svc.ReorderProjects(ctx, boardID, in.Projects); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "reordered"}, nil
 }
 
 func (h *server) deleteEpic(ctx context.Context, _ *mcp.CallToolRequest, in epicInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteEpic(ctx, owner, project, in.Name, in.Project); err != nil {
+	if err := svc.DeleteEpic(ctx, boardID, in.Name, in.Project); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted"}, nil
 }
 
 func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteCard(ctx, owner, project, in.UID); err != nil {
+	if err := svc.DeleteCard(ctx, boardID, in.UID); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
@@ -772,11 +797,11 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 	default:
 		return nil, statusOutput{}, fmt.Errorf("unknown from %q (use grid or plan)", in.From)
 	}
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.Remove(ctx, owner, project, in.UID, in.From); err != nil {
+	if err := svc.Remove(ctx, boardID, in.UID, in.From); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
@@ -792,20 +817,20 @@ type moveCardInput struct {
 }
 
 func (h *server) moveCard(ctx context.Context, _ *mcp.CallToolRequest, in moveCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
 	move := func() error {
 		if in.Before != "" {
-			return svc.MoveCardBefore(ctx, owner, project, in.UID, in.Before)
+			return svc.MoveCardBefore(ctx, boardID, in.UID, in.Before)
 		}
-		return svc.MoveCard(ctx, owner, project, in.UID, in.After)
+		return svc.MoveCard(ctx, boardID, in.UID, in.After)
 	}
 	if err := move(); err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, in.UID)
+	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 // deferCardInput pushes a card's scheduled day ahead.
@@ -815,27 +840,27 @@ type deferCardInput struct {
 }
 
 func (h *server) deferCard(ctx context.Context, _ *mcp.CallToolRequest, in deferCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	if err := svc.Defer(ctx, owner, project, in.UID, in.Days); err != nil {
+	if err := svc.Defer(ctx, boardID, in.UID, in.Days); err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, in.UID)
+	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 // setInProgress moves a card to the implicit In Progress status: the stage is
 // cleared and the progress nudged into the [10, 90] band at the edges.
 func (h *server) setInProgress(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	if err := svc.SetInProgress(ctx, owner, project, in.UID); err != nil {
+	if err := svc.SetInProgress(ctx, boardID, in.UID); err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, in.UID)
+	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 // sendToReviewInput sends a card to review for a reviewer.
@@ -846,23 +871,23 @@ type sendToReviewInput struct {
 }
 
 func (h *server) sendToReview(ctx context.Context, _ *mcp.CallToolRequest, in sendToReviewInput) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	review, err := svc.SendToReview(ctx, owner, project, in.UID, in.Reviewer, in.Day, "")
+	review, err := svc.SendToReview(ctx, boardID, in.UID, in.Reviewer, in.Day, "")
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, review.ItemID)
+	return h.cardResource(ctx, svc, boardID, review.ItemID)
 }
 
 func (h *server) removeReviewer(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.RemoveReviewer(ctx, owner, project, in.UID); err != nil {
+	if err := svc.RemoveReviewer(ctx, boardID, in.UID); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "ok", UID: in.UID}, nil
@@ -877,7 +902,7 @@ type takeIntoPlanInput struct {
 }
 
 func (h *server) takeIntoPlan(ctx context.Context, _ *mcp.CallToolRequest, in takeIntoPlanInput) (*mcp.CallToolResult, apiserver.Card, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
@@ -885,18 +910,18 @@ func (h *server) takeIntoPlan(ctx context.Context, _ *mcp.CallToolRequest, in ta
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	if err := svc.TakeIntoPlan(ctx, owner, project, in.UID, in.Engineer, zone, in.Day); err != nil {
+	if err := svc.TakeIntoPlan(ctx, boardID, in.UID, in.Engineer, zone, in.Day); err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	return h.cardResource(ctx, svc, owner, project, in.UID)
+	return h.cardResource(ctx, svc, boardID, in.UID)
 }
 
 func (h *server) releaseFromPlan(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.ReleaseFromPlan(ctx, owner, project, in.UID); err != nil {
+	if err := svc.ReleaseFromPlan(ctx, boardID, in.UID); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "released", UID: in.UID}, nil
@@ -912,11 +937,11 @@ type carryOverInput struct {
 }
 
 func (h *server) carryOver(ctx context.Context, _ *mcp.CallToolRequest, in carryOverInput) (*mcp.CallToolResult, boardservice.CarryReport, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, boardservice.CarryReport{}, err
 	}
-	rep, err := svc.CarryOver(ctx, owner, project, in.Team, in.DryRun)
+	rep, err := svc.CarryOver(ctx, boardID, in.Team, in.DryRun)
 	if err != nil {
 		return nil, boardservice.CarryReport{}, err
 	}
@@ -934,25 +959,25 @@ type linkListOutput struct {
 // listLog returns a card's unified activity feed: recorded events and work
 // notes merged chronologically.
 func (h *server) listLog(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, apiserver.LogList, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, apiserver.LogList{}, err
 	}
-	_, card, err := h.loadCard(ctx, svc, owner, project, in.UID)
+	card, events, truncated, err := svc.Log(ctx, boardID, in.UID)
 	if err != nil {
 		return nil, apiserver.LogList{}, err
 	}
-	return nil, apiserver.CardLog(card), nil
+	return nil, apiserver.CardLogFrom(card, events, truncated), nil
 }
 
 // listLinks returns the URLs found in a card's description: GitHub issue/PR
 // references first (resolved to their titles when possible), plain links after.
 func (h *server) listLinks(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, linkListOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, linkListOutput{}, err
 	}
-	links, err := svc.CardLinks(ctx, owner, project, in.UID)
+	links, err := svc.CardLinks(ctx, boardID, in.UID)
 	if err != nil {
 		return nil, linkListOutput{}, err
 	}
@@ -963,11 +988,11 @@ func (h *server) listLinks(ctx context.Context, _ *mcp.CallToolRequest, in cardR
 }
 
 func (h *server) listNotes(ctx context.Context, _ *mcp.CallToolRequest, in cardRef) (*mcp.CallToolResult, noteListOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, noteListOutput{}, err
 	}
-	_, card, err := h.loadCard(ctx, svc, owner, project, in.UID)
+	_, card, err := h.loadCard(ctx, svc, boardID, in.UID)
 	if err != nil {
 		return nil, noteListOutput{}, err
 	}
@@ -981,11 +1006,11 @@ type addNoteInput struct {
 }
 
 func (h *server) addNote(ctx context.Context, _ *mcp.CallToolRequest, in addNoteInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.AddNote(ctx, owner, project, in.UID, in.Text); err != nil {
+	if err := svc.AddNote(ctx, boardID, in.UID, in.Text); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "ok", UID: in.UID}, nil
@@ -999,11 +1024,11 @@ type editNoteInput struct {
 }
 
 func (h *server) editNote(ctx context.Context, _ *mcp.CallToolRequest, in editNoteInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.EditNote(ctx, owner, project, in.UID, in.NoteID, in.Text); err != nil {
+	if err := svc.EditNote(ctx, boardID, in.UID, in.NoteID, in.Text); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "ok", UID: in.UID}, nil
@@ -1016,11 +1041,11 @@ type deleteNoteInput struct {
 }
 
 func (h *server) deleteNote(ctx context.Context, _ *mcp.CallToolRequest, in deleteNoteInput) (*mcp.CallToolResult, statusOutput, error) {
-	svc, owner, project, err := h.ref(ctx, in.boardRef)
+	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.DeleteNote(ctx, owner, project, in.UID, in.NoteID); err != nil {
+	if err := svc.DeleteNote(ctx, boardID, in.UID, in.NoteID); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil

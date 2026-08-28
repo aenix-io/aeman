@@ -7,6 +7,7 @@ package boardservice
 
 import (
 	"context"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -20,7 +21,7 @@ import (
 type Backend interface {
 	// LoadBoard fetches a project and returns the parsed domain snapshot (cards +
 	// fields, with the hidden per-team sprint-state cards split into SprintStates).
-	LoadBoard(ctx context.Context, owner string, project int) (board.Board, error)
+	LoadBoard(ctx context.Context, boardID string) (board.Board, error)
 
 	// LoadCards fetches specific cards by item id (a fast partial read the
 	// live-update path uses instead of reloading the whole board). Deleted ids are
@@ -38,6 +39,10 @@ type Backend interface {
 	// AppendEvent records one activity event on a card (see board.Event). The
 	// service calls it best-effort: an error must not fail the mutation.
 	AppendEvent(ctx context.Context, b board.Board, card board.Card, e board.Event) error
+	// CardLog is the card's recorded history, oldest first, with the time it
+	// is cut at when the backend holds only part of it (a shallow clone);
+	// zero when it is whole.
+	CardLog(ctx context.Context, b board.Board, id string) (events []board.Event, truncatedBefore time.Time, err error)
 	// EditNote rewrites one of a card's work notes.
 	EditNote(ctx context.Context, b board.Board, card board.Card, note board.Note, text string) error
 	// DeleteNote removes one of a card's work notes.

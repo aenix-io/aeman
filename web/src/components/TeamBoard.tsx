@@ -27,7 +27,9 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, addDays, localDateIso, mondayOf, weeksBetween } from "../date";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
-import { avatarUrlFor, displayName, type GhUser } from "../users";
+import type { Avatars } from "../users";
+import { Avatar } from "./Avatar";
+import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { TeamChips } from "./TeamChips";
@@ -47,14 +49,14 @@ interface TeamBoardProps {
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
   onSelectDate: (day: string) => void;
-  /** GitHub profiles (name + avatar) for assignees, keyed by login. */
-  users: Record<string, GhUser>;
+  /** Avatars by login (the board roster). */
+  avatars: Avatars;
   /** Known teams (the roster), shown as filter chips. */
   roster: string[];
   /** Single-select team filter: null = all, "" = no team, else a team name. */
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
-  onAddTeam: (team: string) => void;
+  onAddTeam: (team: string, domain?: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
   onReorderTeams: (ordered: string[]) => void;
@@ -105,7 +107,7 @@ export function TeamBoard({
   me,
   selectedDate,
   onSelectDate,
-  users,
+  avatars,
   roster,
   teamFilter,
   onSetFilter,
@@ -434,7 +436,6 @@ export function TeamBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: [],
       plan,
       week: currentWeek,
@@ -444,7 +445,7 @@ export function TeamBoard({
       notes: [],
     };
     addCard(optimistic);
-    const creating = provider.createCard(board, {
+    const creating = provider.createCard({
       title,
       plan,
       week: currentWeek,
@@ -459,7 +460,7 @@ export function TeamBoard({
         if (consumePendingCancel(tempId)) {
           removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
-          void provider.deleteCard(board, card.itemId).catch(() => undefined);
+          void provider.deleteCard(card.itemId).catch(() => undefined);
           return;
         }
         // Swap in place: append-on-ack would reshuffle a quick burst of adds.
@@ -478,7 +479,7 @@ export function TeamBoard({
     const prev = card.plan;
     patchCard(card.itemId, { plan });
     void provider
-      .patchCard(board, card.itemId, { plan: { band: plan } })
+      .patchCard(card.itemId, { plan: { band: plan } })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, { plan: prev });
@@ -503,7 +504,7 @@ export function TeamBoard({
       const end = addDays(week, span * 7 + 4);
       patchCard(card.itemId, { week, startDate: week, day: end });
       void provider
-        .patchCard(board, card.itemId, { dates: { start: week, end } })
+        .patchCard(card.itemId, { dates: { start: week, end } })
         .then(addCard)
         .catch((err: unknown) => {
           patchCard(card.itemId, prevDates);
@@ -513,7 +514,7 @@ export function TeamBoard({
     }
     patchCard(card.itemId, { week: week ?? undefined });
     void provider
-      .patchCard(board, card.itemId, { plan: { week: week ?? "" } })
+      .patchCard(card.itemId, { plan: { week: week ?? "" } })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, { week: prev ?? undefined });
@@ -528,7 +529,7 @@ export function TeamBoard({
     const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
     patchCard(card.itemId, { plan: band, week: currentWeek });
     void provider
-      .patchCard(board, card.itemId, { plan: { band, week: currentWeek } })
+      .patchCard(card.itemId, { plan: { band, week: currentWeek } })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
@@ -570,8 +571,8 @@ export function TeamBoard({
         : {}),
     });
     const request = login
-      ? provider.takeIntoPlan(board, card.itemId, login, zone, selectedDate)
-      : provider.patchCard(board, card.itemId, {
+      ? provider.takeIntoPlan(card.itemId, login, zone, selectedDate)
+      : provider.patchCard(card.itemId, {
           assignees: [],
           zone,
           dates: { sprint: sprintStart },
@@ -673,7 +674,7 @@ export function TeamBoard({
   // to someone outside the filter (the whole point of assigning) offered an
   // empty seat. MeBoard already does it this way.
   const people = useMemo(() => {
-    const set = new Set<string>(board.members);
+    const set = new Set<string>(board.members.map((m) => m.login));
     for (const card of board.cards) {
       for (const login of card.assignees) {
         set.add(login);
@@ -834,9 +835,9 @@ export function TeamBoard({
     const idx = order.indexOf(card.itemId);
     const persist =
       idx > 0
-        ? provider.moveCard(board, card.itemId, order[idx - 1])
+        ? provider.moveCard(card.itemId, order[idx - 1])
         : order.length > 1
-          ? provider.moveCardBefore(board, card.itemId, order[1])
+          ? provider.moveCardBefore(card.itemId, order[1])
           : null;
     void persist?.catch((err: unknown) => {
       onError(errMessage(err));
@@ -893,7 +894,7 @@ export function TeamBoard({
             ...(slot ? {} : { week }),
           });
           void provider
-            .patchCard(board, card.itemId, {
+            .patchCard(card.itemId, {
               parent: "",
               plan: slot ? { band: toMeta.band } : { band: toMeta.band, week },
             })
@@ -917,9 +918,9 @@ export function TeamBoard({
             : undefined;
         const persist =
           above && above.parent === card.parent
-            ? provider.moveCard(board, card.itemId, above.itemId)
+            ? provider.moveCard(card.itemId, above.itemId)
             : below && below.parent === card.parent
-              ? provider.moveCardBefore(board, card.itemId, below.itemId)
+              ? provider.moveCardBefore(card.itemId, below.itemId)
               : null;
         void persist
           ?.then(reload)
@@ -1018,14 +1019,14 @@ export function TeamBoard({
     void (async () => {
       try {
         if (Object.keys(patch).length > 0) {
-          await provider.patchCard(board, card.itemId, patch);
+          await provider.patchCard(card.itemId, patch);
         }
         if (at > 0) {
-          await provider.moveCard(board, card.itemId, entryIds[at - 1]);
+          await provider.moveCard(card.itemId, entryIds[at - 1]);
         } else if (at === 0 && entryIds.length > 1) {
-          await provider.moveCardBefore(board, card.itemId, entryIds[1]);
+          await provider.moveCardBefore(card.itemId, entryIds[1]);
         } else {
-          await provider.moveCard(board, card.itemId, afterId);
+          await provider.moveCard(card.itemId, afterId);
         }
         if (parentChanged) {
           reload();
@@ -1100,7 +1101,7 @@ export function TeamBoard({
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
-      .patchCard(board, card.itemId, { parent: parentId })
+      .patchCard(card.itemId, { parent: parentId })
       .then((c) => {
         addCard(c);
         reload();
@@ -1119,7 +1120,6 @@ export function TeamBoard({
     addCard({
       itemId: tempId,
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: parent.assignees.slice(0, 1),
       zone: parent.zone ?? "gray",
       team: parent.team,
@@ -1146,7 +1146,7 @@ export function TeamBoard({
       });
     }
 
-    const created = provider.createCard(board, {
+    const created = provider.createCard({
       title,
       team: parent.team ?? null,
       zone: parent.zone ?? "gray",
@@ -1164,7 +1164,7 @@ export function TeamBoard({
       .then((c) => {
         if (consumePendingCancel(tempId)) {
           removeCard(tempId);
-          void provider.deleteCard(board, c.itemId).catch(() => {});
+          void provider.deleteCard(c.itemId).catch(() => {});
           return;
         }
         replaceCard(tempId, c);
@@ -1201,7 +1201,9 @@ export function TeamBoard({
       onOpen={onOpen}
       teams={roster}
       people={people}
-      users={users}
+      reviewers={reviewerCandidates(people, board.domains, card.domain)}
+      avatars={avatars}
+      domainBadge={cardDomainBadge(board.domains, card.domain)}
       onSetTeam={handleSetTeam}
       onSetAssignee={handleSetAssignee}
       hasLinkedReview={reviewedItemIds.has(card.itemId)}
@@ -1299,7 +1301,7 @@ export function TeamBoard({
 
   // Resolve a card's description links (GitHub refs get titles) for the menu.
   const loadCardLinks = (card: CardModel) =>
-    provider.listLinks(board, card.itemId);
+    provider.listLinks(card.itemId);
 
   // Mirror the server's derived-progress rule (board.DerivedProgress) so a
   // parent's bar moves the instant a subtask's does; the server converges it.
@@ -1352,7 +1354,7 @@ export function TeamBoard({
     patchCard(card.itemId, patch);
     syncParentBar(card, value);
     void provider
-      .patchCard(board, card.itemId, { progress: value })
+      .patchCard(card.itemId, { progress: value })
       .then((updated) => {
         addCard(updated);
         // A review card's progress drives the original's stage server-side,
@@ -1416,7 +1418,7 @@ export function TeamBoard({
     const enteringReview = stage === "review" && card.stage !== "review";
     const hasLinkedReview = board.cards.some((c) => c.reviewOf === card.itemId);
     void provider
-      .patchCard(board, card.itemId, {
+      .patchCard(card.itemId, {
         stage: stage ?? "",
         ...(stage === "recurrent" ? { recurrence: recurrence ?? "" } : {}),
       })
@@ -1455,7 +1457,7 @@ export function TeamBoard({
     patchCard(card.itemId, { stage: undefined, progress: value });
     syncParentBar(card, value);
     void provider
-      .setInProgress(board, card.itemId)
+      .setInProgress(card.itemId)
       .then((updated) => {
         addCard(updated);
         if (card.stage === "review" || card.reviewOf || card.parent) {
@@ -1503,7 +1505,7 @@ export function TeamBoard({
     // gone from under its parent immediately.
     if (card.parent) {
       removeCard(card.itemId);
-      void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
+      void provider.deleteCard(card.itemId).catch((err: unknown) => {
         if (!isGone(err)) {
           onError(errMessage(err));
           reload();
@@ -1573,7 +1575,7 @@ export function TeamBoard({
       }
     }
     void provider
-      .removeCard(board, card.itemId, "grid")
+      .removeCard(card.itemId, "grid")
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -1631,7 +1633,7 @@ export function TeamBoard({
       rollback = () => patchCard(card.itemId, prev);
     }
     void provider
-      .removeCard(board, card.itemId, "plan")
+      .removeCard(card.itemId, "plan")
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -1653,7 +1655,7 @@ export function TeamBoard({
     const sprintStart = currentSprint(board, team) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
     void provider
-      .patchCard(board, card.itemId, { team: team ?? "" })
+      .patchCard(card.itemId, { team: team ?? "" })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
@@ -1682,7 +1684,7 @@ export function TeamBoard({
       patchCard(c.itemId, { assignees: next });
     }
     void provider
-      .patchCard(board, card.itemId, { assignees: next })
+      .patchCard(card.itemId, { assignees: next })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, { assignees: prev });
@@ -1727,7 +1729,7 @@ export function TeamBoard({
       }
       removeCard(reviewCard.itemId);
       void provider
-        .removeReviewer(board, card.itemId)
+        .removeReviewer(card.itemId)
         .then(addCard)
         .catch((err: unknown) => {
           addCard(reviewCard);
@@ -1743,7 +1745,7 @@ export function TeamBoard({
     const prev = reviewCard.assignees;
     patchCard(reviewCard.itemId, { assignees: [login] });
     void provider
-      .sendToReview(board, card.itemId, login, selectedDate)
+      .sendToReview(card.itemId, login, selectedDate)
       .then((updated) => {
         addCard(updated);
         // Re-sending a passed card to the same reviewer reactivates their
@@ -1773,7 +1775,6 @@ export function TeamBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: [reviewerLogin],
       zone,
       day: selectedDate,
@@ -1795,9 +1796,7 @@ export function TeamBoard({
       // The 10-90 clamp is stored on the review pick (mirrors board.ApplyStage).
       progress: Math.min(90, Math.max(10, card.progress ?? 0)),
     });
-    const creating = provider.sendToReview(
-      board,
-      card.itemId,
+    const creating = provider.sendToReview(card.itemId,
       reviewerLogin,
       selectedDate,
     );
@@ -1810,7 +1809,7 @@ export function TeamBoard({
         removeCard(tempId);
         if (consumePendingCancel(tempId)) {
           // Deleted while the create was in flight: drop the server twin.
-          void provider.deleteCard(board, created.itemId).catch(() => undefined);
+          void provider.deleteCard(created.itemId).catch(() => undefined);
           return;
         }
         addCard(created);
@@ -1851,7 +1850,7 @@ export function TeamBoard({
       day: end ?? undefined,
     });
     void provider
-      .patchCard(board, card.itemId, {
+      .patchCard(card.itemId, {
         dates: { start: start ?? "", end: end ?? "" },
       })
       .then(addCard)
@@ -1883,7 +1882,7 @@ export function TeamBoard({
       ...(full ? { sprintStart: newStart, day: newDay } : {}),
     });
     void provider
-      .deferCard(board, card.itemId, days)
+      .deferCard(card.itemId, days)
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
@@ -1911,7 +1910,6 @@ export function TeamBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: engineer ? [engineer] : [],
       zone,
       day,
@@ -1929,7 +1927,7 @@ export function TeamBoard({
       notes: [],
     };
     addCard(optimistic);
-    const creating = provider.createCard(board, {
+    const creating = provider.createCard({
       title,
       zone,
       day,
@@ -1947,7 +1945,7 @@ export function TeamBoard({
         if (consumePendingCancel(tempId)) {
           removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
-          void provider.deleteCard(board, card.itemId).catch(() => undefined);
+          void provider.deleteCard(card.itemId).catch(() => undefined);
           return;
         }
         // Swap in place: append-on-ack would reshuffle a quick burst of adds.
@@ -2011,7 +2009,7 @@ export function TeamBoard({
     }
     let rep: CarryReport;
     try {
-      rep = await track(provider.carryOver(board, team, true));
+      rep = await track(provider.carryOver(team, true));
     } catch (err: unknown) {
       onError(errMessage(err));
       return;
@@ -2048,7 +2046,7 @@ export function TeamBoard({
       }
     }
     try {
-      await track(provider.carryOver(board, team));
+      await track(provider.carryOver(team));
     } catch (err: unknown) {
       onError(errMessage(err));
     }
@@ -2095,6 +2093,7 @@ export function TeamBoard({
           teams={roster}
           selectedKeys={teamFilter}
           onSelect={onSetFilter}
+          domains={board.domains}
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
@@ -2247,7 +2246,9 @@ export function TeamBoard({
               onOpen={onOpen}
               teams={roster}
               people={people}
-              users={users}
+              reviewers={reviewerCandidates(people, board.domains, card.domain)}
+              avatars={avatars}
+              domainBadge={cardDomainBadge(board.domains, card.domain)}
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
               hasLinkedReview={reviewedItemIds.has(card.itemId)}
@@ -2370,17 +2371,17 @@ export function TeamBoard({
                       </span>
                     ) : (
                       <>
-                        <img
+                        <Avatar
+                          login={engineer}
+                          avatars={avatars}
                           className={`avatar-img${engineer === me ? " avatar-me" : ""}`}
-                          src={avatarUrlFor(engineer, users[engineer])}
-                          alt={engineer}
-                          title={displayName(engineer, users[engineer])}
+                          title={engineer}
                           draggable={false}
                         />
                         <span
                           className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
                         >
-                          {displayName(engineer, users[engineer])}
+                          {engineer}
                         </span>
                       </>
                     )}
@@ -2456,6 +2457,7 @@ export function TeamBoard({
       {teamsModalOpen && (
         <TeamsModal
           teams={roster}
+          domains={board.domains}
           onAdd={onAddTeam}
           onRename={onRenameTeam}
           onRemove={onRemoveTeam}
@@ -2493,7 +2495,7 @@ export function TeamBoard({
             const card = removeChoice;
             if (hardDelete) {
               removeCard(card.itemId);
-              void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
+              void provider.deleteCard(card.itemId).catch((err: unknown) => {
                 addCard(card);
                 onError(errMessage(err));
               });

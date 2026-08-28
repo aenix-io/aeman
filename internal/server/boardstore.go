@@ -3,12 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,7 +15,6 @@ import (
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
-	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // watchFrame is one event on the watch stream: a typed change to a Card,
@@ -38,6 +35,18 @@ type subscription struct {
 	sel       *apiserver.Selector
 	resources map[string]bool
 	members   map[string]bool
+	// rights is what the subscriber may read, per domain (G17): a frame from
+	// a domain they cannot read never reaches the socket, and roster frames
+	// carry their projection of the board. Nil = everything.
+	rights *domainRights
+}
+
+// view is the board as this subscriber sees it.
+func (sub *subscription) view(b board.Board) board.Board {
+	if sub.rights == nil {
+		return b
+	}
+	return board.Visible(b, sub.rights.primary, sub.rights.readable)
 }
 
 // send marshals and delivers one frame; a slow subscriber drops it and
@@ -85,10 +94,6 @@ func echoOrigin(ctx context.Context, itemID string) string {
 		return ""
 	}
 	if target, _ := ctx.Value(targetItemCtxKey{}).(string); target != itemID {
-		// The one blind spot: a client still patching by a provisional
-		// local-N id it created moments ago is compared against the adopted
-		// id here; its echo goes through, harmlessly re-asserting the same
-		// values.
 		return ""
 	}
 	return origin
@@ -106,12 +111,9 @@ func clientIDFrom(ctx context.Context) string {
 }
 
 // boardFreshFor bounds how long a cached board is served before a read
-// questions it. It matches the background warmer's watched cadence
-// (boardStore.warmEvery): the warmer refreshes the cache from GitHub on that
-// rhythm, so in the steady state interactive reads AND mutations land on a
-// fresh cache instead of re-paying the multi-page load themselves — the
-// pre-warmer value of 30s made every mutation outside a narrow window block
-// on a full reload. Edits made outside aeman surface within one warmer tick.
+// questions it. The git sync's fetch tick keeps the cache current in the
+// steady state, so interactive reads and mutations land on a fresh cache
+// instead of re-paying the full load themselves.
 const boardFreshFor = 3 * time.Minute
 
 // boardStaleMax bounds how old a snapshot a read-only request may still be
@@ -120,16 +122,12 @@ const boardFreshFor = 3 * time.Minute
 // hours-old state.
 const boardStaleMax = 10 * time.Minute
 
-// authFreshFor bounds how long a login's proven read access backs a fresh
-// cache hit. An older proof (up to boardStaleMax) degrades the hit to stale:
-// still served to read paths, while the background reload re-checks the
-// token — so access revoked on GitHub takes effect within boardStaleMax, and
-// within this window for callers that cannot accept stale data.
-const authFreshFor = 60 * time.Second
-
 // boardEntry is the cached board plus its watcher set for one owner/project.
 type boardEntry struct {
 	mu sync.Mutex
+	// avatar is the store's forge avatar hook, for the roster frames this
+	// entry broadcasts.
+	avatar func(login string) string
 	// loadMu serializes full backend loads so concurrent cache misses (e.g. a
 	// burst of parallel mutations right after an invalidation) share one upstream
 	// fetch instead of stampeding GitHub.
@@ -144,12 +142,6 @@ type boardEntry struct {
 	// view — ephemeral shared-cursor state, never persisted, cleared when the
 	// client's watch connection goes away.
 	presence map[string]presenceEntry
-	// authed records, per login, when that user's own GitHub token last proved
-	// it can read this board (a token-scoped backend load succeeded). The
-	// shared cache is keyed only by owner/project, so without this a warm board
-	// would be served to any signed-in user regardless of access; a cache hit
-	// is allowed only for a login that authorized within authFreshFor.
-	authed map[string]time.Time
 	// recentCards / recentGone guard the cache against GitHub's eventually
 	// consistent item list: a card created (or deleted) through aeman seconds
 	// ago may still be missing from (or present in) a fresh full load, and a
@@ -157,15 +149,6 @@ type boardEntry struct {
 	// touched within recentGrace are re-applied on top of every full reload.
 	recentCards map[string]time.Time
 	recentGone  map[string]time.Time
-	// locals maps the provisional id a card is given when it is created —
-	// creation answers from the cache, GitHub follows behind — onto the card
-	// GitHub eventually gave back. Every queued write resolves its target
-	// through it at execution time, and requests still naming the
-	// provisional id are answered for the real card: a client that created
-	// something keeps working with the id it was handed.
-	locals map[string]board.Card
-	// nextLocal numbers those provisional ids.
-	nextLocal int
 	// pending is the write-behind queue: changes already live in this cache
 	// that GitHub has not confirmed yet (see writequeue.go). inflight is the
 	// op currently on the wire (still unconfirmed, so counters and reload
@@ -176,35 +159,6 @@ type boardEntry struct {
 	// recentMove is when a local reorder last touched this board: within
 	// recentGrace the cached order outweighs a fresh (possibly stale) read.
 	recentMove time.Time
-	// warming marks the background cache warmer as running for this entry, so
-	// repeated loads do not stack a second one.
-	warming bool
-	// warmSrc is what the warmer refreshes the board with: the client (and
-	// session-liveness check) of the most recent request whose own full load
-	// succeeded. Rotated on every such load, so the warmer migrates to the
-	// freshest token instead of riding whoever happened to start it.
-	warmSrc *warmSource
-	// lastRead is when a request was last SERVED this board (cache hit or
-	// load) — stamped only on success, so an unauthorized caller cannot
-	// extend the warm window of a board it may not read. The warmer keeps
-	// refreshing a watcher-less board for warmIdleFor past it, so the first
-	// open of the morning finds the cache warm even though every laptop —
-	// and its watch connection — slept through the night.
-	lastRead time.Time
-	// reproving guards the async access re-proof so a burst of reads (one
-	// card panel fires several GETs) probes GitHub once per login, not once
-	// per request.
-	reproving map[string]bool
-}
-
-// warmSource is the identity the background warmer loads with: a per-request
-// backend client (carrying that user's token), an optional liveness check
-// bound to the owning session (nil = always alive, the local single-user
-// mode), and the login for logging.
-type warmSource struct {
-	inner boardservice.Backend
-	alive func() bool
-	login string
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -305,6 +259,18 @@ func (e *boardEntry) applyRecent(fresh board.Board) board.Board {
 			pos[old.ItemID] = at
 		}
 	}
+	// A roster entry created moments ago — a project, process, column,
+	// deadline or task — outweighs a fresh read that predates it the same
+	// way a recent card does: a reload that began before the create's commit
+	// must not drop it. It goes back into the roster with its domain.
+	if len(e.recentCards) > 0 {
+		old := rosterStubs(e.board)
+		for id := range e.recentCards {
+			if stub, ok := old[id]; ok {
+				installStub(&fresh, stub)
+			}
+		}
+	}
 	// The same lag rolls back the ORDER a local move just wrote: while a
 	// recent move is inside the grace window, the cached order wins for the
 	// cards both sides know; fresh-only cards keep their fetched positions.
@@ -345,112 +311,37 @@ func sortCardsByRank(cards []board.Card, rank map[string]int) {
 	})
 }
 
-// cacheState grades a cache lookup: a fresh hit is served to anyone allowed,
-// a stale one only to read paths that revalidate in the background, a miss
-// always loads. cacheUnauthed is a special miss: the board itself is warm
-// enough to serve, only this login's token has not (recently enough) proven
-// it can read it — a cheap access probe can upgrade it to a hit without the
-// full multi-page load a plain miss pays.
+// cacheState grades a cache lookup: a fresh hit is served as is, a stale one
+// only to read paths that revalidate in the background, a miss always loads.
 type cacheState int
 
 const (
 	cacheMiss cacheState = iota
-	cacheUnauthed
 	cacheStale
 	cacheFresh
 )
 
-// cached returns the board, how usable it is for this caller, and whether
-// the caller's access proof wants a background re-proof. The board dimension
-// alone grades the hit: within boardFreshFor it is cacheFresh, past that (up
-// to boardStaleMax) cacheStale — read paths may serve a stale hit while a
-// background reload revalidates it. The login dimension gates independently:
-// for a named login (OAuth multi-user mode; an empty login is the single
-// local user, always allowed), token-scoped access must have been proven
-// within boardStaleMax — never proven, or proven too long ago, is
-// cacheUnauthed with NO board: the shared cache is keyed only by
-// owner/project, and this gate is what keeps one user's warm board from
-// leaking to another. A proof merely older than authFreshFor does not block
-// the hit — it sets reproof, and the caller re-proves the token with a cheap
-// background probe (a failed probe drops the proof; the boardStaleMax ceiling
-// bounds how long a revoked token can ride the cache either way, exactly as
-// it always did). multiUser forces the login check even if a login somehow
-// arrives empty, so an OAuth deployment never serves the cache without a
-// per-user authorization.
-func (e *boardEntry) cached(login string, multiUser bool) (board.Board, cacheState, bool) {
+// cached returns the board and how usable it is: within boardFreshFor it is
+// cacheFresh, past that (up to boardStaleMax) cacheStale — read paths may
+// serve a stale hit while a background reload revalidates it — and beyond
+// that, or before the first load, a miss. Who may SEE what is not the
+// cache's business: the git backend serves one shared board and the visible
+// backend projects it per visitor's domain rights.
+func (e *boardEntry) cached() (board.Board, cacheState) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if !e.loaded {
-		return board.Board{}, cacheMiss, false
+		return board.Board{}, cacheMiss
 	}
 	age := time.Since(e.loadedAt)
 	if age >= boardStaleMax {
-		return board.Board{}, cacheMiss, false
-	}
-	reproof := false
-	if multiUser || login != "" {
-		if login == "" {
-			// No login to credit a probe to — only a full token-scoped load
-			// can serve this caller.
-			return board.Board{}, cacheMiss, false
-		}
-		ts, ok := e.authed[login]
-		if !ok {
-			return board.Board{}, cacheUnauthed, false
-		}
-		authAge := time.Since(ts)
-		if authAge >= boardStaleMax {
-			return board.Board{}, cacheUnauthed, false
-		}
-		reproof = authAge >= authFreshFor
+		return board.Board{}, cacheMiss
 	}
 	state := cacheFresh
 	if age >= boardFreshFor {
 		state = cacheStale
 	}
-	return e.withAliases(e.board), state, reproof
-}
-
-// withAliases hands a board out with the provisional→real id map attached,
-// so a service lookup by an id the client has not yet swapped still lands.
-// Called under e.mu.
-func (e *boardEntry) withAliases(b board.Board) board.Board {
-	if len(e.locals) == 0 {
-		return b
-	}
-	aliases := make(map[string]string, len(e.locals))
-	for prov, real := range e.locals {
-		if real.ItemID != "" {
-			aliases[prov] = real.ItemID
-		}
-	}
-	if len(aliases) == 0 {
-		return b
-	}
-	b.Aliases = aliases
-	return b
-}
-
-// markAuthed records that a login's own token just proved read access, and
-// sweeps entries too old to back even a stale hit so the map tracks only
-// currently-active users. The caller holds e.mu.
-func (e *boardEntry) markAuthed(login string) {
-	// Sweep before the empty-login return: the warmer's installs (login "")
-	// are the most frequent caller, and without this the sweep would only run
-	// on the rarer user-driven full loads.
-	now := time.Now()
-	for l, ts := range e.authed {
-		if now.Sub(ts) >= boardStaleMax {
-			delete(e.authed, l)
-		}
-	}
-	if login == "" {
-		return
-	}
-	if e.authed == nil {
-		e.authed = map[string]time.Time{}
-	}
-	e.authed[login] = now
+	return e.board, state
 }
 
 // cardChanged fans one card change out to the subscriptions. The caller holds
@@ -469,7 +360,7 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	}
 	res := apiserver.CardResource(e.board, c)
 	for sub := range e.watchers {
-		if !sub.resources["cards"] {
+		if !sub.resources["cards"] || !sub.rights.canRead(c.Domain) {
 			continue
 		}
 		suppressed := origin != "" && sub.clientID == origin
@@ -511,7 +402,7 @@ func (e *boardEntry) reevaluate(origin string) {
 		}
 		suppressed := origin != "" && sub.clientID == origin
 		now := map[string]bool{}
-		for _, c := range apiserver.FilterCards(e.board, *sub.sel) {
+		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
 			now[c.ItemID] = true
 			if !sub.members[c.ItemID] && !suppressed {
 				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
@@ -544,8 +435,9 @@ func (e *boardEntry) sprintChanged(origin, team string) {
 		Metadata: apiserver.SprintMetadata{Team: team},
 		Spec:     apiserver.SprintSpec{Current: st.Current, Previous: st.Previous},
 	}
+	teamDomain := e.board.Domains[st.ItemID]
 	for sub := range e.watchers {
-		if !sub.resources["sprints"] || (origin != "" && sub.clientID == origin) {
+		if !sub.resources["sprints"] || (origin != "" && sub.clientID == origin) || !sub.rights.canRead(teamDomain) {
 			continue
 		}
 		sub.send(watchFrame{Type: "MODIFIED", Kind: "Sprint", Object: res})
@@ -556,12 +448,11 @@ func (e *boardEntry) sprintChanged(origin, team string) {
 // orderingChanged announces the board's new manual order. The caller holds
 // e.mu with the cache already reordered; membership is unaffected.
 func (e *boardEntry) orderingChanged(origin string) {
-	res := apiserver.OrderingResource(e.board)
 	for sub := range e.watchers {
 		if !sub.resources["ordering"] || (origin != "" && sub.clientID == origin) {
 			continue
 		}
-		sub.send(watchFrame{Type: "MODIFIED", Kind: "Ordering", Object: res})
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Ordering", Object: apiserver.OrderingResource(sub.view(e.board))})
 	}
 }
 
@@ -678,27 +569,12 @@ func (e *boardEntry) removeCard(itemID string) {
 type boardStore struct {
 	mu      sync.Mutex
 	entries map[string]*boardEntry
-	// warmEvery is the warmer's cadence while the board has watchers (open
-	// tabs): it equals boardFreshFor, so an actively watched board is always
-	// fresh and neither reads nor mutations ever block on the full multi-page
-	// GitHub load. warmIdleEvery is the watcher-less cadence — and it must
-	// ALSO stay within boardFreshFor: an 8-minute idle tick left 5-minute
-	// windows in which the cache was stale, and the first MUTATION landing in
-	// one (mutations cannot take stale data) paid the full 50-second load
-	// with every other request of that board queued behind it — production's
-	// recurring "aeman lost its cache". The token cost of the tighter tick is
-	// accepted; the 16h idle cutoff still bounds it. Set at construction;
-	// tests shrink them.
-	warmEvery     time.Duration
-	warmIdleEvery time.Duration
-	// log receives warmer lifecycle events (start/stop and on whose token it
-	// runs). Nil-safe via logger().
+	// log receives board load events. Nil-safe via logger().
 	log *slog.Logger
-	// warmFile persists the warm roster (board -> warming login) across
-	// restarts, so startup can bring the cache up before the first request.
-	// Empty = no persistence. warmRoster is its in-memory copy.
-	warmFile   string
-	warmRoster map[string]string
+	// avatarURL is the forge's avatar image for a login, put on the board
+	// resource's members so clients assemble no forge URL themselves. Nil
+	// leaves avatars empty (tests, no forge).
+	avatarURL func(login string) string
 }
 
 // logger returns the store's logger, or a discard logger when none was wired
@@ -711,15 +587,11 @@ func (s *boardStore) logger() *slog.Logger {
 }
 
 func newBoardStore() *boardStore {
-	return &boardStore{
-		entries:       map[string]*boardEntry{},
-		warmEvery:     boardFreshFor,
-		warmIdleEvery: boardFreshFor,
-	}
+	return &boardStore{entries: map[string]*boardEntry{}}
 }
 
-func storeKey(owner string, project int) string {
-	return owner + "/" + strconv.Itoa(project)
+func storeKey(boardID string) string {
+	return boardID
 }
 
 // entry returns the entry for a key, creating an empty one on first use.
@@ -731,7 +603,7 @@ func (s *boardStore) entry(key string) *boardEntry {
 		e = &boardEntry{
 			watchers: map[*subscription]struct{}{},
 			presence: map[string]presenceEntry{},
-			locals:   map[string]board.Card{},
+			avatar:   s.avatarURL,
 		}
 		s.entries[key] = e
 	}
@@ -744,6 +616,12 @@ func (s *boardStore) entry(key string) *boardEntry {
 // subscription's membership is seeded from the cached board, so subscribe
 // after the board is loaded and LIST after subscribing.
 func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, resources map[string]bool) (*subscription, func()) {
+	return s.subscribeAs(key, clientID, sel, resources, nil)
+}
+
+// subscribeAs is subscribe for a visitor with domain rights: frames from
+// domains they cannot read never reach them (G17).
+func (s *boardStore) subscribeAs(key, clientID string, sel *apiserver.Selector, resources map[string]bool, rights *domainRights) (*subscription, func()) {
 	e := s.entry(key)
 	sub := &subscription{
 		ch:        make(chan []byte, 64),
@@ -751,10 +629,11 @@ func (s *boardStore) subscribe(key, clientID string, sel *apiserver.Selector, re
 		sel:       sel,
 		resources: resources,
 		members:   map[string]bool{},
+		rights:    rights,
 	}
 	e.mu.Lock()
 	if sel != nil && e.loaded {
-		for _, c := range apiserver.FilterCards(e.board, *sel) {
+		for _, c := range apiserver.FilterCards(sub.view(e.board), *sel) {
 			sub.members[c.ItemID] = true
 		}
 	}
@@ -798,15 +677,10 @@ func (s *boardStore) reevaluateAll(key string) {
 type storeBackend struct {
 	inner boardservice.Backend
 	store *boardStore
-	// multiUser is set in OAuth mode, where each request carries a distinct
-	// user's token: a cache hit is then gated on that login having proven
-	// token-scoped access. Off in local-proxy mode (a single gh identity).
-	multiUser bool
-	// warmAlive reports whether the session behind this request's token is
-	// still live; the warmer polls it so a captured token stops being used
-	// once its owner logs out or the session expires. Nil in local-proxy mode
-	// (the gh identity has no session to outlive).
-	warmAlive func() bool
+	// git, when set, is the sync behind a git backend: executed queue groups
+	// become local commits (one per request) and a background push sends
+	// them; nil for every other backend.
+	git *gitSync
 }
 
 var _ boardservice.Backend = (*storeBackend)(nil)
@@ -815,121 +689,66 @@ var _ boardservice.Backend = (*storeBackend)(nil)
 // board is still served instantly to read paths that opted in (staleControl in
 // ctx) while a background reload revalidates it — watchers then receive the
 // diff as ordinary events plus a Sync frame. Everything else (mutation reads,
-// cold or too-old caches, unauthorized logins) blocks on a fresh load
-// (single-flight: concurrent misses share one fetch).
-func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
-	e := b.store.entry(storeKey(owner, project))
+// cold or too-old caches) blocks on a fresh load (single-flight: concurrent
+// misses share one fetch).
+func (b *storeBackend) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
+	e := b.store.entry(storeKey(boardID))
 	login := board.ActorFrom(ctx)
-	bd, state, reproof := e.cached(login, b.multiUser)
+	bd, state := e.cached()
 	if state == cacheFresh {
-		if reproof {
-			b.reproveAsync(ctx, e, owner, project, login)
-		}
-		b.markRead(e)
 		return bd, nil
 	}
 	if state == cacheStale {
 		if sc := staleControlFrom(ctx); sc != nil {
-			// The background revalidation re-proves the caller's token too
-			// (install records the login), so no separate probe is needed.
-			b.revalidate(ctx, e, owner, project)
+			b.revalidate(ctx, e, boardID)
 			sc.served.Store(true)
-			b.markRead(e)
 			return bd, nil
 		}
-	}
-	// The board is warm — only this login has no (recent enough) proof its
-	// token can read it. Proving that costs one tiny GraphQL probe, not the
-	// multi-page load below: without this, every engineer coming back from a
-	// break personally re-paid the full board fetch (~2s per 100 cards) just
-	// to be let into a cache their teammates kept warm.
-	probeFailed := false
-	if state == cacheUnauthed && login != "" {
-		bd, st, ok := b.admitByProbe(ctx, e, owner, project, login)
-		probeFailed = !ok
-		if ok {
-			if st == cacheFresh {
-				b.markRead(e)
-				return bd, nil
-			}
-			if st == cacheStale {
-				if sc := staleControlFrom(ctx); sc != nil {
-					b.revalidate(ctx, e, owner, project)
-					sc.served.Store(true)
-					b.markRead(e)
-					return bd, nil
-				}
-			}
-			// A path that cannot take stale data falls through to the full
-			// load below.
-		}
-		// A failed probe falls through too: the full load surfaces the real
-		// error (no access, rate limit, network) to the caller.
 	}
 	e.loadMu.Lock()
-	// A concurrent loader — the warmer included — may have refreshed the
-	// cache while we waited on loadMu; a mutation that queued behind the
-	// warmer's reload must ride that result (proving its own access by probe
-	// when needed — but not re-asking after a probe that just failed) instead
-	// of re-paying the full load.
-	if bd, st, rp := e.cached(login, b.multiUser); st == cacheFresh {
+	// A concurrent loader may have refreshed the cache while we waited on
+	// loadMu; a mutation that queued behind that reload must ride its result
+	// instead of re-paying the full load.
+	if bd, st := e.cached(); st == cacheFresh {
 		e.loadMu.Unlock()
-		if rp {
-			b.reproveAsync(ctx, e, owner, project, login)
-		}
-		b.markRead(e)
 		return bd, nil
-	} else if st == cacheUnauthed && login != "" && !probeFailed {
-		if bd, st2, ok := b.admitByProbe(ctx, e, owner, project, login); ok && st2 == cacheFresh {
-			e.loadMu.Unlock()
-			b.markRead(e)
-			return bd, nil
-		}
 	}
-	// The token-scoped backend load is the authorization check: GitHub rejects a
-	// token that can't read this board, so reaching a cached result requires
-	// having passed it (recorded per login in install).
-	//
 	// The fetch is DETACHED from the request: a big board takes the better
 	// part of a minute, the user refreshes the page, the refresh cancels the
 	// request context — and with it, before this, the fetch. Every refresh
 	// restarted the fetch from zero, so a refresh-happy user could keep a
 	// board cold forever while every request appeared to hang. Now the fetch
 	// runs on its own context, the goroutine owns loadMu until it is done
-	// (waiters ride the SAME fetch), and the result lands in the cache — and
-	// seeds the warmer — whether or not anyone is still waiting for it.
+	// (waiters ride the SAME fetch), and the result lands in the cache
+	// whether or not anyone is still waiting for it.
 	type loaded struct {
 		bd  board.Board
 		err error
 	}
 	done := make(chan loaded, 1)
-	b.store.logger().Info("board load began", "board", storeKey(owner, project), "login", login)
+	b.store.logger().Info("board load began", "board", storeKey(boardID), "login", login)
 	started := time.Now()
 	go func() { //nolint:gosec // G118: the whole point — the fetch must outlive its request
 		defer e.loadMu.Unlock()
 		// Deliberately NOT the request context: the detachment is the fix.
-		lctx, cancel := context.WithTimeout(context.Background(), warmLoadTimeout)
+		lctx, cancel := context.WithTimeout(context.Background(), detachedLoadTimeout)
 		defer cancel()
-		fresh, err := b.inner.LoadBoard(lctx, owner, project)
+		fresh, err := b.inner.LoadBoard(lctx, boardID)
 		if err != nil {
-			b.store.logger().Warn("board load failed", "board", storeKey(owner, project),
+			b.store.logger().Warn("board load failed", "board", storeKey(boardID),
 				"dur", time.Since(started), "err", err)
 			done <- loaded{err: err}
 			return
 		}
-		b.store.logger().Info("board load done", "board", storeKey(owner, project),
+		b.store.logger().Info("board load done", "board", storeKey(boardID),
 			"cards", len(fresh.Cards), "dur", time.Since(started))
-		installed := b.install(e, fresh, login)
-		b.setWarmSrc(e, login)
-		b.ensureWarm(e, owner, project)
-		done <- loaded{bd: installed}
+		done <- loaded{bd: b.install(e, fresh)}
 	}()
 	select {
 	case l := <-done:
 		if l.err != nil {
 			return board.Board{}, l.err
 		}
-		b.markRead(e)
 		return l.bd, nil
 	case <-ctx.Done():
 		// The fetch carries on without us; the next request finds it warm.
@@ -937,93 +756,18 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 	}
 }
 
-// accessProber is the cheap authorization check a backend may offer: can this
-// client's token read the board at all, without loading it. *ghprojects.Client
-// implements it with a single project-id query.
-type accessProber interface {
-	CheckBoardAccess(ctx context.Context, owner string, project int) error
-}
-
-// markRead stamps the entry as served. Only successful serves count: an
-// unauthorized caller must not be able to extend the warm window.
-func (b *storeBackend) markRead(e *boardEntry) {
-	e.mu.Lock()
-	e.lastRead = time.Now()
-	e.mu.Unlock()
-}
-
-// admitByProbe re-proves login's access with the cheap probe and, on success,
-// records it and returns the resulting cache state. ok=false means the probe
-// was unavailable or failed — the caller falls back to the full load.
-func (b *storeBackend) admitByProbe(ctx context.Context, e *boardEntry, owner string, project int, login string) (board.Board, cacheState, bool) {
-	prober, hasProbe := b.inner.(accessProber)
-	if !hasProbe || login == "" {
-		return board.Board{}, cacheMiss, false
-	}
-	if err := prober.CheckBoardAccess(ctx, owner, project); err != nil {
-		return board.Board{}, cacheMiss, false
-	}
-	e.mu.Lock()
-	e.markAuthed(login)
-	e.mu.Unlock()
-	bd, state, _ := e.cached(login, b.multiUser)
-	return bd, state, true
-}
-
-// reproveAsync refreshes an aging access proof in the background: the read was
-// already served (the proof is inside boardStaleMax), so the caller must not
-// wait on GitHub. A probe that positively reports no access drops the proof —
-// the next read gates hard on cacheUnauthed; a transient failure leaves the
-// proof aging toward the boardStaleMax ceiling, exactly as the old
-// revalidation-based re-proof did. Deduplicated per login so a burst of GETs
-// probes once.
-func (b *storeBackend) reproveAsync(ctx context.Context, e *boardEntry, owner string, project int, login string) {
-	prober, ok := b.inner.(accessProber)
-	if !ok || login == "" {
-		return
-	}
-	e.mu.Lock()
-	if e.reproving == nil {
-		e.reproving = map[string]bool{}
-	}
-	if e.reproving[login] {
-		e.mu.Unlock()
-		return
-	}
-	e.reproving[login] = true
-	e.mu.Unlock()
-	bg := context.WithoutCancel(ctx)
-	go func() {
-		ctx, cancel := context.WithTimeout(bg, 30*time.Second)
-		defer cancel()
-		err := prober.CheckBoardAccess(ctx, owner, project)
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		delete(e.reproving, login)
-		switch {
-		case err == nil:
-			e.markAuthed(login)
-		case errors.Is(err, ghprojects.ErrBoardNotFound):
-			// Access is positively gone (revoked, or the board vanished):
-			// drop the proof so the next read gates on cacheUnauthed.
-			delete(e.authed, login)
-		}
-	}()
-}
-
 // revalidate refreshes a stale cache in the background with the requesting
 // user's token (kept past the response via WithoutCancel). Single-flight: when
 // a load is already running its completion will broadcast, so this one backs
 // off instead of stacking a second upstream fetch.
-func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, owner string, project int) {
+func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, boardID string) {
 	if !e.loadMu.TryLock() {
 		return
 	}
-	login := board.ActorFrom(ctx)
 	bctx := context.WithoutCancel(ctx)
 	go func() {
 		defer e.loadMu.Unlock()
-		fresh, err := b.inner.LoadBoard(bctx, owner, project)
+		fresh, err := b.inner.LoadBoard(bctx, boardID)
 		if err != nil {
 			// The stale snapshot stays served; tell clients to drop their
 			// revalidation hold and let a later read retry.
@@ -1032,190 +776,19 @@ func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, owner stri
 			e.mu.Unlock()
 			return
 		}
-		b.install(e, fresh, login)
-		b.setWarmSrc(e, login)
-		b.ensureWarm(e, owner, project)
+		b.install(e, fresh)
 	}()
 }
 
-// warmIdleFor is how long past the last interactive read the warmer keeps a
-// watcher-less board fresh. Long enough to carry the cache through a night of
-// sleeping laptops (whose watch connections die with them) into the next
-// morning; short enough that a board nobody opens stops costing GitHub
-// traffic within a day.
-const warmIdleFor = 16 * time.Hour
+// detachedLoadTimeout bounds one detached full load: it runs on its own
+// context, not the request's, and holds loadMu for the duration.
+const detachedLoadTimeout = 5 * time.Minute
 
-// warmLoadTimeout bounds one warm refresh: a dozen-page board at GitHub's
-// worst is minutes, and the warmer holds loadMu for the duration.
-const warmLoadTimeout = 5 * time.Minute
-
-// warmMaxFails is how many consecutive failed refreshes the warmer tolerates
-// before giving up. Transient upstream errors (a 502 at 02:00) just skip a
-// tick — the cadence itself is the backoff — but a persistently failing
-// source (a revoked token answering 401 forever) must not poll GitHub all
-// night.
-const warmMaxFails = 5
-
-// setWarmSrc rotates the warmer's identity to the calling request: its
-// backend client (token), its session-liveness check, and its login. Called
-// on every successful user-driven full load, so the warmer always rides the
-// freshest token instead of whoever happened to start it.
-func (b *storeBackend) setWarmSrc(e *boardEntry, login string) {
-	// In multi-user mode only a session-bound client may power the warmer: a
-	// token with no liveness check (an MCP request's, or a stray empty login)
-	// would keep being used with nothing to ever stop it.
-	if b.multiUser && (b.warmAlive == nil || login == "") {
-		return
-	}
-	e.mu.Lock()
-	e.warmSrc = &warmSource{inner: b.inner, alive: b.warmAlive, login: login}
-	key := storeKeyOf(b.store, e)
-	e.mu.Unlock()
-	b.store.recordWarm(key, login)
-}
-
-// storeKeyOf finds an entry's key (entries are few; a scan is fine).
-func storeKeyOf(s *boardStore, e *boardEntry) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for k, v := range s.entries {
-		if v == e {
-			return k
-		}
-	}
-	return ""
-}
-
-// ensureWarm keeps a board's cache from ever crossing boardFreshFor while
-// anyone plausibly needs it: while the entry has watchers (every open tab
-// holds a watch connection) it refreshes every warmEvery (= boardFreshFor, so
-// watched boards are always fresh and mutations never block on a full load),
-// and for warmIdleFor past the last read it keeps a watcher-less board under
-// boardStaleMax at the slower warmIdleEvery — carrying the cache through the
-// night so the first open of the morning is served instantly. It REPLACES the
-// per-tab revalidation the watch ping used to kick every 30s: one server-side
-// loop per board instead of a near-continuous full reload per open tab.
-//
-// Each tick re-reads e.warmSrc, so the loop migrates to the most recent
-// loader's token and stops when that source's session is gone (logout, TTL) —
-// a captured token must not outlive its owner's session. Transient refresh
-// failures skip a tick (broadcasting a Sync so stale-read holds release, as
-// revalidate does); warmMaxFails consecutive failures, or a positive
-// access-gone answer, end the loop. The next user-driven load restarts it.
-// Single-flight per entry via e.warming.
-func (b *storeBackend) ensureWarm(e *boardEntry, owner string, project int) {
-	e.mu.Lock()
-	if e.warming || e.warmSrc == nil {
-		e.mu.Unlock()
-		return
-	}
-	e.warming = true
-	b.store.logger().Info("board warmer started", "board", storeKey(owner, project), "login", e.warmSrc.login)
-	e.mu.Unlock()
-	store := b.store
-	key := storeKey(owner, project)
-	go func() {
-		// Safety net for panics only: regular exits clear the flag inside the
-		// same critical section as their decision and set cleared, so this
-		// defer cannot race a successor loop that took the flag in between.
-		cleared := false
-		defer func() {
-			if cleared {
-				return
-			}
-			e.mu.Lock()
-			e.warming = false
-			e.mu.Unlock()
-		}()
-		fails := 0
-		for {
-			e.mu.Lock()
-			watched := len(e.watchers) > 0
-			e.mu.Unlock()
-			every := store.warmEvery
-			if !watched {
-				every = store.warmIdleEvery
-			}
-			time.Sleep(every)
-
-			e.mu.Lock()
-			wanted := len(e.watchers) > 0 || time.Since(e.lastRead) < warmIdleFor
-			src := e.warmSrc
-			alive := src != nil && (src.alive == nil || src.alive())
-			if !wanted || !alive {
-				e.warming = false
-				e.mu.Unlock()
-				cleared = true
-				if !alive && wanted {
-					login := ""
-					if src != nil {
-						login = src.login
-					}
-					store.logger().Info("board warmer stopped: source session ended",
-						"board", key, "login", login)
-				}
-				return
-			}
-			e.mu.Unlock()
-
-			e.loadMu.Lock()
-			lctx, cancel := context.WithTimeout(context.Background(), warmLoadTimeout)
-			fresh, err := src.inner.LoadBoard(lctx, owner, project)
-			cancel()
-			if err == nil {
-				// No login: a warm refresh keeps the board current but must
-				// not vouch for anyone's access.
-				b.install(e, fresh, "")
-				fails = 0
-			}
-			e.loadMu.Unlock()
-			if err == nil {
-				// The week's process turns, filed by the warmer's own token —
-				// the one person whose session keeps this board fresh. Run
-				// through the CACHED backend so the new cards reach every
-				// open tab the way any write does.
-				// Through a cached backend built on the warmer's own token —
-				// not this request's: ensureWarm can be entered from another
-				// user's request, and the turns must be written by the
-				// session that actually keeps the board fresh.
-				writer := &storeBackend{inner: src.inner, store: store, multiUser: b.multiUser} // src.inner already resolves
-				sctx, scancel := context.WithTimeout(context.Background(), warmLoadTimeout)
-				if n, serr := boardservice.New(writer).SpawnDue(sctx, owner, project); serr != nil {
-					store.logger().Warn("process turns not filed", "board", key, "err", serr)
-				} else if n > 0 {
-					store.logger().Info("process turns filed", "board", key, "turns", n)
-				}
-				scancel()
-			}
-			if err != nil {
-				fails++
-				e.mu.Lock()
-				// Same contract as a failed revalidation: clients holding a
-				// stale-read revalidation hold get their Sync.
-				e.syncBroadcast()
-				gone := errors.Is(err, ghprojects.ErrBoardNotFound)
-				if gone || fails >= warmMaxFails {
-					e.warming = false
-					e.mu.Unlock()
-					cleared = true
-					store.logger().Warn("board warmer stopped",
-						"board", key, "login", src.login, "err", err,
-						"consecutiveFails", fails, "accessGone", gone)
-					return
-				}
-				e.mu.Unlock()
-				store.logger().Warn("board warm refresh failed; retrying next tick",
-					"board", key, "login", src.login, "err", err, "consecutiveFails", fails)
-			}
-		}
-	}()
-}
-
-// install replaces the cache with a freshly loaded board, records the loading
-// login's proven access, fans the diff against the previous snapshot out to
-// watchers as ordinary events, and closes with a Sync frame. Returns the
-// installed board (with recent local mutations re-applied).
-func (b *storeBackend) install(e *boardEntry, fresh board.Board, login string) board.Board {
+// install replaces the cache with a freshly loaded board, fans the diff
+// against the previous snapshot out to watchers as ordinary events, and
+// closes with a Sync frame. Returns the installed board (with recent local
+// mutations re-applied).
+func (b *storeBackend) install(e *boardEntry, fresh board.Board) board.Board {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	old := e.board
@@ -1233,12 +806,11 @@ func (b *storeBackend) install(e *boardEntry, fresh board.Board, login string) b
 	}
 	e.loaded = true
 	e.loadedAt = time.Now()
-	e.markAuthed(login)
 	if hadOld {
 		e.diffNotify(old)
 	}
 	e.syncBroadcast()
-	return e.withAliases(e.board)
+	return e.board
 }
 
 // diffNotify announces everything a full reload changed against the previous
@@ -1305,12 +877,12 @@ func (e *boardEntry) rosterBroadcast() {
 	// signal sent every open tab back to GET /board — a full snapshot each,
 	// which is the opposite of what a cache is for. Processes ride along as
 	// their full structure, since the Process tab is drawn from it.
-	frame := watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
-		BoardInfo: apiserver.BoardResource(e.board),
-		Processes: apiserver.ProcessesResource(e.board, "").Items,
-	}}
 	for sub := range e.watchers {
-		sub.send(frame)
+		view := sub.view(e.board)
+		sub.send(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
+			BoardInfo: apiserver.BoardResourceWith(view, e.avatar),
+			Processes: apiserver.ProcessesResource(view, "").Items,
+		}})
 	}
 }
 
@@ -1347,7 +919,7 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 		return
 	}
 	card := cards[0]
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	// Refresh, never resurrect: the card may have been deleted while this
 	// op drained, and GitHub's lagging read replicas can still return it —
@@ -1382,68 +954,20 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 	e.mu.Unlock()
 }
 
-// CreateCard answers from the cache: the caller gets a provisional card at
-// once — id "local-N" — and the real GitHub create rides the write-behind
-// queue like any other change, counted by the same unsynced indicator. When
-// GitHub answers, the provisional id is rewritten everywhere the cache holds
-// it and a Card frame carries the correction to every client; queued writes
-// that named the provisional id resolve it at execution time, because the
-// create sits ahead of them in the same FIFO.
-//
-// State cards (sprint pointers) stay synchronous: they anchor whole teams,
-// are rare, and their callers read fields off the answer immediately.
+// CreateCard answers from the cache: the store mints the card's final id,
+// installs it at once and the write rides the write-behind queue like any
+// other change (createMinted). State cards (sprint pointers) stay
+// synchronous: they anchor whole teams, are rare, and their callers read
+// fields off the answer immediately.
 func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.CreateInput) (board.Card, error) {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	if in.Title == board.SprintStateTitle {
 		return b.createSync(ctx, bd, e, in)
 	}
-	e.mu.Lock()
-	e.nextLocal++
-	provisional := fmt.Sprintf("%s%d-%d", localIDPrefix, time.Now().UnixMilli(), e.nextLocal)
-	card := cardFromInput(in, provisional)
-	e.locals[provisional] = board.Card{}
-	e.mu.Unlock()
-
-	b.installCreated(ctx, e, card)
-
-	var adopted atomic.Bool
-	title := card.Title
-	b.enqueue(ctx, e, pendingOp{
-		key:     "", // a create never coalesces
-		itemID:  provisional,
-		desc:    "create «" + title + "»",
-		noRetry: true, // an ambiguous failure retried = a duplicate card
-		// The apply re-imposes the provisional row on a freshly installed
-		// board (the recentCards grace covers the first 90 seconds; this
-		// covers a queue that outlives it — GitHub throttling, a long
-		// backlog). Skipped once adopted: the fresh read then carries the
-		// real card itself. NB: apply runs under e.mu (install holds it), so
-		// adoption is read through an atomic, not the entry lock.
-		apply: func(target *board.Board) {
-			if adopted.Load() {
-				return
-			}
-			for _, c := range target.Cards {
-				if c.ItemID == provisional {
-					return
-				}
-			}
-			target.Cards = append(target.Cards, card)
-		},
-		exec: func(ctx context.Context) error {
-			real, err := b.inner.CreateCard(ctx, bd, in)
-			if err != nil {
-				return err
-			}
-			b.adoptLocal(ctx, e, provisional, real)
-			adopted.Store(true)
-			return nil
-		},
-	})
-	return card, nil
+	return b.createMinted(ctx, bd, e, in)
 }
 
-// createSync is the old synchronous path, kept for the state cards.
+// createSync is the synchronous create path, kept for the sprint-state cards.
 func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardEntry, in board.CreateInput) (board.Card, error) {
 	card, err := b.inner.CreateCard(ctx, bd, in)
 	if err != nil {
@@ -1513,17 +1037,11 @@ func (b *storeBackend) createSync(ctx context.Context, bd board.Board, e *boardE
 	return card, nil
 }
 
-// localIDPrefix marks a card that lives in the cache while its creation is
-// still on its way to GitHub. It is a real id to every caller — requests
-// naming it are answered, and writes against it queue up behind the create —
-// but it must never reach GitHub, which is what resolve is for.
-const localIDPrefix = "local-"
-
 func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card board.Card) error {
 	if err := b.inner.DeleteCard(ctx, bd, card); err != nil {
 		return err
 	}
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	e.removeCard(card.ItemID)
 	e.markGone(card.ItemID)
@@ -1658,6 +1176,16 @@ func moveEpicAfter(cols []board.EpicCol, from int, afterID string) []board.EpicC
 }
 
 // nameOfState finds the roster entry whose state card has the item id.
+// teamOfState is the team whose sprint pointer is the given state card.
+func teamOfState(states map[string]board.SprintState, itemID string) (string, bool) {
+	for name, st := range states {
+		if st.ItemID == itemID {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 func nameOfState(ids map[string]string, itemID string) (string, bool) {
 	for name, id := range ids {
 		if id == itemID {
@@ -1693,7 +1221,7 @@ func moveNameAfter(order []string, ids map[string]string, name, afterID string) 
 // board's real order) and announces the new Ordering to other clients — the
 // originator already reordered optimistically. The GitHub write is queued.
 func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	e.board.Cards = moveCardAfter(e.board.Cards, card.ItemID, afterID)
 	// Moving a sprint-state card is a TEAM reorder: mirror it onto the cached
@@ -1739,86 +1267,12 @@ func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.
 	return nil
 }
 
-// draftBodySyncer is the one-shot draft-body writer the DeltaFIFO body merge
-// uses when the upstream backend supports it (ghprojects does; test fakes
-// without it fall back to per-op writes).
-type draftBodySyncer interface {
-	SyncDraftBody(ctx context.Context, card board.Card, description string, notes []board.Note, events []board.Event) ([]board.Note, []board.Event, error)
-}
-
-// bodyMutate queues a draft card's body-affecting change (description, note,
-// event line) as ONE coalescing op per card (key "body:<id>"): the cache
-// changes immediately as usual, and the queued write pushes the card's FINAL
-// cached body state upstream in a single write — rapid note adds, description
-// edits and logged events on one card merge DeltaFIFO-style instead of racing
-// several read-modify-write cycles against the same draft body.
-func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card board.Card, desc string, fn func(c *board.Card), fallback func(ctx context.Context) error) {
-	syncer, ok := b.inner.(draftBodySyncer)
-	if !ok || !card.IsDraft {
-		b.mutateCard(ctx, bd, card.ItemID, "", desc, fn, fallback)
-		return
-	}
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
-	itemID := card.ItemID
-	exec := func(ctx context.Context) error {
-		e.mu.Lock()
-		var snap *board.Card
-		take := func(c board.Card) {
-			cp := c
-			cp.Notes = append([]board.Note(nil), cp.Notes...)
-			cp.Events = append([]board.Event(nil), cp.Events...)
-			snap = &cp
-		}
-		for i := range e.board.Cards {
-			if e.board.Cards[i].ItemID == itemID {
-				take(e.board.Cards[i])
-				break
-			}
-		}
-		// A process task's body is the iteration's title and text; it
-		// lives outside the card rows, and treating "not a row" as "deleted"
-		// silently dropped the very write that gives the task a name.
-		if snap == nil {
-			for i := range e.board.Tasks {
-				if e.board.Tasks[i].ItemID == itemID {
-					take(e.board.Tasks[i])
-					break
-				}
-			}
-		}
-		e.mu.Unlock()
-		if snap == nil {
-			return nil // deleted meanwhile — nothing left to write
-		}
-		notes, events, err := syncer.SyncDraftBody(ctx, card, snap.Description, snap.Notes, snap.Events)
-		if err != nil {
-			return err
-		}
-		// The written body IS the canonical state: swap the cached log to it
-		// (real draft line-index ids included) and replay the still-pending
-		// deltas on top. No upstream re-read — right after a write it is
-		// often stale and would make fresh notes flicker away.
-		e.mu.Lock()
-		for i := range e.board.Cards {
-			if e.board.Cards[i].ItemID != itemID {
-				continue
-			}
-			e.board.Cards[i].Notes = notes
-			e.board.Cards[i].Events = events
-			if e.inflight != nil {
-				e.inflight.apply(&e.board)
-			}
-			for _, op := range e.pending {
-				op.apply(&e.board)
-			}
-			e.markRecent(itemID)
-			e.cardChanged("", e.board.Cards[i], "MODIFIED")
-			break
-		}
-		e.mu.Unlock()
-		return nil
-	}
-	b.mutateCardOp(ctx, bd, itemID, "body", desc, true, fn, exec)
+// bodyMutate queues a card's body-affecting change (description, note, event
+// line): the cache changes immediately as usual and the write rides the
+// queue like any field write — each is one file edit in the request's
+// commit, so nothing needs to merge.
+func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card board.Card, desc string, fn func(c *board.Card), write func(ctx context.Context) error) {
+	b.mutateCard(ctx, bd, card.ItemID, "", desc, fn, write)
 }
 
 // wbSeq makes synthetic (:wb:) ids unique: timestamps alone carry second
@@ -1826,19 +1280,11 @@ func (b *storeBackend) bodyMutate(ctx context.Context, bd board.Board, card boar
 // cache apply would silently swallow all but the first.
 var wbSeq atomic.Int64
 
+// AppendEvent changes nothing in the cache — the history is read from the
+// store — but rides the queue like every write, so the event joins the same
+// commit as the change it describes.
 func (b *storeBackend) AppendEvent(ctx context.Context, bd board.Board, card board.Card, ev board.Event) error {
-	// Synthesize a stable id for the cached copy (the real one appears on the
-	// next full read); the presence guard keeps the replayed append from
-	// duplicating the event once GitHub starts returning it.
-	ev.ID = fmt.Sprintf("%s:wb:%s:%s:%d", card.ItemID, ev.At, ev.Kind, wbSeq.Add(1))
-	b.bodyMutate(ctx, bd, card, "log a change on "+cardRef(card), func(c *board.Card) {
-		for _, x := range c.Events {
-			if x.Kind == ev.Kind && x.At == ev.At && x.From == ev.From && x.To == ev.To {
-				return
-			}
-		}
-		c.Events = append(c.Events, ev)
-	}, func(ctx context.Context) error {
+	b.bodyMutate(ctx, bd, card, "log a change on "+cardRef(card), func(*board.Card) {}, func(ctx context.Context) error {
 		return b.inner.AppendEvent(ctx, bd, card, ev)
 	})
 	return nil
@@ -1859,9 +1305,6 @@ func (b *storeBackend) AddNote(ctx context.Context, bd board.Board, card board.C
 		CreatedAt: now,
 		Author:    board.ActorFrom(ctx),
 		Source:    "draft",
-	}
-	if !card.IsDraft {
-		note.Source = "comment"
 	}
 	b.bodyMutate(ctx, bd, card, "add a note on "+cardRef(card), func(c *board.Card) {
 		for _, n := range c.Notes {
@@ -1968,11 +1411,7 @@ func (b *storeBackend) SetDescription(ctx context.Context, bd board.Board, card 
 	exec := func(ctx context.Context) error {
 		return b.inner.SetDescription(ctx, bd, card, description)
 	}
-	if card.IsDraft {
-		b.bodyMutate(ctx, bd, card, "edit the description of "+cardRef(card), apply, exec)
-		return nil
-	}
-	b.mutateCard(ctx, bd, card.ItemID, "description", "edit the description of "+cardRef(card), apply, exec)
+	b.bodyMutate(ctx, bd, card, "edit the description of "+cardRef(card), apply, exec)
 	return nil
 }
 
@@ -2052,7 +1491,7 @@ func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.C
 	if card.Title == board.DeadlineStateTitle {
 		// Dragging the line: its card is not in the cached card list, so the
 		// cached deadline set is what has to follow.
-		e := b.store.entry(storeKey(bd.Owner, bd.Number))
+		e := b.store.entry(storeKey(bd.Board))
 		e.mu.Lock()
 		for i := range e.board.Deadlines {
 			if e.board.Deadlines[i].ItemID == card.ItemID {
@@ -2089,6 +1528,37 @@ func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.C
 }
 
 func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
+	if card.Title == board.SprintStateTitle {
+		// The team's own stub is not a card the cache holds: its name is the
+		// key of the sprint pointer and an entry of the team order, so the
+		// rename re-keys both in place — the next read says the new name
+		// before the queue has written a byte.
+		rekey := func(bd *board.Board) {
+			old, ok := teamOfState(bd.SprintStates, card.ItemID)
+			if !ok {
+				return
+			}
+			st := bd.SprintStates[old]
+			delete(bd.SprintStates, old)
+			bd.SprintStates[team] = st
+			bd.TeamOrder = renameInList(bd.TeamOrder, old, team)
+		}
+		e := b.store.entry(storeKey(bd.Board))
+		e.mu.Lock()
+		rekey(&e.board)
+		e.rosterBroadcast()
+		e.mu.Unlock()
+		b.enqueue(ctx, e, pendingOp{
+			key:    "team:" + card.ItemID,
+			itemID: card.ItemID,
+			desc:   "rename the team " + card.Team,
+			apply:  rekey,
+			exec: func(ctx context.Context) error {
+				return b.inner.SetTeam(ctx, bd, card, team)
+			},
+		})
+		return nil
+	}
 	b.mutateCard(ctx, bd, card.ItemID, "team", "move "+cardRef(card)+" to another team", func(c *board.Card) {
 		c.Team = team
 	}, func(ctx context.Context) error {
@@ -2101,7 +1571,7 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 	if card.Title == board.EpicStateTitle {
 		// Renaming the column itself: the state card is not in the cached card
 		// list (NewBoard splits it out), so mutateCard cannot reach it.
-		e := b.store.entry(storeKey(bd.Owner, bd.Number))
+		e := b.store.entry(storeKey(bd.Board))
 		e.mu.Lock()
 		if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 			e.board.Epics[i].Name = epic
@@ -2136,7 +1606,7 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 // so mutateCard cannot reach it: update the roster map directly and queue the
 // write like any other mutation.
 func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 		e.board.Epics[i].Project = project
@@ -2260,7 +1730,7 @@ func processIndexOf(list []board.Process, itemID string) int {
 // SetProcess renames a process on its state card, or re-points a task at
 // a renamed process; neither is a card row, so the rosters are updated here.
 func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	for i := range e.board.Processes {
 		if e.board.Processes[i].ItemID == card.ItemID {
@@ -2305,7 +1775,7 @@ func (b *storeBackend) SetTask(ctx context.Context, bd board.Board, card board.C
 
 // SetPaused pauses a process: a roster entry, not a card row.
 func (b *storeBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
 		e.board.Processes[i].Paused = paused
@@ -2386,9 +1856,12 @@ func (b *storeBackend) SetReviewRound(ctx context.Context, bd board.Board, card 
 // ResolveIssueRef passes through to the inner backend's resolver — link
 // titles are live lookups, never cached board state.
 func (b *storeBackend) ResolveIssueRef(ctx context.Context, link board.Link) (board.Link, error) {
+	if b.git != nil && b.git.links != nil {
+		return b.git.links.ResolveIssueRef(ctx, link)
+	}
 	resolver, ok := b.inner.(boardservice.LinkResolver)
 	if !ok {
-		return link, fmt.Errorf("backend cannot resolve github refs")
+		return link, fmt.Errorf("%w: the backend keeps no forge credential", errUnresolvedLink)
 	}
 	return resolver.ResolveIssueRef(ctx, link)
 }
@@ -2399,7 +1872,7 @@ func (b *storeBackend) ResolveIssueRef(ctx context.Context, link board.Link) (bo
 // state card whose id the cache does not know, so that (rare) path stays
 // synchronous and reloads the board.
 func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team, current, previous string) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	st, had := e.board.SprintStates[team]
 	if e.loaded && had && st.ItemID != "" {
@@ -2445,7 +1918,7 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 	e.mu.Lock()
 	e.loaded = false
 	e.mu.Unlock()
-	if _, err := b.LoadBoard(ctx, bd.Owner, bd.Number); err == nil {
+	if _, err := b.LoadBoard(ctx, bd.Board); err == nil {
 		e.mu.Lock()
 		e.sprintChanged(clientIDFrom(ctx), team)
 		e.mu.Unlock()
@@ -2453,12 +1926,11 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 	return nil
 }
 
-// cardFromInput shapes the provisional card exactly the way the store's
-// backend echoes a real create, so nothing downstream can tell them apart.
+// cardFromInput shapes the cached card exactly the way the store's backend
+// echoes a real create, so nothing downstream can tell them apart.
 func cardFromInput(in board.CreateInput, itemID string) board.Card {
 	c := board.Card{
 		ItemID:      itemID,
-		IsDraft:     true,
 		Title:       in.Title,
 		Zone:        in.Zone,
 		Day:         in.Day,
@@ -2476,6 +1948,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		Description: in.Body,
 		ReviewOf:    in.ReviewOf,
 		Parent:      in.Parent,
+		Domain:      in.Domain,
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 		Assignees:   []string{},
 	}
@@ -2485,119 +1958,97 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 	return c
 }
 
-// installCreated puts a provisional card into the cache the way the old
-// synchronous create did — rosters for state cards, a row otherwise — and
+// installCreated puts a freshly minted card into the cache the way the
+// synchronous create does — rosters for state cards, a row otherwise — and
 // broadcasts it.
 func (b *storeBackend) installCreated(ctx context.Context, e *boardEntry, card board.Card) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if installStub(&e.board, card) {
+		e.markRecent(card.ItemID)
+		e.rosterBroadcast()
+		return
+	}
+	e.upsertCard(card)
+	e.markRecent(card.ItemID)
+	e.cardChanged(clientIDFrom(ctx), card, "ADDED")
+}
+
+// rosterStubs is every roster entry of a board as the stub card that declared
+// it, by id — what installStub takes to put one back.
+func rosterStubs(b board.Board) map[string]board.Card {
+	out := map[string]board.Card{}
+	for name, id := range b.ProjectStates {
+		out[id] = board.Card{ItemID: id, Title: board.ProjectStateTitle, Project: name, Domain: b.Domains[id]}
+	}
+	for _, p := range b.Processes {
+		out[p.ItemID] = board.Card{ItemID: p.ItemID, Title: board.ProcessStateTitle, Process: p.Name, Project: p.Project, Paused: p.Paused, Domain: b.Domains[p.ItemID]}
+	}
+	for _, e := range b.Epics {
+		out[e.ItemID] = board.Card{ItemID: e.ItemID, Title: board.EpicStateTitle, Epic: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]}
+	}
+	for _, d := range b.Deadlines {
+		out[d.ItemID] = board.Card{ItemID: d.ItemID, Title: board.DeadlineStateTitle, Week: d.Week, Project: d.Project, Domain: b.Domains[d.ItemID]}
+	}
+	for _, k := range b.Tasks {
+		c := k
+		c.Domain = b.Domains[k.ItemID]
+		out[k.ItemID] = c
+	}
+	return out
+}
+
+// installStub puts a roster stub — a process, task, project, column or
+// deadline state card — into the board's roster, idempotently, and records
+// its domain when it carries one. It reports false for a plain card, which
+// is a row and not the roster's business. A queued create's apply uses it
+// too, so a reload that lands while the create is still pending puts the
+// roster entry back where it belongs instead of leaking a stub row.
+func installStub(target *board.Board, card board.Card) bool {
 	switch card.Title {
 	case board.ProcessStateTitle:
-		if _, exists := board.FindProcess(e.board, card.Process); card.Process != "" && !exists {
-			e.board.Processes = append(e.board.Processes,
+		if _, exists := board.FindProcess(*target, card.Process); card.Process != "" && !exists {
+			target.Processes = append(target.Processes,
 				board.Process{Name: card.Process, Project: card.Project, ItemID: card.ItemID})
 		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
 	case board.ProcessTaskTitle:
-		e.board.Tasks = append(e.board.Tasks, card)
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
-	case board.ProjectStateTitle:
-		if card.Project != "" && e.board.ProjectStates[card.Project] == "" {
-			if e.board.ProjectStates == nil {
-				e.board.ProjectStates = map[string]string{}
+		exists := false
+		for _, t := range target.Tasks {
+			if t.ItemID == card.ItemID {
+				exists = true
+				break
 			}
-			e.board.Projects = append(e.board.Projects, card.Project)
-			e.board.ProjectStates[card.Project] = card.ItemID
 		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
+		if !exists {
+			target.Tasks = append(target.Tasks, card)
+		}
+	case board.ProjectStateTitle:
+		if card.Project != "" && target.ProjectStates[card.Project] == "" {
+			if target.ProjectStates == nil {
+				target.ProjectStates = map[string]string{}
+			}
+			target.Projects = append(target.Projects, card.Project)
+			target.ProjectStates[card.Project] = card.ItemID
+		}
 	case board.EpicStateTitle:
-		if _, exists := board.FindEpic(e.board, card.Project, card.Epic); card.Epic != "" && !exists {
-			e.board.Epics = append(e.board.Epics, board.EpicCol{
+		if _, exists := board.FindEpic(*target, card.Project, card.Epic); card.Epic != "" && !exists {
+			target.Epics = append(target.Epics, board.EpicCol{
 				Name: card.Epic, Project: card.Project, ItemID: card.ItemID,
 			})
 		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
 	case board.DeadlineStateTitle:
-		if _, exists := board.FindDeadline(e.board, card.Project, card.Week); card.Week != "" && !exists {
-			e.board.Deadlines = append(e.board.Deadlines,
+		if _, exists := board.FindDeadline(*target, card.Project, card.Week); card.Week != "" && !exists {
+			target.Deadlines = append(target.Deadlines,
 				board.Deadline{Week: card.Week, Project: card.Project, ItemID: card.ItemID})
 		}
-		e.markRecent(card.ItemID)
-		e.rosterBroadcast()
 	default:
-		e.upsertCard(card)
-		e.markRecent(card.ItemID)
-		e.cardChanged(clientIDFrom(ctx), card, "ADDED")
+		return false
 	}
-}
-
-// adoptLocal rewrites a provisional id to the one GitHub answered with:
-// in the card rows, the rosters, the recent guards, and the locals map the
-// queued writes resolve through — then tells every client, which swaps its
-// own copy the way it applies any other Card frame.
-func (b *storeBackend) adoptLocal(ctx context.Context, e *boardEntry, provisional string, real board.Card) {
-	e.mu.Lock()
-	e.locals[provisional] = real
-	swap := func(id *string) {
-		if *id == provisional {
-			*id = real.ItemID
+	if card.Domain != "" {
+		if target.Domains == nil {
+			target.Domains = map[string]string{}
 		}
+		target.Domains[card.ItemID] = card.Domain
 	}
-	for i := range e.board.Cards {
-		swap(&e.board.Cards[i].ItemID)
-		if e.board.Cards[i].ItemID == real.ItemID {
-			e.board.Cards[i].ContentID = real.ContentID
-			e.board.Cards[i].URL = real.URL
-			e.board.Cards[i].IsDraft = real.IsDraft
-		}
-		// A subtask or review made against the provisional parent follows.
-		swap(&e.board.Cards[i].Parent)
-		swap(&e.board.Cards[i].ReviewOf)
-		swap(&e.board.Cards[i].Task)
-	}
-	for i := range e.board.Tasks {
-		swap(&e.board.Tasks[i].ItemID)
-	}
-	for i := range e.board.Processes {
-		swap(&e.board.Processes[i].ItemID)
-	}
-	for i := range e.board.Epics {
-		swap(&e.board.Epics[i].ItemID)
-	}
-	for i := range e.board.Deadlines {
-		swap(&e.board.Deadlines[i].ItemID)
-	}
-	for name, id := range e.board.ProjectStates {
-		if id == provisional {
-			e.board.ProjectStates[name] = real.ItemID
-		}
-	}
-	if t, ok := e.recentCards[provisional]; ok {
-		delete(e.recentCards, provisional)
-		e.recentCards[real.ItemID] = t
-	}
-	// Tell the clients: DELETE the provisional row, ADD the real one — the
-	// simplest frame pair every board already knows how to apply. Roster
-	// consumers get the fresh structure wholesale.
-	var adopted *board.Card
-	for i := range e.board.Cards {
-		if e.board.Cards[i].ItemID == real.ItemID {
-			adopted = &e.board.Cards[i]
-			break
-		}
-	}
-	if adopted != nil {
-		gone := *adopted
-		gone.ItemID = provisional
-		e.cardChanged("", gone, "DELETED")
-		e.cardChanged("", *adopted, "ADDED")
-	} else {
-		e.rosterBroadcast()
-	}
-	e.mu.Unlock()
-	_ = ctx
+	return true
 }

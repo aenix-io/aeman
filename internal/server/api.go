@@ -6,17 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
-	"github.com/aenix-io/aeman/pkg/ghprojects"
+	"github.com/aenix-io/aeman/pkg/gitstore"
 )
-
-// errMissingBoard is returned when neither query parameters nor server defaults
-// identify a board.
-var errMissingBoard = errors.New("owner and board are required (set ?owner=&board= or server defaults)")
 
 // registerAPI wires the JSON API under /api/v1: a small set of Kubernetes-style
 // resources (Card, Sprint, Note, Ordering) plus actions for everything with
@@ -103,6 +98,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/actions/delete-project", s.handleDeleteProject)
 	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
 	mux.HandleFunc("POST /api/v1/projects/actions/rename", s.handleRenameProject)
+	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
 	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
@@ -132,7 +128,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		Version: s.opts.Version,
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
-			{"GET", "/api/v1/board", "Board identity, team roster, deadlines, and the Project board's projects and epic columns. Every endpoint takes the board as ?owner=&board= — \"project\" is aeman's planning entity, not the GitHub board"},
+			{"GET", "/api/v1/board", "Board identity, team roster, deadlines, and the Project board's projects and epic columns. The board is the one the server was started with — no addressing parameter; \"project\" is aeman's planning entity"},
 			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|weekly|project, team, day, user, week, project, stage, zone, assignee, fields=full for complete cards"},
 			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint; plan cards via spec.plan)"},
 			{"GET", "/api/v1/cards/{uid}", "One card in full (the body lives here, not in listings)"},
@@ -181,6 +177,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/projects/actions/delete-project", "Delete an EMPTY project; refused while it owns epic columns ({project})"},
 			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
 			{"POST", "/api/v1/projects/actions/rename", "Rename a project in place, columns and cards along with it ({project, to})"},
+			{"POST", "/api/v1/teams/actions/rename", "Rename a team in place, its cards and process tasks along with it ({team, to}); a name another team has is refused"},
 			{"GET", "/api/v1/ordering", "The board-level manual card order"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
 			{"GET", "/api/v1/watch", "WebSocket stream of Card/Sprint/Ordering events; selector-scoped with view params"},
@@ -188,105 +185,55 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// boardRef resolves the target board from query parameters (?owner=&board=),
-// honouring the lock-board pin and server defaults. The GitHub board is
-// addressed by "board": "project" is aeman's own planning entity (a group of
-// epic columns on the Project board) and is a card filter, not an address.
-func (s *Server) boardRef(r *http.Request) (owner string, project int, err error) {
-	owner = s.opts.DefaultOwner
-	project = s.opts.DefaultProject
-	if !s.opts.LockBoard {
-		if v := r.URL.Query().Get("owner"); v != "" {
-			owner = v
-		}
-		if v := r.URL.Query().Get("board"); v != "" {
-			n, convErr := strconv.Atoi(v)
-			if convErr != nil {
-				return "", 0, fmt.Errorf("invalid board number %q", v)
-			}
-			project = n
-		}
-	}
-	if owner == "" || project == 0 {
-		return "", 0, errMissingBoard
-	}
-	return owner, project, nil
+// boardRef is the board a request addresses: the one this server is
+// configured with. A client's board query parameter is ignored;
+// "project" in the API is aeman's own planning entity (a group of epic
+// columns on the Project board) and is a card filter, not an address.
+func (s *Server) boardRef(*http.Request) (boardID string) {
+	return s.gitBoard()
 }
 
-// apiClient builds a Projects v2 client, resolving the token via the same
-// source the /api/github proxy uses (OAuth session or local gh CLI).
-func (s *Server) apiClient(r *http.Request) (*ghprojects.Client, error) {
-	tok, _, err := s.apiTokens(r)
-	if err != nil {
-		return nil, err
+// defaultService is the production newService: the board service over the
+// one shared store, as the visitor may use it — the request brings its
+// identity (actor), its action and its rights; the visible backend projects
+// reads and checks writes against those.
+func (s *Server) defaultService(*http.Request) (*boardservice.Service, error) {
+	if s.visibleBE == nil {
+		return nil, errNoBoard
 	}
-	opts := []ghprojects.Option{ghprojects.WithHTTPClient(s.httpClient)}
-	if s.graphqlEndpoint != "" {
-		opts = append(opts, ghprojects.WithEndpoint(s.graphqlEndpoint))
-	}
-	return ghprojects.New(tok, opts...), nil
+	return boardservice.New(s.visibleBE), nil
 }
 
-// newGHClient builds the ghprojects client for a bare token — the same
-// construction apiClient does for a request, reused by the startup warmer.
-func (s *Server) newGHClient(token string) *ghprojects.Client {
-	opts := []ghprojects.Option{ghprojects.WithHTTPClient(s.httpClient)}
-	if s.graphqlEndpoint != "" {
-		opts = append(opts, ghprojects.WithEndpoint(s.graphqlEndpoint))
-	}
-	return ghprojects.New(token, opts...)
-}
-
-// defaultService is the production newService: it builds a boardservice over the
-// per-request ghprojects client (*ghprojects.Client satisfies boardservice.Backend).
-func (s *Server) defaultService(r *http.Request) (*boardservice.Service, error) {
-	client, err := s.apiClient(r)
-	if err != nil {
-		return nil, err
-	}
-	be := &storeBackend{inner: &resolvingBackend{inner: client, store: s.store}, store: s.store, multiUser: s.auth != nil}
-	if s.auth != nil {
-		// Bind the request's token to its session, so a warmer that later
-		// rides this client stops once the session ends (logout or TTL).
-		if sid := s.auth.sessionID(r); sid != "" {
-			auth := s.auth
-			be.warmAlive = func() bool { return auth.sessionAlive(sid) }
-		}
-	}
-	return boardservice.New(be), nil
-}
+// errNoBoard is a server started without a repository.
+var errNoBoard = errors.New("no board is configured: start aeman with --repo")
 
 // service resolves the board reference and builds the per-request board service.
 // On failure it writes the response (400 on a bad ref, 401 on no token) and
 // returns ok=false.
-func (s *Server) service(w http.ResponseWriter, r *http.Request) (svc *boardservice.Service, owner string, project int, ok bool) {
-	owner, project, err := s.boardRef(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return nil, "", 0, false
-	}
-	svc, err = s.newService(r)
+func (s *Server) service(w http.ResponseWriter, r *http.Request) (svc *boardservice.Service, boardID string, ok bool) {
+	boardID = s.boardRef(r)
+	svc, err := s.newService(r)
 	if err != nil {
 		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
-		return nil, "", 0, false
+		return nil, "", false
 	}
-	return svc, owner, project, true
+	return svc, boardID, true
 }
 
 // handleCardLog serves a card's unified activity feed: its recorded events and
 // work notes merged chronologically. The day delta Ivan asked for — "what
 // happened on this card since yesterday" — reads straight off this list.
 func (s *Server) handleCardLog(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	card, err := svc.Card(r.Context(), owner, project, r.PathValue("uid"))
+	card, events, truncated, err := svc.Log(r.Context(), boardID, r.PathValue("uid"))
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, apiserver.CardLog(card))
+	writeJSON(w, http.StatusOK, apiserver.CardLogFrom(card, events, truncated))
 }
 
 // statusResponse is the acknowledgement returned by actions that leave no single
@@ -298,16 +245,48 @@ type statusResponse struct {
 // --- Reads -------------------------------------------------------------------
 
 func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	b, err := svc.Board(r.Context(), owner, project)
+	b, err := svc.Board(r.Context(), boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, apiserver.BoardResource(b))
+	info := apiserver.BoardResourceWith(b, s.store.avatarURL)
+	if s.gitCfg != nil && len(s.gitCfg.Repos) > 1 {
+		logins := make([]string, 0, len(info.Metadata.Members))
+		for _, m := range info.Metadata.Members {
+			logins = append(logins, m.Login)
+		}
+		info.Metadata.Domains = s.domainsFor(r.Context(), logins)
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// domainsFor lists the visitor's readable domains, primary first, with
+// whether they may write each and which of the board's members can read it
+// (G16). Rights come from the request; who else reads a domain is the
+// forge's answer with the server credential.
+func (s *Server) domainsFor(ctx context.Context, members []string) []apiserver.DomainInfo {
+	rights := rightsFrom(ctx)
+	out := make([]apiserver.DomainInfo, 0, len(s.gitCfg.Repos))
+	for _, d := range s.gitCfg.Repos {
+		if !rights.canRead(d.Name) {
+			continue
+		}
+		readers, err := s.access.readers(ctx, d.Name, members)
+		if err != nil {
+			s.log.Warn("domain members", "domain", d.Name, "err", err)
+			readers = []string{}
+		}
+		if readers == nil {
+			readers = []string{}
+		}
+		out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: readers})
+	}
+	return out
 }
 
 func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
@@ -316,7 +295,7 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -333,7 +312,7 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 			sel.User = login
 		}
 	}
-	b, err := svc.Board(r.Context(), owner, project)
+	b, err := svc.Board(r.Context(), boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -342,19 +321,19 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetCard(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	s.cardResponse(w, r, svc, owner, project, r.PathValue("uid"))
+	s.cardResponse(w, r, svc, boardID, r.PathValue("uid"))
 }
 
 func (s *Server) handleListSprints(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	b, err := svc.Board(r.Context(), owner, project)
+	b, err := svc.Board(r.Context(), boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -366,11 +345,11 @@ func (s *Server) handleListSprints(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetOrdering(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	b, err := svc.Board(r.Context(), owner, project)
+	b, err := svc.Board(r.Context(), boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -421,7 +400,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -453,12 +432,12 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		args.Plan = band
 		args.Week = in.Plan.Week
 	}
-	card, err := svc.CreateCard(r.Context(), owner, project, args)
+	card, err := svc.CreateCard(r.Context(), boardID, args)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	b, err := svc.Board(r.Context(), owner, project)
+	b, err := svc.Board(r.Context(), boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -511,32 +490,32 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &p) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
 	uid := r.PathValue("uid")
 	if p.Title != nil {
-		if err := svc.Rename(ctx, owner, project, uid, *p.Title); err != nil {
+		if err := svc.Rename(ctx, boardID, uid, *p.Title); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Description != nil {
-		if err := svc.SetDescription(ctx, owner, project, uid, *p.Description); err != nil {
+		if err := svc.SetDescription(ctx, boardID, uid, *p.Description); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Team != nil {
-		if err := svc.SetTeam(ctx, owner, project, uid, *p.Team, ""); err != nil {
+		if err := svc.SetTeam(ctx, boardID, uid, *p.Team, ""); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Epic != nil || p.Project != nil {
-		if err := patchColumn(ctx, svc, owner, project, uid, p); err != nil {
+		if err := patchColumn(ctx, svc, boardID, uid, p); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
@@ -546,7 +525,7 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		if err := svc.SetZone(ctx, owner, project, uid, zone); err != nil {
+		if err := svc.SetZone(ctx, boardID, uid, zone); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
@@ -556,35 +535,35 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		if err := svc.SetStage(ctx, owner, project, uid, stage); err != nil {
+		if err := svc.SetStage(ctx, boardID, uid, stage); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Recurrence != nil {
-		if err := svc.SetRecurrence(ctx, owner, project, uid, *p.Recurrence); err != nil {
+		if err := svc.SetRecurrence(ctx, boardID, uid, *p.Recurrence); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Progress != nil {
-		if err := svc.SetProgress(ctx, owner, project, uid, *p.Progress); err != nil {
+		if err := svc.SetProgress(ctx, boardID, uid, *p.Progress); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.Dates != nil {
-		if !s.applyDatesPatch(w, r, svc, owner, project, uid, p.Dates) {
+		if !s.applyDatesPatch(w, r, svc, boardID, uid, p.Dates) {
 			return
 		}
 	}
 	if p.Plan != nil {
-		if !s.applyPlanPatch(w, r, svc, owner, project, uid, p.Plan) {
+		if !s.applyPlanPatch(w, r, svc, boardID, uid, p.Plan) {
 			return
 		}
 	}
 	if p.Parent != nil {
-		if err := svc.SetParent(ctx, owner, project, uid, *p.Parent); err != nil {
+		if err := svc.SetParent(ctx, boardID, uid, *p.Parent); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
@@ -598,45 +577,45 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 		if len(*p.Assignees) > 0 {
 			login = (*p.Assignees)[0]
 		}
-		if err := svc.SetAssignee(ctx, owner, project, uid, login); err != nil {
+		if err := svc.SetAssignee(ctx, boardID, uid, login); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
 	}
 	if p.ReviewOf != nil {
-		if err := svc.SetReviewOf(ctx, owner, project, uid, *p.ReviewOf); err != nil {
+		if err := svc.SetReviewOf(ctx, boardID, uid, *p.ReviewOf); err != nil {
 			s.apiError(w, r, err)
 			return
 		}
 	}
-	s.cardResponse(w, r, svc, owner, project, uid)
+	s.cardResponse(w, r, svc, boardID, uid)
 }
 
 // applyDatesPatch applies a spec.dates patch. A patched start runs the calendar
 // semantics (the sprint follows the sprint active on the start day); patching
 // only the end (or only the sprint) stays granular, and an explicit sprint
 // always wins. Returns false after writing the error response.
-func (s *Server) applyDatesPatch(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, owner string, project int, uid string, d *datesPatch) bool {
+func (s *Server) applyDatesPatch(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID string, uid string, d *datesPatch) bool {
 	ctx := r.Context()
 	if d.Start != nil {
 		end := ""
 		if d.End != nil {
 			end = *d.End
-		} else if card, err := svc.Card(ctx, owner, project, uid); err == nil {
+		} else if card, err := svc.Card(ctx, boardID, uid); err == nil {
 			end = card.Day
 		}
-		if err := svc.SetDates(ctx, owner, project, uid, *d.Start, end); err != nil {
+		if err := svc.SetDates(ctx, boardID, uid, *d.Start, end); err != nil {
 			s.apiError(w, r, err)
 			return false
 		}
 	} else if d.End != nil {
-		if err := svc.SetDay(ctx, owner, project, uid, *d.End); err != nil {
+		if err := svc.SetDay(ctx, boardID, uid, *d.End); err != nil {
 			s.apiError(w, r, err)
 			return false
 		}
 	}
 	if d.Sprint != nil {
-		if err := svc.SetSprintStart(ctx, owner, project, uid, *d.Sprint); err != nil {
+		if err := svc.SetSprintStart(ctx, boardID, uid, *d.Sprint); err != nil {
 			s.apiError(w, r, err)
 			return false
 		}
@@ -645,20 +624,20 @@ func (s *Server) applyDatesPatch(w http.ResponseWriter, r *http.Request, svc *bo
 }
 
 // applyPlanPatch applies a spec.plan patch (band and/or week).
-func (s *Server) applyPlanPatch(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, owner string, project int, uid string, pl *planPatch) bool {
+func (s *Server) applyPlanPatch(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID string, uid string, pl *planPatch) bool {
 	ctx := r.Context()
 	if pl.Band != nil {
 		band, ok := parsePlanBand(w, *pl.Band)
 		if !ok {
 			return false
 		}
-		if err := svc.SetPlan(ctx, owner, project, uid, band); err != nil {
+		if err := svc.SetPlan(ctx, boardID, uid, band); err != nil {
 			s.apiError(w, r, err)
 			return false
 		}
 	}
 	if pl.Week != nil {
-		if err := svc.SetWeek(ctx, owner, project, uid, *pl.Week); err != nil {
+		if err := svc.SetWeek(ctx, boardID, uid, *pl.Week); err != nil {
 			s.apiError(w, r, err)
 			return false
 		}
@@ -669,11 +648,11 @@ func (s *Server) applyPlanPatch(w http.ResponseWriter, r *http.Request, svc *boa
 // --- Card actions --------------------------------------------------------------
 
 func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.DeleteCard(r.Context(), owner, project, r.PathValue("uid")); err != nil {
+	if err := svc.DeleteCard(r.Context(), boardID, r.PathValue("uid")); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -691,11 +670,11 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "from must be grid or plan")
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.Remove(r.Context(), owner, project, r.PathValue("uid"), in.From); err != nil {
+	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid"), in.From); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -710,15 +689,15 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	move := func() error {
 		if in.Before != "" {
-			return svc.MoveCardBefore(r.Context(), owner, project, r.PathValue("uid"), in.Before)
+			return svc.MoveCardBefore(r.Context(), boardID, r.PathValue("uid"), in.Before)
 		}
-		return svc.MoveCard(r.Context(), owner, project, r.PathValue("uid"), in.After)
+		return svc.MoveCard(r.Context(), boardID, r.PathValue("uid"), in.After)
 	}
 	if err := move(); err != nil {
 		s.apiError(w, r, err)
@@ -738,42 +717,42 @@ func (s *Server) handleDeferCard(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "days must be positive")
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.Defer(r.Context(), owner, project, uid, in.Days); err != nil {
+	if err := svc.Defer(r.Context(), boardID, uid, in.Days); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.cardResponse(w, r, svc, owner, project, uid)
+	s.cardResponse(w, r, svc, boardID, uid)
 }
 
 func (s *Server) handleInProgress(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.SetInProgress(r.Context(), owner, project, uid); err != nil {
+	if err := svc.SetInProgress(r.Context(), boardID, uid); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.cardResponse(w, r, svc, owner, project, uid)
+	s.cardResponse(w, r, svc, boardID, uid)
 }
 
 func (s *Server) handleReopen(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.Reopen(r.Context(), owner, project, uid); err != nil {
+	if err := svc.Reopen(r.Context(), boardID, uid); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.cardResponse(w, r, svc, owner, project, uid)
+	s.cardResponse(w, r, svc, boardID, uid)
 }
 
 // handleSendToReview sends a card to a reviewer. When a linked review card
@@ -798,33 +777,33 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
 	uid := r.PathValue("uid")
-	b, err := svc.Board(ctx, owner, project)
+	b, err := svc.Board(ctx, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
 	for _, c := range b.Cards {
 		if c.ReviewOf == uid {
-			if err := svc.ReassignReviewer(ctx, owner, project, uid, in.Reviewer, in.Day, zone); err != nil {
+			if err := svc.ReassignReviewer(ctx, boardID, uid, in.Reviewer, in.Day, zone); err != nil {
 				s.apiError(w, r, err)
 				return
 			}
-			s.cardResponse(w, r, svc, owner, project, c.ItemID)
+			s.cardResponse(w, r, svc, boardID, c.ItemID)
 			return
 		}
 	}
-	review, err := svc.SendToReview(ctx, owner, project, uid, in.Reviewer, in.Day, zone)
+	review, err := svc.SendToReview(ctx, boardID, uid, in.Reviewer, in.Day, zone)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	b, err = svc.Board(ctx, owner, project)
+	b, err = svc.Board(ctx, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -833,16 +812,16 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRemoveReviewer(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.RemoveReviewer(r.Context(), owner, project, uid); err != nil {
+	if err := svc.RemoveReviewer(r.Context(), boardID, uid); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.cardResponse(w, r, svc, owner, project, uid)
+	s.cardResponse(w, r, svc, boardID, uid)
 }
 
 func (s *Server) handleTakeIntoPlan(w http.ResponseWriter, r *http.Request) {
@@ -862,29 +841,29 @@ func (s *Server) handleTakeIntoPlan(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.TakeIntoPlan(r.Context(), owner, project, uid, in.Engineer, zone, in.Day); err != nil {
+	if err := svc.TakeIntoPlan(r.Context(), boardID, uid, in.Engineer, zone, in.Day); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.cardResponse(w, r, svc, owner, project, uid)
+	s.cardResponse(w, r, svc, boardID, uid)
 }
 
 func (s *Server) handleReleaseFromPlan(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.ReleaseFromPlan(r.Context(), owner, project, uid); err != nil {
+	if err := svc.ReleaseFromPlan(r.Context(), boardID, uid); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.cardResponse(w, r, svc, owner, project, uid)
+	s.cardResponse(w, r, svc, boardID, uid)
 }
 
 // --- Notes ----------------------------------------------------------------------
@@ -893,11 +872,11 @@ func (s *Server) handleReleaseFromPlan(w http.ResponseWriter, r *http.Request) {
 // issue/PR references first (resolved to their titles when possible), plain
 // links after.
 func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	links, err := svc.CardLinks(r.Context(), owner, project, r.PathValue("uid"))
+	links, err := svc.CardLinks(r.Context(), boardID, r.PathValue("uid"))
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -910,8 +889,8 @@ func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
 
 // notesResponse serves a card's notes after any note mutation, so clients
 // always converge on the server's view of the thread.
-func (s *Server) notesResponse(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, owner string, project int, uid string, status int) {
-	card, err := svc.Card(r.Context(), owner, project, uid)
+func (s *Server) notesResponse(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID string, uid string, status int) {
+	card, err := svc.Card(r.Context(), boardID, uid)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -923,11 +902,11 @@ func (s *Server) notesResponse(w http.ResponseWriter, r *http.Request, svc *boar
 }
 
 func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	s.notesResponse(w, r, svc, owner, project, r.PathValue("uid"), http.StatusOK)
+	s.notesResponse(w, r, svc, boardID, r.PathValue("uid"), http.StatusOK)
 }
 
 func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
@@ -941,16 +920,16 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnprocessableEntity, "text is required")
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.AddNote(r.Context(), owner, project, uid, in.Text); err != nil {
+	if err := svc.AddNote(r.Context(), boardID, uid, in.Text); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.notesResponse(w, r, svc, owner, project, uid, http.StatusCreated)
+	s.notesResponse(w, r, svc, boardID, uid, http.StatusCreated)
 }
 
 func (s *Server) handleEditNote(w http.ResponseWriter, r *http.Request) {
@@ -960,29 +939,29 @@ func (s *Server) handleEditNote(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.EditNote(r.Context(), owner, project, uid, r.PathValue("noteId"), in.Text); err != nil {
+	if err := svc.EditNote(r.Context(), boardID, uid, r.PathValue("noteId"), in.Text); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.notesResponse(w, r, svc, owner, project, uid, http.StatusOK)
+	s.notesResponse(w, r, svc, boardID, uid, http.StatusOK)
 }
 
 func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.DeleteNote(r.Context(), owner, project, uid, r.PathValue("noteId")); err != nil {
+	if err := svc.DeleteNote(r.Context(), boardID, uid, r.PathValue("noteId")); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	s.notesResponse(w, r, svc, owner, project, uid, http.StatusOK)
+	s.notesResponse(w, r, svc, boardID, uid, http.StatusOK)
 }
 
 // --- Sprints ----------------------------------------------------------------------
@@ -992,15 +971,18 @@ func (s *Server) handlePatchSprint(w http.ResponseWriter, r *http.Request) {
 		Team     string `json:"team"`
 		Current  string `json:"current"`
 		Previous string `json:"previous"`
+		// Domain is the repository a NEW team is declared in; an existing
+		// team's pointer stays where the team is.
+		Domain string `json:"domain"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.SetSprintState(r.Context(), owner, project, in.Team, in.Current, in.Previous); err != nil {
+	if err := svc.SetSprintState(board.WithDomain(r.Context(), in.Domain), boardID, in.Team, in.Current, in.Previous); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1019,7 +1001,7 @@ func (s *Server) handleCarryOver(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1029,7 +1011,7 @@ func (s *Server) handleCarryOver(w http.ResponseWriter, r *http.Request) {
 	// seconds of latency and a chance to read a lagging replica. Stale-window
 	// semantics apply; a cold cache still loads.
 	ctx, _ := withStaleAllowed(r.Context())
-	rep, err := svc.CarryOver(ctx, owner, project, in.Team, in.DryRun)
+	rep, err := svc.CarryOver(ctx, boardID, in.Team, in.DryRun)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1047,13 +1029,13 @@ func (s *Server) handleReorderTeams(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	// Same cached-snapshot read as carry-over (see handleCarryOver).
 	ctx, _ := withStaleAllowed(r.Context())
-	if err := svc.ReorderTeams(ctx, owner, project, in.Teams); err != nil {
+	if err := svc.ReorderTeams(ctx, boardID, in.Teams); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1069,11 +1051,11 @@ func (s *Server) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.DeleteTeam(r.Context(), owner, project, in.Team); err != nil {
+	if err := svc.DeleteTeam(r.Context(), boardID, in.Team); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1090,7 +1072,7 @@ func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1099,7 +1081,7 @@ func (s *Server) handleAddEpic(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.AddEpic(r.Context(), owner, boardNum, in.Name, in.Project); err != nil {
+	if err := svc.AddEpic(r.Context(), boardID, in.Name, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1117,7 +1099,7 @@ func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1126,7 +1108,7 @@ func (s *Server) handleSetEpicProject(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.SetEpicProject(r.Context(), owner, boardNum, in.From, in.Epic, in.Project); err != nil {
+	if err := svc.SetEpicProject(r.Context(), boardID, in.From, in.Epic, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1144,7 +1126,7 @@ func (s *Server) handleRenameEpic(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1153,7 +1135,7 @@ func (s *Server) handleRenameEpic(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.RenameEpic(r.Context(), owner, boardNum, in.Project, in.Epic, in.To); err != nil {
+	if err := svc.RenameEpic(r.Context(), boardID, in.Project, in.Epic, in.To); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1170,7 +1152,7 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1179,7 +1161,29 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.RenameProject(r.Context(), owner, boardNum, in.Project, in.To); err != nil {
+	if err := svc.RenameProject(r.Context(), boardID, in.Project, in.To); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleRenameTeam renames a team where it is declared, its cards and process
+// tasks along with it.
+func (s *Server) handleRenameTeam(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Team string `json:"team"`
+		To   string `json:"to"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	if err := svc.RenameTeam(r.Context(), boardID, in.Team, in.To); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1189,25 +1193,25 @@ func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 // patchColumn re-files a card under a column — the (project, epic) pair.
 // Naming only the project keeps the column name the card is already under,
 // which is what moving a card between projects means.
-func patchColumn(ctx context.Context, svc *boardservice.Service, owner string, project int, uid string, p cardPatch) error {
+func patchColumn(ctx context.Context, svc *boardservice.Service, boardID string, uid string, p cardPatch) error {
 	epic := ""
 	if p.Epic != nil {
 		epic = *p.Epic
-	} else if card, err := svc.Card(ctx, owner, project, uid); err == nil {
+	} else if card, err := svc.Card(ctx, boardID, uid); err == nil {
 		epic = card.Epic
 	}
-	return svc.SetEpic(ctx, owner, project, uid, epic, p.Project)
+	return svc.SetEpic(ctx, boardID, uid, epic, p.Project)
 }
 
 // --- Processes -----------------------------------------------------------------
 
 func (s *Server) handleListProcesses(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	b, err := svc.Board(r.Context(), owner, boardNum)
+	b, err := svc.Board(r.Context(), boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1219,16 +1223,19 @@ func (s *Server) handleAddProcess(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name    string `json:"name"`
 		Project string `json:"project"`
+		// Domain is the repository to declare a project-less process in;
+		// a process with a project lives with the project.
+		Domain string `json:"domain"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	r = r.WithContext(board.WithDomain(staleOK(r.Context()), in.Domain))
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.AddProcess(r.Context(), owner, boardNum, in.Name, in.Project); err != nil {
+	if err := svc.AddProcess(r.Context(), boardID, in.Name, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1243,11 +1250,11 @@ func (s *Server) handleDeleteProcess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.DeleteProcess(r.Context(), owner, boardNum, in.Process); err != nil {
+	if err := svc.DeleteProcess(r.Context(), boardID, in.Process); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1263,11 +1270,11 @@ func (s *Server) handleRenameProcess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.RenameProcess(r.Context(), owner, boardNum, in.Process, in.To); err != nil {
+	if err := svc.RenameProcess(r.Context(), boardID, in.Process, in.To); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1283,11 +1290,11 @@ func (s *Server) handleSetProcessProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.SetProcessProject(r.Context(), owner, boardNum, in.Process, in.Project); err != nil {
+	if err := svc.SetProcessProject(r.Context(), boardID, in.Process, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1303,11 +1310,11 @@ func (s *Server) handleSetProcessPaused(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.SetProcessPaused(r.Context(), owner, boardNum, in.Process, in.Paused); err != nil {
+	if err := svc.SetProcessPaused(r.Context(), boardID, in.Process, in.Paused); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1322,11 +1329,11 @@ func (s *Server) handleReorderProcesses(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.ReorderProcesses(r.Context(), owner, boardNum, in.Processes); err != nil {
+	if err := svc.ReorderProcesses(r.Context(), boardID, in.Processes); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1342,11 +1349,11 @@ func (s *Server) handleReorderProcessTasks(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.ReorderProcessTasks(r.Context(), owner, boardNum, in.Process, in.UIDs); err != nil {
+	if err := svc.ReorderProcessTasks(r.Context(), boardID, in.Process, in.UIDs); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1372,7 +1379,7 @@ func (s *Server) handleAddTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1382,7 +1389,7 @@ func (s *Server) handleAddTask(w http.ResponseWriter, r *http.Request) {
 		}
 		return *p
 	}
-	tpl, err := svc.AddProcessTask(r.Context(), owner, boardNum, in.Process, boardservice.TaskArgs{
+	tpl, err := svc.AddProcessTask(r.Context(), boardID, in.Process, boardservice.TaskArgs{
 		Title: str(in.Title), Description: str(in.Description), Recurrence: str(in.Recurrence),
 		Start: str(in.Start), Team: str(in.Team), Assignee: str(in.Assignee),
 		Accumulate: in.Accumulate != nil && *in.Accumulate,
@@ -1400,11 +1407,11 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	err := svc.UpdateProcessTask(r.Context(), owner, boardNum, r.PathValue("uid"), boardservice.TaskPatch{
+	err := svc.UpdateProcessTask(r.Context(), boardID, r.PathValue("uid"), boardservice.TaskPatch{
 		Title: in.Title, Description: in.Description, Recurrence: in.Recurrence,
 		Start: in.Start, Team: in.Team, Assignee: in.Assignee, Accumulate: in.Accumulate,
 	})
@@ -1417,11 +1424,11 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(staleOK(r.Context()))
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.DeleteProcessTask(r.Context(), owner, boardNum, r.PathValue("uid")); err != nil {
+	if err := svc.DeleteProcessTask(r.Context(), boardID, r.PathValue("uid")); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1438,7 +1445,7 @@ func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1447,7 +1454,7 @@ func (s *Server) handleAddDeadline(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.AddDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
+	if err := svc.AddDeadline(r.Context(), boardID, in.Week, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1464,7 +1471,7 @@ func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1473,7 +1480,7 @@ func (s *Server) handleDeleteDeadline(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.DeleteDeadline(r.Context(), owner, boardNum, in.Week, in.Project); err != nil {
+	if err := svc.DeleteDeadline(r.Context(), boardID, in.Week, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1491,7 +1498,7 @@ func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1500,7 +1507,7 @@ func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.MoveDeadline(r.Context(), owner, boardNum, in.Project, in.From, in.To); err != nil {
+	if err := svc.MoveDeadline(r.Context(), boardID, in.Project, in.From, in.To); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1512,11 +1519,14 @@ func (s *Server) handleMoveDeadline(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
+		// Domain is the repository to declare the project in (git mode with
+		// several); empty is the primary.
+		Domain string `json:"domain"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1524,8 +1534,8 @@ func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 	// ids into the write; a snapshot minutes old answers both, and
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
-	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.AddProject(r.Context(), owner, boardNum, in.Name); err != nil {
+	r = r.WithContext(board.WithDomain(staleOK(r.Context()), in.Domain))
+	if err := svc.AddProject(r.Context(), boardID, in.Name); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1541,7 +1551,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1550,7 +1560,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.DeleteProject(r.Context(), owner, boardNum, in.Project); err != nil {
+	if err := svc.DeleteProject(r.Context(), boardID, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1565,7 +1575,7 @@ func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, boardNum, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1574,7 +1584,7 @@ func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.ReorderProjects(r.Context(), owner, boardNum, in.Projects); err != nil {
+	if err := svc.ReorderProjects(r.Context(), boardID, in.Projects); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1591,7 +1601,7 @@ func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1600,7 +1610,7 @@ func (s *Server) handleDeleteEpic(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.DeleteEpic(r.Context(), owner, project, in.Epic, in.Project); err != nil {
+	if err := svc.DeleteEpic(r.Context(), boardID, in.Epic, in.Project); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1617,7 +1627,7 @@ func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	svc, owner, project, ok := s.service(w, r)
+	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -1626,7 +1636,7 @@ func (s *Server) handleReorderEpics(w http.ResponseWriter, r *http.Request) {
 	// blocking on a full reload made adding a column feel broken on a
 	// big board. The background revalidation catches the rest up.
 	r = r.WithContext(staleOK(r.Context()))
-	if err := svc.ReorderEpics(r.Context(), owner, project, in.Project, in.Epics); err != nil {
+	if err := svc.ReorderEpics(r.Context(), boardID, in.Project, in.Epics); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1645,11 +1655,7 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	owner, project, err := s.boardRef(r)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	boardID := s.boardRef(r)
 	if _, err := s.newService(r); err != nil {
 		writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 		return
@@ -1658,14 +1664,14 @@ func (s *Server) handleSetPresence(w http.ResponseWriter, r *http.Request) {
 	// actorMiddleware), not a client-supplied value — otherwise any signed-in
 	// user could show a chosen card as selected by someone else.
 	login := board.ActorFrom(r.Context())
-	s.store.SetPresence(storeKey(owner, project), clientIDFrom(r.Context()), login, in.Card)
+	s.store.SetPresence(storeKey(boardID), clientIDFrom(r.Context()), login, in.Card)
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 }
 
 // cardResponse loads the (post-mutation) card and writes it as the resource —
 // mutations echo the card exactly as a fresh GET would return it.
-func (s *Server) cardResponse(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, owner string, project int, uid string) {
-	b, err := svc.Board(r.Context(), owner, project)
+func (s *Server) cardResponse(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID string, uid string) {
+	b, err := svc.Board(r.Context(), boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1724,30 +1730,17 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 }
 
 // apiError maps service errors onto HTTP statuses.
-func (s *Server) apiError(w http.ResponseWriter, r *http.Request, err error) {
+func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 	switch {
-	case errors.Is(err, ghprojects.ErrBadCredentials):
-		// The session was built on a token GitHub now refuses: drop it, so
-		// /api/config reports the user as signed out and the SPA offers the
-		// sign-in it needs instead of failing every request behind a session
-		// that still looks valid.
-		if s.auth != nil {
-			if login := s.auth.dropSession(s.auth.sessionID(r)); login != "" {
-				s.log.Warn("github rejected a session token; session dropped, re-authorization required",
-					"login", login, "path", r.URL.Path)
-			}
-			s.auth.setCookie(w, sessionCookie, "", -1)
-		}
-		// GitHub rejected the caller's token: nothing downstream can fix it,
-		// and answering 502 ("upstream is broken") sends people hunting the
-		// wrong problem. Say plainly that the authorization is gone; the
-		// session behind it is dropped by handleAPI so the next request has
-		// to sign in again.
-		writeJSONError(w, http.StatusUnauthorized,
-			"your GitHub authorization is no longer valid: "+err.Error())
 	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, ghprojects.ErrFieldNotFound), errors.Is(err, ghprojects.ErrNoContent),
+	case errors.Is(err, boardservice.ErrForbidden):
+		writeJSONError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, gitstore.ErrUnknownDomain):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, gitstore.ErrNameTaken),
+		errors.Is(err, boardservice.ErrTeamExists),
+		errors.Is(err, boardservice.ErrTeamNotFound),
 		errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
 		errors.Is(err, boardservice.ErrNoteTooLong),

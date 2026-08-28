@@ -609,9 +609,9 @@ select {
   cursor: default;
 }
 
-/* Unsynced-changes counter: server-applied writes GitHub has not confirmed
-   yet. A pill with a slowly spinning sync glyph and the count, left of the
-   Me/Team switch; trends to zero and is hidden at zero. */
+/* Unsynced-changes counter: server-applied writes not yet committed. A pill
+   with a slowly spinning sync glyph and the count, left of the Me/Team
+   switch; trends to zero and is hidden at zero. */
 .sync-badge {
   margin-left: auto;
   display: inline-flex;
@@ -1550,16 +1550,6 @@ button.card-age {
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
-}
-
-.card-ticket {
-  flex: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--line-soft);
-  border-radius: 4px;
-  padding: 0 5px;
 }
 
 .card-avatars {
@@ -4413,4 +4403,97 @@ button.card-age {
 .project-slot-nudged {
   margin-right: 13px;
   transition: margin-right 90ms ease-out;
+}
+
+/* ---- single board, domains, roster avatars ---- */
+
+/* The board's name in the toolbar — the one board this server serves, where
+   the owner / number fields of the picker era used to be. */
+.board-title {
+  align-self: center;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A person without a picture on the roster (an assignee who is not a member):
+   their initials in the circle the picture would fill. The size comes from the
+   picture's own class (avatar-img, card-presence-avatar, …). */
+.avatar-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--line);
+  color: var(--avatar-fg);
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+/* The repository badge of a card outside the primary domain — only a board
+   spanning several repositories ever shows it. */
+.card-domain {
+  flex: none;
+  max-width: 9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--line-soft);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+.project-slot-domain {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--line-soft);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* Which repository a new team / project / process is declared in; rendered
+   only when the visitor can write to more than one. */
+.domain-select {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  max-width: 12em;
+}
+
+.process-new-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.process-new-row .add-card-input {
+  flex: 1;
+}
+
+/* Older history exists beyond the server's clone horizon. */
+.modal-log-notice {
+  font-style: italic;
+}
+
+/* An inline refusal under a form field: a name the board already has. */
+.form-error {
+  color: var(--err-line);
+  font-size: 12px;
+  margin: 4px 0 0;
 }

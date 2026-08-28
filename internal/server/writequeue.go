@@ -6,18 +6,17 @@ import (
 	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
-	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // The write-behind queue: a mutation is applied to the shared board cache
 // immediately (the response and every watcher see it at once) and the actual
-// GitHub Projects write is queued and pushed in the background. Only a write
-// that still fails after retries rolls the board back — by reloading it from
-// GitHub (the authority) and telling every client what happened.
+// write is queued and committed in the background. Only a write that fails
+// rolls the board back — by reloading it from the branch tip (the authority)
+// and telling every client what happened.
 //
 // pendingOp is one queued write. The change is already live in the cache;
 // exec pushes it upstream, and apply re-imposes it onto a freshly loaded
-// board — a full reload must not undo changes GitHub has not seen yet.
+// board — a full reload must not undo changes the tree has not seen yet.
 type pendingOp struct {
 	// key coalesces queued writes, DeltaFIFO-style: a new op replaces a
 	// not-yet-executing queued op with the same key in place, so dragging a
@@ -31,22 +30,26 @@ type pendingOp struct {
 	compose bool
 	// desc names the operation for the sync-error message ("set progress on
 	// «title»").
-	desc string
-	// noRetry runs the exec once: a create retried after an ambiguous
-	// failure duplicates the card on the board.
-	noRetry bool
-	apply   func(bd *board.Board)
-	exec    func(ctx context.Context) error
+	desc  string
+	apply func(bd *board.Board)
+	exec  func(ctx context.Context) error
 	// itemID names the card the op writes, so a FAILED write can drop that
 	// card's recent-guard before the rollback reload (or the guard would keep
-	// re-imposing the value GitHub just refused).
+	// re-imposing the value the backend just refused).
 	itemID string
-	// requeues counts fresh-node-lag retries (unresolved node, see drain).
-	requeues int
+	// kind is the coalescing kind ("progress", "stage", …), kept apart from
+	// key so the git commit can be named after it.
+	kind string
+	// action is the request the op belongs to (git backend): consecutive ops
+	// of one action drain under one scope and become one commit.
+	action actionRef
+	// actor is the login behind the op — part of the coalescing key, so two
+	// people on one slider are two commits, and the commit's author.
+	actor string
+	// notBefore delays a coalescable op so the next value of the same
+	// gesture can replace it before it commits (coalesceWindow).
+	notBefore time.Time
 }
-
-// queueBackoff is the wait between upstream retries (variable for tests).
-var queueBackoff = []time.Duration{time.Second, 3 * time.Second}
 
 // enqueue applies the op to the cache (the caller already did that part),
 // appends it to the board's queue and makes sure a drain worker is running.
@@ -55,11 +58,36 @@ var queueBackoff = []time.Duration{time.Second, 3 * time.Second}
 // The context is detached so the upstream write survives the request.
 func (b *storeBackend) enqueue(ctx context.Context, e *boardEntry, op pendingOp) {
 	bctx := context.WithoutCancel(ctx)
+	op.action = actionFrom(ctx)
+	op.actor = board.ActorFrom(ctx)
+	if op.key != "" {
+		// Two people on one slider are two writes, both attributed — never
+		// one silently overwriting the other.
+		op.key += "@" + op.actor
+	}
+	if b.git != nil && op.kind == "progress" {
+		// A drag is many writes for one intent: hold the commit open for
+		// the next value. Order per card is kept — the queue is FIFO — so an
+		// action that follows on the same card still commits after it.
+		op.notBefore = time.Now().Add(coalesceWindow)
+	}
 	e.mu.Lock()
 	merged := false
 	if op.key != "" {
+		// Coalesce only past the last op of ANOTHER kind on this card: once
+		// an action on the card sits behind the earlier value, that value
+		// must commit first — slider→100 then send-to-review commits the
+		// 100, then the review's clamp, never the review over a stale 100.
+		// Another actor's write of the same kind does not block: two people
+		// on one slider are two coalesced writes, one each.
+		barrier := -1
 		for i := range e.pending {
-			if e.pending[i].key == op.key {
+			if op.itemID != "" && e.pending[i].itemID == op.itemID && e.pending[i].kind != op.kind {
+				barrier = i
+			}
+		}
+		for i := range e.pending {
+			if e.pending[i].key == op.key && i > barrier {
 				if op.compose {
 					prev, next := e.pending[i].apply, op.apply
 					op.apply = func(bd *board.Board) {
@@ -86,10 +114,9 @@ func (b *storeBackend) enqueue(ctx context.Context, e *boardEntry, op pendingOp)
 }
 
 // drain pushes queued writes upstream one at a time (FIFO keeps dependent
-// changes to one card in order, and the modest pace stays clear of GitHub's
-// secondary rate limits). A write that fails after retries is dropped: every
-// client is told, and the board is reloaded from GitHub so the cache — with
-// the remaining queue replayed on top — matches reality again.
+// changes to one card in order). A write that fails is dropped: every client
+// is told, and the board is reloaded so the cache — with the remaining queue
+// replayed on top — matches reality again.
 func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 	for {
 		e.mu.Lock()
@@ -102,36 +129,32 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		// op already on the wire) and keep it visible as in-flight — the
 		// counter and reload replays must still cover it.
 		op := e.pending[0]
+		if wait := time.Until(op.notBefore); wait > 0 {
+			// A coalescable write is still collecting values; every op
+			// behind it waits too, which is what keeps the card's order.
+			e.mu.Unlock()
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
 		e.pending = e.pending[1:]
 		e.inflight = &op
 		e.mu.Unlock()
 
-		err := execRetry(ctx, op)
-		// An unresolvable node id is either a target deleted mid-queue (drop
-		// the write: the cache already matches the user's intent) or a FRESH
-		// node GitHub's read path has not caught up with yet — requeue that
-		// with a longer pause instead of silently losing the write, or the
-		// order/fields roll back on the next full reload.
-		if ghprojects.IsUnresolvedNode(err) {
-			e.mu.Lock()
-			_, gone := e.recentGone[op.itemID]
-			if !gone && op.requeues < 3 {
-				op.requeues++
-				e.pending = append(e.pending, op)
-			}
-			e.mu.Unlock()
-			err = nil
-		}
+		err := b.execGroup(ctx, e, op)
 
 		e.mu.Lock()
 		e.inflight = nil
 		e.queueChanged()
-		owner, number := e.board.Owner, e.board.Number
+		boardID := e.board.Board
 		if err != nil {
 			e.syncError(fmt.Sprintf("%s failed: %v", op.desc, err))
 			e.loaded = false
 			// The failed write's card must NOT keep outweighing the reload:
-			// GitHub refused the value, so GitHub's truth wins for it.
+			// the backend refused the value, so its truth wins for it.
 			if op.itemID != "" {
 				delete(e.recentCards, op.itemID)
 			}
@@ -140,33 +163,9 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		e.mu.Unlock()
 		if err != nil {
 			// Reload now (not on the next read) so every open board rolls
-			// back to GitHub's reality right away; the remaining queue is
-			// replayed on top by install.
-			_, _ = b.LoadBoard(ctx, owner, number)
-		}
-	}
-}
-
-// execRetry runs the upstream write with a few retries — a transient GitHub
-// hiccup (secondary rate limit, 502) must not roll a user's change back.
-// An op marked noRetry (a create) runs ONCE: an ambiguous failure — the
-// write committed but its response was lost — retried into a SECOND real
-// card on the board, and deleting the visible duplicate then took the
-// original's identity with it. Failing honestly (rollback + sync error)
-// loses a click; retrying blindly loses data.
-func execRetry(ctx context.Context, op pendingOp) error {
-	var err error
-	for attempt := 0; ; attempt++ {
-		if err = op.exec(ctx); err == nil {
-			return nil
-		}
-		if op.noRetry || attempt >= len(queueBackoff) {
-			return err
-		}
-		select {
-		case <-time.After(queueBackoff[attempt]):
-		case <-ctx.Done():
-			return err
+			// back to the backend's reality right away; the remaining queue
+			// is replayed on top by install.
+			_, _ = b.LoadBoard(ctx, boardID)
 		}
 	}
 }
@@ -215,7 +214,7 @@ func (b *storeBackend) mutateCard(ctx context.Context, bd board.Board, itemID, k
 
 // mutateCardOp is mutateCard with an explicit compose choice (see pendingOp).
 func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID, kind, desc string, compose bool, fn func(c *board.Card), exec func(ctx context.Context) error) {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	apply := func(target *board.Board) {
 		for i := range target.Cards {
 			if target.Cards[i].ItemID == itemID {
@@ -258,7 +257,7 @@ func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID,
 	if kind != "" {
 		key = kind + ":" + itemID
 	}
-	b.enqueue(ctx, e, pendingOp{key: key, desc: desc, compose: compose, apply: apply, exec: exec, itemID: itemID})
+	b.enqueue(ctx, e, pendingOp{key: key, kind: kind, desc: desc, compose: compose, apply: apply, exec: exec, itemID: itemID})
 }
 
 // waitDrained blocks until every board's write-behind queue is empty or the

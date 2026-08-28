@@ -85,52 +85,17 @@ type Note struct {
 	Source string `json:"source"`
 }
 
-// SingleSelectOption is one choice of a single-select project field. It mirrors
-// the SingleSelectOption interface in web/src/providers/types.ts.
-type SingleSelectOption struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Color string `json:"color"`
-}
-
-// ProjectField is a column/field defined on a project board. It mirrors the
-// ProjectField interface in web/src/providers/types.ts.
-type ProjectField struct {
-	ID       string               `json:"id"`
-	Name     string               `json:"name"`
-	DataType string               `json:"dataType"`
-	Options  []SingleSelectOption `json:"options,omitempty"`
-}
-
-// Card is a single project item with the well-known field values the boards
-// orient by. It mirrors the Card interface in web/src/providers/types.ts (kept
-// distinct from ghprojects.Card, which has no typed Stage/Plan/Week/ReviewOf and
-// stores them only in a generic map).
+// Card is a single board item with the well-known field values the boards
+// orient by. It mirrors the Card interface in web/src/providers/types.ts.
 type Card struct {
 	ItemID string `json:"itemId"`
-	// ContentID is the node id of the underlying issue/PR/draft and IsDraft marks
-	// a draft-issue card. They mirror the contentId/isDraft fields on the frontend
-	// Card; a backend needs them to rename, reassign or note on the card (the pure
-	// views never read them).
-	ContentID string `json:"contentId,omitempty"`
-	IsDraft   bool   `json:"isDraft,omitempty"`
-	Title     string `json:"title"`
-	// URL/Number/Repository/State describe the underlying issue or PR (empty on a
-	// draft card). Author is the card's creator (draft-issue creator or issue
-	// author). They mirror the url/number/repository/state/author fields on the
-	// frontend Card.
-	URL        string   `json:"url,omitempty"`
-	Number     int      `json:"number,omitempty"`
-	Repository string   `json:"repository,omitempty"`
-	State      string   `json:"state,omitempty"`
-	Assignees  []string `json:"assignees"`
-	Author     string   `json:"author,omitempty"`
+	Title  string `json:"title"`
+	// Assignees are logins; Author is the login that created the card.
+	Assignees []string `json:"assignees"`
+	Author    string   `json:"author,omitempty"`
 	// Team is the card's team label ("" = the no-team group).
 	Team string  `json:"team,omitempty"`
 	Zone ZoneKey `json:"zone,omitempty"`
-	// ZoneOptionID is the raw single-select option id backing Zone, so a backend
-	// can round-trip the value. It mirrors zoneOptionId on the frontend Card.
-	ZoneOptionID string `json:"zoneOptionId,omitempty"`
 	// Progress is the readiness percentage (0..100); 0 also stands for unset,
 	// matching the frontend's `progress ?? 0`.
 	Progress int      `json:"progress"`
@@ -141,10 +106,6 @@ type Card struct {
 	// sprint it belongs to (what the day boards orient by).
 	StartDate   string `json:"startDate,omitempty"`
 	SprintStart string `json:"sprintStart,omitempty"`
-	// SprintTitle/Status are the board's Sprint (iteration) title and Status
-	// single-select value, kept for the frontend (distinct from Stage).
-	SprintTitle string `json:"sprintTitle,omitempty"`
-	Status      string `json:"status,omitempty"`
 	// Plan/Week place the card in the founders' weekly plan (Week is a Monday).
 	Plan PlanBand `json:"plan,omitempty"`
 	Week string   `json:"week,omitempty"`
@@ -191,17 +152,29 @@ type Card struct {
 	// review is implicit and left at 0 (round 1 is not shown).
 	ReviewRound int    `json:"reviewRound,omitempty"`
 	CreatedAt   string `json:"createdAt,omitempty"`
+	// Rank is the card's ordering key within its list (see RankBetween): a
+	// plain string compared bytewise, so a reorder rewrites this card alone.
+	Rank string `json:"rank,omitempty"`
+	// DoneFrom is the progress the card had when a write took it to 100; a
+	// reopen restores it. Stored, not derived from history, because an
+	// action must never depend on a log that may be cut at a horizon.
+	DoneFrom int `json:"doneFrom,omitempty"`
+	// Link is a URL the card points at — the only trace an issue-backed
+	// card keeps of its issue. Nothing is fetched through it.
+	Link string `json:"link,omitempty"`
+	// GitHubID is the Projects v2 item id a migrated card came from, kept so
+	// the id can still be resolved for a while; empty on cards born later.
+	GitHubID string `json:"githubId,omitempty"`
+	// Domain names the repository the card lives in ("" = the primary or a
+	// single-domain board). MovedFrom/MovedAt record a cross-domain move,
+	// so a torn move resolves from the tree alone.
+	Domain    string `json:"domain,omitempty"`
+	MovedFrom string `json:"movedFrom,omitempty"`
+	MovedAt   string `json:"movedAt,omitempty"`
 	// Description is the card's free-form details (a draft body minus its appended
 	// action log, or an issue/PR body). Notes are the card's dated work notes.
 	Description string `json:"description,omitempty"`
 	Notes       []Note `json:"notes,omitempty"`
-	// Events is the card's recorded activity log (stage/progress/review/plan
-	// changes), stored alongside the notes — see Event.
-	Events []Event `json:"events,omitempty"`
-	// EventLogID is the id of the dedicated log comment holding an issue/PR
-	// card's events ("" when none exists yet, or on draft cards, whose events
-	// live in the body log). Internal plumbing for the event writer.
-	EventLogID string `json:"-"`
 }
 
 // CreateInput is the payload for creating a card on a board: the fields a create
@@ -209,6 +182,14 @@ type Card struct {
 // board package (not boardservice) so a backend can implement the create method
 // without importing boardservice. An empty field is left unset.
 type CreateInput struct {
+	// ItemID, when set, is the id the card is created WITH — a backend that
+	// mints its own ids (the git store) honours it, so the cache can hand out
+	// the final id before the write lands; a backend that cannot ignores it.
+	ItemID string `json:"itemId,omitempty"`
+	// Domain, on a roster stub (a team, project or process state card), is
+	// the repository to declare it in; "" is the primary. Cards never carry
+	// one — their domain is inherited (see DomainOf).
+	Domain      string   `json:"domain,omitempty"`
 	Title       string   `json:"title"`
 	Zone        ZoneKey  `json:"zone,omitempty"`
 	Day         string   `json:"day,omitempty"`
@@ -274,17 +255,14 @@ type SprintState struct {
 // cards (sprint-state cards excluded) and the per-team sprint pointers. It
 // mirrors the Board interface in web/src/providers/types.ts.
 type Board struct {
-	// ID/Number/Owner identify the project this snapshot came from, so a backend
-	// can apply mutations against it. They mirror the id/number/owner fields on the
-	// frontend Board and are empty on hand-built snapshots that never get persisted.
-	ID     string `json:"id,omitempty"`
-	Number int    `json:"number,omitempty"`
-	// Title/URL identify the project for display, mirroring the frontend Board.
-	Title  string         `json:"title,omitempty"`
-	URL    string         `json:"url,omitempty"`
-	Owner  string         `json:"owner,omitempty"`
-	Fields []ProjectField `json:"fields"`
-	Cards  []Card         `json:"cards"`
+	// Board names the board this snapshot came from — the name of its primary
+	// repository — so a backend can apply mutations against it. Empty on
+	// hand-built snapshots that never get persisted.
+	Board string `json:"board,omitempty"`
+	// Title/URL identify the board for display, mirroring the frontend Board.
+	Title string `json:"title,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Cards []Card `json:"cards"`
 	// SprintStates maps each team key ("" = the no-team group) to its pointer.
 	SprintStates map[string]SprintState `json:"sprintStates"`
 	// TeamOrder lists the SprintStates keys in board order — the position of
@@ -301,28 +279,25 @@ type Board struct {
 	// out of Cards, like every other state card.
 	Processes []Process `json:"processes,omitempty"`
 	Tasks     []Card    `json:"tasks,omitempty"`
-	// Aliases maps ids a client may still be holding onto the id the card
-	// carries now. Creation answers from the cache with a provisional id and
-	// GitHub's own id arrives later; a client that has not yet applied the
-	// correction keeps being understood. Never serialized — it is the
-	// cache's bookkeeping, not the board's state.
-	Aliases map[string]string `json:"-"`
 	// Projects lists the project roster in board order (the positions of the
 	// hidden project-state cards) and ProjectStates maps each project to the
 	// card that declares it. A project groups epics: the Project board shows
 	// one project's epics as its columns.
 	Projects      []string          `json:"projects,omitempty"`
 	ProjectStates map[string]string `json:"projectStates,omitempty"`
+	// Domains maps a roster entry's id — a team's sprint-state card, a
+	// project, an epic column, a deadline, a process, a task — to the domain
+	// (repository) it was declared in; cards carry their own Domain. Nil on
+	// a single-domain board, where nothing records one.
+	Domains map[string]string `json:"domains,omitempty"`
 }
 
-// NewBoard builds a Board snapshot from a board's fields and full card list,
-// splitting the hidden sprint-state cards out of Cards into SprintStates (keyed
+// NewBoard builds a Board snapshot from the full card list, splitting the hidden sprint-state cards out of Cards into SprintStates (keyed
 // by team, "" = the no-team group). It mirrors mapProject's split: a sprint-state
 // card's Team is its key, its SprintStart is the team's current sprint and its
 // StartDate (the "Start" field) is the previous sprint.
-func NewBoard(fields []ProjectField, cards []Card) Board {
+func NewBoard(cards []Card) Board {
 	b := Board{
-		Fields:       fields,
 		Cards:        make([]Card, 0, len(cards)),
 		SprintStates: map[string]SprintState{},
 	}
@@ -334,6 +309,12 @@ func NewBoard(fields []ProjectField, cards []Card) Board {
 	processSeen := map[string]bool{}
 	epicKey := func(project, name string) string { return project + "\x00" + name }
 	for _, c := range cards {
+		if c.Domain != "" && IsStateTitle(c.Title) {
+			if b.Domains == nil {
+				b.Domains = map[string]string{}
+			}
+			b.Domains[c.ItemID] = c.Domain
+		}
 		if c.Title == ProcessStateTitle {
 			if c.Process != "" && !processSeen[c.Process] {
 				processSeen[c.Process] = true

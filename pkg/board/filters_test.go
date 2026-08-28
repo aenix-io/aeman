@@ -18,7 +18,7 @@ func gridBoard() Board {
 	// (startDate <= TodayIso()), else the future startDate. To stay independent of
 	// the wall clock, materialized cards carry a startDate far in the past (always
 	// <= today) and the deferred card one far in the future (always > today).
-	return NewBoard(nil, []Card{
+	return NewBoard([]Card{
 		// Team A: a materialized card — effective day is its sprint, 06-22.
 		{ItemID: "A1", Team: "A", StartDate: "2000-01-01", SprintStart: "2026-06-22"},
 		// Team A: a deferred card sharing the same sprint — its effective day is the
@@ -76,7 +76,7 @@ func meBoard() Board {
 	// MeView groups a day's cards by activeSprint(team, day) and gates on
 	// startDate <= day — both deterministic in the viewed day, so these cases do
 	// not depend on the wall clock. Team A's current sprint is 06-26, previous 06-20.
-	return NewBoard(nil, []Card{
+	return NewBoard([]Card{
 		{ItemID: "ss-a", Title: SprintStateTitle, Team: "A", SprintStart: "2026-06-26", StartDate: "2026-06-20"},
 		// u's card in the current sprint, scheduled on its sprint day.
 		{ItemID: "u1", Assignees: []string{"u"}, Team: "A", StartDate: "2026-06-26", SprintStart: "2026-06-26"},
@@ -124,7 +124,7 @@ func TestMeView(t *testing.T) {
 }
 
 func planBoard() Board {
-	return NewBoard(nil, []Card{
+	return NewBoard([]Card{
 		{ItemID: "p1", Team: "A", Plan: PlanWed, Week: "2026-06-15"},
 		{ItemID: "p2", Team: "A", Plan: PlanFri, Week: "2026-06-15"},
 		{ItemID: "p3", Team: "A", Plan: PlanWed, Week: "2026-06-22"},  // other week

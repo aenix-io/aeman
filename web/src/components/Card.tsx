@@ -3,7 +3,8 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
-import { avatarUrlFor, displayName, type GhUser } from "../users";
+import type { Avatars } from "../users";
+import { Avatar } from "./Avatar";
 import { addDays, daysSince, localDateIso, todayIso, mondayOf } from "../date";
 import { Dropdown } from "./Dropdown";
 import { extractLinks, type CardLink } from "../links";
@@ -40,7 +41,14 @@ interface CardProps {
   /** Reassign the card's team / person from the avatar menu (when provided). */
   teams?: string[];
   people?: string[];
-  users?: Record<string, GhUser>;
+  /** Who may review this card — the people who can read its repository
+   *  (see reviewerCandidates). Falls back to `people` when omitted. */
+  reviewers?: string[];
+  /** Avatars by login (the board roster); a login without one shows initials. */
+  avatars?: Avatars;
+  /** The card's repository, shown only when the board spans several and the
+   *  card is outside the primary (see cardDomainBadge). */
+  domainBadge?: string | null;
   onSetTeam?: (card: CardModel, team: string | null) => void;
   onSetAssignee?: (card: CardModel, login: string | null) => void;
   /** This card has a linked review card; deleting it cascades (the board owns
@@ -86,14 +94,6 @@ interface CardProps {
 
 const SEGMENTS = 10;
 
-/** ticket renders the monospace ticket reference for a card with a number. */
-function ticket(card: CardModel): string | null {
-  if (card.number === undefined) {
-    return null;
-  }
-  return card.repository ? `${card.repository}#${card.number}` : `#${card.number}`;
-}
-
 /** barColor is the fill colour for the progress segments, driven by stage. */
 function barColor(stage?: StageKey): string {
   return stage ? STAGES[stage].color : DEFAULT_BAR_COLOR;
@@ -112,7 +112,9 @@ export function Card({
   onOpen,
   teams,
   people,
-  users,
+  reviewers,
+  avatars,
+  domainBadge,
   onSetTeam,
   onSetAssignee,
   hasLinkedReview,
@@ -144,7 +146,6 @@ export function Card({
       ? Math.min(90, Math.max(10, rawValue))
       : rawValue;
   const fill = barColor(doneish ? "done" : card.stage);
-  const ref = ticket(card);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [recOpen, setRecOpen] = useState(false);
@@ -613,8 +614,12 @@ export function Card({
       <span className="card-title" title={card.title}>
         {card.title}
       </span>
+      {domainBadge && (
+        <span className="card-domain" title={`Stored in ${domainBadge}`}>
+          {domainBadge}
+        </span>
+      )}
 
-      {ref && <span className="card-ticket">{ref}</span>}
 
       <span className="card-actions" aria-hidden={false}>
         {!card.itemId.startsWith("tmp-") && (
@@ -721,13 +726,13 @@ export function Card({
       {selectedBy && selectedBy.length > 0 && (
         <span className="card-presence" aria-hidden="true">
           {selectedBy.map((login, i) => (
-            <img
+            <Avatar
               key={login}
+              login={login}
+              avatars={avatars}
               className="card-presence-avatar"
               style={{ left: `${-17 - i * 12}px` }}
-              src={avatarUrlFor(login, users?.[login])}
-              alt=""
-              title={`Selected by ${displayName(login, users?.[login])}`}
+              title={`Selected by ${login}`}
             />
           ))}
         </span>
@@ -890,7 +895,7 @@ export function Card({
               type="button"
               className="card-counterpart-avatar-btn"
               title={`${smallAvatarRole}: ${smallAvatars
-                .map((p) => displayName(p, users?.[p]))
+                .map((p) => p)
                 .join(", ")}`}
               onClick={
                 canAssign
@@ -901,10 +906,10 @@ export function Card({
                   : undefined
               }
             >
-              <img
+              <Avatar
+                login={smallAvatars[0]}
+                avatars={avatars}
                 className="card-counterpart-avatar"
-                src={avatarUrlFor(smallAvatars[0], users?.[smallAvatars[0]])}
-                alt={displayName(smallAvatars[0], users?.[smallAvatars[0]])}
               />
             </button>
           )}
@@ -916,14 +921,14 @@ export function Card({
           >
             {card.author && (
               <div className="card-counterpart-head">
-                Created by: {displayName(card.author, users?.[card.author])}
+                Created by: {card.author}
               </div>
             )}
             {counterpartAssignees && counterpartAssignees.length > 0 && (
               <div className="card-counterpart-head">
                 {card.reviewOf ? "In implementation" : "On review"}:{" "}
                 {counterpartAssignees
-                  .map((p) => displayName(p, users?.[p]))
+                  .map((p) => p)
                   .join(", ")}
               </div>
             )}
@@ -981,12 +986,8 @@ export function Card({
                       className={`card-stage-item${card.assignees.includes(p) ? " card-stage-item-active" : ""}`}
                       onClick={() => pickAssignPerson(p)}
                     >
-                      <img
-                        className="avatar-img"
-                        src={avatarUrlFor(p, users?.[p])}
-                        alt={p}
-                      />
-                      {displayName(p, users?.[p])}
+                      <Avatar login={p} avatars={avatars} />
+                      {p}
                     </button>
                   ))}
                   <button
@@ -1017,7 +1018,7 @@ export function Card({
               {card.stage === "review" && onSetReviewAssignee && (
                 <div className="card-assign-col">
                   <div className="card-assign-head">Reviewer</div>
-                  {(people ?? []).map((p) => (
+                  {(reviewers ?? people ?? []).map((p) => (
                     <button
                       key={`r-${p}`}
                       type="button"
@@ -1027,12 +1028,8 @@ export function Card({
                         setAssignOpen(false);
                       }}
                     >
-                      <img
-                        className="avatar-img"
-                        src={avatarUrlFor(p, users?.[p])}
-                        alt={p}
-                      />
-                      {displayName(p, users?.[p])}
+                      <Avatar login={p} avatars={avatars} />
+                      {p}
                     </button>
                   ))}
                   <button

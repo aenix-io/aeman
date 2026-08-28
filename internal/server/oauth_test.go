@@ -781,3 +781,19 @@ func TestVerifyTokenCarriesSessionID(t *testing.T) {
 		t.Fatalf("extras = %+v", info.Extra)
 	}
 }
+
+// newestSessionFor picks the login's freshest live session.
+func TestNewestSessionFor(t *testing.T) {
+	a := newAuthManager(OAuthConfig{ClientID: "id", ClientSecret: "s", BaseURL: "http://x"}, nil)
+	now := time.Now()
+	a.sessions["old"] = oauthSession{token: "t-old", login: "kvaps", created: now.Add(-2 * time.Hour)}
+	a.sessions["new"] = oauthSession{token: "t-new", login: "kvaps", created: now.Add(-time.Minute)}
+	a.sessions["other"] = oauthSession{token: "t-x", login: "tym83", created: now}
+	sid, s, ok := a.newestSessionFor(context.Background(), "kvaps")
+	if !ok || sid != "new" || s.token != "t-new" {
+		t.Fatalf("got %q %q %v, want the freshest kvaps session", sid, s.token, ok)
+	}
+	if _, _, ok := a.newestSessionFor(context.Background(), "nobody"); ok {
+		t.Fatal("a login with no sessions must not resolve")
+	}
+}

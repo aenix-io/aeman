@@ -22,24 +22,24 @@ func epicBoard() *fakeBackend {
 func TestAddEpic(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	if err := svc.AddEpic(context.Background(), "acme", 1, "Console", "Cozystack"); err != nil {
+	if err := svc.AddEpic(context.Background(), "acme", "Console", "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
 	last := fake.creates[len(fake.creates)-1]
 	if last.Title != board.EpicStateTitle || last.Epic != "Console" || last.Project != "Cozystack" {
 		t.Fatalf("epic-state create = %+v", last)
 	}
-	if err := svc.AddEpic(context.Background(), "acme", 1, "infra", "Cozystack"); !errors.Is(err, ErrEpicExists) {
+	if err := svc.AddEpic(context.Background(), "acme", "infra", "Cozystack"); !errors.Is(err, ErrEpicExists) {
 		t.Fatalf("a case-insensitive duplicate must be refused, got %v", err)
 	}
-	if err := svc.AddEpic(context.Background(), "acme", 1, "  ", "Cozystack"); err == nil {
+	if err := svc.AddEpic(context.Background(), "acme", "  ", "Cozystack"); err == nil {
 		t.Fatal("an empty name must be refused")
 	}
 	// A typo is refused; the no-project bucket is a deliberate destination.
-	if err := svc.AddEpic(context.Background(), "acme", 1, "Loose", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
+	if err := svc.AddEpic(context.Background(), "acme", "Loose", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown project must be refused, got %v", err)
 	}
-	if err := svc.AddEpic(context.Background(), "acme", 1, "Loose", ""); err != nil {
+	if err := svc.AddEpic(context.Background(), "acme", "Loose", ""); err != nil {
 		t.Fatalf("the no-project bucket is a real destination: %v", err)
 	}
 }
@@ -49,27 +49,27 @@ func TestAddEpic(t *testing.T) {
 func TestProjectLifecycle(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	if err := svc.AddProject(context.Background(), "acme", 1, "Portal"); err != nil {
+	if err := svc.AddProject(context.Background(), "acme", "Portal"); err != nil {
 		t.Fatal(err)
 	}
 	last := fake.creates[len(fake.creates)-1]
 	if last.Title != board.ProjectStateTitle || last.Project != "Portal" {
 		t.Fatalf("project-state create = %+v", last)
 	}
-	if err := svc.AddProject(context.Background(), "acme", 1, "cozystack"); !errors.Is(err, ErrProjectExists) {
+	if err := svc.AddProject(context.Background(), "acme", "cozystack"); !errors.Is(err, ErrProjectExists) {
 		t.Fatalf("a case-insensitive duplicate must be refused, got %v", err)
 	}
-	if err := svc.AddProject(context.Background(), "acme", 1, " "); err == nil {
+	if err := svc.AddProject(context.Background(), "acme", " "); err == nil {
 		t.Fatal("an empty name must be refused")
 	}
-	if err := svc.DeleteProject(context.Background(), "acme", 1, "Cozystack"); !errors.Is(err, ErrProjectInUse) {
+	if err := svc.DeleteProject(context.Background(), "acme", "Cozystack"); !errors.Is(err, ErrProjectInUse) {
 		t.Fatalf("a project owning columns must be protected, got %v", err)
 	}
 	// Detach the column, and the project becomes deletable.
-	if err := svc.SetEpicProject(context.Background(), "acme", 1, "Cozystack", "Infra", ""); err != nil {
+	if err := svc.SetEpicProject(context.Background(), "acme", "Cozystack", "Infra", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.DeleteProject(context.Background(), "acme", 1, "Cozystack"); err != nil {
+	if err := svc.DeleteProject(context.Background(), "acme", "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.count("DeleteCard p1") == 0 {
@@ -82,16 +82,16 @@ func TestProjectLifecycle(t *testing.T) {
 func TestSetEpicProject(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	if err := svc.AddProject(context.Background(), "acme", 1, "Portal"); err != nil {
+	if err := svc.AddProject(context.Background(), "acme", "Portal"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetEpicProject(context.Background(), "acme", 1, "Cozystack", "Infra", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
+	if err := svc.SetEpicProject(context.Background(), "acme", "Cozystack", "Infra", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown target project must be refused, got %v", err)
 	}
-	if err := svc.SetEpicProject(context.Background(), "acme", 1, "Cozystack", "Nope", "Portal"); !errors.Is(err, ErrEpicNotFound) {
+	if err := svc.SetEpicProject(context.Background(), "acme", "Cozystack", "Nope", "Portal"); !errors.Is(err, ErrEpicNotFound) {
 		t.Fatalf("an unknown column must be refused, got %v", err)
 	}
-	if err := svc.SetEpicProject(context.Background(), "acme", 1, "Cozystack", "Infra", "Portal"); err != nil {
+	if err := svc.SetEpicProject(context.Background(), "acme", "Cozystack", "Infra", "Portal"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.count("SetProject e1 Portal") == 0 {
@@ -108,13 +108,13 @@ func TestSetEpicProject(t *testing.T) {
 func TestDeleteEpic(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	if err := svc.DeleteEpic(context.Background(), "acme", 1, "Infra", "Cozystack"); !errors.Is(err, ErrEpicInUse) {
+	if err := svc.DeleteEpic(context.Background(), "acme", "Infra", "Cozystack"); !errors.Is(err, ErrEpicInUse) {
 		t.Fatalf("an epic with cards must be protected, got %v", err)
 	}
-	if err := svc.SetEpic(context.Background(), "acme", 1, "c1", "", nil); err != nil {
+	if err := svc.SetEpic(context.Background(), "acme", "c1", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.DeleteEpic(context.Background(), "acme", 1, "Infra", "Cozystack"); err != nil {
+	if err := svc.DeleteEpic(context.Background(), "acme", "Infra", "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.count("DeleteCard e1") == 0 {
@@ -127,10 +127,10 @@ func TestDeleteEpic(t *testing.T) {
 func TestSetEpicValidates(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	if err := svc.SetEpic(context.Background(), "acme", 1, "c1", "Nope", nil); err == nil {
+	if err := svc.SetEpic(context.Background(), "acme", "c1", "Nope", nil); err == nil {
 		t.Fatal("an unknown epic must be refused")
 	}
-	if err := svc.SetEpic(context.Background(), "acme", 1, "c1", "Infra", nil); err != nil {
+	if err := svc.SetEpic(context.Background(), "acme", "c1", "Infra", nil); err != nil {
 		t.Fatalf("a no-op re-file must pass: %v", err)
 	}
 }
@@ -141,7 +141,7 @@ func TestSetEpicValidates(t *testing.T) {
 func TestCreateCardUnderEpic(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	card, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+	card, err := svc.CreateCard(context.Background(), "acme", CreateCardArgs{
 		Title: "KMS encryption", Epic: "Infra", Project: "Cozystack",
 		Start: "2026-09-14", Day: "2026-09-25",
 	})
@@ -157,14 +157,14 @@ func TestCreateCardUnderEpic(t *testing.T) {
 	if card.StartDate != "2026-09-14" || card.Day != "2026-09-25" {
 		t.Fatalf("span = %q..%q", card.StartDate, card.Day)
 	}
-	if _, err := svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{
+	if _, err := svc.CreateCard(context.Background(), "acme", CreateCardArgs{
 		Title: "typo", Epic: "Nope", Project: "Cozystack",
 	}); err == nil {
 		t.Fatal("an unknown epic must be refused on create")
 	}
 
 	// And the day boards do not smear its multi-week span.
-	b, err := svc.Board(context.Background(), "acme", 1)
+	b, err := svc.Board(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestCreateCardUnderEpic(t *testing.T) {
 // The board parses the hidden state cards into the ordered project and column
 // rosters, and binds each column to its project.
 func TestBoardParsesProjectsAndEpics(t *testing.T) {
-	b := board.NewBoard(nil, []board.Card{
+	b := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
 		{ItemID: "e2", Title: board.EpicStateTitle, Epic: "Console", Project: "Cozystack"},
 		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
@@ -203,7 +203,7 @@ func TestBoardParsesProjectsAndEpics(t *testing.T) {
 		t.Fatalf("the no-project bucket = %v", got)
 	}
 	// The same column name in two projects is two columns, not a clash.
-	two := board.NewBoard(nil, []board.Card{
+	two := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "A"},
 		{ItemID: "p2", Title: board.ProjectStateTitle, Project: "B"},
 		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Docs", Project: "A"},
@@ -233,7 +233,7 @@ func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	svc := New(fake)
 
-	if err := svc.SetTeam(context.Background(), "acme", 1, "slot", "alpha", ""); err != nil {
+	if err := svc.SetTeam(context.Background(), "acme", "slot", "alpha", ""); err != nil {
 		t.Fatal(err)
 	}
 	got := fake.get("slot")
@@ -245,7 +245,7 @@ func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
 	}
 
 	// An ordinary card still joins the team's sprint — the old behaviour.
-	if err := svc.SetTeam(context.Background(), "acme", 1, "day", "alpha", ""); err != nil {
+	if err := svc.SetTeam(context.Background(), "acme", "day", "alpha", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.get("day"); got.SprintStart != today {
@@ -253,10 +253,10 @@ func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
 	}
 
 	// An epic card ALREADY in work follows the normal rule (it has a sprint).
-	if err := svc.SetSprintStart(context.Background(), "acme", 1, "slot", today); err != nil {
+	if err := svc.SetSprintStart(context.Background(), "acme", "slot", today); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetTeam(context.Background(), "acme", 1, "slot", "alpha", ""); err != nil {
+	if err := svc.SetTeam(context.Background(), "acme", "slot", "alpha", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.get("slot"); got.SprintStart != today {
@@ -270,11 +270,11 @@ func TestSetTeamKeepsEpicCardPlanLevel(t *testing.T) {
 func TestUnknownEpicIsTyped(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	err := svc.SetEpic(context.Background(), "acme", 1, "c1", "Ghost", nil)
+	err := svc.SetEpic(context.Background(), "acme", "c1", "Ghost", nil)
 	if !errors.Is(err, ErrEpicNotFound) {
 		t.Fatalf("SetEpic error = %v, want ErrEpicNotFound", err)
 	}
-	_, err = svc.CreateCard(context.Background(), "acme", 1, CreateCardArgs{Title: "x", Epic: "Ghost", Project: "Cozystack"})
+	_, err = svc.CreateCard(context.Background(), "acme", CreateCardArgs{Title: "x", Epic: "Ghost", Project: "Cozystack"})
 	if !errors.Is(err, ErrEpicNotFound) {
 		t.Fatalf("CreateCard error = %v, want ErrEpicNotFound", err)
 	}
@@ -285,21 +285,21 @@ func TestUnknownEpicIsTyped(t *testing.T) {
 func TestEpicNamesAreScopedToTheirProject(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	if err := svc.AddProject(context.Background(), "acme", 1, "Portal"); err != nil {
+	if err := svc.AddProject(context.Background(), "acme", "Portal"); err != nil {
 		t.Fatal(err)
 	}
 	// "Infra" already exists in Cozystack; in Portal it is a different column.
-	if err := svc.AddEpic(context.Background(), "acme", 1, "Infra", "Portal"); err != nil {
+	if err := svc.AddEpic(context.Background(), "acme", "Infra", "Portal"); err != nil {
 		t.Fatalf("the same name in another project must be allowed: %v", err)
 	}
-	if err := svc.AddEpic(context.Background(), "acme", 1, "infra", "Portal"); !errors.Is(err, ErrEpicExists) {
+	if err := svc.AddEpic(context.Background(), "acme", "infra", "Portal"); !errors.Is(err, ErrEpicExists) {
 		t.Fatalf("a duplicate INSIDE the project must be refused, got %v", err)
 	}
 	// The card under Cozystack/Infra must not be dragged along by Portal/Infra.
-	if err := svc.DeleteEpic(context.Background(), "acme", 1, "Infra", "Portal"); err != nil {
+	if err := svc.DeleteEpic(context.Background(), "acme", "Infra", "Portal"); err != nil {
 		t.Fatalf("Portal's empty column must delete cleanly: %v", err)
 	}
-	if err := svc.DeleteEpic(context.Background(), "acme", 1, "Infra", "Cozystack"); !errors.Is(err, ErrEpicInUse) {
+	if err := svc.DeleteEpic(context.Background(), "acme", "Infra", "Cozystack"); !errors.Is(err, ErrEpicInUse) {
 		t.Fatalf("Cozystack's column has a card and must be protected, got %v", err)
 	}
 }
@@ -309,13 +309,13 @@ func TestEpicNamesAreScopedToTheirProject(t *testing.T) {
 func TestRenameEpic(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	if err := svc.RenameEpic(context.Background(), "acme", 1, "Cozystack", "Nope", "X"); !errors.Is(err, ErrEpicNotFound) {
+	if err := svc.RenameEpic(context.Background(), "acme", "Cozystack", "Nope", "X"); !errors.Is(err, ErrEpicNotFound) {
 		t.Fatalf("an unknown column must be refused, got %v", err)
 	}
-	if err := svc.RenameEpic(context.Background(), "acme", 1, "Cozystack", "Infra", " "); err == nil {
+	if err := svc.RenameEpic(context.Background(), "acme", "Cozystack", "Infra", " "); err == nil {
 		t.Fatal("an empty name must be refused")
 	}
-	if err := svc.RenameEpic(context.Background(), "acme", 1, "Cozystack", "Infra", "Platform"); err != nil {
+	if err := svc.RenameEpic(context.Background(), "acme", "Cozystack", "Infra", "Platform"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.count("SetEpic e1 Platform") == 0 {
@@ -330,10 +330,10 @@ func TestRenameEpic(t *testing.T) {
 func TestRenameProject(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
-	if err := svc.RenameProject(context.Background(), "acme", 1, "Ghost", "X"); !errors.Is(err, ErrProjectNotFound) {
+	if err := svc.RenameProject(context.Background(), "acme", "Ghost", "X"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown project must be refused, got %v", err)
 	}
-	if err := svc.RenameProject(context.Background(), "acme", 1, "Cozystack", "Cozy"); err != nil {
+	if err := svc.RenameProject(context.Background(), "acme", "Cozystack", "Cozy"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.count("SetProject p1 Cozy") == 0 || fake.count("SetProject e1 Cozy") == 0 {
@@ -358,7 +358,7 @@ func TestCarryWeekLeavesASlippedSlotAlone(t *testing.T) {
 			Week: twoBack, StartDate: twoBack, Day: board.AddDays(twoBack, 4)},
 	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
 	svc := New(fake)
-	rep, err := svc.CarryWeek(context.Background(), "acme", 1, "alpha", thisWeek, false)
+	rep, err := svc.CarryWeek(context.Background(), "acme", "alpha", thisWeek, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestCarryWeekLeavesASlippedSlotAlone(t *testing.T) {
 		t.Fatalf("the slot moved: week %s start %s end %s", got.Week, got.StartDate, got.Day)
 	}
 	// …and it shows on this week's panel as the debt it is.
-	b, _ := svc.Board(context.Background(), "acme", 1)
+	b, _ := svc.Board(context.Background(), "acme")
 	now := board.WeeklyPlan(b, "alpha", thisWeek)
 	if len(now.Fri) != 1 || now.Fri[0].ItemID != "slot" {
 		t.Fatalf("the slipped slot must show on the current week's panel; got %+v", now)
@@ -383,27 +383,27 @@ func TestDeadlines(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
 	ctx := context.Background()
-	if err := svc.AddProject(ctx, "acme", 1, "Portal"); err != nil {
+	if err := svc.AddProject(ctx, "acme", "Portal"); err != nil {
 		t.Fatal(err)
 	}
 	const w1, w2 = "2026-09-07", "2026-09-14"
 	// Any day of the week resolves to its Monday — the line sits on a row.
-	if err := svc.AddDeadline(ctx, "acme", 1, "2026-09-09", "Cozystack"); err != nil {
+	if err := svc.AddDeadline(ctx, "acme", "2026-09-09", "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AddDeadline(ctx, "acme", 1, w1, "Cozystack"); err != nil {
+	if err := svc.AddDeadline(ctx, "acme", w1, "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AddDeadline(ctx, "acme", 1, w1, "Portal"); err != nil {
+	if err := svc.AddDeadline(ctx, "acme", w1, "Portal"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AddDeadline(ctx, "acme", 1, w2, "Cozystack"); err != nil {
+	if err := svc.AddDeadline(ctx, "acme", w2, "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AddDeadline(ctx, "acme", 1, w1, "Ghost"); !errors.Is(err, ErrProjectNotFound) {
+	if err := svc.AddDeadline(ctx, "acme", w1, "Ghost"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown project must be refused, got %v", err)
 	}
-	b, err := svc.Board(ctx, "acme", 1)
+	b, err := svc.Board(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,10 +413,10 @@ func TestDeadlines(t *testing.T) {
 
 	// Dragging Cozystack's second line onto its first leaves one — and does
 	// not touch Portal's line on that same week.
-	if err := svc.MoveDeadline(ctx, "acme", 1, "Cozystack", w2, w1); err != nil {
+	if err := svc.MoveDeadline(ctx, "acme", "Cozystack", w2, w1); err != nil {
 		t.Fatal(err)
 	}
-	b, err = svc.Board(ctx, "acme", 1)
+	b, err = svc.Board(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,10 +427,10 @@ func TestDeadlines(t *testing.T) {
 		t.Fatalf("another project's deadline must survive the merge; got %+v", b.Deadlines)
 	}
 
-	if err := svc.DeleteDeadline(ctx, "acme", 1, w1, "Portal"); err != nil {
+	if err := svc.DeleteDeadline(ctx, "acme", w1, "Portal"); err != nil {
 		t.Fatal(err)
 	}
-	b, err = svc.Board(ctx, "acme", 1)
+	b, err = svc.Board(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestSlotWeekFollowsItsStart(t *testing.T) {
 	fake := epicBoard()
 	svc := New(fake)
 	ctx := context.Background()
-	card, err := svc.CreateCard(ctx, "acme", 1, CreateCardArgs{
+	card, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
 		Title: "Workshop", Epic: "Infra", Project: "Cozystack",
 		Start: "2026-08-24", Day: "2026-08-28",
 	})
@@ -459,7 +459,7 @@ func TestSlotWeekFollowsItsStart(t *testing.T) {
 	}
 
 	// Re-date it to an earlier week: the row must move with the dates.
-	if err := svc.SetDates(ctx, "acme", 1, card.ItemID, "2026-08-06", "2026-08-06"); err != nil {
+	if err := svc.SetDates(ctx, "acme", card.ItemID, "2026-08-06", "2026-08-06"); err != nil {
 		t.Fatal(err)
 	}
 	got := fake.get(card.ItemID)
@@ -472,7 +472,7 @@ func TestSlotWeekFollowsItsStart(t *testing.T) {
 	}
 
 	// The same through the single-date path.
-	if err := svc.SetStart(ctx, "acme", 1, card.ItemID, "2026-09-16"); err != nil {
+	if err := svc.SetStart(ctx, "acme", card.ItemID, "2026-09-16"); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.get(card.ItemID); got.Week != "2026-09-14" {
@@ -496,14 +496,14 @@ func TestSlotWeekIsNotSettable(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 
-	err := svc.SetWeek(ctx, "acme", 1, "slot", "2026-09-07")
+	err := svc.SetWeek(ctx, "acme", "slot", "2026-09-07")
 	if !errors.Is(err, ErrWeekDerived) {
 		t.Fatalf("SetWeek on a slot = %v, want ErrWeekDerived", err)
 	}
 	if got := fake.get("slot"); got.Week != "2026-08-24" {
 		t.Fatalf("the refused write still landed: week = %q", got.Week)
 	}
-	if err := svc.SetWeek(ctx, "acme", 1, "plan", "2026-09-07"); err != nil {
+	if err := svc.SetWeek(ctx, "acme", "plan", "2026-09-07"); err != nil {
 		t.Fatalf("a weekly-plan card must still move between weeks: %v", err)
 	}
 	if got := fake.get("plan"); got.Week != "2026-09-07" {
@@ -514,7 +514,7 @@ func TestSlotWeekIsNotSettable(t *testing.T) {
 // A board read repairs the rows of cards written before the rule, so nobody
 // has to migrate anything: the dates are the truth, whatever is stored.
 func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
-	b := board.NewBoard(nil, []board.Card{
+	b := board.NewBoard([]board.Card{
 		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
 		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
 		// Written by the old code: dates moved, the week stayed behind.
@@ -556,7 +556,7 @@ func TestTeamFilesASlotInTheWeeklyPlan(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 
-	if err := svc.SetTeam(ctx, "acme", 1, "slot", "alpha", ""); err != nil {
+	if err := svc.SetTeam(ctx, "acme", "slot", "alpha", ""); err != nil {
 		t.Fatal(err)
 	}
 	got := fake.get("slot")
@@ -566,7 +566,7 @@ func TestTeamFilesASlotInTheWeeklyPlan(t *testing.T) {
 	if got.SprintStart != "" {
 		t.Fatalf("filing a slot in a plan must not start it, got sprint %q", got.SprintStart)
 	}
-	b, err := svc.Board(ctx, "acme", 1)
+	b, err := svc.Board(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +576,7 @@ func TestTeamFilesASlotInTheWeeklyPlan(t *testing.T) {
 	}
 
 	// Taking the team away takes an unstarted slot back out of the plan.
-	if err := svc.SetTeam(ctx, "acme", 1, "slot", "", ""); err != nil {
+	if err := svc.SetTeam(ctx, "acme", "slot", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.get("slot"); got.Plan != board.PlanNone {
@@ -584,7 +584,7 @@ func TestTeamFilesASlotInTheWeeklyPlan(t *testing.T) {
 	}
 
 	// An ordinary day card is untouched by any of this.
-	if err := svc.SetTeam(ctx, "acme", 1, "day", "alpha", ""); err != nil {
+	if err := svc.SetTeam(ctx, "acme", "day", "alpha", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.get("day"); got.Plan != board.PlanNone {
@@ -605,11 +605,11 @@ func TestSetWeekOnASlot(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 	// The derived week (the start date's Monday) is accepted silently.
-	if err := svc.SetWeek(ctx, "o", 1, "s1", "2026-08-24"); err != nil {
+	if err := svc.SetWeek(ctx, "o", "s1", "2026-08-24"); err != nil {
 		t.Fatalf("re-asserting the derived week: %v", err)
 	}
 	// Any other week is refused.
-	if err := svc.SetWeek(ctx, "o", 1, "s1", "2026-08-03"); !errors.Is(err, ErrWeekDerived) {
+	if err := svc.SetWeek(ctx, "o", "s1", "2026-08-03"); !errors.Is(err, ErrWeekDerived) {
 		t.Fatalf("a conflicting week got %v, want ErrWeekDerived", err)
 	}
 }

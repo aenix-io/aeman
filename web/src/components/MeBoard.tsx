@@ -29,7 +29,9 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint } from "../sprint";
-import { avatarUrlFor, displayName, type GhUser } from "../users";
+import type { Avatars } from "../users";
+import { Avatar } from "./Avatar";
+import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
@@ -50,14 +52,14 @@ interface MeBoardProps {
    *  explicit user (null = the caller themselves). */
   viewAs: string | null;
   onViewAs: (login: string | null) => void;
-  /** GitHub user details (avatars / names) for the impersonate picker. */
-  users: Record<string, GhUser>;
+  /** Avatars by login (the board roster) for the pickers. */
+  avatars: Avatars;
   /** Known teams to offer in the team selector. */
   teams: string[];
   /** Shared single-select team (also the team for new cards); null = none. */
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
-  onAddTeam: (team: string) => void;
+  onAddTeam: (team: string, domain?: string) => void;
   onRemoveTeam: (team: string) => void;
   onRenameTeam: (from: string, to: string) => void;
   patchCard: (
@@ -116,7 +118,7 @@ export function MeBoard({
   onSelectDate,
   viewAs,
   onViewAs,
-  users,
+  avatars,
   teams,
   teamFilter,
   onSetFilter,
@@ -188,7 +190,12 @@ export function MeBoard({
   // Other people with cards — offered in the "View as" impersonate picker.
   const others = useMemo(
     () =>
-      [...new Set([...board.members, ...board.cards.flatMap((c) => c.assignees)])]
+      [
+        ...new Set([
+          ...board.members.map((m) => m.login),
+          ...board.cards.flatMap((c) => c.assignees),
+        ]),
+      ]
         .filter((p) => p && p !== me)
         .sort(),
     [board.members, board.cards, me],
@@ -197,7 +204,7 @@ export function MeBoard({
   // People to offer when picking a reviewer: everyone seen on the board, plus
   // me — the same roster the Team board's assign menu uses.
   const people = useMemo(() => {
-    const set = new Set<string>(board.members);
+    const set = new Set<string>(board.members.map((m) => m.login));
     for (const card of board.cards) {
       for (const login of card.assignees) {
         set.add(login);
@@ -339,7 +346,7 @@ export function MeBoard({
       return;
     }
     void provider
-      .listLog(board, itemId)
+      .listLog(itemId)
       .then(({ notes, events }) => patchCard(itemId, { notes, events }))
       .catch(() => {});
   };
@@ -362,7 +369,7 @@ export function MeBoard({
   // clamps; the re-list converges the linked original.
   // Resolve a card's description links (GitHub refs get titles) for the menu.
   const loadCardLinks = (card: CardModel) =>
-    provider.listLinks(board, card.itemId);
+    provider.listLinks(card.itemId);
 
   // Subtasks grouped by parent. The Me board's team-focus filter applies to
   // subtask rows the same way it applies to cards.
@@ -455,7 +462,7 @@ export function MeBoard({
       }
       notesRequested.current.add(c.itemId);
       void provider
-        .listLog(board, c.itemId)
+        .listLog(c.itemId)
         .then(({ notes, events }) => {
           notesRequested.current.delete(c.itemId);
           patchCard(c.itemId, { notes, events });
@@ -481,7 +488,7 @@ export function MeBoard({
     }
     bodyRequested.current.add(c.itemId);
     void provider
-      .getCard(board, c.itemId)
+      .getCard(c.itemId)
       .then((full) => {
         patchCard(c.itemId, { description: full.description ?? "" });
       })
@@ -612,7 +619,7 @@ export function MeBoard({
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
-      .patchCard(board, card.itemId, { parent: parentId })
+      .patchCard(card.itemId, { parent: parentId })
       .then((c) => {
         addCard(c);
         reload();
@@ -631,7 +638,6 @@ export function MeBoard({
     addCard({
       itemId: tempId,
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: viewMe ? [viewMe] : [],
       zone: parent.zone ?? "gray",
       team: parent.team,
@@ -658,7 +664,7 @@ export function MeBoard({
       });
     }
 
-    const created = provider.createCard(board, {
+    const created = provider.createCard({
       title,
       team: parent.team ?? null,
       zone: parent.zone ?? "gray",
@@ -674,7 +680,7 @@ export function MeBoard({
       .then((c) => {
         if (consumePendingCancel(tempId)) {
           removeCard(tempId);
-          void provider.deleteCard(board, c.itemId).catch(() => {});
+          void provider.deleteCard(c.itemId).catch(() => {});
           return;
         }
         replaceCard(tempId, c);
@@ -737,7 +743,7 @@ export function MeBoard({
     patchCard(card.itemId, patch);
     syncParentBar(card, value);
     void provider
-      .patchCard(board, card.itemId, { progress: value })
+      .patchCard(card.itemId, { progress: value })
       .then((updated) => {
         addCard(updated);
         refreshLog(card.itemId);
@@ -802,7 +808,7 @@ export function MeBoard({
     const enteringReview = stage === "review" && card.stage !== "review";
     const hasLinkedReview = board.cards.some((c) => c.reviewOf === card.itemId);
     void provider
-      .patchCard(board, card.itemId, {
+      .patchCard(card.itemId, {
         stage: stage ?? "",
         ...(stage === "recurrent" ? { recurrence: recurrence ?? "" } : {}),
       })
@@ -842,7 +848,7 @@ export function MeBoard({
     patchCard(card.itemId, { stage: undefined, progress: value });
     syncParentBar(card, value);
     void provider
-      .setInProgress(board, card.itemId)
+      .setInProgress(card.itemId)
       .then((updated) => {
         addCard(updated);
         refreshLog(card.itemId);
@@ -870,7 +876,7 @@ export function MeBoard({
     const sprintStart = currentSprint(board, team) ?? selectedDate;
     patchCard(card.itemId, { team: team ?? undefined, sprintStart });
     void provider
-      .patchCard(board, card.itemId, { team: team ?? "" })
+      .patchCard(card.itemId, { team: team ?? "" })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
@@ -929,7 +935,7 @@ export function MeBoard({
       }
       reorderCards(order);
     }
-    void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
+    void provider.deleteCard(card.itemId).catch((err: unknown) => {
       if (isGone(err)) {
         return;
       }
@@ -975,7 +981,7 @@ export function MeBoard({
       }
       removeCard(reviewCard.itemId);
       void provider
-        .removeReviewer(board, card.itemId)
+        .removeReviewer(card.itemId)
         .then(addCard)
         .catch((err: unknown) => {
           addCard(reviewCard);
@@ -991,7 +997,7 @@ export function MeBoard({
     const prev = reviewCard.assignees;
     patchCard(reviewCard.itemId, { assignees: [login] });
     void provider
-      .sendToReview(board, card.itemId, login, selectedDate, "yellow")
+      .sendToReview(card.itemId, login, selectedDate, "yellow")
       .then((updated) => {
         addCard(updated);
         // Re-sending a passed card to the same reviewer reactivates their
@@ -1022,7 +1028,6 @@ export function MeBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: [reviewerLogin],
       zone,
       day: selectedDate,
@@ -1045,7 +1050,7 @@ export function MeBoard({
       ...(card.progress === 100 ? { progress: 90 } : {}),
     });
     void provider
-      .sendToReview(board, card.itemId, reviewerLogin, selectedDate, zone)
+      .sendToReview(card.itemId, reviewerLogin, selectedDate, zone)
       .then((created) => {
         replaceCard(tempId, created);
         migrateCardId(tempId, created.itemId);
@@ -1133,7 +1138,7 @@ export function MeBoard({
       const pos = afterId ? order.indexOf(afterId) + 1 : 0;
       order.splice(pos, 0, card.itemId);
       reorderCards(order);
-      void provider.moveCard(board, card.itemId, afterId).catch((err: unknown) => {
+      void provider.moveCard(card.itemId, afterId).catch((err: unknown) => {
         reload();
         onError(errMessage(err));
       });
@@ -1185,14 +1190,14 @@ export function MeBoard({
     void (async () => {
       try {
         if (Object.keys(patch).length > 0) {
-          await provider.patchCard(board, card.itemId, patch);
+          await provider.patchCard(card.itemId, patch);
         }
         if (at > 0) {
-          await provider.moveCard(board, card.itemId, entryIds[at - 1]);
+          await provider.moveCard(card.itemId, entryIds[at - 1]);
         } else if (at === 0 && entryIds.length > 1) {
-          await provider.moveCardBefore(board, card.itemId, entryIds[1]);
+          await provider.moveCardBefore(card.itemId, entryIds[1]);
         } else {
-          await provider.moveCard(board, card.itemId, afterId);
+          await provider.moveCard(card.itemId, afterId);
         }
         if (parentChanged) {
           reload();
@@ -1216,7 +1221,6 @@ export function MeBoard({
       // A bare GitHub reference reads as its readable label at once; the
       // server's background resolve renames it to the real title shortly.
       title: optimisticTitle(title),
-      isDraft: true,
       assignees: viewMe ? [viewMe] : [],
       zone,
       day: selectedDate,
@@ -1232,7 +1236,7 @@ export function MeBoard({
       notes: [],
     };
     addCard(optimistic);
-    const creating = provider.createCard(board, {
+    const creating = provider.createCard({
       title,
       zone,
       day: selectedDate,
@@ -1249,7 +1253,7 @@ export function MeBoard({
         if (consumePendingCancel(tempId)) {
           removeCard(tempId);
           // Deleted while the create was in flight: drop the server twin.
-          void provider.deleteCard(board, card.itemId).catch(() => undefined);
+          void provider.deleteCard(card.itemId).catch(() => undefined);
           return;
         }
         // Swap in place: append-on-ack would reshuffle a quick burst of adds.
@@ -1275,7 +1279,7 @@ export function MeBoard({
       body: text,
       createdAt: new Date().toISOString(),
       author: viewMe || undefined,
-      source: selectedCard.isDraft ? "draft" : "comment",
+      source: "draft",
     };
     const uid = selectedCard.itemId;
     // Functional updates: rapid Enter-Enter-Enter adds must each build on the
@@ -1286,7 +1290,7 @@ export function MeBoard({
       notes: [...(c.notes ?? []), optimistic],
     }));
     void provider
-      .addNote(board, uid, text)
+      .addNote(uid, text)
       .then((notes) =>
         patchCard(uid, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
       )
@@ -1300,7 +1304,7 @@ export function MeBoard({
       ),
     }));
     void provider
-      .editNote(board, card.itemId, note.id, text)
+      .editNote(card.itemId, note.id, text)
       .then((notes) =>
         patchCard(card.itemId, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
       )
@@ -1312,7 +1316,7 @@ export function MeBoard({
       notes: (c.notes ?? []).filter((n) => n.id !== note.id),
     }));
     void provider
-      .deleteNote(board, card.itemId, note.id)
+      .deleteNote(card.itemId, note.id)
       .then((notes) =>
         patchCard(card.itemId, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
       )
@@ -1335,7 +1339,7 @@ export function MeBoard({
       patchCard(counterpart.itemId, { description: text, linkRefs: undefined });
     }
     void provider
-      .patchCard(board, card.itemId, { description: text })
+      .patchCard(card.itemId, { description: text })
       .catch((err: unknown) => {
         patchCard(card.itemId, {
           description: card.description,
@@ -1366,7 +1370,9 @@ export function MeBoard({
       onOpen={onOpen}
       teams={teams}
       people={people}
-      users={users}
+      reviewers={reviewerCandidates(people, board.domains, card.domain)}
+      avatars={avatars}
+      domainBadge={cardDomainBadge(board.domains, card.domain)}
       onSetTeam={handleSetTeam}
       hasLinkedReview={reviewedItemIds.has(card.itemId)}
       counterpartAssignees={counterpartAssigneesFor(card)}
@@ -1469,6 +1475,7 @@ export function MeBoard({
           teams={teams}
           selectedKeys={teamFilter}
           onSelect={onSetFilter}
+          domains={board.domains}
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
@@ -1496,7 +1503,7 @@ export function MeBoard({
             title="View the board as another person"
           >
             {impersonated
-              ? `👁 ${displayName(impersonated, users[impersonated])}`
+              ? `👁 ${impersonated}`
               : "View as ▾"}
           </button>
           {impersonated && (
@@ -1537,13 +1544,8 @@ export function MeBoard({
                   setImpOpen(false);
                 }}
               >
-                <img
-                  className="avatar-img"
-                  src={avatarUrlFor(p, users[p])}
-                  alt=""
-                  draggable={false}
-                />
-                {displayName(p, users[p])}
+                <Avatar login={p} avatars={avatars} draggable={false} />
+                {p}
               </button>
             ))}
             {others.length === 0 && (

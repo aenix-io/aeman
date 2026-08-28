@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
@@ -23,6 +24,7 @@ type Backend struct {
 	loadErr error
 	refs    map[string]board.Link
 	board   board.Board
+	events  map[string][]board.Event // the history AppendEvent recorded, by card
 	log     []string
 	creates []board.CreateInput
 	nextID  int
@@ -53,7 +55,7 @@ func New(cards []board.Card, states map[string]board.SprintState) *Backend {
 	if states == nil {
 		states = map[string]board.SprintState{}
 	}
-	return &Backend{board: board.Board{ID: "B1", Number: 1, Owner: "acme", Cards: cards, SprintStates: states}}
+	return &Backend{board: board.Board{Board: "acme", Cards: cards, SprintStates: states}}
 }
 
 // rec appends to the call log. Callers hold f.mu.
@@ -119,7 +121,7 @@ func (f *Backend) FailLoad(err error) {
 }
 
 // LoadBoard returns a copy of the seeded board snapshot.
-func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
+func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("LoadBoard")
@@ -177,7 +179,7 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	for k, v := range f.board.SprintStates {
 		states[k] = v
 	}
-	return board.Board{ID: f.board.ID, Number: f.board.Number, Owner: f.board.Owner, Cards: cards,
+	return board.Board{Board: f.board.Board, Cards: cards,
 		SprintStates: states, Epics: epics,
 		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
 		Processes: processes, Tasks: tasks}, nil
@@ -207,7 +209,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
-		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, IsDraft: true,
+		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
@@ -247,17 +249,34 @@ func (f *Backend) MoveCard(_ context.Context, _ board.Board, card board.Card, af
 	return nil
 }
 
-// AddNote records a note on a card.
+// AppendEvent records an activity event in the card's history.
 func (f *Backend) AppendEvent(_ context.Context, _ board.Board, card board.Card, e board.Event) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("AppendEvent %s %s %s->%s", card.ItemID, e.Kind, e.From, e.To)
-	if c := f.card(card.ItemID); c != nil {
+	if f.card(card.ItemID) != nil {
 		f.nextID++
 		e.ID = fmt.Sprintf("ev%d", f.nextID)
-		c.Events = append(c.Events, e)
+		if f.events == nil {
+			f.events = map[string][]board.Event{}
+		}
+		f.events[card.ItemID] = append(f.events[card.ItemID], e)
 	}
 	return nil
+}
+
+// CardLog is the history AppendEvent recorded, oldest first. The fake holds
+// all of it, so it is never truncated.
+func (f *Backend) CardLog(_ context.Context, _ board.Board, id string) ([]board.Event, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]board.Event(nil), f.events[id]...), time.Time{}, nil
+}
+
+// Events is the card's recorded history, for assertions.
+func (f *Backend) Events(id string) []board.Event {
+	evs, _, _ := f.CardLog(context.Background(), board.Board{}, id)
+	return evs
 }
 
 func (f *Backend) AddNote(ctx context.Context, _ board.Board, card board.Card, text string) error {
@@ -347,6 +366,14 @@ func (f *Backend) SetProgress(_ context.Context, _ board.Board, card board.Card,
 	defer f.mu.Unlock()
 	f.rec("SetProgress %s %d", card.ItemID, progress)
 	if c := f.card(card.ItemID); c != nil {
+		// The storage's rule (gitstore): reaching 100 remembers where the
+		// card came from, dropping below forgets it.
+		switch {
+		case progress >= 100 && c.Progress < 100:
+			c.DoneFrom = c.Progress
+		case progress < 100:
+			c.DoneFrom = 0
+		}
 		c.Progress = progress
 	}
 	return nil
@@ -423,6 +450,14 @@ func (f *Backend) SetTeam(_ context.Context, _ board.Board, card board.Card, tea
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("SetTeam %s %s", card.ItemID, team)
+	if card.Title == board.SprintStateTitle {
+		// The team's own stub: the declaration moves to the new name.
+		if st, ok := f.board.SprintStates[card.Team]; ok {
+			delete(f.board.SprintStates, card.Team)
+			f.board.SprintStates[team] = st
+		}
+		return nil
+	}
 	if c := f.card(card.ItemID); c != nil {
 		c.Team = team
 	}

@@ -7,6 +7,7 @@ package apiserver
 
 import (
 	"sort"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -43,14 +44,9 @@ type Card struct {
 
 // CardMetadata is the card's identity and immutable facts.
 type CardMetadata struct {
-	UID        string `json:"uid"`
-	ContentID  string `json:"contentId,omitempty"`
-	IsDraft    bool   `json:"isDraft,omitempty"`
-	URL        string `json:"url,omitempty"`
-	Number     int    `json:"number,omitempty"`
-	Repository string `json:"repository,omitempty"`
-	Author     string `json:"author,omitempty"`
-	CreatedAt  string `json:"createdAt,omitempty"`
+	UID       string `json:"uid"`
+	Author    string `json:"author,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
 }
 
 // CardDates is the card's date model: its scheduled start, the end of its
@@ -113,6 +109,10 @@ type CardStatus struct {
 	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
+	// Domain is the repository the card lives in — the store's decision by
+	// the inheritance rule, never a client's choice; empty when the store did
+	// not stamp it (a card in the primary is shown without a badge).
+	Domain string `json:"domain,omitempty"`
 	// Links are the references extracted from the card's description —
 	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).
 	// They ride the status so a summary listing, which omits the description
@@ -207,8 +207,30 @@ type BoardMetadata struct {
 	Epics []EpicRef `json:"epics,omitempty"`
 	// Members is every distinct assignee on the board — the people roster for
 	// pickers (assign, review, view-as) now that clients load one view at a
-	// time and cannot derive it from the cards they hold.
-	Members []string `json:"members"`
+	// time and cannot derive it from the cards they hold — with the avatar
+	// the server's forge adapter resolves for each, so a client never
+	// assembles a forge URL of its own.
+	Members []Member `json:"members"`
+	// Domains are the repositories the visitor can read, primary first: which
+	// they may write — a team, project or process is declared in one they
+	// pick when more than one is writable — and which members can read each,
+	// so a reviewer picker offers only people who will see the card. Absent
+	// on a single-domain board.
+	Domains []DomainInfo `json:"domains,omitempty"`
+}
+
+// Member is one person on the board: a login and, when the server knows the
+// forge, an avatar image URL.
+type Member struct {
+	Login     string `json:"login"`
+	AvatarURL string `json:"avatarUrl,omitempty"`
+}
+
+// DomainInfo is one readable domain of the visitor's board.
+type DomainInfo struct {
+	Name     string   `json:"name"`
+	Writable bool     `json:"writable"`
+	Members  []string `json:"members"`
 }
 
 // EpicRef is one Project-board column: its name and the project that owns it.
@@ -325,6 +347,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		InProgress:  board.IsInProgress(c),
 		Overdue:     board.Overdue(c, board.TodayIso()),
 		ReviewRound: c.ReviewRound,
+		Domain:      c.Domain,
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a
@@ -347,14 +370,9 @@ func CardResource(b board.Board, c board.Card) Card {
 	return Card{
 		Kind: "Card",
 		Metadata: CardMetadata{
-			UID:        c.ItemID,
-			ContentID:  c.ContentID,
-			IsDraft:    c.IsDraft,
-			URL:        c.URL,
-			Number:     c.Number,
-			Repository: c.Repository,
-			Author:     c.Author,
-			CreatedAt:  c.CreatedAt,
+			UID:       c.ItemID,
+			Author:    c.Author,
+			CreatedAt: c.CreatedAt,
 		},
 		Spec:   spec,
 		Status: status,
@@ -409,8 +427,15 @@ func OrderingResource(b board.Board) Ordering {
 	return Ordering{Kind: "Ordering", Spec: OrderingSpec{UIDs: uids}}
 }
 
-// BoardResource is the read-only board identity resource.
+// BoardResource is the read-only board identity resource, members without
+// avatars.
 func BoardResource(b board.Board) BoardInfo {
+	return BoardResourceWith(b, nil)
+}
+
+// BoardResourceWith is BoardResource with the members' avatars resolved by
+// the given hook (nil leaves them empty).
+func BoardResourceWith(b board.Board, avatar func(login string) string) BoardInfo {
 	// Teams come out in BOARD order (the sprint-state cards' positions — the
 	// shared, server-side team order); stragglers the order does not know
 	// (defensive: map entries without an order slot) append sorted.
@@ -441,11 +466,19 @@ func BoardResource(b board.Board) BoardInfo {
 		}
 	}
 	sortStrings(members)
+	people := make([]Member, 0, len(members))
+	for _, login := range members {
+		m := Member{Login: login}
+		if avatar != nil {
+			m.AvatarURL = avatar(login)
+		}
+		people = append(people, m)
+	}
 	return BoardInfo{
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,
 			Projects: append([]string{}, b.Projects...), Epics: epicRefs(b),
-			Deadlines: deadlineWeeks(b), Processes: processRefs(b), Members: members},
+			Deadlines: deadlineWeeks(b), Processes: processRefs(b), Members: people},
 	}
 }
 
@@ -478,12 +511,17 @@ type LogEntry struct {
 type LogList struct {
 	Kind  string     `json:"kind"`
 	Items []LogEntry `json:"items"`
+	// TruncatedBefore, when set, is the time the loaded history is cut at:
+	// older entries exist on the remote but are not here (a shallow clone).
+	TruncatedBefore string `json:"truncatedBefore,omitempty"`
 }
 
-// CardLog merges a card's events and notes into one chronological feed.
-func CardLog(c board.Card) LogList {
-	items := make([]LogEntry, 0, len(c.Events)+len(c.Notes))
-	for _, e := range c.Events {
+// CardLogFrom merges the given events — a backend's history — with the
+// card's notes into one chronological feed, naming the horizon the history
+// is cut at when there is one.
+func CardLogFrom(c board.Card, events []board.Event, truncatedBefore time.Time) LogList {
+	items := make([]LogEntry, 0, len(events)+len(c.Notes))
+	for _, e := range events {
 		items = append(items, LogEntry{
 			Type: "event", ID: e.ID, At: e.At, Actor: e.Actor,
 			EventKind: e.Kind, From: e.From, To: e.To,
@@ -495,5 +533,9 @@ func CardLog(c board.Card) LogList {
 		})
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].At < items[j].At })
-	return LogList{Kind: "LogList", Items: items}
+	out := LogList{Kind: "LogList", Items: items}
+	if !truncatedBefore.IsZero() {
+		out.TruncatedBefore = truncatedBefore.UTC().Format(time.RFC3339)
+	}
+	return out
 }

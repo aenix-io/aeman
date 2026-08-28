@@ -12,34 +12,26 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aenix-io/aeman/pkg/boardservice"
-	"github.com/aenix-io/aeman/pkg/ghprojects"
 )
 
 // Config configures the MCP server.
 type Config struct {
-	// Owner is the default GitHub org/user.
-	Owner string
-	// Project is the default GitHub Project number.
-	Project int
-	// Lock pins owner/project, ignoring per-tool overrides.
+	// Board is the default board — the name of its primary repository.
+	Board string
+	// Lock pins the board, ignoring per-tool overrides.
 	Lock bool
 	// Version is reported to MCP clients.
 	Version string
-	// ResolveToken returns a GitHub token for the current call.
-	ResolveToken func(ctx context.Context) (string, error)
-	// ResolveLogin returns the caller's own GitHub login, used to scope the
-	// default (unspecified-view) list to their personal Me board. Optional: when
-	// nil or it errors, an unspecified list falls back to the Me view for
+	// ResolveLogin returns the caller's own login, used to scope the default
+	// (unspecified-view) list to their personal Me board. Optional: when nil
+	// or it errors, an unspecified list falls back to the Me view for
 	// everyone in the active sprint rather than a personal one.
 	ResolveLogin func(ctx context.Context) (string, error)
-	// Endpoint overrides the GraphQL endpoint (used in tests).
-	Endpoint string
-	// HTTPClient overrides the HTTP client (used in tests).
-	HTTPClient ghprojects.Doer
-	// WrapBackend, when set, wraps the production backend — the HTTP server uses
-	// it to route MCP mutations through its shared board store, so they update
-	// the cache and reach watch clients like every other write.
-	WrapBackend func(boardservice.Backend) boardservice.Backend
+	// Backend is the board backend every tool call runs on — the server's
+	// shared store, so MCP writes update the cache and reach watch clients
+	// like every other write; the caller's identity and rights ride the
+	// call's context.
+	Backend boardservice.Backend
 }
 
 // Serve runs an MCP server over stdio until ctx is cancelled or the client
@@ -89,6 +81,7 @@ func (h *server) mcpServer() *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "delete_epic", Description: "Delete an EMPTY epic column from the Project board (name=<epic>, project=<its project>). A column that still has cards is protected (move or clear them first) — orphaning planned work silently is exactly what the Project board exists to prevent."}, h.deleteEpic)
 	mcp.AddTool(s, &mcp.Tool{Name: "rename_epic", Description: "Rename a column in place (project=<project>, name=<current>, to=<new>). Its cards follow — they store the column's name, so the rename rewrites both sides. A name already used by another column of the SAME project is refused; the same name in another project is fine."}, h.renameEpic)
 	mcp.AddTool(s, &mcp.Tool{Name: "rename_project", Description: "Rename a project in place (name=<current>, to=<new>). Its columns and their cards follow."}, h.renameProject)
+	mcp.AddTool(s, &mcp.Tool{Name: "rename_team", Description: "Rename a team in place (team=<current>, to=<new>): the team's declaration keeps its sprint pointer, and every card and process task that names the team follows. Team, project and process names are one namespace across the board's repositories — a taken name is refused."}, h.renameTeam)
 	mcp.AddTool(s, &mcp.Tool{Name: "set_epic_project", Description: "Move a column from one project to another (name=<epic>, from=<current project>, project=<target>). An empty target detaches the column, leaving it visible only in the all-projects view — do that only when explicitly asked. The column's cards are rewritten along with it."}, h.setEpicProject)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_processes", Description: "The Process tab: recurring work the team keeps doing — every process with its tasks, and each task's history (done / open / late per iteration), which is how to tell whether a process is actually alive. Scope with project=<name>."}, h.listProcesses)
 	mcp.AddTool(s, &mcp.Tool{Name: "add_process", Description: "Declare a process — recurring work inside a project, e.g. \"Publishing\" or \"Collecting payment\". A process groups tasks; add them with add_process_task. Only on an explicit request: read the existing ones from list_processes first."}, h.addProcess)
@@ -116,53 +109,35 @@ func (h *server) mcpServer() *mcp.Server {
 	return s
 }
 
-// resolve picks the effective owner/project, honouring the lock and defaults.
-func (h *server) resolve(owner string, project int) (string, int, error) {
-	o, p := h.cfg.Owner, h.cfg.Project
-	if !h.cfg.Lock {
-		if owner != "" {
-			o = owner
-		}
-		if project != 0 {
-			p = project
-		}
+// resolve picks the effective board, honouring the lock and the default.
+func (h *server) resolve(boardID string) (string, error) {
+	b := h.cfg.Board
+	if !h.cfg.Lock && boardID != "" {
+		b = boardID
 	}
-	if o == "" || p == 0 {
-		return "", 0, fmt.Errorf("owner and board are required (pass them or configure server defaults)")
+	if b == "" {
+		return "", fmt.Errorf("board is required (pass it or configure the server default)")
 	}
-	return o, p, nil
+	return b, nil
 }
 
-// defaultBackend builds a ghprojects client with a freshly resolved token. It is
-// the production newBackend (*ghprojects.Client satisfies boardservice.Backend).
-func (h *server) defaultBackend(ctx context.Context) (boardservice.Backend, error) {
-	tok, err := h.cfg.ResolveToken(ctx)
-	if err != nil {
-		return nil, err
+// defaultBackend is the production newBackend: the configured backend.
+func (h *server) defaultBackend(context.Context) (boardservice.Backend, error) {
+	if h.cfg.Backend == nil {
+		return nil, fmt.Errorf("mcpserver: no board backend configured")
 	}
-	opts := []ghprojects.Option{}
-	if h.cfg.HTTPClient != nil {
-		opts = append(opts, ghprojects.WithHTTPClient(h.cfg.HTTPClient))
-	}
-	if h.cfg.Endpoint != "" {
-		opts = append(opts, ghprojects.WithEndpoint(h.cfg.Endpoint))
-	}
-	var backend boardservice.Backend = ghprojects.New(tok, opts...)
-	if h.cfg.WrapBackend != nil {
-		backend = h.cfg.WrapBackend(backend)
-	}
-	return backend, nil
+	return h.cfg.Backend, nil
 }
 
 // ref resolves the board reference and builds the board service for a call.
-func (h *server) ref(ctx context.Context, in boardRef) (svc *boardservice.Service, owner string, project int, err error) {
-	owner, project, err = h.resolve(in.Owner, in.Board)
+func (h *server) ref(ctx context.Context, in boardRef) (svc *boardservice.Service, boardID string, err error) {
+	boardID, err = h.resolve(in.Board)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, "", err
 	}
 	backend, err := h.newBackend(ctx)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, "", err
 	}
-	return boardservice.New(backend), owner, project, nil
+	return boardservice.New(backend), boardID, nil
 }

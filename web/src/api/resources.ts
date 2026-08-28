@@ -45,11 +45,6 @@ export interface CardResource {
   kind: string;
   metadata: {
     uid: string;
-    contentId?: string;
-    isDraft?: boolean;
-    url?: string;
-    number?: number;
-    repository?: string;
     author?: string;
     createdAt?: string;
   };
@@ -77,6 +72,8 @@ export interface CardResource {
     overdue?: boolean;
     reviewedBy?: string;
     reviewRound?: number;
+    /** The repository the card lives in; absent on an older server. */
+    domain?: string;
     links?: {
       kind: string;
       url: string;
@@ -120,7 +117,9 @@ export interface BoardResource {
     deadlines?: { week: string; project?: string }[];
     processes?: { name: string; project?: string }[];
     epics?: { name: string; project?: string }[];
-    members?: string[];
+    members?: { login: string; avatarUrl?: string }[];
+    /** The repositories the board spans, primary first. */
+    domains?: { name: string; writable?: boolean; members?: string[] }[];
   };
 }
 
@@ -173,15 +172,11 @@ export function resourceToCard(res: CardResource): Card {
   const band = spec.plan?.band;
   return {
     itemId: m.uid,
-    contentId: m.contentId || undefined,
     title: spec.title,
-    isDraft: m.isDraft ?? false,
-    url: m.url || undefined,
-    number: m.number,
-    repository: m.repository || undefined,
     assignees: spec.assignees ?? [],
     author: m.author || undefined,
     createdAt: m.createdAt || undefined,
+    domain: res.status?.domain || undefined,
     zone: zoneFromSemantic(spec.zone),
     progress: spec.progress ?? 0,
     stage: spec.stage ? STAGE_KEYS[spec.stage] : undefined,

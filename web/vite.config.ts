@@ -16,8 +16,9 @@ function keepDist(): Plugin {
   };
 }
 
-// During `vite dev`, /api/* is proxied to the aeman Go binary so the GitHub
-// proxy and /api/config work the same as in the embedded production build.
+// During `vite dev`, /api/* (REST, the watch socket and /api/healthz) is proxied
+// to the aeman Go binary, so the dev page talks to the same server the
+// embedded production build does.
 export default defineConfig({
   plugins: [react(), keepDist()],
   build: {

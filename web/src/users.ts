@@ -1,44 +1,31 @@
-import { graphql } from "./api/client";
+// People on the board. The roster (GET /board metadata.members) is the only
+// source of avatars: there is no per-login lookup any more, and no display
+// names — a person is their login. An assignee who is not a member has no
+// avatar URL, and the Avatar component draws their initials instead.
 
-export interface GhUser {
+/** Member is one person of the board roster as GET /board reports it. */
+export interface Member {
   login: string;
-  name?: string;
-  avatarUrl: string;
+  avatarUrl?: string;
 }
 
-/** fetchUsers loads name + avatar for the given GitHub logins in one query. */
-export async function fetchUsers(
-  logins: string[],
-): Promise<Record<string, GhUser>> {
-  const uniq = [...new Set(logins.filter(Boolean))];
-  if (uniq.length === 0) {
-    return {};
-  }
-  const decls = uniq.map((_, i) => `$l${i}: String!`).join(", ");
-  const body = uniq
-    .map((_, i) => `u${i}: user(login: $l${i}) { login name avatarUrl }`)
-    .join("\n");
-  const query = `query(${decls}) {\n${body}\n}`;
-  const vars: Record<string, string> = {};
-  uniq.forEach((l, i) => {
-    vars[`l${i}`] = l;
-  });
-  const data = await graphql<Record<string, GhUser | null>>(query, vars);
-  const out: Record<string, GhUser> = {};
-  for (const value of Object.values(data)) {
-    if (value) {
-      out[value.login] = value;
+/** Avatars maps a login onto its avatar URL. */
+export type Avatars = Record<string, string>;
+
+/** avatarsFrom builds the login → avatar URL map from the roster, skipping
+ *  entries without a URL. */
+export function avatarsFrom(members: readonly Member[]): Avatars {
+  const out: Avatars = {};
+  for (const m of members) {
+    if (m.login && m.avatarUrl) {
+      out[m.login] = m.avatarUrl;
     }
   }
   return out;
 }
 
-/** avatarUrlFor returns a usable avatar URL, falling back to GitHub's by login. */
-export function avatarUrlFor(login: string, user?: GhUser): string {
-  return user?.avatarUrl ?? `https://github.com/${login}.png?size=48`;
-}
-
-/** displayName formats a person like GitHub: "Full Name (login)" or "login". */
-export function displayName(login: string, user?: GhUser): string {
-  return user?.name ? `${user.name} (${login})` : login;
+/** avatarUrlFor is the roster's avatar URL for a login, or undefined when the
+ *  person is not a member (no URL is invented for them). */
+export function avatarUrlFor(login: string, avatars?: Avatars): string | undefined {
+  return avatars?.[login];
 }

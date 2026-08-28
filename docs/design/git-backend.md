@@ -523,13 +523,22 @@ holds across replicas, not just within one.
 
 Push rejected → fetch → if nothing new arrived, the push really failed
 (log, keep the commits, retry later) → otherwise **re-apply the local
-queue on the new tip**: the queue holds each write as a mutation closure
-over the card (`pendingOp.apply`, `mutateCard(fn)` today), and
-re-application runs those closures against the card as it now is on the
-new tip and writes the result. That is **field-level**: two writers on
-different fields of one card both land, as they do today with per-field
-GraphQL mutations; two writers on the same field resolve last write
-wins, also as today. No merge machinery. Then push again.
+commits on the new tip**: the branch is reset to the tip and every
+commit the remote has not seen is replayed, oldest first, as a
+field-level change — for each file the commit touched, the fields it
+changed (front-matter keys, the body, notes by id) are set on the file
+as it now is on the tip; a create whose path already exists is a no-op,
+an edit of a card the tip deleted is dropped. That is **field-level**:
+two writers on different fields of one card both land, as they do today
+with per-field GraphQL mutations; two writers on the same field resolve
+last write wins, also as today. The replayed commit keeps its message,
+trailers, author and date. The commits are found on the branch, not in
+memory: what a run left unpushed when it stopped is replayed by the next
+run, and a move — a create in one repository, a delete in another — is
+replayed per repository. (The first design replayed the queue's mutation
+closures instead; that loses commits across a restart and cannot replay
+one repository of a move without the other, so the commit replay took
+its place.) Then push again.
 
 Rank keys keep concurrent reorders from colliding on a shared file;
 concurrent edits to *one* card resolve last-write-wins, as they do today.
@@ -548,7 +557,7 @@ restart; the drain pushes what it can with the old token first.
 ### Horizon
 
 The clone starts at **depth 1** (the board's current state) and deepens
-in the background to a **time horizon** (`--history`, default `8w`,
+in the background to a **time horizon** (`--history`, default `2w`,
 i.e. roughly four sprints). One knob serves both consumers of history:
 
 - **A card's log** — the commits within the horizon that touch it,
@@ -645,7 +654,7 @@ design just does not prevent them.
 | `--repo name=url` (repeatable) | `AEMAN_REPOS` | — | the board's domains, primary first |
 | — | `AEMAN_GIT_TOKEN` | — | push/fetch credential (HTTPS) |
 | `--data` | `AEMAN_DATA` | `/data` | clones and session file |
-| `--history` | `AEMAN_HISTORY` | `8w` | background deepening horizon |
+| `--history` | `AEMAN_HISTORY` | `2w` | background deepening horizon |
 | `--history-max` | `AEMAN_HISTORY_MAX` | `1y` | cap for on-demand deepening |
 | `--sync-interval` | `AEMAN_SYNC_INTERVAL` | `15s` | fetch cadence for remote changes |
 | `--unpushed-warn` | `AEMAN_UNPUSHED_WARN` | `5m` | age of the oldest unpushed commit that turns healthz red |
@@ -806,7 +815,7 @@ The tests are the second documentation: each names its edges.
 | G8 | The history walker stops AT the shallow boundary | depth-1 clone: log has exactly 1 entry, no error; after deepening: the boundary commit is included, its parent is not walked |
 | G9 | Deepening applies `unshallow` and lands exactly at the horizon | deepen to date T: oldest reachable commit ≤ T, all commits > T present; a second deepen further back; deepening past the root leaves no shallow entry |
 | G10 | Push rejection is detected by fetching, not by error type | rejected push whose fetch brings nothing → reported as failed, commits kept, healthz age grows; rejected push whose fetch brings new commits → re-applied and pushed |
-| G11 | Re-apply on a new tip re-runs the queued mutations on the card as it now is: field-level, last write wins per field | two writers, disjoint cards: both changes present; same card, different fields: both land; same field: the later re-application wins, history has both commits; two replicas spawning the same iteration → one file, the loser's create is a no-op with no second commit |
+| G11 | Re-apply on a new tip replays the unpushed commits field by field onto the files as they now are: last write wins per field; a create is idempotent by path; the commits are found on the branch, so a restart between commit and push loses nothing | two writers, disjoint cards: both changes present; same card, different fields: both land; same field: the later re-application wins, history has both commits; two replicas spawning the same iteration → one file, the loser's create is a no-op with no second commit; a commit made before a restart is pushed by the next run |
 | G12 | Rank insertion touches one file; rebalancing is bounded to the run and to the mover's domain | insert between neighbours: one file changes; exhausted key space: only the run between the nearest roomy neighbours is rewritten, in the same commit; a run that would cross into another domain stops at the boundary |
 | G13 | Roster fragments merge into one order across domains; duplicate names resolve to the oldest, the rest are aliases | interleaved ranks come out interleaved; identical ranks tie-break by id; two fragments declaring `portal` → one team, the older file's rank and sprint, both fragments' cards, healthz names the duplicate |
 | G14 | Domain follows the inheritance rule, linked cards first, and is never chosen per card | a card under a closed project → closed repository; a team card without a project → the team's domain; a review card of a **closed-project** original whose `team` lives in shared → closed, not shared (the review card carries the original's team and no project, so the team rule would leak it); a subtask carrying its own column → its parent's domain regardless; an iteration → its task's; moving a card moves its review card and subtasks in the same action |

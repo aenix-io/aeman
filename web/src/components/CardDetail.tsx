@@ -3,6 +3,7 @@ import type {
   Board,
   Card as CardModel,
   CardEvent,
+  CardLog,
   Note,
   Provider,
 } from "../providers/types";
@@ -38,9 +39,7 @@ export function CardDetail({
   // may overwrite it. bodyFailed gates Save when the body never arrived.
   const [dirty, setDirty] = useState(false);
   const [bodyFailed, setBodyFailed] = useState(false);
-  const [log, setLog] = useState<{ notes: Note[]; events: CardEvent[] } | null>(
-    null,
-  );
+  const [log, setLog] = useState<CardLog | null>(null);
   const [tab, setTab] = useState<"details" | "activity">("details");
   const bodyLoaded = card.description !== undefined;
 
@@ -68,7 +67,7 @@ export function CardDetail({
     }
     let dropped = false;
     void provider
-      .getCard(board, card.itemId)
+      .getCard(card.itemId)
       .then((full) => {
         if (dropped) {
           return;
@@ -103,7 +102,7 @@ export function CardDetail({
     }
     let cancelled = false;
     void provider
-      .listLog(board, card.itemId)
+      .listLog(card.itemId)
       .then((l) => {
         if (!cancelled) {
           setLog(l);
@@ -119,7 +118,7 @@ export function CardDetail({
     };
     // log deliberately not a dep: refetch is keyed to opening the tab.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, card.itemId, board, provider]);
+  }, [tab, card.itemId, provider]);
 
   // Timeline grouped by day, newest day first (entries inside stay in order).
   const timeline = useMemo(() => {
@@ -160,7 +159,7 @@ export function CardDetail({
     }
     patchCard(card.itemId, { title: next });
     void provider
-      .patchCard(board, card.itemId, { title: next })
+      .patchCard(card.itemId, { title: next })
       .catch((err: unknown) => {
         patchCard(card.itemId, { title: card.title });
         setTitle(card.title);
@@ -187,7 +186,7 @@ export function CardDetail({
     }
     onClose();
     void provider
-      .patchCard(board, card.itemId, { description: next })
+      .patchCard(card.itemId, { description: next })
       .catch((err: unknown) => {
         patchCard(card.itemId, {
           description: card.description,
@@ -366,6 +365,13 @@ export function CardDetail({
                 )}
               </div>
             ))}
+            {/* The server's clone reaches only so far back: what is shown is
+                everything it has, not everything that happened. */}
+            {log?.truncatedBefore && (
+              <p className="notes-empty modal-log-notice">
+                Older history before {localDateIso(log.truncatedBefore)} is not loaded.
+              </p>
+            )}
           </div>
         )}
 

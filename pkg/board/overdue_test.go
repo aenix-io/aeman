@@ -35,7 +35,7 @@ func TestADebtFollowsYou(t *testing.T) {
 	thisWeek := "2026-08-24"
 	debt := Card{ItemID: "debt", Team: "alpha", Plan: PlanFri, Week: "2026-08-17"}
 	paid := Card{ItemID: "paid", Team: "alpha", Plan: PlanFri, Week: "2026-08-17", Progress: 100, Stage: StageDone}
-	b := NewBoard(nil, []Card{debt, paid})
+	b := NewBoard([]Card{debt, paid})
 
 	now := WeeklyPlanAt(b, "alpha", thisWeek, today)
 	if len(now.Fri) != 1 || now.Fri[0].ItemID != "debt" {

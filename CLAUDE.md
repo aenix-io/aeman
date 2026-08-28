@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-aeman — a short-term planning system for engineering teams. **GitHub Projects v2 is the only storage**; the whole thing ships as one self-contained Go binary: an embedded React SPA (`go:embed` via `web/embed.go`), a JSON REST API under `/api/v1`, a WebSocket watch stream, and an MCP server for AI agents — all driving the same board service, with GitHub as the single source of truth.
+aeman — a short-term planning system for engineering teams. **Git repositories are the only storage** — a board is one or more repositories (domains) of YAML/Markdown files, every action a commit; the whole thing ships as one self-contained Go binary: an embedded React SPA (`go:embed` via `web/embed.go`), a JSON REST API under `/api/v1`, a WebSocket watch stream, and an MCP server for AI agents — all driving the same board service, with the repositories as the single source of truth. GitHub (or another forge) is only the identity provider and the remote the repositories live on.
 
 ## Commands
 
@@ -24,16 +24,17 @@ make test           # go test ./...
 
 ## Architecture
 
-The server is a **stateless mapping layer** over the GitHub GraphQL API — an in-memory cache (30s + WebSocket watch, `internal/server/boardstore.go`) is the only state it holds. Every write path (UI, REST, MCP) goes through one board service; a change reloads only the touched card and fans out to every open board via the watch stream.
+The server holds an in-memory cache of the board (`internal/server/boardstore.go`) over **shallow clones** of the board's repositories under `--data`; every write path (UI, REST, MCP) goes through one board service, is answered from the cache at once, and lands as **one commit per request** (`gitstore.WithScope`) that a background sync pushes; a fetch tick brings other replicas' commits in, a rejected push is re-applied by replaying the unpushed commits field by field (`gitstore.Repo.Rebase`). A change reloads only the touched cards and fans out to every open board via the watch stream, filtered by what each visitor may read. Design: `docs/design/git-backend.md`; rules G1–G26 in `docs/design/behavior-matrix.md`.
 
 Layering, bottom-up:
 
-- `pkg/board` — the pure domain, no I/O: zones (resolved by option colour), stages and the **derived** states (Done and In Progress are computed, never stored), progress clamps, the day/sprint date model, the view filters (`MeView`, `TeamGrid`, `WeeklyPlan`), sprints and carry-over selection, the event/note log model.
-- `pkg/boardservice` — the service every caller shares: the admission chain (clamps, review linkage, cancel/reactivate), the card actions (create, defer, remove, carry-over, carry-week, send-to-review, …), and the activity log — **every mutation records an event**.
-- `pkg/ghprojects` — the storage mapping onto Projects v2: field roles matched by name (`domainRoleAliases`), zones by option colour, **lazy field provisioning** (`domainFieldSpecs`), draft-body note/event log vs the dedicated log comment on issue/PR cards. Option ids are re-created when options change — resolve them at read/write time, never cache.
+- `pkg/board` — the pure domain, no I/O: zones, stages and the **derived** states (Done and In Progress are computed, never stored), progress clamps, the day/sprint date model, the view filters (`MeView`, `TeamGrid`, `WeeklyPlan`), sprints and carry-over selection, rank keys (`rank.go`), the domain rule (`domain.go`: which repository a card lives in — linked cards first, then project, then team) and the per-visitor projection (`Visible`).
+- `pkg/boardservice` — the service every caller shares: the admission chain (clamps, review linkage, cancel/reactivate), the card actions (create, defer, remove, carry-over, carry-week, send-to-review, …). Events are not written anywhere: **the commits are the activity log** (`LogReader`).
+- `pkg/gitstore` — the storage: the repository layout (`cards/<a>/<b>/<ulid>.md`, roster YAML), file codecs that keep unknown keys, ULIDs (deterministic for process turns), commits with `Aeman-*` trailers built through go-git plumbing (no worktree), shallow clone / deepen-since / push / fetch / rebase, `MultiBackend` over several domains (roster fragments merged on read, cross-domain moves as create-then-delete), the card log walker.
 - `pkg/apiserver` — the Kubernetes-style resource types (`{kind, metadata, spec, status}`) served over LIST + WATCH.
 - `pkg/mcpserver` — the MCP tool set (same board service).
-- `internal/server` — HTTP/WS, OAuth sessions (self-hosted mode) vs local `gh` token (`internal/ghcli`), the board cache.
+- `internal/server` — HTTP/WS, OAuth sessions (self-hosted mode) vs local `gh` identity (`internal/ghcli`), the board cache and write queue, the git sync (`gitsync.go`, `gitmode.go`), per-visitor domain rights from the forge (`access.go`, `visible.go`).
+- `internal/migrate` — the one-way migration from a GitHub Projects v2 board (`aeman migrate`), with its own minimal GitHub reader (`ghsource`).
 - `web/` — the React SPA. The domain rules are **mirrored** in the frontend (`web/src/components/MeBoard.tsx`, `web/src/components/TeamBoard.tsx`, `web/src/date.ts`, `web/src/sprint.ts`): a change to a filter/date/sprint rule lands in both the Go and the TS copy, or the optimistic UI diverges from the server.
 
 The packages under `pkg/` are importable by external tools (see `docs/embedding.md`) — they are a public contract, not internal plumbing.
@@ -52,4 +53,4 @@ The date/sprint/visibility logic is subtle and duplicated across consumers; the 
 - `docs/api.md` — the REST/WATCH/MCP surface.
 - `docs/design/behavior-matrix.md` — the behaviour matrix new rules get rows in.
 
-**Downstream skill docs live in a private Ænix companion repository** (the Claude Code plugin for aeman boards; maintainers know where it lives). That plugin drives boards via `gh` directly, **bypassing this server**, by replicating the domain rules documented in its `model.md`/`reference.md`. Any PR that changes domain rules or the storage schema — `pkg/board` semantics, `pkg/boardservice` admission/actions, `pkg/ghprojects` field/option mapping, note/event formats — must be accompanied by a PR there updating those two docs (and bumping the plugin version). Skipping it makes `gh`-driven writes silently produce states this server would never create — e.g. cards that never appear on the daily board.
+**Downstream skill docs live in a private Ænix companion repository** (the Claude Code plugin for aeman boards; maintainers know where it lives). That plugin drives boards directly, **bypassing this server**, by replicating the domain rules documented in its `model.md`/`reference.md`. Any PR that changes domain rules or the storage schema — `pkg/board` semantics, `pkg/boardservice` admission/actions, the `pkg/gitstore` layout, file formats, trailers or the domain/move rules — must be accompanied by a PR there updating those two docs (and bumping the plugin version). Skipping it makes direct writes silently produce states this server would never create — e.g. cards that never appear on the daily board. `docs/design/plugin-impact.md` is the hand-over for the storage change.

@@ -12,9 +12,9 @@ import (
 
 func testBoard() board.Board {
 	return board.Board{
-		ID: "B1", Number: 1, Owner: "acme", Title: "board", URL: "https://x",
+		Board: "acme", Title: "board", URL: "https://x",
 		Cards: []board.Card{
-			{ItemID: "c1", ContentID: "D1", IsDraft: true, Title: "Wire the API",
+			{ItemID: "c1", Title: "Wire the API",
 				Team: "alpha", Zone: board.ZoneRed, Progress: 40, Stage: board.StageReview,
 				StartDate: "2026-01-10", SprintStart: "2026-01-10", Day: "2026-01-12",
 				Assignees: []string{"octocat"}, Author: "octocat",
@@ -41,8 +41,7 @@ func testBoard() board.Board {
 func TestCardResourceMapsEveryField(t *testing.T) {
 	b := testBoard()
 	r := CardResource(b, b.Cards[0])
-	if r.Kind != "Card" || r.Metadata.UID != "c1" || r.Metadata.ContentID != "D1" ||
-		!r.Metadata.IsDraft || r.Metadata.Author != "octocat" ||
+	if r.Kind != "Card" || r.Metadata.UID != "c1" || r.Metadata.Author != "octocat" ||
 		r.Metadata.CreatedAt != "2026-01-10T08:00:00Z" {
 		t.Fatalf("metadata = %+v", r.Metadata)
 	}
@@ -312,13 +311,33 @@ func TestWeeklyViewMultiTeam(t *testing.T) {
 
 // The board resource carries the people roster (every distinct assignee), so
 // pickers work even though clients load one view at a time.
+// Members are the board's distinct assignees, sorted, each with the avatar
+// the forge hook resolves for the login — the SPA never assembles a forge
+// URL itself. Without a hook the avatar is empty.
 func TestBoardResourceMembers(t *testing.T) {
 	b := testBoard()
 	info := BoardResource(b)
-	got := info.Metadata.Members
-	if !reflect.DeepEqual(got, []string{"lllamnyp", "octocat"}) {
+	if got := memberLogins(info.Metadata.Members); !reflect.DeepEqual(got, []string{"lllamnyp", "octocat"}) {
 		t.Fatalf("members = %v, want [lllamnyp octocat]", got)
 	}
+	for _, m := range info.Metadata.Members {
+		if m.AvatarURL != "" {
+			t.Fatalf("member %s has an avatar without a hook: %q", m.Login, m.AvatarURL)
+		}
+	}
+	with := BoardResourceWith(b, func(login string) string { return "https://cdn.example/" + login })
+	want := []Member{{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp"}, {Login: "octocat", AvatarURL: "https://cdn.example/octocat"}}
+	if !reflect.DeepEqual(with.Metadata.Members, want) {
+		t.Fatalf("members with avatars = %+v", with.Metadata.Members)
+	}
+}
+
+func memberLogins(ms []Member) []string {
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.Login)
+	}
+	return out
 }
 
 // A worked plan card moved forward keeps showing in FINISHED past weeks it was
@@ -374,5 +393,19 @@ func TestWeeklyHistoryLandsInFriBand(t *testing.T) {
 	cur := board.WeeklyPlan(b, "alpha", wCur)
 	if len(cur.Wed) != 1 || len(cur.Fri) != 0 {
 		t.Fatalf("own week: the card sits in its own band, got wed=%d fri=%d", len(cur.Wed), len(cur.Fri))
+	}
+}
+
+// The resource says which repository a card lives in (status.domain): the
+// UI badges a card outside the primary and picks reviewers who can read it.
+func TestCardResourceCarriesDomain(t *testing.T) {
+	b := testBoard()
+	c := b.Cards[0]
+	c.Domain = "closed"
+	if r := CardResource(b, c); r.Status.Domain != "closed" {
+		t.Fatalf("status.domain = %q, want closed", r.Status.Domain)
+	}
+	if r := CardResource(b, b.Cards[1]); r.Status.Domain != "" {
+		t.Fatalf("a card the store did not stamp has no domain, got %q", r.Status.Domain)
 	}
 }

@@ -3,16 +3,17 @@
 // Kubernetes-style resources onto it at the client boundary (api/resources.ts),
 // so components never see wire shapes or semantic zone names.
 
-/** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
+import type { DomainInfo } from "../domains";
 import type { CardLink } from "../links";
+import type { Member } from "../users";
 
+/** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
 /** StageKey is an explicit per-card status that recolours the progress bar. */
 export type StageKey = "locked" | "review" | "recurrent" | "done";
 
-/** Note is a dated work note attached to a card (an issue comment, or a line
- * stored in a draft issue's body when the card has no comment thread). */
+/** Note is a dated work note attached to a card (a line of its log). */
 export interface Note {
   id: string;
   body: string;
@@ -31,21 +32,18 @@ export interface CardEvent {
   at: string;
 }
 
-/** Card is a single project item (issue, PR or draft). */
+/** Card is a single board item. */
 export interface Card {
   itemId: string;
-  /** Node id of the underlying issue/PR/draft, used for comments and assignees. */
-  contentId?: string;
   title: string;
-  isDraft: boolean;
-  url?: string;
-  number?: number;
-  repository?: string;
   assignees: string[];
-  /** GitHub login of the card's creator (draft-issue creator or issue author). */
+  /** Login of the card's creator. */
   author?: string;
-  /** ISO timestamp the item was added to the project (its age on the board). */
+  /** ISO timestamp the card was created (its age on the board). */
   createdAt?: string;
+  /** The repository the card lives in (one of the board's domains). Absent on
+   *  an older server, which means the primary. */
+  domain?: string;
   zone?: ZoneKey;
   /** Readiness, 0..100. */
   progress?: number;
@@ -180,9 +178,9 @@ export interface EpicRef {
   project: string;
 }
 
+/** Board is the one board the server serves: its identity and structure from
+ *  GET /board, plus the cards of the active view. */
 export interface Board {
-  owner: string;
-  number: number;
   title: string;
   url: string;
   cards: Card[];
@@ -190,7 +188,7 @@ export interface Board {
    *  /board — the source of truth now that cards load one view at a time. */
   teams: string[];
   /** The Project board's projects, in board order — the top grouping: a
-   *  project owns epic columns. Not the GitHub board (that is `number`). */
+   *  project owns epic columns. */
   projects: string[];
   /** The Project board's epic columns, in board order, each naming the project
    *  that owns it. An empty project means the column belongs to none. */
@@ -201,15 +199,15 @@ export interface Board {
   /** The processes with their tasks and history — the Process tab is
    *  drawn from this, and the Board watch frame refreshes it. */
   processes: ProcessInfo[];
-  /** Every distinct assignee on the board, from GET /board — the people roster
-   *  for pickers (assign, review, view-as). */
-  members: string[];
+  /** The people roster from GET /board (login + avatar) for pickers (assign,
+   *  review, view-as) and for every avatar the boards draw. */
+  members: Member[];
+  /** The repositories the board spans, primary first; a single entry on a
+   *  one-repository board, none from an older server. */
+  domains: DomainInfo[];
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
 }
-
-/** BoardAddr addresses a board on the server (?owner=&board=). */
-export type BoardAddr = Pick<Board, "owner" | "number">;
 
 /** CardPatch is a partial spec edit mirroring PATCH /cards/{uid}: only the
  * present fields are sent, and an empty string clears a field. Including
@@ -239,6 +237,15 @@ export interface CardPatch {
   recurrence?: string;
 }
 
+/** CardLog is a card's activity feed split back into notes and events. When
+ * `truncatedBefore` is set, older history exists but is not loaded — the
+ * server's clone reaches only so far back. */
+export interface CardLog {
+  notes: Note[];
+  events: CardEvent[];
+  truncatedBefore?: string;
+}
+
 /** CarryReport is what a carry-over / carry-week pass did — or would do on a
  * dry run, which feeds the confirm-dialog counts. */
 export interface CarryReport {
@@ -252,36 +259,35 @@ export interface CarryReport {
 export interface Provider {
   /** Board identity + per-team sprint pointers (no cards — the active view is
    *  loaded lazily via listCards). */
-  loadBoard(owner: string, number: number): Promise<Board>;
+  loadBoard(): Promise<Board>;
   /** The cards of one view (GET /cards with a selector), so the UI loads only
    *  the active board — Me by default, a team's grid on demand. */
-  listCards(board: BoardAddr, query: Record<string, string>): Promise<Card[]>;
+  listCards(query: Record<string, string>): Promise<Card[]>;
 
   /** Fetch one card in full — listings are the light board-row shape, and the
    *  description is loaded here when a card is selected or opened. */
-  getCard(board: BoardAddr, uid: string): Promise<Card>;
-  createCard(board: BoardAddr, input: NewCardInput): Promise<Card>;
-  patchCard(board: BoardAddr, uid: string, patch: CardPatch): Promise<Card>;
+  getCard(uid: string): Promise<Card>;
+  createCard(input: NewCardInput): Promise<Card>;
+  patchCard(uid: string, patch: CardPatch): Promise<Card>;
   /** Hard delete; the server cascades to the linked review card. */
-  deleteCard(board: BoardAddr, uid: string): Promise<void>;
+  deleteCard(uid: string): Promise<void>;
   /** The smart ×: the server demotes / releases / deletes by the board rules. */
-  removeCard(board: BoardAddr, uid: string, from: "grid" | "plan"): Promise<void>;
+  removeCard(uid: string, from: "grid" | "plan"): Promise<void>;
   /** Reposition card after afterId in the project order (null = top). */
-  moveCard(board: BoardAddr, uid: string, afterId: string | null): Promise<void>;
+  moveCard(uid: string, afterId: string | null): Promise<void>;
   /** Reorder to sit right before another card: the server resolves the true
    *  global anchor, so callers rendering a filtered slice (a weekly band)
    *  don't need to know the full board order. */
-  moveCardBefore(board: BoardAddr, uid: string, beforeId: string): Promise<void>;
+  moveCardBefore(uid: string, beforeId: string): Promise<void>;
   /** Push the scheduled day N days ahead of max(today, current start). */
-  deferCard(board: BoardAddr, uid: string, days: number): Promise<Card>;
+  deferCard(uid: string, days: number): Promise<Card>;
   /** Move to the implicit In Progress status (no stage, progress in [10,90]). */
-  setInProgress(board: BoardAddr, uid: string): Promise<Card>;
+  setInProgress(uid: string): Promise<Card>;
   /** Undo a done mark: the stage clears and the progress returns to what the
    *  card had when done was set (its log records the jump). */
-  reopen(board: BoardAddr, uid: string): Promise<Card>;
+  reopen(uid: string): Promise<Card>;
   /** Create the linked review card (or reassign an existing one). */
   sendToReview(
-    board: BoardAddr,
     uid: string,
     reviewer: string,
     day?: string,
@@ -289,116 +295,113 @@ export interface Provider {
     zone?: ZoneKey,
   ): Promise<Card>;
   /** Delete the linked review card; returns the original. */
-  removeReviewer(board: BoardAddr, uid: string): Promise<Card>;
+  removeReviewer(uid: string): Promise<Card>;
   /** Take a plan card into work: assign + zone + join the sprint. */
   takeIntoPlan(
-    board: BoardAddr,
     uid: string,
     engineer: string,
     zone: ZoneKey | undefined,
     day?: string,
   ): Promise<Card>;
   /** Release a card from the weekly plan (the plan-band × semantics). */
-  releaseFromPlan(board: BoardAddr, uid: string): Promise<Card>;
+  releaseFromPlan(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.
    * dryRun reports the would-be counts without writing. team = null is the
    * no-team group. */
   carryOver(
-    board: BoardAddr,
     team: string | null,
     dryRun?: boolean,
-  ): Promise<CarryReport>;  /** Apply a shared team order (moves the hidden sprint-state cards). */
-  reorderTeams(board: BoardAddr, teams: string[]): Promise<void>;
+  ): Promise<CarryReport>;
+  /** Apply a shared team order (moves the hidden sprint-state cards). */
+  reorderTeams(teams: string[]): Promise<void>;
 
   /** Declare a new epic column inside a project (which is required). */
-  addEpic(board: BoardAddr, name: string, project: string): Promise<void>;
+  addEpic(name: string, project: string): Promise<void>;
   /** Delete an EMPTY epic column (422 while cards still sit under it). */
-  deleteEpic(board: BoardAddr, name: string, project: string): Promise<void>;
+  deleteEpic(name: string, project: string): Promise<void>;
   /** Rename a column in place; its cards follow. */
   renameEpic(
-    board: BoardAddr,
     project: string,
     epic: string,
     to: string,
   ): Promise<void>;
   /** Apply one project's column order (moves the hidden epic-state cards). */
   reorderEpics(
-    board: BoardAddr,
     project: string,
     epics: string[],
   ): Promise<void>;
   /** Move a column between projects ("" detaches it from every project). */
   setEpicProject(
-    board: BoardAddr,
     from: string,
     epic: string,
     project: string,
   ): Promise<void>;
-  /** Declare a project — the Project board's top grouping. */
-  addProject(board: BoardAddr, name: string): Promise<void>;
+  /** Declare a project — the Project board's top grouping. `domain` picks the
+   *  repository it is declared in (default: the primary). */
+  addProject(name: string, domain?: string): Promise<void>;
   /** Delete an EMPTY project (422 while it still owns epic columns). */
-  deleteProject(board: BoardAddr, name: string): Promise<void>;
+  deleteProject(name: string): Promise<void>;
   /** Apply the shared project order (moves the hidden project-state cards). */
-  reorderProjects(board: BoardAddr, names: string[]): Promise<void>;
+  reorderProjects(names: string[]): Promise<void>;
   /** Rename a project in place; its columns and their cards follow. */
-  renameProject(board: BoardAddr, from: string, to: string): Promise<void>;
+  renameProject(from: string, to: string): Promise<void>;
+  /** Rename a declared team where it lives; its cards and process tasks
+   *  follow. A name another team has is refused by the server. */
+  renameTeam(from: string, to: string): Promise<void>;
   /** The Process tab: every process with its tasks and their history. */
-  listProcesses(board: BoardAddr, project?: string): Promise<ProcessInfo[]>;
-  addProcess(board: BoardAddr, name: string, project: string): Promise<void>;
-  deleteProcess(board: BoardAddr, name: string): Promise<void>;
-  renameProcess(board: BoardAddr, from: string, to: string): Promise<void>;
+  listProcesses(project?: string): Promise<ProcessInfo[]>;
+  /** Declare a process in a project; `domain` picks its repository. */
+  addProcess(name: string, project: string, domain?: string): Promise<void>;
+  deleteProcess(name: string): Promise<void>;
+  renameProcess(from: string, to: string): Promise<void>;
   /** Move a process to another project ("" = the no-project bucket). */
-  setProcessProject(board: BoardAddr, process: string, project: string): Promise<void>;
+  setProcessProject(process: string, project: string): Promise<void>;
   /** Stop a process filing iterations, or start it again. */
-  setProcessPaused(board: BoardAddr, process: string, paused: boolean): Promise<void>;
+  setProcessPaused(process: string, paused: boolean): Promise<void>;
   /** Apply a shared process order. */
-  reorderProcesses(board: BoardAddr, processes: string[]): Promise<void>;
+  reorderProcesses(processes: string[]): Promise<void>;
   /** Apply one process's task order; a uid from another process is adopted. */
-  reorderProcessTasks(board: BoardAddr, process: string, uids: string[]): Promise<void>;
-  addTask(board: BoardAddr, process: string, input: TaskInput): Promise<string>;
-  updateTask(board: BoardAddr, uid: string, patch: TaskInput): Promise<void>;
-  deleteTask(board: BoardAddr, uid: string): Promise<void>;
+  reorderProcessTasks(process: string, uids: string[]): Promise<void>;
+  addTask(process: string, input: TaskInput): Promise<string>;
+  updateTask(uid: string, patch: TaskInput): Promise<void>;
+  deleteTask(uid: string): Promise<void>;
   /** Mark a week with a project's deadline (one per project and week). */
-  addDeadline(board: BoardAddr, week: string, project: string): Promise<void>;
+  addDeadline(week: string, project: string): Promise<void>;
   /** Clear a project's deadline on a week. */
   deleteDeadline(
-    board: BoardAddr,
     week: string,
     project: string,
   ): Promise<void>;
   /** Drag a project's deadline to another week; two of its own become one. */
   moveDeadline(
-    board: BoardAddr,
     project: string,
     from: string,
     to: string,
   ): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
-  deleteTeam(board: BoardAddr, team: string): Promise<void>;
-  /** Set a team's sprint pointer directly (current/previous start dates). */
+  deleteTeam(team: string): Promise<void>;
+  /** Set a team's sprint pointer directly (current/previous start dates). With
+   *  both empty this declares the team; `domain` picks the repository its
+   *  roster entry is written to (default: the primary). */
   setSprintState(
-    board: BoardAddr,
     team: string | null,
     current: string | null,
     previous: string | null,
+    domain?: string,
   ): Promise<void>;
   /** URLs from the card's description: GitHub issue/PR refs (resolved with
    *  titles when possible) first, plain links after. */
-  listLinks(board: BoardAddr, uid: string): Promise<CardLink[]>;
+  listLinks(uid: string): Promise<CardLink[]>;
   /** The card's unified activity feed, split back into notes and events. */
-  listLog(
-    board: BoardAddr,
-    uid: string,
-  ): Promise<{ notes: Note[]; events: CardEvent[] }>;
+  listLog(uid: string): Promise<CardLog>;
   /** Share the caller's live card selection ("" clears) with other boards. */
-  setPresence(board: BoardAddr, login: string, card: string | null): Promise<void>;
-  listNotes(board: BoardAddr, uid: string): Promise<Note[]>;
-  addNote(board: BoardAddr, uid: string, text: string): Promise<Note[]>;
+  setPresence(login: string, card: string | null): Promise<void>;
+  listNotes(uid: string): Promise<Note[]>;
+  addNote(uid: string, text: string): Promise<Note[]>;
   editNote(
-    board: BoardAddr,
     uid: string,
     noteId: string,
     text: string,
   ): Promise<Note[]>;
-  deleteNote(board: BoardAddr, uid: string, noteId: string): Promise<Note[]>;
+  deleteNote(uid: string, noteId: string): Promise<Note[]>;
 }

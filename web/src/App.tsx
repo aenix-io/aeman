@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { clientId, fetchConfig, type AppConfig } from "./api/client";
+import { clientId, fetchConfig, fetchHealth, type AppConfig } from "./api/client";
 import { apiProvider } from "./providers/api/apiProvider";
 import {
   resourceToCard,
@@ -22,17 +22,18 @@ import { boardMetadata, processesFrom } from "./providers/api/apiProvider";
 import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
-import { fetchUsers, type GhUser } from "./users";
+import { avatarsFrom } from "./users";
+import { unpushedNotice, type HealthStatus } from "./health";
+import { migrateBoardScopedKeys } from "./storage";
 import { queryString, viewQueries, watchQuery } from "./viewquery";
 import { todayIso, setBoardTimezone } from "./date";
 import { mergeNotes } from "./notes";
+import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
 type ViewMode = "me" | "team" | "project" | "process";
 
-const LS_OWNER = "aeman.owner";
-const LS_PROJECT = "aeman.project";
 const LS_VIEW = "aeman.view";
 const LS_TEAM_ROSTER = "aeman.teamRoster";
 const LS_TEAM_FILTER = "aeman.teamFilter";
@@ -75,18 +76,21 @@ function writeStringList(key: string, value: string[]) {
   }
 }
 
-// The team roster and filter are BOARD-scoped: loading board 37 must not
-// inherit board 36's teams. The pre-scoping unscoped keys are ignored — they
-// can't be attributed to any particular board — so every board starts from
-// its own saved state (or clean).
-const scopedLS = (base: string, boardKey: string) => `${base}.${boardKey}`;
-
-function readRosterFor(boardKey: string): string[] {
-  return readStringList(scopedLS(LS_TEAM_ROSTER, boardKey)) ?? [];
+// The server serves one board, so the roster and filter live under plain keys.
+// The picker era scoped them per board; the first load under this build moves
+// the last board's values over (once — see storage.ts).
+function settleStorage() {
+  migrateBoardScopedKeys(localStorage, [LS_TEAM_ROSTER, LS_TEAM_FILTER]);
 }
 
-function readFilterFor(boardKey: string): string[] | null {
-  const v = localStorage.getItem(scopedLS(LS_TEAM_FILTER, boardKey));
+function readRoster(): string[] {
+  settleStorage();
+  return readStringList(LS_TEAM_ROSTER) ?? [];
+}
+
+function readFilter(): string[] | null {
+  settleStorage();
+  const v = localStorage.getItem(LS_TEAM_FILTER);
   if (!v) {
     return null;
   }
@@ -118,10 +122,6 @@ export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
 
-  const [owner, setOwner] = useState<string>(() => localStorage.getItem(LS_OWNER) ?? "");
-  const [project, setProject] = useState<string>(
-    () => localStorage.getItem(LS_PROJECT) ?? "",
-  );
   const [view, setView] = useState<ViewMode>(readView);
   // The project chips' selection, shared by the Project and Process tabs.
   const [projectFilter, setProjectFilterState] = useState<string[] | null>(readProjectFilter);
@@ -133,12 +133,23 @@ export function App() {
   // Project and the Process tab. Its writes return as soon as the server's
   // cache has them; the Board watch frame repaints — nothing reloads.
   const [managingProjects, setManagingProjects] = useState(false);
-  const addProject = (name: string) => {
+  // `domain` is the repository the project is declared in (multi-domain
+  // boards offer the choice; otherwise the server picks the primary).
+  const addProject = (name: string, domain?: string) => {
     if (!board || !name.trim()) {
       return;
     }
+    // Names are one namespace across the board's repositories; the server
+    // would refuse this too, but the form should say so first.
+    const conflict = nameConflict("project", board.projects, name);
+    if (conflict) {
+      setError(conflict);
+      return;
+    }
     setProjectFilter([name.trim()]);
-    void provider.addProject(board, name.trim()).catch((err: unknown) => setError(errMessage(err)));
+    void provider
+      .addProject(name.trim(), domain)
+      .catch((err: unknown) => setError(errMessage(err)));
   };
   const deleteProject = (name: string) => {
     if (!board || !window.confirm(`Delete the project “${name}”?`)) {
@@ -147,16 +158,21 @@ export function App() {
     if (projectFilter?.includes(name)) {
       setProjectFilter(null);
     }
-    void provider.deleteProject(board, name).catch((err: unknown) => setError(errMessage(err)));
+    void provider.deleteProject(name).catch((err: unknown) => setError(errMessage(err)));
   };
   const renameProject = (from: string, to: string) => {
     if (!board) {
       return;
     }
+    const conflict = nameConflict("project", board.projects, to, from);
+    if (conflict) {
+      setError(conflict);
+      return;
+    }
     if (projectFilter?.includes(from)) {
       setProjectFilter(projectFilter.map((p) => (p === from ? to : p)));
     }
-    void provider.renameProject(board, from, to).catch((err: unknown) => setError(errMessage(err)));
+    void provider.renameProject(from, to).catch((err: unknown) => setError(errMessage(err)));
   };
   const reorderProjects = (ordered: string[]) => {
     if (!board) {
@@ -164,7 +180,7 @@ export function App() {
     }
     // Shown in the new order at once; the frame confirms it.
     setBoard((cur) => (cur ? { ...cur, projects: ordered } : cur));
-    void provider.reorderProjects(board, ordered).catch((err: unknown) => setError(errMessage(err)));
+    void provider.reorderProjects(ordered).catch((err: unknown) => setError(errMessage(err)));
   };
 
   // Appearance (theme mode + colour palette). Applied to <html> so the CSS
@@ -207,8 +223,9 @@ export function App() {
       localStorage.removeItem(LS_VIEW_AS);
     }
   }, []);
-  const [users, setUsers] = useState<Record<string, GhUser>>({});
-  const fetchedUsers = useRef<Set<string>>(new Set());
+  // Avatars come with the roster (GET /board members); a login outside it —
+  // an assignee who is not a member — is drawn as initials.
+  const avatars = useMemo(() => avatarsFrom(board?.members ?? []), [board?.members]);
   // Count of in-flight data loads (initial load + per-view card fetches);
   // any of them showing keeps the top progress bar visible.
   const [pendingLoads, setPendingLoads] = useState(0);
@@ -224,8 +241,8 @@ export function App() {
     },
     [beginLoad, endLoad],
   );
-  // Server-side writes not yet confirmed by GitHub (the write-behind queue),
-  // fed by Queue watch frames; shown as a small counter that trends to zero.
+  // Server-side writes not yet committed (the write queue), fed by Queue
+  // watch frames; shown as a small counter that trends to zero.
   // Frames arrive on every enqueue/drain step — a rapid burst of edits would
   // re-render the whole app dozens of times — so the badge updates at most a
   // few times a second (trailing debounce keeps the final value accurate).
@@ -248,22 +265,13 @@ export function App() {
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
   const [detailCard, setDetailCard] = useState<CardModel | null>(null);
 
-  // Team roster + filter, persisted in localStorage PER BOARD. The roster is
-  // the union of the teams found on the board and any teams the user has added
-  // by hand; the filter is the subset of the roster currently shown (defaults
-  // to everything). Both are seeded for the last-used board and swapped by
-  // doLoad when another board is opened.
-  const boardKeyRef = useRef(
-    `${localStorage.getItem(LS_OWNER) ?? ""}/${localStorage.getItem(LS_PROJECT) ?? ""}`,
-  );
-  const [addedTeams, setAddedTeams] = useState<string[]>(() =>
-    readRosterFor(boardKeyRef.current),
-  );
+  // Team roster + filter, persisted in localStorage. The roster is the union of
+  // the teams found on the board and any teams the user has added by hand; the
+  // filter is the subset of the roster currently shown (defaults to everything).
+  const [addedTeams, setAddedTeams] = useState<string[]>(readRoster);
   // Team filter: null = all, else the selected groups ("" = no-team). Multi-select
   // — Shift-click a chip to add/remove it.
-  const [teamFilter, setTeamFilter] = useState<string[] | null>(() =>
-    readFilterFor(boardKeyRef.current),
-  );
+  const [teamFilter, setTeamFilter] = useState<string[] | null>(readFilter);
 
   // A tab can stay open across deploys (and, on a dev box, across dozens of
   // rebuilds) — it keeps running the bundle it loaded, which reads as "the fix
@@ -293,7 +301,37 @@ export function App() {
     };
   }, [config?.build]);
 
-  // Bootstrap: fetch config and seed owner/project from localStorage or defaults.
+  // The sync state: every change is committed at once, but the push can fall
+  // behind (a remote outage, a rejected push the server keeps rebasing).
+  // /healthz says "degraded" past the server's threshold; polled on the build
+  // check's cadence and shown as a non-blocking banner while it lasts.
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const configured = config !== null;
+  useEffect(() => {
+    if (!configured) {
+      return;
+    }
+    const check = () => {
+      if (document.hidden) {
+        return;
+      }
+      void fetchHealth()
+        .then(setHealth)
+        .catch(() => undefined);
+    };
+    check();
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    const timer = window.setInterval(check, 60_000);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+      window.clearInterval(timer);
+    };
+  }, [configured]);
+  const syncNotice = unpushedNotice(health);
+
+  // Bootstrap: fetch the session config; the board loads once it is known.
   useEffect(() => {
     let cancelled = false;
     fetchConfig()
@@ -305,8 +343,6 @@ export function App() {
         // The board's "today" runs in the server's zone for everyone.
         setBoardTimezone(cfg.tz);
         setSelectedDate(todayIso());
-        setOwner((cur) => cur || cfg.defaultOwner || "");
-        setProject((cur) => cur || (cfg.defaultProject ? String(cfg.defaultProject) : ""));
       })
       .catch((err: unknown) => {
         if (!cancelled) {
@@ -321,6 +357,11 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(LS_VIEW, view);
   }, [view]);
+
+  // The tab is named after the board — the one thing this server serves.
+  useEffect(() => {
+    document.title = board?.title ? `${board.title} — aeman` : "aeman";
+  }, [board?.title]);
 
   // A tab left open past midnight keeps a stale "today". When it regains focus,
   // catch the viewed day up to the real today — unless the user navigated to a
@@ -371,14 +412,12 @@ export function App() {
   }, [addedTeams, board]);
 
   // A saved filter can outlive its teams (a team renamed away, or stale
-  // pre-scoping data): entries no team backs would silently blank the board,
-  // so prune them — and an emptied filter means "all" again. Gated on the
-  // loaded board matching boardKeyRef: mid-switch the roster still reflects
-  // the OLD board, and pruning the new board's filter against it would wipe
-  // a legitimate saved selection.
-  const loadedBoardKey = board ? `${board.owner}/${board.number}` : null;
+  // data): entries no team backs would silently blank the board, so prune
+  // them — and an emptied filter means "all" again. Only once the board is
+  // loaded: before that the roster is the saved list alone.
+  const boardLoaded = board !== null;
   useEffect(() => {
-    if (!loadedBoardKey || loadedBoardKey !== boardKeyRef.current) {
+    if (!boardLoaded) {
       return;
     }
     setTeamFilter((cur) => {
@@ -391,7 +430,7 @@ export function App() {
       }
       return next.length ? next : null;
     });
-  }, [loadedBoardKey, roster]);
+  }, [boardLoaded, roster]);
 
   // What the active board loads and watches: Me is personal (the server fills in
   // "who am I" unless view-as impersonates someone), Team names the teams it
@@ -431,7 +470,7 @@ export function App() {
   const reorderTeams = useCallback(
     (ordered: string[]) => {
       setAddedTeams(ordered);
-      writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), ordered);
+      writeStringList(LS_TEAM_ROSTER, ordered);
       const cur = board;
       if (!cur) {
         return;
@@ -441,7 +480,7 @@ export function App() {
         return;
       }
       setBoard((b) => (b ? { ...b, teams: server } : b));
-      void provider.reorderTeams(cur, server).catch((err: unknown) => {
+      void provider.reorderTeams(server).catch((err: unknown) => {
         // Keep the optimistic order on screen; the next reload converges it
         // back to the server's truth if the write really failed.
         setError(errMessage(err));
@@ -450,27 +489,39 @@ export function App() {
     [board, provider],
   );
 
-  const addTeam = useCallback((team: string) => {
-    const t = team.trim();
-    if (!t) {
-      return;
-    }
-    setAddedTeams((cur) => {
-      if (cur.includes(t)) {
-        return cur;
+  // Add a team: shown at once from the local list, and declared on the server
+  // as a sprint pointer with no dates yet — `domain` picks the repository its
+  // roster entry is written to (the primary unless chosen). The Board frame
+  // then carries it as one of the board's own teams.
+  const addTeam = useCallback(
+    (team: string, domain?: string) => {
+      const t = team.trim();
+      if (!t) {
+        return;
       }
-      const next = [...cur, t];
-      writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
-      return next;
-    });
-  }, []);
+      setAddedTeams((cur) => {
+        if (cur.includes(t)) {
+          return cur;
+        }
+        const next = [...cur, t];
+        writeStringList(LS_TEAM_ROSTER, next);
+        return next;
+      });
+      if (board && !board.teams.includes(t)) {
+        void provider
+          .setSprintState(t, null, null, domain)
+          .catch((err: unknown) => setError(errMessage(err)));
+      }
+    },
+    [board, provider],
+  );
 
   const removeTeam = useCallback(
     (team: string) => {
       const dropLocal = () => {
         setAddedTeams((cur) => {
           const next = cur.filter((t) => t !== team);
-          writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
+          writeStringList(LS_TEAM_ROSTER, next);
           return next;
         });
         // Drop the removed team from the filter (clearing it if it becomes empty).
@@ -492,7 +543,7 @@ export function App() {
       // card goes away); the server refuses while cards still use the team,
       // and that message is the user's answer.
       void provider
-        .deleteTeam(cur, team)
+        .deleteTeam(team)
         .then(() => {
           dropLocal();
           setBoard((b) =>
@@ -513,68 +564,49 @@ export function App() {
   );
 
   // Persist the filter whenever it changes (null means "all", we store
-  // nothing). boardKeyRef is updated synchronously by doLoad before the
-  // swapped-in filter state lands, so the write always hits the right board.
+  // nothing).
   useEffect(() => {
-    const key = scopedLS(LS_TEAM_FILTER, boardKeyRef.current);
     if (teamFilter === null) {
-      localStorage.removeItem(key);
+      localStorage.removeItem(LS_TEAM_FILTER);
     } else {
-      localStorage.setItem(key, JSON.stringify(teamFilter));
+      localStorage.setItem(LS_TEAM_FILTER, JSON.stringify(teamFilter));
     }
   }, [teamFilter]);
 
-  const doLoad = useCallback(
-    async (ownerArg: string, numberArg: number) => {
-      // Another board: swap in ITS saved roster and filter before anything
-      // renders, so board 36's teams never leak into board 37's view.
-      const boardKey = `${ownerArg}/${numberArg}`;
-      if (boardKey !== boardKeyRef.current) {
-        boardKeyRef.current = boardKey;
-        setAddedTeams(readRosterFor(boardKey));
-        setTeamFilter(readFilterFor(boardKey));
-      }
-      beginLoad();
-      setError(null);
-      try {
-        // Identity + sprints AND the active view's cards together, swapped in
-        // as one board: a reload() must never leave the board empty while the
-        // cards are still in flight (loadBoard itself carries no cards).
-        const addr = { owner: ownerArg, number: numberArg };
-        const [loaded, lists, processes] = await Promise.all([
-          provider.loadBoard(ownerArg, numberArg),
-          Promise.all(
-            activeQueriesRef.current.map((q) => provider.listCards(addr, q)),
-          ),
-          // The process structure rides with the board from the start; the
-          // Board watch frame keeps it current afterwards.
-          provider.listProcesses(addr).catch(() => [] as ProcessInfo[]),
-        ]);
-        setBoard({ ...loaded, cards: mergeCardLists(lists), processes });
-      } catch (err: unknown) {
-        setError(errMessage(err));
-      } finally {
-        endLoad();
-      }
-    },
-    [provider, beginLoad, endLoad],
-  );
+  const doLoad = useCallback(async () => {
+    beginLoad();
+    setError(null);
+    try {
+      // Identity + sprints AND the active view's cards together, swapped in
+      // as one board: a reload() must never leave the board empty while the
+      // cards are still in flight (loadBoard itself carries no cards).
+      const [loaded, lists, processes] = await Promise.all([
+        provider.loadBoard(),
+        Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q))),
+        // The process structure rides with the board from the start; the
+        // Board watch frame keeps it current afterwards.
+        provider.listProcesses().catch(() => [] as ProcessInfo[]),
+      ]);
+      setBoard({ ...loaded, cards: mergeCardLists(lists), processes });
+    } catch (err: unknown) {
+      setError(errMessage(err));
+    } finally {
+      endLoad();
+    }
+  }, [provider, beginLoad, endLoad]);
 
   // Load the active view's cards whenever the selection (view/day/teams) changes
   // or the board is (re)loaded. loadBoard brings only identity + sprints; the
   // cards for one view arrive here, so the UI holds just what it shows.
   const activeQueriesRef = useRef(activeQueries);
   activeQueriesRef.current = activeQueries;
-  const bOwner = board?.owner;
-  const bNumber = board?.number;
   useEffect(() => {
-    if (!bOwner || bNumber == null) {
+    if (!boardLoaded) {
       return;
     }
     let cancelled = false;
-    const addr = { owner: bOwner, number: bNumber };
     beginLoad();
-    Promise.all(activeQueriesRef.current.map((q) => provider.listCards(addr, q)))
+    Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q)))
       .then((lists) => {
         if (cancelled) {
           return;
@@ -590,76 +622,23 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [bOwner, bNumber, activeKey, provider, beginLoad, endLoad]);
+  }, [boardLoaded, activeKey, provider, beginLoad, endLoad]);
 
-  // Locked board: auto-load the pinned project once authenticated. A user whose
-  // token can't read it just gets a load error (the access-denied placeholder).
-  const lockLoadAttempted = useRef(false);
+  // The board loads once the session is known (and, in OAuth mode, signed in).
+  // A visitor the server turns away gets the load error as the placeholder.
+  const loadAttempted = useRef(false);
   useEffect(() => {
-    if (
-      config?.lockBoard &&
-      config.authenticated &&
-      config.defaultOwner &&
-      config.defaultProject &&
-      !lockLoadAttempted.current
-    ) {
-      lockLoadAttempted.current = true;
-      setOwner(config.defaultOwner);
-      setProject(String(config.defaultProject));
-      void doLoad(config.defaultOwner, config.defaultProject);
+    if (config?.authenticated && !loadAttempted.current) {
+      loadAttempted.current = true;
+      void doLoad();
     }
   }, [config, doLoad]);
 
-  // Fetch GitHub name + avatar for any assignee not looked up yet. Watching the
-  // board also covers people newly assigned to a card during the session.
-  useEffect(() => {
-    if (!board) {
-      return;
-    }
-    const todo: string[] = [];
-    const want = (login: string) => {
-      if (login && !fetchedUsers.current.has(login)) {
-        fetchedUsers.current.add(login);
-        todo.push(login);
-      }
-    };
-    for (const c of board.cards) {
-      for (const a of c.assignees) {
-        want(a);
-      }
-    }
-    // A process task's standing owner is not on any card until the next
-    // iteration is spawned, so it would otherwise show as a bare login.
-    for (const p of board.processes) {
-      for (const t of p.tasks) {
-        want(t.assignee ?? "");
-      }
-    }
-    if (todo.length === 0) {
-      return;
-    }
-    void fetchUsers(todo)
-      .then((u) => setUsers((cur) => ({ ...cur, ...u })))
-      .catch(() => {});
-  }, [board]);
-
-  const handleLoad = () => {
-    const trimmedOwner = owner.trim();
-    const number = Number(project);
-    if (!trimmedOwner || !Number.isFinite(number) || number <= 0) {
-      setError("Enter an owner and a positive project number");
-      return;
-    }
-    localStorage.setItem(LS_OWNER, trimmedOwner);
-    localStorage.setItem(LS_PROJECT, String(number));
-    void doLoad(trimmedOwner, number);
-  };
-
   const reload = useCallback(() => {
-    if (board) {
-      void doLoad(board.owner, board.number);
+    if (boardLoaded) {
+      void doLoad();
     }
-  }, [board, doLoad]);
+  }, [boardLoaded, doLoad]);
 
   // patch is a plain partial, or an updater computing one from the card's
   // CURRENT state — rapid successive changes (notes typed Enter-Enter-Enter)
@@ -782,11 +761,8 @@ export function App() {
   reloadRef.current = reload;
   const boardRef = useRef(board);
   boardRef.current = board;
-  const boardLoaded = board !== null;
-  const watchOwner = board?.owner;
-  const watchProject = board?.number;
   useEffect(() => {
-    if (!boardLoaded || !watchOwner || watchProject == null) {
+    if (!boardLoaded) {
       return;
     }
     let socket: WebSocket | null = null;
@@ -811,17 +787,17 @@ export function App() {
         );
         return;
       }
-      // The write-behind queue's depth: changes applied everywhere but not
-      // yet confirmed by GitHub.
+      // The write queue's depth: changes applied everywhere but not yet
+      // committed.
       if (frame.kind === "Queue") {
         queuePendingSync((frame.object as { pending?: number })?.pending ?? 0);
         return;
       }
-      // A write GitHub finally rejected: the board has been rolled back to
+      // A write the store finally rejected: the board has been rolled back to
       // the server's reloaded state; surface what was lost.
       if (frame.kind === "SyncError") {
         const msg = (frame.object as { message?: string })?.message;
-        setError(msg || "a change could not be written to GitHub");
+        setError(msg || "a change could not be saved");
         return;
       }
       if (!frame.object) {
@@ -841,7 +817,7 @@ export function App() {
         addCard(card);
         if (existing?.notes !== undefined) {
           void provider
-            .listLog({ owner: watchOwner, number: watchProject }, card.itemId)
+            .listLog(card.itemId)
             .then(({ notes, events }) =>
               // Merge, don't replace: the response may predate a local
               // optimistic note added while it was in flight.
@@ -900,9 +876,7 @@ export function App() {
       // entering the selection arrives as ADDED, one leaving as DELETED.
       // ?client= keeps our own mutations from echoing back. Re-subscribes when
       // watchKey changes (a dep below).
-      const url = `${proto}//${window.location.host}/api/v1/watch?owner=${encodeURIComponent(
-        watchOwner,
-      )}&board=${watchProject}&client=${clientId}&${watchKey}`;
+      const url = `${proto}//${window.location.host}/api/v1/watch?client=${clientId}&${watchKey}`;
       socket = new WebSocket(url);
       socket.addEventListener("message", (e) => {
         let frame: WatchFrame;
@@ -931,8 +905,6 @@ export function App() {
     };
   }, [
     boardLoaded,
-    watchOwner,
-    watchProject,
     watchKey,
     provider,
     addCard,
@@ -951,35 +923,44 @@ export function App() {
       if (!t || t === from) {
         return;
       }
-      setAddedTeams((cur) => {
-        const next = [...new Set(cur.map((x) => (x === from ? t : x)))];
-        writeStringList(scopedLS(LS_TEAM_ROSTER, boardKeyRef.current), next);
-        return next;
-      });
-      setTeamFilter((cur) =>
-        cur === null ? cur : cur.map((k) => (k === from ? t : k)),
-      );
-      setBoard((cur) => {
-        if (!cur) {
-          return cur;
-        }
-        for (const card of cur.cards) {
-          if (card.team === from) {
-            void provider
-              .patchCard(cur, card.itemId, { team: t })
-              .catch((err: unknown) => {
-                patchCard(card.itemId, { team: from });
-                setError(errMessage(err));
-              });
+      // The local side of a rename: the roster, the filter, and the loaded
+      // board (its cards and the team's sprint pointer) read the new name.
+      const relabel = () => {
+        setAddedTeams((cur) => {
+          const next = [...new Set(cur.map((x) => (x === from ? t : x)))];
+          writeStringList(LS_TEAM_ROSTER, next);
+          return next;
+        });
+        setTeamFilter((cur) =>
+          cur === null ? cur : cur.map((k) => (k === from ? t : k)),
+        );
+        setBoard((cur) => {
+          if (!cur) {
+            return cur;
           }
-        }
-        return {
-          ...cur,
-          cards: cur.cards.map((c) => (c.team === from ? { ...c, team: t } : c)),
-        };
-      });
+          const { [from]: pointer, ...others } = cur.sprintStates;
+          return {
+            ...cur,
+            teams: cur.teams.map((x) => (x === from ? t : x)),
+            sprintStates: pointer === undefined ? cur.sprintStates : { ...others, [t]: pointer },
+            cards: cur.cards.map((c) => (c.team === from ? { ...c, team: t } : c)),
+          };
+        });
+      };
+      // A team the board declares is renamed by the server — its file and
+      // every card that names it, in one action; a name another team has
+      // is refused there. A chip the board does not know yet is only a
+      // local label.
+      if (boardRef.current?.teams.includes(from)) {
+        void provider
+          .renameTeam(from, t)
+          .then(relabel)
+          .catch((err: unknown) => setError(errMessage(err)));
+        return;
+      }
+      relabel();
     },
-    [patchCard, provider],
+    [provider],
   );
 
   const showTokenWarning =
@@ -997,7 +978,7 @@ export function App() {
         </header>
         <div className="signin">
           <h2>Sign in to aeman</h2>
-          <p>Connect your GitHub account to load and manage your project boards.</p>
+          <p>Connect your GitHub account to open the board.</p>
           <a className="btn btn-primary signin-btn" href={config.authUrl ?? "/auth/login"}>
             Sign in with GitHub
           </a>
@@ -1043,6 +1024,12 @@ export function App() {
         </div>
       )}
 
+      {syncNotice && (
+        <div className="banner banner-warning" role="status">
+          <span>{syncNotice}</span>
+        </div>
+      )}
+
       {showTokenWarning && (
         <div className="banner banner-warning" role="alert">
           <span>
@@ -1075,44 +1062,16 @@ export function App() {
       )}
 
       <div className="toolbar">
-        {!config?.lockBoard && (
-          <>
-            <label className="field">
-              <span>Owner</span>
-              <input
-                type="text"
-                value={owner}
-                placeholder="org-or-user"
-                onChange={(e) => setOwner(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLoad()}
-              />
-            </label>
-            <label className="field">
-              <span>Board #</span>
-              <input
-                type="number"
-                min={1}
-                value={project}
-                placeholder="1"
-                onChange={(e) => setProject(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLoad()}
-              />
-            </label>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleLoad}
-              disabled={loading}
-            >
-              {loading ? "Loading…" : "Load"}
-            </button>
-          </>
+        {board && (
+          <span className="board-title" title={board.url || undefined}>
+            {board.title}
+          </span>
         )}
 
         {pendingSync > 0 && (
           <span
             className="sync-badge"
-            title={`${pendingSync} change(s) applied but not yet written to GitHub`}
+            title={`${pendingSync} change(s) applied but not yet committed`}
           >
             <svg
               width="11"
@@ -1176,11 +1135,7 @@ export function App() {
       <main className="content">
         {!board && !loading && (
           <p className="placeholder">
-            {config?.lockBoard
-              ? error
-                ? "You don't have access to this board."
-                : "Loading…"
-              : "Enter an owner and project number, then press Load."}
+            {error ? "The board could not be loaded." : "Loading…"}
           </p>
         )}
         {board && view === "me" && (
@@ -1192,7 +1147,7 @@ export function App() {
             onViewAs={setViewAsPersisted}
             provider={provider}
             me={config?.login ?? ""}
-            users={users}
+            avatars={avatars}
             teams={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
@@ -1210,7 +1165,7 @@ export function App() {
             onPresence={(card) => {
               if (board && config?.login) {
                 void provider
-                  .setPresence(board, config.login, card)
+                  .setPresence(config.login, card)
                   .catch(() => {});
               }
             }}
@@ -1239,7 +1194,7 @@ export function App() {
             filter={projectFilter}
             onSetFilter={setProjectFilter}
             onManageProjects={() => setManagingProjects(true)}
-            users={users}
+            avatars={avatars}
             onError={onError}
           />
         )}
@@ -1250,7 +1205,7 @@ export function App() {
             onSelectDate={setSelectedDate}
             provider={provider}
             me={config?.login ?? ""}
-            users={users}
+            avatars={avatars}
             roster={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
@@ -1277,6 +1232,7 @@ export function App() {
           teams={board.projects}
           title="Manage projects"
           entity="project"
+          domains={board.domains}
           onAdd={addProject}
           onRename={renameProject}
           onRemove={deleteProject}

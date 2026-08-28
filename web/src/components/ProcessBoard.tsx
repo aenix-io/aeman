@@ -7,7 +7,11 @@ import type {
   TaskInput,
 } from "../providers/types";
 import { teamColor } from "../avatar";
-import { avatarUrlFor, displayName, type GhUser } from "../users";
+import type { Avatars } from "../users";
+import { Avatar } from "./Avatar";
+import { declareDomain } from "../domains";
+import { nameConflict } from "../names";
+import { DomainSelect, blurredIntoDomainSelect } from "./DomainSelect";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { TeamChips } from "./TeamChips";
@@ -21,8 +25,8 @@ interface ProcessBoardProps {
   /** Opens the PROJECT manager — the chips' "manage" is about projects here
    *  exactly as it is on the Project tab. */
   onManageProjects: () => void;
-  /** GitHub name + avatar per login, as the Me and Team boards have them. */
-  users: Record<string, GhUser>;
+  /** Avatars by login (the board roster), as the Me and Team boards have them. */
+  avatars: Avatars;
   onError: (message: string) => void;
 }
 
@@ -48,7 +52,7 @@ export function ProcessBoard({
   filter,
   onSetFilter,
   onManageProjects,
-  users,
+  avatars,
   onError,
 }: ProcessBoardProps) {
   // The processes are part of the board, loaded with it and refreshed by the
@@ -63,6 +67,9 @@ export function ProcessBoard({
   const [editing, setEditing] = useState<string | null>(null);
   // The project a new process is being named for (null = not naming one).
   const [addingProcess, setAddingProcess] = useState<string | null>(null);
+  // The repository a new process is declared in ("" = the selector's default);
+  // only a multi-domain board offers the choice.
+  const [newDomain, setNewDomain] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   // The "which project?" menu behind + add a process, for when the answer is
   // not already one chip.
@@ -165,8 +172,15 @@ export function ProcessBoard({
     if (!n) {
       return;
     }
+    const conflict = nameConflict("process", board.processes.map((p) => p.name), n);
+    if (conflict) {
+      fail(new Error(conflict));
+      return;
+    }
     setOpen((cur) => new Set(cur).add(n));
-    void provider.addProcess(board, n, project).catch(fail);
+    void provider
+      .addProcess(n, project, declareDomain(board.domains, newDomain))
+      .catch(fail);
   };
 
   // Where a new process would go: the one chip in view answers it; otherwise
@@ -184,11 +198,11 @@ export function ProcessBoard({
   };
 
   const setProcessProject = (name: string, to: string) => {
-    void provider.setProcessProject(board, name, to).catch(fail);
+    void provider.setProcessProject(name, to).catch(fail);
   };
 
   const setPaused = (name: string, paused: boolean) => {
-    void provider.setProcessPaused(board, name, paused).catch(fail);
+    void provider.setProcessPaused(name, paused).catch(fail);
   };
 
   // ---- dragging processes ------------------------------------------------
@@ -258,7 +272,7 @@ export function ProcessBoard({
     // The full roster in board order, with the shown block reordered in
     // place: the server applies exactly what the preview showed.
     const rest = processes.map((p) => p.name).filter((n) => !order.includes(n));
-    void provider.reorderProcesses(board, [...order, ...rest]).catch(fail);
+    void provider.reorderProcesses([...order, ...rest]).catch(fail);
   };
 
   // ---- dragging tasks ----------------------------------------------------
@@ -348,7 +362,7 @@ export function ProcessBoard({
       return;
     }
     void provider
-      .reorderProcessTasks(board, preview.process, target.tasks.map((t) => t.uid))
+      .reorderProcessTasks(preview.process, target.tasks.map((t) => t.uid))
       .catch(fail);
   };
 
@@ -360,15 +374,15 @@ export function ProcessBoard({
     // as long as it exists — its task owns the repeat — and "in progress"
     // would strip the marker the service now refuses to let go.
     const call = done
-      ? provider.patchCard(board, iteration.uid, { stage: "done" })
-      : provider.patchCard(board, iteration.uid, { progress: 90 });
+      ? provider.patchCard(iteration.uid, { stage: "done" })
+      : provider.patchCard(iteration.uid, { progress: 90 });
     void call.catch(fail);
   };
   const deleteProcess = (name: string) => {
     if (!window.confirm(`Delete the process “${name}”?`)) {
       return;
     }
-    void provider.deleteProcess(board, name).catch(fail);
+    void provider.deleteProcess(name).catch(fail);
   };
   const renameProcess = (from: string, to: string) => {
     setRenaming(null);
@@ -376,14 +390,19 @@ export function ProcessBoard({
     if (!n || n === from) {
       return;
     }
-    void provider.renameProcess(board, from, n).catch(fail);
+    const conflict = nameConflict("process", board.processes.map((p) => p.name), n, from);
+    if (conflict) {
+      fail(new Error(conflict));
+      return;
+    }
+    void provider.renameProcess(from, n).catch(fail);
   };
 
   const saveTask = (process: string, uid: string | null, input: TaskInput) => {
     setAdding(null);
     setEditing(null);
     if (uid) {
-      void provider.updateTask(board, uid, input).catch(fail);
+      void provider.updateTask(uid, input).catch(fail);
       return;
     }
     const optimistic: ProcessTask = {
@@ -401,7 +420,7 @@ export function ProcessBoard({
     const forget = () =>
       setPendingTasks((cur) => cur.filter((x) => x.task.uid !== optimistic.uid));
     void provider
-      .addTask(board, process, input)
+      .addTask(process, input)
       .then(forget)
       .catch((err: unknown) => {
         forget();
@@ -412,7 +431,7 @@ export function ProcessBoard({
     if (!window.confirm(`Delete the task “${t.title}”? Its past iterations stay.`)) {
       return;
     }
-    void provider.deleteTask(board, t.uid).catch(fail);
+    void provider.deleteTask(t.uid).catch(fail);
   };
 
   return (
@@ -454,22 +473,29 @@ export function ProcessBoard({
               articles, collecting payment — and wants to see itself doing.
             </p>
             {addingProcess !== null ? (
-              <input
-                type="text"
-                className="add-card-input project-empty-input"
-                autoFocus
-                placeholder={
-                  addingProcess ? `Process in ${addingProcess}…` : "Process with no project…"
-                }
-                onKeyDown={(ev) => {
-                  if (ev.key === "Enter") {
-                    addProcess((ev.target as HTMLInputElement).value, addingProcess);
-                  } else if (ev.key === "Escape") {
-                    setAddingProcess(null);
+              <div className="process-new-row">
+                <DomainSelect domains={board.domains} value={newDomain} onChange={setNewDomain} />
+                <input
+                  type="text"
+                  className="add-card-input project-empty-input"
+                  autoFocus
+                  placeholder={
+                    addingProcess ? `Process in ${addingProcess}…` : "Process with no project…"
                   }
-                }}
-                onBlur={(ev) => addProcess(ev.target.value, addingProcess)}
-              />
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter") {
+                      addProcess((ev.target as HTMLInputElement).value, addingProcess);
+                    } else if (ev.key === "Escape") {
+                      setAddingProcess(null);
+                    }
+                  }}
+                  onBlur={(ev) => {
+                    if (!blurredIntoDomainSelect(ev)) {
+                      addProcess(ev.target.value, addingProcess);
+                    }
+                  }}
+                />
+              </div>
             ) : (
               <button type="button" className="btn btn-primary" onClick={beginAdd}>
                 + Add the first process{targetProject ? ` of ${targetProject}` : ""}
@@ -599,8 +625,8 @@ export function ProcessBoard({
                       onDragStart={(e) => beginTaskDrag(p, t, e)}
                       task={t}
                       teams={board.teams}
-                      members={board.members}
-                      users={users}
+                      members={board.members.map((m) => m.login)}
+                      avatars={avatars}
                       onSetRecurrence={(recurrence) => saveTask(p.name, t.uid, { recurrence })}
                       onSetStart={(start) => saveTask(p.name, t.uid, { start })}
                       onSetTeam={(team) => saveTask(p.name, t.uid, { team })}
@@ -636,22 +662,29 @@ export function ProcessBoard({
             It needs a single project in view: that is what it belongs to. */}
         {shown.length > 0 &&
           (addingProcess !== null ? (
-            <input
-              type="text"
-              className="add-card-input process-new"
-              autoFocus
-              placeholder={
-                addingProcess ? `New process in ${addingProcess}…` : "New process in no project…"
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  addProcess((e.target as HTMLInputElement).value, addingProcess);
-                } else if (e.key === "Escape") {
-                  setAddingProcess(null);
+            <div className="process-new-row">
+              <DomainSelect domains={board.domains} value={newDomain} onChange={setNewDomain} />
+              <input
+                type="text"
+                className="add-card-input process-new"
+                autoFocus
+                placeholder={
+                  addingProcess ? `New process in ${addingProcess}…` : "New process in no project…"
                 }
-              }}
-              onBlur={(e) => addProcess(e.target.value, addingProcess)}
-            />
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    addProcess((e.target as HTMLInputElement).value, addingProcess);
+                  } else if (e.key === "Escape") {
+                    setAddingProcess(null);
+                  }
+                }}
+                onBlur={(e) => {
+                  if (!blurredIntoDomainSelect(e)) {
+                    addProcess(e.target.value, addingProcess);
+                  }
+                }}
+              />
+            </div>
           ) : (
             <button type="button" className="add-card process-new" onClick={beginAdd}>
               + add a process
@@ -760,7 +793,7 @@ function TaskRow({
   onDragStart,
   teams,
   members,
-  users,
+  avatars,
   onSetRecurrence,
   onSetStart,
   onSetTeam,
@@ -777,7 +810,7 @@ function TaskRow({
   onDragStart?: (e: React.PointerEvent) => void;
   teams: string[];
   members: string[];
-  users: Record<string, GhUser>;
+  avatars: Avatars;
   onSetRecurrence: (recurrence: string) => void;
   onSetStart: (start: string) => void;
   onSetTeam: (team: string) => void;
@@ -923,20 +956,20 @@ function TaskRow({
             className="process-cell-owner"
             title={
               t.assignee
-                ? `Assigned to ${displayName(t.assignee, users[t.assignee])} — click to change`
+                ? `Assigned to ${t.assignee} — click to change`
                 : "Nobody owns the iterations — click to assign"
             }
             label={
               t.assignee ? (
                 <>
-                  <img
+                  <Avatar
+                    login={t.assignee}
+                    avatars={avatars}
                     className="avatar-img process-owner-avatar"
-                    src={avatarUrlFor(t.assignee, users[t.assignee])}
-                    alt={t.assignee}
                   />
                   {/* The name alone in the row — the login is in the tooltip
                       and in the menu, and it is the half that gets cut. */}
-                  {users[t.assignee]?.name ?? t.assignee}
+                  {t.assignee}
                 </>
               ) : (
                 <span className="process-task-none">nobody</span>
@@ -948,8 +981,8 @@ function TaskRow({
                 active: m === t.assignee,
                 label: (
                   <>
-                    <img className="avatar-img" src={avatarUrlFor(m, users[m])} alt={m} />
-                    {displayName(m, users[m])}
+                    <Avatar login={m} avatars={avatars} />
+                    {m}
                   </>
                 ),
               })),
@@ -1128,8 +1161,8 @@ function TaskForm({
           <select value={assignee} onChange={(e) => setAssignee(e.target.value)}>
             <option value="">— nobody —</option>
             {board.members.map((m) => (
-              <option key={m} value={m}>
-                {m}
+              <option key={m.login} value={m.login}>
+                {m.login}
               </option>
             ))}
           </select>
