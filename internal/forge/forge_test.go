@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -439,5 +440,106 @@ func TestGitHubKeepsThePermissionsBlockRules(t *testing.T) {
 	}
 	if len(got) != 2 || got["alice"].Login != "alice" || got["bob"].Login != "bob" {
 		t.Fatalf("readers = %+v; want alice and bob", got)
+	}
+}
+
+// collabListing is a GitHub collaborator listing over two pages, beside the
+// per-login permission endpoint the old code asked once per person. Both
+// count their calls, so a test can say which way the answer came.
+func fakeGitHubListing(t *testing.T, listing, perLogin *atomic.Int32, refuseListing bool) *httptest.Server {
+	t.Helper()
+	pages := map[string][]map[string]any{
+		"1": {
+			{"login": "alice", "permissions": map[string]bool{"admin": true, "push": true, "pull": true}},
+			{"login": "bob", "permissions": map[string]bool{"pull": true}},
+		},
+		"2": {
+			{"login": "nobody", "permissions": map[string]bool{}},
+		},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/acme/aeman-db/collaborators", func(w http.ResponseWriter, r *http.Request) {
+		listing.Add(1)
+		if refuseListing {
+			// A credential that may read the repository but not list who
+			// else can — the answer GitHub gives a token without it.
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer server-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		page := r.URL.Query().Get("page")
+		if page == "" {
+			page = "1"
+		}
+		if page == "1" {
+			w.Header().Set("Link", `<`+"http://"+r.Host+`/repos/acme/aeman-db/collaborators?page=2>; rel="next"`)
+		}
+		_ = json.NewEncoder(w).Encode(pages[page])
+	})
+	mux.HandleFunc("/repos/acme/aeman-db/collaborators/", func(w http.ResponseWriter, r *http.Request) {
+		perLogin.Add(1)
+		login := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/repos/acme/aeman-db/collaborators/"), "/permission")
+		switch login {
+		case "alice":
+			_ = json.NewEncoder(w).Encode(map[string]any{"permission": "admin"})
+		case "bob":
+			_ = json.NewEncoder(w).Encode(map[string]any{"permission": "read"})
+		case "nobody":
+			_ = json.NewEncoder(w).Encode(map[string]any{"permission": "none"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Who else reads a domain used to cost one request per person, in a row:
+// ten people on a board with two domains meant twenty round trips before the
+// board could be answered. GitHub lists the collaborators with their
+// permissions in one request, paginated — so that is what is asked.
+func TestGitHubReadersAreOneListingNotAQuestionPerPerson(t *testing.T) {
+	var listing, perLogin atomic.Int32
+	srv := fakeGitHubListing(t, &listing, &perLogin, false)
+	gh := NewGitHubAt(srv.URL)
+	got, err := gh.Readers(context.Background(), srv.Client(), "server-token",
+		"https://github.com/acme/aeman-db.git", []string{"alice", "bob", "nobody", "stranger"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["alice"].Login != "alice" || got["bob"].Login != "bob" {
+		t.Fatalf("readers = %+v; want alice and bob", got)
+	}
+	if got["alice"].AvatarURL == "" {
+		t.Fatal("a reader must carry an avatar for the picker")
+	}
+	if n := perLogin.Load(); n != 0 {
+		t.Fatalf("%d per-person questions; the listing answers them all", n)
+	}
+	if n := listing.Load(); n != 2 {
+		t.Fatalf("%d listing requests, want 2 (the second page follows the Link header)", n)
+	}
+}
+
+// Not every credential may list a repository's collaborators. A refusal is
+// not an outage: the old question, one per person, still answers.
+func TestGitHubReadersFallBackToOneQuestionPerPersonWhenTheListingIsRefused(t *testing.T) {
+	var listing, perLogin atomic.Int32
+	srv := fakeGitHubListing(t, &listing, &perLogin, true)
+	gh := NewGitHubAt(srv.URL)
+	got, err := gh.Readers(context.Background(), srv.Client(), "server-token",
+		"https://github.com/acme/aeman-db.git", []string{"alice", "bob", "nobody", "stranger"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["alice"].Login != "alice" || got["bob"].Login != "bob" {
+		t.Fatalf("readers = %+v; want alice and bob", got)
+	}
+	if n := perLogin.Load(); n != 4 {
+		t.Fatalf("%d per-person questions, want one per asked login", n)
 	}
 }

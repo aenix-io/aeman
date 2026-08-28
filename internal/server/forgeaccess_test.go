@@ -28,6 +28,20 @@ func fakeForge(t *testing.T, perms map[string]map[string]bool, calls *atomic.Int
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
+		if strings.HasSuffix(r.URL.Path, "/collaborators") {
+			// The listing, which is how the readers of a domain are asked
+			// for: everyone at once, with their permissions.
+			if r.Header.Get("Authorization") != "Bearer srv-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"login":"alice","permissions":{"push":true,"pull":true}},` +
+				`{"login":"bob","permissions":{"pull":true}},` +
+				`{"login":"carol","permissions":{}}]`))
+			return
+		}
 		if i := strings.Index(r.URL.Path, "/collaborators/"); i >= 0 {
 			if r.Header.Get("Authorization") != "Bearer srv-token" {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -246,8 +260,8 @@ func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
 	if _, err := fa.readers(context.Background(), "shared", []string{"alice", "bob", "carol", "stranger"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := calls.Load(); n != 4 {
-		t.Fatalf("%d forge calls, want 4 (one per login, then cached)", n)
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("%d forge calls, want 1 (one listing for everyone, then cached)", n)
 	}
 	if _, err := fa.readers(context.Background(), "nope", []string{"alice"}); err == nil {
 		t.Fatal("an unknown domain must be an error")

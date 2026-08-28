@@ -3,10 +3,12 @@ package forge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -156,8 +158,15 @@ func (g *github) Access(ctx context.Context, client *http.Client, token, repoURL
 	return p.Pull || p.Triage || p.Push || p.Maintain || p.Admin, p.Push || p.Maintain || p.Admin, nil
 }
 
-// Readers asks the collaborator permission of each login with the server's
-// token: any permission but "none" reads; a 404 is not a collaborator.
+// errNoListing is a credential that may read a repository but not list who
+// else can. It is not an outage — the per-login question still answers.
+var errNoListing = errors.New("the credential may not list collaborators")
+
+// Readers is one question for everyone: GitHub lists a repository's
+// collaborators with their permissions, a hundred to a page. Asking each
+// login separately — what this did — cost a round trip per person, in a
+// row, and a board of ten people across two domains spent seconds of a page
+// load on it. A credential that may not list them falls back to that.
 func (g *github) Readers(ctx context.Context, client *http.Client, serverToken, repoURL string, logins []string) (map[string]Person, error) {
 	if serverToken == "" {
 		return nil, fmt.Errorf("no server credential to ask the forge with")
@@ -166,6 +175,80 @@ func (g *github) Readers(ctx context.Context, client *http.Client, serverToken, 
 	if err != nil {
 		return nil, err
 	}
+	switch out, err := g.readersFromListing(ctx, client, serverToken, slug, logins); {
+	case err == nil:
+		return out, nil
+	case !errors.Is(err, errNoListing):
+		return nil, err
+	}
+	return g.readersOneByOne(ctx, client, serverToken, slug, logins)
+}
+
+// readersFromListing pages through the collaborators, keeping the asked
+// logins with any permission but none.
+func (g *github) readersFromListing(ctx context.Context, client *http.Client, serverToken, slug string, logins []string) (map[string]Person, error) {
+	wanted := map[string]bool{}
+	for _, l := range logins {
+		wanted[l] = true
+	}
+	out := map[string]Person{}
+	for page := 1; page <= 20; page++ {
+		resp, err := g.get(ctx, client, serverToken, "/repos/"+slug+"/collaborators?per_page=100&page="+strconv.Itoa(page))
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case throttled(resp):
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
+		case resp.StatusCode == http.StatusForbidden, resp.StatusCode == http.StatusNotFound:
+			_ = resp.Body.Close()
+			return nil, errNoListing
+		case resp.StatusCode/100 != 2:
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("forge answered %s", resp.Status)
+		}
+		more := hasNextPage(resp.Header.Get("Link"))
+		var collaborators []struct {
+			Login       string `json:"login"`
+			Permissions struct {
+				Admin    bool `json:"admin"`
+				Maintain bool `json:"maintain"`
+				Push     bool `json:"push"`
+				Triage   bool `json:"triage"`
+				Pull     bool `json:"pull"`
+			} `json:"permissions"`
+		}
+		if err := decodeJSON(resp, &collaborators); err != nil {
+			return nil, err
+		}
+		for _, c := range collaborators {
+			p := c.Permissions
+			if wanted[c.Login] && (p.Pull || p.Triage || p.Push || p.Maintain || p.Admin) {
+				out[c.Login] = Person{Login: c.Login, AvatarURL: githubAvatarURL(c.Login)}
+			}
+		}
+		if !more || len(collaborators) == 0 {
+			break
+		}
+	}
+	return out, nil
+}
+
+// hasNextPage reads GitHub's Link header: another page follows when it
+// names one as `rel="next"`.
+func hasNextPage(link string) bool {
+	for _, part := range strings.Split(link, ",") {
+		if strings.Contains(part, `rel="next"`) {
+			return true
+		}
+	}
+	return false
+}
+
+// readersOneByOne asks the collaborator permission of each login: any
+// permission but "none" reads; a 404 is not a collaborator.
+func (g *github) readersOneByOne(ctx context.Context, client *http.Client, serverToken, slug string, logins []string) (map[string]Person, error) {
 	out := map[string]Person{}
 	for _, login := range logins {
 		resp, err := g.get(ctx, client, serverToken, "/repos/"+slug+"/collaborators/"+url.PathEscape(login)+"/permission")
