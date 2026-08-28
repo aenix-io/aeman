@@ -11,17 +11,22 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aenix-io/aeman/internal/forge"
 )
 
 // tokenTTL is how long a token fetched from gh is reused before re-reading it.
 const tokenTTL = 5 * time.Minute
 
-// TokenSource resolves a GitHub token from the local gh CLI and caches it.
+// TokenSource resolves a GitHub token from the local gh CLI and caches it. It
+// is also the GitHub side of forge.CLI: the token plus the signed-in login.
 type TokenSource struct {
 	mu     sync.Mutex
 	token  string
 	expiry time.Time
 }
+
+var _ forge.CLI = (*TokenSource)(nil)
 
 // NewTokenSource returns a TokenSource backed by `gh auth token`.
 func NewTokenSource() *TokenSource {
@@ -49,6 +54,13 @@ func (t *TokenSource) Token(ctx context.Context) (string, error) {
 	t.token = tok
 	t.expiry = time.Now().Add(tokenTTL)
 	return tok, nil
+}
+
+// Login returns the login of the currently authenticated GitHub user. The gh
+// identity is one per machine, not per TokenSource, so this is the package
+// Login and shares its process-wide cache.
+func (t *TokenSource) Login(ctx context.Context) (string, error) {
+	return Login(ctx)
 }
 
 var (
