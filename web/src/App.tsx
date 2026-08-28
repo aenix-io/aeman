@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, fetchHealth, type AppConfig } from "./api/client";
 import { apiProvider } from "./providers/api/apiProvider";
+import { guardSignedOut } from "./session";
 import {
   resourceToCard,
   sprintStateFrom,
@@ -245,7 +246,20 @@ export function App() {
       setPendingSync(pendingSyncNext.current);
     }, 300);
   }, []);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<string | null>(null);
+  // While a sign-out is being confirmed (see onSignedOut) the messages the
+  // failing calls produce — every one of them "not signed in" — are held
+  // back: the sign-in gate is the answer, not a banner. The last one held is
+  // shown after all if the session turns out to be fine (a transient 401).
+  const holdingErrors = useRef(false);
+  const heldError = useRef<string | null>(null);
+  const setError = useCallback((message: string | null) => {
+    if (message !== null && holdingErrors.current) {
+      heldError.current = message;
+      return;
+    }
+    setErrorState(message);
+  }, []);
   // Live selections of other users (login -> card uid), fed by Presence
   // watch frames; purely ephemeral shared-cursor state.
   const [presence, setPresenceMap] = useState<Record<string, string>>({});
@@ -372,7 +386,43 @@ export function App() {
     };
   }, []);
 
-  const provider = apiProvider;
+  // A session can end under an open tab: the server restarted with memory-only
+  // sessions, the session TTL passed, the forge refused a refresh. From then on
+  // every request is a 401. In OAuth mode that is not an error to read but a
+  // sign-in to offer: the config is re-read and, once it says "not
+  // authenticated", the gate below renders in place of the board. In
+  // local-proxy mode a 401 is an ordinary error — there is nothing to sign in
+  // to. One re-check at a time, however many calls fail meanwhile; every
+  // provider call on the board goes through the guard, so whichever saw the
+  // 401 first starts it.
+  const configRef = useRef(config);
+  configRef.current = config;
+  const recheck = useRef<Promise<void> | null>(null);
+  const onSignedOut = useCallback(() => {
+    if (configRef.current?.mode !== "oauth" || recheck.current) {
+      return;
+    }
+    holdingErrors.current = true;
+    recheck.current = fetchConfig()
+      .then((cfg) => {
+        if (!cfg.authenticated) {
+          heldError.current = null;
+          setConfig(cfg);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        // Still signed in (a transient 401), or no answer at all: the error
+        // was real — show what was held.
+        recheck.current = null;
+        holdingErrors.current = false;
+        if (heldError.current !== null) {
+          setErrorState(heldError.current);
+          heldError.current = null;
+        }
+      });
+  }, []);
+  const provider = useMemo(() => guardSignedOut(apiProvider, onSignedOut), [onSignedOut]);
 
   // The roster: the board's teams in the server-side order (the sprint-state
   // cards' positions — shared by everyone, on every device), then the ones
@@ -732,8 +782,12 @@ export function App() {
   reloadRef.current = reload;
   const boardRef = useRef(board);
   boardRef.current = board;
+  // Not while signed out: the server refuses the socket, and rebuilding it
+  // every few seconds behind the sign-in gate helps nobody. The tear-down
+  // below runs the moment the re-check flips the config.
+  const authenticated = config?.authenticated === true;
   useEffect(() => {
-    if (!boardLoaded) {
+    if (!boardLoaded || !authenticated) {
       return;
     }
     // One socket per selector (Me + its personal board). Any of them dropping
@@ -891,6 +945,7 @@ export function App() {
     };
   }, [
     boardLoaded,
+    authenticated,
     watchKey,
     provider,
     addCard,
@@ -900,7 +955,7 @@ export function App() {
     queuePendingSync,
   ]);
 
-  const onError = useCallback((message: string) => setError(message), []);
+  const onError = useCallback((message: string) => setError(message), [setError]);
 
   // The personal board: linked from the user menu through a small dialog,
   // unlinked from the same menu after a confirm. Either way the board reloads
