@@ -181,7 +181,7 @@ func (f *forgeAccess) readers(ctx context.Context, domain string, logins []strin
 	}
 	f.mu.Unlock()
 	if len(stale) > 0 {
-		found, err := f.forge.Readers(ctx, f.client, f.serverToken, url, stale)
+		found, err := f.forge.Readers(ctx, f.client, f.tokenFor(domain), url, stale)
 		if err == nil {
 			if f.people != nil {
 				f.people.learn(found)
@@ -205,6 +205,18 @@ func (f *forgeAccess) readers(ctx context.Context, domain string, logins []strin
 		}
 	}
 	return out, nil
+}
+
+// tokenFor is the server credential a domain is asked about — its own when
+// it names one (a board spanning two organisations holds a token per
+// organisation), else the shared one.
+func (f *forgeAccess) tokenFor(domain string) string {
+	for _, d := range f.domains {
+		if d.Name == domain {
+			return d.token(f.serverToken)
+		}
+	}
+	return f.serverToken
 }
 
 // canPush asks the forge, as the visitor, whether they may write the

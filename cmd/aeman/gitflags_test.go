@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"testing"
 	"time"
+
+	"github.com/aenix-io/aeman/internal/server"
 )
 
 // The git-mode flags: repeatable --repo name=url, spans with weeks, a
@@ -160,5 +163,83 @@ func TestGitConfigDefaultsHorizonToTwoWeeks(t *testing.T) {
 	}
 	if cfg.HistoryMax != 365*24*time.Hour || cfg.SyncInterval != 15*time.Second {
 		t.Fatalf("other defaults moved: history-max %v, sync-interval %v", cfg.HistoryMax, cfg.SyncInterval)
+	}
+}
+
+// Every repository of a board may carry its own credential: two boards in
+// two organisations cannot share one narrowly-scoped token, and a token wide
+// enough for both is wider than either needs. The variable is named after the
+// domain — AEMAN_GIT_TOKEN_<NAME>, the name upper-cased with anything but a
+// letter or a digit as an underscore — and AEMAN_GIT_TOKEN stands in for the
+// domains that name none.
+func TestGitConfigTakesAPerDomainToken(t *testing.T) {
+	env := map[string]string{
+		"AEMAN_GIT_TOKEN":           "default-token",
+		"AEMAN_GIT_TOKEN_AEMAN_DB":  "org-token",
+		"AEMAN_GIT_TOKEN_FOUNDERS":  "founders-token",
+		"AEMAN_GIT_TOKEN_ODD_NAME_": "odd-token",
+	}
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	gf := addGitFlags(fs, func(k string) string { return env[k] })
+	if err := fs.Parse([]string{
+		"--repo", "aeman-db=https://github.com/aenix-org/aeman-db.git",
+		"--repo", "founders=https://github.com/aenix-founders/aeman-db.git",
+		"--repo", "odd.name!=https://github.com/acme/odd.git",
+		"--repo", "plain=https://github.com/acme/plain.git",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := gf.config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"aeman-db":  "org-token",
+		"founders":  "founders-token",
+		"odd.name!": "odd-token",
+		"plain":     "default-token", // no variable of its own
+	}
+	for _, spec := range cfg.Repos {
+		if spec.Token != want[spec.Name] {
+			t.Errorf("%s token = %q, want %q", spec.Name, spec.Token, want[spec.Name])
+		}
+	}
+	if cfg.Token != "default-token" {
+		t.Fatalf("the shared default = %q", cfg.Token)
+	}
+}
+
+// Without any AEMAN_GIT_TOKEN the specs carry nothing yet: fillGitToken asks
+// the forge's CLI afterwards, and a remote that needs no credential (a file
+// path, a public repository) works without one at all.
+func TestGitConfigLeavesTokensEmptyWhenTheEnvironmentHasNone(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	gf := addGitFlags(fs, func(string) string { return "" })
+	if err := fs.Parse([]string{"--repo", "board=https://x/board.git"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := gf.config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token != "" || cfg.Repos[0].Token != "" {
+		t.Fatalf("tokens = %q / %q, want empty", cfg.Token, cfg.Repos[0].Token)
+	}
+}
+
+// fillGitToken hands the forge CLI's token to every domain that has none of
+// its own — the single-user server keeps working with no environment at all
+// — and never overwrites a domain's own credential.
+func TestFillGitTokenFillsOnlyTheDomainsWithoutOne(t *testing.T) {
+	cfg := &server.GitConfig{
+		Repos: []server.RepoSpec{
+			{Name: "aeman-db", URL: "https://github.com/acme/a.git", Token: "own-token"},
+			{Name: "founders", URL: "https://github.com/acme/b.git"},
+		},
+		Token: "default-token",
+	}
+	fillGitToken(context.Background(), cfg)
+	if cfg.Repos[0].Token != "own-token" || cfg.Repos[1].Token != "default-token" {
+		t.Fatalf("tokens = %q / %q", cfg.Repos[0].Token, cfg.Repos[1].Token)
 	}
 }

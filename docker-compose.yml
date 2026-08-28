@@ -10,7 +10,11 @@ services:
       # The board's repositories (name=url, comma-separated, primary first) and
       # the server's own credential for them (fetch, push, membership checks).
       AEMAN_REPOS: ${AEMAN_REPOS:?set in .env}
-      AEMAN_GIT_TOKEN: ${AEMAN_GIT_TOKEN:?set in .env}
+      AEMAN_GIT_TOKEN: ${AEMAN_GIT_TOKEN:-}
+      # A repository may carry its own credential instead — pass the
+      # AEMAN_GIT_TOKEN_<NAME> variables the board needs (see .env.example);
+      # one of the two forms must cover every repository.
+      AEMAN_GIT_TOKEN_AEMAN_DB: ${AEMAN_GIT_TOKEN_AEMAN_DB:-}
       # Forge: github or gitlab. Empty follows the primary repository's host.
       AEMAN_FORGE: ${AEMAN_FORGE:-}
       # Base URL of a self-hosted GitLab; empty means the primary repository's host.
