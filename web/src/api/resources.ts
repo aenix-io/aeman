@@ -72,6 +72,8 @@ export interface CardResource {
     overdue?: boolean;
     reviewedBy?: string;
     reviewRound?: number;
+    /** The repository the card lives in; absent on an older server. */
+    domain?: string;
     links?: {
       kind: string;
       url: string;
@@ -115,7 +117,9 @@ export interface BoardResource {
     deadlines?: { week: string; project?: string }[];
     processes?: { name: string; project?: string }[];
     epics?: { name: string; project?: string }[];
-    members?: string[];
+    members?: { login: string; avatarUrl?: string }[];
+    /** The repositories the board spans, primary first. */
+    domains?: { name: string; writable?: boolean; members?: string[] }[];
   };
 }
 
@@ -172,6 +176,7 @@ export function resourceToCard(res: CardResource): Card {
     assignees: spec.assignees ?? [],
     author: m.author || undefined,
     createdAt: m.createdAt || undefined,
+    domain: res.status?.domain || undefined,
     zone: zoneFromSemantic(spec.zone),
     progress: spec.progress ?? 0,
     stage: spec.stage ? STAGE_KEYS[spec.stage] : undefined,

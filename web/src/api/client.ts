@@ -1,6 +1,8 @@
-// Thin client over the aeman Go server: /api/config for bootstrap data and
-// /api/github/graphql which the server proxies to the GitHub API with a token
-// from the local gh CLI.
+// Thin client over the aeman Go server's bootstrap endpoints: /api/config for
+// the session and build facts, /api/healthz for the sync state. The board itself
+// is read through the /api/v1 provider (providers/api/apiProvider.ts).
+
+import type { HealthStatus } from "../health";
 
 /** clientId identifies this browser tab to the server: REST mutations carry it
  * as X-Aeman-Client and the watch subscription passes it as ?client=, so the
@@ -21,10 +23,6 @@ export interface AppConfig {
   authUrl?: string;
   /** OAuth mode: URL to sign out. */
   logoutUrl?: string;
-  defaultOwner?: string;
-  defaultProject?: number;
-  /** Pin the UI to defaultOwner/defaultProject and hide the board picker. */
-  lockBoard?: boolean;
   /** The board's day time zone (IANA name): "today" is computed in it so
    *  every user sees the same board day. "Local" = server-local, unset zone. */
   tz?: string;
@@ -41,35 +39,10 @@ export async function fetchConfig(): Promise<AppConfig> {
   return (await res.json()) as AppConfig;
 }
 
-interface GraphQLError {
-  message: string;
-}
-
-interface GraphQLResponse<T> {
-  data?: T;
-  errors?: GraphQLError[];
-}
-
-export async function graphql<T>(
-  query: string,
-  variables: Record<string, unknown>,
-): Promise<T> {
-  const res = await fetch("/api/github/graphql", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, variables }),
-  });
-  let body: GraphQLResponse<T>;
-  try {
-    body = (await res.json()) as GraphQLResponse<T>;
-  } catch {
-    throw new Error(`GitHub API returned HTTP ${res.status} with no JSON body`);
-  }
-  if (body.errors && body.errors.length > 0) {
-    throw new Error(body.errors.map((e) => e.message).join("; "));
-  }
-  if (!res.ok || !body.data) {
-    throw new Error(`GitHub API request failed: HTTP ${res.status}`);
-  }
-  return body.data;
+/** fetchHealth reads /api/healthz: "ok", or "degraded" when the server's commits
+ * have not been pushed for longer than its threshold. A degraded server still
+ * answers with a body, so a non-2xx status is not an error here. */
+export async function fetchHealth(): Promise<HealthStatus> {
+  const res = await fetch("/api/healthz");
+  return (await res.json()) as HealthStatus;
 }

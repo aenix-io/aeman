@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { declareDomain, type DomainInfo } from "../domains";
+import { DomainSelect, blurredIntoDomainSelect } from "./DomainSelect";
 
 interface TeamChipsProps {
   label: string;
@@ -13,7 +15,10 @@ interface TeamChipsProps {
   selectedKeys: string[] | null;
   /** Set the selection, or null to clear (show all). */
   onSelect: (keys: string[] | null) => void;
-  onAdd: (name: string) => void;
+  /** The board's repositories; with more than one writable, the add field
+   *  asks which one the new entry is declared in. */
+  domains?: DomainInfo[];
+  onAdd: (name: string, domain?: string) => void;
   onRemove: (team: string) => void;
   /** Rename on double-click. Omit where renaming is not supported. */
   onRename?: (from: string, to: string) => void;
@@ -37,6 +42,7 @@ export function TeamChips({
   entity = "team",
   selectedKeys,
   onSelect,
+  domains = [],
   onAdd,
   onRemove,
   onRename,
@@ -48,13 +54,14 @@ export function TeamChips({
 }: TeamChipsProps) {
   const [adding, setAdding] = useState(false);
   const [addValue, setAddValue] = useState("");
+  const [addDomain, setAddDomain] = useState("");
   const [editingTeam, setEditingTeam] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
   const commitAdd = () => {
     const t = addValue.trim();
     if (t) {
-      onAdd(t);
+      onAdd(t, declareDomain(domains, addDomain));
     }
     setAddValue("");
     setAdding(false);
@@ -214,23 +221,30 @@ export function TeamChips({
         )}
         {canManage &&
           (adding ? (
-            <input
-              type="text"
-              className="add-card-input team-add-input"
-              autoFocus
-              value={addValue}
-              placeholder={`${entity} name…`}
-              onChange={(e) => setAddValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  commitAdd();
-                } else if (e.key === "Escape") {
-                  setAddValue("");
-                  setAdding(false);
-                }
-              }}
-              onBlur={commitAdd}
-            />
+            <>
+              <DomainSelect domains={domains} value={addDomain} onChange={setAddDomain} />
+              <input
+                type="text"
+                className="add-card-input team-add-input"
+                autoFocus
+                value={addValue}
+                placeholder={`${entity} name…`}
+                onChange={(e) => setAddValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    commitAdd();
+                  } else if (e.key === "Escape") {
+                    setAddValue("");
+                    setAdding(false);
+                  }
+                }}
+                onBlur={(e) => {
+                  if (!blurredIntoDomainSelect(e)) {
+                    commitAdd();
+                  }
+                }}
+              />
+            </>
           ) : (
             <button type="button" className="add-card" onClick={() => setAdding(true)}>
               + add

@@ -8,6 +8,7 @@ import type {
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
+import { cardDomainBadge } from "../domains";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
@@ -377,7 +378,7 @@ export function ProjectBoard({
     // The preview order stays up until the Board frame confirms it (or a
     // failure puts the board's own order back).
     void provider
-      .reorderEpics(board, d.project, names)
+      .reorderEpics(d.project, names)
       .catch((err: unknown) => {
         setOrder(null); // put the board's own order back on screen
         onError(errText(err));
@@ -640,7 +641,7 @@ export function ProjectBoard({
       const prev = { startDate: resize.startDate, week: resize.week };
       patchCard(resize.itemId, { startDate: start, week: start });
       void provider
-        .patchCard(board, resize.itemId, { dates: { start } })
+        .patchCard(resize.itemId, { dates: { start } })
         .then(addCard)
         .catch((err: unknown) => {
           patchCard(resize.itemId, prev);
@@ -658,7 +659,7 @@ export function ProjectBoard({
       const prev = { day: resize.day };
       patchCard(resize.itemId, { day: end });
       void provider
-        .patchCard(board, resize.itemId, { dates: { end } })
+        .patchCard(resize.itemId, { dates: { end } })
         .then(addCard)
         .catch((err: unknown) => {
           patchCard(resize.itemId, prev);
@@ -783,7 +784,7 @@ export function ProjectBoard({
       day: end,
     });
     void provider
-      .patchCard(board, card.itemId, {
+      .patchCard(card.itemId, {
         epic: epic.name,
         project: epic.project,
         // No plan.week: the server takes the row from dates.start.
@@ -821,7 +822,7 @@ export function ProjectBoard({
       description: "",
       progress: 0,
     });
-    const created = provider.createCard(board, {
+    const created = provider.createCard({
       title: title.trim(),
       epic: epic.name,
       project: epic.project,
@@ -893,7 +894,7 @@ export function ProjectBoard({
       return;
     }
     void provider
-      .addEpic(board, name.trim(), targetProject)
+      .addEpic(name.trim(), targetProject)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -905,7 +906,7 @@ export function ProjectBoard({
       return;
     }
     void provider
-      .deleteEpic(board, col.name, col.project)
+      .deleteEpic(col.name, col.project)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -916,7 +917,7 @@ export function ProjectBoard({
       return;
     }
     void provider
-      .setEpicProject(board, col.project, col.name, to)
+      .setEpicProject(col.project, col.name, to)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -926,7 +927,7 @@ export function ProjectBoard({
       return;
     }
     void provider
-      .renameEpic(board, col.project, col.name, to.trim())
+      .renameEpic(col.project, col.name, to.trim())
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -938,7 +939,7 @@ export function ProjectBoard({
     patchCard(card.itemId, { team: team ?? undefined, plan: card.plan ?? (team ? "fri" : undefined) });
     void provider
       // Just the team: the server files the slot in that team's weekly plan.
-      .patchCard(board, card.itemId, { team: team ?? "" })
+      .patchCard(card.itemId, { team: team ?? "" })
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
@@ -952,8 +953,8 @@ export function ProjectBoard({
   const setDeadline = (week: string, projectName: string, on: boolean) => {
     setWeekMenu(null);
     const call = on
-      ? provider.addDeadline(board, week, projectName)
-      : provider.deleteDeadline(board, week, projectName);
+      ? provider.addDeadline(week, projectName)
+      : provider.deleteDeadline(week, projectName);
     void call.catch((err: unknown) => onError(errText(err)));
   };
 
@@ -1024,7 +1025,7 @@ export function ProjectBoard({
       return;
     }
     void provider
-      .moveDeadline(board, dlProject, from, to)
+      .moveDeadline(dlProject, from, to)
       .catch((err: unknown) => onError(errText(err)));
   };
 
@@ -1042,7 +1043,7 @@ export function ProjectBoard({
         progress: 100,
       });
       void provider
-        .patchCard(board, card.itemId, { stage: "done" })
+        .patchCard(card.itemId, { stage: "done" })
         .then(addCard)
         .catch((err: unknown) => {
           patchCard(card.itemId, prev);
@@ -1054,7 +1055,7 @@ export function ProjectBoard({
     // with the response — the client cannot know it.
     patchCard(card.itemId, { stage: undefined });
     void provider
-      .reopen(board, card.itemId)
+      .reopen(card.itemId)
       .then(addCard)
       .catch((err: unknown) => {
         patchCard(card.itemId, prev);
@@ -1067,7 +1068,7 @@ export function ProjectBoard({
       return;
     }
     removeCard(card.itemId);
-    void provider.deleteCard(board, card.itemId).catch((err: unknown) => {
+    void provider.deleteCard(card.itemId).catch((err: unknown) => {
       onError(errText(err));
       reload();
     });
@@ -1822,7 +1823,17 @@ export function ProjectBoard({
               onDoubleClick={() => onOpen(card)}
               title={card.title}
             >
-              <span className="project-slot-title">{card.title}</span>
+              <span className="project-slot-title">
+                {card.title}
+                {cardDomainBadge(board.domains, card.domain) && (
+                  <span
+                    className="project-slot-domain"
+                    title={`Stored in ${card.domain}`}
+                  >
+                    {card.domain}
+                  </span>
+                )}
+              </span>
               <span className="project-slot-actions">
                 <button
                   type="button"

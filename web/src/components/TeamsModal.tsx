@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { teamColor } from "../avatar";
+import { declareDomain, type DomainInfo } from "../domains";
+import { DomainSelect } from "./DomainSelect";
 import {
   DndContext,
   PointerSensor,
@@ -23,7 +25,10 @@ interface TeamsModalProps {
   /** What one row is, used in the add field. The Project board manages its
    *  projects through this same dialog. */
   entity?: string;
-  onAdd: (name: string) => void;
+  /** The board's repositories; with more than one writable, the add row asks
+   *  which one the new entry is declared in. */
+  domains?: DomainInfo[];
+  onAdd: (name: string, domain?: string) => void;
   onRename: (from: string, to: string) => void;
   onRemove: (team: string) => void;
   onReorder: (ordered: string[]) => void;
@@ -117,6 +122,7 @@ export function TeamsModal({
   teams,
   title = "Manage teams",
   entity = "team",
+  domains = [],
   onAdd,
   onRename,
   onRemove,
@@ -124,6 +130,7 @@ export function TeamsModal({
   onClose,
 }: TeamsModalProps) {
   const [newName, setNewName] = useState("");
+  const [newDomain, setNewDomain] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
@@ -134,7 +141,7 @@ export function TeamsModal({
   const addNew = () => {
     const t = newName.trim();
     if (t) {
-      onAdd(t);
+      onAdd(t, declareDomain(domains, newDomain));
     }
     setNewName("");
   };
@@ -214,6 +221,7 @@ export function TeamsModal({
           </DndContext>
 
           <div className="teams-manage-add">
+            <DomainSelect domains={domains} value={newDomain} onChange={setNewDomain} />
             <input
               type="text"
               className="add-card-input"
