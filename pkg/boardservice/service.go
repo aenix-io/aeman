@@ -78,10 +78,21 @@ func New(backend Backend) *Service {
 	return &Service{backend: backend}
 }
 
-// findCard returns the card with the given item id, or ok = false.
+// findCard returns the card with the given item id, or ok = false. A legacy
+// Projects v2 item id (the `githubId` the migration kept) still names the
+// card it became, for one major version — old links keep working; the ULID
+// is the key, and wins when both would match.
 func findCard(b board.Board, itemID string) (board.Card, bool) {
 	for _, c := range b.Cards {
 		if c.ItemID == itemID {
+			return c, true
+		}
+	}
+	if !board.IsLegacyID(itemID) {
+		return board.Card{}, false
+	}
+	for _, c := range b.Cards {
+		if c.GitHubID == itemID {
 			return c, true
 		}
 	}

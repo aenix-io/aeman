@@ -3022,3 +3022,25 @@ func TestDemoteRecordsItsMove(t *testing.T) {
 		t.Fatalf("event says %q -> %q, want %q -> %q", moved.From, moved.To, today, prev)
 	}
 }
+
+// M5: a legacy Projects v2 item id (`PVTI_…`) still names the card it
+// became — the migration kept it as githubId — so links and plugin state
+// from before the move keep working for one major version; an unknown
+// legacy id is a plain not-found.
+func TestLegacyGitHubIDResolvesTheCard(t *testing.T) {
+	fake := newFake([]board.Card{
+		{ItemID: "01JB4KA0M2P4R6T8V0X2Z4B6D8", Title: "migrated", Team: "t", GitHubID: "PVTI_lADOold"},
+	}, nil)
+	svc := New(fake)
+	c, err := svc.Card(t.Context(), "o", "PVTI_lADOold")
+	if err != nil || c.ItemID != "01JB4KA0M2P4R6T8V0X2Z4B6D8" {
+		t.Fatalf("legacy id lookup = %+v, %v; want the migrated card", c, err)
+	}
+	if _, err := svc.Card(t.Context(), "o", "PVTI_never"); !errors.Is(err, ErrCardNotFound) {
+		t.Fatalf("unknown legacy id: err = %v, want ErrCardNotFound", err)
+	}
+	// The ULID stays the primary key: the same card by its own id.
+	if c2, err := svc.Card(t.Context(), "o", "01JB4KA0M2P4R6T8V0X2Z4B6D8"); err != nil || c2.GitHubID != "PVTI_lADOold" {
+		t.Fatalf("own id lookup = %+v, %v", c2, err)
+	}
+}

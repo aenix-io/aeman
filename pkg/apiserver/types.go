@@ -109,6 +109,10 @@ type CardStatus struct {
 	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
+	// Domain is the repository the card lives in — the store's decision by
+	// the inheritance rule, never a client's choice; empty when the store did
+	// not stamp it (a card in the primary is shown without a badge).
+	Domain string `json:"domain,omitempty"`
 	// Links are the references extracted from the card's description —
 	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).
 	// They ride the status so a summary listing, which omits the description
@@ -343,6 +347,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		InProgress:  board.IsInProgress(c),
 		Overdue:     board.Overdue(c, board.TodayIso()),
 		ReviewRound: c.ReviewRound,
+		Domain:      c.Domain,
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a

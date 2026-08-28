@@ -395,3 +395,17 @@ func TestWeeklyHistoryLandsInFriBand(t *testing.T) {
 		t.Fatalf("own week: the card sits in its own band, got wed=%d fri=%d", len(cur.Wed), len(cur.Fri))
 	}
 }
+
+// The resource says which repository a card lives in (status.domain): the
+// UI badges a card outside the primary and picks reviewers who can read it.
+func TestCardResourceCarriesDomain(t *testing.T) {
+	b := testBoard()
+	c := b.Cards[0]
+	c.Domain = "closed"
+	if r := CardResource(b, c); r.Status.Domain != "closed" {
+		t.Fatalf("status.domain = %q, want closed", r.Status.Domain)
+	}
+	if r := CardResource(b, b.Cards[1]); r.Status.Domain != "" {
+		t.Fatalf("a card the store did not stamp has no domain, got %q", r.Status.Domain)
+	}
+}
