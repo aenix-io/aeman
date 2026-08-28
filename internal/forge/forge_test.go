@@ -322,6 +322,48 @@ func TestBeingThrottledIsNotTheSameAsHavingNoAccess(t *testing.T) {
 	}
 }
 
+// A token minted before the server asked for the scope it now needs cannot
+// see a private repository — GitHub answers 404, the same as for a
+// repository that is not yours. Read as "no access" it strands the visitor:
+// every write refused, and nothing they can do about it but sign in again,
+// which is exactly what was reported. GitHub names the token's scopes in the
+// answer, so the two cases are told apart: a token without `repo` is a stale
+// authorization (ErrBadToken — the server drops the session and the sign-in
+// gate comes back), a token with it simply cannot see that repository.
+func TestATokenWithoutTheRepoScopeIsAStaleAuthorization(t *testing.T) {
+	cases := []struct {
+		name, scopes string
+		status       int
+		hasHeader    bool
+		wantBad      bool
+	}{
+		{"minted before the scope was asked for", "project", http.StatusNotFound, true, true},
+		{"no scopes at all", "", http.StatusNotFound, true, true},
+		{"forbidden with the old scopes", "project, read:org", http.StatusForbidden, true, true},
+		{"has the scope, cannot see this repository", "repo, project", http.StatusNotFound, true, false},
+		{"has the scope, forbidden", "repo", http.StatusForbidden, true, false},
+		{"a forge that names no scopes", "", http.StatusNotFound, false, false},
+	}
+	for _, tc := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if tc.hasHeader {
+				w.Header().Set("X-OAuth-Scopes", tc.scopes)
+			}
+			w.WriteHeader(tc.status)
+		}))
+		read, write, err := NewGitHubAt(srv.URL).Access(context.Background(), srv.Client(), "tok", "https://github.com/acme/repo.git")
+		switch {
+		case tc.wantBad && !errors.Is(err, ErrBadToken):
+			t.Errorf("%s: err = %v, want ErrBadToken", tc.name, err)
+		case !tc.wantBad && err != nil:
+			t.Errorf("%s: err = %v, want none", tc.name, err)
+		case !tc.wantBad && (read || write):
+			t.Errorf("%s: %v %v, want no access", tc.name, read, write)
+		}
+		srv.Close()
+	}
+}
+
 // fakeGitHub is the GitHub REST surface the GitHub forge uses.
 func fakeGitHub(t *testing.T) *httptest.Server {
 	t.Helper()

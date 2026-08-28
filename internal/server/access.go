@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -137,6 +138,19 @@ type forgeAccess struct {
 	mu      sync.Mutex
 	cache   map[string]cachedRights // by login
 	members map[string]cachedBool   // by domain + login
+	// refreshing single-flights the background check per visitor: the
+	// requests of one page load share the one it triggered.
+	refreshing map[string]bool
+	// logger receives the background check's failures; nil discards them.
+	logger *slog.Logger
+}
+
+// log reports a background failure — the request that triggered it is long
+// answered, so there is nobody to return the error to.
+func (f *forgeAccess) log(msg, login string, err error) {
+	if f.logger != nil {
+		f.logger.Warn(msg, "login", login, "err", err)
+	}
 }
 
 type cachedRights struct {
@@ -242,10 +256,74 @@ func (f *forgeAccess) rights(ctx context.Context, token, login string) (*domainR
 	if ok && f.now().Sub(c.at) < f.ttl {
 		return c.rights, nil
 	}
+	// A visitor we know, whose answer has merely gone stale, waits for
+	// nothing: what we know stands while the forge is asked behind them.
+	// Coming back after a break used to cost a round trip per repository on
+	// the first request — and the four a page load fires beside it each
+	// started their own, which is also how a quiet morning turned into a
+	// burst of forge calls.
+	if ok {
+		f.revalidate(token, login)
+		return c.rights, nil
+	}
+	r, err := f.probeAll(ctx, token, login)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// revalidate refreshes a visitor's rights in the background, one at a time
+// per visitor: a page load's requests share the check they triggered.
+func (f *forgeAccess) revalidate(token, login string) {
+	f.mu.Lock()
+	if f.refreshing == nil {
+		f.refreshing = map[string]bool{}
+	}
+	if f.refreshing[login] {
+		f.mu.Unlock()
+		return
+	}
+	f.refreshing[login] = true
+	f.mu.Unlock()
+	go func() {
+		// Detached from the request that noticed: it is already answered,
+		// and the check must land whether or not that request is still there.
+		ctx, cancel := context.WithTimeout(context.Background(), rightsRevalidateTimeout)
+		defer cancel()
+		if _, err := f.probeAll(ctx, token, login); err != nil {
+			// The stale answer stands until the forge can be reached; the
+			// next request tries again.
+			f.log("rights revalidation failed", login, err)
+		}
+		f.mu.Lock()
+		delete(f.refreshing, login)
+		f.mu.Unlock()
+	}()
+}
+
+// rightsRevalidateTimeout bounds a background rights check.
+const rightsRevalidateTimeout = 30 * time.Second
+
+// probeAll asks the forge about every domain and records the answer.
+func (f *forgeAccess) probeAll(ctx context.Context, token, login string) (*domainRights, error) {
+	f.mu.Lock()
+	c, ok := f.cache[login]
+	f.mu.Unlock()
 	r := &domainRights{primary: f.domains[0].Name, read: map[string]bool{}, write: map[string]bool{}}
 	for _, d := range f.domains {
 		read, write, err := f.probe(ctx, token, d.URL)
 		if err != nil {
+			if errors.Is(err, errBadVisitorToken) {
+				// The authorization itself is gone (revoked, expired, or
+				// minted before the scopes this board needs). A stale answer
+				// must not paper over that: forget it, so the next request
+				// asks and the visitor is sent to sign in again.
+				f.mu.Lock()
+				delete(f.cache, login)
+				f.mu.Unlock()
+				return nil, err
+			}
 			if ok {
 				return c.rights, nil // the forge is unreachable: the last answer stands
 			}

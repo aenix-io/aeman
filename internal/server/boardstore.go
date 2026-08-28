@@ -327,6 +327,29 @@ const (
 // that, or before the first load, a miss. Who may SEE what is not the
 // cache's business: the git backend serves one shared board and the visible
 // backend projects it per visitor's domain rights.
+// verify records that the cache was found current — a fetch that brought
+// nothing new. The entry ages from this moment, not from the last full
+// read: with a git store the sync knows whether anything changed, so time
+// alone is no reason to re-read a board.
+// age is how long ago the cache was last known current; zero when it holds
+// no board at all.
+func (e *boardEntry) age() time.Duration {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.loaded {
+		return 0
+	}
+	return time.Since(e.loadedAt)
+}
+
+func (e *boardEntry) verify() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.loaded {
+		e.loadedAt = time.Now()
+	}
+}
+
 func (e *boardEntry) cached() (board.Board, cacheState) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

@@ -170,7 +170,9 @@ func New(opts Options) (*Server, error) {
 		if opts.Auth != nil {
 			// Each visitor brings their own token: the forge says what it
 			// may read and write, per domain.
-			s.access = newForgeAccess(f, s.httpClient, opts.Git.Repos, opts.Git.Token, s.people)
+			fa := newForgeAccess(f, s.httpClient, opts.Git.Repos, opts.Git.Token, s.people)
+			fa.logger = s.log
+			s.access = fa
 		} else {
 			s.access = openAccess{domains: names}
 		}
@@ -338,6 +340,11 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		if age > s.unpushedWarn() {
 			resp["status"] = "degraded"
 		}
+		// How long ago the cache was last known to be the remote — a full
+		// read or a fetch that found nothing new. A number that keeps
+		// growing means the sync is not running, and the next visitor after
+		// a break will pay for a blocking re-read.
+		resp["cacheAgeSeconds"] = int(s.gitBE.store.entry(storeKey(boardID)).age().Seconds())
 		// What the merge of the domains had to resolve: duplicate roster
 		// names (a maintainer merges them by hand) and torn-move ghosts
 		// (maintenance removes them once the destination has landed).

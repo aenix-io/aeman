@@ -417,6 +417,11 @@ func (b *storeBackend) adoptRemote(ctx context.Context, e *boardEntry) error {
 		moved = true
 	}
 	if !moved {
+		// Every domain answered and none had anything new: the cache IS the
+		// remote. Saying so is what keeps a board nobody has opened for an
+		// hour from being re-read from scratch when someone finally does —
+		// the staleness clock was written for a store that could not ask.
+		e.verify()
 		return nil
 	}
 	return b.reloadFromTip(ctx, e)
