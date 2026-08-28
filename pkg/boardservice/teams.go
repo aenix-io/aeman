@@ -25,6 +25,42 @@ var ErrPersonalPlacement = errors.New("a personal card has no team, column or pl
 // with a zone, dates and a body, assigned to its owner, and none of the team
 // board's placement. The service names the domain; the caller asked for
 // "personal" and nothing more.
+// ReseedPersonal turns the day over on login's personal board as of day (today
+// when empty): every finished recurrent card whose cycle came due gets its
+// fresh copy — same title, zone and body, 0%, assigned to the owner, in the
+// personal domain — the way carry-over reseeds a team's. A personal board has
+// no carry-over, so its readers do this: the personal view calls it before
+// listing. Idempotent — a copy already seeded is never seeded again — and a
+// no-op without a login. Returns how many copies were created.
+func (s *Service) ReseedPersonal(ctx context.Context, boardID, login, day string) (int, error) {
+	if login == "" {
+		return 0, nil
+	}
+	if day == "" {
+		day = board.TodayIso()
+	}
+	b, err := s.backend.LoadBoard(ctx, boardID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, c := range board.PersonalReseed(b, login, day) {
+		if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
+			Title:    c.Title,
+			Zone:     c.Zone,
+			Day:      day,
+			Start:    day,
+			Assignee: login,
+			Personal: true,
+			Domain:   board.PersonalDomain(login),
+		}); err != nil {
+			return n, fmt.Errorf("reseed %q on %s's personal board: %w", c.Title, login, err)
+		}
+		n++
+	}
+	return n, nil
+}
+
 func (s *Service) createPersonalCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
 	if args.Team != "" || args.Project != "" || args.Epic != "" || args.Plan != board.PlanNone || args.Week != "" {
 		return board.Card{}, ErrPersonalPlacement

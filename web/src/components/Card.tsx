@@ -9,6 +9,7 @@ import { addDays, daysSince, localDateIso, todayIso, mondayOf } from "../date";
 import { Dropdown } from "./Dropdown";
 import { extractLinks, type CardLink } from "../links";
 import { effectiveBand } from "../weekly";
+import { recurrenceCycles, recurrenceLabel, recurrenceTitle } from "../personal";
 import { RangeCalendar } from "./RangeCalendar";
 
 // ageColor fades the age badge from light grey (fresh) to maroon-red by ~10 days.
@@ -73,6 +74,9 @@ interface CardProps {
   /** Dim the card's team avatar to 50%. Set unless this card is the selected
    *  team, so only the selected team's avatars stay at full opacity. */
   dimAvatar?: boolean;
+  /** A personal-board card: its default recurrence turns with the day, not
+   *  the sprint, and the menu says so. */
+  personal?: boolean;
   /** Resolve the card's description links server-side (GitHub issue/PR refs
    *  get their titles). The menu falls back to the local extraction. */
   onLoadLinks?: (card: CardModel) => Promise<CardLink[]>;
@@ -126,6 +130,7 @@ export function Card({
   weekMode,
   onSetWeek,
   dimAvatar,
+  personal = false,
   onLoadLinks,
   selectedBy,
   subCount,
@@ -415,11 +420,7 @@ export function Card({
           card.stage === "review"
             ? "On review"
             : card.stage === "recurrent"
-              ? card.recurrence === "week"
-                ? "Recurrent (weekly)"
-                : card.recurrence === "month"
-                  ? "Recurrent (monthly)"
-                  : "Recurrent"
+              ? recurrenceTitle(card.recurrence, personal)
               : card.stage === "locked"
                 ? "Locked"
                 : "Status"
@@ -529,13 +530,9 @@ export function Card({
                 <div
                   className={`card-stage-submenu${recLeft ? " card-stage-submenu-left" : ""}`}
                 >
-                  {(
-                    [
-                      ["", "Every sprint"],
-                      ["week", "Weekly"],
-                      ["month", "Monthly"],
-                    ] as const
-                  ).map(([cycle, label]) => (
+                  {recurrenceCycles
+                    .map((cycle) => [cycle, recurrenceLabel(cycle, personal)] as const)
+                    .map(([cycle, label]) => (
                     <button
                       key={cycle || "sprint"}
                       type="button"

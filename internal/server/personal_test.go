@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
@@ -138,6 +139,73 @@ func TestPersonalBoardLinkCreateListUnlink(t *testing.T) {
 // A link outlives the server: the users file is in the primary, and the
 // owner's repository is attached again the first time they show up — that is
 // when their credential is at hand.
+// Reading the personal view is what turns the day over on a personal board:
+// a recurrent card finished today is listed again the next day as a fresh
+// copy at 0%, the finished one gone; reading again does not add another.
+func TestPersonalViewReseedsARecurrentCardTheNextDay(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	mine := gitRemoteN(t, "mine")
+	both := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": both}}, shared)
+	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+mine.URL+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("link: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards", `{"title":"inbox zero","zone":"planned","personal":true}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Metadata struct{ UID string }
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/"+created.Metadata.UID, `{"stage":"recurrent"}`); rec.Code != http.StatusOK {
+		t.Fatalf("recurrent: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/"+created.Metadata.UID, `{"progress":100}`); rec.Code != http.StatusOK {
+		t.Fatalf("done: %d %s", rec.Code, rec.Body.String())
+	}
+	type row struct {
+		UID      string
+		Progress int
+		Stage    string
+	}
+	list := func(day string) []row {
+		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal&day="+day, "")
+		var l struct {
+			Items []struct {
+				Metadata struct{ UID string }
+				Spec     struct {
+					Progress int
+					Stage    string
+				}
+			}
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &l); err != nil {
+			t.Fatalf("%s: %d %s", day, rec.Code, rec.Body.String())
+		}
+		out := make([]row, 0, len(l.Items))
+		for _, it := range l.Items {
+			out = append(out, row{it.Metadata.UID, it.Spec.Progress, it.Spec.Stage})
+		}
+		return out
+	}
+	today := board.TodayIso()
+	if rows := list(today); len(rows) != 1 || rows[0].UID != created.Metadata.UID || rows[0].Progress != 100 {
+		t.Fatalf("today: %+v", rows)
+	}
+	tomorrow := board.AddDays(today, 1)
+	rows := list(tomorrow)
+	if len(rows) != 1 || rows[0].UID == created.Metadata.UID || rows[0].Progress != 0 || rows[0].Stage != "recurrent" {
+		t.Fatalf("tomorrow: %+v (want one fresh recurrent copy, not %s)", rows, created.Metadata.UID)
+	}
+	if again := list(tomorrow); len(again) != 1 || again[0].UID != rows[0].UID {
+		t.Fatalf("reading again must not reseed twice: %+v", again)
+	}
+}
+
 func TestPersonalBoardIsAttachedWhenTheOwnerReturns(t *testing.T) {
 	shared := gitRemoteN(t, "shared")
 	mine := gitRemoteN(t, "mine")

@@ -12,6 +12,7 @@ A personal board is not a new kind of thing. It is a **domain** — a repository
 - **Visibility.** The owner alone, whatever the forge says about who else can read the repository. Personal cards are absent from everyone else's board and watch — the same projection that hides a closed domain, fed by a right the middleware adds for the owner only.
 - **Placement.** A card is personal because it was created so (`personal: true`); the service files it in the actor's domain. From then on it is **pinned**: the home rule (team → project → primary) never moves it out, whatever team or project it is later given; a card linked to it (a subtask, a review) follows it in by the usual rule. No team, column or plan band is accepted on a personal create — those are the team board's coordinates.
 - **The view.** `view=personal` is the domain as a backlog: every open card, plus the cards finished **today**. There is no carry-over on a personal board, so a done card is seen the day it was done and is gone the next morning. That needs the day a card was done — `doneAt`, written by the store when progress reaches 100 and cleared on reopen, the way `doneFrom` is.
+- **Recurrent cards.** On a team board a finished recurrent card is reseeded — a fresh copy at 0% — by the carry-over, every sprint or once its week/month has passed. A personal board has no carry-over, so the **calendar** turns its cycles and the **owner's read** does the work: listing `view=personal` reseeds every finished recurrent card whose cycle is due before answering. The default cycle means **every day** there (the same stored `""` — the board's own turn: the sprint on a team board, the day on a personal one; the menu reads "Every day" on a personal card), a week/month cycle counts from the card's start day. Never twice in one day — a card finished today, however late, rests until tomorrow — and never once its copy exists, so reading again reseeds nothing. Yesterday's done copy leaves the view by the rule above; today's fresh one takes its place. A midnight tick was decided against (replicas, time zones, `aeman mcp` with no server running); an explicit "new day" action too — the owner asked for no carry-over there.
 
 ## What was decided against
 
@@ -25,7 +26,7 @@ A personal board is not a new kind of thing. It is a **domain** — a repository
 - `POST /api/v1/cards` with `personal: true`; `GET /api/v1/cards?view=personal`; the watch takes the same selector.
 - `GET /api/v1/board`: `metadata.personal {domain, url}` for the owner; their `~<login>` entry in `metadata.domains` with `personal: true`.
 - MCP: `create_card personal=true`, `list_cards view=personal`. `aeman mcp` attaches the local user's personal board at start with the token it pushes with.
-- UI: a personal column at the right of the Me screen with the same four zones; a "Personal board" entry in the user menu to link or unlink a repository.
+- UI: a personal column at the right of the Me screen with the same four zones; a "Personal board" entry in the user menu to link or unlink a repository. The stage menu of a personal card offers "Every day" where a team card has "Every sprint".
 
 ## Companion plugin
 

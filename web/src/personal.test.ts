@@ -4,6 +4,8 @@ import {
   isPersonalCard,
   personalRepoName,
   personalShows,
+  recurrenceLabel,
+  recurrenceTitle,
   splitPersonal,
   type PersonalBoard,
 } from "./personal";
@@ -105,5 +107,24 @@ describe("personalShows", () => {
 
   it("keeps a card whose done day is ahead of this clock (a replica's day)", () => {
     expect(personalShows(card("a", { doneAt: "2026-08-29" }), today)).toBe(true);
+  });
+});
+
+describe("recurrence labels", () => {
+  it("reads the default cycle as the day on a personal card and the sprint on a team card", () => {
+    expect(recurrenceLabel("", true)).toBe("Every day");
+    expect(recurrenceLabel("", false)).toBe("Every sprint");
+    expect(recurrenceTitle("", true)).toBe("Recurrent (daily)");
+    expect(recurrenceTitle(undefined, true)).toBe("Recurrent (daily)");
+    expect(recurrenceTitle(undefined, false)).toBe("Recurrent");
+  });
+
+  it("names the calendar cycles the same on both boards", () => {
+    for (const personal of [true, false]) {
+      expect(recurrenceLabel("week", personal)).toBe("Weekly");
+      expect(recurrenceLabel("month", personal)).toBe("Monthly");
+      expect(recurrenceTitle("week", personal)).toBe("Recurrent (weekly)");
+      expect(recurrenceTitle("month", personal)).toBe("Recurrent (monthly)");
+    }
   });
 });

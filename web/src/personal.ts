@@ -67,3 +67,36 @@ export function splitPersonal(
 export function personalShows(card: Card, today: string): boolean {
   return !card.doneAt || card.doneAt >= today;
 }
+
+/** RecurrenceCycle is a recurrent card's stored reseed cycle: "" is the
+ *  board's own turn — the sprint on a team board, the day on a personal one. */
+export type RecurrenceCycle = "" | "week" | "month";
+
+export const recurrenceCycles: readonly RecurrenceCycle[] = ["", "week", "month"];
+
+/** recurrenceLabel names a cycle in the stage menu. A personal board has no
+ *  sprint to turn with, so the default cycle turns with the day there: the
+ *  same stored "" reads "Every day" on a personal card and "Every sprint" on
+ *  a team card. */
+export function recurrenceLabel(cycle: RecurrenceCycle, personal: boolean): string {
+  switch (cycle) {
+    case "week":
+      return "Weekly";
+    case "month":
+      return "Monthly";
+    default:
+      return personal ? "Every day" : "Every sprint";
+  }
+}
+
+/** recurrenceTitle is the status icon's tooltip on a recurrent card. */
+export function recurrenceTitle(cycle: string | undefined, personal: boolean): string {
+  switch (cycle) {
+    case "week":
+      return "Recurrent (weekly)";
+    case "month":
+      return "Recurrent (monthly)";
+    default:
+      return personal ? "Recurrent (daily)" : "Recurrent";
+  }
+}

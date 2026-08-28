@@ -293,8 +293,10 @@ func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.C
 		switch {
 		case progress >= 100 && c.Progress < 100:
 			c.DoneFrom = c.Progress
+			c.DoneAt = board.TodayIso()
 		case progress < 100:
 			c.DoneFrom = 0
+			c.DoneAt = ""
 		}
 		c.Progress = progress
 	}

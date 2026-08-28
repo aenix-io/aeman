@@ -133,9 +133,19 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	if sel.View == "" {
 		sel.View = "me"
 	}
+	self := false
 	if (sel.View == "me" || sel.View == "personal") && sel.User == "" && h.cfg.ResolveLogin != nil {
 		if login, err := h.cfg.ResolveLogin(ctx); err == nil {
 			sel.User = login
+			self = true
+		}
+	}
+	// The owner reading their personal board turns its day over: the
+	// finished recurrent cards that came due are reseeded before listing
+	// (a personal board has no carry-over), as the REST handler does.
+	if sel.View == "personal" && self {
+		if _, err := svc.ReseedPersonal(ctx, boardID, sel.User, sel.Day); err != nil {
+			return nil, apiserver.CardList{}, err
 		}
 	}
 	// MCP inputs cannot distinguish absent from empty, so an empty stage/zone

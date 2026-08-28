@@ -1462,6 +1462,7 @@ export function MeBoard({
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
+      personal={personal}
       dimAvatar={!personal && (teamFilter === null || !teamFilter.includes(card.team ?? ""))}
       subCount={(childrenOf.get(card.itemId) ?? []).length}
       expanded={subsOpen(card.itemId)}
