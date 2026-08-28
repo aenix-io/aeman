@@ -169,7 +169,10 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		domains = append(domains, gitDomain{Domain: gitstore.Domain{Name: spec.Name, Repo: repo}, remote: remote})
 	}
 	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval,
-		MaintainEvery: 24 * time.Hour, HistoryMax: cfg.HistoryMax, Logger: log}), nil
+		MaintainEvery: 24 * time.Hour, HistoryMax: cfg.HistoryMax, Logger: log,
+		// Issue/PR titles in card descriptions are read with the push
+		// credential — the store has no per-visitor token any more.
+		Links: newForgeLinks(githubAPIBase, &http.Client{Timeout: 10 * time.Second}, cfg.Token)}), nil
 }
 
 func initHint(url string) error {

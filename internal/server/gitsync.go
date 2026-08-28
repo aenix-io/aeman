@@ -41,7 +41,11 @@ type gitOptions struct {
 	MaintainEvery time.Duration
 	// HistoryMax caps on-demand deepening for a card's log; zero disables it.
 	HistoryMax time.Duration
-	Logger     *slog.Logger
+	// Links resolves GitHub issue/PR references in card descriptions to
+	// their live title and state with the server credential; nil leaves
+	// them as written.
+	Links  *forgeLinks
+	Logger *slog.Logger
 }
 
 // gitDomain is one of the board's repositories and where it pushes.
@@ -56,6 +60,7 @@ type gitSync struct {
 	mb         *gitstore.MultiBackend
 	pushDelay  time.Duration
 	historyMax time.Duration
+	links      *forgeLinks
 	log        *slog.Logger
 
 	// applyMu serializes the queue's commits with the sync's resets and
@@ -86,7 +91,7 @@ func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *sto
 	be := &storeBackend{
 		inner: mb,
 		store: store,
-		git:   &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, log: opts.Logger},
+		git:   &gitSync{domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, links: opts.Links, log: opts.Logger},
 	}
 	if opts.SyncInterval > 0 {
 		go be.runSync(context.Background(), opts.SyncInterval)
