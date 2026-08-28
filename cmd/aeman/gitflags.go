@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/server"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
@@ -99,6 +100,7 @@ type gitFlags struct {
 	data, history, historyMax string
 	syncInterval, unpushed    string
 	committer, authorEmail    string
+	forge, gitlabURL          string
 	env                       func(string) string
 }
 
@@ -117,6 +119,8 @@ func addGitFlags(fs *flag.FlagSet, env func(string) string) *gitFlags {
 	fs.StringVar(&g.unpushed, "unpushed-warn", "", "age of the oldest unpushed commit that turns health degraded (env AEMAN_UNPUSHED_WARN; default 5m)")
 	fs.StringVar(&g.committer, "committer", "", `committer identity "Name <email>" (env AEMAN_COMMITTER; default "aeman <aeman@localhost>")`)
 	fs.StringVar(&g.authorEmail, "author-email", "", "author email template with {login} (env AEMAN_AUTHOR_EMAIL; default {login}@aeman)")
+	fs.StringVar(&g.forge, "forge", "", "the code host the repositories live on: github or gitlab (env AEMAN_FORGE; default by the primary repository's host)")
+	fs.StringVar(&g.gitlabURL, "gitlab-url", "", "base URL of a self-hosted GitLab, e.g. https://gitlab.example.org (env AEMAN_GITLAB_URL; default https://<primary repository host>)")
 	return g
 }
 
@@ -149,6 +153,9 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 	}
 	cfg := &server.GitConfig{Repos: repos, Token: g.env("AEMAN_GIT_TOKEN")}
 	var err error
+	if cfg.Forge, err = forge.Detect(repos[0].URL, forge.Kind(g.pick(g.forge, "AEMAN_FORGE", "")), g.pick(g.gitlabURL, "AEMAN_GITLAB_URL", "")); err != nil {
+		return nil, fmt.Errorf("--forge: %w", err)
+	}
 	if cfg.History, err = parseSpan(g.pick(g.history, "AEMAN_HISTORY", "2w")); err != nil {
 		return nil, fmt.Errorf("--history: %w", err)
 	}
@@ -170,14 +177,15 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 }
 
 // fillGitToken supplies the push/fetch credential when AEMAN_GIT_TOKEN is
-// unset: the local gh CLI's token, the same source the GitHub board uses in
-// local mode. Best-effort — a remote that needs no credential (a file path,
-// a public repository) works without it.
+// unset: the forge's token variables, then its CLI's token — the same
+// source a single-user server reads the identity from. Best-effort — a
+// remote that needs no credential (a file path, a public repository) works
+// without it.
 func fillGitToken(ctx context.Context, cfg *server.GitConfig) {
 	if cfg == nil || cfg.Token != "" {
 		return
 	}
-	if tok, err := resolveGitHubToken(ctx); err == nil {
+	if tok, err := resolveForgeToken(ctx, cfg.Forge, cliFor(cfg.Forge, cfg.Repos[0].URL), osEnv); err == nil {
 		cfg.Token = tok
 	}
 }

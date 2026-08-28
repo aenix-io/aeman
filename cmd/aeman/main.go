@@ -20,7 +20,6 @@ import (
 	"time"
 	_ "time/tzdata" // board timezone by name works even in scratch containers
 
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -127,13 +126,21 @@ func runServe(args []string) error {
 
 	logger := newLogger(*verbose)
 
-	// Multi-user GitHub OAuth mode is enabled when client credentials are set
-	// in the environment (kept out of flags so secrets stay out of `ps`).
+	// Multi-user OAuth mode is enabled when one forge's client credentials
+	// are set in the environment (kept out of flags so secrets stay out of
+	// `ps`); the pair must belong to the forge the board lives on.
 	var auth *server.OAuthConfig
-	if id, secret := os.Getenv("AEMAN_GITHUB_CLIENT_ID"), os.Getenv("AEMAN_GITHUB_CLIENT_SECRET"); id != "" && secret != "" {
+	id, secret, err := oauthPair(gitCfg.Forge, osEnv)
+	if err != nil {
+		return err
+	}
+	if id != "" {
 		baseURL := os.Getenv("AEMAN_BASE_URL")
 		if baseURL == "" {
-			return fmt.Errorf("AEMAN_BASE_URL is required when GitHub OAuth is configured")
+			return fmt.Errorf("AEMAN_BASE_URL is required when %s OAuth is configured", gitCfg.Forge.Label())
+		}
+		if gitCfg.Token == "" {
+			return fmt.Errorf("AEMAN_GIT_TOKEN is required in OAuth mode: the server pushes the board's repositories and asks %s who may read them with its own credential", gitCfg.Forge.Label())
 		}
 		auth = &server.OAuthConfig{
 			ClientID:     id,
@@ -151,6 +158,8 @@ func runServe(args []string) error {
 		Logger:  logger,
 		Auth:    auth,
 		Git:     gitCfg,
+		Forge:   gitCfg.Forge,
+		CLI:     cliFor(gitCfg.Forge, gitCfg.Repos[0].URL),
 	})
 	if err != nil {
 		return err
@@ -190,9 +199,11 @@ func runMCP(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The local person is whoever the forge's CLI is signed in as (gh, glab).
+	cli := cliFor(gitCfg.Forge, gitCfg.Repos[0].URL)
 	// The local person's personal board, if the primary links one: attached
 	// with the same credential the pushes use.
-	if login, err := ghcli.Login(context.Background()); err == nil {
+	if login, err := cli.Login(context.Background()); err == nil {
 		if err := gb.AttachPersonal(context.Background(), login, gitCfg.Token); err != nil {
 			logger.Warn("personal board", "login", login, "err", err)
 		}
@@ -202,17 +213,17 @@ func runMCP(args []string) error {
 		Lock:    true,
 		Version: version,
 		// Scope the default (unspecified-view) list to the local user's own Me
-		// board; best-effort via the gh CLI, else the list stays sprint-scoped.
-		ResolveLogin: ghcli.Login,
+		// board; best-effort via the forge's CLI, else the list stays sprint-scoped.
+		ResolveLogin: cli.Login,
 		Backend:      gb.Backend(),
 	}
 	drain := gb.Drain
 	srv := mcpserver.New(cfg)
 
-	// Attribute activity events to the local gh identity (cached per process).
+	// Attribute activity events to the local CLI identity (cached per process).
 	srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if login, err := ghcli.Login(ctx); err == nil {
+			if login, err := cli.Login(ctx); err == nil {
 				ctx = boardservice.WithActor(ctx, login)
 			}
 			return next(ctx, method, req)
@@ -273,7 +284,7 @@ func runInit(args []string) error {
 	fillGitToken(context.Background(), cfg)
 	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
 	if cfg.Token != "" {
-		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
+		remote.Auth = cfg.Forge.GitAuth(cfg.Token)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -316,7 +327,7 @@ func runMigrate(args []string) error {
 	fillGitToken(ctx, cfg)
 	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
 	if cfg.Token != "" {
-		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: cfg.Token}
+		remote.Auth = cfg.Forge.GitAuth(cfg.Token)
 	}
 	rep, err := migrate.Run(ctx, ghsource.New(tok), memory.NewStorage(), remote, migrate.Options{
 		Owner: *owner, Board: *number, Title: *title, Committer: cfg.Committer, DryRun: *dryRun, Force: *force,
