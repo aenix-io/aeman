@@ -478,7 +478,17 @@ func (mb *MultiBackend) place(ctx context.Context, op string, f CardFile, p, fro
 // continuous list, newest first, each field change an event with the
 // commit's actor and time. truncatedBefore is the horizon of the oldest
 // domain walked when a shallow clone cuts the history; zero otherwise.
-func (mb *MultiBackend) CardLog(_ context.Context, bd board.Board, id string) ([]board.Event, time.Time, error) {
+func (mb *MultiBackend) CardLog(ctx context.Context, bd board.Board, id string) ([]board.Event, time.Time, error) {
+	return mb.cardLog(ctx, bd, id, time.Time{})
+}
+
+// CardLogSince is CardLog cut at a boundary — the day feed's read, which
+// follows a move the same way.
+func (mb *MultiBackend) CardLogSince(ctx context.Context, bd board.Board, id string, since time.Time) ([]board.Event, time.Time, error) {
+	return mb.cardLog(ctx, bd, id, since)
+}
+
+func (mb *MultiBackend) cardLog(_ context.Context, bd board.Board, id string, since time.Time) ([]board.Event, time.Time, error) {
 	// The board handed in already says where the card lives (the store
 	// stamps every card); decoding the whole tree again for that one fact
 	// is what made a log read cost as much as a board load.
@@ -502,7 +512,7 @@ func (mb *MultiBackend) CardLog(_ context.Context, bd board.Board, id string) ([
 		if err != nil {
 			return nil, time.Time{}, err
 		}
-		log, err := be.repo.CardLog(id, 0)
+		log, err := be.repo.CardLogSince(id, since)
 		if err != nil {
 			return nil, time.Time{}, err
 		}

@@ -30,6 +30,18 @@ func LocationName() string {
 	return boardLocation.String()
 }
 
+// Location is the board's time zone — what a board day's first moment is
+// measured in (the day feed's history boundary, for one).
+func Location() *time.Location {
+	return boardLocation
+}
+
+// IsDayIso reports whether s is a board day: yyyy-mm-dd, and a real date.
+func IsDayIso(s string) bool {
+	_, err := time.ParseInLocation(isoLayout, s, boardLocation)
+	return err == nil
+}
+
 func TodayIso() string {
 	return time.Now().In(boardLocation).Format(isoLayout)
 }

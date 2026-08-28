@@ -60,6 +60,10 @@ type Backend interface {
 	// SetLeftAt writes (or clears, with "") the board day a personal card
 	// was left behind on by the ×.
 	SetLeftAt(ctx context.Context, b board.Board, card board.Card, day string) error
+	// CardLogSince is CardLog cut at a boundary: the card's events at or
+	// after it. The day feed asks about one day over many cards and has no
+	// use for their whole histories.
+	CardLogSince(ctx context.Context, b board.Board, id string, since time.Time) ([]board.Event, time.Time, error)
 	SetStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetSprintStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetPlan(ctx context.Context, b board.Board, card board.Card, plan board.PlanBand) error

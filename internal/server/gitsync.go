@@ -586,6 +586,16 @@ func (b *storeBackend) maintainNow(ctx context.Context, key string) (int, error)
 // CardLog is the card's feed from the commits (boardservice.LogReader); the
 // queue may hold writes not yet committed, but the cache already shows them
 // and the feed is what has happened, not what is about to.
+// CardLogSince is the day feed's read: the card's events at or after the
+// boundary. It never deepens — a day the horizon does not cover has no
+// events to show anyway, and the feed must not pay a fetch per card.
+func (b *storeBackend) CardLogSince(ctx context.Context, bd board.Board, id string, since time.Time) ([]board.Event, time.Time, error) {
+	if b.git == nil {
+		return nil, time.Time{}, nil
+	}
+	return b.git.mb.CardLogSince(ctx, bd, id, since)
+}
+
 func (b *storeBackend) CardLog(ctx context.Context, bd board.Board, id string) ([]board.Event, time.Time, error) {
 	if b.git == nil {
 		return nil, time.Time{}, nil

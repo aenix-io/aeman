@@ -938,7 +938,16 @@ func (b *Backend) AppendEvent(ctx context.Context, _ board.Board, card board.Car
 // a shallow clone cuts it at (zero when whole). MultiBackend.CardLog is the
 // cross-domain version that follows a move.
 func (b *Backend) CardLog(_ context.Context, _ board.Board, id string) ([]board.Event, time.Time, error) {
-	log, err := b.repo.CardLog(id, 0)
+	return eventsFrom(b.repo.CardLog(id, 0))
+}
+
+// CardLogSince is CardLog cut at a boundary — the day feed's read.
+func (b *Backend) CardLogSince(_ context.Context, _ board.Board, id string, since time.Time) ([]board.Event, time.Time, error) {
+	return eventsFrom(b.repo.CardLogSince(id, since))
+}
+
+// eventsFrom flattens a log's entries into events.
+func eventsFrom(log Log, err error) ([]board.Event, time.Time, error) {
 	if err != nil {
 		return nil, time.Time{}, err
 	}

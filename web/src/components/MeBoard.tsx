@@ -16,9 +16,11 @@ import {
 } from "../api/pending";
 import { isWorkable } from "../stages";
 import { mergeNotes, sameNotes } from "../notes";
+import { dayFeedUpdates, type CardFrame } from "../daylog";
 import type {
   Board,
   Card as CardModel,
+  CardDayLog,
   CardPatch,
   Note,
   Provider,
@@ -62,6 +64,11 @@ interface MeBoardProps {
   names: Names;
   /** The Connect dialog's MCP caption, spelled for the board's forge. */
   connectHint: string;
+  /** Subscribe to Card watch frames (uid + deleted) so the day feed can
+   *  re-ask itself about cards other people changed; returns the
+   *  unsubscribe. Own mutations never arrive — the watch suppresses this
+   *  tab's echoes. */
+  subscribeCardFrames?: (fn: (uid: string, deleted: boolean) => void) => () => void;
   /** Known teams to offer in the team selector. */
   teams: string[];
   /** Shared single-select team (also the team for new cards); null = none. */
@@ -129,6 +136,7 @@ export function MeBoard({
   avatars,
   names,
   connectHint,
+  subscribeCardFrames,
   teams,
   teamFilter,
   onSetFilter,
@@ -384,16 +392,71 @@ export function MeBoard({
   }, [myCards, byZone]);
 
 
-  // Refresh a card's log after an own mutation: our watch echo is suppressed,
-  // so the freshly recorded event won't stream back — refetch it.
+  // ---- The day feed --------------------------------------------------------
+  // Notes and events for the viewed day arrive as ONE batch (GET /logs) for
+  // every visible card — not as a history walk per card. The feed lives here,
+  // keyed by the day it answers for; a response landing after the day changed
+  // is dropped, and a tmp- note (an optimistic add in flight) survives a
+  // refresh the same way card notes do (mergeNotes).
+  const [dayFeed, setDayFeed] = useState<{ day: string; cards: Record<string, CardDayLog> }>({
+    day: "",
+    cards: {},
+  });
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
+  const applyDayFeed = useCallback((day: string, cards: Record<string, CardDayLog>) => {
+    setDayFeed((cur) => {
+      if (day !== selectedDateRef.current) {
+        return cur;
+      }
+      const base = cur.day === day ? cur.cards : {};
+      const next = { ...base };
+      for (const [uid, entry] of Object.entries(cards)) {
+        next[uid] = {
+          notes: mergeNotes(entry.notes, base[uid]?.notes),
+          events: entry.events,
+        };
+      }
+      return { day, cards: next };
+    });
+  }, []);
+  // The local half of a note mutation: the same optimistic change the card's
+  // notes get, applied to the card's day-feed entry.
+  const patchDayNotes = (uid: string, fn: (notes: Note[]) => Note[]) =>
+    setDayFeed((cur) => {
+      const entry = cur.cards[uid] ?? { notes: [], events: [] };
+      return {
+        ...cur,
+        cards: { ...cur.cards, [uid]: { ...entry, notes: fn(entry.notes) } },
+      };
+    });
+  // Re-ask the feed for one card after an own write: the watch echo is
+  // suppressed, so the freshly recorded event never streams back.
+  const refreshDayLog = (itemId: string) => {
+    if (itemId.startsWith("tmp-")) {
+      return;
+    }
+    const day = selectedDateRef.current;
+    void provider
+      .listDayLogs([itemId], day)
+      .then((cards) => applyDayFeed(day, cards))
+      .catch(() => {});
+  };
+
+  // Refresh a card's log after an own mutation: the day feed always; the
+  // card's own WHOLE log only when it is loaded (it backs the card's pane —
+  // notes defined = loaded).
   const refreshLog = (itemId: string) => {
     if (itemId.startsWith("tmp-")) {
       return;
     }
-    void provider
-      .listLog(itemId)
-      .then(({ notes, events }) => patchCard(itemId, { notes, events }))
-      .catch(() => {});
+    refreshDayLog(itemId);
+    if (cardsById.get(itemId)?.notes !== undefined) {
+      void provider
+        .listLog(itemId)
+        .then(({ notes, events }) => patchCard(itemId, { notes, events }))
+        .catch(() => {});
+    }
   };
 
   // Subtasks are selectable rows too but never appear in myCards: fall back
@@ -468,10 +531,13 @@ export function MeBoard({
     [byZone, childrenOf, personalByZone],
   );
 
+  // The day feed reads from the batch state; the date filter stays as a guard
+  // (entries are already day-scoped, and an optimistic note composed while
+  // looking at another day belongs to today, not the viewed one).
   const dayNotes = useMemo<DayNote[]>(() => {
     const out: DayNote[] = [];
     for (const card of notesCards) {
-      for (const note of card.notes ?? []) {
+      for (const note of dayFeed.cards[card.itemId]?.notes ?? []) {
         if (localDateIso(note.createdAt) === selectedDate) {
           out.push({ note, card });
         }
@@ -479,13 +545,13 @@ export function MeBoard({
     }
     out.sort((a, b) => a.note.createdAt.localeCompare(b.note.createdAt));
     return out;
-  }, [notesCards, selectedDate]);
+  }, [notesCards, dayFeed, selectedDate]);
 
   // The day's recorded activity events, feeding the same panel as the notes.
   const dayEvents = useMemo<DayEvent[]>(() => {
     const out: DayEvent[] = [];
     for (const card of notesCards) {
-      for (const event of card.events ?? []) {
+      for (const event of dayFeed.cards[card.itemId]?.events ?? []) {
         if (localDateIso(event.at) === selectedDate) {
           out.push({ event, card });
         }
@@ -493,32 +559,91 @@ export function MeBoard({
     }
     out.sort((a, b) => a.event.at.localeCompare(b.event.at));
     return out;
-  }, [notesCards, selectedDate]);
+  }, [notesCards, dayFeed, selectedDate]);
 
-  // Notes and events live in the log subresource, not on the Card resource:
-  // lazily load them for the day's visible cards. A card's loaded notes are the
-  // "fetched" marker (mutations and the watch keep them fresh); a re-list
-  // clears them, so they refetch. A failed request stays marked, not retried.
-  const notesRequested = useRef<Set<string>>(new Set());
+  // The feed loads in ONE request whenever the set of visible cards or the
+  // viewed day changes. The key is the sorted uid list, so reorders and
+  // unrelated card patches never re-ask; a response for a day no longer
+  // viewed is dropped by applyDayFeed.
+  const feedKey = useMemo(
+    () =>
+      notesCards
+        .map((c) => c.itemId)
+        .filter((id) => !id.startsWith("tmp-"))
+        .sort()
+        .join(","),
+    [notesCards],
+  );
   useEffect(() => {
-    for (const c of notesCards) {
-      if (
-        c.notes !== undefined ||
-        c.itemId.startsWith("tmp-") ||
-        notesRequested.current.has(c.itemId)
-      ) {
-        continue;
-      }
-      notesRequested.current.add(c.itemId);
-      void provider
-        .listLog(c.itemId)
-        .then(({ notes, events }) => {
-          notesRequested.current.delete(c.itemId);
-          patchCard(c.itemId, { notes, events });
-        })
-        .catch(() => {});
+    if (!feedKey) {
+      return;
     }
-  }, [notesCards, board, provider, patchCard]);
+    let cancelled = false;
+    const day = selectedDate;
+    void provider
+      .listDayLogs(feedKey.split(","), day)
+      .then((cards) => {
+        if (!cancelled) {
+          applyDayFeed(day, cards);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [feedKey, selectedDate, provider, applyDayFeed]);
+
+  // Foreign changes land in the feed live: App relays every Card watch frame
+  // (own echoes never arrive — the watch is keyed by this tab's client id).
+  // A burst of frames is coalesced for a beat and the changed cards re-asked
+  // in ONE batch; a DELETED card's entry is dropped rather than left stale.
+  const feedSet = useMemo(() => new Set(feedKey ? feedKey.split(",") : []), [feedKey]);
+  const feedSetRef = useRef(feedSet);
+  feedSetRef.current = feedSet;
+  useEffect(() => {
+    if (!subscribeCardFrames) {
+      return;
+    }
+    let pending: CardFrame[] = [];
+    let timer: number | null = null;
+    const flush = () => {
+      timer = null;
+      const frames = pending;
+      pending = [];
+      const { drop, refresh } = dayFeedUpdates(frames, feedSetRef.current);
+      if (drop.length > 0) {
+        setDayFeed((cur) => {
+          if (!drop.some((uid) => uid in cur.cards)) {
+            return cur;
+          }
+          const cards = { ...cur.cards };
+          for (const uid of drop) {
+            delete cards[uid];
+          }
+          return { ...cur, cards };
+        });
+      }
+      if (refresh.length > 0) {
+        const day = selectedDateRef.current;
+        void provider
+          .listDayLogs(refresh, day)
+          .then((cards) => applyDayFeed(day, cards))
+          .catch(() => {});
+      }
+    };
+    const unsubscribe = subscribeCardFrames((uid, deleted) => {
+      pending.push({ uid, deleted });
+      if (timer === null) {
+        timer = window.setTimeout(flush, 200);
+      }
+    });
+    return () => {
+      unsubscribe();
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [subscribeCardFrames, provider, applyDayFeed]);
 
 
   // Listings are board rows without the body; the Card pane needs it, so the
@@ -546,6 +671,34 @@ export function MeBoard({
         // asserts "no description" when it has none — it must never keep
         // asserting that because one request failed.
         bodyRequested.current.delete(c.itemId);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCardId, board.cards]);
+
+  // The card's own pane shows the WHOLE log; like the body, it is fetched the
+  // moment a card is selected without one (notes undefined = not loaded). The
+  // day feed never writes these fields — day-scoped data must not pose as the
+  // full history.
+  const logRequested = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const c = selectedCardId ? cardsById.get(selectedCardId) : undefined;
+    if (
+      !c ||
+      c.notes !== undefined ||
+      c.itemId.startsWith("tmp-") ||
+      logRequested.current.has(c.itemId)
+    ) {
+      return;
+    }
+    logRequested.current.add(c.itemId);
+    void provider
+      .listLog(c.itemId)
+      .then(({ notes, events }) => {
+        patchCard(c.itemId, { notes, events });
+      })
+      .catch(() => {})
+      .finally(() => {
+        logRequested.current.delete(c.itemId);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCardId, board.cards]);
@@ -1486,42 +1639,87 @@ export function MeBoard({
     // Functional updates: rapid Enter-Enter-Enter adds must each build on the
     // card's CURRENT notes, not on this render's stale copy. The server's
     // response list is merged the same way — it may predate optimistic notes
-    // added after this request left, and must not wipe them.
-    patchCard(uid, (c) => ({
-      notes: [...(c.notes ?? []), optimistic],
-    }));
+    // added after this request left, and must not wipe them. Both stores get
+    // the change: the day feed always (it is what the panel renders), the
+    // card's own log only when it is loaded (writing into an unloaded one
+    // would mark it loaded).
+    patchCard(uid, (c) => (c.notes === undefined ? {} : { notes: [...c.notes, optimistic] }));
+    patchDayNotes(uid, (ns) => [...ns, optimistic]);
     void provider
       .addNote(uid, text)
-      .then((notes) =>
-        patchCard(uid, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
-      )
-      .catch(fail);
+      .then((notes) => {
+        patchCard(uid, (c) => {
+          if (c.notes === undefined) {
+            return {};
+          }
+          const merged = mergeNotes(notes, c.notes);
+          return sameNotes(c.notes, merged) ? {} : { notes: merged };
+        });
+        // The ack carries the card's full note list; the feed's date filter
+        // trims it to the day, so it doubles as the refresh.
+        patchDayNotes(uid, (ns) => mergeNotes(notes, ns));
+      })
+      .catch((err: unknown) => {
+        // The note was refused: it must not keep showing (a tmp- note would
+        // survive every merge).
+        patchDayNotes(uid, (ns) => ns.filter((n) => n.id !== optimistic.id));
+        patchCard(uid, (c) =>
+          c.notes === undefined
+            ? {}
+            : { notes: c.notes.filter((n) => n.id !== optimistic.id) },
+        );
+        fail(err);
+      });
   };
 
   const handleEditNote = (note: Note, card: CardModel, text: string) => {
-    patchCard(card.itemId, (c) => ({
-      notes: (c.notes ?? []).map((n) =>
-        n.id === note.id ? { ...n, body: text } : n,
-      ),
-    }));
+    patchCard(card.itemId, (c) =>
+      c.notes === undefined
+        ? {}
+        : { notes: c.notes.map((n) => (n.id === note.id ? { ...n, body: text } : n)) },
+    );
+    patchDayNotes(card.itemId, (ns) =>
+      ns.map((n) => (n.id === note.id ? { ...n, body: text } : n)),
+    );
     void provider
       .editNote(card.itemId, note.id, text)
-      .then((notes) =>
-        patchCard(card.itemId, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
-      )
-      .catch(fail);
+      .then((notes) => {
+        patchCard(card.itemId, (c) => {
+          if (c.notes === undefined) {
+            return {};
+          }
+          const merged = mergeNotes(notes, c.notes);
+          return sameNotes(c.notes, merged) ? {} : { notes: merged };
+        });
+        patchDayNotes(card.itemId, (ns) => mergeNotes(notes, ns));
+      })
+      .catch((err: unknown) => {
+        refreshDayLog(card.itemId);
+        fail(err);
+      });
   };
 
   const handleDeleteNote = (note: Note, card: CardModel) => {
-    patchCard(card.itemId, (c) => ({
-      notes: (c.notes ?? []).filter((n) => n.id !== note.id),
-    }));
+    patchCard(card.itemId, (c) =>
+      c.notes === undefined ? {} : { notes: c.notes.filter((n) => n.id !== note.id) },
+    );
+    patchDayNotes(card.itemId, (ns) => ns.filter((n) => n.id !== note.id));
     void provider
       .deleteNote(card.itemId, note.id)
-      .then((notes) =>
-        patchCard(card.itemId, (c) => { const merged = mergeNotes(notes, c.notes); return sameNotes(c.notes, merged) ? {} : { notes: merged }; }),
-      )
-      .catch(fail);
+      .then((notes) => {
+        patchCard(card.itemId, (c) => {
+          if (c.notes === undefined) {
+            return {};
+          }
+          const merged = mergeNotes(notes, c.notes);
+          return sameNotes(c.notes, merged) ? {} : { notes: merged };
+        });
+        patchDayNotes(card.itemId, (ns) => mergeNotes(notes, ns));
+      })
+      .catch((err: unknown) => {
+        refreshDayLog(card.itemId);
+        fail(err);
+      });
   };
 
   // Saves the Card pane's in-place description edit. The description

@@ -779,6 +779,20 @@ export function App() {
   reloadRef.current = reload;
   const boardRef = useRef(board);
   boardRef.current = board;
+  // The day feed (MeBoard) subscribes here to hear about Card watch frames —
+  // a foreign note or move must land in the feed without a reload. Own
+  // mutations never arrive (the watch is keyed by ?client=, and the server
+  // skips this tab's echoes), so every frame relayed is someone else's.
+  const cardFrameListeners = useRef(new Set<(uid: string, deleted: boolean) => void>());
+  const subscribeCardFrames = useCallback(
+    (fn: (uid: string, deleted: boolean) => void) => {
+      cardFrameListeners.current.add(fn);
+      return () => {
+        cardFrameListeners.current.delete(fn);
+      };
+    },
+    [],
+  );
   // Not while signed out: the server refuses the socket, and rebuilding it
   // every few seconds behind the sign-in gate helps nobody. The tear-down
   // below runs the moment the re-check flips the config.
@@ -834,8 +848,14 @@ export function App() {
       }
       if (frame.kind === "Card") {
         const card = resourceToCard(frame.object as CardResource);
+        const notifyCardFrame = (deleted: boolean) => {
+          for (const fn of cardFrameListeners.current) {
+            fn(card.itemId, deleted);
+          }
+        };
         if (frame.type === "DELETED") {
           removeCard(card.itemId);
+          notifyCardFrame(true);
           return;
         }
         // Note/event changes arrive as plain card changes, and the resource
@@ -844,6 +864,7 @@ export function App() {
           (c) => c.itemId === card.itemId,
         );
         addCard(card);
+        notifyCardFrame(false);
         if (existing?.notes !== undefined) {
           void provider
             .listLog(card.itemId)
@@ -1214,6 +1235,7 @@ export function App() {
             avatars={avatars}
             names={names}
             connectHint={forge.connectHint}
+            subscribeCardFrames={subscribeCardFrames}
             teams={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}

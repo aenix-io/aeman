@@ -551,6 +551,47 @@ type LogList struct {
 	TruncatedBefore string `json:"truncatedBefore,omitempty"`
 }
 
+// DayLogList is the GET /logs response: one day's feed, per card. The day
+// board asks it once for every card it shows — a card's own whole history
+// is the other question (GET /cards/{uid}/log).
+type DayLogList struct {
+	Kind string `json:"kind"`
+	Day  string `json:"day"`
+	// Cards maps a card's uid to its entries on that day, oldest first. A
+	// card that was quiet is present with an empty list; a card the visitor
+	// cannot see is absent.
+	Cards map[string][]LogEntry `json:"cards"`
+}
+
+// DayLogsFrom builds the day feed's response from what the service found.
+func DayLogsFrom(day string, per map[string]DayEntries) DayLogList {
+	out := DayLogList{Kind: "DayLogList", Day: day, Cards: make(map[string][]LogEntry, len(per))}
+	for uid, d := range per {
+		items := make([]LogEntry, 0, len(d.Events)+len(d.Notes))
+		for _, e := range d.Events {
+			items = append(items, LogEntry{
+				Type: "event", ID: e.ID, At: e.At, Actor: e.Actor,
+				EventKind: e.Kind, From: e.From, To: e.To,
+			})
+		}
+		for _, n := range d.Notes {
+			items = append(items, LogEntry{
+				Type: "note", ID: n.ID, At: n.CreatedAt, Actor: n.Author, Text: n.Body,
+			})
+		}
+		sort.SliceStable(items, func(i, j int) bool { return items[i].At < items[j].At })
+		out.Cards[uid] = items
+	}
+	return out
+}
+
+// DayEntries is one card's notes and events on a day — the service's answer
+// shape, kept here so the resource layer does not import the service.
+type DayEntries struct {
+	Notes  []board.Note
+	Events []board.Event
+}
+
 // CardLogFrom merges the given events — a backend's history — with the
 // card's notes into one chronological feed, naming the horizon the history
 // is cut at when there is one.
