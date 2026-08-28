@@ -405,6 +405,26 @@ func (a *authManager) sessionByID(ctx context.Context, sid string) (oauthSession
 	return a.renewSession(ctx, sid, s)
 }
 
+// renewNow renews a session's token on demand — the forge has just refused
+// the one it holds, and the refresh token may still buy a fresh one — and
+// returns the renewed session. False when there is nothing to renew with,
+// or the refresh was refused (the session is gone then), or the renewal
+// kept the very token the forge refused (a refresh failure inside the
+// token's lifetime keeps it; here that is of no use).
+func (a *authManager) renewNow(ctx context.Context, sid string) (oauthSession, bool) {
+	a.mu.Lock()
+	s, ok := a.sessions[sid]
+	if !ok || s.refresh == "" {
+		a.mu.Unlock()
+		return oauthSession{}, false
+	}
+	renewed, ok := a.renewSession(ctx, sid, s)
+	if !ok || renewed.token == s.token {
+		return oauthSession{}, false
+	}
+	return renewed, true
+}
+
 // tokenRenewAhead is how early a session's GitHub token is renewed. Well
 // inside the 8h lifetime, and long enough that a request never has to use a
 // token in its final seconds.

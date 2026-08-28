@@ -286,6 +286,18 @@ func (s *Server) accessMiddleware(next http.Handler) http.Handler {
 				return
 			}
 			rights, err := s.access.rights(r.Context(), tok, login)
+			if errors.Is(err, errBadVisitorToken) && s.auth != nil {
+				// The forge refused the session's token. The refresh token
+				// may still buy a fresh one — a GitLab token lives two hours,
+				// and a token issued a moment ago has been seen refused by a
+				// lagging replica — so renew once and ask again before the
+				// session is given up.
+				if sess, ok := s.auth.renewNow(r.Context(), s.auth.sessionID(r)); ok {
+					tok = sess.token
+					rights, err = s.access.rights(r.Context(), tok, login)
+					s.log.Info("session token renewed after the forge refused it", "login", login)
+				}
+			}
 			if err != nil {
 				if errors.Is(err, errBadVisitorToken) {
 					// The session was built on a token the forge now refuses:

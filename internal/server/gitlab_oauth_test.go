@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/aenix-io/aeman/internal/forge"
+	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
 // fakeGitLabForge is enough of a GitLab instance for the sign-in flow: the
@@ -42,6 +44,142 @@ func fakeGitLabForge(t *testing.T) (*httptest.Server, *[]string) {
 	}))
 	t.Cleanup(gl.Close)
 	return gl, &forms
+}
+
+// tokenAccess is a domainAccess that trusts some tokens and refuses the rest
+// the way the forge does (errBadVisitorToken).
+type tokenAccess struct {
+	good  map[string]bool
+	grant *domainRights
+}
+
+func (t tokenAccess) rights(_ context.Context, token, _ string) (*domainRights, error) {
+	if !t.good[token] {
+		return nil, errBadVisitorToken
+	}
+	return t.grant, nil
+}
+func (t tokenAccess) readers(_ context.Context, _ string, logins []string) ([]string, error) {
+	return logins, nil
+}
+func (t tokenAccess) canPush(context.Context, string, string) (bool, error) { return true, nil }
+
+// signInWithGitLab drives the browser flow against the fake and returns the
+// session cookie.
+func signInWithGitLab(t *testing.T, srv *Server) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	var state string
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == stateCookie {
+			state = c.Value
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=abc&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: stateCookie, Value: state})
+	rec = httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("callback: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookie {
+			return c.Value
+		}
+	}
+	t.Fatal("no session cookie")
+	return ""
+}
+
+// A token the forge refuses is not the end of the session while a refresh
+// token can buy a fresh one: the server renews once and asks again — a
+// GitLab token lives two hours, and a token issued a moment ago has been
+// seen refused by a lagging replica. Only when the refresh is refused too is
+// the session dropped and the visitor sent to sign in again.
+func TestARefusedSessionTokenIsRenewedBeforeTheSessionIsDropped(t *testing.T) {
+	newServer := func(t *testing.T, refreshOK bool) (*Server, *int) {
+		t.Helper()
+		refreshes := 0
+		gl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/oauth/token":
+				body, _ := io.ReadAll(r.Body)
+				if strings.Contains(string(body), "grant_type=refresh_token") {
+					refreshes++
+					if !refreshOK || !strings.Contains(string(body), "redirect_uri=") {
+						w.WriteHeader(http.StatusBadRequest)
+						_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "gl-token-2", "refresh_token": "gl-refresh-2", "expires_in": 7200})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "gl-token-1", "refresh_token": "gl-refresh-1", "expires_in": 7200})
+			case "/api/v4/user":
+				_ = json.NewEncoder(w).Encode(map[string]any{"username": "kvaps", "name": "Andrei Kvapil"})
+			default:
+				http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
+			}
+		}))
+		t.Cleanup(gl.Close)
+		shared := gitRemoteN(t, "shared")
+		seedGitRemote(t, shared)
+		srv, err := New(Options{
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Forge:  forge.NewGitLab(gl.URL),
+			Auth:   &OAuthConfig{ClientID: "gl-client", ClientSecret: "gl-secret", BaseURL: testBaseURL},
+			Git:    &GitConfig{Repos: []RepoSpec{{Name: "shared", URL: shared.URL}}, DataDir: t.TempDir(), Committer: gitstore.Identity{Name: "aeman", Email: "aeman@test"}},
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		srv.gitBE.git.pushDelay = 0
+		// The forge refuses the first token and trusts the renewed one.
+		srv.access = tokenAccess{good: map[string]bool{"gl-token-2": true}, grant: rightsOn([]string{"shared"}, []string{"shared"})}
+		return srv, &refreshes
+	}
+	board := func(srv *Server, session string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/board", nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: session})
+		rec := httptest.NewRecorder()
+		srv.handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	srv, refreshes := newServer(t, true)
+	session := signInWithGitLab(t, srv)
+	if rec := board(srv, session); rec.Code != http.StatusOK {
+		t.Fatalf("board after the forge refused the first token: %d %s (want a renewal and a retry)", rec.Code, rec.Body.String())
+	}
+	if *refreshes != 1 {
+		t.Fatalf("refreshes = %d, want exactly one", *refreshes)
+	}
+	// The same session keeps working on the renewed token.
+	if rec := board(srv, session); rec.Code != http.StatusOK {
+		t.Fatalf("board on the renewed token: %d %s", rec.Code, rec.Body.String())
+	}
+	if *refreshes != 1 {
+		t.Fatalf("a working token is not renewed again; refreshes = %d", *refreshes)
+	}
+
+	// The refresh is refused too: the session is dropped, the visitor signs in again.
+	srv, refreshes = newServer(t, false)
+	session = signInWithGitLab(t, srv)
+	if rec := board(srv, session); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("board with an unrenewable token: %d %s (want 401)", rec.Code, rec.Body.String())
+	}
+	if *refreshes != 1 {
+		t.Fatalf("refreshes = %d, want one attempt", *refreshes)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: session})
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, req)
+	if strings.Contains(rec.Body.String(), `"authenticated":true`) {
+		t.Fatalf("the session must be gone after the refresh was refused: %s", rec.Body.String())
+	}
 }
 
 // Signing in with GitLab: the login redirect goes to the instance's own
