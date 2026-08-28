@@ -18,9 +18,11 @@ import {
   type NoteListResource,
   type SprintListResource,
 } from "../../api/resources";
+import { splitDayLogs, type DayLogEntry } from "../../daylog";
 import type {
   Board,
   Card,
+  CardDayLog,
   CardEvent,
   CardLog,
   CardPatch,
@@ -631,11 +633,37 @@ export const apiProvider: Provider = {
           body: it.text ?? "",
           createdAt: it.at ?? "",
           author: it.actor,
-          source: "draft",
+          // A note the server answered with is a made comment; "draft" is the
+          // optimistic tmp- note that has not come back yet. Matches the
+          // day-feed splitter (daylog.ts).
+          source: "comment",
         });
       }
     }
     return { notes, events, truncatedBefore: list.truncatedBefore || undefined };
+  },
+
+  async listDayLogs(uids: string[], day: string): Promise<Record<string, CardDayLog>> {
+    // The server bounds one request at 200 cards; a larger set is asked in
+    // slices (a day board rarely needs more than one).
+    const slice = 200;
+    const batches: string[][] = [];
+    for (let i = 0; i < uids.length; i += slice) {
+      batches.push(uids.slice(i, i + slice));
+    }
+    const answers = await Promise.all(
+      batches.map((batch) =>
+        api<{ cards: Record<string, DayLogEntry[] | null> | null }>(
+          "GET",
+          `/logs?day=${encodeURIComponent(day)}&uids=${batch.map(encodeURIComponent).join(",")}`,
+        ),
+      ),
+    );
+    const out: Record<string, CardDayLog> = {};
+    for (const a of answers) {
+      Object.assign(out, splitDayLogs(a.cards));
+    }
+    return out;
   },
 
   async listLinks(uid: string): Promise<CardLink[]> {

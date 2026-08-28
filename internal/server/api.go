@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
@@ -66,6 +67,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/release-from-plan", s.handleReleaseFromPlan)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/links", s.handleListLinks)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/log", s.handleCardLog)
+	mux.HandleFunc("GET /api/v1/logs", s.handleDayLogs)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/notes", s.handleListNotes)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/notes", s.handleAddNote)
 	mux.HandleFunc("PATCH /api/v1/cards/{uid}/notes/{noteId}", s.handleEditNote)
@@ -240,6 +242,56 @@ func (s *Server) handleCardLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.CardLogFrom(card, events, truncated))
+}
+
+// handleDayLogs answers the day feed: one day's notes and events for every
+// card named in uids. The day board asks this once instead of a whole
+// history per card — the read that made a page load fire dozens of
+// second-long requests.
+func (s *Server) handleDayLogs(w http.ResponseWriter, r *http.Request) {
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	uids := splitList(r.URL.Query().Get("uids"))
+	if len(uids) > maxDayLogCards {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("uids: at most %d cards per request", maxDayLogCards))
+		return
+	}
+	day := r.URL.Query().Get("day")
+	if day != "" && !board.IsDayIso(day) {
+		writeJSONError(w, http.StatusBadRequest, "day: want yyyy-mm-dd")
+		return
+	}
+	per, err := svc.DayLogs(r.Context(), boardID, uids, day)
+	if err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	if day == "" {
+		day = board.TodayIso()
+	}
+	entries := make(map[string]apiserver.DayEntries, len(per))
+	for uid, d := range per {
+		entries[uid] = apiserver.DayEntries{Notes: d.Notes, Events: d.Events}
+	}
+	writeJSON(w, http.StatusOK, apiserver.DayLogsFrom(day, entries))
+}
+
+// maxDayLogCards bounds one day-feed request: a day board shows tens of
+// cards, and an unbounded list would be a way to ask for the whole board's
+// history in one call.
+const maxDayLogCards = 200
+
+// splitList reads a comma-separated query value, dropping the blanks.
+func splitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // statusResponse is the acknowledgement returned by actions that leave no single

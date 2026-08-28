@@ -89,6 +89,19 @@ type Log struct {
 // way (entryFor), so a commit the index over-includes — a boundary, a
 // trailer naming the card without a change — is judged, not trusted.
 func (r *Repo) CardLog(id string, limit int) (Log, error) {
+	return r.cardLog(id, limit, time.Time{})
+}
+
+// CardLogSince is CardLog cut at a boundary: the entries at or after since,
+// and the walk stops at the first commit older than it. The day feed asks
+// what happened on one day over every card it shows — reading each card's
+// whole history for that is what it does not need, and on a long history
+// that difference is seconds. A zero boundary is the whole log.
+func (r *Repo) CardLogSince(id string, since time.Time) (Log, error) {
+	return r.cardLog(id, 0, since)
+}
+
+func (r *Repo) cardLog(id string, limit int, since time.Time) (Log, error) {
 	p, err := CardPath(id)
 	if err != nil {
 		return Log{}, err
@@ -109,6 +122,12 @@ func (r *Repo) CardLog(id string, limit int) (Log, error) {
 		c, err := object.GetCommit(r.s, h)
 		if err != nil {
 			return Log{}, err
+		}
+		// The candidates are newest first: once one is older than the
+		// boundary, so is everything behind it — the day feed reads a
+		// handful of commits instead of a card's whole history.
+		if !since.IsZero() && c.Committer.When.Before(since) {
+			break
 		}
 		entry, touched, err := r.entryFor(c, id, p, shallow[h])
 		if err != nil {

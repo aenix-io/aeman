@@ -258,6 +258,13 @@ export interface CardLog {
   truncatedBefore?: string;
 }
 
+/** CardDayLog is one card's slice of a day feed (GET /logs): its notes and
+ *  events on that day alone. */
+export interface CardDayLog {
+  notes: Note[];
+  events: CardEvent[];
+}
+
 /** CarryReport is what a carry-over / carry-week pass did — or would do on a
  * dry run, which feeds the confirm-dialog counts. */
 export interface CarryReport {
@@ -406,6 +413,10 @@ export interface Provider {
   listLinks(uid: string): Promise<CardLink[]>;
   /** The card's unified activity feed, split back into notes and events. */
   listLog(uid: string): Promise<CardLog>;
+  /** One day of activity for many cards in one request — the day feed's
+   *  question. A quiet card answers with empty lists; a card the visitor
+   *  cannot see is absent from the answer. */
+  listDayLogs(uids: string[], day: string): Promise<Record<string, CardDayLog>>;
   /** Share the caller's live card selection ("" clears) with other boards. */
   setPresence(login: string, card: string | null): Promise<void>;
   listNotes(uid: string): Promise<Note[]>;

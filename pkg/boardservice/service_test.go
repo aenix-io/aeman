@@ -226,6 +226,22 @@ func (f *fakeBackend) CardLog(_ context.Context, _ board.Board, id string) ([]bo
 	return append([]board.Event(nil), f.events[id]...), time.Time{}, nil
 }
 
+// CardLogSince keeps the events at or after the boundary, the way the store
+// does by stopping its walk there.
+func (f *fakeBackend) CardLogSince(_ context.Context, _ board.Board, id string, since time.Time) ([]board.Event, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("CardLogSince %s %s", id, since.Format(time.RFC3339))
+	var out []board.Event
+	for _, e := range f.events[id] {
+		at, err := time.Parse(time.RFC3339, e.At)
+		if err != nil || since.IsZero() || !at.Before(since) {
+			out = append(out, e)
+		}
+	}
+	return out, time.Time{}, nil
+}
+
 // eventsOf is the card's recorded history, for assertions.
 func (f *fakeBackend) eventsOf(id string) []board.Event {
 	evs, _, _ := f.CardLog(context.Background(), board.Board{}, id)
