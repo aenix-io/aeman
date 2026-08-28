@@ -34,6 +34,16 @@ type Snapshot struct {
 	// copy that is NOT current. Both are for health, not for the board.
 	Aliases []Alias
 	Ghosts  []Ghost
+	// Users are the primary's users/<login>.yaml files: each person's link
+	// to their personal repository. Only the primary's count.
+	Users []User
+}
+
+// User is one users/<login>.yaml: a person and their personal repository.
+type User struct {
+	Login    string
+	Personal string
+	Created  string
 }
 
 // Alias is a roster entry that lost the duplicate-name resolution.
@@ -210,6 +220,11 @@ func (l *loader) file(p string, data []byte) error {
 		if f, err = DecodeCard(ids[1], data); err == nil {
 			pc := l.process(ids[0])
 			pc.Tasks = append(pc.Tasks, Task{ID: ids[1], CardFile: f})
+		}
+	case PathUser:
+		var f UserFile
+		if f, err = DecodeUser(data); err == nil {
+			l.s.Users = append(l.s.Users, User{Login: ids[0], Personal: f.Personal, Created: f.Created})
 		}
 	default:
 		l.s.Unknown = append(l.s.Unknown, p)

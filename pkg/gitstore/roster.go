@@ -62,7 +62,20 @@ const (
 	PathDeadline
 	PathProcess
 	PathTask
+	PathUser
 )
+
+// UserPath is users/<login>.yaml — a person's link to their personal
+// repository, read from the primary only.
+func UserPath(login string) string { return "users/" + login + ".yaml" }
+
+// UserFile is users/<login>.yaml.
+type UserFile struct {
+	// Personal is the URL of the person's personal repository.
+	Personal string
+	Created  string
+	Extra    []ExtraField
+}
 
 // ParsePath is the layout's inverse: what a path is and the ids in it. A
 // remote commit's diff goes through it so the cache reloads exactly the
@@ -101,6 +114,10 @@ func ParsePath(p string) (PathKind, []string) {
 	case len(parts) == 4 && parts[0] == "processes" && parts[2] == "tasks":
 		if id, ok := strip(parts[3], ".md"); ok {
 			return PathTask, []string{parts[1], id}
+		}
+	case len(parts) == 2 && parts[0] == "users":
+		if login, ok := strip(parts[1], ".yaml"); ok {
+			return PathUser, []string{login}
 		}
 	}
 	return PathUnknown, nil
@@ -209,6 +226,32 @@ func EncodeTeam(f TeamFile) ([]byte, error) {
 		}
 	}
 	return w.finish(f.Extra)
+}
+
+// EncodeUser renders a user file.
+func EncodeUser(f UserFile) ([]byte, error) {
+	var w yamlWriter
+	w.str("personal", f.Personal)
+	w.str("created", f.Created)
+	return w.finish(f.Extra)
+}
+
+// DecodeUser parses a user file; unknown keys are kept.
+func DecodeUser(data []byte) (UserFile, error) {
+	var f UserFile
+	extra, err := each(data, func(key string, val *yaml.Node) bool {
+		switch key {
+		case "personal":
+			f.Personal = val.Value
+		case "created":
+			f.Created = val.Value
+		default:
+			return false
+		}
+		return true
+	})
+	f.Extra = extra
+	return f, err
 }
 
 // EncodeProject renders a project file.

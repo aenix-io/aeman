@@ -967,14 +967,17 @@ func (b *Backend) SetStage(ctx context.Context, _ board.Board, card board.Card, 
 }
 
 // SetProgress sets the readiness. Reaching 100 remembers where the card came
-// from (doneFrom); dropping below 100 forgets it — that is what a reopen is.
+// from (doneFrom) and the board day it happened (doneAt); dropping below 100
+// forgets both — that is what a reopen is.
 func (b *Backend) SetProgress(ctx context.Context, _ board.Board, card board.Card, progress int) error {
 	return b.editCard(ctx, "progress", card, func(f *CardFile) {
 		switch {
 		case progress >= 100 && f.Card.Progress < 100:
 			f.Card.DoneFrom = f.Card.Progress
+			f.Card.DoneAt = board.LocalDateIso(b.now().UTC().Format(time.RFC3339))
 		case progress < 100:
 			f.Card.DoneFrom = 0
+			f.Card.DoneAt = ""
 		}
 		f.Card.Progress = progress
 	})
