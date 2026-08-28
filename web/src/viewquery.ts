@@ -27,8 +27,12 @@ export function viewQueries(
       q.user = viewAs;
     }
     // The personal column follows the day being looked at, like the day
-    // board beside it: flipped to tomorrow, it shows tomorrow's plan.
-    return personal && !viewAs ? [q, { view: "personal", day }] : [q];
+    // board beside it: flipped to tomorrow, it shows tomorrow's plan. It is
+    // the viewer's own whoever the day board is viewed as — the query names
+    // no user, so the server answers with the caller's board — and stays
+    // beside someone else's day too: one's own tasks do not go away because
+    // one is looking at a colleague's.
+    return personal ? [q, { view: "personal", day }] : [q];
   }
   if (view === "project" || view === "process") {
     // Every epic-filed card of every project, all weeks: the Project board
@@ -78,7 +82,7 @@ export function watchQueries(
   personal = false,
 ): Record<string, string>[] {
   const base = watchQuery(view, day, teams, viewAs);
-  return view === "me" && personal && !viewAs ? [base, { view: "personal", day }] : [base];
+  return view === "me" && personal ? [base, { view: "personal", day }] : [base];
 }
 
 // queryString serialises a selector to a URL fragment with a stable key order,
