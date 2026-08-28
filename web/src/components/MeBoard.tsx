@@ -980,6 +980,25 @@ export function MeBoard({
   // previous one, a personal card on yesterday's board — the person is asked
   // which they mean. A column card (a slot) is never destroyed by the ×: it
   // demotes. Everything else deletes for real, as it always did here.
+  // What the × means for a card here: "ask" puts the two-way question to the
+  // person (the Card then shows no "Delete?" confirm of its own in front of
+  // it — see boardAsks), "demote" keeps a slot without asking, "delete" is
+  // the plain delete. A subtask has no history of its own: always "delete".
+  const removalOf = (card: CardModel): "ask" | "demote" | "delete" => {
+    if (card.parent) {
+      return "delete";
+    }
+    const today = todayIso();
+    if (isPersonalCard(card, board.personal)) {
+      return personalRemovalKind(card, today);
+    }
+    return removalKind(card, {
+      current: currentSprint(board, card.team ?? null) ?? undefined,
+      previous: previousSprint(board, card.team ?? null) ?? undefined,
+      today,
+    });
+  };
+
   const handleDelete = (card: CardModel, forced?: "delete" | "keep") => {
     // A just-created optimistic card has no server twin yet: drop it locally
     // (deleting it via the API would 404 and resurrect a phantom copy).
@@ -988,7 +1007,6 @@ export function MeBoard({
       removeCard(card.itemId);
       return;
     }
-    const today = todayIso();
     const personal = isPersonalCard(card, board.personal);
     const prevSprint = personal ? null : previousSprint(board, card.team ?? null);
     if (forced === "keep") {
@@ -999,15 +1017,8 @@ export function MeBoard({
       }
       return;
     }
-    // A subtask has no history of its own: the × deletes it outright.
-    if (!forced && !card.parent) {
-      const kind = personal
-        ? personalRemovalKind(card, today)
-        : removalKind(card, {
-            current: currentSprint(board, card.team ?? null) ?? undefined,
-            previous: prevSprint ?? undefined,
-            today,
-          });
+    if (!forced) {
+      const kind = removalOf(card);
       if (kind === "ask") {
         setRemoveChoice(card);
         return;
@@ -1596,6 +1607,7 @@ export function MeBoard({
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}
       onDelete={handleDelete}
+      boardAsks={removalOf(card) === "ask"}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
