@@ -5,6 +5,8 @@ interface PersonalDialogProps {
   /** Link the repository; rejects with the server's message (no push access,
    *  a bad URL, a repository that cannot be reached). */
   onLink: (url: string) => Promise<void>;
+  /** The URL field's example, on the board's forge host (see forgeCopy). */
+  repoPlaceholder: string;
 }
 
 const errMessage = (err: unknown) =>
@@ -13,7 +15,7 @@ const errMessage = (err: unknown) =>
 /** PersonalDialog asks for the repository to link as the visitor's personal
  *  board: one URL, one button. It stays open on failure with the server's
  *  reason under the field, and closes itself once the link is made. */
-export function PersonalDialog({ onClose, onLink }: PersonalDialogProps) {
+export function PersonalDialog({ onClose, onLink, repoPlaceholder }: PersonalDialogProps) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +69,7 @@ export function PersonalDialog({ onClose, onLink }: PersonalDialogProps) {
               className="add-card-input"
               autoFocus
               value={url}
-              placeholder="https://github.com/<you>/<repo>"
+              placeholder={repoPlaceholder}
               disabled={busy}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => {

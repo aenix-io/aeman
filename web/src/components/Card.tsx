@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
-import type { Avatars } from "../users";
+import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { addDays, daysSince, localDateIso, todayIso, mondayOf } from "../date";
 import { Dropdown } from "./Dropdown";
@@ -47,6 +47,9 @@ interface CardProps {
   reviewers?: string[];
   /** Avatars by login (the board roster); a login without one shows initials. */
   avatars?: Avatars;
+  /** Display names by login (the board roster); a login without one is shown
+   *  as is. Labels and tooltips only — the login stays the identifier. */
+  names?: Names;
   /** The card's repository, shown only when the board spans several and the
    *  card is outside the primary (see cardDomainBadge). */
   domainBadge?: string | null;
@@ -118,6 +121,7 @@ export function Card({
   people,
   reviewers,
   avatars,
+  names,
   domainBadge,
   onSetTeam,
   onSetAssignee,
@@ -727,9 +731,10 @@ export function Card({
               key={login}
               login={login}
               avatars={avatars}
+              names={names}
               className="card-presence-avatar"
               style={{ left: `${-17 - i * 12}px` }}
-              title={`Selected by ${login}`}
+              title={`Selected by ${displayName(login, names)}`}
             />
           ))}
         </span>
@@ -892,7 +897,7 @@ export function Card({
               type="button"
               className="card-counterpart-avatar-btn"
               title={`${smallAvatarRole}: ${smallAvatars
-                .map((p) => p)
+                .map((p) => displayName(p, names))
                 .join(", ")}`}
               onClick={
                 canAssign
@@ -906,6 +911,7 @@ export function Card({
               <Avatar
                 login={smallAvatars[0]}
                 avatars={avatars}
+                names={names}
                 className="card-counterpart-avatar"
               />
             </button>
@@ -983,8 +989,8 @@ export function Card({
                       className={`card-stage-item${card.assignees.includes(p) ? " card-stage-item-active" : ""}`}
                       onClick={() => pickAssignPerson(p)}
                     >
-                      <Avatar login={p} avatars={avatars} />
-                      {p}
+                      <Avatar login={p} avatars={avatars} names={names} />
+                      {displayName(p, names)}
                     </button>
                   ))}
                   <button
@@ -1025,8 +1031,8 @@ export function Card({
                         setAssignOpen(false);
                       }}
                     >
-                      <Avatar login={p} avatars={avatars} />
-                      {p}
+                      <Avatar login={p} avatars={avatars} names={names} />
+                      {displayName(p, names)}
                     </button>
                   ))}
                   <button

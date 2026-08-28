@@ -30,7 +30,7 @@ import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { personalRemovalKind, removalKind } from "../removal";
-import type { Avatars } from "../users";
+import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { isPersonalCard, personalRepoName, personalShows, splitPersonal } from "../personal";
@@ -57,6 +57,11 @@ interface MeBoardProps {
   onViewAs: (login: string | null) => void;
   /** Avatars by login (the board roster) for the pickers. */
   avatars: Avatars;
+  /** Display names by login (the board roster); a login without one is shown
+   *  as is. */
+  names: Names;
+  /** The Connect dialog's MCP caption, spelled for the board's forge. */
+  connectHint: string;
   /** Known teams to offer in the team selector. */
   teams: string[];
   /** Shared single-select team (also the team for new cards); null = none. */
@@ -122,6 +127,8 @@ export function MeBoard({
   viewAs,
   onViewAs,
   avatars,
+  names,
+  connectHint,
   teams,
   teamFilter,
   onSetFilter,
@@ -1615,6 +1622,7 @@ export function MeBoard({
       people={people}
       reviewers={reviewerCandidates(people, board.domains, card.domain)}
       avatars={avatars}
+      names={names}
       domainBadge={cardDomainBadge(board.domains, card.domain)}
       onSetTeam={personal ? undefined : handleSetTeam}
       hasLinkedReview={reviewedItemIds.has(card.itemId)}
@@ -1753,7 +1761,7 @@ export function MeBoard({
             title="View the board as another person"
           >
             {impersonated
-              ? `👁 ${impersonated}`
+              ? `👁 ${displayName(impersonated, names)}`
               : "View as ▾"}
           </button>
           {impersonated && (
@@ -1794,8 +1802,8 @@ export function MeBoard({
                   setImpOpen(false);
                 }}
               >
-                <Avatar login={p} avatars={avatars} draggable={false} />
-                {p}
+                <Avatar login={p} avatars={avatars} names={names} draggable={false} />
+                {displayName(p, names)}
               </button>
             ))}
             {others.length === 0 && (
@@ -1972,7 +1980,9 @@ export function MeBoard({
           MCP / API
         </button>
       </div>
-      {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} />}
+      {connectOpen && (
+        <ConnectDialog onClose={() => setConnectOpen(false)} connectHint={connectHint} />
+      )}
       {removeChoice && (
         <RemoveChoiceDialog
           title={removeChoice.title}

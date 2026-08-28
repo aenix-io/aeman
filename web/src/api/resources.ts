@@ -120,7 +120,8 @@ export interface BoardResource {
     deadlines?: { week: string; project?: string }[];
     processes?: { name: string; project?: string }[];
     epics?: { name: string; project?: string }[];
-    members?: { login: string; avatarUrl?: string }[];
+    /** The roster; `name` is the display name, absent on a GitHub board. */
+    members?: { login: string; avatarUrl?: string; name?: string }[];
     /** The repositories the board spans, primary first. */
     domains?: {
       name: string;

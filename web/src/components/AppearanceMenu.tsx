@@ -8,7 +8,8 @@ import {
 } from "../theme";
 
 interface AppearanceMenuProps {
-  /** GitHub login to show as the trigger, or null when not signed in. */
+  /** The visitor's forge login (GitHub or GitLab) to show as the trigger, or
+   *  null when not signed in. */
   login: string | null;
   appearance: Appearance;
   onChange: (next: Appearance) => void;

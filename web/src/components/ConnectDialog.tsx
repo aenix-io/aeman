@@ -2,6 +2,9 @@ import { useState } from "react";
 
 interface ConnectDialogProps {
   onClose: () => void;
+  /** The MCP caption: how the first call signs in, spelled for the board's
+   *  forge (see forgeCopy). */
+  connectHint: string;
 }
 
 /**
@@ -13,7 +16,7 @@ interface ConnectDialogProps {
  * block is copied or the dialog is reopened (the component unmounts on close,
  * so the flag resets naturally — no setTimeout to leak).
  */
-export function ConnectDialog({ onClose }: ConnectDialogProps) {
+export function ConnectDialog({ onClose, connectHint }: ConnectDialogProps) {
   const origin = window.location.origin;
   const mcpCmd = `claude mcp add --transport http aeman ${origin}/mcp`;
   const apiUrl = `${origin}/api/v1`;
@@ -63,9 +66,7 @@ export function ConnectDialog({ onClose }: ConnectDialogProps) {
                 {copied === "mcp" ? "copied" : "copy"}
               </button>
             </div>
-            <p className="connect-caption">
-              Sign in with GitHub on first use (OAuth, no token stored).
-            </p>
+            <p className="connect-caption">{connectHint}</p>
           </section>
 
           <section className="connect-section">

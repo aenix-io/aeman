@@ -22,7 +22,8 @@ import { boardMetadata, processesFrom } from "./providers/api/apiProvider";
 import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
-import { avatarsFrom } from "./users";
+import { avatarsFrom, namesFrom } from "./users";
+import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { queryString, viewQueries, watchQueries } from "./viewquery";
@@ -227,6 +228,12 @@ export function App() {
   // Avatars come with the roster (GET /board members); a login outside it —
   // an assignee who is not a member — is drawn as initials.
   const avatars = useMemo(() => avatarsFrom(board?.members ?? []), [board?.members]);
+  // Display names come with the roster too (a GitLab board has them, a GitHub
+  // one does not); they decorate labels only — the login stays the identifier.
+  const names = useMemo(() => namesFrom(board?.members ?? []), [board?.members]);
+  // The forge (GitHub / GitLab) spells the sign-in and token copy; before the
+  // config answers, and on an older server, that is GitHub.
+  const forge = useMemo(() => forgeCopy(config), [config]);
   // Count of in-flight data loads (initial load + per-view card fetches);
   // any of them showing keeps the top progress bar visible.
   const [pendingLoads, setPendingLoads] = useState(0);
@@ -1014,7 +1021,7 @@ export function App() {
   const showTokenWarning =
     config !== null && !config.tokenAvailable && !tokenWarningDismissed;
 
-  // OAuth mode: gate the whole UI behind a GitHub sign-in.
+  // OAuth mode: gate the whole UI behind the forge's sign-in.
   if (config && config.mode === "oauth" && !config.authenticated) {
     return (
       <div className="app">
@@ -1025,10 +1032,10 @@ export function App() {
           </div>
         </header>
         <div className="signin">
-          <h2>Sign in to aeman</h2>
-          <p>Connect your GitHub account to open the board.</p>
+          <h2>{forge.signInTitle}</h2>
+          <p>{forge.signInLead}</p>
           <a className="btn btn-primary signin-btn" href={config.authUrl ?? "/auth/login"}>
-            Sign in with GitHub
+            {forge.signInButton}
           </a>
         </div>
       </div>
@@ -1083,9 +1090,10 @@ export function App() {
 
       {showTokenWarning && (
         <div className="banner banner-warning" role="alert">
+          {/* forge.noTokenHint, with the command set in <code>. */}
           <span>
-            No GitHub token — run <code>gh auth login</code> in the terminal where aeman
-            runs.
+            No {forge.label} token — run <code>{forge.cli} auth login</code> in the
+            terminal where aeman runs.
           </span>
           <button
             type="button"
@@ -1199,6 +1207,8 @@ export function App() {
             provider={provider}
             me={config?.login ?? ""}
             avatars={avatars}
+            names={names}
+            connectHint={forge.connectHint}
             teams={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
@@ -1246,6 +1256,7 @@ export function App() {
             onSetFilter={setProjectFilter}
             onManageProjects={() => setManagingProjects(true)}
             avatars={avatars}
+            names={names}
             onError={onError}
           />
         )}
@@ -1257,6 +1268,7 @@ export function App() {
             provider={provider}
             me={config?.login ?? ""}
             avatars={avatars}
+            names={names}
             roster={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}
@@ -1296,6 +1308,7 @@ export function App() {
         <PersonalDialog
           onClose={() => setPersonalDialog(false)}
           onLink={linkPersonal}
+          repoPlaceholder={forge.repoPlaceholder}
         />
       )}
 

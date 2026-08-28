@@ -27,7 +27,7 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, addDays, localDateIso, mondayOf, weeksBetween } from "../date";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { teamColor } from "../avatar";
-import type { Avatars } from "../users";
+import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { Card } from "./Card";
@@ -51,6 +51,9 @@ interface TeamBoardProps {
   onSelectDate: (day: string) => void;
   /** Avatars by login (the board roster). */
   avatars: Avatars;
+  /** Display names by login (the board roster); a login without one is shown
+   *  as is. */
+  names: Names;
   /** Known teams (the roster), shown as filter chips. */
   roster: string[];
   /** Single-select team filter: null = all, "" = no team, else a team name. */
@@ -108,6 +111,7 @@ export function TeamBoard({
   selectedDate,
   onSelectDate,
   avatars,
+  names,
   roster,
   teamFilter,
   onSetFilter,
@@ -1203,6 +1207,7 @@ export function TeamBoard({
       people={people}
       reviewers={reviewerCandidates(people, board.domains, card.domain)}
       avatars={avatars}
+      names={names}
       domainBadge={cardDomainBadge(board.domains, card.domain)}
       onSetTeam={handleSetTeam}
       onSetAssignee={handleSetAssignee}
@@ -2248,6 +2253,7 @@ export function TeamBoard({
               people={people}
               reviewers={reviewerCandidates(people, board.domains, card.domain)}
               avatars={avatars}
+              names={names}
               domainBadge={cardDomainBadge(board.domains, card.domain)}
               onSetTeam={handleSetTeam}
               onSetAssignee={handleSetAssignee}
@@ -2374,14 +2380,15 @@ export function TeamBoard({
                         <Avatar
                           login={engineer}
                           avatars={avatars}
+                          names={names}
                           className={`avatar-img${engineer === me ? " avatar-me" : ""}`}
-                          title={engineer}
+                          title={displayName(engineer, names)}
                           draggable={false}
                         />
                         <span
                           className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
                         >
-                          {engineer}
+                          {displayName(engineer, names)}
                         </span>
                       </>
                     )}

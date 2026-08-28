@@ -19,7 +19,7 @@ export interface AppConfig {
   tokenAvailable: boolean;
   /** Whether the visitor is signed in (always true in local gh-token mode). */
   authenticated: boolean;
-  /** OAuth mode: URL to start the GitHub sign-in flow. */
+  /** OAuth mode: URL to start the forge sign-in flow. */
   authUrl?: string;
   /** OAuth mode: URL to sign out. */
   logoutUrl?: string;
@@ -29,6 +29,15 @@ export interface AppConfig {
   /** Fingerprint of the frontend bundle the server carries. A tab whose own
    *  build differs is running code that has since been replaced. */
   build?: string;
+  /** The forge the board lives on and signs in with. An older server sends
+   *  none of these four: that is GitHub (see forge.ts). */
+  forge?: "github" | "gitlab";
+  /** Human name of the forge: "GitHub" | "GitLab". */
+  forgeLabel?: string;
+  /** The forge's CLI the local mode reads its token from: "gh" | "glab". */
+  cli?: string;
+  /** The forge's host: "github.com", "gitlab.com", or a self-hosted one. */
+  forgeHost?: string;
 }
 
 export async function fetchConfig(): Promise<AppConfig> {
