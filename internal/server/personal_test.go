@@ -162,3 +162,37 @@ func TestPersonalBoardIsAttachedWhenTheOwnerReturns(t *testing.T) {
 		t.Fatal("bob sees a personal card")
 	}
 }
+
+// Linking a different repository replaces the personal domain: the old clone
+// is detached, the new one attached, and the personal view is the new
+// repository's — not a token refresh on the old one.
+func TestPersonalBoardRelinkSwitchesRepositories(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	first, second := gitRemoteN(t, "first"), gitRemoteN(t, "second")
+	seedRemoteFiles(t, first, map[string]string{
+		gitstore.BoardPath:                        "schema: 1\ntitle: first\n",
+		"cards/a/1/01JB4K2E7QZMX3R8V0N5T9WYF1.md": "---\ntitle: from the first\nzone: yellow\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+	})
+	seedRemoteFiles(t, second, map[string]string{
+		gitstore.BoardPath:                        "schema: 1\ntitle: second\n",
+		"cards/a/2/01JB4K2E7QZMX3R8V0N5T9WYF2.md": "---\ntitle: from the second\nzone: red\nrank: a\ncreated: 2026-08-26T09:14:03Z\n---\n",
+	})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rightsOn([]string{"shared"}, []string{"shared"})}}, shared)
+	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+first.URL+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("link first: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal", ""); !strings.Contains(rec.Body.String(), "from the first") {
+		t.Fatalf("first repository not served: %s", rec.Body.String())
+	}
+	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+second.URL+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("link second: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal", "")
+	if !strings.Contains(rec.Body.String(), "from the second") || strings.Contains(rec.Body.String(), "from the first") {
+		t.Fatalf("after relinking the personal view must be the second repository's: %s", rec.Body.String())
+	}
+	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/me/personal", ""); !strings.Contains(rec.Body.String(), second.URL) {
+		t.Fatalf("link = %s", rec.Body.String())
+	}
+}

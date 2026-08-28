@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -58,21 +60,32 @@ func (b *storeBackend) attachPersonal(ctx context.Context, login, token string) 
 	defer g.pmu.Unlock()
 	name := board.PersonalDomain(login)
 	url, linked := b.personalLink(login)
-	attached := g.domain(name) != nil
-	switch {
-	case !linked && attached:
-		return b.detachPersonal(ctx, name)
-	case !linked:
-		return nil
-	case attached:
-		g.setAuth(name, token)
+	if d := g.domain(name); d != nil {
+		switch {
+		case !linked:
+			return b.detachPersonal(ctx, name)
+		case d.remote.URL == url:
+			g.setAuth(name, token)
+			return nil
+		default:
+			// Linked to another repository now: the old clone goes, the new
+			// one is attached below.
+			if err := b.detachPersonal(ctx, name); err != nil {
+				return err
+			}
+		}
+	} else if !linked {
 		return nil
 	}
 	remote := gitstore.Remote{URL: url}
 	if token != "" {
 		remote.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
 	}
-	dir := filepath.Join(g.dataDir, "repos", "personal", login)
+	// One clone per repository, not per person: relinking to another
+	// repository must not reopen the old clone. The old one stays on disk as
+	// a cache nobody reads.
+	sum := sha256.Sum256([]byte(url))
+	dir := filepath.Join(g.dataDir, "repos", "personal", login, hex.EncodeToString(sum[:6]))
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
