@@ -1,26 +1,34 @@
 # aeman API and MCP server
 
-aeman exposes its board service three ways: the embedded UI, a JSON HTTP API under `/api/v1`, and an MCP (Model Context Protocol) server for AI agents. All three call the same board logic over a shared in-memory store, so they behave identically — and every change any of them makes is pushed to all connected clients over the WebSocket watch stream.
+aeman exposes its board service three ways: the embedded UI, a JSON HTTP API under `/api/v1`, and an MCP (Model Context Protocol) server for AI agents. All three call the same board logic over a shared in-memory store, so they behave identically — and every change any of them makes is committed to the board's git repository and pushed to all connected clients over the WebSocket watch stream.
 
-The API is Kubernetes-style: a small set of **resources** (`Card`, `Sprint`, `Note`, `Ordering`) shaped as `{kind, metadata, spec, status}`, LIST with selectors that reproduce the UI's views, PATCH for edits, and **actions** for everything with board-level rules. Clients state intent; the server applies the rules (clamps, review links, the date model of [dates.md](dates.md)) and streams the results. The design rationale lives in [design/api-redesign.md](design/api-redesign.md).
+The API is Kubernetes-style: a small set of **resources** (`Board`, `Card`, `Sprint`, `Note`, `Ordering`) shaped as `{kind, metadata, spec, status}`, LIST with selectors that reproduce the UI's views, PATCH for edits, and **actions** for everything with board-level rules. Clients state intent; the server applies the rules (clamps, review links, the date model of [dates.md](dates.md)) and streams the results. The design rationale lives in [design/api-redesign.md](design/api-redesign.md); the storage in [design/git-backend.md](design/git-backend.md).
 
-## Authentication
+## Authentication and access
 
-Neither surface invents its own auth. They reuse aeman's existing token resolution.
+The server holds **one credential of its own** — `AEMAN_GIT_TOKEN` — for fetching and pushing the board's repositories and for resolving issue/PR titles named in card descriptions. Visitors never push; the server commits on their behalf, authored with their login.
 
-The HTTP API resolves a GitHub token the same way the `/api/github` reverse proxy does: from the local `gh` CLI (`gh auth token`) in the default local run mode, or from the visitor's session in the self-hosted OAuth mode.
+A visitor is identified by their GitHub login: from the session in the self-hosted OAuth mode (`AEMAN_GITHUB_CLIENT_ID`/`_SECRET`), or from the local `gh` CLI in the default local mode. Access follows the visitor's **repository permissions** on each domain (see below): read access to a repository shows its part of the board, write access allows changes to it. The decision is made per request from the forge and cached briefly. A visitor who cannot read the primary repository has no board at all (403); a mutation on a card whose repository the visitor cannot write is refused (403).
 
-The stdio MCP server (`aeman mcp`) runs as a local, single-user process and mirrors local mode: it reads `GITHUB_TOKEN` (or `GH_TOKEN`) from the environment, falling back to `gh auth token`. In the self-hosted OAuth mode the MCP server is also mounted over HTTP at `/mcp`, authenticated with per-user OAuth tokens.
+The stdio MCP server (`aeman mcp`) is a local, single-user process on its own clone: it identifies the actor through the local `gh` login and pushes with `AEMAN_GIT_TOKEN`, falling back to `GITHUB_TOKEN`/`GH_TOKEN` and then `gh auth token`. In the self-hosted mode the same tool set is mounted over HTTP at `/mcp`, authenticated with per-user OAuth tokens, and the rights above apply to every tool call.
 
-## Board selection and lock-board
+## The board
 
-Both surfaces target one GitHub Projects v2 board, identified by an `owner` (GitHub org or user) and a `board` number.
+A server serves **one board**: the repositories it was started with (`--repo name=url`, repeatable, the primary first). There is no board addressing on the API — `owner`/`board` query parameters from earlier versions are ignored — and MCP tools take no board argument. The board's name is its primary repository's name.
 
-The HTTP API takes them as query parameters (`?owner=acme&board=7`), falling back to the server's `--owner`/`--board` defaults. The MCP tools take optional `owner`/`board` arguments, falling back to the `aeman mcp` defaults.
+**"Project" means aeman's own planning entity** — a group of epic columns on the Project board — never a repository or a GitHub board. `project` is a card filter (`?view=project&project=cozystack`) and the subject of its own endpoints.
 
-**"Project" means aeman's own planning entity** — a group of epic columns on the Project board — and never the GitHub board. That is why the board is addressed by `board`: `project` is a card filter (`?view=project&project=cozystack`) and the subject of its own endpoints.
+### Domains
 
-A project also carries **deadlines**: a line across the grid on a given week. One project holds at most one per week, so dragging one of its lines onto another merges them — but two projects can each have something due the same week, and those are two lines.
+Each repository of the board is a **domain** — a visibility boundary. A card's domain is never chosen per card; it follows one rule, linked cards first: a review card lives with the card it reviews, a subtask with its parent, a process iteration with its task; otherwise a card under a project lives where the project is declared, else where its team is declared; the no-team group and anything unresolved live in the primary. A change that moves a card across that rule (re-filing it under another project, say) moves the file between repositories — and its review card and subtasks with it.
+
+Teams, projects and processes are declared in the domain the caller picks: the optional `domain` field on `POST /projects`, `POST /processes` and `PATCH /sprints` (a team is declared by its first sprint write), default the primary. A process with a project lives with the project.
+
+`GET /board` lists the visitor's readable domains as `metadata.domains` (primary first, each with a `writable` flag and the logins that can read it); every card carries `status.domain`. A domain the visitor cannot read is simply absent — no cards, teams or projects from it, no watch frames about it — not empty.
+
+### The planning entities
+
+A project carries **deadlines**: a line across the grid on a given week. One project holds at most one per week, so dragging one of its lines onto another merges them — but two projects can each have something due the same week, and those are two lines.
 
 A slot's **row is the week of its `dates.start`** — always derived, never stored beside the dates where the two could drift. `plan.week` belongs to weekly-plan cards (those created with a band and no dates); setting it on a card filed under an epic is refused (422).
 
@@ -28,13 +36,9 @@ A project also holds **processes** — recurring work the team keeps doing and w
 
 A **column** of the Project board is the pair `(project, epic)`. Epic names are unique only *within* a project, so every project can have its own `Docs` or `Auth`, and a card names both halves. Anything acting on a column — filing a card, deleting, renaming, reordering — names both.
 
-When started with `--lock-board` (or `AEMAN_LOCK_BOARD=1`), aeman pins the board to its configured `--owner`/`--board` and ignores any client-supplied owner/board. Use this when exposing aeman to clients that must not roam across boards.
-
-> **Planned change — storage moves to git.** [docs/design/git-backend.md](design/git-backend.md) replaces GitHub Projects v2 with git repositories as the only storage. When it lands: the `owner` + `board` *number* pair becomes one `board` *string* (the board's primary repository); every card `uid` changes from `PVTI_…` to a ULID at migration, with legacy ids accepted for one major version; `metadata.contentId`, `isDraft`, `url`, `number` and `repository` disappear; note ids change format; the card log gains `truncatedBefore`; the Board resource gains `domains` and its members gain `avatarUrl`; the `/api/github/` proxy goes away. This section describes what is shipped today; the design document describes what changes.
-
 ## HTTP API
 
-Base path: `/api/v1`. All requests and responses are JSON. Errors are returned as `{"error": "..."}` with an appropriate status code (400 bad request, 401 no token, 404 board/card/note not found, 422 missing field or no underlying issue, 502 upstream GitHub error).
+Base path: `/api/v1`. All requests and responses are JSON. Errors are returned as `{"error": "..."}` with an appropriate status code (400 bad request — including an unknown `domain`; 401 not authenticated; 403 no read access to the board or no write access to the card's domain; 404 card/note not found; 422 missing field or a rule refused the change; 502 the forge could not be reached while resolving a link).
 
 `GET /api/v1` itself is a public, machine-readable catalog of every endpoint below.
 
@@ -42,30 +46,31 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 
 | Method & path | Purpose |
 | --- | --- |
-| `GET /api/v1/board` | Board identity, the team roster, and the Project board's structure: `metadata.projects` (in board order), `metadata.epics` (`{name, project}`, in board order) and `metadata.deadlines` (`{week, project}`). |
+| `GET /api/v1/board` | The board: title, the team roster, the Project board's structure (`metadata.projects` in board order, `metadata.epics` as `{name, project}`, `metadata.deadlines` as `{week, project}`, `metadata.processes`), the people (`metadata.members`: `{login, avatarUrl}`) and the visitor's domains (`metadata.domains`). |
 | `GET /api/v1/cards` | LIST cards (selectors below), in board order. A listing is the **board-row shape**: no `spec.description` — `status.links` carries the refs extracted from it (capped at 50), and the body itself is one `GET /cards/{uid}` away. `?fields=full` opts a genuine bulk reader into complete cards. |
 | `POST /api/v1/cards` | Create a card (201). A title that is nothing but a GitHub issue/PR URL becomes that item's real title, with the link moved into the description (one-time, never re-synced). |
 | `GET /api/v1/cards/{uid}` | One card. |
 | `PATCH /api/v1/cards/{uid}` | Edit spec fields; only present fields apply, empty clears. |
 | `DELETE /api/v1/cards/{uid}` | Hard delete (cascades to the linked review card). |
 | `GET /api/v1/cards/{uid}/links` | URLs from the card's description: GitHub issue/PR references first (resolved to their live titles and states), plain links after. |
-| `GET /api/v1/cards/{uid}/log` | The card's activity feed: recorded events (who changed the stage/progress/assignee/review/plan, when) merged chronologically with its work notes — the per-day delta without morning reports. Changes made outside aeman (directly in the GitHub Projects UI) are not recorded. |
+| `GET /api/v1/cards/{uid}/log` | The card's activity feed, read from the repository's history: every commit that touched the card is one or more events (who changed the stage/progress/assignee/review/plan, when — the commit's author and time), merged chronologically with its work notes. A change made by a direct git write shows up like any other. `truncatedBefore` says when the loaded history is cut (a shallow clone); the server deepens on demand up to `--history-max`. |
 | `GET /api/v1/cards/{uid}/notes` | The card's work notes. |
 | `POST /api/v1/cards/{uid}/notes` | Append a note `{text}` (201). |
 | `PATCH /api/v1/cards/{uid}/notes/{noteId}` | Edit a note `{text}`. |
 | `DELETE /api/v1/cards/{uid}/notes/{noteId}` | Delete a note. |
 | `GET /api/v1/sprints` | Per-team sprint pointers. |
-| `PATCH /api/v1/sprints` | Set a pointer directly `{team, current, previous}`. |
-| `POST /api/v1/projects` | Declare a project `{name}` (201) — the Project board's top grouping, which owns epic columns. It may be created empty. |
-| `POST /api/v1/epics` | Declare an epic column `{name, project}` (201). The project is required and must exist. |
+| `PATCH /api/v1/sprints` | Set a pointer directly `{team, current, previous, domain?}`; a team not yet declared is declared in `domain` (default the primary). |
+| `POST /api/v1/projects` | Declare a project `{name, domain?}` (201) — the Project board's top grouping, which owns epic columns. It may be created empty. |
+| `POST /api/v1/epics` | Declare an epic column `{name, project}` (201). The project is required and must exist; the column lives with its project. |
 | `GET /api/v1/processes` | The Process tab: every process with its tasks and each task's history (`?project=` filters). |
-| `POST /api/v1/processes` | Declare a process `{name, project}` (201). |
+| `POST /api/v1/processes` | Declare a process `{name, project, domain?}` (201); with a project it lives with the project. |
 | `POST /api/v1/processes/tasks` | Add what a process iterates on `{process, title, description, recurrence, start, team, assignee, accumulate}` (201, returns `{uid}`). |
 | `PATCH /api/v1/processes/tasks/{uid}` | Change what the NEXT iterations will be; the running one is untouched. |
 | `DELETE /api/v1/processes/tasks/{uid}` | Delete a task; its past iterations stay as the record. |
 | `POST /api/v1/deadlines` | Mark a week with a project's deadline `{week, project}` (201). Any day resolves to its Monday; asking twice changes nothing. |
 | `GET /api/v1/ordering` | The board-level manual card order (a uid list). |
 | `GET /api/v1/watch` | WebSocket stream of resource events (below). |
+| `GET /healthz` | Liveness and the storage's state (below). |
 
 Note mutations return the card's full `NoteList`, so clients converge on the server's view of the thread.
 
@@ -79,15 +84,15 @@ Actions carry the board rules — the client never reimplements them.
 | `POST /api/v1/cards/{uid}/actions/move` | `{after}` | Reorder after another card (`""` = to the top). |
 | `POST /api/v1/cards/{uid}/actions/defer` | `{days}` | Push the scheduled day N days ahead of today (presses stack; a card created today relocates fully). |
 | `POST /api/v1/cards/{uid}/actions/in-progress` | `{}` | The implicit In Progress status. |
-| `POST /api/v1/cards/{uid}/actions/send-to-review` | `{reviewer, day}` | Create the linked review card (201) — or reassign the existing one (200). |
+| `POST /api/v1/cards/{uid}/actions/send-to-review` | `{reviewer, day}` | Create the linked review card (201) — or reassign the existing one (200). The reviewer must be able to read the card's domain. |
 | `POST /api/v1/cards/{uid}/actions/remove-reviewer` | `{}` | Delete the linked review card. |
 | `POST /api/v1/cards/{uid}/actions/take-into-plan` | `{engineer, zone, day}` | Take a weekly-plan card into work. |
 | `POST /api/v1/cards/{uid}/actions/release-from-plan` | `{}` | Release a card from the weekly plan. |
 | `POST /api/v1/sprints/actions/carry-over` | `{team, dryRun}` | Advance the team's sprint to today and carry its unfinished cards; finished recurrent cards reseed fresh copies. |
 | `POST /api/v1/epics/actions/delete-epic` | `{epic, project}` | Delete an EMPTY column; 422 while cards still sit under it. |
-| `POST /api/v1/epics/actions/reorder-epics` | `{project, epics:[...]}` | Apply one project's column order (moves the hidden epic-state cards). |
+| `POST /api/v1/epics/actions/reorder-epics` | `{project, epics:[...]}` | Apply one project's column order. |
 | `POST /api/v1/epics/actions/rename` | `{project, epic, to}` | Rename a column in place; its cards are rewritten with it. A name already used inside the SAME project is refused (422); the same name in another project is fine. |
-| `POST /api/v1/epics/actions/set-project` | `{epic, from, project}` | Move a column from one project to another; an empty target detaches it. Its cards are rewritten too. |
+| `POST /api/v1/epics/actions/set-project` | `{epic, from, project}` | Move a column from one project to another; an empty target detaches it. Its cards are rewritten too — and move domains if the projects live in different ones. |
 | `POST /api/v1/projects/actions/delete-project` | `{project}` | Delete an EMPTY project; 422 while it still owns columns. |
 | `POST /api/v1/projects/actions/reorder-projects` | `{projects:[...]}` | Apply the shared project order. |
 | `POST /api/v1/projects/actions/rename` | `{project, to}` | Rename a project in place; its columns and their cards follow. |
@@ -100,18 +105,15 @@ Actions carry the board rules — the client never reimplements them.
 
 The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they report the counts without changing anything — that backs the UI's confirm dialogs.
 
+Every mutating request is **one action**: whatever it writes — a card and its review card, a column and every card under it — lands in one commit per touched repository, authored by the visitor, with `Aeman-Action`/`Aeman-Action-Id` trailers tying the commits together. Field writes that arrive in quick succession from the same visitor (a progress slider) coalesce into one commit with the final value.
+
 ### Card shape
 
 ```json
 {
   "kind": "Card",
   "metadata": {
-    "uid": "PVTI_...",
-    "contentId": "DI_...",
-    "isDraft": true,
-    "url": "https://github.com/...",
-    "number": 12,
-    "repository": "acme/repo",
+    "uid": "01JB4KA0M2P4R6T8V0X2Z4B6D8",
     "author": "octocat",
     "createdAt": "2026-06-20T10:00:00Z"
   },
@@ -127,12 +129,13 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
     "plan": { "band": "wed", "week": "2026-06-29" },
     "epic": "Auth",
     "project": "cozystack",
-    "reviewOf": "PVTI_..."
+    "reviewOf": "01JB4KA0M2P4R6T8V0X2Z4B6E1"
   },
   "status": {
     "complete": false,
     "inProgress": false,
     "reviewedBy": "lllamnyp",
+    "domain": "aeman-db",
     "links": [
       { "kind": "pull", "url": "https://github.com/acme/repo/pull/7", "owner": "acme", "repo": "repo", "number": 7 }
     ]
@@ -140,19 +143,57 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
 }
 ```
 
+- **`metadata.uid`** is a ULID, assigned at creation and never changed by a rename, a move or a re-filing. A card migrated from GitHub Projects v2 also answers to its old `PVTI_…` id for one major version (an unknown legacy id is a 404).
 - **Zones are semantic**: `urgent`, `unplanned`, `planned`, `niceToHave` (or empty). The UI's colours are presentation.
 - **`spec.dates`** is the date model of [dates.md](dates.md): `start` (the scheduled day), `end` (the visible range's end), `sprint` (sprint membership). PATCHing `dates.start` runs the calendar rule — the sprint follows the sprint that was active on the start day; patch only `dates.end` or `dates.sprint` for a granular change.
-- **`spec.stage`** is `locked`, `review`, `recurrent` or empty. Done is **derived** (`status.complete`): 100% with no stage. Patching `stage: "done"` clears the stage and fills 100%; review/locked clamp progress to [10, 90]. Taking a card off review cancels its unfinished linked review card server-side.
-- **`status`** is server-derived and read-only: `complete`, `inProgress`, `reviewedBy` (the assignee of the unfinished linked review card), and `links` — the references extracted from the description (unresolved; `GET /cards/{uid}/links` resolves GitHub refs to live titles and states). `status.links` is what lets a listing drop the description without blinding a row's links indicator.
+- **`spec.stage`** is `locked`, `review`, `recurrent` or empty. Done is **derived** (`status.complete`): 100% with no stage. Patching `stage: "done"` clears the stage and fills 100%; review/locked clamp progress to [10, 90]. Taking a card off review cancels its unfinished linked review card server-side. Reopening a done card restores the progress it had when it was marked done.
+- **`status`** is server-derived and read-only: `complete`, `inProgress`, `overdue`, `reviewedBy` (the assignee of the unfinished linked review card), `domain` (the repository the card lives in), and `links` — the references extracted from the description (unresolved; `GET /cards/{uid}/links` resolves GitHub refs to live titles and states). `status.links` is what lets a listing drop the description without blinding a row's links indicator.
+
+### Board shape
+
+```json
+{
+  "kind": "Board",
+  "metadata": {
+    "title": "Ænix planning",
+    "teams": ["platform", "portal"],
+    "projects": ["cozystack"],
+    "epics": [{ "name": "Auth", "project": "cozystack" }],
+    "deadlines": [{ "week": "2026-09-07", "project": "cozystack" }],
+    "members": [{ "login": "octocat", "avatarUrl": "https://avatars.githubusercontent.com/octocat?size=48" }],
+    "domains": [
+      { "name": "aeman-db", "writable": true, "members": ["octocat", "lllamnyp"] },
+      { "name": "closed", "writable": false, "members": ["octocat"] }
+    ]
+  }
+}
+```
+
+`members` is everyone who can read some domain of the board plus every assignee on it; `domains[].members` is who can read that domain — the reviewer picker offers only those for a card in it.
+
+### Log shape
+
+```json
+{
+  "kind": "LogList",
+  "items": [
+    { "type": "event", "kind": "progress", "actor": "octocat", "from": "20", "to": "40", "at": "2026-07-06T10:00:00Z" },
+    { "type": "note", "actor": "octocat", "text": "Deployed to staging", "at": "2026-07-06T11:00:00Z" }
+  ],
+  "truncatedBefore": "2026-05-01T00:00:00Z"
+}
+```
+
+`truncatedBefore` is present only when the history is cut: the server's clone is shallow (`--history`), older commits exist on the remote and were not loaded. A request for a card created before the horizon deepens the clone back to its creation, up to `--history-max`.
 
 ### LIST selectors
 
 `GET /api/v1/cards` reproduces the UI's views server-side:
 
-- **No view** — defaults to the caller's personal **Me** board (their own cards in the active sprint). Who-am-I is resolved server-side (session/token login), so no `user` is needed; an explicit `?user=` still wins. This is where everyone works day to day.
-- `?view=all` — every card on the board (the old bare-list behaviour; still honours the field/team filters).
+- **No view** — defaults to the caller's personal **Me** board (their own cards in the active sprint). Who-am-I is resolved server-side (session/`gh` login), so no `user` is needed; an explicit `?user=` still wins. This is where everyone works day to day.
+- `?view=all` — every card on the board (still honours the field/team filters).
 - `?view=team&team=platform&day=2026-07-02` — the Team grid (the lead view) for a team on a day; `team=` accepts a comma-separated set (`team=platform,marketing`) so the multi-team board loads in one request. Day defaults to today.
-- `?view=me&user=octocat&day=` — the personal day view for a specific user (empty user = the caller; on the Me view an empty user resolves to who-am-i via the handler).
+- `?view=me&user=octocat&day=` — the personal day view for a specific user (empty user = the caller).
 - `?view=project&project=cozystack` — the **Project board**: every card filed under one project's epic columns, all weeks at once (the client lays the weeks × epics table out itself). Without `project=` it is every project, including columns that belong to none.
 - `?view=weekly&team=platform&week=2026-06-29` — the weekly plan (week = a Monday, defaults to the current week); the response also carries `weekly: {progress}` (recurrent cards excluded).
 - Field selectors — `stage=`, `zone=`, `assignee=` — compose with a view or apply to all cards.
@@ -161,71 +202,113 @@ The carry actions return `{carried, reseeded}` counts; with `dryRun: true` they 
 - `fields=full` — complete cards with descriptions, for genuine bulk readers (analytics over card bodies). The default is the board-row shape: reading one card's body is `GET /cards/{uid}`, not a fatter list.
 - On the me / all lists, `team=` filters by a comma-separated set (`team=marketing,portal`) matching any of them.
 
+Every listing is the visitor's projection: cards in domains they cannot read are not there.
+
 ### Live updates: list + watch
 
 Clients follow the Kubernetes list/watch pattern:
 
 1. LIST: `GET /api/v1/cards` (+ `/sprints`) — the current state.
-2. WATCH: `GET /api/v1/watch?owner=&board=&client=<id>` — upgrade to a WebSocket; each text frame is one event:
+2. WATCH: `GET /api/v1/watch?client=<id>` — upgrade to a WebSocket; each text frame is one event:
 
 ```json
 { "type": "ADDED" | "MODIFIED" | "DELETED", "kind": "Card" | "Sprint" | "Ordering", "object": { ... } }
 ```
 
-Apply Card events by `metadata.uid`; Sprint events replace a team's pointer; an Ordering event carries the full uid list to re-sort by. On reconnect, re-list to reconcile.
+Apply Card events by `metadata.uid`; Sprint events replace a team's pointer; an Ordering event carries the full uid list to re-sort by. On reconnect, re-list to reconcile. Frames about a domain the visitor cannot read are never sent.
 
 The optional `client` id keys **echo suppression**: send the same value in the `X-Aeman-Client` header on your own mutations and the server will not stream your own changes back on that watch connection (your optimistic state and the mutation responses already carry them).
 
 **Scoped watch**: pass the same selector parameters as LIST (`view=`, `team=`, `stage=`, ...) and the subscription tracks that selection — a card entering it arrives as `ADDED` and one leaving it as `DELETED`, so a thin client can mirror a single view without knowing the board rules. Memberships are re-diffed when a sprint pointer moves and when the local day rolls over. `resources=cards,sprints,ordering` picks the kinds.
 
+Changes that reach the repository from elsewhere — another aeman replica, a plugin committing directly — arrive the same way: the server fetches on its sync tick (`--sync-interval`, 15 s), reads exactly the cards the new commits touched, and streams them.
+
+### Health
+
+`GET /healthz` answers `{"status": "ok"}` and, in addition, what the storage has to say:
+
+```json
+{
+  "status": "degraded",
+  "unpushedAgeSeconds": 412,
+  "aliases": [{ "kind": "project", "name": "Docs", "domain": "closed", "id": "01JB…", "winner": "01JB…" }],
+  "ghosts": [{ "id": "01JB…", "domain": "aeman-db", "current": "closed" }]
+}
+```
+
+- `unpushedAgeSeconds` is the age of the oldest commit not yet pushed; past `--unpushed-warn` (5 min) the status is `degraded` — a push that cannot land must not be discovered a week later. Commits are never lost: they stay in the clone and are pushed when the remote is reachable again.
+- `aliases` names roster entries (teams, projects, processes) declared under the same name in two domains; the oldest wins, the others' cards still count. A maintainer merges them by hand.
+- `ghosts` are cards left behind by a move that landed in the destination but whose source-side delete has not yet; maintenance removes them.
+
 ### Examples
 
 ```sh
 # All cards, in board order
-curl 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7'
+curl 'http://127.0.0.1:8765/api/v1/cards?view=all'
 
 # The team grid for today
-curl 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7&view=team&team=platform'
+curl 'http://127.0.0.1:8765/api/v1/cards?view=team&team=platform'
 
 # Create an urgent card assigned to octocat
-curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
+curl -X POST 'http://127.0.0.1:8765/api/v1/cards' \
   -H 'Content-Type: application/json' \
   -d '{"title":"Fix the build","zone":"urgent","assignees":["octocat"]}'
 
 # Bump readiness to 80%
-curl -X PATCH 'http://127.0.0.1:8765/api/v1/cards/PVTI_xxx?owner=acme&board=7' \
+curl -X PATCH 'http://127.0.0.1:8765/api/v1/cards/01JB4KA0M2P4R6T8V0X2Z4B6D8' \
   -H 'Content-Type: application/json' -d '{"progress":80}'
 
 # Add a note
-curl -X POST 'http://127.0.0.1:8765/api/v1/cards/PVTI_xxx/notes?owner=acme&board=7' \
+curl -X POST 'http://127.0.0.1:8765/api/v1/cards/01JB4KA0M2P4R6T8V0X2Z4B6D8/notes' \
   -H 'Content-Type: application/json' -d '{"text":"Deployed to staging"}'
 
 # Preview a carry-over, then run it
-curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over?owner=acme&board=7' \
+curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over' \
   -H 'Content-Type: application/json' -d '{"team":"platform","dryRun":true}'
-curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over?owner=acme&board=7' \
+curl -X POST 'http://127.0.0.1:8765/api/v1/sprints/actions/carry-over' \
   -H 'Content-Type: application/json' -d '{"team":"platform"}'
 
-# Plan a project: declare it, give it a column, then file a card in that column
-curl -X POST 'http://127.0.0.1:8765/api/v1/projects?owner=acme&board=7' \
-  -H 'Content-Type: application/json' -d '{"name":"cozystack"}'
-curl -X POST 'http://127.0.0.1:8765/api/v1/epics?owner=acme&board=7' \
+# Plan a project in the closed domain: declare it there, give it a column,
+# then file a card in that column — the card lands in the closed repository
+curl -X POST 'http://127.0.0.1:8765/api/v1/projects' \
+  -H 'Content-Type: application/json' -d '{"name":"cozystack","domain":"closed"}'
+curl -X POST 'http://127.0.0.1:8765/api/v1/epics' \
   -H 'Content-Type: application/json' -d '{"name":"Auth","project":"cozystack"}'
-curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
+curl -X POST 'http://127.0.0.1:8765/api/v1/cards' \
   -H 'Content-Type: application/json' \
   -d '{"title":"SSO for the console","epic":"Auth","project":"cozystack","plan":{"week":"2026-08-24"},"dates":{"end":"2026-09-11"}}'
 ```
 
+## Configuration
+
+`aeman serve` and `aeman mcp` share the storage flags; every flag has an environment variable, the flag wins.
+
+| Flag | Environment | Default | Meaning |
+| --- | --- | --- | --- |
+| `--repo name=url` | `AEMAN_REPOS` (comma-separated) | — (required) | A domain of the board; repeatable, the primary first. The name is the domain's name on the API and the board's name for the primary. |
+| — | `AEMAN_GIT_TOKEN` | `GITHUB_TOKEN`, `GH_TOKEN`, then `gh auth token` | The server's own credential: fetch, push, and resolving issue titles. |
+| `--data` | `AEMAN_DATA` | `/data` if it exists, else the user cache dir | Where the clones live (`<data>/repos/<name>`) and the session file. |
+| `--history` | `AEMAN_HISTORY` | `8w` | How far back the history is loaded in the background after start-up. The cold start is a depth-1 clone; the log fills in behind it. |
+| `--history-max` | `AEMAN_HISTORY_MAX` | `1y` | Cap for on-demand deepening when a card's log is cut by the horizon. |
+| `--sync-interval` | `AEMAN_SYNC_INTERVAL` | `15s` | How often other replicas' and direct commits are fetched (and the weekly process turns filed). |
+| `--unpushed-warn` | `AEMAN_UNPUSHED_WARN` | `5m` | Age of the oldest unpushed commit that turns `/healthz` degraded. |
+| `--committer` | `AEMAN_COMMITTER` | `aeman <aeman@localhost>` | The committer identity; also the author of the server's own actions (the weekly sweep, a schema migration). |
+| `--author-email` | `AEMAN_AUTHOR_EMAIL` | `{login}@aeman` | How a visitor's login becomes the commit author's email. |
+
+`aeman serve` adds `--addr` (default `127.0.0.1:8765`), `--open` and `--verbose`; `AEMAN_TZ` is the board's day time zone; the self-hosted OAuth mode is enabled by `AEMAN_GITHUB_CLIENT_ID`/`AEMAN_GITHUB_CLIENT_SECRET` (with `AEMAN_BASE_URL`, `AEMAN_SCOPES`, `AEMAN_SESSION_FILE`, `AEMAN_SESSION_KEY`).
+
+Bootstrapping: `aeman init --repo <url> [--title …]` writes an empty board (one commit) into an unborn repository; `serve` refuses an unborn remote and names that command. A repository written by a newer aeman (a higher `schema` in `board.yaml`) is refused at start-up; an older one is migrated in one commit.
+
 ## MCP server
 
-`aeman mcp` starts a Model Context Protocol server on **stdio** (the right transport for a local, single-user MCP). In the self-hosted OAuth mode the same tool set is served over HTTP at `/mcp`. The tools are a one-to-one projection of the HTTP API — same resources, same actions, same semantic zone names, item ids called `uid`:
+`aeman mcp --repo name=url` starts a Model Context Protocol server on **stdio** (the right transport for a local, single-user MCP), on its own clone of the board. In the self-hosted mode the same tool set is served over HTTP at `/mcp`. The tools are a one-to-one projection of the HTTP API — same resources, same actions, same semantic zone names, item ids called `uid`:
 
 | Tool | Purpose |
 | --- | --- |
-| `get_board` | Board identity, team roster, and the Project board's structure (`metadata.projects`, `metadata.epics`, `metadata.deadlines`). |
+| `get_board` | The board: team roster, the Project board's structure (`metadata.projects`, `metadata.epics`, `metadata.deadlines`), the people and the domains. |
 | `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`, `focus`). Returns board ROWS (no descriptions; `status.links` carries the extracted refs). `title=<substring>` resolves a card someone mentioned by name to its uid in one cheap call; `full=true` opts a bulk reader into complete cards. No view defaults to your own Me board (who-am-i resolved server-side); `view=all` is the whole board, `view=team` the lead view. |
 | `get_card` / `list_notes` / `list_links` | One card IN FULL — the detail pane, and the way to read a body after a `list_cards` row; its notes; its description links (GitHub refs resolved with titles). |
-| `list_log` | The card's activity feed: events (stage/progress/review/plan changes with actor) + notes, one chronological list — read a card's delta instead of asking for morning reports. |
+| `list_log` | The card's activity feed from the repository's history: events (stage/progress/review/plan changes with actor) + notes, one chronological list — read a card's delta instead of asking for morning reports. `truncatedBefore` says when the loaded history is cut. |
 | `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). A title that is only a GitHub issue/PR URL is auto-filled from that item. |
 | `update_card` | The PATCH: only provided fields apply, empty clears. The `description` is the card's shared body — and the place for reference links: include full URLs of related open PRs/issues in free form (encouraged); they are surfaced on the card and GitHub refs resolve to live titles/states (`list_links`). |
 | `delete_card` / `remove_card` | Hard delete; the smart × (`from: grid\|plan`). |
@@ -235,18 +318,18 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards?owner=acme&board=7' \
 | `carry_over` | Advance a team's sprint and carry its unfinished day cards forward (`dryRun` reports the counts). There is no weekly counterpart: the server files each week's process turns by itself, and an unfinished plan card is a debt that stays where it was owed and shows on the current week as overdue. |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |
 | `list_processes` | The Process tab in one call: processes, tasks, and each task's history (done / open / late per iteration). |
-| `add_process` / `delete_process` / `rename_process` | The process roster inside a project. |
+| `add_process` / `delete_process` / `rename_process` | The process roster inside a project; `add_process` takes an optional `domain`. |
 | `set_process_project` / `set_process_paused` | Move a process between projects; pause it (it files no turns) or resume it. |
 | `add_process_task` / `update_process_task` / `delete_process_task` | What a process iterates on: title, body, cycle (`week` / `2weeks` / `month` / `quarter`), start, team, owner, `accumulate`. |
 | `add_deadline` / `delete_deadline` / `move_deadline` | A project's deadline lines: mark a week, clear it, drag one to another week (two of the same project on one week become one). |
-| `add_project` / `delete_project` / `rename_project` / `reorder_projects` | The project roster: declare one (it may start empty), delete an EMPTY one, rename one (its columns and cards follow), set the chip order. |
+| `add_project` / `delete_project` / `rename_project` / `reorder_projects` | The project roster: declare one (it may start empty; optional `domain`), delete an EMPTY one, rename one (its columns and cards follow), set the chip order. |
 | `add_epic` / `delete_epic` / `rename_epic` / `set_epic_project` | The columns of a project, each named by the `(project, epic)` pair: `add_epic` requires `project=`, `delete_epic` refuses a column with cards, `rename_epic` rewrites the column and its cards, `set_epic_project` moves one between projects (an empty target detaches it). |
 
-Each tool accepts optional `owner`/`board` to pick the GitHub board, defaulting to the server's configuration (and ignored under `--lock-board`). Changes made by agents are streamed to every open board over the watch, like any other write.
+The tools act on the configured board; a `board` argument, if a client passes one, is ignored. Changes made by agents are committed and streamed to every open board over the watch, like any other write; the stdio server pushes what accumulated when the client closes the pipe.
 
 ### Flags and environment
 
-`aeman mcp` flags: `--owner`, `--board`, `--lock-board`, `--verbose`. Environment: `GITHUB_TOKEN`/`GH_TOKEN` (token), `AEMAN_OWNER`, `AEMAN_BOARD`, `AEMAN_LOCK_BOARD`.
+`aeman mcp` takes the storage flags of the configuration table above plus `--verbose`. The actor is the local `gh` login; the push credential is `AEMAN_GIT_TOKEN`, else `GITHUB_TOKEN`/`GH_TOKEN`, else `gh auth token`.
 
 Logs go to stderr, never stdout, so they never corrupt the JSON-RPC stream.
 
@@ -259,8 +342,8 @@ Claude Code / Claude Desktop style config:
   "mcpServers": {
     "aeman": {
       "command": "aeman",
-      "args": ["mcp", "--owner", "acme", "--board", "7"],
-      "env": { "GITHUB_TOKEN": "ghp_..." }
+      "args": ["mcp", "--repo", "aeman-db=https://github.com/acme/aeman-db.git"],
+      "env": { "AEMAN_GIT_TOKEN": "ghp_..." }
     }
   }
 }
@@ -269,7 +352,7 @@ Claude Code / Claude Desktop style config:
 Or add it from the command line:
 
 ```sh
-claude mcp add aeman --env GITHUB_TOKEN=ghp_... -- aeman mcp --owner acme --board 7
+claude mcp add aeman --env AEMAN_GIT_TOKEN=ghp_... -- aeman mcp --repo aeman-db=https://github.com/acme/aeman-db.git
 ```
 
-If you omit `GITHUB_TOKEN`, the server falls back to `gh auth token`, so an authenticated `gh` is enough for local use.
+If you omit the token, the server falls back to `gh auth token`, so an authenticated `gh` is enough for local use.

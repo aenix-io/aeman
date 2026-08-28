@@ -2,12 +2,12 @@
 
 The Claude Code plugin for aeman boards drives boards **without this server**, by replicating the domain rules documented in its `model.md` / `reference.md`. With the move from GitHub Projects v2 to git repositories, every write path the plugin has — `gh api graphql` mutations against project items, fields and draft bodies — stops working: there is no project any more, only files in a repository. This document lists what the plugin must know to keep driving boards, and what its two docs must say. It accompanies the storage PR; the plugin repository needs a paired PR and a version bump (breaking).
 
-Where a rule below is still moving in this PR series, it is marked **pending** with the direction; everything else is final and pinned by tests (`docs/design/behavior-matrix.md`, rows G1–G26, M1–M5).
+Everything below is final for this PR series and pinned by tests (`docs/design/behavior-matrix.md`, rows G1–G26, M1–M5); the API surface it lands with is in `docs/api.md`.
 
 ## What is gone
 
 - The GitHub Project, its fields, single-select options and option ids. Nothing on a board is a GraphQL node any more.
-- `PVTI_…` item ids. Cards, teams, projects, columns, deadlines, processes and tasks have **ULIDs** (26 Crockford-base32 characters). The migration kept the old item id in a card's `github:` front-matter key for reference only. **Pending:** the API may accept a legacy `PVTI_` uid for one major version by looking it up through that key (matrix M5); the plugin must not rely on it.
+- `PVTI_…` item ids. Cards, teams, projects, columns, deadlines, processes and tasks have **ULIDs** (26 Crockford-base32 characters). The migration kept the old item id in a card's `github:` front-matter key. The API and MCP tools accept a legacy `PVTI_` uid for one major version by looking it up through that key (matrix M5) — a convenience for old links, not something to build on: new state must name ULIDs.
 - The draft-issue body as the note/event log. Notes live in the card file; **events are commits** — there is no event line to append.
 - Issue and PR cards. A card that was an issue is a draft card with `link: <url>`; the issue itself is untouched.
 - The `Status` field. Done and In Progress were never stored; they are derived (progress 100 with no stage; progress in (0, 100) with no stage).
@@ -125,12 +125,15 @@ Unchanged rules (dates, visibility, clamps, carry-over, smart remove, review lin
 - Notes: append a `- <ulid> [ts] author — text` line under `## Notes`.
 - Events: none to write. Set the fields; the commit is the event. For a change the diff cannot express (a review sent to someone, a reviewer removed), add an `Aeman-Change` trailer.
 
-## Pending in this PR series
+## The API surface that changed with it
 
-- **Board addressing.** The API's `owner` + `board` pair becomes one `board` string (the primary repository's name); MCP tools take `board` instead of `owner`/`board`. Breaking for any caller of the REST API or MCP tools.
-- **Card fields.** `contentId`, `isDraft`, `url`, `number`, `repository`, `state` leave the API's card metadata; `link` stays.
-- **Members.** `GET /board` `metadata.members` becomes `[{login, avatarUrl}]`; `metadata.domains` lists the visitor's domains with a `writable` flag and the members who can read each.
-- **Log.** `GET /cards/{uid}/log` gains `truncatedBefore` when the loaded history is cut by the clone's horizon.
+For a plugin that talks to a running server (REST or MCP) instead of the repository:
+
+- **Board addressing.** A server serves one board — its configured repositories. The `owner` + `board` query parameters are gone (and ignored if sent); MCP tools take no `owner`/`board` (an optional `board` name is accepted and ignored under the server's lock). Breaking for any caller that addressed boards.
+- **Card fields.** `metadata.contentId`, `isDraft`, `url`, `number`, `repository` left the card resource; `metadata` is `{uid, author, createdAt}`. `status.domain` names the repository the card lives in.
+- **Members.** `GET /board` `metadata.members` is `[{login, avatarUrl}]`; `metadata.domains` lists the visitor's readable domains, primary first, each with a `writable` flag and the logins that can read it.
+- **Log.** `GET /cards/{uid}/log` carries `truncatedBefore` when the loaded history is cut by the clone's horizon; events come from the commits, so a change made by a direct git write shows up too.
+- **Domain choice.** `POST /projects`, `POST /processes` and `PATCH /sprints` take an optional `domain`; the MCP `add_project`, `add_process` and the team declaration take the same argument.
 
 ## What the plugin docs must change
 
