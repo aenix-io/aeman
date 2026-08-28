@@ -178,6 +178,12 @@ func Run(ctx context.Context, src Source, storer storage.Storer, remote gitstore
 	if opts.DryRun {
 		return rep, nil
 	}
+	if opts.Force {
+		// Writing over a repository that already holds commits means the
+		// remote's history goes too: an ordinary push would be refused as a
+		// non-fast-forward update, and --force promised to write over it.
+		return rep, repo.PushForce(ctx, remote)
+	}
 	return rep, repo.Push(ctx, remote)
 }
 

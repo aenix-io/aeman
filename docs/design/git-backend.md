@@ -719,7 +719,9 @@ aeman migrate --owner aenix-org --board 37 \
 
 Idempotence: a repository that already carries the migration's final
 commit for this board (marked in its message) is left alone unless
-`--force`. The Projects v2 board is never written. The migration is the
+`--force`, which writes the new history over the remote's (a forced
+push — the earlier import and anything written since are replaced by the
+verified snapshot). The Projects v2 board is never written. The migration is the
 last code that reads Projects v2; it stays in the tree as long as it is
 useful and is deleted after.
 
