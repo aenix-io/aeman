@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/aenix-io/aeman/internal/forge"
+	"github.com/aenix-io/aeman/internal/server"
 )
 
 // The board's forge is read off the primary repository's host, and the flag
@@ -89,6 +90,31 @@ func TestResolveForgeTokenPrefersTheEnvironmentThenTheCLI(t *testing.T) {
 	broken := &fakeCLI{err: errors.New("glab: not logged in")}
 	if _, err := resolveForgeToken(ctx, gl, broken, env(nil)); !errors.Is(err, broken.err) {
 		t.Fatalf("cli error must surface: %v", err)
+	}
+}
+
+// In the OAuth mode the server needs a credential for EVERY repository of
+// the board — it pushes them and asks the forge who may read them with its
+// own — but a board whose domains each carry their own needs no shared one.
+// The error names the domains that lack one and the variables that would
+// give them one.
+func TestMissingTokensNamesTheDomainsWithoutACredential(t *testing.T) {
+	all := &server.GitConfig{Repos: []server.RepoSpec{
+		{Name: "aeman-db", Token: "a"}, {Name: "founders", Token: "b"},
+	}}
+	if got := missingTokens(all); len(got) != 0 {
+		t.Fatalf("every domain has a token; missing = %v", got)
+	}
+	some := &server.GitConfig{Repos: []server.RepoSpec{
+		{Name: "aeman-db", Token: "a"}, {Name: "founders"}, {Name: "odd.name"},
+	}}
+	got := missingTokens(some)
+	if len(got) != 2 || got[0] != "founders (AEMAN_GIT_TOKEN_FOUNDERS)" || got[1] != "odd.name (AEMAN_GIT_TOKEN_ODD_NAME)" {
+		t.Fatalf("missing = %v; want the two domains with the variables that would fill them", got)
+	}
+	none := &server.GitConfig{Repos: []server.RepoSpec{{Name: "aeman-db"}}}
+	if got := missingTokens(none); len(got) != 1 {
+		t.Fatalf("missing = %v", got)
 	}
 }
 
