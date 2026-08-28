@@ -50,6 +50,9 @@ const (
 	EventParent          = "parent"
 	EventSubtask         = "subtask"
 	EventRecurrence      = "recurrence"
+	// EventLeft: a personal card left behind on a past day's board by the ×
+	// (to = that day), or brought back by re-dating it (to = "").
+	EventLeft = "left"
 )
 
 // DateRange renders a start..end pair for a dates event value ("" parts kept

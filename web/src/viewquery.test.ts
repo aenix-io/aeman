@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { queryString, viewQueries, watchQuery } from "./viewquery";
+import { queryString, viewQueries, watchQueries, watchQuery } from "./viewquery";
 
 describe("viewQueries", () => {
   it("scopes the Me board to the day, with reviews and no user or team", () => {
@@ -25,6 +25,50 @@ describe("viewQueries", () => {
 
   it("sends an empty team set when the Team board shows no teams", () => {
     expect(viewQueries("team", "2026-07-04", [])[0].team).toBe("");
+  });
+
+  it("fetches the personal board beside the Me view when one is linked, on the same day", () => {
+    // The personal column follows the day being looked at: a card sent to
+    // tomorrow shows up when the board is flipped to tomorrow.
+    expect(viewQueries("me", "2026-07-04", [], undefined, true)).toEqual([
+      { view: "me", day: "2026-07-04", reviews: "true" },
+      { view: "personal", day: "2026-07-04" },
+    ]);
+  });
+
+  it("leaves the personal board out while impersonating — it is the viewer's own, not theirs", () => {
+    expect(viewQueries("me", "2026-07-04", [], "lllamnyp", true)).toEqual([
+      { view: "me", day: "2026-07-04", reviews: "true", user: "lllamnyp" },
+    ]);
+  });
+
+  it("fetches nothing personal without a personal board, or off the Me board", () => {
+    expect(viewQueries("me", "2026-07-04", [], undefined, false)).toHaveLength(1);
+    expect(viewQueries("team", "2026-07-04", ["alpha"], undefined, true)).toEqual(
+      viewQueries("team", "2026-07-04", ["alpha"]),
+    );
+  });
+});
+
+describe("watchQueries", () => {
+  it("watches the Me selection alone without a personal board", () => {
+    expect(watchQueries("me", "2026-07-04", [], undefined, false)).toEqual([
+      watchQuery("me", "2026-07-04", []),
+    ]);
+  });
+
+  it("adds the personal selection on the Me board when one is linked, on the same day", () => {
+    expect(watchQueries("me", "2026-07-04", [], undefined, true)).toEqual([
+      watchQuery("me", "2026-07-04", []),
+      { view: "personal", day: "2026-07-04" },
+    ]);
+  });
+
+  it("does not watch it while impersonating or on the other boards", () => {
+    expect(watchQueries("me", "2026-07-04", [], "lllamnyp", true)).toHaveLength(1);
+    expect(watchQueries("team", "2026-07-04", ["alpha"], undefined, true)).toEqual([
+      watchQuery("team", "2026-07-04", ["alpha"]),
+    ]);
   });
 });
 

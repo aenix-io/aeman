@@ -61,6 +61,16 @@ describe("cardDomainBadge", () => {
     expect(cardDomainBadge(multi, "acme/secret")).toBe("acme/secret");
     expect(cardDomainBadge(multi, "acme/archive")).toBe("acme/archive");
   });
+
+  it("never badges a personal domain (~login): its column is where it shows", () => {
+    const withPersonal: DomainInfo[] = [
+      ...multi,
+      { name: "~kvaps", writable: true, members: ["kvaps"], personal: true },
+    ];
+    expect(cardDomainBadge(withPersonal, "~kvaps")).toBeNull();
+    // Even when the server does not flag it, the name says what it is.
+    expect(cardDomainBadge([...multi, { name: "~kvaps", writable: true, members: [] }], "~kvaps")).toBeNull();
+  });
 });
 
 describe("writableDomains", () => {

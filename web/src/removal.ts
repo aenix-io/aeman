@@ -30,6 +30,21 @@ export interface RemovalContext {
  *  reads exactly like deletion; when the card carries progress there is work
  *  to lose either way, so the person chooses.
  */
+/** personalRemovalKind is the × on a personal card, which has no sprint to
+ *  demote into (mirrors boardservice.removePersonal): a card that has been
+ *  worked on and did not start today is left behind on yesterday's board —
+ *  history kept, off the column from today — and that reads like deletion,
+ *  so the person is asked; an untouched card, or one that started today, is
+ *  simply deleted. */
+export function personalRemovalKind(
+  c: Pick<RemovableCard, "progress" | "startDate">,
+  today: string,
+): "ask" | "delete" {
+  const worked = (c.progress ?? 0) > 0;
+  const startedEarlier = !c.startDate || c.startDate < today;
+  return worked && startedEarlier ? "ask" : "delete";
+}
+
 export function removalKind(c: RemovableCard, ctx: RemovalContext): Removal {
   const inCurrent = !!c.sprintStart && !!ctx.current && c.sprintStart === ctx.current;
   const demotable =

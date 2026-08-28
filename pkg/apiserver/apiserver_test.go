@@ -409,3 +409,49 @@ func TestCardResourceCarriesDomain(t *testing.T) {
 		t.Fatalf("a card the store did not stamp has no domain, got %q", r.Status.Domain)
 	}
 }
+
+// view=personal is the caller's personal repository as a backlog: open cards
+// and the ones done today, nothing of anyone else's; the day defaults to
+// today like the other day views.
+func TestSelectorPersonalView(t *testing.T) {
+	today := board.TodayIso()
+	b := board.Board{Cards: []board.Card{
+		{ItemID: "mine", Domain: "~kvaps", Progress: 40},
+		{ItemID: "done-today", Domain: "~kvaps", Progress: 100, DoneAt: today},
+		{ItemID: "done-earlier", Domain: "~kvaps", Progress: 100, DoneAt: "2026-01-01"},
+		{ItemID: "team", Domain: "aeman-db", Progress: 40},
+		{ItemID: "bobs", Domain: "~bob"},
+	}}
+	got := FilterCards(b, Selector{View: "personal", User: "kvaps"})
+	if len(got) != 2 || got[0].ItemID != "mine" || got[1].ItemID != "done-today" {
+		t.Fatalf("personal view = %+v", memberLogins2(got))
+	}
+	sel, err := ParseSelector(map[string][]string{"view": {"personal"}, "user": {"kvaps"}})
+	if err != nil || sel.View != "personal" || sel.User != "kvaps" {
+		t.Fatalf("parse = %+v, %v", sel, err)
+	}
+}
+
+func memberLogins2(cards []board.Card) []string {
+	out := make([]string, 0, len(cards))
+	for _, c := range cards {
+		out = append(out, c.ItemID)
+	}
+	return out
+}
+
+// The resource says when a card was done (status.doneAt) and which domains
+// are personal.
+func TestCardResourceCarriesDoneAtAndPersonalDomain(t *testing.T) {
+	b := testBoard()
+	c := b.Cards[0]
+	c.Progress, c.DoneAt, c.Domain, c.LeftAt = 100, "2026-08-28", "~kvaps", "2026-08-27"
+	r := CardResource(b, c)
+	if r.Status.DoneAt != "2026-08-28" || r.Status.Domain != "~kvaps" || r.Status.LeftAt != "2026-08-27" {
+		t.Fatalf("status = %+v", r.Status)
+	}
+	d := DomainInfo{Name: "~kvaps", Writable: true, Personal: true}
+	if !d.Personal {
+		t.Fatal("DomainInfo carries the personal flag")
+	}
+}

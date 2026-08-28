@@ -28,16 +28,19 @@ import type {
 import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
-import { activeSprint, currentSprint } from "../sprint";
+import { activeSprint, currentSprint, previousSprint } from "../sprint";
+import { personalRemovalKind, removalKind } from "../removal";
 import type { Avatars } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
+import { isPersonalCard, personalRepoName, personalShows, splitPersonal } from "../personal";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
+import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 
@@ -136,6 +139,9 @@ export function MeBoard({
   onPresence,
 }: MeBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // The card whose × is waiting on a two-way answer: delete, or keep it —
+  // in the previous sprint (a team card), on yesterday's board (a personal one).
+  const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
   // Broadcast the selection as shared presence: teammates' Team boards
   // highlight this card with our avatar. Cleared on deselect and unmount.
   useEffect(() => {
@@ -187,6 +193,24 @@ export function MeBoard({
   }, []);
   const impRef = useRef<HTMLDivElement | null>(null);
   const viewMe = impersonated ?? me;
+
+  // The personal board's cards come out of the shared list first, so the day
+  // zones never pick them up. The column is the viewer's own (the server
+  // resolves who), so it shows only while the board is viewed as oneself; a
+  // card done before today has left it (mirrors view=personal).
+  const split = useMemo(
+    () => splitPersonal(board.cards, board.personal),
+    [board.cards, board.personal],
+  );
+  const teamCards = split.team;
+  const personalOn = board.personal !== undefined && !impersonated;
+  // The column follows the day being looked at, like the day board beside
+  // it: flipped to tomorrow, it shows what is planned for tomorrow.
+  const personalCards = useMemo(
+    () =>
+      personalOn ? split.personal.filter((c) => personalShows(c, selectedDate)) : [],
+    [split.personal, personalOn, selectedDate],
+  );
   // Other people with cards — offered in the "View as" impersonate picker.
   const others = useMemo(
     () =>
@@ -222,16 +246,16 @@ export function MeBoard({
   // subtasks along (mirrors MeView + withSubtasks server-side).
   const mine = useMemo(() => {
     if (!viewMe) {
-      return board.cards;
+      return teamCards;
     }
     const owned = new Set<string>();
-    for (const c of board.cards) {
+    for (const c of teamCards) {
       if (c.assignees.includes(viewMe)) {
         owned.add(c.parent ?? c.itemId);
       }
     }
-    return board.cards.filter((c) => owned.has(c.parent ?? c.itemId));
-  }, [board.cards, viewMe]);
+    return teamCards.filter((c) => owned.has(c.parent ?? c.itemId));
+  }, [teamCards, viewMe]);
 
   // In Me a card shows when it belongs to the sprint that was active on the viewed
   // day (activeSprint) and its scheduled day has arrived (startDate empty or on or
@@ -310,6 +334,20 @@ export function MeBoard({
     return buckets;
   }, [myCards]);
 
+  // The personal column's bands: the same four zones, the viewer's own cards.
+  const personalByZone = useMemo(() => {
+    const buckets: Record<ZoneKey, CardModel[]> = {
+      gray: [],
+      green: [],
+      yellow: [],
+      red: [],
+    };
+    for (const card of personalCards) {
+      buckets[card.zone ?? "gray"].push(card);
+    }
+    return buckets;
+  }, [personalCards]);
+
   // Overall completion across the day's cards (a done card counts as 100%) — the
   // thin bar under the zones, mirroring the weekly plan's progress strip.
   const dayProgress = useMemo(() => {
@@ -355,6 +393,7 @@ export function MeBoard({
   // to the full board state so the notes composer works on them.
   const selectedCard =
     myCards.find((c) => c.itemId === selectedCardId) ??
+    personalCards.find((c) => c.itemId === selectedCardId) ??
     board.cards.find((c) => c.itemId === selectedCardId && c.parent) ??
     null;
 
@@ -403,20 +442,23 @@ export function MeBoard({
     for (const c of myCards) {
       out.push(c, ...(childrenOf.get(c.itemId) ?? []));
     }
+    out.push(...personalCards);
     return out;
-  }, [myCards, childrenOf]);
+  }, [myCards, childrenOf, personalCards]);
 
   // Card item ids in board (display) order, for grouping notes by card;
   // subtasks group right after their parent.
   const noteCardOrder = useMemo(
-    () =>
-      ZONE_ORDER.flatMap((z) =>
+    () => [
+      ...ZONE_ORDER.flatMap((z) =>
         byZone[z].flatMap((c) => [
           c.itemId,
           ...(childrenOf.get(c.itemId) ?? []).map((s) => s.itemId),
         ]),
       ),
-    [byZone, childrenOf],
+      ...ZONE_ORDER.flatMap((z) => personalByZone[z].map((c) => c.itemId)),
+    ],
+    [byZone, childrenOf, personalByZone],
   );
 
   const dayNotes = useMemo<DayNote[]>(() => {
@@ -884,13 +926,107 @@ export function MeBoard({
       });
   };
 
-  const handleDelete = (card: CardModel) => {
+  // Demote a Me card to its team's previous sprint instead of deleting it
+  // (mirrors handleGridDelete in TeamBoard.tsx): all dates pulled along, so
+  // it leaves today's board and is found by stepping back; the server records
+  // the move and the re-list converges its outcome.
+  const demoteCard = (card: CardModel, prevSprint: string) => {
+    const prev = {
+      startDate: card.startDate,
+      sprintStart: card.sprintStart,
+      day: card.day,
+    };
+    patchCard(card.itemId, {
+      startDate: prevSprint,
+      sprintStart: prevSprint,
+      ...(card.day ? { day: prevSprint } : {}),
+    });
+    void provider
+      .removeCard(card.itemId, "grid")
+      .then(() => reload())
+      .catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  // Leave a personal card behind on yesterday's board (mirrors
+  // boardservice.removePersonal): leftAt set on it and its subtasks, so the
+  // column drops them at once; stepping back a day finds them.
+  const leaveBehind = (card: CardModel) => {
+    const yesterday = addDays(todayIso(), -1);
+    const prev = { leftAt: card.leftAt };
+    patchCard(card.itemId, { leftAt: yesterday });
+    for (const c of childrenOf.get(card.itemId) ?? []) {
+      patchCard(c.itemId, { leftAt: yesterday });
+    }
+    void provider
+      .removeCard(card.itemId, "grid")
+      .then(() => reload())
+      .catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  // The ×. As on the Team board, a worked-on card is not taken off the board
+  // silently: a Me card still in its team's current sprint can be kept in the
+  // previous one, a personal card on yesterday's board — the person is asked
+  // which they mean. A column card (a slot) is never destroyed by the ×: it
+  // demotes. Everything else deletes for real, as it always did here.
+  // What the × means for a card here: "ask" puts the two-way question to the
+  // person (the Card then shows no "Delete?" confirm of its own in front of
+  // it — see boardAsks), "demote" keeps a slot without asking, "delete" is
+  // the plain delete. A subtask has no history of its own: always "delete".
+  const removalOf = (card: CardModel): "ask" | "demote" | "delete" => {
+    if (card.parent) {
+      return "delete";
+    }
+    const today = todayIso();
+    if (isPersonalCard(card, board.personal)) {
+      return personalRemovalKind(card, today);
+    }
+    return removalKind(card, {
+      current: currentSprint(board, card.team ?? null) ?? undefined,
+      previous: previousSprint(board, card.team ?? null) ?? undefined,
+      today,
+    });
+  };
+
+  const handleDelete = (card: CardModel, forced?: "delete" | "keep") => {
     // A just-created optimistic card has no server twin yet: drop it locally
     // (deleting it via the API would 404 and resurrect a phantom copy).
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
       return;
+    }
+    const personal = isPersonalCard(card, board.personal);
+    const prevSprint = personal ? null : previousSprint(board, card.team ?? null);
+    if (forced === "keep") {
+      if (personal) {
+        leaveBehind(card);
+      } else if (prevSprint) {
+        demoteCard(card, prevSprint);
+      }
+      return;
+    }
+    if (!forced) {
+      const kind = removalOf(card);
+      if (kind === "ask") {
+        setRemoveChoice(card);
+        return;
+      }
+      if (kind === "demote" && prevSprint) {
+        demoteCard(card, prevSprint);
+        return;
+      }
     }
     // The server cascades the delete to a linked review card; one confirm for
     // both, one request, both removed optimistically.
@@ -1077,6 +1213,17 @@ export function MeBoard({
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [byZone, childrenOf, expandedSubs],
+  );
+
+  // The personal column's groups: flat rows (no subtasks) in the same bands.
+  const personalGroups = useMemo<BoardGroup<MeMeta>[]>(
+    () =>
+      ZONE_ORDER.map((zone) => ({
+        key: `personal:${zone}`,
+        meta: { zone },
+        cards: personalByZone[zone],
+      })),
+    [personalByZone],
   );
 
   // Keyboard navigation over the visible day list (zone bands top to bottom):
@@ -1270,6 +1417,53 @@ export function MeBoard({
       });
   };
 
+  // A personal card: filed in the viewer's own repository and assigned to
+  // them, with nothing of the day board (no team, dates or plan) — the server
+  // takes `personal: true` and does the rest.
+  const handleCreatePersonal = (zone: ZoneKey, title: string) => {
+    const tempId = `tmp-${new Date().toISOString()}`;
+    addCard({
+      itemId: tempId,
+      title: optimisticTitle(title),
+      assignees: me ? [me] : [],
+      zone,
+      domain: board.personal?.domain,
+      startDate: selectedDate,
+      day: selectedDate,
+      createdAt: new Date().toISOString(),
+      description: "",
+      notes: [],
+    });
+    // Created on the day being looked at, like a day-board card: a card
+    // added while planning tomorrow belongs to tomorrow.
+    const creating = provider.createCard({
+      title,
+      zone,
+      start: selectedDate,
+      day: selectedDate,
+      personal: true,
+    });
+    registerPendingCard(
+      tempId,
+      creating.then((c) => c.itemId),
+    );
+    void creating
+      .then((card) => {
+        if (consumePendingCancel(tempId)) {
+          removeCard(tempId);
+          void provider.deleteCard(card.itemId).catch(() => undefined);
+          return;
+        }
+        replaceCard(tempId, card);
+        migrateCardId(tempId, card.itemId);
+      })
+      .catch((err: unknown) => {
+        consumePendingCancel(tempId);
+        removeCard(tempId);
+        onError(errMessage(err));
+      });
+  };
+
   const handleAddNote = (text: string) => {
     if (!selectedCard) {
       return;
@@ -1356,8 +1550,56 @@ export function MeBoard({
   };
 
   // renderMeCard is the zone-band card used both for top-level rows and for
-  // subtask rows (a subtask works exactly like any card).
-  const renderMeCard = (card: CardModel): ReactNode => (
+  // subtask rows (a subtask works exactly like any card). A personal card is
+  // the same card without the day board's affordances: no team, no subtasks.
+  // Planning on the personal column is dates alone — there is no sprint to
+  // join or leave (mirrors boardservice.SetDates / Defer on a personal card):
+  // the calendar sets the start and end, the defer pushes the start N days
+  // ahead of today or of the already-deferred slot. The column hides a card
+  // until its start day (personalShows), so a card sent ahead leaves at once.
+  const handleSetPersonalDates = (
+    card: CardModel,
+    start: string | null,
+    end: string | null,
+  ) => {
+    const prev = { startDate: card.startDate, day: card.day };
+    patchCard(card.itemId, {
+      startDate: start ?? undefined,
+      day: end ?? undefined,
+    });
+    void provider
+      .patchCard(card.itemId, {
+        dates: { start: start ?? "", end: end ?? "" },
+      })
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  const handleDeferPersonal = (card: CardModel, days: number) => {
+    const today = todayIso();
+    const base =
+      card.startDate && card.startDate > today ? card.startDate : today;
+    const newStart = addDays(base, days);
+    // A card created today relocates fully: a stale end date follows.
+    const full = !!card.createdAt && localDateIso(card.createdAt) === today;
+    const prev = { startDate: card.startDate, day: card.day };
+    patchCard(card.itemId, {
+      startDate: newStart,
+      ...(full && card.day && card.day < newStart ? { day: newStart } : {}),
+    });
+    void provider
+      .deferCard(card.itemId, days)
+      .then(addCard)
+      .catch((err: unknown) => {
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
+  const renderMeCard = (card: CardModel, personal = false): ReactNode => (
     <Card
       card={card}
       onLoadLinks={loadCardLinks}
@@ -1365,27 +1607,35 @@ export function MeBoard({
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}
       onDelete={handleDelete}
+      boardAsks={removalOf(card) === "ask"}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
-      teams={teams}
+      teams={personal ? undefined : teams}
       people={people}
       reviewers={reviewerCandidates(people, board.domains, card.domain)}
       avatars={avatars}
       domainBadge={cardDomainBadge(board.domains, card.domain)}
-      onSetTeam={handleSetTeam}
+      onSetTeam={personal ? undefined : handleSetTeam}
       hasLinkedReview={reviewedItemIds.has(card.itemId)}
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      dimAvatar={teamFilter === null || !teamFilter.includes(card.team ?? "")}
+      personal={personal}
+      onSetDates={personal ? handleSetPersonalDates : undefined}
+      onDefer={personal ? handleDeferPersonal : undefined}
+      dimAvatar={!personal && (teamFilter === null || !teamFilter.includes(card.team ?? ""))}
       subCount={(childrenOf.get(card.itemId) ?? []).length}
       expanded={subsOpen(card.itemId)}
       onToggleExpand={(c) => toggleSubs(c.itemId)}
-      onAddSubtask={(c) => {
-        setExpandedSubs((cur) => new Set(cur).add(c.itemId));
-        setAddingSub(c.itemId);
-      }}
+      onAddSubtask={
+        personal
+          ? undefined
+          : (c) => {
+              setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+              setAddingSub(c.itemId);
+            }
+      }
       groupTarget={groupHover === card.itemId}
     />
   );
@@ -1557,6 +1807,7 @@ export function MeBoard({
 
       <div className="me-panes">
         <div className="me-left">
+          <div className="me-boards">
           <div className="me-zones">
             <SortableBoard<MeMeta>
               groups={groups}
@@ -1614,6 +1865,66 @@ export function MeBoard({
               }}
             />
           </div>
+          {personalOn && board.personal && (
+            <aside className="me-personal" aria-label="Personal board">
+              <div className="me-personal-head">
+                <span className="me-personal-title">Personal</span>
+                <span className="me-personal-repo" title={board.personal.url}>
+                  {personalRepoName(board.personal.url)}
+                </span>
+              </div>
+              <div className="me-personal-zones">
+                <SortableBoard<MeMeta>
+                  groups={personalGroups}
+                  onDrop={handleDrop}
+                  renderCard={(card) => renderMeCard(card, true)}
+                  renderOverlay={(card) => (
+                    <Card
+                      card={card}
+                      onLoadLinks={loadCardLinks}
+                      selected={false}
+                      onSelect={() => {}}
+                      onProgress={() => {}}
+                      onDelete={() => {}}
+                      onStage={() => {}}
+                      onInProgress={() => {}}
+                      onOpen={() => {}}
+                    />
+                  )}
+                  renderGroup={(group, body, { isOver, dropRef }) => {
+                    const def = ZONES[group.meta.zone];
+                    return (
+                      <section
+                        key={group.key}
+                        ref={dropRef as Ref<HTMLElement>}
+                        className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
+                        style={
+                          {
+                            background: def.background,
+                            borderLeftColor: def.accent,
+                            "--zone-accent": def.accent,
+                          } as CSSProperties
+                        }
+                      >
+                        <span className="zone-spine">{def.spine}</span>
+                        <div className="zone-cards">
+                          {body}
+                          <AddCard
+                            forcedTeam={null}
+                            placeholder="Add a personal card…"
+                            onCreate={(title) =>
+                              handleCreatePersonal(group.meta.zone, title)
+                            }
+                          />
+                        </div>
+                      </section>
+                    );
+                  }}
+                />
+              </div>
+            </aside>
+          )}
+          </div>
         </div>
 
         <NotesPanel
@@ -1662,6 +1973,22 @@ export function MeBoard({
         </button>
       </div>
       {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} />}
+      {removeChoice && (
+        <RemoveChoiceDialog
+          title={removeChoice.title}
+          progress={removeChoice.progress ?? 0}
+          previous={
+            isPersonalCard(removeChoice, board.personal)
+              ? addDays(todayIso(), -1)
+              : (previousSprint(board, removeChoice.team ?? null) ?? "")
+          }
+          subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
+          onClose={() => setRemoveChoice(null)}
+          onSubmit={(hardDelete) =>
+            handleDelete(removeChoice, hardDelete ? "delete" : "keep")
+          }
+        />
+      )}
     </div>
   );
 }

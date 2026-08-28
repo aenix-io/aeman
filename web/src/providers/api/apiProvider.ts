@@ -6,6 +6,7 @@
 import { clientId } from "../../api/client";
 import { resolveCardId } from "../../api/pending";
 import type { CardLink } from "../../links";
+import type { PersonalBoard } from "../../personal";
 import {
   resourceToCard,
   resourceToNote,
@@ -39,7 +40,15 @@ export function boardMetadata(
   info: BoardResource,
 ): Pick<
   Board,
-  "title" | "url" | "teams" | "projects" | "deadlines" | "epics" | "members" | "domains"
+  | "title"
+  | "url"
+  | "teams"
+  | "projects"
+  | "deadlines"
+  | "epics"
+  | "members"
+  | "domains"
+  | "personal"
 > {
   return {
     title: info.metadata.title ?? "",
@@ -64,7 +73,11 @@ export function boardMetadata(
       name: d.name,
       writable: d.writable ?? false,
       members: d.members ?? [],
+      personal: d.personal || undefined,
     })),
+    personal: info.metadata.personal
+      ? { domain: info.metadata.personal.domain, url: info.metadata.personal.url }
+      : undefined,
   };
 }
 
@@ -75,6 +88,18 @@ export function processesFrom(items: ProcessInfo[] | null | undefined): ProcessI
     project: p.project ?? "",
     tasks: (p.tasks ?? []).map((t) => ({ ...t, history: t.history ?? [] })),
   }));
+}
+
+/** ApiError is a non-2xx answer: the server's {error} message (or the status
+ *  text) with the status code, for callers that treat one code specially. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
 }
 
 // api issues a request against /api/v1. The server serves exactly one board,
@@ -108,7 +133,7 @@ async function api<T>(
     } catch {
       // No JSON error body; keep the status-text fallback.
     }
-    throw new Error(msg);
+    throw new ApiError(msg, res.status);
   }
   return (await res.json()) as T;
 }
@@ -239,6 +264,16 @@ export const apiProvider: Provider = {
   },
 
   async createCard(input: NewCardInput): Promise<Card> {
+    if (input.personal) {
+      // A personal card carries nothing of the day board — no team, dates,
+      // column or plan (the server refuses them beside `personal`); it files
+      // the card in the visitor's own repository and assigns it to them.
+      return cardFrom("POST", "/cards", {
+        title: input.title,
+        zone: semanticZone(input.zone),
+        personal: true,
+      });
+    }
     const body: Record<string, unknown> = {
       title: input.title,
       team: input.team ?? "",
@@ -645,8 +680,29 @@ export const apiProvider: Provider = {
     noteId: string,
   ): Promise<Note[]> {
     uid = await resolveCardId(uid);
-    return notesFrom("DELETE",
+    return notesFrom(
+      "DELETE",
       `/cards/${uid}/notes/${encodeURIComponent(noteId)}`,
     );
+  },
+
+  async getPersonal(): Promise<PersonalBoard | null> {
+    try {
+      return await api<PersonalBoard>("GET", "/me/personal");
+    } catch (err: unknown) {
+      // No link is an answer, not a failure.
+      if (err instanceof ApiError && err.status === 404) {
+        return null;
+      }
+      throw err;
+    }
+  },
+
+  async linkPersonal(url: string): Promise<PersonalBoard> {
+    return api<PersonalBoard>("PUT", "/me/personal", { url });
+  },
+
+  async unlinkPersonal(): Promise<void> {
+    await api("DELETE", "/me/personal");
   },
 };

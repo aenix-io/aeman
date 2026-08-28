@@ -5,6 +5,7 @@
 
 import type { DomainInfo } from "../domains";
 import type { CardLink } from "../links";
+import type { PersonalBoard } from "../personal";
 import type { Member } from "../users";
 
 /** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
@@ -81,6 +82,12 @@ export interface Card {
   /** A card from a plan — a slot, a turn, a weekly-plan card — still open past
    *  the day it was owed by. Derived by the server from the card's dates. */
   overdue?: boolean;
+  /** The board day (yyyy-mm-dd) the card reached done; cleared when it
+   *  reopens. The personal column shows a done card that day, not the next. */
+  doneAt?: string;
+  /** The board day a personal card was left behind on by the × — on the
+   *  column that day and before, off it from the next; cleared by re-dating. */
+  leftAt?: string;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -117,6 +124,9 @@ export interface NewCardInput {
   /** Schedule the card for its day without joining any sprint (a "next
    * sprint" create); the next carry-over to reach its day adopts it. */
   noSprint?: boolean;
+  /** Create on the visitor's personal board: their own repository, assigned
+   * to them, with no team, column or plan band. */
+  personal?: boolean;
 }
 
 /** SprintState is a team's explicit sprint pointer: its current and previous
@@ -205,6 +215,8 @@ export interface Board {
   /** The repositories the board spans, primary first; a single entry on a
    *  one-repository board, none from an older server. */
   domains: DomainInfo[];
+  /** The visitor's personal board, when they linked one. */
+  personal?: PersonalBoard;
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
 }
@@ -404,4 +416,11 @@ export interface Provider {
     text: string,
   ): Promise<Note[]>;
   deleteNote(uid: string, noteId: string): Promise<Note[]>;
+  /** The visitor's personal board, or null when none is linked. */
+  getPersonal(): Promise<PersonalBoard | null>;
+  /** Link a repository of the visitor's own as their personal board (they
+   *  need push access to it; the server clones it with their credential). */
+  linkPersonal(url: string): Promise<PersonalBoard>;
+  /** Drop the link; the repository itself is left untouched. */
+  unlinkPersonal(): Promise<void>;
 }

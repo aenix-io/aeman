@@ -11,19 +11,24 @@ export type ViewMode = "me" | "team" | "project" | "process";
 // as an explicit user. Team is the multi-team lead board: the day grid PLUS the
 // weekly-plan cards of the shown teams (the plan panel renders from the same
 // card set). Grid/me queries ask for reviews=true so each card's linked review
-// card rides along for the reviewer badge.
+// card rides along for the reviewer badge. With a personal board linked, Me
+// also loads it (view=personal) — the viewer's own, so not while impersonating
+// someone else.
 export function viewQueries(
   view: ViewMode,
   day: string,
   teams: string[],
   viewAs?: string,
+  personal = false,
 ): Record<string, string>[] {
   if (view === "me") {
     const q: Record<string, string> = { view: "me", day, reviews: "true" };
     if (viewAs) {
       q.user = viewAs;
     }
-    return [q];
+    // The personal column follows the day being looked at, like the day
+    // board beside it: flipped to tomorrow, it shows tomorrow's plan.
+    return personal && !viewAs ? [q, { view: "personal", day }] : [q];
   }
   if (view === "project" || view === "process") {
     // Every epic-filed card of every project, all weeks: the Project board
@@ -60,6 +65,20 @@ export function watchQuery(
     return q;
   }
   return { view: "all", team: teams.join(",") };
+}
+
+// watchQueries lists the selectors the active view keeps a watch on — one
+// socket each: the view's own (watchQuery) and, on the Me board with a
+// personal board linked and nobody impersonated, the personal selection.
+export function watchQueries(
+  view: ViewMode,
+  day: string,
+  teams: string[],
+  viewAs?: string,
+  personal = false,
+): Record<string, string>[] {
+  const base = watchQuery(view, day, teams, viewAs);
+  return view === "me" && personal && !viewAs ? [base, { view: "personal", day }] : [base];
 }
 
 // queryString serialises a selector to a URL fragment with a stable key order,

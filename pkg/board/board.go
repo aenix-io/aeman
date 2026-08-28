@@ -159,6 +159,15 @@ type Card struct {
 	// reopen restores it. Stored, not derived from history, because an
 	// action must never depend on a log that may be cut at a horizon.
 	DoneFrom int `json:"doneFrom,omitempty"`
+	// DoneAt is the board day (yyyy-mm-dd) a write took the card to 100,
+	// cleared when it drops below again — what lets a board show a card the
+	// day it was done and drop it the next without reading history.
+	DoneAt string `json:"doneAt,omitempty"`
+	// LeftAt is the board day (yyyy-mm-dd) a personal card was left behind
+	// on by the × — the personal analogue of a team card demoting to the
+	// previous sprint: on the board that day and before, off it from the
+	// next. Re-dating the card (calendar, defer) clears it.
+	LeftAt string `json:"leftAt,omitempty"`
 	// Link is a URL the card points at — the only trace an issue-backed
 	// card keeps of its issue. Nothing is fetched through it.
 	Link string `json:"link,omitempty"`
@@ -189,7 +198,11 @@ type CreateInput struct {
 	// Domain, on a roster stub (a team, project or process state card), is
 	// the repository to declare it in; "" is the primary. Cards never carry
 	// one — their domain is inherited (see DomainOf).
-	Domain      string   `json:"domain,omitempty"`
+	Domain string `json:"domain,omitempty"`
+	// Personal files the card in the caller's personal domain (Domain names
+	// it) instead of where the home rule would put it; such a card stays
+	// there whatever team or project it is later given.
+	Personal    bool     `json:"personal,omitempty"`
 	Title       string   `json:"title"`
 	Zone        ZoneKey  `json:"zone,omitempty"`
 	Day         string   `json:"day,omitempty"`

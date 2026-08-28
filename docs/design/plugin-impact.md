@@ -27,6 +27,7 @@ projects/<pid>/deadlines/<ulid>.yaml
 processes/<ulid>/process.yaml
 processes/<pid>/tasks/<ulid>.md    # a task: card-shaped file, title in the body's first line
 cards/<a>/<b>/<ulid>.md            # a card; a, b = the id's LAST two characters, lower-cased
+users/<login>.yaml                 # a person's link to their personal repository (primary only)
 .aeman/migration.yaml              # written once by aeman migrate
 ```
 
@@ -38,10 +39,10 @@ The path never encodes mutable state: renaming, re-zoning, re-teaming or moving 
 
 YAML front-matter between `---` fences, then the description, then an optional `## Notes` section. Empty fields are omitted. Unknown keys are preserved by the server; do not rely on their order.
 
-Front-matter keys, in the order the server writes them: `title, assignees, author, team, zone, stage, progress, doneFrom, start, day, sprint, plan, week, project, epic, parent, reviewOf, reviewRound, recurrence, process, task, accumulate, link, github, movedFrom, movedAt, rank, created`.
+Front-matter keys, in the order the server writes them: `title, assignees, author, team, zone, stage, progress, doneFrom, doneAt, start, day, sprint, plan, week, project, epic, parent, reviewOf, reviewRound, recurrence, process, task, accumulate, link, github, movedFrom, movedAt, rank, created`.
 
 - `zone`: `gray | green | yellow | red` (empty = none). `stage`: `review | locked | recurrent` (empty = none). `plan`: `wed | fri`.
-- `progress`: 0–100; review/locked clamp to [10, 90] (S1, S7). `doneFrom` is written when progress reaches 100 (the value before) and cleared when it drops below (G3, G23); `Reopen` restores it.
+- `progress`: 0–100; review/locked clamp to [10, 90] (S1, S7). `doneFrom` is written when progress reaches 100 (the value before) and cleared when it drops below (G3, G23); `Reopen` restores it. `doneAt` is written alongside — the board day (yyyy-mm-dd) the card reached 100 — and cleared the same way (P6); the personal board shows a done card that day and hides it the next.
 - Dates are `yyyy-mm-dd`: `start` (startDate), `day` (end of the visible range), `sprint` (sprintStart), `week` (a Monday). Timestamps (`created`, `movedAt`) are RFC 3339 UTC.
 - `assignees` is a YAML list of logins. `author` is the creator's login.
 - `parent`, `reviewOf`, `task` are ULIDs of other files. `project`, `epic`, `team`, `process` are **names**, resolved against the roster on read.
@@ -111,6 +112,12 @@ A card's domain (repository) is never chosen per card; it follows one rule, link
 5. else where its team is declared; the no-team group and anything unresolved → the primary.
 
 Teams, projects and processes are declared in the domain the **caller** picks (API body field `domain`, MCP argument `domain`), default the primary; a process with a project lives with the project. A visitor sees the union of the domains they can read; a domain they cannot read is absent, not empty (G17). A plugin writing directly must respect where a file belongs: putting a closed project's card into the shared repository leaks it.
+
+### Personal domains
+
+`users/<login>.yaml` in the primary (`personal: <url>`, `created`) links a person to a repository of their own, served as the domain `~<login>` to that person alone (P1–P5). A plugin must treat such a repository as **pinned**: a card in it stays there whatever its `team:` or `project:` say — the home rule above does not apply — and a card whose `parent`/`reviewOf` is there belongs there too. Writing to someone's personal repository means holding their credential; the server never uses its own for it.
+
+A personal board has no carry-over, so **the reader turns its day over** (P7): a plugin listing the owner's personal board must first reseed every recurrent card (`stage: recurrent`, progress 100) whose cycle is due — a fresh card with the same title, zone and body, progress 0, `stage: recurrent`, the same `recurrence`, assigned to the owner, `start`/`day` = today — exactly as the server does, or the two will disagree on what the board holds. The turn is always as of the real today, whatever day is being looked at. The default cycle (`recurrence` empty) means **every day** there: due when `doneAt` is before today; `week`/`month` (and `2weeks`/`quarter`) are due when that much has passed since the card's `start` **and** `doneAt` is before today. Never reseed a card finished today, a card without `doneAt`, or one that already has a fresh copy (a recurrent card of the same title with a later `start` in the same repository). Done cards are hidden from the view the next day, never deleted. The view also holds back a card whose `start` is past the day of the read — planning there is dates alone (P8): the calendar and the defer move a personal card's `start`/`day` as on a team card, but write **no `sprintStart`**; a plugin re-dating a personal card must leave it sprint-less too. The × on a personal card is not a delete when the card has been worked on (P9): a card with progress above 0 that did not `start` today gets **`leftAt: <yesterday>`** — a new card field — on itself and on its subtasks, and the view holds a left card on its `leftAt` day and before, not after; an untouched card, or one that started today, is deleted. Re-dating a left card clears `leftAt` (on the subtasks too). A plugin removing or re-dating personal cards must follow the same rule, or a card the server would keep as history vanishes — or one it would hide keeps showing.
 
 ### Moves
 

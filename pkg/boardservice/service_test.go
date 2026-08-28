@@ -167,7 +167,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
-		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title,
+		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
@@ -293,8 +293,10 @@ func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.C
 		switch {
 		case progress >= 100 && c.Progress < 100:
 			c.DoneFrom = c.Progress
+			c.DoneAt = board.TodayIso()
 		case progress < 100:
 			c.DoneFrom = 0
+			c.DoneAt = ""
 		}
 		c.Progress = progress
 	}
@@ -317,6 +319,16 @@ func (f *fakeBackend) SetDay(_ context.Context, _ board.Board, card board.Card, 
 	f.rec("SetDay %s %s", card.ItemID, day)
 	if c := f.get(card.ItemID); c != nil {
 		c.Day = day
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetLeftAt(_ context.Context, _ board.Board, card board.Card, day string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetLeftAt %s %s", card.ItemID, day)
+	if c := f.get(card.ItemID); c != nil {
+		c.LeftAt = day
 	}
 	return nil
 }

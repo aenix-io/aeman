@@ -209,7 +209,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	defer f.mu.Unlock()
 	f.nextID++
 	card := board.Card{
-		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title,
+		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
@@ -397,6 +397,17 @@ func (f *Backend) SetDay(_ context.Context, _ board.Board, card board.Card, day 
 	f.rec("SetDay %s %s", card.ItemID, day)
 	if c := f.card(card.ItemID); c != nil {
 		c.Day = day
+	}
+	return nil
+}
+
+// SetLeftAt records the day a personal card was left behind on ("" clears).
+func (f *Backend) SetLeftAt(_ context.Context, _ board.Board, card board.Card, day string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetLeftAt %s %s", card.ItemID, day)
+	if c := f.card(card.ItemID); c != nil {
+		c.LeftAt = day
 	}
 	return nil
 }

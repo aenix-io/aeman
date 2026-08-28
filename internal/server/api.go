@@ -99,6 +99,9 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
 	mux.HandleFunc("POST /api/v1/projects/actions/rename", s.handleRenameProject)
 	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
+	mux.HandleFunc("GET /api/v1/me/personal", s.handleGetPersonal)
+	mux.HandleFunc("PUT /api/v1/me/personal", s.handleLinkPersonal)
+	mux.HandleFunc("DELETE /api/v1/me/personal", s.handleUnlinkPersonal)
 	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
 	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
@@ -178,6 +181,9 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
 			{"POST", "/api/v1/projects/actions/rename", "Rename a project in place, columns and cards along with it ({project, to})"},
 			{"POST", "/api/v1/teams/actions/rename", "Rename a team in place, its cards and process tasks along with it ({team, to}); a name another team has is refused"},
+			{"GET", "/api/v1/me/personal", "The caller's personal board: the repository linked as their own domain ({domain, url}), 404 when none"},
+			{"PUT", "/api/v1/me/personal", "Link a repository the caller can push to as their personal board ({url}); an empty repository is given a board. Personal cards: POST /cards with personal=true, GET /cards?view=personal"},
+			{"DELETE", "/api/v1/me/personal", "Unlink the caller's personal board; the repository is left as it is"},
 			{"GET", "/api/v1/ordering", "The board-level manual card order"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
 			{"GET", "/api/v1/watch", "WebSocket stream of Card/Sprint/Ordering events; selector-scoped with view params"},
@@ -255,12 +261,17 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info := apiserver.BoardResourceWith(b, s.store.avatarURL)
-	if s.gitCfg != nil && len(s.gitCfg.Repos) > 1 {
+	login, personal, linked := s.personalOf(r)
+	attached := linked && s.gitBE != nil && s.gitBE.hasPersonal(login)
+	if s.gitCfg != nil && (len(s.gitCfg.Repos) > 1 || attached) {
 		logins := make([]string, 0, len(info.Metadata.Members))
 		for _, m := range info.Metadata.Members {
 			logins = append(logins, m.Login)
 		}
-		info.Metadata.Domains = s.domainsFor(r.Context(), logins)
+		info.Metadata.Domains = s.domainsFor(r.Context(), logins, login)
+	}
+	if linked {
+		info.Metadata.Personal = &personal
 	}
 	writeJSON(w, http.StatusOK, info)
 }
@@ -269,9 +280,9 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 // whether they may write each and which of the board's members can read it
 // (G16). Rights come from the request; who else reads a domain is the
 // forge's answer with the server credential.
-func (s *Server) domainsFor(ctx context.Context, members []string) []apiserver.DomainInfo {
+func (s *Server) domainsFor(ctx context.Context, members []string, login string) []apiserver.DomainInfo {
 	rights := rightsFrom(ctx)
-	out := make([]apiserver.DomainInfo, 0, len(s.gitCfg.Repos))
+	out := make([]apiserver.DomainInfo, 0, len(s.gitCfg.Repos)+1)
 	for _, d := range s.gitCfg.Repos {
 		if !rights.canRead(d.Name) {
 			continue
@@ -285,6 +296,10 @@ func (s *Server) domainsFor(ctx context.Context, members []string) []apiserver.D
 			readers = []string{}
 		}
 		out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: readers})
+	}
+	// The visitor's own personal domain, when attached: theirs alone.
+	if login != "" && s.gitBE != nil && s.gitBE.hasPersonal(login) {
+		out = append(out, apiserver.DomainInfo{Name: board.PersonalDomain(login), Writable: true, Members: []string{login}, Personal: true})
 	}
 	return out
 }
@@ -307,9 +322,21 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 	if sel.View == "" {
 		sel.View = "me"
 	}
-	if sel.View == "me" && sel.User == "" {
+	if (sel.View == "me" || sel.View == "personal") && sel.User == "" {
 		if _, login, err := s.apiTokens(r); err == nil {
 			sel.User = login
+		}
+	}
+	// The owner reading their personal board is what turns its day over: a
+	// personal board has no carry-over, so the finished recurrent cards that
+	// came due are reseeded here, and the list answers with the fresh copies.
+	// As of the real today, whatever day the list asks for — `day` is a lens
+	// (the column follows the day the board is flipped to), and looking at
+	// tomorrow must not create tomorrow's copies early.
+	if sel.View == "personal" && sel.User != "" && sel.User == board.ActorFrom(r.Context()) {
+		if _, err := svc.ReseedPersonal(r.Context(), boardID, sel.User, ""); err != nil {
+			s.apiError(w, r, err)
+			return
 		}
 	}
 	b, err := svc.Board(r.Context(), boardID)
@@ -385,6 +412,9 @@ type createCardRequest struct {
 	// NoSprint schedules the card for its day without joining any sprint (a
 	// "next sprint" create); the next carry-over to reach its day adopts it.
 	NoSprint bool `json:"noSprint"`
+	// Personal files the card on the caller's personal board (their own
+	// repository) instead of the team board; no team, column or plan band.
+	Personal bool `json:"personal"`
 }
 
 func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
@@ -413,6 +443,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		SprintStart:    in.Dates.Sprint,
 		Epic:           in.Epic,
 		Project:        in.CardProject,
+		Personal:       in.Personal,
 		ReviewOf:       in.ReviewOf,
 		Parent:         in.Parent,
 		StartNewSprint: in.StartNewSprint,
@@ -1741,6 +1772,7 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 	case errors.Is(err, gitstore.ErrNameTaken),
 		errors.Is(err, boardservice.ErrTeamExists),
 		errors.Is(err, boardservice.ErrTeamNotFound),
+		errors.Is(err, boardservice.ErrPersonalPlacement),
 		errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
 		errors.Is(err, boardservice.ErrNoteTooLong),

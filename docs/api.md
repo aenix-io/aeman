@@ -28,6 +28,10 @@ Teams, projects and processes are declared in the domain the caller picks: the o
 
 On a board of more than one repository, `GET /board` lists the visitor's readable domains as `metadata.domains` (primary first, each with a `writable` flag and the logins that can read it) and every card carries `status.domain`; a single-repository board shows nothing of this. A domain the visitor cannot read is simply absent — no cards, teams or projects from it, no watch frames about it — not empty.
 
+### The personal board
+
+A person may link a repository of their own as a **personal board**: it is attached as a domain named `~<login>`, served to them alone — whatever the forge says about who else can read that repository — and cloned, committed and pushed with their own credential, never the server's. The link is `users/<login>.yaml` in the primary; the repository is attached the first time its owner shows up after a server start. Cards there are created with `personal: true` and listed by `view=personal`: every open card scheduled for today or earlier plus the ones finished today (no carry-over sweeps a personal board — a done card is seen that day and gone the next; a card planned for a later day waits until then). A personal card takes no team, column or plan band, and stays in its repository whatever it is later given. A **recurrent** personal card turns with the calendar instead of the sprint: its default cycle means every day, and reading `view=personal` is what turns the day over — a finished recurrent card whose cycle came due is reseeded as a fresh copy (0%, same title and body) before the list answers, once, never twice in one day. Design: [design/personal-board.md](design/personal-board.md).
+
 ### The planning entities
 
 A project carries **deadlines**: a line across the grid on a given week. One project holds at most one per week, so dragging one of its lines onto another merges them — but two projects can each have something due the same week, and those are two lines.
@@ -50,7 +54,7 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | --- | --- |
 | `GET /api/v1/board` | The board: title, the team roster, the Project board's structure (`metadata.projects` in board order, `metadata.epics` as `{name, project}`, `metadata.deadlines` as `{week, project}`, `metadata.processes`), the people (`metadata.members`: `{login, avatarUrl}`) and the visitor's domains (`metadata.domains`). |
 | `GET /api/v1/cards` | LIST cards (selectors below), in board order. A listing is the **board-row shape**: no `spec.description` — `status.links` carries the refs extracted from it (capped at 50), and the body itself is one `GET /cards/{uid}` away. `?fields=full` opts a genuine bulk reader into complete cards. |
-| `POST /api/v1/cards` | Create a card (201). A title that is nothing but a GitHub issue/PR URL becomes that item's real title, with the link moved into the description (one-time, never re-synced). |
+| `POST /api/v1/cards` | Create a card (201). A title that is nothing but a GitHub issue/PR URL becomes that item's real title, with the link moved into the description (one-time, never re-synced). `personal: true` files the card on the caller's personal board instead — with a team, column or plan band it is a 422. |
 | `GET /api/v1/cards/{uid}` | One card. |
 | `PATCH /api/v1/cards/{uid}` | Edit spec fields; only present fields apply, empty clears. |
 | `DELETE /api/v1/cards/{uid}` | Hard delete (cascades to the linked review card). |
@@ -71,6 +75,9 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 | `DELETE /api/v1/processes/tasks/{uid}` | Delete a task; its past iterations stay as the record. |
 | `POST /api/v1/deadlines` | Mark a week with a project's deadline `{week, project}` (201). Any day resolves to its Monday; asking twice changes nothing. |
 | `GET /api/v1/ordering` | The board-level manual card order (a uid list). |
+| `GET /api/v1/me/personal` | The caller's personal board: `{domain, url}`, or 404 when none is linked. |
+| `PUT /api/v1/me/personal` | Link a repository as the caller's personal board `{url}`. The caller must be able to push to it (checked with the forge in the self-hosted mode: 403 otherwise); an empty repository is given a board. |
+| `DELETE /api/v1/me/personal` | Unlink the caller's personal board; the repository is left as it is. |
 | `GET /api/v1/watch` | WebSocket stream of resource events (below). |
 | `GET /api/healthz` | Liveness and the storage's state (below). |
 
@@ -82,7 +89,7 @@ Actions carry the board rules — the client never reimplements them.
 
 | Method & path | Body | Purpose |
 | --- | --- | --- |
-| `POST /api/v1/cards/{uid}/actions/remove` | `{from: "grid"\|"plan"}` | The smart ×: a current-sprint card demotes to the previous sprint; an untouched taken plan card releases back to the plan while a worked one sheds only its plan membership; with nothing left to demote into, the grid × hands the card back — assignee and sprint cleared, and a card with no Project-board column and no plan band lands in this week's plan. The only × that deletes is the plan × on a pure plan card: no column, unassigned, never worked. A card filed under a project is never deleted by either ×; use `DELETE /cards/{uid}` to delete deliberately. |
+| `POST /api/v1/cards/{uid}/actions/remove` | `{from: "grid"\|"plan"}` | The smart ×. On a personal card: one that has been worked on (progress above 0) and did not start today is left behind on yesterday's board — `status.leftAt` set on it and its subtasks, history kept, off the personal view from today — and an untouched one, or one that started today, is deleted; re-dating a left card (`dates`, defer) brings it back. On a team card: a current-sprint card demotes to the previous sprint; an untouched taken plan card releases back to the plan while a worked one sheds only its plan membership; with nothing left to demote into, the grid × hands the card back — assignee and sprint cleared, and a card with no Project-board column and no plan band lands in this week's plan. The only × that deletes is the plan × on a pure plan card: no column, unassigned, never worked. A card filed under a project is never deleted by either ×; use `DELETE /cards/{uid}` to delete deliberately. |
 | `POST /api/v1/cards/{uid}/actions/move` | `{after}` | Reorder after another card (`""` = to the top). |
 | `POST /api/v1/cards/{uid}/actions/defer` | `{days}` | Push the scheduled day N days ahead of today (presses stack; a card created today relocates fully). |
 | `POST /api/v1/cards/{uid}/actions/in-progress` | `{}` | The implicit In Progress status. |
@@ -150,7 +157,7 @@ Every mutating request is **one action**: whatever it writes — a card and its 
 - **Zones are semantic**: `urgent`, `unplanned`, `planned`, `niceToHave` (or empty). The UI's colours are presentation.
 - **`spec.dates`** is the date model of [dates.md](dates.md): `start` (the scheduled day), `end` (the visible range's end), `sprint` (sprint membership). PATCHing `dates.start` runs the calendar rule — the sprint follows the sprint that was active on the start day; patch only `dates.end` or `dates.sprint` for a granular change.
 - **`spec.stage`** is `locked`, `review`, `recurrent` or empty. Done is **derived** (`status.complete`): 100% with no stage. Patching `stage: "done"` clears the stage and fills 100%; review/locked clamp progress to [10, 90]. Taking a card off review cancels its unfinished linked review card server-side. Reopening a done card restores the progress it had when it was marked done.
-- **`status`** is server-derived and read-only: `complete`, `inProgress`, `overdue`, `reviewedBy` (the assignee of the unfinished linked review card), `domain` (the repository the card lives in), and `links` — the references extracted from the description (unresolved; `GET /cards/{uid}/links` resolves GitHub refs to live titles and states). `status.links` is what lets a listing drop the description without blinding a row's links indicator.
+- **`status`** is server-derived and read-only: `complete`, `inProgress`, `overdue`, `reviewedBy` (the assignee of the unfinished linked review card), `domain` (the repository the card lives in), `doneAt` (the board day the card reached 100, cleared on reopen), and `links` — the references extracted from the description (unresolved; `GET /cards/{uid}/links` resolves GitHub refs to live titles and states). `status.links` is what lets a listing drop the description without blinding a row's links indicator.
 
 ### Board shape
 
@@ -172,7 +179,7 @@ Every mutating request is **one action**: whatever it writes — a card and its 
 }
 ```
 
-`members` is everyone who can read some domain of the board plus every assignee on it; `domains[].members` is who can read that domain — the reviewer picker offers only those for a card in it.
+`members` is everyone who can read some domain of the board plus every assignee on it; `domains[].members` is who can read that domain — the reviewer picker offers only those for a card in it. A visitor with a personal board also sees `"personal": {"domain": "~octocat", "url": "…"}` and their `~octocat` entry among the domains, flagged `"personal": true`.
 
 ### Log shape
 
@@ -197,6 +204,7 @@ Every mutating request is **one action**: whatever it writes — a card and its 
 - `?view=all` — every card on the board (still honours the field/team filters).
 - `?view=team&team=platform&day=2026-07-02` — the Team grid (the lead view) for a team on a day; `team=` accepts a comma-separated set (`team=platform,marketing`) so the multi-team board loads in one request. Day defaults to today.
 - `?view=me&user=octocat&day=` — the personal day view for a specific user (empty user = the caller).
+- `?view=personal` — the caller's personal board: every open card in their personal repository plus the ones finished today (`status.doneAt` is today). A card scheduled for a later day — dated so, or deferred there — is absent until that day, so the defer and the `dates` patch plan a personal card ahead; it joins no sprint on the way. Empty for a caller without a linked repository. The owner's read turns the board's day over — as of the real today, whatever `day` is asked for: finished recurrent cards whose cycle is due are reseeded first — a fresh copy at 0% per card, never twice in one day — so the list already holds them; a reseed that fails fails the request. `day` is a lens on the board (what tomorrow holds, what yesterday held), not a turn of its day: looking at tomorrow creates nothing early. Reading as someone else (`user=`) never reseeds. A card the × left behind (`status.leftAt`, see the remove action) is listed on that day and before, not after.
 - `?view=project&project=cozystack` — the **Project board**: every card filed under one project's epic columns, all weeks at once (the client lays the weeks × epics table out itself). Without `project=` it is every project, including columns that belong to none.
 - `?view=weekly&team=platform&week=2026-06-29` — the weekly plan (week = a Monday, defaults to the current week); the response also carries `weekly: {progress}` (recurrent cards excluded).
 - Field selectors — `stage=`, `zone=`, `assignee=` — compose with a view or apply to all cards.
@@ -309,10 +317,10 @@ Bootstrapping: `aeman init --repo <url> [--title …]` writes an empty board (on
 | Tool | Purpose |
 | --- | --- |
 | `get_board` | The board: team roster, the Project board's structure (`metadata.projects`, `metadata.epics`, `metadata.deadlines`), the people and the domains. |
-| `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`, `focus`). Returns board ROWS (no descriptions; `status.links` carries the extracted refs). `title=<substring>` resolves a card someone mentioned by name to its uid in one cheap call; `full=true` opts a bulk reader into complete cards. No view defaults to your own Me board (who-am-i resolved server-side); `view=all` is the whole board, `view=team` the lead view. |
+| `list_cards` | LIST with the same selectors (`view`, `team`, `day`, `user`, `week`, `stage`, `zone`, `assignee`, `focus`); `view=personal` is your own personal board (your read turns its day over: due recurrent cards are reseeded before the list answers). Returns board ROWS (no descriptions; `status.links` carries the extracted refs). `title=<substring>` resolves a card someone mentioned by name to its uid in one cheap call; `full=true` opts a bulk reader into complete cards. No view defaults to your own Me board (who-am-i resolved server-side); `view=all` is the whole board, `view=team` the lead view. |
 | `get_card` / `list_notes` / `list_links` | One card IN FULL — the detail pane, and the way to read a body after a `list_cards` row; its notes; its description links (GitHub refs resolved with titles). |
 | `list_log` | The card's activity feed from the repository's history: events (stage/progress/review/plan changes with actor) + notes, one chronological list — read a card's delta instead of asking for morning reports. `truncatedBefore` says when the loaded history is cut. |
-| `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`). A title that is only a GitHub issue/PR URL is auto-filled from that item. |
+| `create_card` | Create a card (joins or starts its team's sprint; plan cards via `plan`+`week`; `personal=true` files it on your personal board). A title that is only a GitHub issue/PR URL is auto-filled from that item. |
 | `update_card` | The PATCH: only provided fields apply, empty clears. The `description` is the card's shared body — and the place for reference links: include full URLs of related open PRs/issues in free form (encouraged); they are surfaced on the card and GitHub refs resolve to live titles/states (`list_links`). |
 | `delete_card` / `remove_card` | Hard delete; the smart × (`from: grid\|plan`). |
 | `move_card` / `defer_card` | Reorder; push the scheduled day ahead. |

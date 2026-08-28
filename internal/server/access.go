@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // Who sees, who writes (G17, G25). A board is an ordered list of domains —
@@ -331,8 +333,23 @@ func githubAvatarURL(login string) string {
 // know is refused here, before any handler runs.
 func (s *Server) accessMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.access != nil && strings.HasPrefix(r.URL.Path, "/api/v1") {
-			tok, login, err := s.apiTokens(r)
+		if !strings.HasPrefix(r.URL.Path, "/api/v1") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		tok, login, err := s.apiTokens(r)
+		if s.access == nil {
+			// Open access (the local server): no rights to decide, but the
+			// local person's personal board is theirs to have here too.
+			if err == nil && s.gitBE != nil {
+				if aerr := s.gitBE.attachPersonal(r.Context(), login, tok); aerr != nil {
+					s.log.Warn("personal board", "login", login, "err", aerr)
+				}
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+		{
 			if err != nil {
 				writeJSONError(w, http.StatusUnauthorized, "not authenticated: "+err.Error())
 				return
@@ -356,8 +373,34 @@ func (s *Server) accessMiddleware(next http.Handler) http.Handler {
 				writeJSONError(w, http.StatusForbidden, "access could not be decided: "+err.Error())
 				return
 			}
+			// The visitor's personal board: attached with their credential
+			// the first time they arrive, theirs alone to read and write —
+			// whatever the forge says about who else can see the repository.
+			if s.gitBE != nil {
+				if aerr := s.gitBE.attachPersonal(r.Context(), login, tok); aerr != nil {
+					s.log.Warn("personal board", "login", login, "err", aerr)
+				}
+				if s.gitBE.hasPersonal(login) {
+					rights = rights.withPersonal(login)
+				}
+			}
 			r = r.WithContext(withRights(r.Context(), rights))
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// withPersonal is the rights plus the login's own personal domain, readable
+// and writable — a copy, since the forge's answer is cached and shared.
+func (r *domainRights) withPersonal(login string) *domainRights {
+	out := &domainRights{primary: r.primary, read: make(map[string]bool, len(r.read)+1), write: make(map[string]bool, len(r.write)+1)}
+	for k, v := range r.read {
+		out.read[k] = v
+	}
+	for k, v := range r.write {
+		out.write[k] = v
+	}
+	d := board.PersonalDomain(login)
+	out.read[d], out.write[d] = true, true
+	return out
 }

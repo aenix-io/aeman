@@ -1435,6 +1435,18 @@ func (b *storeBackend) SetStage(ctx context.Context, bd board.Board, card board.
 
 func (b *storeBackend) SetProgress(ctx context.Context, bd board.Board, card board.Card, progress int) error {
 	b.mutateCard(ctx, bd, card.ItemID, "progress", "set progress on "+cardRef(card), func(c *board.Card) {
+		// The storage's rule, mirrored so the cache answers as the commit
+		// will: reaching 100 remembers where the card came from and the day
+		// it got there (the personal view and its reseed read that day);
+		// dropping below forgets both.
+		switch {
+		case progress >= 100 && c.Progress < 100:
+			c.DoneFrom = c.Progress
+			c.DoneAt = board.TodayIso()
+		case progress < 100:
+			c.DoneFrom = 0
+			c.DoneAt = ""
+		}
 		c.Progress = progress
 	}, func(ctx context.Context) error {
 		return b.inner.SetProgress(ctx, bd, card, progress)
@@ -1456,6 +1468,19 @@ func (b *storeBackend) SetDay(ctx context.Context, bd board.Board, card board.Ca
 		c.Day = day
 	}, func(ctx context.Context) error {
 		return b.inner.SetDay(ctx, bd, card, day)
+	})
+	return nil
+}
+
+func (b *storeBackend) SetLeftAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
+	summary := "leave " + cardRef(card) + " behind"
+	if day == "" {
+		summary = "bring " + cardRef(card) + " back"
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "left", summary, func(c *board.Card) {
+		c.LeftAt = day
+	}, func(ctx context.Context) error {
+		return b.inner.SetLeftAt(ctx, bd, card, day)
 	})
 	return nil
 }

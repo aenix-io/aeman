@@ -11,6 +11,14 @@ export interface DomainInfo {
   /** Logins who can read the repository (empty when the server has no
    *  membership for it). */
   members: string[];
+  /** The visitor's own personal board (`~<login>`), served to them alone. */
+  personal?: boolean;
+}
+
+/** isPersonalDomain tells a personal board's domain by its name: `~<login>`
+ *  (the flag on DomainInfo says the same; the name works on any server). */
+export function isPersonalDomain(name: string): boolean {
+  return name.startsWith("~");
 }
 
 /** isMultiDomain reports whether the board spans more than one repository —
@@ -26,8 +34,9 @@ export function primaryDomain(domains: readonly DomainInfo[]): string {
 }
 
 /** cardDomainBadge is the badge a card wears for its repository: null on a
- *  single-domain board and for a card in the primary (a card without a
- *  domain — an older server — counts as primary). */
+ *  single-domain board, for a card in the primary (a card without a domain —
+ *  an older server — counts as primary), and for a personal card, whose own
+ *  column already says where it lives. */
 export function cardDomainBadge(
   domains: readonly DomainInfo[],
   cardDomain: string | undefined,
@@ -36,7 +45,10 @@ export function cardDomainBadge(
     return null;
   }
   const domain = cardDomain || primaryDomain(domains);
-  return domain === primaryDomain(domains) ? null : domain;
+  if (domain === primaryDomain(domains) || isPersonalDomain(domain)) {
+    return null;
+  }
+  return domain;
 }
 
 /** writableDomains keeps the repositories the visitor may declare things in,

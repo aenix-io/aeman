@@ -210,6 +210,10 @@ type CreateCardArgs struct {
 	Project string
 	// ReviewOf marks the new card as the review of the given item.
 	ReviewOf string
+	// Personal files the card in the actor's personal domain — a backlog item
+	// of their own: no team, no sprint, no column, no plan band. The service
+	// names the domain from the actor; the caller only asks for it.
+	Personal bool
 	// Parent groups the new card as a subtask of the given item on create.
 	Parent         string
 	StartNewSprint *bool
@@ -250,6 +254,12 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		linkDescription = ref.URL
 		args.Title = ref.FallbackTitle()
 		pendingRef = &ref
+	}
+	// A personal card lives in the actor's own repository, outside the team
+	// board's placement: it has a zone, dates and a body, and none of team,
+	// sprint, column or plan band — those are the team board's coordinates.
+	if args.Personal {
+		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	// An epic card lives on the Plan board: filed under its column, anchored
 	// to its week row, optionally spanning several weeks via start..day. It
@@ -905,6 +915,9 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 		base = c.StartDate
 	}
 	target := board.AddDays(base, days)
+	if err := s.bringBack(ctx, b, c); err != nil {
+		return err
+	}
 	if err := s.backend.SetStart(ctx, b, c, target); err != nil {
 		return err
 	}
@@ -917,8 +930,12 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(target, c.Day))
 	if board.LocalDateIso(c.CreatedAt) == today {
-		if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
-			return err
+		// A personal card has no sprint to relocate; its end date follows
+		// all the same.
+		if !board.IsPersonalDomain(c.Domain) {
+			if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
+				return err
+			}
 		}
 		if c.Day != "" && c.Day < target {
 			return s.backend.SetDay(ctx, b, c, target)
@@ -958,6 +975,15 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 	// subtasks with it.
 	if c.Epic != "" {
 		sprint = c.SprintStart
+	}
+	// A personal board has no sprints: planning there is dates alone, and
+	// the card must not be pinned to the no-team group's sprint pointer or
+	// to its own start day the way a team card is.
+	if board.IsPersonalDomain(c.Domain) {
+		sprint = ""
+	}
+	if err := s.bringBack(ctx, b, c); err != nil {
+		return err
 	}
 	if err := s.backend.SetStart(ctx, b, c, start); err != nil {
 		return err
@@ -1007,6 +1033,9 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
+	}
+	if board.IsPersonalDomain(c.Domain) {
+		return s.removePersonal(ctx, b, c)
 	}
 	if from == "plan" {
 		// A slot of a plan is never deleted by the plan ×. It is a piece of a
@@ -1097,6 +1126,44 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	// column and all. Deleting is its own gesture (DeleteCard), never a
 	// side effect of removing a card from a person.
 	return s.releaseToPlan(ctx, b, c)
+}
+
+// removePersonal is the × on a personal board, which has no sprint to demote
+// into: a worked-on card is left behind on yesterday's board — leftAt set on
+// it and on its subtasks, which ride with it — and an untouched one, or one
+// that started today, is deleted for real (mirrors personalRemovalKind in
+// removal.ts; the UI asks first when there is progress to lose).
+func (s *Service) removePersonal(ctx context.Context, b board.Board, c board.Card) error {
+	today := board.TodayIso()
+	if !board.PersonalLeaves(c, today) {
+		return s.deleteWithCascade(ctx, b, c)
+	}
+	return s.setLeftAt(ctx, b, c, board.AddDays(today, -1))
+}
+
+// setLeftAt writes a personal card's left-behind day — "" brings it back —
+// on the card and its subtasks, recording the move on each.
+func (s *Service) setLeftAt(ctx context.Context, b board.Board, c board.Card, day string) error {
+	for _, k := range append([]board.Card{c}, board.Children(b, c.ItemID)...) {
+		if k.LeftAt == day {
+			continue
+		}
+		if err := s.backend.SetLeftAt(ctx, b, k, day); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, k, board.EventLeft, k.LeftAt, day)
+	}
+	return nil
+}
+
+// bringBack clears a left-behind personal card's leftAt when it is re-dated:
+// the calendar and the defer put it on a day again, so it is on the board
+// again. A no-op for every other card.
+func (s *Service) bringBack(ctx context.Context, b board.Board, c board.Card) error {
+	if !board.IsPersonalDomain(c.Domain) || c.LeftAt == "" {
+		return nil
+	}
+	return s.setLeftAt(ctx, b, c, "")
 }
 
 // releaseToPlan gives a card back: it loses its person and its sprint
