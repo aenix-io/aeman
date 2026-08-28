@@ -1770,6 +1770,7 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 	case errors.Is(err, gitstore.ErrUnknownDomain):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, gitstore.ErrNameTaken),
+		errors.Is(err, gitstore.ErrPersonalRoster),
 		errors.Is(err, boardservice.ErrTeamExists),
 		errors.Is(err, boardservice.ErrTeamNotFound),
 		errors.Is(err, boardservice.ErrPersonalPlacement),

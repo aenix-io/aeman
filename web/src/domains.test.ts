@@ -87,6 +87,22 @@ describe("writableDomains", () => {
       writableDomains([{ name: "ro", writable: false, members: [] }]),
     ).toEqual([]);
   });
+
+  // A personal board holds no teams, projects or processes — the server
+  // refuses them there — so it is no place to declare one and must not be
+  // offered as one, however writable it is.
+  it("leaves the visitor's personal board out: nothing is declared there", () => {
+    expect(
+      writableDomains([
+        { name: "acme/board", writable: true, members: [] },
+        { name: "~kvaps", writable: true, members: ["kvaps"], personal: true },
+      ]).map((d) => d.name),
+    ).toEqual(["acme/board"]);
+    // Even without the server's flag, the ~ names it.
+    expect(
+      writableDomains([{ name: "~kvaps", writable: true, members: [] }]),
+    ).toEqual([]);
+  });
 });
 
 describe("reviewerCandidates", () => {
