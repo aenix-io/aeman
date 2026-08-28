@@ -77,13 +77,13 @@ func (mb *MultiBackend) Issues() ([]Alias, []Ghost) {
 }
 
 // LoadBoard merges every domain into the board the service expects.
-func (mb *MultiBackend) LoadBoard(_ context.Context, owner string, project int) (board.Board, error) {
+func (mb *MultiBackend) LoadBoard(_ context.Context, boardID string) (board.Board, error) {
 	s, err := mb.snapshot()
 	if err != nil {
 		return board.Board{}, err
 	}
 	bd := boardFromSnapshot(s)
-	bd.Owner, bd.Number = owner, project
+	bd.Board = boardID
 	return bd, nil
 }
 

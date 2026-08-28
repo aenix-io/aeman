@@ -109,7 +109,7 @@ func TestGitOneRequestOneCommit(t *testing.T) {
 	seedGitRemote(t, remote)
 	be, repo := gitStore(t, remote)
 	ctx := withAction(board.WithActor(context.Background(), "kvaps"), "01JB4KA0M2P4R6T8V0X2Z4B6D8", "send-to-review")
-	bd, err := be.LoadBoard(ctx, "acme", 1)
+	bd, err := be.LoadBoard(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestGitOneRequestOneCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The cache already says so.
-	now, _ := be.LoadBoard(ctx, "acme", 1)
+	now, _ := be.LoadBoard(ctx, "acme")
 	if c := cardByTitle(now, "one"); c.Progress != 90 || c.Stage != board.StageReview {
 		t.Fatalf("cache = %+v", c)
 	}
@@ -161,7 +161,7 @@ func TestGitProgressCoalescesByActor(t *testing.T) {
 	remote := gitRemote(t)
 	seedGitRemote(t, remote)
 	be, repo := gitStore(t, remote)
-	bd, _ := be.LoadBoard(context.Background(), "acme", 1)
+	bd, _ := be.LoadBoard(context.Background(), "acme")
 	card := cardByTitle(bd, "one")
 
 	before := repo.Head()
@@ -216,7 +216,7 @@ func TestGitActionFlushesCoalescedFirst(t *testing.T) {
 	remote := gitRemote(t)
 	seedGitRemote(t, remote)
 	be, repo := gitStore(t, remote)
-	bd, _ := be.LoadBoard(context.Background(), "acme", 1)
+	bd, _ := be.LoadBoard(context.Background(), "acme")
 	card := cardByTitle(bd, "one")
 	before := repo.Head()
 
@@ -268,7 +268,7 @@ func TestGitCreateReturnsFinalID(t *testing.T) {
 	seedGitRemote(t, remote)
 	be, repo := gitStore(t, remote)
 	ctx := withAction(board.WithActor(context.Background(), "kvaps"), "01JB4KA0M2P4R6T8V0X2Z4B6H1", "create")
-	bd, _ := be.LoadBoard(ctx, "acme", 1)
+	bd, _ := be.LoadBoard(ctx, "acme")
 	c, err := be.CreateCard(ctx, bd, board.CreateInput{Title: "three", Team: "portal", Zone: board.ZoneRed})
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +276,7 @@ func TestGitCreateReturnsFinalID(t *testing.T) {
 	if len(c.ItemID) != 26 || strings.HasPrefix(c.ItemID, "local-") {
 		t.Fatalf("id = %q, want a final ULID", c.ItemID)
 	}
-	if now, _ := be.LoadBoard(ctx, "acme", 1); cardByTitle(now, "three").ItemID != c.ItemID {
+	if now, _ := be.LoadBoard(ctx, "acme"); cardByTitle(now, "three").ItemID != c.ItemID {
 		t.Fatal("the cache does not show the created card under its id")
 	}
 	waitQueue(t, be)
@@ -294,25 +294,25 @@ func TestGitRemoteChangeReachesCache(t *testing.T) {
 	a, _ := gitStore(t, remote)
 	b, _ := gitStore(t, remote)
 	ctx := withAction(board.WithActor(context.Background(), "alice"), "01JB4KA0M2P4R6T8V0X2Z4B6J1", "progress")
-	bdA, _ := a.LoadBoard(ctx, "acme", 1)
-	bdB, _ := b.LoadBoard(ctx, "acme", 1)
+	bdA, _ := a.LoadBoard(ctx, "acme")
+	bdB, _ := b.LoadBoard(ctx, "acme")
 	if cardByTitle(bdB, "one").Progress != 40 {
 		t.Fatal("precondition")
 	}
-	sub, cancel := b.store.subscribe("acme/1", "", nil, map[string]bool{"cards": true})
+	sub, cancel := b.store.subscribe("acme", "", nil, map[string]bool{"cards": true})
 	defer cancel()
 
 	if err := a.SetProgress(ctx, bdA, cardByTitle(bdA, "one"), 75); err != nil {
 		t.Fatal(err)
 	}
 	waitQueue(t, a)
-	if err := a.syncNow(context.Background(), "acme/1"); err != nil {
+	if err := a.syncNow(context.Background(), "acme"); err != nil {
 		t.Fatalf("a push: %v", err)
 	}
-	if err := b.syncNow(context.Background(), "acme/1"); err != nil {
+	if err := b.syncNow(context.Background(), "acme"); err != nil {
 		t.Fatalf("b fetch: %v", err)
 	}
-	now, _ := b.LoadBoard(ctx, "acme", 1)
+	now, _ := b.LoadBoard(ctx, "acme")
 	if got := cardByTitle(now, "one").Progress; got != 75 {
 		t.Fatalf("b's cache progress = %d, want 75", got)
 	}
@@ -341,8 +341,8 @@ func TestGitRejectedPushReappliesAndRetries(t *testing.T) {
 	b, _ := gitStore(t, remote)
 	ctxA := withAction(board.WithActor(context.Background(), "alice"), "01JB4KA0M2P4R6T8V0X2Z4B6K1", "rename")
 	ctxB := withAction(board.WithActor(context.Background(), "bob"), "01JB4KA0M2P4R6T8V0X2Z4B6K2", "progress")
-	bdA, _ := a.LoadBoard(ctxA, "acme", 1)
-	bdB, _ := b.LoadBoard(ctxB, "acme", 1)
+	bdA, _ := a.LoadBoard(ctxA, "acme")
+	bdB, _ := b.LoadBoard(ctxB, "acme")
 	one := cardByTitle(bdA, "one")
 
 	if err := a.RenameCard(ctxA, bdA, one, "one, renamed"); err != nil {
@@ -353,11 +353,11 @@ func TestGitRejectedPushReappliesAndRetries(t *testing.T) {
 	}
 	waitQueue(t, a)
 	waitQueue(t, b)
-	if err := a.syncNow(context.Background(), "acme/1"); err != nil {
+	if err := a.syncNow(context.Background(), "acme"); err != nil {
 		t.Fatalf("a push: %v", err)
 	}
 	// b's push is rejected, re-applied on a's tip, pushed.
-	if err := b.syncNow(context.Background(), "acme/1"); err != nil {
+	if err := b.syncNow(context.Background(), "acme"); err != nil {
 		t.Fatalf("b sync: %v", err)
 	}
 	if n, _ := b.git.primary().Unpushed(); n != 0 {
@@ -365,13 +365,13 @@ func TestGitRejectedPushReappliesAndRetries(t *testing.T) {
 	}
 	// A third replica sees both fields.
 	c, _ := gitStore(t, remote)
-	bdC, _ := c.LoadBoard(context.Background(), "acme", 1)
+	bdC, _ := c.LoadBoard(context.Background(), "acme")
 	got := cardByTitle(bdC, "one, renamed")
 	if got.ItemID == "" || got.Progress != 65 {
 		t.Fatalf("after the re-apply: %+v", got)
 	}
 	// And b's own cache agrees with the remote.
-	bdB, _ = b.LoadBoard(ctxB, "acme", 1)
+	bdB, _ = b.LoadBoard(ctxB, "acme")
 	if g := cardByTitle(bdB, "one, renamed"); g.ItemID == "" || g.Progress != 65 {
 		t.Fatalf("b's cache after the re-apply: %+v", g)
 	}
@@ -384,18 +384,18 @@ func TestGitUnpushedAge(t *testing.T) {
 	be, _ := gitStore(t, remote)
 	be.git.domains[0].remote = gitstore.Remote{URL: "gittest://remotes/gone.git"}
 	ctx := withAction(board.WithActor(context.Background(), "alice"), "01JB4KA0M2P4R6T8V0X2Z4B6L1", "progress")
-	bd, _ := be.LoadBoard(ctx, "acme", 1)
-	if age := be.unpushedAge("acme/1"); age != 0 {
+	bd, _ := be.LoadBoard(ctx, "acme")
+	if age := be.unpushedAge("acme"); age != 0 {
 		t.Fatalf("nothing written yet, age = %v", age)
 	}
 	if err := be.SetProgress(ctx, bd, cardByTitle(bd, "one"), 55); err != nil {
 		t.Fatal(err)
 	}
 	waitQueue(t, be)
-	if err := be.syncNow(context.Background(), "acme/1"); err == nil {
+	if err := be.syncNow(context.Background(), "acme"); err == nil {
 		t.Fatal("a push to a missing remote must fail")
 	}
-	if age := be.unpushedAge("acme/1"); age <= 0 {
+	if age := be.unpushedAge("acme"); age <= 0 {
 		t.Fatalf("unpushed age = %v, want > 0", age)
 	}
 	// The commit is still there for the next attempt.

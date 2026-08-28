@@ -37,7 +37,7 @@ func ctxAs(login string) context.Context { return board.WithActor(context.Backgr
 // the server, not by whoever happened to trigger it — bare and under a scope.
 func TestUnattributedWriteIsAuthoredByTheServer(t *testing.T) {
 	be, r := newBackend(t)
-	bd, _ := be.LoadBoard(context.Background(), "x", 1)
+	bd, _ := be.LoadBoard(context.Background(), "x")
 	card, _ := findByID(bd, "01JB4K2E7QZMX3R8V0N5T9WYC1")
 	ctx := board.Unattributed(ctxAs("kvaps"))
 	if err := be.RenameCard(ctx, bd, card, "resolved title"); err != nil {
@@ -86,7 +86,7 @@ func TestMoveRebalancesTheRunWhenTheKeyIsExhausted(t *testing.T) {
 	})
 	be := NewBackend(r, BackendOptions{})
 	ctx := ctxAs("kvaps")
-	bd, _ := be.LoadBoard(ctx, "x", 1)
+	bd, _ := be.LoadBoard(ctx, "x")
 	third, _ := findByID(bd, "01CARDC3")
 	head := r.Head()
 	if err := be.MoveCard(ctx, bd, third, "01CARDA1"); err != nil {
@@ -95,7 +95,7 @@ func TestMoveRebalancesTheRunWhenTheKeyIsExhausted(t *testing.T) {
 	if n := len(commitsBetween(t, r, head)); n != 1 {
 		t.Fatalf("the rebalance took %d commits, want 1", n)
 	}
-	after, _ := be.LoadBoard(ctx, "x", 1)
+	after, _ := be.LoadBoard(ctx, "x")
 	var order []string
 	for _, c := range after.Cards {
 		order = append(order, c.ItemID)
@@ -169,8 +169,8 @@ func TestCreateIterationIDIsDeterministic(t *testing.T) {
 	b, _ := newBackend(t)
 	ctx := ctxAs("aeman")
 	in := board.CreateInput{Title: "weekly turn", Team: "portal", Task: "01TASK0000000000000000000A", Week: "2026-08-24", Plan: board.PlanFri}
-	ba, _ := a.LoadBoard(ctx, "x", 1)
-	bb, _ := b.LoadBoard(ctx, "x", 1)
+	ba, _ := a.LoadBoard(ctx, "x")
+	bb, _ := b.LoadBoard(ctx, "x")
 	ca, err := a.CreateCard(ctx, ba, in)
 	if err != nil {
 		t.Fatal(err)
@@ -198,12 +198,12 @@ func TestCreateIterationIDIsDeterministic(t *testing.T) {
 
 func TestBackendLoadBoardFromFiles(t *testing.T) {
 	be, _ := newBackend(t)
-	b, err := be.LoadBoard(context.Background(), "acme", 7)
+	b, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Owner != "acme" || b.Number != 7 {
-		t.Fatalf("identity = %s/%d", b.Owner, b.Number)
+	if b.Board != "acme" {
+		t.Fatalf("board = %q, want the name it was loaded as", b.Board)
 	}
 	if len(b.Cards) != 2 || b.Cards[0].Title != "second" || b.Cards[1].Title != "first" {
 		t.Fatalf("cards = %+v", b.Cards)
@@ -235,7 +235,7 @@ func TestBackendLoadBoardFromFiles(t *testing.T) {
 func TestBackendCreateCardCommitsOnce(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	before := r.Head()
 	c, err := be.CreateCard(ctx, b, board.CreateInput{Title: "third", Team: "portal", Zone: board.ZoneRed, Start: "2026-08-27", Day: "2026-08-28", SprintStart: "2026-08-24", Assignee: "timur", Body: "do it"})
 	if err != nil {
@@ -266,7 +266,7 @@ func TestBackendCreateCardCommitsOnce(t *testing.T) {
 	if data, err := r.ReadFile(p); err != nil || !strings.Contains(string(data), "title: third") {
 		t.Fatalf("file: %v\n%s", err, data)
 	}
-	again, _ := be.LoadBoard(ctx, "acme", 7)
+	again, _ := be.LoadBoard(ctx, "acme")
 	if len(again.Cards) != 3 || again.Cards[2].ItemID != c.ItemID {
 		t.Fatalf("new card not last: %+v", again.Cards)
 	}
@@ -277,7 +277,7 @@ func TestBackendCreateCardCommitsOnce(t *testing.T) {
 func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 
 	proj, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "infra"})
 	if err != nil {
@@ -286,7 +286,7 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 	if _, err := r.ReadFile(ProjectPath(proj.ItemID)); err != nil {
 		t.Fatalf("project file: %v", err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	epic, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.EpicStateTitle, Epic: "Reliability", Project: "infra"})
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +308,7 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	task, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.ProcessTaskTitle, Process: "Backups", Recurrence: "week", Start: "2026-08-24", Team: "portal", Body: "Rotate keys\nAll of them."})
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +316,7 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 	if _, err := r.ReadFile(TaskPath(proc.ItemID, task.ItemID)); err != nil {
 		t.Fatalf("task file under its process: %v", err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if len(b.Projects) != 2 || len(b.Epics) != 2 || len(b.Deadlines) != 2 || len(b.Processes) != 2 || len(b.Tasks) != 2 {
 		t.Fatalf("roster after creates: %d projects, %d epics, %d deadlines, %d processes, %d tasks", len(b.Projects), len(b.Epics), len(b.Deadlines), len(b.Processes), len(b.Tasks))
 	}
@@ -335,7 +335,7 @@ func TestBackendCreateStateCardsWriteRosterFiles(t *testing.T) {
 func TestBackendSettersRewriteOnlyTheCard(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	card := b.Cards[1] // "first"
 	before := r.Head()
 	if err := be.SetProgress(ctx, b, card, 80); err != nil {
@@ -360,7 +360,7 @@ func TestBackendSettersRewriteOnlyTheCard(t *testing.T) {
 	if n != 2 {
 		t.Fatalf("%d commits for two setters without a scope, want 2", n)
 	}
-	got, _ := be.LoadBoard(ctx, "acme", 7)
+	got, _ := be.LoadBoard(ctx, "acme")
 	c, _ := findByID(got, card.ItemID)
 	if c.Progress != 80 || c.Title != "first, renamed" || c.Zone != board.ZoneYellow || c.Team != "portal" {
 		t.Fatalf("card after setters = %+v", c)
@@ -372,7 +372,7 @@ func TestBackendSettersRewriteOnlyTheCard(t *testing.T) {
 func TestBackendScopeCommitsOnce(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	card := b.Cards[1]
 	before := r.Head()
 
@@ -404,7 +404,7 @@ func TestBackendScopeCommitsOnce(t *testing.T) {
 	if tr.Action != "send-to-review" || tr.Actor != "kvaps" || len(tr.Changes) != 1 || tr.Changes[0].Kind != board.EventReviewSent || tr.Changes[0].To != "timur" {
 		t.Fatalf("trailers = %+v", tr)
 	}
-	got, _ := be.LoadBoard(ctx, "acme", 7)
+	got, _ := be.LoadBoard(ctx, "acme")
 	c, _ := findByID(got, card.ItemID)
 	// Each staged write saw the one before it: progress survived the stage.
 	if c.Progress != 90 || c.Stage != board.StageReview || len(c.Notes) != 1 || c.Notes[0].Body != "sent for review" || c.Notes[0].Author != "kvaps" {
@@ -420,7 +420,7 @@ func TestBackendScopeCommitsOnce(t *testing.T) {
 func TestBackendNotesLifecycle(t *testing.T) {
 	be, _ := newBackend(t)
 	ctx := ctxAs("timur")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	card := b.Cards[0]
 	if err := be.AddNote(ctx, b, card, "one"); err != nil {
 		t.Fatal(err)
@@ -428,7 +428,7 @@ func TestBackendNotesLifecycle(t *testing.T) {
 	if err := be.AddNote(ctx, b, card, "two"); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	c, _ := findByID(b, card.ItemID)
 	if len(c.Notes) != 2 || c.Notes[0].Body != "one" || len(c.Notes[0].ID) != 26 || c.Notes[0].Author != "timur" || c.Notes[0].CreatedAt == "" {
 		t.Fatalf("notes = %+v", c.Notes)
@@ -439,7 +439,7 @@ func TestBackendNotesLifecycle(t *testing.T) {
 	if err := be.DeleteNote(ctx, b, c, c.Notes[1]); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	c, _ = findByID(b, card.ItemID)
 	if len(c.Notes) != 1 || c.Notes[0].Body != "uno" || c.Notes[0].Author != "timur" {
 		t.Fatalf("notes after edit/delete = %+v", c.Notes)
@@ -453,12 +453,12 @@ func TestBackendNotesLifecycle(t *testing.T) {
 func TestBackendMoveCardRewritesOneFile(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	third, err := be.CreateCard(ctx, b, board.CreateInput{Title: "third", Team: "portal"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7) // order: second (a), first (b), third
+	b, _ = be.LoadBoard(ctx, "acme") // order: second (a), first (b), third
 	before := r.Head()
 	// Move "third" after "second": second, third, first.
 	if err := be.MoveCard(ctx, b, third, b.Cards[0].ItemID); err != nil {
@@ -469,7 +469,7 @@ func TestBackendMoveCardRewritesOneFile(t *testing.T) {
 	if len(paths) != 1 || paths[0] != p {
 		t.Fatalf("a move changed %v, want only the moved card", paths)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if b.Cards[0].Title != "second" || b.Cards[1].Title != "third" || b.Cards[2].Title != "first" {
 		t.Fatalf("order after move = %s, %s, %s", b.Cards[0].Title, b.Cards[1].Title, b.Cards[2].Title)
 	}
@@ -477,7 +477,7 @@ func TestBackendMoveCardRewritesOneFile(t *testing.T) {
 	if err := be.MoveCard(ctx, b, b.Cards[2], ""); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if b.Cards[0].Title != "first" {
 		t.Fatalf("move to top: %s first", b.Cards[0].Title)
 	}
@@ -486,7 +486,7 @@ func TestBackendMoveCardRewritesOneFile(t *testing.T) {
 func TestBackendSetSprintStateWritesTeamFile(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	// Existing team: pointer rewritten in place.
 	if err := be.SetSprintState(ctx, b, "portal", "2026-08-31", "2026-08-24"); err != nil {
 		t.Fatal(err)
@@ -502,7 +502,7 @@ func TestBackendSetSprintStateWritesTeamFile(t *testing.T) {
 	if _, err := r.ReadFile(TeamPath("_")); err != nil {
 		t.Fatalf("no-team file: %v", err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if b.SprintStates["portal"].Current != "2026-08-31" || b.SprintStates["portal"].Previous != "2026-08-24" || b.SprintStates["portal"].ItemID != "01JB4TEAM" {
 		t.Fatalf("portal = %+v", b.SprintStates["portal"])
 	}
@@ -517,7 +517,7 @@ func TestBackendSetSprintStateWritesTeamFile(t *testing.T) {
 func TestBackendDeleteCardRemovesFile(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	card := b.Cards[0]
 	if err := be.DeleteCard(ctx, b, card); err != nil {
 		t.Fatal(err)
@@ -534,7 +534,7 @@ func TestBackendDeleteCardRemovesFile(t *testing.T) {
 	if _, err := r.ReadFile(DeadlinePath("01JB4PROJ", "01JB4DL")); err == nil {
 		t.Fatal("deleted deadline still on disk")
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if len(b.Cards) != 1 || len(b.Deadlines) != 0 {
 		t.Fatalf("after deletes: %d cards, %d deadlines", len(b.Cards), len(b.Deadlines))
 	}
@@ -544,7 +544,7 @@ func TestBackendDeleteCardRemovesFile(t *testing.T) {
 func TestBackendRosterStubs(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 
 	epic := board.Card{ItemID: "01JB4EPIC", Title: board.EpicStateTitle, Epic: "Bugs", Project: "portal"}
 	if err := be.SetEpic(ctx, b, epic, "Defects"); err != nil {
@@ -570,7 +570,7 @@ func TestBackendRosterStubs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if b.Epics[0].Name != "Defects" || b.Projects[0] != "Portal" || b.Processes[0].Name != "Billing" || !b.Processes[0].Paused || b.Deadlines[0].Week != "2026-09-14" || !b.Tasks[0].Accumulate {
 		t.Fatalf("roster after stubs: epics=%+v projects=%v processes=%+v deadlines=%+v tasks=%+v", b.Epics, b.Projects, b.Processes, b.Deadlines, b.Tasks[0].Accumulate)
 	}
@@ -583,7 +583,7 @@ func TestBackendRosterStubs(t *testing.T) {
 	if _, err := be.CreateCard(ctx, b, board.CreateInput{Title: board.EpicStateTitle, Epic: "Docs", Project: "Portal"}); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if b.Epics[0].Name != "Defects" || b.Epics[1].Name != "Docs" {
 		t.Fatalf("epics before move = %+v", b.Epics)
 	}
@@ -591,7 +591,7 @@ func TestBackendRosterStubs(t *testing.T) {
 	if err := be.MoveCard(ctx, b, docs, ""); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if b.Epics[0].Name != "Docs" {
 		t.Fatalf("epic move to top: %+v", b.Epics)
 	}
@@ -599,7 +599,7 @@ func TestBackendRosterStubs(t *testing.T) {
 	if err := be.MoveCard(ctx, b, team, ""); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = be.LoadBoard(ctx, "acme", 7)
+	b, _ = be.LoadBoard(ctx, "acme")
 	if b.TeamOrder[0] != "portal" {
 		t.Fatalf("team move to top: %v", b.TeamOrder)
 	}
@@ -610,7 +610,7 @@ func TestBackendRosterStubs(t *testing.T) {
 func TestBackendCreateHonoursPremintedID(t *testing.T) {
 	be, r := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	id := NewID(at("2026-08-27T13:00:00Z"))
 	c, err := be.CreateCard(ctx, b, board.CreateInput{ItemID: id, Title: "pre-minted", Team: "portal"})
 	if err != nil {
@@ -630,7 +630,7 @@ func TestBackendCreateHonoursPremintedID(t *testing.T) {
 func TestBackendLoadCards(t *testing.T) {
 	be, _ := newBackend(t)
 	ctx := ctxAs("kvaps")
-	b, _ := be.LoadBoard(ctx, "acme", 7)
+	b, _ := be.LoadBoard(ctx, "acme")
 	got, err := be.LoadCards(ctx, b, []string{b.Cards[1].ItemID, "01JB4NOSUCHCARD0000000000A", b.Cards[0].ItemID})
 	if err != nil {
 		t.Fatal(err)

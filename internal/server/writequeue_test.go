@@ -26,7 +26,7 @@ type wbBackend struct {
 	sprintWrites         []string
 }
 
-func (w *wbBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
+func (w *wbBackend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.loads++
@@ -91,11 +91,11 @@ func TestWriteBehindInstant(t *testing.T) {
 	inner := &wbBackend{board: watchBoard(), gate: make(chan struct{})}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	bd, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, cancel := store.subscribe("acme/1", "", nil, map[string]bool{"cards": true})
+	sub, cancel := store.subscribe("acme", "", nil, map[string]bool{"cards": true})
 	defer cancel()
 
 	start := time.Now()
@@ -106,7 +106,7 @@ func TestWriteBehindInstant(t *testing.T) {
 		t.Fatalf("SetProgress blocked on the upstream write: %v", elapsed)
 	}
 	// The cache already holds the change and the watcher heard about it.
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 	e.mu.Lock()
 	got := e.board.Cards[0].Progress
 	pending := e.unsynced()
@@ -141,11 +141,11 @@ func TestWriteBehindCoalesces(t *testing.T) {
 	inner := &wbBackend{board: watchBoard(), gate: make(chan struct{})}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	bd, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 
 	// First write goes on the wire (gated); the rest coalesce in the queue.
 	if err := be.SetProgress(context.Background(), bd, bd.Cards[0], 40); err != nil {
@@ -191,17 +191,17 @@ func TestWriteBehindFailureRollsBack(t *testing.T) {
 	inner := &wbBackend{board: watchBoard(), fail: true}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	bd, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, cancel := store.subscribe("acme/1", "", nil, map[string]bool{"cards": true})
+	sub, cancel := store.subscribe("acme", "", nil, map[string]bool{"cards": true})
 	defer cancel()
 
 	if err := be.SetProgress(context.Background(), bd, bd.Cards[0], 80); err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 	waitFor(t, "rollback reload", func() bool {
 		loads, _ := inner.counts()
 		return loads >= 2
@@ -237,11 +237,11 @@ func TestTouchedPreservesQueuedNotes(t *testing.T) {
 	inner := &wbBackend{board: watchBoard()}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	bd, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 
 	// Two note adds still queued (their writes have not reached upstream).
 	for _, text := range []string{"w", "e"} {
@@ -302,10 +302,10 @@ func TestReloadReplaysPending(t *testing.T) {
 	inner := &wbBackend{board: watchBoard()}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
+	if _, err := be.LoadBoard(context.Background(), "acme"); err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 	e.mu.Lock()
 	e.pending = append(e.pending, pendingOp{
 		desc: "test",
@@ -340,10 +340,10 @@ func TestInstallKeepsRecentRosterStubs(t *testing.T) {
 	inner := &wbBackend{board: watchBoard()}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
+	if _, err := be.LoadBoard(context.Background(), "acme"); err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 	stubs := []board.Card{
 		{ItemID: "P_NEW", Title: board.ProjectStateTitle, Project: "vault", Domain: "closed"},
 		{ItemID: "PR_NEW", Title: board.ProcessStateTitle, Process: "audit", Project: "vault", Domain: "closed"},
@@ -356,7 +356,7 @@ func TestInstallKeepsRecentRosterStubs(t *testing.T) {
 	}
 	// The fixture never learnt about them: its next read IS a load that
 	// began before the creates committed.
-	stale, err := inner.LoadBoard(context.Background(), "acme", 1)
+	stale, err := inner.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,11 +396,11 @@ func TestRevalidateKeepsRecentWrites(t *testing.T) {
 	inner := &wbBackend{board: watchBoard()}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	bd, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 
 	// Confirmed writes: progress on c1, and c2 moved to the front.
 	if err := be.SetProgress(context.Background(), bd, bd.Cards[0], 80); err != nil {
@@ -418,7 +418,7 @@ func TestRevalidateKeepsRecentWrites(t *testing.T) {
 	// The fixture backend never mutated its stored board, so its next read
 	// IS the stale replica: progress 0, original order. Install it exactly
 	// like a background revalidation would.
-	stale, err := inner.LoadBoard(context.Background(), "acme", 1)
+	stale, err := inner.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,10 +438,10 @@ func TestRevalidateRestoresCreatedCardInPlace(t *testing.T) {
 	inner := &wbBackend{board: watchBoard()}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
+	if _, err := be.LoadBoard(context.Background(), "acme"); err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 
 	// A card born between c1 and c2 (as CreateCard + the slotting move leave
 	// it), known to the recency guard.
@@ -455,7 +455,7 @@ func TestRevalidateRestoresCreatedCardInPlace(t *testing.T) {
 	e.mu.Unlock()
 
 	// The lagging replica still serves the board without the new card.
-	stale, err := inner.LoadBoard(context.Background(), "acme", 1)
+	stale, err := inner.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,11 +477,11 @@ func TestTouchedSkipsDeletedCard(t *testing.T) {
 	inner := &wbBackend{board: watchBoard()}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	bd, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 
 	// The user deleted c1; the fixture backend (the "stale replica") still
 	// serves it to LoadCards.
@@ -518,11 +518,11 @@ func TestSprintStateWriteResolvesLive(t *testing.T) {
 	inner := &wbBackend{board: watchBoard(), gate: make(chan struct{})}
 	store := newBoardStore()
 	be := &storeBackend{inner: inner, store: store}
-	bd, err := be.LoadBoard(context.Background(), "acme", 1)
+	bd, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 
 	// Hold the queue on a gated op so the sprint write stays queued while the
 	// cache moves under it.

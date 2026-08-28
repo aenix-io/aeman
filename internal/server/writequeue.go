@@ -149,7 +149,7 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 		e.mu.Lock()
 		e.inflight = nil
 		e.queueChanged()
-		owner, number := e.board.Owner, e.board.Number
+		boardID := e.board.Board
 		if err != nil {
 			e.syncError(fmt.Sprintf("%s failed: %v", op.desc, err))
 			e.loaded = false
@@ -165,7 +165,7 @@ func (b *storeBackend) drain(ctx context.Context, e *boardEntry) {
 			// Reload now (not on the next read) so every open board rolls
 			// back to the backend's reality right away; the remaining queue
 			// is replayed on top by install.
-			_, _ = b.LoadBoard(ctx, owner, number)
+			_, _ = b.LoadBoard(ctx, boardID)
 		}
 	}
 }
@@ -214,7 +214,7 @@ func (b *storeBackend) mutateCard(ctx context.Context, bd board.Board, itemID, k
 
 // mutateCardOp is mutateCard with an explicit compose choice (see pendingOp).
 func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID, kind, desc string, compose bool, fn func(c *board.Card), exec func(ctx context.Context) error) {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	apply := func(target *board.Board) {
 		for i := range target.Cards {
 			if target.Cards[i].ItemID == itemID {

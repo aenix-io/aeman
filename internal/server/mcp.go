@@ -41,8 +41,7 @@ func (s *Server) registerMCP(mux *http.ServeMux) {
 // every tool call runs against GitHub with that user's own token.
 func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 	srv := mcpserver.New(mcpserver.Config{
-		Owner:        gitBoardOwner,
-		Project:      1,
+		Board:        s.gitBoard(),
 		Lock:         true,
 		Version:      s.opts.Version,
 		ResolveLogin: resolveLoginFromContext,

@@ -42,7 +42,7 @@ func twoDomains(t *testing.T) (*MultiBackend, *Repo, *Repo) {
 
 func TestMultiBackendLoadBoardMergesDomains(t *testing.T) {
 	mb, _, _ := twoDomains(t)
-	b, err := mb.LoadBoard(context.Background(), "x", 1)
+	b, err := mb.LoadBoard(context.Background(), "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestMultiBackendLoadBoardMergesDomains(t *testing.T) {
 func TestMultiBackendCreateInheritsDomain(t *testing.T) {
 	mb, shared, closed := twoDomains(t)
 	ctx := ctxAs("kvaps")
-	b, _ := mb.LoadBoard(ctx, "x", 1)
+	b, _ := mb.LoadBoard(ctx, "x")
 
 	inClosed, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "risk item", Team: "portal", Project: "secret", Epic: "Risk"})
 	if err != nil {
@@ -91,7 +91,7 @@ func TestMultiBackendCreateInheritsDomain(t *testing.T) {
 	// The review of a closed card carries the original's team and no
 	// project — the team rule alone would leak it; it lands with the
 	// original.
-	b, _ = mb.LoadBoard(ctx, "x", 1)
+	b, _ = mb.LoadBoard(ctx, "x")
 	review, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "review: risk item", Team: "portal", ReviewOf: inClosed.ItemID, Assignee: "timur"})
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestMultiBackendCreateInheritsDomain(t *testing.T) {
 func TestMultiBackendSetterWritesOwnDomain(t *testing.T) {
 	mb, shared, closed := twoDomains(t)
 	ctx := ctxAs("kvaps")
-	b, _ := mb.LoadBoard(ctx, "x", 1)
+	b, _ := mb.LoadBoard(ctx, "x")
 	sharedHead, closedHead := shared.Head(), closed.Head()
 	var closedCard board.Card
 	for _, c := range b.Cards {
@@ -131,7 +131,7 @@ func TestMultiBackendSetterWritesOwnDomain(t *testing.T) {
 	if closed.Head() == closedHead {
 		t.Fatal("the closed repository did not change")
 	}
-	got, _ := mb.LoadBoard(ctx, "x", 1)
+	got, _ := mb.LoadBoard(ctx, "x")
 	c, _ := findByID(got, closedCard.ItemID)
 	if c.Progress != 60 || c.Domain != "closed" {
 		t.Fatalf("card after write = %+v", c)
@@ -144,7 +144,7 @@ func TestMultiBackendSetterWritesOwnDomain(t *testing.T) {
 func TestMultiBackendRefilingIsAMove(t *testing.T) {
 	mb, shared, closed := twoDomains(t)
 	ctx := ctxAs("kvaps")
-	b, _ := mb.LoadBoard(ctx, "x", 1)
+	b, _ := mb.LoadBoard(ctx, "x")
 	var card board.Card
 	for _, c := range b.Cards {
 		if c.Title == "shared card" {
@@ -192,7 +192,7 @@ func TestMultiBackendRefilingIsAMove(t *testing.T) {
 	if cc.Committer.When.After(sc.Committer.When) {
 		t.Fatalf("delete (%v) committed before create (%v)", sc.Committer.When, cc.Committer.When)
 	}
-	got, _ := mb.LoadBoard(ctx, "x", 1)
+	got, _ := mb.LoadBoard(ctx, "x")
 	moved, ok := findByID(got, card.ItemID)
 	if !ok || moved.Domain != "closed" || moved.Project != "secret" || moved.MovedFrom != "shared" {
 		t.Fatalf("board after move = %+v (found %v)", moved, ok)
@@ -223,7 +223,7 @@ func TestMultiBackendMoveCascadesToLinkedCards(t *testing.T) {
 	})
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}}, BackendOptions{Now: func() time.Time { return at("2026-08-28T09:00:00Z") }})
 	ctx := ctxAs("kvaps")
-	b, _ := mb.LoadBoard(ctx, "x", 1)
+	b, _ := mb.LoadBoard(ctx, "x")
 	work, _ := findByID(b, "01CARDA1")
 	ctx, flush := WithScope(ctx, Action{Name: "update", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N2", Cards: []string{"01CARDA1"}})
 	if err := mb.SetProject(ctx, b, work, "secret"); err != nil {
@@ -257,7 +257,7 @@ func TestMultiBackendMoveCascadesToLinkedCards(t *testing.T) {
 	if ParseTrailers(cc.Message).ActionID != ParseTrailers(sc.Message).ActionID {
 		t.Fatal("cascade split across action ids")
 	}
-	got, _ := mb.LoadBoard(ctx, "x", 1)
+	got, _ := mb.LoadBoard(ctx, "x")
 	if n := len(got.Cards); n != 5 {
 		t.Fatalf("cards after cascade = %d, want 5", n)
 	}
@@ -281,7 +281,7 @@ func fileExists(r *Repo, p string) bool {
 func TestMultiBackendCreateHonoursDomainFromContext(t *testing.T) {
 	mb, shared, closed := twoDomains(t)
 	ctx := board.WithDomain(ctxAs("kvaps"), "closed")
-	b, _ := mb.LoadBoard(ctx, "x", 1)
+	b, _ := mb.LoadBoard(ctx, "x")
 	proj, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "vault"})
 	if err != nil {
 		t.Fatal(err)
@@ -332,7 +332,7 @@ func TestMultiBackendCreateHonoursDomainFromContext(t *testing.T) {
 func TestMultiBackendCardLogFollowsMoveIntoOldDomain(t *testing.T) {
 	mb, _, _ := twoDomains(t)
 	ctx := ctxAs("kvaps")
-	b, _ := mb.LoadBoard(ctx, "x", 1)
+	b, _ := mb.LoadBoard(ctx, "x")
 	card, _ := findByID(b, "01CARDA1")
 	if err := mb.SetProgress(ctx, b, card, 30); err != nil {
 		t.Fatal(err)
@@ -344,7 +344,7 @@ func TestMultiBackendCardLogFollowsMoveIntoOldDomain(t *testing.T) {
 	if _, err := flush(); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = mb.LoadBoard(ctx, "x", 1)
+	b, _ = mb.LoadBoard(ctx, "x")
 	moved, _ := findByID(b, card.ItemID)
 	if err := mb.SetProgress(board.WithActor(context.Background(), "timur"), b, moved, 60); err != nil {
 		t.Fatal(err)
@@ -393,7 +393,7 @@ func TestMultiBackendIssuesReportAliasesAndGhosts(t *testing.T) {
 	if aliases, ghosts := mb.Issues(); aliases != nil || ghosts != nil {
 		t.Fatalf("issues before any load = %v / %v, want none yet", aliases, ghosts)
 	}
-	if _, err := mb.LoadBoard(context.Background(), "x", 1); err != nil {
+	if _, err := mb.LoadBoard(context.Background(), "x"); err != nil {
 		t.Fatal(err)
 	}
 	aliases, ghosts := mb.Issues()
@@ -468,7 +468,7 @@ func TestMultiBackendSweepGhosts(t *testing.T) {
 func TestMultiBackendRosterDomainChoice(t *testing.T) {
 	mb, shared, closed := twoDomains(t)
 	ctx := ctxAs("kvaps")
-	b, _ := mb.LoadBoard(ctx, "x", 1)
+	b, _ := mb.LoadBoard(ctx, "x")
 	proj, err := mb.CreateCard(ctx, b, board.CreateInput{Title: board.ProjectStateTitle, Project: "infra"})
 	if err != nil {
 		t.Fatal(err)
@@ -490,7 +490,7 @@ func TestMultiBackendRosterDomainChoice(t *testing.T) {
 	if err := mb.SetSprintState(ctx, b, "ops", "2026-08-31", ""); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = mb.LoadBoard(ctx, "x", 1)
+	b, _ = mb.LoadBoard(ctx, "x")
 	if _, ok := b.SprintStates["ops"]; !ok {
 		t.Fatal("new team missing")
 	}

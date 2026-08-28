@@ -284,8 +284,8 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		// A push that cannot land must not be discovered a week later: the
 		// oldest unpushed commit's age is here, and past the threshold the
 		// status says so.
-		owner, number := s.gitBoard()
-		age := s.gitBE.unpushedAge(storeKey(owner, number))
+		boardID := s.gitBoard()
+		age := s.gitBE.unpushedAge(storeKey(boardID))
 		resp["unpushedAgeSeconds"] = int(age.Seconds())
 		if age > s.unpushedWarn() {
 			resp["status"] = "degraded"

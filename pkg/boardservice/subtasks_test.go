@@ -12,7 +12,7 @@ func TestSetParentGroupsAndSyncsSprint(t *testing.T) {
 		{ItemID: "p", Team: "alpha", SprintStart: "2026-01-05", Progress: 0},
 		{ItemID: "c", Team: "alpha", SprintStart: "2026-01-01", Progress: 40},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-01-05"}})
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "c", "p"); err != nil {
+	if err := f2svc(f).SetParent(ctx, "acme", "c", "p"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c").Parent != "p" {
@@ -35,15 +35,15 @@ func TestSetParentOneLevelOnly(t *testing.T) {
 		{ItemID: "x", Team: "alpha"},
 	}, nil)
 	// A subtask cannot become a parent.
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "x", "c"); !errors.Is(err, ErrSubtaskDepth) {
+	if err := f2svc(f).SetParent(ctx, "acme", "x", "c"); !errors.Is(err, ErrSubtaskDepth) {
 		t.Fatalf("grouping under a subtask: err = %v", err)
 	}
 	// A card with subtasks cannot become one.
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "p", "x"); !errors.Is(err, ErrSubtaskDepth) {
+	if err := f2svc(f).SetParent(ctx, "acme", "p", "x"); !errors.Is(err, ErrSubtaskDepth) {
 		t.Fatalf("grouping a parent: err = %v", err)
 	}
 	// Not under itself.
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "x", "x"); !errors.Is(err, ErrSubtaskDepth) {
+	if err := f2svc(f).SetParent(ctx, "acme", "x", "x"); !errors.Is(err, ErrSubtaskDepth) {
 		t.Fatalf("grouping under itself: err = %v", err)
 	}
 }
@@ -53,7 +53,7 @@ func TestSetParentWeeklyCardHandsSlotToParent(t *testing.T) {
 		{ItemID: "p", Team: "alpha"},
 		{ItemID: "w", Team: "alpha", Plan: board.PlanWed, Week: "2026-01-05"},
 	}, nil)
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "w", "p"); err != nil {
+	if err := f2svc(f).SetParent(ctx, "acme", "w", "p"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("p").Plan != board.PlanWed || f.get("p").Week != "2026-01-05" {
@@ -69,7 +69,7 @@ func TestSetParentClearUngroups(t *testing.T) {
 		{ItemID: "p", Team: "alpha"},
 		{ItemID: "c", Team: "alpha", Parent: "p"},
 	}, nil)
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "c", ""); err != nil {
+	if err := f2svc(f).SetParent(ctx, "acme", "c", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c").Parent != "" {
@@ -83,17 +83,17 @@ func TestDoneGuardedByOpenSubtasks(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", Parent: "p", Stage: board.StageDone, Progress: 100},
 		{ItemID: "c2", Team: "alpha", Parent: "p", Progress: 50},
 	}, nil)
-	if err := f2svc(f).SetStage(ctx, "acme", 1, "p", board.StageDone); !errors.Is(err, ErrOpenSubtasks) {
+	if err := f2svc(f).SetStage(ctx, "acme", "p", board.StageDone); !errors.Is(err, ErrOpenSubtasks) {
 		t.Fatalf("done with open subtasks: err = %v", err)
 	}
-	if err := f2svc(f).SetProgress(ctx, "acme", 1, "p", 100); !errors.Is(err, ErrOpenSubtasks) {
+	if err := f2svc(f).SetProgress(ctx, "acme", "p", 100); !errors.Is(err, ErrOpenSubtasks) {
 		t.Fatalf("100%% with open subtasks: err = %v", err)
 	}
 	// Closing the last subtask unlocks the parent.
-	if err := f2svc(f).SetStage(ctx, "acme", 1, "c2", board.StageDone); err != nil {
+	if err := f2svc(f).SetStage(ctx, "acme", "c2", board.StageDone); err != nil {
 		t.Fatal(err)
 	}
-	if err := f2svc(f).SetStage(ctx, "acme", 1, "p", board.StageDone); err != nil {
+	if err := f2svc(f).SetStage(ctx, "acme", "p", board.StageDone); err != nil {
 		t.Fatalf("done after all subtasks closed: %v", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestSubtaskProgressDrivesParent(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", Parent: "p", Progress: 0},
 		{ItemID: "c2", Team: "alpha", Parent: "p", Progress: 0},
 	}, nil)
-	if err := f2svc(f).SetProgress(ctx, "acme", 1, "c1", 100); err != nil {
+	if err := f2svc(f).SetProgress(ctx, "acme", "c1", 100); err != nil {
 		t.Fatal(err)
 	}
 	// c1 at 100 (complete), c2 at 0: (100+0)/2 * 0.9 = 45.
@@ -127,7 +127,7 @@ func TestCarryOverDragsSubtasksWithParent(t *testing.T) {
 		{ItemID: "q", Team: "alpha", SprintStart: old, Stage: board.StageDone, Progress: 100},
 		{ItemID: "c3", Team: "alpha", Parent: "q", SprintStart: old, Progress: 10},
 	}, map[string]board.SprintState{"alpha": {Current: old}})
-	rep, err := f2svc(f).CarryOver(ctx, "acme", 1, "alpha", false)
+	rep, err := f2svc(f).CarryOver(ctx, "acme", "alpha", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestSetParentMoveBetweenParentsResyncsBoth(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", Parent: "p1", Progress: 40},
 		{ItemID: "c2", Team: "alpha", Parent: "p1", Progress: 80},
 	}, nil)
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "c2", "p2"); err != nil {
+	if err := f2svc(f).SetParent(ctx, "acme", "c2", "p2"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c2").Parent != "p2" {
@@ -177,7 +177,7 @@ func TestSetParentAdoptsParentTeam(t *testing.T) {
 		{ItemID: "p", Team: "alpha"},
 		{ItemID: "c", Team: "beta", Progress: 40},
 	}, nil)
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "c", "p"); err != nil {
+	if err := f2svc(f).SetParent(ctx, "acme", "c", "p"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c").Team != "alpha" {
@@ -190,7 +190,7 @@ func TestSetTeamCascadesToSubtasks(t *testing.T) {
 		{ItemID: "p", Team: "alpha"},
 		{ItemID: "c", Team: "alpha", Parent: "p"},
 	}, map[string]board.SprintState{"beta": {Current: "2026-01-05"}})
-	if err := f2svc(f).SetTeam(ctx, "acme", 1, "p", "beta", ""); err != nil {
+	if err := f2svc(f).SetTeam(ctx, "acme", "p", "beta", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("p").Team != "beta" || f.get("c").Team != "beta" {
@@ -207,7 +207,7 @@ func TestSetTeamOnSubtaskFollowsParent(t *testing.T) {
 		{ItemID: "p", Team: "alpha"},
 		{ItemID: "c", Team: "alpha", Parent: "p"},
 	}, nil)
-	if err := f2svc(f).SetTeam(ctx, "acme", 1, "c", "gamma", ""); err != nil {
+	if err := f2svc(f).SetTeam(ctx, "acme", "c", "gamma", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c").Team != "alpha" {
@@ -221,7 +221,7 @@ func TestGroupingUnfinishedCardReopensDoneParent(t *testing.T) {
 		{ItemID: "done-child", Team: "alpha", Parent: "p", Progress: 100},
 		{ItemID: "c", Team: "alpha", Progress: 40},
 	}, nil)
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "c", "p"); err != nil {
+	if err := f2svc(f).SetParent(ctx, "acme", "c", "p"); err != nil {
 		t.Fatal(err)
 	}
 	// Done cannot stand on top of open subtasks: the parent reopened and its
@@ -239,7 +239,7 @@ func TestGroupingFinishedCardKeepsParentDone(t *testing.T) {
 		{ItemID: "p", Team: "alpha", Stage: board.StageDone, Progress: 100},
 		{ItemID: "c", Team: "alpha", Stage: board.StageDone, Progress: 100},
 	}, nil)
-	if err := f2svc(f).SetParent(ctx, "acme", 1, "c", "p"); err != nil {
+	if err := f2svc(f).SetParent(ctx, "acme", "c", "p"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("p").Stage != board.StageDone || f.get("p").Progress != 100 {
@@ -253,7 +253,7 @@ func TestReopeningSubtaskReopensDoneParent(t *testing.T) {
 		{ItemID: "p", Team: "alpha", Stage: board.StageDone, Progress: 100},
 		{ItemID: "c", Team: "alpha", Parent: "p", Progress: 100},
 	}, nil)
-	if err := f2svc(f).SetProgress(ctx, "acme", 1, "c", 50); err != nil {
+	if err := f2svc(f).SetProgress(ctx, "acme", "c", 50); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("p").Stage != board.StageNone {
@@ -271,7 +271,7 @@ func TestDeleteParentReleasesSubtasks(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", Parent: "p"},
 		{ItemID: "c2", Team: "alpha", Parent: "p"},
 	}, nil)
-	if err := f2svc(f).DeleteCard(ctx, "acme", 1, "p"); err != nil {
+	if err := f2svc(f).DeleteCard(ctx, "acme", "p"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("p") != nil {
@@ -293,7 +293,7 @@ func TestParentSprintChangeDragsSubtasks(t *testing.T) {
 		{ItemID: "p", Team: "alpha", SprintStart: "2026-01-10"},
 		{ItemID: "c", Team: "alpha", Parent: "p", SprintStart: "2026-01-10"},
 	}, nil)
-	if err := f2svc(f).SetSprintStart(ctx, "acme", 1, "p", "2026-01-03"); err != nil {
+	if err := f2svc(f).SetSprintStart(ctx, "acme", "p", "2026-01-03"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c").SprintStart != "2026-01-03" {
@@ -308,7 +308,7 @@ func TestSmartRemoveDemoteDragsSubtasks(t *testing.T) {
 	}, map[string]board.SprintState{
 		"alpha": {Current: "2026-01-10", Previous: "2026-01-03"},
 	})
-	if err := f2svc(f).Remove(ctx, "acme", 1, "p", "grid"); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "p", "grid"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("p") == nil || f.get("p").SprintStart != "2026-01-03" {
@@ -328,7 +328,7 @@ func TestDeleteParentReleasedChildInheritsAssignee(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", Parent: "p"},
 		{ItemID: "c2", Team: "alpha", Parent: "p", Assignees: []string{"eve"}},
 	}, nil)
-	if err := f2svc(f).DeleteCard(ctx, "acme", 1, "p"); err != nil {
+	if err := f2svc(f).DeleteCard(ctx, "acme", "p"); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.get("c1").Assignees; len(got) != 1 || got[0] != "bob" {
@@ -349,7 +349,7 @@ func TestSmartRemoveCreatedTodayReleasesTheParent(t *testing.T) {
 	}, map[string]board.SprintState{
 		"alpha": {Current: today, Previous: "2026-01-03"},
 	})
-	if err := f2svc(f).Remove(ctx, "acme", 1, "p", "grid"); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "p", "grid"); err != nil {
 		t.Fatal(err)
 	}
 	p := f.get("p")
@@ -371,7 +371,7 @@ func TestDoneOnRecurrentKeepsRecurrence(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "r", Team: "alpha", Stage: board.StageRecurrent, Progress: 40},
 	}, nil)
-	if err := f2svc(f).SetStage(ctx, "acme", 1, "r", board.StageDone); err != nil {
+	if err := f2svc(f).SetStage(ctx, "acme", "r", board.StageDone); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("r")
@@ -397,10 +397,10 @@ func TestGroupPlanCardUnderASlot(t *testing.T) {
 	}, nil)
 	svc := New(fake)
 	ctx := t.Context()
-	if err := svc.SetParent(ctx, "o", 1, "c1", "slot"); err != nil {
+	if err := svc.SetParent(ctx, "o", "c1", "slot"); err != nil {
 		t.Fatalf("grouping under a slot: %v", err)
 	}
-	b, _ := fake.LoadBoard(ctx, "o", 1)
+	b, _ := fake.LoadBoard(ctx, "o")
 	var child, parent board.Card
 	for _, c := range b.Cards {
 		switch c.ItemID {
@@ -434,10 +434,10 @@ func TestUngroupGivesTheParentsPerson(t *testing.T) {
 	}, nil)
 	svc := New(fake)
 	ctx := t.Context()
-	if err := svc.SetParent(ctx, "o", 1, "c1", ""); err != nil {
+	if err := svc.SetParent(ctx, "o", "c1", ""); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := fake.LoadBoard(ctx, "o", 1)
+	b, _ := fake.LoadBoard(ctx, "o")
 	c, _ := findCard(b, "c1")
 	if c.Parent != "" {
 		t.Fatalf("still grouped under %q", c.Parent)
@@ -455,10 +455,10 @@ func TestUngroupKeepsItsOwnPerson(t *testing.T) {
 		{ItemID: "c1", Title: "smoke test", Team: "portal", Parent: "p1", Assignees: []string{"kitsunoff"}},
 	}, nil)
 	svc := New(fake)
-	if err := svc.SetParent(t.Context(), "o", 1, "c1", ""); err != nil {
+	if err := svc.SetParent(t.Context(), "o", "c1", ""); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := fake.LoadBoard(t.Context(), "o", 1)
+	b, _ := fake.LoadBoard(t.Context(), "o")
 	c, _ := findCard(b, "c1")
 	if len(c.Assignees) != 1 || c.Assignees[0] != "kitsunoff" {
 		t.Fatalf("assignees = %v, want its own person untouched", c.Assignees)
@@ -478,10 +478,10 @@ func TestSubtaskOwnerFollowsTheParent(t *testing.T) {
 			{ItemID: "c1", Title: "child", Team: "portal", Assignees: []string{"krakazyabra"}},
 		}, nil)
 		svc := New(fake)
-		if err := svc.SetParent(t.Context(), "o", 1, "c1", "p1"); err != nil {
+		if err := svc.SetParent(t.Context(), "o", "c1", "p1"); err != nil {
 			t.Fatal(err)
 		}
-		b, _ := fake.LoadBoard(t.Context(), "o", 1)
+		b, _ := fake.LoadBoard(t.Context(), "o")
 		c, _ := findCard(b, "c1")
 		if len(c.Assignees) != 1 || c.Assignees[0] != "IvanStukov" {
 			t.Fatalf("assignees = %v, want the parent's person", c.Assignees)
@@ -494,10 +494,10 @@ func TestSubtaskOwnerFollowsTheParent(t *testing.T) {
 			{ItemID: "c1", Title: "child", Team: "portal", Parent: "p1", Assignees: []string{"IvanStukov"}},
 		}, nil)
 		svc := New(fake)
-		if err := svc.SetAssignee(t.Context(), "o", 1, "c1", "krakazyabra"); err != nil {
+		if err := svc.SetAssignee(t.Context(), "o", "c1", "krakazyabra"); err != nil {
 			t.Fatal(err)
 		}
-		b, _ := fake.LoadBoard(t.Context(), "o", 1)
+		b, _ := fake.LoadBoard(t.Context(), "o")
 		c, _ := findCard(b, "c1")
 		if len(c.Assignees) != 1 || c.Assignees[0] != "IvanStukov" {
 			t.Fatalf("assignees = %v, want it snapped back to the parent's person", c.Assignees)
@@ -511,10 +511,10 @@ func TestSubtaskOwnerFollowsTheParent(t *testing.T) {
 			{ItemID: "c2", Title: "two", Team: "portal", Parent: "p1", Assignees: []string{"IvanStukov"}},
 		}, nil)
 		svc := New(fake)
-		if err := svc.SetAssignee(t.Context(), "o", 1, "p1", "krakazyabra"); err != nil {
+		if err := svc.SetAssignee(t.Context(), "o", "p1", "krakazyabra"); err != nil {
 			t.Fatal(err)
 		}
-		b, _ := fake.LoadBoard(t.Context(), "o", 1)
+		b, _ := fake.LoadBoard(t.Context(), "o")
 		for _, id := range []string{"p1", "c1", "c2"} {
 			c, _ := findCard(b, id)
 			if len(c.Assignees) != 1 || c.Assignees[0] != "krakazyabra" {
@@ -529,10 +529,10 @@ func TestSubtaskOwnerFollowsTheParent(t *testing.T) {
 			{ItemID: "c1", Title: "one", Team: "portal", Parent: "p1", Assignees: []string{"IvanStukov"}},
 		}, nil)
 		svc := New(fake)
-		if err := svc.SetAssignee(t.Context(), "o", 1, "p1", ""); err != nil {
+		if err := svc.SetAssignee(t.Context(), "o", "p1", ""); err != nil {
 			t.Fatal(err)
 		}
-		b, _ := fake.LoadBoard(t.Context(), "o", 1)
+		b, _ := fake.LoadBoard(t.Context(), "o")
 		c, _ := findCard(b, "c1")
 		if len(c.Assignees) != 0 {
 			t.Fatalf("child assignees = %v, want none", c.Assignees)

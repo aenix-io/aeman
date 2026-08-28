@@ -35,13 +35,13 @@ var ErrEpicNotFound = errors.New("unknown epic")
 // somewhere people look. An empty project is allowed but deliberate: it files
 // the column in the no-project bucket, which the board shows behind its own
 // chip. A project that does not exist is still refused — that is a typo.
-func (s *Service) AddEpic(ctx context.Context, owner string, project int, name, projectName string) error {
+func (s *Service) AddEpic(ctx context.Context, boardID string, name, projectName string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("epic name must not be empty")
 	}
 	projectName = strings.TrimSpace(projectName)
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -63,8 +63,8 @@ func (s *Service) AddEpic(ctx context.Context, owner string, project int, name, 
 
 // DeleteEpic removes an empty column by deleting its epic-state card. A column
 // still referenced by cards is protected (ErrEpicInUse).
-func (s *Service) DeleteEpic(ctx context.Context, owner string, project int, name, projectName string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) DeleteEpic(ctx context.Context, boardID string, name, projectName string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -89,12 +89,12 @@ func (s *Service) DeleteEpic(ctx context.Context, owner string, project int, nam
 // filed under it. The name IS the reference (cards store the text, not an id),
 // so the two must move together or the cards would point at a column that no
 // longer exists.
-func (s *Service) RenameEpic(ctx context.Context, owner string, project int, projectName, from, to string) error {
+func (s *Service) RenameEpic(ctx context.Context, boardID string, projectName, from, to string) error {
 	to = strings.TrimSpace(to)
 	if to == "" {
 		return fmt.Errorf("epic name must not be empty")
 	}
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -127,8 +127,8 @@ func (s *Service) RenameEpic(ctx context.Context, owner string, project int, pro
 // ReorderEpics persists the column order of ONE project by walking its
 // epic-state cards into the given sequence (mirrors ReorderTeams). Names are
 // scoped to the project, since they repeat across projects.
-func (s *Service) ReorderEpics(ctx context.Context, owner string, project int, projectName string, epics []string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) ReorderEpics(ctx context.Context, boardID string, projectName string, epics []string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -161,8 +161,8 @@ func (s *Service) ReorderEpics(ctx context.Context, owner string, project int, p
 // the filing. A nil projectName keeps the card where it is, which is what
 // filing inside one project means; crossing projects names both halves. The
 // column must exist: a typo must not mint a phantom one.
-func (s *Service) SetEpic(ctx context.Context, owner string, project int, itemID, epic string, inProject *string) error {
-	b, card, err := s.loadCard(ctx, owner, project, itemID)
+func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic string, inProject *string) error {
+	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
 	}

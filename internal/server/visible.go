@@ -48,12 +48,12 @@ func (v *visibleBackend) full(ctx context.Context, bd board.Board) (board.Board,
 	if rightsFrom(ctx) == nil {
 		return bd, nil
 	}
-	return v.Backend.LoadBoard(ctx, bd.Owner, bd.Number)
+	return v.Backend.LoadBoard(ctx, bd.Board)
 }
 
 // LoadBoard is the visitor's projection of the board.
-func (v *visibleBackend) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
-	bd, err := v.Backend.LoadBoard(ctx, owner, project)
+func (v *visibleBackend) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
+	bd, err := v.Backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return board.Board{}, err
 	}

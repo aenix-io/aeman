@@ -53,7 +53,7 @@ func New(cards []board.Card, states map[string]board.SprintState) *Backend {
 	if states == nil {
 		states = map[string]board.SprintState{}
 	}
-	return &Backend{board: board.Board{ID: "B1", Number: 1, Owner: "acme", Cards: cards, SprintStates: states}}
+	return &Backend{board: board.Board{Board: "acme", Cards: cards, SprintStates: states}}
 }
 
 // rec appends to the call log. Callers hold f.mu.
@@ -119,7 +119,7 @@ func (f *Backend) FailLoad(err error) {
 }
 
 // LoadBoard returns a copy of the seeded board snapshot.
-func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
+func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("LoadBoard")
@@ -177,7 +177,7 @@ func (f *Backend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, er
 	for k, v := range f.board.SprintStates {
 		states[k] = v
 	}
-	return board.Board{ID: f.board.ID, Number: f.board.Number, Owner: f.board.Owner, Cards: cards,
+	return board.Board{Board: f.board.Board, Cards: cards,
 		SprintStates: states, Epics: epics,
 		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
 		Processes: processes, Tasks: tasks}, nil

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -591,8 +590,8 @@ func newBoardStore() *boardStore {
 	return &boardStore{entries: map[string]*boardEntry{}}
 }
 
-func storeKey(owner string, project int) string {
-	return owner + "/" + strconv.Itoa(project)
+func storeKey(boardID string) string {
+	return boardID
 }
 
 // entry returns the entry for a key, creating an empty one on first use.
@@ -692,8 +691,8 @@ var _ boardservice.Backend = (*storeBackend)(nil)
 // diff as ordinary events plus a Sync frame. Everything else (mutation reads,
 // cold or too-old caches) blocks on a fresh load (single-flight: concurrent
 // misses share one fetch).
-func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
-	e := b.store.entry(storeKey(owner, project))
+func (b *storeBackend) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
+	e := b.store.entry(storeKey(boardID))
 	login := board.ActorFrom(ctx)
 	bd, state := e.cached()
 	if state == cacheFresh {
@@ -701,7 +700,7 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 	}
 	if state == cacheStale {
 		if sc := staleControlFrom(ctx); sc != nil {
-			b.revalidate(ctx, e, owner, project)
+			b.revalidate(ctx, e, boardID)
 			sc.served.Store(true)
 			return bd, nil
 		}
@@ -727,21 +726,21 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 		err error
 	}
 	done := make(chan loaded, 1)
-	b.store.logger().Info("board load began", "board", storeKey(owner, project), "login", login)
+	b.store.logger().Info("board load began", "board", storeKey(boardID), "login", login)
 	started := time.Now()
 	go func() { //nolint:gosec // G118: the whole point — the fetch must outlive its request
 		defer e.loadMu.Unlock()
 		// Deliberately NOT the request context: the detachment is the fix.
 		lctx, cancel := context.WithTimeout(context.Background(), detachedLoadTimeout)
 		defer cancel()
-		fresh, err := b.inner.LoadBoard(lctx, owner, project)
+		fresh, err := b.inner.LoadBoard(lctx, boardID)
 		if err != nil {
-			b.store.logger().Warn("board load failed", "board", storeKey(owner, project),
+			b.store.logger().Warn("board load failed", "board", storeKey(boardID),
 				"dur", time.Since(started), "err", err)
 			done <- loaded{err: err}
 			return
 		}
-		b.store.logger().Info("board load done", "board", storeKey(owner, project),
+		b.store.logger().Info("board load done", "board", storeKey(boardID),
 			"cards", len(fresh.Cards), "dur", time.Since(started))
 		done <- loaded{bd: b.install(e, fresh)}
 	}()
@@ -761,14 +760,14 @@ func (b *storeBackend) LoadBoard(ctx context.Context, owner string, project int)
 // user's token (kept past the response via WithoutCancel). Single-flight: when
 // a load is already running its completion will broadcast, so this one backs
 // off instead of stacking a second upstream fetch.
-func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, owner string, project int) {
+func (b *storeBackend) revalidate(ctx context.Context, e *boardEntry, boardID string) {
 	if !e.loadMu.TryLock() {
 		return
 	}
 	bctx := context.WithoutCancel(ctx)
 	go func() {
 		defer e.loadMu.Unlock()
-		fresh, err := b.inner.LoadBoard(bctx, owner, project)
+		fresh, err := b.inner.LoadBoard(bctx, boardID)
 		if err != nil {
 			// The stale snapshot stays served; tell clients to drop their
 			// revalidation hold and let a later read retry.
@@ -920,7 +919,7 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 		return
 	}
 	card := cards[0]
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	// Refresh, never resurrect: the card may have been deleted while this
 	// op drained, and GitHub's lagging read replicas can still return it —
@@ -961,7 +960,7 @@ func (b *storeBackend) touched(ctx context.Context, bd board.Board, itemID strin
 // synchronous: they anchor whole teams, are rare, and their callers read
 // fields off the answer immediately.
 func (b *storeBackend) CreateCard(ctx context.Context, bd board.Board, in board.CreateInput) (board.Card, error) {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	if in.Title == board.SprintStateTitle {
 		return b.createSync(ctx, bd, e, in)
 	}
@@ -1042,7 +1041,7 @@ func (b *storeBackend) DeleteCard(ctx context.Context, bd board.Board, card boar
 	if err := b.inner.DeleteCard(ctx, bd, card); err != nil {
 		return err
 	}
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	e.removeCard(card.ItemID)
 	e.markGone(card.ItemID)
@@ -1212,7 +1211,7 @@ func moveNameAfter(order []string, ids map[string]string, name, afterID string) 
 // board's real order) and announces the new Ordering to other clients — the
 // originator already reordered optimistically. The GitHub write is queued.
 func (b *storeBackend) MoveCard(ctx context.Context, bd board.Board, card board.Card, afterID string) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	e.board.Cards = moveCardAfter(e.board.Cards, card.ItemID, afterID)
 	// Moving a sprint-state card is a TEAM reorder: mirror it onto the cached
@@ -1497,7 +1496,7 @@ func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.C
 	if card.Title == board.DeadlineStateTitle {
 		// Dragging the line: its card is not in the cached card list, so the
 		// cached deadline set is what has to follow.
-		e := b.store.entry(storeKey(bd.Owner, bd.Number))
+		e := b.store.entry(storeKey(bd.Board))
 		e.mu.Lock()
 		for i := range e.board.Deadlines {
 			if e.board.Deadlines[i].ItemID == card.ItemID {
@@ -1546,7 +1545,7 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 	if card.Title == board.EpicStateTitle {
 		// Renaming the column itself: the state card is not in the cached card
 		// list (NewBoard splits it out), so mutateCard cannot reach it.
-		e := b.store.entry(storeKey(bd.Owner, bd.Number))
+		e := b.store.entry(storeKey(bd.Board))
 		e.mu.Lock()
 		if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 			e.board.Epics[i].Name = epic
@@ -1581,7 +1580,7 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 // so mutateCard cannot reach it: update the roster map directly and queue the
 // write like any other mutation.
 func (b *storeBackend) SetProject(ctx context.Context, bd board.Board, card board.Card, project string) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	if i := epicIndexOf(e.board.Epics, card.ItemID); i >= 0 {
 		e.board.Epics[i].Project = project
@@ -1705,7 +1704,7 @@ func processIndexOf(list []board.Process, itemID string) int {
 // SetProcess renames a process on its state card, or re-points a task at
 // a renamed process; neither is a card row, so the rosters are updated here.
 func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	for i := range e.board.Processes {
 		if e.board.Processes[i].ItemID == card.ItemID {
@@ -1750,7 +1749,7 @@ func (b *storeBackend) SetTask(ctx context.Context, bd board.Board, card board.C
 
 // SetPaused pauses a process: a roster entry, not a card row.
 func (b *storeBackend) SetPaused(ctx context.Context, bd board.Board, card board.Card, paused bool) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	if i := processIndexOf(e.board.Processes, card.ItemID); i >= 0 {
 		e.board.Processes[i].Paused = paused
@@ -1847,7 +1846,7 @@ func (b *storeBackend) ResolveIssueRef(ctx context.Context, link board.Link) (bo
 // state card whose id the cache does not know, so that (rare) path stays
 // synchronous and reloads the board.
 func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team, current, previous string) error {
-	e := b.store.entry(storeKey(bd.Owner, bd.Number))
+	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	st, had := e.board.SprintStates[team]
 	if e.loaded && had && st.ItemID != "" {
@@ -1893,7 +1892,7 @@ func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team,
 	e.mu.Lock()
 	e.loaded = false
 	e.mu.Unlock()
-	if _, err := b.LoadBoard(ctx, bd.Owner, bd.Number); err == nil {
+	if _, err := b.LoadBoard(ctx, bd.Board); err == nil {
 		e.mu.Lock()
 		e.sprintChanged(clientIDFrom(ctx), team)
 		e.mu.Unlock()

@@ -39,11 +39,9 @@ func mapDomainBoard(owner string, raw *rawProject) board.Board {
 		cards = append(cards, mapDomainItem(&raw.Items.Nodes[i], roles))
 	}
 	b := board.NewBoard(fields, cards)
-	b.ID = raw.ID
-	b.Number = raw.Number
+	b.Board = fmt.Sprintf("%s/%d", owner, raw.Number) // provenance: the Projects v2 board this came from
 	b.Title = raw.Title
 	b.URL = raw.URL
-	b.Owner = owner
 	return b
 }
 

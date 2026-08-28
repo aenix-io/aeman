@@ -12,7 +12,7 @@ import (
 
 func testBoard() board.Board {
 	return board.Board{
-		ID: "B1", Number: 1, Owner: "acme", Title: "board", URL: "https://x",
+		Board: "acme", Title: "board", URL: "https://x",
 		Cards: []board.Card{
 			{ItemID: "c1", ContentID: "D1", IsDraft: true, Title: "Wire the API",
 				Team: "alpha", Zone: board.ZoneRed, Progress: 40, Stage: board.StageReview,

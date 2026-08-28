@@ -20,14 +20,14 @@ type gatedLoads struct {
 	loads atomic.Int32
 }
 
-func (g *gatedLoads) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
+func (g *gatedLoads) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
 	g.loads.Add(1)
 	select {
 	case <-g.gate:
 	case <-ctx.Done():
 		return board.Board{}, ctx.Err()
 	}
-	return g.Backend.LoadBoard(ctx, owner, project)
+	return g.Backend.LoadBoard(ctx, boardID)
 }
 
 // A cold load survives the request that started it: the user refreshing the
@@ -47,7 +47,7 @@ func TestColdLoadSurvivesItsRequest(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if _, err := be.LoadBoard(ctx, "o", 1); err == nil {
+		if _, err := be.LoadBoard(ctx, "o"); err == nil {
 			t.Error("a canceled request should answer with its context error")
 		}
 	}()
@@ -59,7 +59,7 @@ func TestColdLoadSurvivesItsRequest(t *testing.T) {
 	close(gated.gate)
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		bd, err := be.LoadBoard(context.Background(), "o", 1)
+		bd, err := be.LoadBoard(context.Background(), "o")
 		if err == nil && len(bd.Cards) == 1 {
 			break
 		}

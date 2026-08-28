@@ -11,12 +11,12 @@ import (
 // at most one per week: asking twice is a no-op rather than a second line,
 // which is also what makes dragging one onto another a merge. Two projects can
 // both have something due the same week — those are two lines, not a clash.
-func (s *Service) AddDeadline(ctx context.Context, owner string, project int, week, projectName string) error {
+func (s *Service) AddDeadline(ctx context.Context, boardID string, week, projectName string) error {
 	week = board.MondayOf(week)
 	if week == "" {
 		return fmt.Errorf("a deadline needs a week")
 	}
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -37,8 +37,8 @@ func (s *Service) AddDeadline(ctx context.Context, owner string, project int, we
 }
 
 // DeleteDeadline clears one project's deadline on a week (none is a no-op).
-func (s *Service) DeleteDeadline(ctx context.Context, owner string, project int, week, projectName string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) DeleteDeadline(ctx context.Context, boardID string, week, projectName string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (s *Service) DeleteDeadline(ctx context.Context, owner string, project int,
 // where that same project already has one leaves a single line: two deadlines
 // of one project on one date are one deadline. Another project's line on that
 // week is untouched — it is a different deadline.
-func (s *Service) MoveDeadline(ctx context.Context, owner string, project int, projectName, from, to string) error {
+func (s *Service) MoveDeadline(ctx context.Context, boardID string, projectName, from, to string) error {
 	from, to = board.MondayOf(from), board.MondayOf(to)
 	if to == "" {
 		return fmt.Errorf("a deadline needs a week")
@@ -57,7 +57,7 @@ func (s *Service) MoveDeadline(ctx context.Context, owner string, project int, p
 	if from == to {
 		return nil
 	}
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}

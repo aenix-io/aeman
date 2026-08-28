@@ -72,7 +72,7 @@ func callErr(t *testing.T, cs *mcp.ClientSession, name string, args map[string]a
 }
 
 func TestMCPListsTools(t *testing.T) {
-	cs := connect(t, Config{Owner: "acme", Project: 1}, boardservicetest.New(nil, nil))
+	cs := connect(t, Config{Board: "acme"}, boardservicetest.New(nil, nil))
 	names := map[string]bool{}
 	for tool, err := range cs.Tools(context.Background(), nil) {
 		if err != nil {
@@ -108,7 +108,7 @@ func TestMCPGetBoard(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{
 		"alpha": {Current: "2026-07-01"},
 	})
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "get_board", nil)
 	if !strings.Contains(textOf(res), `"alpha"`) {
 		t.Fatalf("board missing team roster: %s", textOf(res))
@@ -121,7 +121,7 @@ func TestMCPListCardsTeamView(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", StartDate: today, SprintStart: today},
 		{ItemID: "c2", Team: "beta", StartDate: today, SprintStart: today},
 	}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "list_cards", map[string]any{"view": "team", "team": "alpha"})
 	if !strings.Contains(textOf(res), "c1") || strings.Contains(textOf(res), "c2") {
 		t.Fatalf("team view should hold exactly c1: %s", textOf(res))
@@ -133,7 +133,7 @@ func TestMCPListCardsZoneFilterIsSemantic(t *testing.T) {
 		{ItemID: "c1", Zone: board.ZoneRed},
 		{ItemID: "c2", Zone: board.ZoneGray},
 	}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "list_cards", map[string]any{"view": "all", "zone": "urgent"})
 	if !strings.Contains(textOf(res), "c1") || strings.Contains(textOf(res), "c2") {
 		t.Fatalf("zone=urgent should hold exactly c1: %s", textOf(res))
@@ -148,7 +148,7 @@ func TestMCPListCardsZoneFilterIsSemantic(t *testing.T) {
 
 func TestMCPGetCard(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Title: "x", Zone: board.ZoneRed}}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "get_card", map[string]any{"uid": "c1"})
 	if !strings.Contains(textOf(res), `"urgent"`) {
 		t.Fatalf("card zone should be semantic: %s", textOf(res))
@@ -160,7 +160,7 @@ func TestMCPGetCard(t *testing.T) {
 
 func TestMCPCreateCard(t *testing.T) {
 	fake := boardservicetest.New(nil, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "create_card", map[string]any{"team": "alpha", "title": "Hello", "zone": "urgent"})
 	if len(fake.Creates()) != 1 || fake.Creates()[0].Title != "Hello" {
 		t.Fatalf("creates = %+v", fake.Creates())
@@ -175,7 +175,7 @@ func TestMCPCreateCard(t *testing.T) {
 
 func TestMCPUpdateCardPatchesOnlyProvidedFields(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Title: "x", Assignees: []string{"kvaps"}}}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "update_card", map[string]any{"uid": "c1", "progress": 40})
 	if !fake.Saw("SetProgress c1 40") {
 		t.Fatalf("progress not applied")
@@ -192,7 +192,7 @@ func TestMCPUpdateCardPatchesOnlyProvidedFields(t *testing.T) {
 
 func TestMCPUpdateCardEmptyStringClears(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Title: "x", Assignees: []string{"kvaps"}}}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	call(t, cs, "update_card", map[string]any{"uid": "c1", "title": "y", "assignee": ""})
 	if !fake.Saw("RenameCard c1") || fake.Card("c1").Title != "y" {
 		t.Fatalf("rename not applied: %+v", fake.Card("c1"))
@@ -204,7 +204,7 @@ func TestMCPUpdateCardEmptyStringClears(t *testing.T) {
 
 func TestMCPUpdateCardDates(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1", StartDate: "2026-07-01", Day: "2026-07-05"}}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	// start alone: calendar semantics, the current end is kept.
 	call(t, cs, "update_card", map[string]any{"uid": "c1", "start": "2026-07-02"})
 	if !fake.Saw("SetStart c1 2026-07-02") || !fake.Saw("SetDay c1 2026-07-05") || !fake.Saw("SetSprintStart c1 2026-07-02") {
@@ -224,7 +224,7 @@ func TestMCPUpdateCardDates(t *testing.T) {
 
 func TestMCPUpdateCardReviewOf(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1"}, {ItemID: "c2"}}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	call(t, cs, "update_card", map[string]any{"uid": "c2", "reviewOf": "c1"})
 	if !fake.Saw("SetReviewOf c2 c1") || fake.Card("c2").ReviewOf != "c1" {
 		t.Fatalf("reviewOf not applied: %+v", fake.Card("c2"))
@@ -236,7 +236,7 @@ func TestMCPDeleteCardCascades(t *testing.T) {
 		{ItemID: "orig", Title: "x"},
 		{ItemID: "rev", ReviewOf: "orig"},
 	}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	call(t, cs, "delete_card", map[string]any{"uid": "orig"})
 	if fake.Card("orig") != nil || fake.Card("rev") != nil {
 		t.Fatalf("both cards should be gone")
@@ -250,7 +250,7 @@ func TestMCPRemoveCard(t *testing.T) {
 	// A card outside any current sprint has nothing to demote to — remove_card
 	// hands it back to the weekly plan; deleting is delete_card's job alone.
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1"}}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	call(t, cs, "remove_card", map[string]any{"uid": "c1"})
 	c := fake.Card("c1")
 	if c == nil {
@@ -269,7 +269,7 @@ func TestMCPSendToReview(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "orig", Title: "x", Team: "alpha", StartDate: today, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today}})
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "send_to_review", map[string]any{"uid": "orig", "reviewer": "bob"})
 	if len(fake.Creates()) != 1 || fake.Creates()[0].ReviewOf != "orig" || fake.Creates()[0].Assignee != "bob" {
 		t.Fatalf("creates = %+v", fake.Creates())
@@ -286,7 +286,7 @@ func TestMCPCarryOverDryRun(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Team: "alpha", SprintStart: "2026-06-25", Progress: 50},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-06-25"}})
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "carry_over", map[string]any{"team": "alpha", "dryRun": true})
 	if !strings.Contains(textOf(res), `"carried":1`) {
 		t.Fatalf("dry run should report the count: %s", textOf(res))
@@ -300,7 +300,7 @@ func TestMCPNotes(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Notes: []board.Note{{ID: "n1", Body: "hello", Source: "comment"}}},
 	}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 	res := call(t, cs, "list_notes", map[string]any{"uid": "c1"})
 	if !strings.Contains(textOf(res), "n1") || !strings.Contains(textOf(res), "hello") {
 		t.Fatalf("notes missing: %s", textOf(res))
@@ -324,7 +324,7 @@ func TestMCPNotes(t *testing.T) {
 
 func TestMCPMissingBoardConfig(t *testing.T) {
 	cs := connect(t, Config{}, boardservicetest.New(nil, nil))
-	if msg := callErr(t, cs, "list_cards", nil); !strings.Contains(msg, "owner and board are required") {
+	if msg := callErr(t, cs, "list_cards", nil); !strings.Contains(msg, "board is required") {
 		t.Fatalf("expected board-required error, got %s", msg)
 	}
 }
@@ -335,7 +335,7 @@ func TestMCPListDefaultsToMe(t *testing.T) {
 		{ItemID: "mine", Team: "alpha", Assignees: []string{"bob"}, Progress: 40, SprintStart: today},
 		{ItemID: "theirs", Team: "alpha", Assignees: []string{"carol"}, Progress: 40, SprintStart: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
-	cs := connect(t, Config{Owner: "acme", Project: 1, ResolveLogin: func(context.Context) (string, error) { return "bob", nil }}, fake)
+	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) { return "bob", nil }}, fake)
 	// No view → the caller's own Me board.
 	res := call(t, cs, "list_cards", map[string]any{})
 	if !strings.Contains(textOf(res), "mine") || strings.Contains(textOf(res), "theirs") {
@@ -356,7 +356,7 @@ func TestMCPListCardsRowsAndTitleFilter(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", Title: "Fix DRBD split-brain", Description: "long body https://github.com/acme/repo/pull/7"},
 		{ItemID: "c2", Team: "alpha", Title: "Renew TLS certificates", Description: "another body"},
 	}, nil)
-	cs := connect(t, Config{Owner: "acme", Project: 1}, fake)
+	cs := connect(t, Config{Board: "acme"}, fake)
 
 	rows := textOf(call(t, cs, "list_cards", map[string]any{"view": "all"}))
 	if strings.Contains(rows, "long body") || strings.Contains(rows, "another body") {

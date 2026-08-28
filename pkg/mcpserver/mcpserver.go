@@ -16,11 +16,9 @@ import (
 
 // Config configures the MCP server.
 type Config struct {
-	// Owner is the default GitHub org/user.
-	Owner string
-	// Project is the default GitHub Project number.
-	Project int
-	// Lock pins owner/project, ignoring per-tool overrides.
+	// Board is the default board — the name of its primary repository.
+	Board string
+	// Lock pins the board, ignoring per-tool overrides.
 	Lock bool
 	// Version is reported to MCP clients.
 	Version string
@@ -110,21 +108,16 @@ func (h *server) mcpServer() *mcp.Server {
 	return s
 }
 
-// resolve picks the effective owner/project, honouring the lock and defaults.
-func (h *server) resolve(owner string, project int) (string, int, error) {
-	o, p := h.cfg.Owner, h.cfg.Project
-	if !h.cfg.Lock {
-		if owner != "" {
-			o = owner
-		}
-		if project != 0 {
-			p = project
-		}
+// resolve picks the effective board, honouring the lock and the default.
+func (h *server) resolve(boardID string) (string, error) {
+	b := h.cfg.Board
+	if !h.cfg.Lock && boardID != "" {
+		b = boardID
 	}
-	if o == "" || p == 0 {
-		return "", 0, fmt.Errorf("owner and board are required (pass them or configure server defaults)")
+	if b == "" {
+		return "", fmt.Errorf("board is required (pass it or configure the server default)")
 	}
-	return o, p, nil
+	return b, nil
 }
 
 // defaultBackend is the production newBackend: the configured backend.
@@ -136,14 +129,14 @@ func (h *server) defaultBackend(context.Context) (boardservice.Backend, error) {
 }
 
 // ref resolves the board reference and builds the board service for a call.
-func (h *server) ref(ctx context.Context, in boardRef) (svc *boardservice.Service, owner string, project int, err error) {
-	owner, project, err = h.resolve(in.Owner, in.Board)
+func (h *server) ref(ctx context.Context, in boardRef) (svc *boardservice.Service, boardID string, err error) {
+	boardID, err = h.resolve(in.Board)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, "", err
 	}
 	backend, err := h.newBackend(ctx)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, "", err
 	}
-	return boardservice.New(backend), owner, project, nil
+	return boardservice.New(backend), boardID, nil
 }

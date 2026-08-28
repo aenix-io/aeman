@@ -70,7 +70,7 @@ func seedEntry(store *boardStore, key string, b board.Board) *boardEntry {
 
 func watchBoard() board.Board {
 	return board.Board{
-		Owner: "acme", Number: 1,
+		Board: "acme",
 		Cards: []board.Card{
 			{ItemID: "c1", Team: "alpha", StartDate: "2026-01-10", SprintStart: "2026-01-10"},
 			{ItemID: "c2", Team: "beta", StartDate: "2026-01-10", SprintStart: "2026-01-10"},
@@ -277,7 +277,7 @@ func TestOrderingEvent(t *testing.T) {
 // GitHub item list is eventually consistent), nor resurrect one just deleted.
 func TestReloadKeepsRecentMutations(t *testing.T) {
 	store := newBoardStore()
-	e := seedEntry(store, "acme/1", watchBoard())
+	e := seedEntry(store, "acme", watchBoard())
 
 	// c3 was just created locally; c1 just deleted.
 	e.mu.Lock()
@@ -314,7 +314,7 @@ type swrBackend struct {
 	loads                int
 }
 
-func (s *swrBackend) LoadBoard(_ context.Context, _ string, _ int) (board.Board, error) {
+func (s *swrBackend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.loads++
@@ -358,15 +358,15 @@ func TestStaleServeRevalidates(t *testing.T) {
 	be := &storeBackend{inner: inner, store: store}
 
 	// Warm the cache, then age it past the fresh TTL.
-	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
+	if _, err := be.LoadBoard(context.Background(), "acme"); err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 	e.mu.Lock()
 	e.loadedAt = time.Now().Add(-2 * boardFreshFor)
 	e.mu.Unlock()
 
-	sub, cancel := store.subscribe("acme/1", "", nil, map[string]bool{"cards": true})
+	sub, cancel := store.subscribe("acme", "", nil, map[string]bool{"cards": true})
 	defer cancel()
 
 	// The upstream board changed outside aeman.
@@ -375,7 +375,7 @@ func TestStaleServeRevalidates(t *testing.T) {
 	inner.set(changed)
 
 	ctx, sc := withStaleAllowed(context.Background())
-	got, err := be.LoadBoard(ctx, "acme", 1)
+	got, err := be.LoadBoard(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestStaleServeRevalidates(t *testing.T) {
 		t.Fatalf("backend loads = %d, want 2", inner.loadCount())
 	}
 	// The cache is fresh now: the next read hits it without another load.
-	if got, err = be.LoadBoard(context.Background(), "acme", 1); err != nil || got.Cards[0].Progress != 80 {
+	if got, err = be.LoadBoard(context.Background(), "acme"); err != nil || got.Cards[0].Progress != 80 {
 		t.Fatalf("revalidated board not served: %+v %v", got.Cards[0], err)
 	}
 	if inner.loadCount() != 2 {
@@ -414,10 +414,10 @@ func TestMutationReadsBlockForFresh(t *testing.T) {
 	inner := &swrBackend{board: watchBoard()}
 	be := &storeBackend{inner: inner, store: store}
 
-	if _, err := be.LoadBoard(context.Background(), "acme", 1); err != nil {
+	if _, err := be.LoadBoard(context.Background(), "acme"); err != nil {
 		t.Fatal(err)
 	}
-	e := store.entry("acme/1")
+	e := store.entry("acme")
 	e.mu.Lock()
 	e.loadedAt = time.Now().Add(-2 * boardFreshFor)
 	e.mu.Unlock()
@@ -426,7 +426,7 @@ func TestMutationReadsBlockForFresh(t *testing.T) {
 	changed.Cards[0].Progress = 80
 	inner.set(changed)
 
-	got, err := be.LoadBoard(context.Background(), "acme", 1)
+	got, err := be.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +446,7 @@ func TestStaleHeaderOnAPIRead(t *testing.T) {
 
 	get := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/cards?owner=acme&board=1&view=all", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/cards?view=all", nil)
 		srv.handler.ServeHTTP(rec, req)
 		return rec
 	}
@@ -502,11 +502,11 @@ type failAfterFirstLoad struct {
 	calls atomic.Int32
 }
 
-func (f *failAfterFirstLoad) LoadBoard(ctx context.Context, owner string, project int) (board.Board, error) {
+func (f *failAfterFirstLoad) LoadBoard(ctx context.Context, boardID string) (board.Board, error) {
 	if f.calls.Add(1) > 1 {
 		return board.Board{}, errors.New("upstream unavailable")
 	}
-	return f.swrBackend.LoadBoard(ctx, owner, project)
+	return f.swrBackend.LoadBoard(ctx, boardID)
 }
 
 // Carry over must answer from the cached snapshot inside the stale window —
@@ -523,7 +523,7 @@ func TestCarryOverServedFromSnapshot(t *testing.T) {
 	// Seed the cache (the one allowed upstream load), then age it past the
 	// fresh TTL into the stale window.
 	rec := httptest.NewRecorder()
-	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cards?owner=acme&board=1&view=all", nil))
+	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cards?view=all", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed read: status = %d (%s)", rec.Code, rec.Body.String())
 	}
@@ -533,7 +533,7 @@ func TestCarryOverServedFromSnapshot(t *testing.T) {
 	e.mu.Unlock()
 
 	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sprints/actions/carry-over?owner=acme&board=1",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sprints/actions/carry-over",
 		strings.NewReader(`{"team":"alpha","dryRun":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	srv.handler.ServeHTTP(rec, req)

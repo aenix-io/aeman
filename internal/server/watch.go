@@ -29,8 +29,8 @@ var scopedQueryKeys = []string{"view", "team", "day", "user", "week", "stage", "
 // `client` keys echo suppression (changes made with the same X-Aeman-Client
 // header are not echoed back). The stream is read-only.
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
-	owner, project := s.boardRef(r)
-	svc, _, _, ok := s.service(w, r)
+	boardID := s.boardRef(r)
+	svc, _, ok := s.service(w, r)
 	if !ok {
 		return
 	}
@@ -60,7 +60,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	// revalidation reconcile the membership (the middleware skips this endpoint
 	// because the connection is hijacked, so opt in explicitly).
 	warmCtx, _ := withStaleAllowed(r.Context())
-	if _, err := svc.Board(warmCtx, owner, project); err != nil {
+	if _, err := svc.Board(warmCtx, boardID); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -76,7 +76,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	// cancels ctx when the client goes away.
 	ctx := conn.CloseRead(r.Context())
 
-	key := storeKey(owner, project)
+	key := storeKey(boardID)
 	clientID := q.Get("client")
 	sub, cancel := s.store.subscribeAs(key, clientID, sel, resources, rightsFrom(r.Context()))
 	defer cancel()

@@ -27,12 +27,12 @@ var ErrProjectNotFound = errors.New("unknown project")
 // creating its hidden project-state card, whose board position IS the order
 // its chip appears in (the same mechanism as the team roster). A project may
 // be created empty and filled with epics afterwards.
-func (s *Service) AddProject(ctx context.Context, owner string, project int, name string) error {
+func (s *Service) AddProject(ctx context.Context, boardID string, name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("project name must not be empty")
 	}
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -50,8 +50,8 @@ func (s *Service) AddProject(ctx context.Context, owner string, project int, nam
 
 // DeleteProject removes an EMPTY project by deleting its project-state card.
 // A project that still owns epic columns is protected (ErrProjectInUse).
-func (s *Service) DeleteProject(ctx context.Context, owner string, project int, name string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) DeleteProject(ctx context.Context, boardID string, name string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -73,8 +73,8 @@ func (s *Service) DeleteProject(ctx context.Context, owner string, project int, 
 
 // ReorderProjects persists the chip order by walking the project-state cards
 // into the given sequence (mirrors ReorderTeams and ReorderEpics).
-func (s *Service) ReorderProjects(ctx context.Context, owner string, project int, names []string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) ReorderProjects(ctx context.Context, boardID string, names []string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -97,8 +97,8 @@ func (s *Service) ReorderProjects(ctx context.Context, owner string, project int
 // into the no-project bucket, where only the all-projects view shows it). The
 // column's cards are rewritten too: a card names the (project, epic) pair, so
 // leaving them behind would file them under a column that no longer exists.
-func (s *Service) SetEpicProject(ctx context.Context, owner string, project int, from, epic, to string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic, to string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -137,12 +137,12 @@ func (s *Service) SetEpicProject(ctx context.Context, owner string, project int,
 // RenameProject renames a project in place: its own state card, the Project
 // field of every column it owns, and of every card under those columns. As
 // with epics the name is the reference, so all of it moves together.
-func (s *Service) RenameProject(ctx context.Context, owner string, project int, from, to string) error {
+func (s *Service) RenameProject(ctx context.Context, boardID string, from, to string) error {
 	to = strings.TrimSpace(to)
 	if to == "" {
 		return fmt.Errorf("project name must not be empty")
 	}
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}

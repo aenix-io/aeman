@@ -24,8 +24,8 @@ import (
 // Git mode: the board is a git repository. The server clones it under the
 // data directory (shallow — the current state), serves it from the cache,
 // commits every request, pushes in the background and deepens the history
-// to the configured horizon. One repository is one board; the request's
-// owner/board parameters are ignored, as under --lock-board.
+// to the configured horizon. One repository is one board: the request carries no board address —
+// the board is the one the server was started with.
 
 // RepoSpec names one domain: a repository and its label.
 type RepoSpec struct {
@@ -60,9 +60,6 @@ type GitConfig struct {
 	AuthorEmail string
 }
 
-// gitBoardOwner is the owner half of the single configured board's key.
-const gitBoardOwner = "git"
-
 // openGit clones or reopens the primary repository and builds the store's
 // backend over it. An unborn remote is refused with the command that fixes
 // it: a server that invents a board on a typo in --repo is worse than one
@@ -85,7 +82,8 @@ func (s *Server) openGit(cfg *GitConfig) error {
 // GitBackend is a git-mode store without an HTTP server — what `aeman mcp
 // --repo` runs on: its own clone, cache, queue and push.
 type GitBackend struct {
-	be *storeBackend
+	be    *storeBackend
+	board string // the board's name: its primary repository
 }
 
 // OpenGitBackend clones or reopens the configured repository and returns a
@@ -100,7 +98,7 @@ func OpenGitBackend(cfg *GitConfig, log *slog.Logger) (*GitBackend, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &GitBackend{be: be}, nil
+	return &GitBackend{be: be, board: cfg.Repos[0].Name}, nil
 }
 
 // Backend is the boardservice.Backend to build a service on.
@@ -111,7 +109,7 @@ func (g *GitBackend) Backend() boardservice.Backend { return g.be }
 // mutation loses nothing.
 func (g *GitBackend) Drain(ctx context.Context) error {
 	g.be.store.waitDrained(ctx)
-	return g.be.syncNow(ctx, storeKey(gitBoardOwner, 1))
+	return g.be.syncNow(ctx, storeKey(g.board))
 }
 
 // openGitStore is the shared core: clone or reopen every domain under the
@@ -227,9 +225,14 @@ func (s *Server) deepenInBackground(repo *gitstore.Repo, remote gitstore.Remote,
 	s.log.Info("history deepened", "horizon", horizon)
 }
 
-// gitBoard is the (owner, number) the single configured board is served as.
-func (s *Server) gitBoard() (string, int) {
-	return gitBoardOwner, 1
+// gitBoard is the name the single configured board is served as: its
+// primary repository's name ("board" when no repository is configured — a
+// test server with an injected service).
+func (s *Server) gitBoard() string {
+	if s.gitCfg != nil && len(s.gitCfg.Repos) > 0 {
+		return s.gitCfg.Repos[0].Name
+	}
+	return "board"
 }
 
 // drainAndPush is the shutdown path in git mode: wait for the queue, then
@@ -239,8 +242,8 @@ func (s *Server) drainAndPush(ctx context.Context) error {
 	if s.gitBE == nil {
 		return nil
 	}
-	owner, number := s.gitBoard()
-	return s.gitBE.syncNow(ctx, storeKey(owner, number))
+	boardID := s.gitBoard()
+	return s.gitBE.syncNow(ctx, storeKey(boardID))
 }
 
 // actionName is what a request is, for the commit it becomes: the name

@@ -23,19 +23,19 @@ func TestProcessAndTemplate(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 
-	if err := svc.AddProcess(ctx, "acme", 1, "articles", "Marketing"); !errors.Is(err, ErrProcessExists) {
+	if err := svc.AddProcess(ctx, "acme", "articles", "Marketing"); !errors.Is(err, ErrProcessExists) {
 		t.Fatalf("a case-insensitive duplicate must be refused, got %v", err)
 	}
-	if err := svc.AddProcess(ctx, "acme", 1, "Billing", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
+	if err := svc.AddProcess(ctx, "acme", "Billing", "Ghost"); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("an unknown project must be refused, got %v", err)
 	}
-	if _, err := svc.AddProcessTask(ctx, "acme", 1, "Nope", TaskArgs{Title: "x", Recurrence: "week"}); !errors.Is(err, ErrProcessNotFound) {
+	if _, err := svc.AddProcessTask(ctx, "acme", "Nope", TaskArgs{Title: "x", Recurrence: "week"}); !errors.Is(err, ErrProcessNotFound) {
 		t.Fatalf("a task needs an existing process, got %v", err)
 	}
-	if _, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{Title: "x"}); err == nil {
+	if _, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{Title: "x"}); err == nil {
 		t.Fatal("a task needs a cycle")
 	}
-	tpl, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	tpl, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Technical article", Description: "1500 words, one code sample",
 		Recurrence: "month", Start: "2026-03-03", Team: "alpha", Assignee: "writer",
 	})
@@ -45,15 +45,15 @@ func TestProcessAndTemplate(t *testing.T) {
 	if TaskTitle(tpl) != "Technical article" || TaskDescription(tpl) != "1500 words, one code sample" {
 		t.Fatalf("task packs title+body in its description; got %q", tpl.Description)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	if len(board.TasksOf(b, "Articles")) != 1 || len(b.Cards) != 0 {
 		t.Fatalf("the task must be out of the card rows; cards=%d tasks=%d", len(b.Cards), len(b.Tasks))
 	}
 	// A process with tasks is protected; rename carries the tasks.
-	if err := svc.DeleteProcess(ctx, "acme", 1, "Articles"); !errors.Is(err, ErrProcessInUse) {
+	if err := svc.DeleteProcess(ctx, "acme", "Articles"); !errors.Is(err, ErrProcessInUse) {
 		t.Fatalf("a process with tasks must be protected, got %v", err)
 	}
-	if err := svc.RenameProcess(ctx, "acme", 1, "Articles", "Publishing"); err != nil {
+	if err := svc.RenameProcess(ctx, "acme", "Articles", "Publishing"); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.get(tpl.ItemID); got.Process != "Publishing" {
@@ -90,14 +90,14 @@ func TestSpawnCopiesTheTemplateNotThePreviousIteration(t *testing.T) {
 	ctx := context.Background()
 	week := board.MondayOf(board.TodayIso())
 	next := board.AddDays(week, 7)
-	tpl, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	tpl, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Technical article", Description: "the brief",
 		Recurrence: "week", Start: week, Team: "alpha", Assignee: "writer",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	its := board.Iterations(b, tpl.ItemID)
 	if len(its) != 1 {
 		t.Fatalf("a task due this week files its card at once; iterations = %d", len(its))
@@ -110,18 +110,18 @@ func TestSpawnCopiesTheTemplateNotThePreviousIteration(t *testing.T) {
 	}
 
 	// The team renames and finishes it…
-	if err := svc.Rename(ctx, "acme", 1, first.ItemID, "Article about etcd"); err != nil {
+	if err := svc.Rename(ctx, "acme", first.ItemID, "Article about etcd"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetProgress(ctx, "acme", 1, first.ItemID, 100); err != nil {
+	if err := svc.SetProgress(ctx, "acme", first.ItemID, 100); err != nil {
 		t.Fatal(err)
 	}
 	// …and the next week's iteration is the task again, not the rename.
-	b, _ = svc.Board(ctx, "acme", 1)
+	b, _ = svc.Board(ctx, "acme")
 	if n, err := svc.SpawnIterations(ctx, b, "alpha", next, false); err != nil || n != 1 {
 		t.Fatalf("next week: spawned %d, err %v", n, err)
 	}
-	b, _ = svc.Board(ctx, "acme", 1)
+	b, _ = svc.Board(ctx, "acme")
 	its = board.Iterations(b, tpl.ItemID)
 	if len(its) != 2 {
 		t.Fatalf("iterations = %d", len(its))
@@ -143,19 +143,19 @@ func TestSpawnWaitsForTheOpenIterationUnlessAccumulating(t *testing.T) {
 	ctx := context.Background()
 	week := board.MondayOf(board.TodayIso())
 	next := board.AddDays(week, 7)
-	waits, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	waits, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Article", Recurrence: "week", Start: week, Team: "alpha",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	piles, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	piles, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Invoice client X", Recurrence: "week", Start: week, Team: "alpha", Accumulate: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	if len(board.Iterations(b, waits.ItemID)) != 1 || len(board.Iterations(b, piles.ItemID)) != 1 {
 		t.Fatalf("each task files this week's card on creation")
 	}
@@ -167,7 +167,7 @@ func TestSpawnWaitsForTheOpenIterationUnlessAccumulating(t *testing.T) {
 	if n, _ := svc.SpawnIterations(ctx, b, "alpha", next, false); n != 1 {
 		t.Fatalf("only the accumulating task spawns while open, got %d", n)
 	}
-	b, _ = svc.Board(ctx, "acme", 1)
+	b, _ = svc.Board(ctx, "acme")
 	if len(board.Iterations(b, waits.ItemID)) != 1 || len(board.Iterations(b, piles.ItemID)) != 2 {
 		t.Fatalf("waits=%d piles=%d", len(board.Iterations(b, waits.ItemID)), len(board.Iterations(b, piles.ItemID)))
 	}
@@ -185,7 +185,7 @@ func TestMonthlyTemplateIsDueOnceAMonth(t *testing.T) {
 	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
 	svc := New(fake)
 	ctx := context.Background()
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	for week, want := range map[string]int{
 		"2026-03-02": 1, // the anchor's own week
 		"2026-03-16": 0, // mid-month: nothing due
@@ -205,19 +205,19 @@ func TestIterationsStayInTheirWeek(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 	week := board.MondayOf(board.TodayIso())
-	if _, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	if _, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Article", Recurrence: "week", Start: week, Team: "alpha",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := svc.CarryWeek(ctx, "acme", 1, "alpha", board.AddDays(week, 7), false)
+	rep, err := svc.CarryWeek(ctx, "acme", "alpha", board.AddDays(week, 7), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Carried != 0 {
 		t.Fatalf("an open iteration must not be carried, got carried=%d", rep.Carried)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	for _, c := range b.Cards {
 		if c.Task != "" && c.Week != week {
 			t.Fatalf("the iteration moved to %s; it belongs to the week it was owed", c.Week)
@@ -233,19 +233,19 @@ func TestOwnedIterationsAreDated(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 	week := board.MondayOf(board.TodayIso())
-	owned, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	owned, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Owned", Recurrence: "week", Start: week, Team: "alpha", Assignee: "writer",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	loose, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	loose, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Unowned", Recurrence: "week", Start: week, Team: "alpha",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 
 	its := board.Iterations(b, owned.ItemID)
 	if len(its) != 1 {
@@ -304,28 +304,28 @@ func TestReassigningATurnReplacesTheUntouchedCard(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 	week := board.MondayOf(board.TodayIso())
-	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	task, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Article", Recurrence: "month", Start: week, Team: "",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	first := board.Iterations(b, task.ItemID)
 	if len(first) != 1 || len(first[0].Assignees) != 0 || first[0].StartDate != "" {
 		t.Fatalf("the first turn starts unowned and dateless, got %+v", first)
 	}
 	// Renamed, but not started: nobody has put work into it.
-	if err := svc.Rename(ctx, "acme", 1, first[0].ItemID, "Article about etcd"); err != nil {
+	if err := svc.Rename(ctx, "acme", first[0].ItemID, "Article about etcd"); err != nil {
 		t.Fatal(err)
 	}
 	who, team := "writer", "alpha"
-	if err := svc.UpdateProcessTask(ctx, "acme", 1, task.ItemID, TaskPatch{
+	if err := svc.UpdateProcessTask(ctx, "acme", task.ItemID, TaskPatch{
 		Assignee: &who, Team: &team,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = svc.Board(ctx, "acme", 1)
+	b, _ = svc.Board(ctx, "acme")
 	its := board.Iterations(b, task.ItemID)
 	if len(its) != 1 {
 		t.Fatalf("the untouched card is replaced, not added to; got %d", len(its))
@@ -354,22 +354,22 @@ func TestReassigningKeepsAStartedCard(t *testing.T) {
 	ctx := context.Background()
 	week := board.MondayOf(board.TodayIso())
 	first := "alice"
-	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	task, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Article", Recurrence: "month", Start: week, Team: "alpha", Assignee: first,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	started := board.Iterations(b, task.ItemID)[0]
-	if err := svc.SetProgress(ctx, "acme", 1, started.ItemID, 40); err != nil {
+	if err := svc.SetProgress(ctx, "acme", started.ItemID, 40); err != nil {
 		t.Fatal(err)
 	}
 	second := "bob"
-	if err := svc.UpdateProcessTask(ctx, "acme", 1, task.ItemID, TaskPatch{Assignee: &second}); err != nil {
+	if err := svc.UpdateProcessTask(ctx, "acme", task.ItemID, TaskPatch{Assignee: &second}); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = svc.Board(ctx, "acme", 1)
+	b, _ = svc.Board(ctx, "acme")
 	its := board.Iterations(b, task.ItemID)
 	if len(its) != 2 {
 		t.Fatalf("the started card stays and the new owner gets one; got %d", len(its))
@@ -406,7 +406,7 @@ func TestBracketedTaskTitleSurvives(t *testing.T) {
 	fake := processBoard()
 	svc := New(fake)
 	ctx := context.Background()
-	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	task, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "[Urgent] Invoice client X", Description: "the usual template",
 		Recurrence: "week", Start: board.MondayOf(board.TodayIso()), Team: "alpha",
 	})
@@ -439,21 +439,21 @@ func TestATurnKeepsItsMarkerWhicheverDoor(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 	week := board.MondayOf(board.TodayIso())
-	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	task, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Article", Recurrence: "week", Start: week, Team: "alpha", Assignee: "writer",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	turn := board.Iterations(b, task.ItemID)[0]
 
 	for _, door := range []struct {
 		name string
 		call func() error
 	}{
-		{"the stage menu", func() error { return svc.SetStage(ctx, "acme", 1, turn.ItemID, board.StageReview) }},
-		{"in progress", func() error { return svc.SetInProgress(ctx, "acme", 1, turn.ItemID) }},
+		{"the stage menu", func() error { return svc.SetStage(ctx, "acme", turn.ItemID, board.StageReview) }},
+		{"in progress", func() error { return svc.SetInProgress(ctx, "acme", turn.ItemID) }},
 	} {
 		if err := door.call(); !errors.Is(err, ErrInvalidStage) {
 			t.Errorf("%s: err = %v, want the turn to keep its marker", door.name, err)
@@ -463,10 +463,10 @@ func TestATurnKeepsItsMarkerWhicheverDoor(t *testing.T) {
 		}
 	}
 	// Done is allowed, and reopening by progress keeps the marker.
-	if err := svc.SetStage(ctx, "acme", 1, turn.ItemID, board.StageDone); err != nil {
+	if err := svc.SetStage(ctx, "acme", turn.ItemID, board.StageDone); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SetProgress(ctx, "acme", 1, turn.ItemID, 90); err != nil {
+	if err := svc.SetProgress(ctx, "acme", turn.ItemID, 90); err != nil {
 		t.Fatal(err)
 	}
 	if got := fake.get(turn.ItemID); got.Stage != board.StageRecurrent || got.Progress != 90 {
@@ -481,15 +481,15 @@ func TestDeletingATaskFreesItsTurns(t *testing.T) {
 	svc := New(fake)
 	ctx := context.Background()
 	week := board.MondayOf(board.TodayIso())
-	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	task, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Article", Recurrence: "week", Start: week, Team: "alpha",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := svc.Board(ctx, "acme", 1)
+	b, _ := svc.Board(ctx, "acme")
 	turn := board.Iterations(b, task.ItemID)[0]
-	if err := svc.DeleteProcessTask(ctx, "acme", 1, task.ItemID); err != nil {
+	if err := svc.DeleteProcessTask(ctx, "acme", task.ItemID); err != nil {
 		t.Fatal(err)
 	}
 	got := fake.get(turn.ItemID)
@@ -499,7 +499,7 @@ func TestDeletingATaskFreesItsTurns(t *testing.T) {
 	if got.Task != "" || got.Recurrence != "" {
 		t.Fatalf("a freed turn keeps no dead link: task=%q recurrence=%q", got.Task, got.Recurrence)
 	}
-	if err := svc.SetInProgress(ctx, "acme", 1, turn.ItemID); err != nil {
+	if err := svc.SetInProgress(ctx, "acme", turn.ItemID); err != nil {
 		t.Fatalf("a freed turn must move like any card: %v", err)
 	}
 }
@@ -522,8 +522,8 @@ func TestThePlanCrossNeverDeletesASlot(t *testing.T) {
 		name string
 		call func(*Service) error
 	}{
-		{"the plan ×", func(s *Service) error { return s.Remove(context.Background(), "acme", 1, "slot", "plan") }},
-		{"release from plan", func(s *Service) error { return s.ReleaseFromPlan(context.Background(), "acme", 1, "slot") }},
+		{"the plan ×", func(s *Service) error { return s.Remove(context.Background(), "acme", "slot", "plan") }},
+		{"release from plan", func(s *Service) error { return s.ReleaseFromPlan(context.Background(), "acme", "slot") }},
 	} {
 		fake := newBoard()
 		svc := New(fake)
@@ -559,7 +559,7 @@ func TestRedatingASlotLeavesItsSprintAlone(t *testing.T) {
 	ctx := context.Background()
 	later := board.AddDays(today, 21)
 	for _, id := range []string{"started", "planned"} {
-		if err := svc.SetDates(ctx, "acme", 1, id, later, board.AddDays(later, 4)); err != nil {
+		if err := svc.SetDates(ctx, "acme", id, later, board.AddDays(later, 4)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -577,7 +577,7 @@ func TestATaskTitleIsOneLine(t *testing.T) {
 	fake := processBoard()
 	svc := New(fake)
 	ctx := context.Background()
-	task, err := svc.AddProcessTask(ctx, "acme", 1, "Articles", TaskArgs{
+	task, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Write the\nmonthly report", Description: "one page",
 		Recurrence: "month", Start: board.MondayOf(board.TodayIso()), Team: "alpha",
 	})

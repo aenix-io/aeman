@@ -171,21 +171,21 @@ func TestSweepOnFetchTickFilesThisWeeksTurnsOnce(t *testing.T) {
 	a, _ := gitStore(t, remote)
 	b, _ := gitStore(t, remote)
 	ctx := context.Background()
-	if _, err := a.LoadBoard(ctx, "acme", 1); err != nil {
+	if _, err := a.LoadBoard(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.LoadBoard(ctx, "acme", 1); err != nil {
+	if _, err := b.LoadBoard(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
 	want := gitstore.IterationID(taskID, monday)
-	if err := a.tick(ctx, "acme/1"); err != nil {
+	if err := a.tick(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.tick(ctx, "acme/1"); err != nil {
+	if err := b.tick(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
 	for name, be := range map[string]*storeBackend{"a": a, "b": b} {
-		bd, _ := be.LoadBoard(ctx, "acme", 1)
+		bd, _ := be.LoadBoard(ctx, "acme")
 		turns := board.Iterations(bd, taskID)
 		if len(turns) != 1 || turns[0].ItemID != want || turns[0].Week != monday {
 			t.Fatalf("%s serves %d turn(s) %+v, want one with id %s", name, len(turns), turns, want)
@@ -215,10 +215,10 @@ func TestSweepOnFetchTickFilesThisWeeksTurnsOnce(t *testing.T) {
 		t.Fatalf("sweep commit author = %s <%s>, want the server", c.Author.Name, c.Author.Email)
 	}
 	// Another tick files nothing new.
-	if err := a.tick(ctx, "acme/1"); err != nil {
+	if err := a.tick(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
-	if bd, _ := a.LoadBoard(ctx, "acme", 1); len(board.Iterations(bd, taskID)) != 1 {
+	if bd, _ := a.LoadBoard(ctx, "acme"); len(board.Iterations(bd, taskID)) != 1 {
 		t.Fatal("a second tick filed another turn")
 	}
 }
@@ -333,10 +333,10 @@ func TestMaintenanceSweepsGhosts(t *testing.T) {
 	shared, closed := tornMoveRemotes(t)
 	be := gitStoreOver(t, shared, closed)
 	ctx := context.Background()
-	if _, err := be.LoadBoard(ctx, "acme", 1); err != nil {
+	if _, err := be.LoadBoard(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
-	n, err := be.maintainNow(ctx, "acme/1")
+	n, err := be.maintainNow(ctx, "acme")
 	if err != nil || n != 1 {
 		t.Fatalf("swept %d (%v), want 1", n, err)
 	}
@@ -354,7 +354,7 @@ func TestMaintenanceSweepsGhosts(t *testing.T) {
 	if _, err := check.ReadFile(p); err == nil {
 		t.Fatal("ghost still on the shared remote")
 	}
-	bd, _ := be.LoadBoard(ctx, "acme", 1)
+	bd, _ := be.LoadBoard(ctx, "acme")
 	count := 0
 	for _, c := range bd.Cards {
 		if c.ItemID == "01JB4K2E7QZMX3R8V0N5T9WYA1" {
@@ -368,7 +368,7 @@ func TestMaintenanceSweepsGhosts(t *testing.T) {
 		t.Fatalf("card served %d times after the sweep", count)
 	}
 	// Nothing left: the next tick is a no-op.
-	if n, _ := be.maintainNow(ctx, "acme/1"); n != 0 {
+	if n, _ := be.maintainNow(ctx, "acme"); n != 0 {
 		t.Fatalf("second sweep removed %d", n)
 	}
 }
@@ -406,10 +406,10 @@ func TestGitTwoDomainsMovePushesBothAndIsAdopted(t *testing.T) {
 	a := gitStoreOver(t, shared, closed)
 	watcher := gitStoreOver(t, shared, closed)
 	ctx := actionCtx("01JB4KA0M2P4R6T8V0X2Z4B6E1", "update")
-	if _, err := watcher.LoadBoard(ctx, "acme", 1); err != nil {
+	if _, err := watcher.LoadBoard(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
-	bd, err := a.LoadBoard(ctx, "acme", 1)
+	bd, err := a.LoadBoard(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,12 +442,12 @@ func TestGitTwoDomainsMovePushesBothAndIsAdopted(t *testing.T) {
 		t.Fatalf("action ids: closed %q shared %q", id, gitstore.ParseTrailers(sc.Message).ActionID)
 	}
 	// The cache learnt the new domain from the commit, not from a reload.
-	now, _ := a.LoadBoard(ctx, "acme", 1)
+	now, _ := a.LoadBoard(ctx, "acme")
 	if c := cardByTitle(now, "one"); c.Domain != "closed" || c.Project != "secret" || c.Epic != "Risk" {
 		t.Fatalf("cached card after move = domain %q project %q epic %q", c.Domain, c.Project, c.Epic)
 	}
 
-	if err := a.syncNow(ctx, "acme/1"); err != nil {
+	if err := a.syncNow(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range a.git.domains {
@@ -455,10 +455,10 @@ func TestGitTwoDomainsMovePushesBothAndIsAdopted(t *testing.T) {
 			t.Fatalf("%s still has %d unpushed commits", d.Name, n)
 		}
 	}
-	if err := watcher.syncNow(ctx, "acme/1"); err != nil {
+	if err := watcher.syncNow(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
-	seen, _ := watcher.LoadBoard(ctx, "acme", 1)
+	seen, _ := watcher.LoadBoard(ctx, "acme")
 	count := 0
 	for _, c := range seen.Cards {
 		if c.Title == "one" {
@@ -488,35 +488,35 @@ func TestGitSyncPushesCommitsFromBeforeARestart(t *testing.T) {
 	}
 	first := newGitBackend(newBoardStore(), []gitDomain{{Domain: gitstore.Domain{Name: "board", Repo: repo}, remote: remote}}, gitOptions{})
 	first.git.pushDelay = 0
-	bd, _ := first.LoadBoard(ctx, "acme", 1)
+	bd, _ := first.LoadBoard(ctx, "acme")
 	if err := first.SetProgress(ctx, bd, cardByTitle(bd, "one"), 90); err != nil {
 		t.Fatal(err)
 	}
 	waitQueue(t, first) // committed, never pushed
 
 	other, _ := gitStore(t, remote)
-	bd2, _ := other.LoadBoard(ctx, "acme", 1)
+	bd2, _ := other.LoadBoard(ctx, "acme")
 	if err := other.SetProgress(ctx, bd2, cardByTitle(bd2, "two"), 10); err != nil {
 		t.Fatal(err)
 	}
 	waitQueue(t, other)
-	if err := other.syncNow(ctx, "acme/1"); err != nil {
+	if err := other.syncNow(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
 
 	// "Restart": a store over the same clone, with no memory of the commit.
 	second := newGitBackend(newBoardStore(), []gitDomain{{Domain: gitstore.Domain{Name: "board", Repo: gitstore.Open(st, gitTestOpts)}, remote: remote}}, gitOptions{})
 	second.git.pushDelay = 0
-	if age := second.unpushedAge("acme/1"); age <= 0 {
+	if age := second.unpushedAge("acme"); age <= 0 {
 		t.Fatal("the pre-restart commit must count as unpushed")
 	}
-	if err := second.syncNow(ctx, "acme/1"); err != nil {
+	if err := second.syncNow(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
 	if n, _ := second.git.primary().Unpushed(); n != 0 {
 		t.Fatalf("%d commits still unpushed after the sync", n)
 	}
-	if age := second.unpushedAge("acme/1"); age != 0 {
+	if age := second.unpushedAge("acme"); age != 0 {
 		t.Fatalf("unpushed age after push = %v", age)
 	}
 	check, err := gitstore.Clone(context.Background(), memory.NewStorage(), remote, gitTestOpts, 0)

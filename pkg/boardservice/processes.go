@@ -26,12 +26,12 @@ var ErrTaskNotFound = errors.New("unknown process task")
 
 // AddProcess declares a process inside a project by creating its hidden state
 // card (the team-roster mechanism: the card's position is the order).
-func (s *Service) AddProcess(ctx context.Context, owner string, project int, name, projectName string) error {
+func (s *Service) AddProcess(ctx context.Context, boardID string, name, projectName string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("process name must not be empty")
 	}
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -55,8 +55,8 @@ func (s *Service) AddProcess(ctx context.Context, owner string, project int, nam
 
 // DeleteProcess removes an EMPTY process. One that still has tasks is
 // protected (ErrProcessInUse): delete them first, on purpose.
-func (s *Service) DeleteProcess(ctx context.Context, owner string, project int, name string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) DeleteProcess(ctx context.Context, boardID string, name string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -73,12 +73,12 @@ func (s *Service) DeleteProcess(ctx context.Context, owner string, project int, 
 
 // RenameProcess renames a process and re-points its tasks at the new
 // name — the name is the reference, so both move together.
-func (s *Service) RenameProcess(ctx context.Context, owner string, project int, from, to string) error {
+func (s *Service) RenameProcess(ctx context.Context, boardID string, from, to string) error {
 	to = strings.TrimSpace(to)
 	if to == "" {
 		return fmt.Errorf("process name must not be empty")
 	}
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -109,8 +109,8 @@ func (s *Service) RenameProcess(ctx context.Context, owner string, project int, 
 // SetProcessProject moves a process to another project ("" = the no-project
 // bucket). Its tasks and their iterations are untouched: a process
 // belongs to a project, and the work it spawns belongs to the process.
-func (s *Service) SetProcessProject(ctx context.Context, owner string, project int, name, projectName string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) SetProcessProject(ctx context.Context, boardID string, name, projectName string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -133,8 +133,8 @@ func (s *Service) SetProcessProject(ctx context.Context, owner string, project i
 // SetProcessPaused stops a process spawning, or starts it again. Its
 // tasks and their history are untouched: pausing is not deleting, and a
 // process nobody can pause gets deleted instead.
-func (s *Service) SetProcessPaused(ctx context.Context, owner string, project int, name string, paused bool) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) SetProcessPaused(ctx context.Context, boardID string, name string, paused bool) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func (s *Service) SetProcessPaused(ctx context.Context, owner string, project in
 	// where it left off rather than at the next carry.
 	if !paused {
 		for _, t := range board.TasksOf(b, name) {
-			s.spawnDue(ctx, owner, project, t.ItemID)
+			s.spawnDue(ctx, boardID, t.ItemID)
 		}
 	}
 	return nil
@@ -166,8 +166,8 @@ func (s *Service) SetProcessPaused(ctx context.Context, owner string, project in
 // are moved into the given sequence, and their board position IS the order
 // every client reads back. Names missing from the board are skipped; ones
 // missing from the list keep their positions after the reordered block.
-func (s *Service) ReorderProcesses(ctx context.Context, owner string, project int, names []string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) ReorderProcesses(ctx context.Context, boardID string, names []string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -193,8 +193,8 @@ func (s *Service) ReorderProcesses(ctx context.Context, owner string, project in
 // one process into another lands: the final order of the target is the whole
 // instruction. A task's turns keep their history; only future ones follow
 // the new process (they name the task, and the task now names this process).
-func (s *Service) ReorderProcessTasks(ctx context.Context, owner string, project int, process string, uids []string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) ReorderProcessTasks(ctx context.Context, boardID string, process string, uids []string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ type TaskArgs struct {
 // AddProcessTask declares what a process iterates on. A task is a
 // whole card kept out of the board's rows: its title and description are the
 // iteration's, and every iteration is copied from it anew.
-func (s *Service) AddProcessTask(ctx context.Context, owner string, project int, process string, a TaskArgs) (board.Card, error) {
+func (s *Service) AddProcessTask(ctx context.Context, boardID string, process string, a TaskArgs) (board.Card, error) {
 	a.Title = oneLine(a.Title)
 	if a.Title == "" {
 		return board.Card{}, fmt.Errorf("task title must not be empty")
@@ -245,7 +245,7 @@ func (s *Service) AddProcessTask(ctx context.Context, owner string, project int,
 	if a.Recurrence == "" || !board.ValidRecurrence(a.Recurrence) {
 		return board.Card{}, fmt.Errorf("%w: a task needs a cycle (week | 2weeks | month | quarter)", ErrInvalidStage)
 	}
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return board.Card{}, err
 	}
@@ -283,7 +283,7 @@ func (s *Service) AddProcessTask(ctx context.Context, owner string, project int,
 	// If this week is already owed an iteration, hand it over now: a task
 	// added on Monday should show in Monday's plan, not after someone carries
 	// the week.
-	s.spawnDue(ctx, owner, project, created.ItemID)
+	s.spawnDue(ctx, boardID, created.ItemID)
 	return created, nil
 }
 
@@ -323,8 +323,8 @@ func TaskDescription(t board.Card) string {
 
 // DeleteProcessTask removes a task. Its past iterations are ordinary
 // cards and stay — they are the record of what was done.
-func (s *Service) DeleteProcessTask(ctx context.Context, owner string, project int, taskID string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) DeleteProcessTask(ctx context.Context, boardID string, taskID string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -362,8 +362,8 @@ type TaskPatch struct {
 	Accumulate  *bool
 }
 
-func (s *Service) UpdateProcessTask(ctx context.Context, owner string, project int, taskID string, p TaskPatch) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) UpdateProcessTask(ctx context.Context, boardID string, taskID string, p TaskPatch) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -420,21 +420,21 @@ func (s *Service) UpdateProcessTask(ctx context.Context, owner string, project i
 	// it — fixing that a minute after creating the task has to take
 	// effect on the card in front of them, not only on next month's.
 	if p.Team != nil || p.Assignee != nil {
-		if err := s.routeOpenIterations(ctx, owner, project, taskID); err != nil {
+		if err := s.routeOpenIterations(ctx, boardID, taskID); err != nil {
 			return err
 		}
 	}
 	// A changed cycle, start, team or title can make this week due when it was
 	// not: give it its card now rather than at the next carry.
-	s.spawnDue(ctx, owner, project, taskID)
+	s.spawnDue(ctx, boardID, taskID)
 	return nil
 }
 
 // routeOpenIterations points a task's unfinished turns at its current team
 // and owner, and dates an owned one across its week so it reaches that
 // person's day board. A finished turn is history and is left alone.
-func (s *Service) routeOpenIterations(ctx context.Context, owner string, project int, taskID string) error {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) routeOpenIterations(ctx context.Context, boardID string, taskID string) error {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -474,7 +474,7 @@ func (s *Service) routeOpenIterations(ctx context.Context, owner string, project
 	}
 	// The new owner always gets this week's turn, whether the old card was
 	// deleted or left standing with someone's work in it.
-	b, err = s.backend.LoadBoard(ctx, owner, project)
+	b, err = s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}
@@ -525,8 +525,8 @@ func (s *Service) SpawnIterations(ctx context.Context, b board.Board, team, week
 // each background refresh, so a turn appears when its week arrives, not when
 // somebody remembers to press something. Idempotent — a week that already
 // holds a task's turn is skipped (spawnIfDue).
-func (s *Service) SpawnDue(ctx context.Context, owner string, project int) (int, error) {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) SpawnDue(ctx context.Context, boardID string) (int, error) {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return 0, err
 	}
@@ -591,8 +591,8 @@ func (s *Service) spawnIfDue(ctx context.Context, b board.Board, t board.Card, w
 // that is due now produces its card the moment it is written rather than
 // waiting for someone to carry the week. Failing to spawn does not fail the
 // write: the task is saved either way, and the sweep will catch it.
-func (s *Service) spawnDue(ctx context.Context, owner string, project int, taskID string) {
-	b, err := s.backend.LoadBoard(ctx, owner, project)
+func (s *Service) spawnDue(ctx context.Context, boardID string, taskID string) {
+	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return
 	}

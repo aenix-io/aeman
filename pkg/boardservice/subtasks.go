@@ -27,8 +27,8 @@ var ErrOpenSubtasks = errors.New("the card still has unfinished subtasks")
 // hands its weekly slot to the parent — the parent replaces it in the plan —
 // since a subtask is never a plan card; the subtask also joins its parent's
 // sprint, so the pair always carries over together.
-func (s *Service) SetParent(ctx context.Context, owner string, project int, itemID, parent string) error {
-	b, card, err := s.loadCard(ctx, owner, project, itemID)
+func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent string) error {
+	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
 	}

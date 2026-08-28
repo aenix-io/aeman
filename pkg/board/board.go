@@ -301,16 +301,16 @@ type SprintState struct {
 // cards (sprint-state cards excluded) and the per-team sprint pointers. It
 // mirrors the Board interface in web/src/providers/types.ts.
 type Board struct {
-	// ID/Number/Owner identify the project this snapshot came from, so a backend
-	// can apply mutations against it. They mirror the id/number/owner fields on the
-	// frontend Board and are empty on hand-built snapshots that never get persisted.
-	ID     string `json:"id,omitempty"`
-	Number int    `json:"number,omitempty"`
-	// Title/URL identify the project for display, mirroring the frontend Board.
-	Title  string         `json:"title,omitempty"`
-	URL    string         `json:"url,omitempty"`
-	Owner  string         `json:"owner,omitempty"`
-	Fields []ProjectField `json:"fields"`
+	// Board names the board this snapshot came from — the name of its primary
+	// repository — so a backend can apply mutations against it. Empty on
+	// hand-built snapshots that never get persisted.
+	Board string `json:"board,omitempty"`
+	// Title/URL identify the board for display, mirroring the frontend Board.
+	Title string `json:"title,omitempty"`
+	URL   string `json:"url,omitempty"`
+	// Fields is what a GitHub Projects v2 export carried; only the migration's
+	// reader fills it, nothing on a git board reads it.
+	Fields []ProjectField `json:"fields,omitempty"`
 	Cards  []Card         `json:"cards"`
 	// SprintStates maps each team key ("" = the no-team group) to its pointer.
 	SprintStates map[string]SprintState `json:"sprintStates"`

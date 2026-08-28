@@ -184,15 +184,14 @@ func runMCP(args []string) error {
 	logger := newLogger(*verbose)
 
 	// This process owns its own clone, cache and push; the board is the
-	// configured repository, whatever owner/board a tool passes.
+	// configured repository, whatever board name a tool passes.
 	fillGitToken(context.Background(), gitCfg)
 	gb, err := server.OpenGitBackend(gitCfg, logger)
 	if err != nil {
 		return err
 	}
 	cfg := mcpserver.Config{
-		Owner:   "git",
-		Project: 1,
+		Board:   gitCfg.Repos[0].Name,
 		Lock:    true,
 		Version: version,
 		// Scope the default (unspecified-view) list to the local user's own Me

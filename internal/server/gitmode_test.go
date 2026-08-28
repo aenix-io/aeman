@@ -158,7 +158,7 @@ func TestOpenGitBackendStandalone(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := withAction(context.Background(), "01JB4KA0M2P4R6T8V0X2Z4B6M1", "progress")
-	bd, err := gb.Backend().LoadBoard(ctx, "ignored", 99)
+	bd, err := gb.Backend().LoadBoard(ctx, "ignored")
 	if err != nil {
 		t.Fatal(err)
 	}

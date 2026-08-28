@@ -68,8 +68,8 @@ func TestMapDomainBoard(t *testing.T) {
 	}
 	b := mapDomainBoard("acme", &raw)
 
-	if b.ID != "PVT_D" || b.Number != 9 || b.Owner != "acme" {
-		t.Fatalf("board identity = %+v", b)
+	if b.Board != "acme/9" {
+		t.Fatalf("board provenance = %q, want acme/9", b.Board)
 	}
 	if len(b.Cards) != 2 {
 		t.Fatalf("want 2 visible cards (state card split out), got %d", len(b.Cards))

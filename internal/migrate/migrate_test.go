@@ -73,9 +73,17 @@ func fixture() *boardservicetest.Backend {
 	})
 }
 
+// fakeSource reads the Projects v2 export the way the migration does — by
+// owner and board number — out of the in-memory fake.
+type fakeSource struct{ *boardservicetest.Backend }
+
+func (f fakeSource) LoadBoard(ctx context.Context, owner string, _ int) (board.Board, error) {
+	return f.Backend.LoadBoard(ctx, owner)
+}
+
 func run(t *testing.T, remote gitstore.Remote, opts Options) Report {
 	t.Helper()
-	rep, err := Run(context.Background(), fixture(), memory.NewStorage(), remote, opts)
+	rep, err := Run(context.Background(), fakeSource{fixture()}, memory.NewStorage(), remote, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

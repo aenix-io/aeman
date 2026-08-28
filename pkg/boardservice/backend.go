@@ -20,7 +20,7 @@ import (
 type Backend interface {
 	// LoadBoard fetches a project and returns the parsed domain snapshot (cards +
 	// fields, with the hidden per-team sprint-state cards split into SprintStates).
-	LoadBoard(ctx context.Context, owner string, project int) (board.Board, error)
+	LoadBoard(ctx context.Context, boardID string) (board.Board, error)
 
 	// LoadCards fetches specific cards by item id (a fast partial read the
 	// live-update path uses instead of reloading the whole board). Deleted ids are

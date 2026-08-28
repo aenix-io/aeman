@@ -265,14 +265,13 @@ func (b *Backend) writeWith(ctx context.Context, op string, cards []string, p st
 // LoadBoard reads the domain and hands the service the shape it expects:
 // the roster files become the state cards NewBoard splits back out, so the
 // duplicate and ordering rules stay in one place.
-func (b *Backend) LoadBoard(_ context.Context, owner string, project int) (board.Board, error) {
+func (b *Backend) LoadBoard(_ context.Context, boardID string) (board.Board, error) {
 	s, err := Load(b.repo)
 	if err != nil {
 		return board.Board{}, err
 	}
 	bd := boardFromSnapshot(s)
-	bd.Owner = owner
-	bd.Number = project
+	bd.Board = boardID
 	return bd, nil
 }
 

@@ -63,18 +63,18 @@ func TestBatchEchoesReachTheirAuthor(t *testing.T) {
 	be := &storeBackend{inner: fake, store: store}
 	svc := boardservice.New(be)
 	ctx := context.Background()
-	if _, err := be.LoadBoard(ctx, "acme", 1); err != nil {
+	if _, err := be.LoadBoard(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
 
-	author, cancelA := store.subscribe(storeKey("acme", 1), "tab-A", nil, map[string]bool{"cards": true})
+	author, cancelA := store.subscribe(storeKey("acme"), "tab-A", nil, map[string]bool{"cards": true})
 	defer cancelA()
-	other, cancelB := store.subscribe(storeKey("acme", 1), "tab-B", nil, map[string]bool{"cards": true})
+	other, cancelB := store.subscribe(storeKey("acme"), "tab-B", nil, map[string]bool{"cards": true})
 	defer cancelB()
 
 	// The rename arrives as the author's request (client id, NO target card).
 	rctx := withClientID(ctx, "tab-A")
-	if err := svc.RenameEpic(rctx, "acme", 1, "p", "Infra", "Infra2"); err != nil {
+	if err := svc.RenameEpic(rctx, "acme", "p", "Infra", "Infra2"); err != nil {
 		t.Fatal(err)
 	}
 	got := cardTitles(drainFrames(t, author), "MODIFIED")
@@ -97,16 +97,16 @@ func TestAddressedCardStaysSuppressed(t *testing.T) {
 	be := &storeBackend{inner: fake, store: store}
 	svc := boardservice.New(be)
 	ctx := context.Background()
-	if _, err := be.LoadBoard(ctx, "acme", 1); err != nil {
+	if _, err := be.LoadBoard(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
-	author, cancelA := store.subscribe(storeKey("acme", 1), "tab-A", nil, map[string]bool{"cards": true})
+	author, cancelA := store.subscribe(storeKey("acme"), "tab-A", nil, map[string]bool{"cards": true})
 	defer cancelA()
-	other, cancelB := store.subscribe(storeKey("acme", 1), "tab-B", nil, map[string]bool{"cards": true})
+	other, cancelB := store.subscribe(storeKey("acme"), "tab-B", nil, map[string]bool{"cards": true})
 	defer cancelB()
 
 	rctx := withTargetItem(withClientID(ctx, "tab-A"), "c1")
-	if err := svc.SetProgress(rctx, "acme", 1, "c1", 40); err != nil {
+	if err := svc.SetProgress(rctx, "acme", "c1", 40); err != nil {
 		t.Fatal(err)
 	}
 	if got := cardTitles(drainFrames(t, author), "MODIFIED"); len(got) != 0 {

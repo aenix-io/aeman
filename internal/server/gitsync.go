@@ -245,7 +245,7 @@ func (b *storeBackend) committed(e *boardEntry) {
 	g.mu.Lock()
 	if (g.pushDelay > 0 || g.pushTimer != nil) && g.pushTimer == nil {
 		e.mu.Lock()
-		key := storeKey(e.board.Owner, e.board.Number)
+		key := storeKey(e.board.Board)
 		e.mu.Unlock()
 		g.pushTimer = time.AfterFunc(g.pushDelay, func() {
 			_ = b.syncNow(context.Background(), key)
@@ -413,7 +413,7 @@ func (b *storeBackend) adoptRemote(ctx context.Context, e *boardEntry) error {
 // dropped first, or a card we just re-applied would keep its pre-rebase
 // shape in the cache.
 func (b *storeBackend) reloadFromTip(ctx context.Context, e *boardEntry) error {
-	fresh, err := b.inner.LoadBoard(ctx, e.board.Owner, e.board.Number)
+	fresh, err := b.inner.LoadBoard(ctx, e.board.Board)
 	if err != nil {
 		return err
 	}
@@ -480,13 +480,13 @@ func (b *storeBackend) tick(ctx context.Context, key string) error {
 func (b *storeBackend) sweepDue(ctx context.Context, key string) (int, error) {
 	e := b.store.entry(key)
 	e.mu.Lock()
-	owner, number, loaded := e.board.Owner, e.board.Number, e.loaded
+	boardID, loaded := e.board.Board, e.loaded
 	e.mu.Unlock()
 	if !loaded {
 		return 0, nil // nobody has asked for this board yet; the first read loads it
 	}
 	sctx := withAction(ctx, gitstore.NewID(time.Now()), "sweep")
-	return boardservice.New(b).SpawnDue(sctx, owner, number)
+	return boardservice.New(b).SpawnDue(sctx, boardID)
 }
 
 // deepenSince decides whether a card's log, cut at truncated, is worth
