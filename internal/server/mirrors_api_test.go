@@ -259,3 +259,46 @@ func TestGroupingAndTyingInOnePatchIsRefused(t *testing.T) {
 		t.Fatalf("the re-tie of a fresh subtask must be refused: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// A hand-written mirror onto a column nobody declared must not be
+// honoured: the board assembly drops it, so the resource never shows it
+// and the x's promotion never re-files the card into a ghost pair — the
+// last column simply behaves as the last column.
+func TestAHandWrittenGhostMirrorNeverPromotes(t *testing.T) {
+	remote := gitRemoteN(t, "board")
+	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
+		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
+		{Path: gitstore.ProjectPath("01JB4PROJE"), Data: []byte("name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: gitstore.EpicPath("01JB4PROJE", "01JB4EPICC"), Data: []byte("name: Cozystack\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: "cards/g/7/01JB4K2E7QZMX3R8V0N5T9WYG7.md", Data: []byte("---\ntitle: hand-edited\nteam: platform\nproject: engineering\nepic: Cozystack\nmirrors:\n  - project: engineering\n    epic: Ghost\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Push(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, remote)
+	const uid = "01JB4K2E7QZMX3R8V0N5T9WYG7"
+
+	// The ghost is silently corrected, never served.
+	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, "")
+	if body := rec.Body.String(); strings.Contains(body, "Ghost") {
+		t.Fatalf("the resource must not carry the ghost mirror: %s", body)
+	}
+	// And the x treats the home as the LAST column: the untouched card is
+	// deleted, not re-filed into a pair nobody declared.
+	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/remove-from-project", `{"project":"engineering","epic":"Cozystack"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("no promotion into a ghost pair — the card is gone: %d %s", rec.Code, rec.Body.String())
+	}
+}

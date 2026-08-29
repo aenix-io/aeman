@@ -891,6 +891,27 @@ func TestRemoveFromLastColumnCannotStrandTheTie(t *testing.T) {
 	}
 }
 
+// A DELETION moves nothing, so the tie guard has no say in it: an
+// untouched tied card of a closed repository is deleted in place by its
+// last column's x, the same way delete_card would take it — the guard
+// bites only the orphaning, which really is a re-file.
+func TestRemoveFromLastColumnDeletesAnUntouchedTiedCard(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "proc-f", Title: board.ProcessStateTitle, Process: "Fundraising ops", Domain: "founders"},
+		{ItemID: "c1", Title: "untouched closed chore", Stage: board.StageRecurrent,
+			Project: "strategy", Epic: "Fundraising", Domain: "founders",
+			Process: "Fundraising ops"},
+	})
+	svc := New(f)
+	if err := svc.RemoveFromProject(ctx, "acme", "c1", "strategy", "Fundraising"); err != nil {
+		t.Fatalf("deletion is not a move — the tie guard must stay quiet: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := findCard(b, "c1"); ok {
+		t.Fatal("the untouched card is deleted in place")
+	}
+}
+
 // A subtask rides its parent, and grouping clears its tie — a re-tie one
 // request later (PATCH {parent, process} carries both) would put it right
 // back under tiedMoveGuard's radar: any re-file of the PARENT drags the

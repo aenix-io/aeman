@@ -175,18 +175,21 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 		s.logEvent(ctx, b, c, board.EventEpic, project+" / "+epic, heir.Project+" / "+heir.Epic)
 		return nil
 	}
-	// The last column. Orphaning clears the pair, and for a teamless card
-	// that is a repository move (the domain falls through to the primary)
-	// — refused while a tie stands, before anything is written, like
-	// every other door.
-	if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
-		return err
-	}
+	// The last column.
 	worked := len(c.Assignees) > 0 && c.Progress > 0
 	if !worked {
-		// The whole card goes; clearing its plan first would be a dead
-		// write into the very commit that removes the file.
+		// The whole card goes — a deletion moves nothing, so the tie
+		// guard has no say here (delete_card removes tied cards the same
+		// way) — and clearing its plan first would be a dead write into
+		// the very commit that removes the file.
 		return s.deleteWithCascade(ctx, b, c)
+	}
+	// ORPHANING clears the pair, and for a teamless card that is a
+	// repository move (the domain falls through to the primary) — refused
+	// while a tie stands, before anything is written, like every other
+	// door.
+	if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
+		return err
 	}
 	// The weekly plan goes with it, always.
 	if c.Plan != board.PlanNone {

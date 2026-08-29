@@ -432,6 +432,15 @@ func NewBoard(cards []Card) Board {
 			b.Cards[i].Project = match
 		}
 	}
+	// The decoder drops what one file can prove wrong (half pairs,
+	// duplicates, home twins, subtask mirrors); a mirror into another
+	// repository or onto a column nobody declared needs the ROSTER, so it
+	// is dropped here — a writer producing one is silently corrected, not
+	// honoured (G15), and the x's promotion never inherits a home the
+	// service would have refused to mirror to.
+	for i := range b.Cards {
+		b.Cards[i].Mirrors = declaredMirrors(b, b.Cards[i])
+	}
 	for team, c := range winners {
 		b.SprintStates[team] = SprintState{
 			Current:  c.SprintStart,
@@ -526,4 +535,28 @@ func Iterations(b Board, taskID string) []Card {
 		}
 	}
 	return out
+}
+
+// declaredMirrors keeps the mirror entries the service itself would have
+// admitted: the column exists on the roster, in the home project's own
+// repository (MirrorAllowed). Everything else is a hand edit the decoder
+// could not judge without the roster.
+func declaredMirrors(b Board, c Card) []Placement {
+	if len(c.Mirrors) == 0 {
+		return c.Mirrors
+	}
+	kept := c.Mirrors[:0]
+	for _, m := range c.Mirrors {
+		if _, ok := FindEpic(b, m.Project, m.Epic); !ok {
+			continue
+		}
+		if !MirrorAllowed(b, c.Project, m.Project) {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return kept
 }

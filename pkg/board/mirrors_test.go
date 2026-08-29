@@ -72,3 +72,42 @@ func TestAMirrorTargetMustShareTheCardsRepository(t *testing.T) {
 		t.Fatal("an undeclared project is not a lawful target")
 	}
 }
+
+// The decoder judges what one file can prove; a mirror into another
+// repository or onto a column nobody declared needs the roster, so the
+// board assembly drops it — a writer producing one is silently corrected,
+// and the x's promotion never inherits a home the service would have
+// refused to mirror to.
+func TestNewBoardDropsMirrorsTheRosterDisowns(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
+		{ItemID: "pr-f", Title: ProjectStateTitle, Project: "freedom"},
+		{ItemID: "pr-s", Title: ProjectStateTitle, Project: "strategy", Domain: "founders"},
+		{ItemID: "ep-cozy", Title: EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
+		{ItemID: "ep-launch", Title: EpicStateTitle, Epic: "Launch", Project: "freedom"},
+		{ItemID: "ep-fund", Title: EpicStateTitle, Epic: "Fundraising", Project: "strategy", Domain: "founders"},
+		{ItemID: "c1", Title: "hand-edited", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []Placement{
+				{Project: "freedom", Epic: "Launch"},       // lawful: declared, same repository
+				{Project: "strategy", Epic: "Fundraising"}, // another repository
+				{Project: "freedom", Epic: "Ghost"},        // a column nobody declared
+			}},
+		{ItemID: "c2", Title: "no-project home", Epic: "Inbox",
+			Mirrors: []Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	var c1, c2 Card
+	for _, c := range b.Cards {
+		switch c.ItemID {
+		case "c1":
+			c1 = c
+		case "c2":
+			c2 = c
+		}
+	}
+	if len(c1.Mirrors) != 1 || c1.Mirrors[0] != (Placement{Project: "freedom", Epic: "Launch"}) {
+		t.Fatalf("only the lawful mirror survives assembly: %+v", c1.Mirrors)
+	}
+	if c2.Mirrors != nil {
+		t.Fatalf("a no-project home names no repository — its mirrors are disowned: %+v", c2.Mirrors)
+	}
+}
