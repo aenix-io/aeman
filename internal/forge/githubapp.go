@@ -138,7 +138,7 @@ func (a *GitHubApp) installationOf(ctx context.Context, slug string) (int64, err
 		_ = resp.Body.Close()
 		// The refusal carries the very link that fixes it — nobody should
 		// have to construct an install URL from an app id by hand.
-		return 0, fmt.Errorf("github app %s is not installed on %s — install it on the repository (or its organisation): %s", a.id, slug, a.InstallURL(ctx))
+		return 0, &AppNotInstalledError{App: a.id, Slug: slug, InstallURL: a.InstallURL(ctx)}
 	case resp.StatusCode/100 != 2:
 		_ = resp.Body.Close()
 		return 0, fmt.Errorf("github app: installation lookup for %s answered %s", slug, resp.Status)
@@ -153,6 +153,19 @@ func (a *GitHubApp) installationOf(ctx context.Context, slug string) (int64, err
 		return 0, fmt.Errorf("github app: installation lookup for %s named no installation", slug)
 	}
 	return body.ID, nil
+}
+
+// AppNotInstalledError is a repository the app has no installation for —
+// the one startup trouble a page with a button can fix, so callers tell it
+// apart (errors.As) and serve that page instead of refusing to run.
+type AppNotInstalledError struct {
+	App        string // the app id
+	Slug       string // owner/repo
+	InstallURL string // where the app is installed
+}
+
+func (e *AppNotInstalledError) Error() string {
+	return fmt.Sprintf("github app %s is not installed on %s — install it on the repository (or its organisation): %s", e.App, e.Slug, e.InstallURL)
 }
 
 // IsAppClientID reports whether a client id belongs to a GitHub App rather

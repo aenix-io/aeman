@@ -139,6 +139,10 @@ func (s *Server) personalRefusal(ctx context.Context, token string) (msg, action
 // is dropped and the attach retried with the visitor's token; then home. A
 // visitor without a session just goes home — there is nothing to retry for.
 func (s *Server) handleAppSetup(w http.ResponseWriter, r *http.Request) {
+	// A server still waiting for the installation retries the board itself.
+	if _, waiting := s.inSetup(); waiting {
+		s.retrySetup()
+	}
 	if tok, login, err := s.apiTokens(r); err == nil && login != "" && s.gitBE != nil {
 		s.gitBE.forgetPersonalProblem(login)
 		if err := s.gitBE.attachPersonal(r.Context(), login, tok); err != nil {

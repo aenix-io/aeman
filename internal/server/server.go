@@ -12,12 +12,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aenix-io/aeman/internal/forge"
@@ -89,6 +91,11 @@ type Server struct {
 	// access decides those rights per visitor. Both nil outside git mode.
 	visibleBE *visibleBackend
 	access    domainAccess
+	// setup, when non-nil, is the server waiting for its GitHub App to be
+	// installed on a board repository — serving the page that says so
+	// instead of the board. setupMu guards it and serialises retries.
+	setupMu sync.Mutex
+	setup   *setupState
 
 	// apiTokens resolves the token (and login) for an /api/v1 request. It
 	// defaults to tokenForRequest and is overridden in tests.
@@ -97,6 +104,72 @@ type Server struct {
 	// to boardservice.New over the visitor's view of the shared store and is
 	// overridden in tests with a fake Backend.
 	newService func(*http.Request) (*boardservice.Service, error)
+}
+
+// setupState is the server waiting for its GitHub App to be installed on a
+// board repository: the reason, the install link, and what a retry needs.
+type setupState struct {
+	problem    string
+	installURL string
+	forge      forge.Forge
+}
+
+// initGit opens the board's repositories and wires the visitor-facing
+// backend over them. Called at start, and again from /auth/setup when the
+// start left the server waiting for the app to be installed.
+func (s *Server) initGit(opts Options, f forge.Forge) error {
+	if err := s.openGit(opts.Git); err != nil {
+		return err
+	}
+	names := make([]string, 0, len(opts.Git.Repos))
+	for _, r := range opts.Git.Repos {
+		names = append(names, r.Name)
+	}
+	s.visibleBE = &visibleBackend{Backend: s.gitBE, primary: names[0], domains: names}
+	if opts.Auth != nil {
+		// Each visitor brings their own token: the forge says what it
+		// may read and write, per domain.
+		fa := newForgeAccess(f, s.httpClient, opts.Git.Repos, opts.Git.Token, s.people)
+		fa.app = opts.Git.App
+		fa.logger = s.log
+		s.access = fa
+	} else {
+		s.access = openAccess{domains: names}
+	}
+	return nil
+}
+
+// inSetup reports whether the server is still waiting for its app to be
+// installed; the state itself is returned for the page and the API answer.
+func (s *Server) inSetup() (*setupState, bool) {
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+	return s.setup, s.setup != nil
+}
+
+// retrySetup tries to open the board again — the person says they have
+// installed the app. One retry at a time; success ends the setup state.
+func (s *Server) retrySetup() {
+	s.setupMu.Lock()
+	st := s.setup
+	s.setupMu.Unlock()
+	if st == nil {
+		return
+	}
+	if err := s.initGit(s.opts, st.forge); err != nil {
+		s.log.Warn("still waiting for the app installation", "err", err)
+		var notInstalled *forge.AppNotInstalledError
+		if errors.As(err, &notInstalled) {
+			s.setupMu.Lock()
+			s.setup = &setupState{problem: err.Error(), installURL: notInstalled.InstallURL, forge: st.forge}
+			s.setupMu.Unlock()
+		}
+		return
+	}
+	s.setupMu.Lock()
+	s.setup = nil
+	s.setupMu.Unlock()
+	s.log.Info("the app installation arrived; the board is up")
 }
 
 // New builds a Server from the given options.
@@ -169,23 +242,19 @@ func New(opts Options) (*Server, error) {
 	s.store.log = s.log
 	s.store.member = s.people.member // the forge the identities come from
 	if opts.Git != nil {
-		if err := s.openGit(opts.Git); err != nil {
-			return nil, err
-		}
-		names := make([]string, 0, len(opts.Git.Repos))
-		for _, r := range opts.Git.Repos {
-			names = append(names, r.Name)
-		}
-		s.visibleBE = &visibleBackend{Backend: s.gitBE, primary: names[0], domains: names}
-		if opts.Auth != nil {
-			// Each visitor brings their own token: the forge says what it
-			// may read and write, per domain.
-			fa := newForgeAccess(f, s.httpClient, opts.Git.Repos, opts.Git.Token, s.people)
-			fa.app = opts.Git.App
-			fa.logger = s.log
-			s.access = fa
-		} else {
-			s.access = openAccess{domains: names}
+		if err := s.initGit(opts, f); err != nil {
+			// One kind of startup trouble is fixed with a click — the
+			// board's GitHub App missing from a repository — so the server
+			// comes up anyway and SHOWS the page that says so, instead of a
+			// log line for the operator and nothing for everyone else.
+			// Installing the app (GitHub redirects to /auth/setup) brings
+			// the board up without a restart. Anything else still refuses
+			// to start: a page cannot fix a wrong token.
+			var notInstalled *forge.AppNotInstalledError
+			if !errors.As(err, &notInstalled) {
+				return nil, err
+			}
+			s.setup = &setupState{problem: err.Error(), installURL: notInstalled.InstallURL, forge: f}
 		}
 	}
 	if opts.Auth != nil {
@@ -214,8 +283,51 @@ func New(opts Options) (*Server, error) {
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
-	s.handler = logRequests(s.log, clientIDMiddleware(s.csrfGuard(s.actorMiddleware(s.accessMiddleware(actionMiddleware(staleMiddleware(mux)))))))
+	s.handler = logRequests(s.log, s.setupGate(clientIDMiddleware(s.csrfGuard(s.actorMiddleware(s.accessMiddleware(actionMiddleware(staleMiddleware(mux))))))))
 	return s, nil
+}
+
+// setupGate serves the waiting-for-installation state: the page with the
+// install button on every path, a 503 with the actionUrl on the API, while
+// healthz and /auth/setup pass through (healthz says "setup" itself, and
+// /auth/setup is how the wait ends).
+func (s *Server) setupGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		st, waiting := s.inSetup()
+		if !waiting || r.URL.Path == "/api/healthz" || r.URL.Path == "/auth/setup" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			writeJSONErrorAction(w, http.StatusServiceUnavailable, st.problem, st.installURL)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(setupPage(st)))
+	})
+}
+
+// setupPage is the one screen a fresh deployment shows until its app is
+// installed: what is wrong, the button that fixes it, and a refresh loop so
+// the board appears on its own once the installation lands.
+func setupPage(st *setupState) string {
+	return `<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="7">
+<title>aeman — one step left</title>
+<style>
+  body { font: 16px/1.5 -apple-system, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; color: #24292f; }
+  .btn { display: inline-block; padding: .6rem 1.4rem; border-radius: 6px; background: #1f883d; color: #fff; text-decoration: none; font-weight: 600; }
+  code { background: #f2f2f2; padding: .1em .3em; border-radius: 3px; overflow-wrap: anywhere; }
+</style>
+<h1>One step left</h1>
+<p>This board stores itself in git repositories, and its GitHub App cannot reach one of them yet:</p>
+<p><code>` + html.EscapeString(st.problem) + `</code></p>
+<p><a class="btn" href="` + html.EscapeString(st.installURL) + `">Install the GitHub App</a></p>
+<p>Pick the organisation, select the board&#39;s repositories, install. This page checks again every few seconds and becomes the board on its own.</p>
+`
 }
 
 // csrfGuard rejects cross-site state-changing requests to the token-bearing
@@ -347,6 +459,10 @@ func (s *Server) tokenForRequest(r *http.Request) (token, login string, err erro
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	if st, waiting := s.inSetup(); waiting {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "setup", "error": st.problem, "actionUrl": st.installURL})
+		return
+	}
 	resp := map[string]any{"status": "ok"}
 	if s.gitBE != nil {
 		// A push that cannot land must not be discovered a week later: the

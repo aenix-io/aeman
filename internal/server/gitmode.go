@@ -184,6 +184,16 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		if tok := spec.token(cfg.Token); tok != "" {
 			remote.Auth = f.GitAuth(tok)
 		} else if cfg.App != nil {
+			// Mint once before the clone: a repository the app is not
+			// installed on must fail as itself (AppNotInstalledError — the
+			// one startup trouble a page with a button fixes), not as a
+			// bare 401 from the git transport.
+			mintCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_, err := cfg.App.Token(mintCtx, spec.URL)
+			cancel()
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", spec.Name, err)
+			}
 			// The installation token is asked for on every request, so one
 			// renewed between two pushes is picked up without re-wiring.
 			remote.Auth = cfg.App.GitAuthFor(spec.URL)
