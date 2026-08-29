@@ -133,13 +133,19 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	if err := s.backend.SetProject(ctx, b, stub, to); err != nil {
 		return err
 	}
+	// A card standing in the moved column through a mirror follows with its
+	// mirror entry — which may not cross repositories (G15). One card that
+	// cannot follow refuses the whole move: half a column cannot leave.
+	for _, c := range b.Cards {
+		if board.Mirrored(c, from, epic) && !board.MirrorAllowed(b, c.Project, to) {
+			return fmt.Errorf("%w: %q mirrors this column and lives in another repository than %q",
+				ErrCrossDomain, c.Title, to)
+		}
+	}
 	for _, c := range b.Cards {
 		if !board.InEpic(c, from, epic) {
 			continue
 		}
-		// A card standing in the moved column through a mirror follows with
-		// its mirror entry; only a card whose HOME is the column moves its
-		// project field.
 		if board.Mirrored(c, from, epic) {
 			if err := s.renameMirror(ctx, b, c, from, epic, to, epic); err != nil {
 				return err

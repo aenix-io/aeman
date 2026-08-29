@@ -4,6 +4,7 @@ import {
   attachSlotDates,
   attachTargets,
   mirrorTargets,
+  placementTargets,
   removeFromProjectOutcome,
 } from "./placements";
 import type { Card } from "./providers/types";
@@ -92,5 +93,33 @@ describe("removeFromProjectOutcome", () => {
     expect(
       removeFromProjectOutcome({ ...base, assignees: [], progress: 40 } as Card, "engineering", "Cozystack"),
     ).toBe("delete");
+  });
+});
+
+// placementTargets is the dispatcher the boards call: which section a card
+// gets is decided by what it is, not where it is rendered.
+describe("placementTargets", () => {
+  const board = {
+    projects: ["engineering"],
+    epics: [{ name: "Cozystack", project: "engineering" }],
+    projectDomains: undefined,
+    processes: [{ name: "Invoicing" }, { name: "Reporting" }],
+  };
+
+  it("offers mirrors to a card already in a column", () => {
+    const got = placementTargets({ project: "engineering", epic: "Cozystack" } as Card, board);
+    expect(got.mirror).toEqual([]);
+    expect(got.attach).toBeUndefined();
+  });
+
+  it("offers processes to a recurrent card", () => {
+    const got = placementTargets({ stage: "recurrent" } as Card, board);
+    expect(got.processes).toEqual(["Invoicing", "Reporting"]);
+    expect(got.attach).toBeUndefined();
+  });
+
+  it("offers projects to everything else", () => {
+    const got = placementTargets({} as Card, board);
+    expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
   });
 });

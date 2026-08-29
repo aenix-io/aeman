@@ -191,6 +191,40 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	if err := guardRoster(b, card.Team, projectName); err != nil {
 		return err
 	}
+	// The mirrors ride the re-file, and the invariant holds through it:
+	//   - the home moving where the card already mirrors drops that mirror
+	//     (a mirror equal to the home drew the slot twice and made the ×
+	//     unmirror instead of remove);
+	//   - a cleared column clears the mirrors — a card outside every
+	//     project has none, or DeleteEpic refuses for cards nobody sees;
+	//   - the home cannot leave its mirrors' repository (G15): unmirror
+	//     first, then move.
+	if len(card.Mirrors) > 0 {
+		if epic == "" {
+			if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {
+				return err
+			}
+			card.Mirrors = nil
+		} else {
+			if projectName != card.Project && !board.MirrorAllowed(b, projectName, card.Mirrors[0].Project) {
+				return fmt.Errorf("%w: the card mirrors %q — unmirror it before moving to %q",
+					ErrCrossDomain, card.Mirrors[0].Project, projectName)
+			}
+			if board.Mirrored(card, projectName, epic) {
+				kept := make([]board.Placement, 0, len(card.Mirrors)-1)
+				for _, m := range card.Mirrors {
+					if m.Project == projectName && m.Epic == epic {
+						continue
+					}
+					kept = append(kept, m)
+				}
+				if err := s.backend.SetMirrors(ctx, b, card, kept); err != nil {
+					return err
+				}
+				card.Mirrors = kept
+			}
+		}
+	}
 	if card.Epic != epic {
 		if err := s.backend.SetEpic(ctx, b, card, epic); err != nil {
 			return err

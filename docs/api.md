@@ -341,6 +341,8 @@ Bootstrapping: `aeman init --repo <url> [--title …]` writes an empty board (on
 | `delete_card` / `remove_card` | Hard delete; the smart × (`from: grid\|plan`). |
 | `move_card` / `defer_card` | Reorder; push the scheduled day ahead. |
 | `send_to_review` / `remove_reviewer` | The review-card cycle (send reassigns when a review card exists). |
+| `mirror_card` / `unmirror_card` | Show the card in a second column ({uid, project, epic}) — the same card, one file and one log, the card's own repository only — and take one away. |
+| `remove_from_project` | The Project board's ×: a mirror goes; the home hands over to its first mirror; the last column keeps only a worked card, as a working-area orphan, and deletes the rest. |
 | `take_into_plan` / `release_from_plan` | Weekly-plan membership. |
 | `carry_over` | Advance a team's sprint and carry its unfinished day cards forward (`dryRun` reports the counts). There is no weekly counterpart: the server files each week's process turns by itself, and an unfinished plan card is a debt that stays where it was owed and shows on the current week as overdue. |
 | `add_note` / `edit_note` / `delete_note` | The note thread. |

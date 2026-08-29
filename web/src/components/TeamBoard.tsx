@@ -48,11 +48,7 @@ import {
   planRemoval,
   removalKind,
 } from "../removal";
-import {
-  attachSlotDates,
-  placementTargets,
-  type CardPlacements,
-} from "../placements";
+import { makeCardPlacements, type CardPlacements } from "../placements";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -1513,56 +1509,19 @@ export function TeamBoard({
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 
 
-  // placementsFor is the assign menu's attach/mirror section for one card:
-  // targets the server would accept, callbacks that mirror its outcomes
-  // optimistically and converge on the re-list.
+  // placementsFor: the assign menu's attach/mirror section — one shared
+  // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
     if (card.parent) {
       return undefined; // a subtask rides its parent; it is placed nowhere
     }
-    const targets = placementTargets(card, {
-      projects: board.projects,
-      epics: board.epics,
-      projectDomains: board.projectDomains,
-      processes: board.processes,
+    return makeCardPlacements(card, board, {
+      provider,
+      patchCard,
+      reload,
+      onError,
+      errMessage,
     });
-    const call = (p: Promise<unknown>) => {
-      void p.then(() => reload()).catch((err: unknown) => {
-        onError(errMessage(err));
-        reload();
-      });
-    };
-    return {
-      ...targets,
-      onAttachProject: (project, epic) => {
-        const patch: Partial<CardModel> = { project, epic };
-        if (!card.startDate && card.plan && card.week) {
-          // The card takes the slot of the week it was taken from — the
-          // same dates the server writes (attachSlotDates).
-          Object.assign(patch, attachSlotDates(card.plan, card.week));
-        }
-        patchCard(card.itemId, patch);
-        call(provider.patchCard(card.itemId, { epic, project }));
-      },
-      onAttachProcess: (process) => {
-        patchCard(card.itemId, { process });
-        call(provider.patchCard(card.itemId, { process }));
-      },
-      onMirror: (project, epic) => {
-        patchCard(card.itemId, {
-          mirrors: [...(card.mirrors ?? []), { project, epic }],
-        });
-        call(provider.mirrorCard(card.itemId, project, epic));
-      },
-      onUnmirror: (project, epic) => {
-        patchCard(card.itemId, {
-          mirrors: (card.mirrors ?? []).filter(
-            (m) => !(m.project === project && m.epic === epic),
-          ),
-        });
-        call(provider.unmirrorCard(card.itemId, project, epic));
-      },
-    };
   };
 
   const handleGridDelete = (card: CardModel, forced?: "demote") => {

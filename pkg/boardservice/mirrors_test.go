@@ -294,3 +294,90 @@ func TestSetCardProcess(t *testing.T) {
 		t.Fatalf("empty clears: %+v", c)
 	}
 }
+
+// The mirror invariant must survive the OLD ways a card is re-filed, not
+// only the new actions. Three collisions, each reachable from the UI or a
+// plain PATCH before this test existed:
+//
+//   - the home dragged onto a column the card already mirrors left a
+//     mirror entry EQUAL to the home — Mirrored(home) turned true, the ×
+//     unmirrored instead of removing, and the Project board drew the slot
+//     twice under one key;
+//   - clearing the epic left mirrors on a card outside every project —
+//     invisible on the Project board, yet counted by InEpic, so DeleteEpic
+//     refused for cards nobody could see;
+//   - re-filing a teamless card into a project of another repository (or
+//     moving a whole column there) carried the home across while the
+//     mirrors stayed behind: the very state ErrCrossDomain exists to
+//     forbid.
+func TestReFilingTheHomeOntoAMirrorDropsTheDuplicate(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	svc := New(f)
+	project := "freedom"
+	if err := svc.SetEpic(ctx, "acme", "c1", "Launch", &project); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Project != "freedom" || c.Epic != "Launch" {
+		t.Fatalf("the home moved: %+v", c)
+	}
+	if len(c.Mirrors) != 0 {
+		t.Fatalf("a mirror equal to the home is no mirror — it is dropped: %+v", c.Mirrors)
+	}
+}
+
+func TestClearingTheEpicClearsTheMirrorsToo(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	svc := New(f)
+	if err := svc.SetEpic(ctx, "acme", "c1", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Epic != "" || c.Project != "" {
+		t.Fatalf("the column is cleared: %+v", c)
+	}
+	if len(c.Mirrors) != 0 {
+		t.Fatalf("a card outside every project has no mirrors: %+v", c.Mirrors)
+	}
+}
+
+func TestReFilingAMirroredCardIntoAnotherRepositoryIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "teamless", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	svc := New(f)
+	project := "strategy"
+	err := svc.SetEpic(ctx, "acme", "c1", "Fundraising", &project)
+	if !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the home cannot leave its mirrors' repository: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Project != "engineering" {
+		t.Fatalf("a refused move changes nothing: %+v", c)
+	}
+}
+
+func TestMovingAColumnToAnotherRepositoryIsRefusedWhileCardsMirrorIt(t *testing.T) {
+	// The card is teamless on purpose: a team of the primary repository
+	// would refuse the move first (G46), before the mirror rule gets a say.
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "shared", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	svc := New(f)
+	// Moving Launch's column into the founders repository would leave c1's
+	// mirror pointing across repositories: refused, not rewritten.
+	if err := svc.SetEpicProject(ctx, "acme", "freedom", "Launch", "strategy"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("a column with cross-repo mirrors on it cannot move there: %v", err)
+	}
+}

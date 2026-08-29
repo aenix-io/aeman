@@ -872,9 +872,6 @@ func (s *Server) handleReopen(w http.ResponseWriter, r *http.Request) {
 	s.cardResponse(w, r, svc, boardID, uid)
 }
 
-// handleSendToReview sends a card to a reviewer. When a linked review card
-// already exists the action reassigns it instead — the backend decides, the
-// client just states the intent.
 // placementBody is the {project, epic} pair the mirror actions take.
 type placementBody struct {
 	Project string `json:"project"`
@@ -926,6 +923,9 @@ func (s *Server) handleRemoveFromProject(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// handleSendToReview sends a card to a reviewer. When a linked review card
+// already exists the action reassigns it instead — the backend decides, the
+// client just states the intent.
 func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Reviewer string `json:"reviewer"`

@@ -39,11 +39,7 @@ import {
   personalRemovalKind,
   removalKind,
 } from "../removal";
-import {
-  attachSlotDates,
-  placementTargets,
-  type CardPlacements,
-} from "../placements";
+import { makeCardPlacements, type CardPlacements } from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
@@ -1187,60 +1183,23 @@ export function MeBoard({
   // Card shows no "Delete?" of its own in front of it — see boardAsks), and
   // a subtask, having no history of its own, never opens it.
 
-  // placementsFor is the assign menu's attach/mirror section for one card:
-  // targets the server would accept, callbacks that mirror its outcomes
-  // optimistically and converge on the re-list.
+  // placementsFor: the assign menu's attach/mirror section — one shared
+  // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
     if (card.parent || isPersonalCard(card, board.personal)) {
       // A subtask rides its parent, and the personal board has no projects.
       return undefined;
     }
-    const targets = placementTargets(card, {
-      projects: board.projects,
-      epics: board.epics,
-      projectDomains: board.projectDomains,
-      processes: board.processes,
+    return makeCardPlacements(card, board, {
+      provider,
+      patchCard,
+      reload,
+      onError,
+      errMessage,
     });
-    const call = (p: Promise<unknown>) => {
-      void p.then(() => reload()).catch((err: unknown) => {
-        onError(errMessage(err));
-        reload();
-      });
-    };
-    return {
-      ...targets,
-      onAttachProject: (project, epic) => {
-        const patch: Partial<CardModel> = { project, epic };
-        if (!card.startDate && card.plan && card.week) {
-          // The card takes the slot of the week it was taken from — the
-          // same dates the server writes (attachSlotDates).
-          Object.assign(patch, attachSlotDates(card.plan, card.week));
-        }
-        patchCard(card.itemId, patch);
-        call(provider.patchCard(card.itemId, { epic, project }));
-      },
-      onAttachProcess: (process) => {
-        patchCard(card.itemId, { process });
-        call(provider.patchCard(card.itemId, { process }));
-      },
-      onMirror: (project, epic) => {
-        patchCard(card.itemId, {
-          mirrors: [...(card.mirrors ?? []), { project, epic }],
-        });
-        call(provider.mirrorCard(card.itemId, project, epic));
-      },
-      onUnmirror: (project, epic) => {
-        patchCard(card.itemId, {
-          mirrors: (card.mirrors ?? []).filter(
-            (m) => !(m.project === project && m.epic === epic),
-          ),
-        });
-        call(provider.unmirrorCard(card.itemId, project, epic));
-      },
-    };
   };
 
-    const gridCtx = (card: CardModel) => ({
+  const gridCtx = (card: CardModel) => ({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprint(board, card.team ?? null) ?? undefined,
     today: todayIso(),
