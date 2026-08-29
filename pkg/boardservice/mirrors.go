@@ -61,6 +61,12 @@ func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, e
 	if _, ok := board.FindEpic(b, project, epic); !ok {
 		return fmt.Errorf("%w %q in project %q", ErrEpicNotFound, epic, project)
 	}
+	if c.Project == "" {
+		// The no-project bucket names no repository, so MirrorAllowed has
+		// nothing to compare a target against — said plainly, not as a
+		// refusal quoting an empty project name.
+		return fmt.Errorf("%w: the card's column belongs to no project — file it under one first", ErrCrossDomain)
+	}
 	if !board.MirrorAllowed(b, c.Project, project) {
 		return fmt.Errorf("%w: %q is not in %q's repository", ErrCrossDomain, project, c.Project)
 	}
@@ -120,13 +126,16 @@ func (s *Service) Unmirror(ctx context.Context, boardID string, itemID, project,
 //     moved it); an untouched card is deleted outright. The UI asks first
 //     when work would go (deleteWarning).
 func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, epic string) error {
-	// A column is the PAIR, and an empty pair is no column: without this, a
-	// card standing in no column "matched" ("", "") and fell through to the
-	// last-column branch — deleted outright by the very call that asked to
-	// remove it from nowhere. The HTTP layer refuses empty halves too, but
-	// this package is a public contract and the MCP tool feeds it directly.
-	if project == "" || epic == "" {
-		return fmt.Errorf("%w: a column is the (project, epic) pair — both halves are required", ErrNotInProject)
+	// A column is named by its EPIC — an empty epic is no column: without
+	// this, a card standing in no column "matched" ("", "") and fell
+	// through to the last-column branch, deleted outright by the very call
+	// that asked to remove it from nowhere. The PROJECT half may be empty:
+	// the no-project bucket is a real column with a working ×, and a card
+	// outside every column has an empty epic, so ("", epic) on it honestly
+	// mismatches below. This package is a public contract and the MCP tool
+	// feeds it directly, so the guard lives here.
+	if epic == "" {
+		return fmt.Errorf("%w: a column is named by its epic — the epic half is required", ErrNotInProject)
 	}
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {

@@ -135,6 +135,11 @@ export function placementTargets(
   },
 ): Pick<CardPlacements, "attach" | "processes" | "mirror"> {
   if (card.epic) {
+    if (!card.project) {
+      // A no-project column names no repository, so the server refuses
+      // every mirror target — the menu offers nothing rather than 422s.
+      return {};
+    }
     return {
       mirror: mirrorTargets(card, board.projects, board.epics, board.projectDomains),
     };

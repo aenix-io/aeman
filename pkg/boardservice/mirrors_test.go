@@ -193,12 +193,14 @@ func TestRemoveFromProjectRefusesAColumnTheCardIsNotIn(t *testing.T) {
 	}
 }
 
-// An empty pair is no column. A card standing in no column has an empty
-// home, which "matched" ("", "") and fell through to the last-column branch
-// — the call that asked to remove a card from nowhere deleted it outright.
-// The MCP tool feeds this service without validating, and an agent calling
-// remove_from_project with empty halves on a column-less card is the most
-// expectable mistake there is.
+// A column is named by its EPIC alone. A card standing in no column has an
+// empty home, which once "matched" ("", "") and fell through to the
+// last-column branch — the call that asked to remove a card from nowhere
+// deleted it outright. Requiring the epic half closes that hole; requiring
+// the project half too broke the × of every no-project column, which is a
+// real column with a real ×. The MCP tool feeds this service without
+// validating, and an agent calling remove_from_project with empty halves
+// on a column-less card is the most expectable mistake there is.
 func TestRemoveFromProjectRefusesTheEmptyPair(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "c1", Title: "no column", Team: "platform"},
@@ -207,9 +209,124 @@ func TestRemoveFromProjectRefusesTheEmptyPair(t *testing.T) {
 	if err := svc.RemoveFromProject(ctx, "acme", "c1", "", ""); !errors.Is(err, ErrNotInProject) {
 		t.Fatalf("the empty pair must be refused: %v", err)
 	}
+	// ("", epic) is a lawful pair — the no-project bucket — but this card
+	// is not in it: an empty home mismatches honestly, nothing is deleted.
+	if err := svc.RemoveFromProject(ctx, "acme", "c1", "", "Launch"); !errors.Is(err, ErrNotInProject) {
+		t.Fatalf("a no-project column the card is not in: %v", err)
+	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	if _, ok := findCard(b, "c1"); !ok {
 		t.Fatal("the refused call must not have deleted the card")
+	}
+}
+
+// The no-project bucket is a full column — its own chip, its own × — and
+// removal from it follows the same last-column rules: an untouched card is
+// deleted, a worked card survives as a working-area orphan.
+func TestRemoveFromANoProjectColumnWorks(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
+		{ItemID: "cold", Title: "untouched", Team: "platform", Epic: "Inbox"},
+		{ItemID: "warm", Title: "worked", Team: "platform", Epic: "Inbox",
+			Assignees: []string{"kvaps"}, Progress: 40},
+	})
+	svc := New(f)
+	if err := svc.RemoveFromProject(ctx, "acme", "cold", "", "Inbox"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := findCard(b, "cold"); ok {
+		t.Fatal("an untouched card in its last column is deleted")
+	}
+	if err := svc.RemoveFromProject(ctx, "acme", "warm", "", "Inbox"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "warm")
+	if !ok || c.Epic != "" {
+		t.Fatalf("a worked card survives as a working-area orphan: %+v", c)
+	}
+}
+
+// A no-project column names no repository, so it cannot be a mirror HOME:
+// there is nothing to compare a target against, and the picker offers such
+// a card no mirrors at all (placements.test.ts pins the UI half).
+func TestACardInANoProjectColumnCannotBeMirrored(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
+		{ItemID: "c1", Title: "unbound", Team: "platform", Epic: "Inbox"},
+	})
+	if err := New(f).Mirror(ctx, "acme", "c1", "freedom", "Launch"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("no repository to mirror within: %v", err)
+	}
+}
+
+// The tie is a reference by name, and issue #124's rule follows it: a
+// renamed process carries its ties along, with the same trace in the
+// card's log the tie itself leaves.
+func TestRenameProcessRewritesTheTies(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	svc := New(f)
+	if err := svc.RenameProcess(ctx, "acme", "Invoicing", "Billing"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Process != "Billing" {
+		t.Fatalf("the tie follows the rename: %+v", c)
+	}
+	found := false
+	for _, e := range f.eventsOf("c1") {
+		if e.Kind == board.EventProcess && e.From == "Invoicing" && e.To == "Billing" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the rewrite must be logged: %+v", f.eventsOf("c1"))
+	}
+}
+
+// A process with standing ties will not delete: the ties would dangle on a
+// name that no longer exists — the same protection tasks already had.
+func TestDeleteProcessRefusesWhileCardsAreTied(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	svc := New(f)
+	if err := svc.DeleteProcess(ctx, "acme", "Invoicing"); !errors.Is(err, ErrProcessInUse) {
+		t.Fatalf("ties stand: %v", err)
+	}
+	if err := svc.SetCardProcess(ctx, "acme", "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteProcess(ctx, "acme", "Invoicing"); err != nil {
+		t.Fatalf("untied, the process deletes: %v", err)
+	}
+}
+
+// Moving a process to a project of another repository re-files its stub
+// there — and every standing tie would turn cross-repository in one
+// stroke, the very state the tie guard exists to prevent. Refused while
+// ties stand; a move within the repository, and any move once untied, is
+// free.
+func TestMovingAProcessToAnotherRepositoryIsRefusedWhileCardsAreTied(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	svc := New(f)
+	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", "strategy"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the move would strand every tie: %v", err)
+	}
+	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", "engineering"); err != nil {
+		t.Fatalf("a move within the repository leaves the ties valid: %v", err)
+	}
+	if err := svc.SetCardProcess(ctx, "acme", "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", "strategy"); err != nil {
+		t.Fatalf("no ties, no objection: %v", err)
 	}
 }
 

@@ -878,14 +878,18 @@ type placementBody struct {
 	Epic    string `json:"epic"`
 }
 
-func (s *Server) placementAction(w http.ResponseWriter, r *http.Request,
+func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, requireProject bool,
 	act func(svc *boardservice.Service, boardID, uid, project, epic string) error,
 ) {
 	var in placementBody
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	if in.Project == "" || in.Epic == "" {
+	// A column is named by its epic; the project half may be empty ONLY for
+	// remove-from-project, where the no-project bucket is a real column
+	// with a working ×. A mirror target must name a project — the target's
+	// repository is read off it.
+	if in.Epic == "" || (requireProject && in.Project == "") {
 		writeJSONError(w, http.StatusUnprocessableEntity, "project and epic are required — a column is the pair")
 		return
 	}
@@ -903,14 +907,14 @@ func (s *Server) placementAction(w http.ResponseWriter, r *http.Request,
 // handleMirror adds a second Project-board column to the card — the same
 // card shown in both projects, one file and one log.
 func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.Mirror(r.Context(), boardID, uid, project, epic)
 	})
 }
 
 // handleUnmirror takes one mirror column away.
 func (s *Server) handleUnmirror(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.Unmirror(r.Context(), boardID, uid, project, epic)
 	})
 }
@@ -918,7 +922,7 @@ func (s *Server) handleUnmirror(w http.ResponseWriter, r *http.Request) {
 // handleRemoveFromProject is the Project board's ×: remove the card from
 // one column, with the mirror/promote/last-column rules of the service.
 func (s *Server) handleRemoveFromProject(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, false, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.RemoveFromProject(r.Context(), boardID, uid, project, epic)
 	})
 }

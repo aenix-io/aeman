@@ -116,6 +116,15 @@ describe("placementTargets", () => {
     expect(got.attach).toBeUndefined();
   });
 
+  it("offers a card in a no-project column no mirrors at all", () => {
+    // A no-project column names no repository — the server refuses every
+    // target for it, so the menu must not offer any.
+    const got = placementTargets({ epic: "Inbox" } as Card, board);
+    expect(got.mirror).toBeUndefined();
+    expect(got.attach).toBeUndefined();
+    expect(got.processes).toBeUndefined();
+  });
+
   it("offers processes to a recurrent card", () => {
     const got = placementTargets({ stage: "recurrent" } as Card, board);
     expect(got.processes).toEqual(["Invoicing", "Reporting"]);

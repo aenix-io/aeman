@@ -73,3 +73,34 @@ created: 2026-08-29T10:00:00Z
 		t.Fatalf("only the full pair survives, got %+v", out.Card.Mirrors)
 	}
 }
+
+// A hand-written mirror equal to the home pair, or written twice, is the
+// exact state the x bug lives in: the slot drawn twice and the x
+// unmirroring instead of removing. The decoder drops both in a post-pass —
+// the mirrors here come BEFORE the home keys on purpose, because a
+// hand-written file guarantees no key order.
+func TestHandWrittenDuplicateMirrorsAreDropped(t *testing.T) {
+	data := []byte(`---
+mirrors:
+  - project: engineering
+    epic: Cozystack
+  - project: freedom
+    epic: Launch
+  - project: freedom
+    epic: Launch
+title: hand-written
+project: engineering
+epic: Cozystack
+rank: a
+created: 2026-08-29T10:00:00Z
+---
+`)
+	out, err := DecodeCard("01JB4K2E7QZMX3R8V0N5T9WYB2", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := board.Placement{Project: "freedom", Epic: "Launch"}
+	if len(out.Card.Mirrors) != 1 || out.Card.Mirrors[0] != want {
+		t.Fatalf("the home twin and the duplicate must go, got %+v", out.Card.Mirrors)
+	}
+}
