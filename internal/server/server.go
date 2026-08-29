@@ -146,6 +146,16 @@ func New(opts Options) (*Server, error) {
 	var peopleToken func(context.Context) string
 	switch {
 	case opts.Auth != nil && opts.Git != nil:
+		if app := opts.Git.App; app != nil && len(opts.Git.Repos) > 0 {
+			// App mode holds no static token: the directory asks with a
+			// token minted for the primary repository.
+			primary := opts.Git.Repos[0].URL
+			peopleToken = func(ctx context.Context) string {
+				tok, _ := app.Token(ctx, primary)
+				return tok
+			}
+			break
+		}
 		tok := opts.Git.Token
 		peopleToken = func(context.Context) string { return tok }
 	case opts.Auth == nil:
@@ -171,6 +181,7 @@ func New(opts Options) (*Server, error) {
 			// Each visitor brings their own token: the forge says what it
 			// may read and write, per domain.
 			fa := newForgeAccess(f, s.httpClient, opts.Git.Repos, opts.Git.Token, s.people)
+			fa.app = opts.Git.App
 			fa.logger = s.log
 			s.access = fa
 		} else {

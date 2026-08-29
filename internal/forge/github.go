@@ -37,7 +37,11 @@ func (g *github) AuthorizeURL() string {
 func (g *github) TokenURL() string {
 	return "https://github.com/login/oauth/access_token" //nolint:gosec // OAuth endpoint, not a credential
 }
-func (g *github) DefaultScopes() string { return "repo project" }
+
+// DefaultScopes: `repo` is what an OAuth App needs to see a private board
+// repository; a GitHub App ignores the parameter (its permissions come from
+// the installation).
+func (g *github) DefaultScopes() string { return "repo" }
 
 func (g *github) ExchangeForm(clientID, secret, code, redirectURI string) url.Values {
 	form := url.Values{}

@@ -10,14 +10,28 @@ browser ──HTTPS──► Caddy (:443, auto-TLS) ──http──► aeman:87
 
 One forge per instance: register the application at GitHub **or** GitLab and fill in that pair of variables only. On both, the callback is `<AEMAN_BASE_URL>/auth/callback`.
 
-### GitHub
+### GitHub — a GitHub App (recommended)
+
+A GitHub App gives both halves at once: the sign-in (its Client ID/secret work in the same OAuth endpoints, and the consent screen shows the app's per-repository permissions instead of `repo` — full access to every private repository the person has), and the **server credential without a PAT** — the server signs a JWT with the app's private key and mints installation tokens, scoped to the repositories the app is installed on, renewed automatically. Nothing to issue by hand, nothing that quietly expires in a `.env` file.
+
+GitHub → the organisation's **Settings** → Developer settings → **GitHub Apps** → **New GitHub App**:
+
+- **Homepage URL:** `https://aeman.example.com`
+- **Callback URL:** `https://aeman.example.com/auth/callback`; enable **Request user authorization (OAuth) during installation**, keep **Expire user authorization tokens** on
+- **Webhook:** off
+- **Repository permissions:** **Contents: Read and write**, **Metadata: Read-only** (automatic)
+- **Where can this app be installed:** Any account, if boards of other organisations (or personal boards) will use it
+
+Generate a **client secret** and a **private key** (a `.pem` download). Then **install the app**: on each organisation the board's repositories live in, choosing those repositories. The five variables: `AEMAN_GITHUB_CLIENT_ID` / `AEMAN_GITHUB_CLIENT_SECRET` (sign-in), `AEMAN_GITHUB_APP_ID` (the numeric App ID) and `AEMAN_GITHUB_APP_KEY` (the key PEM, or base64 of it — a `.env` file cannot hold a multiline value) or `AEMAN_GITHUB_APP_KEY_FILE` (a path). With the App configured, `AEMAN_GIT_TOKEN*` is not needed; a repository that names its own token keeps it, the App covers the rest.
+
+### GitHub — an OAuth App (the static-token alternative)
 
 GitHub → Settings → Developer settings → **OAuth Apps** → **New OAuth App**:
 
 - **Homepage URL:** `https://aeman.example.com`
 - **Authorization callback URL:** `https://aeman.example.com/auth/callback`
 
-Generate a client secret. Keep the **Client ID** and **Client secret** — they become `AEMAN_GITHUB_CLIENT_ID` / `AEMAN_GITHUB_CLIENT_SECRET`.
+Generate a client secret. Keep the **Client ID** and **Client secret** — they become `AEMAN_GITHUB_CLIENT_ID` / `AEMAN_GITHUB_CLIENT_SECRET`. In this mode the sign-in asks for the `repo` scope (a private board repository is invisible to a token without it — and the consent screen therefore offers access to everything private the person has), and the server needs its own PAT: `AEMAN_GIT_TOKEN`, or one per repository.
 
 ### GitLab
 
@@ -73,7 +87,7 @@ A user whose token can't read that board sees an access-denied screen rather tha
 
 - **Who sees what.** A visitor's own token decides per repository. GitHub: the repository's `permissions` — `pull` reads, `push`/`maintain`/`admin` write. GitLab: the project's access level — Reporter (20) reads, Developer (30) and above write; a Guest sees the project but not its board; public and internal projects read for anyone signed in. The assignee pickers list the people who can read the repository: on GitHub each login's collaborator permission, asked with the server token; on GitLab the project's member list (inherited group members included), which also supplies display names and avatars.
 - **Sessions & the session store.** `AEMAN_SESSION_FILE` (on the `aeman_sessions` volume) always persists the dynamic MCP client registry. Sessions — the visitors' forge tokens — are written there only when `AEMAN_SESSION_KEY` is set, encrypted with it (AES-256-GCM); then restarts and redeploys keep users signed in and MCP tokens live. Without the key, sessions stay in memory and a restart signs everyone out — no plaintext token ever touches disk either way. Keep the key stable (changing or losing it just signs everyone out) and store it outside the session volume so a leak of that volume alone exposes nothing. GitHub's classic OAuth App tokens don't expire, so a session simply lasts up to 14 days.
-- **Scopes:** `AEMAN_SCOPES` overrides what the sign-in asks for; the default is `repo project` on GitHub and `read_user read_api write_repository` on GitLab.
+- **Scopes:** `AEMAN_SCOPES` overrides what the sign-in asks for; the default is `repo` on GitHub (a GitHub App ignores the parameter — its permissions come from the installation) and `read_user read_api write_repository` on GitLab.
 - **Cert storage:** the `caddy_data` volume persists issued certificates across restarts.
 - **Local CLI mode is unchanged:** without a client id/secret pair the binary still runs as a single-user local tool on the identity of the forge CLI signed in on the machine — `gh` on GitHub, `glab` on GitLab.
 - **Behind Cloudflare Tunnel instead of Caddy?** Drop the `caddy` service, add a `cloudflared` service with your tunnel token, and route the public hostname to `http://aeman:8765`; keep `AEMAN_BASE_URL` pointed at the public HTTPS URL.

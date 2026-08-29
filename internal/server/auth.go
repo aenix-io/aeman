@@ -38,7 +38,7 @@ type OAuthConfig struct {
 	// BaseURL is the public origin (e.g. https://aeman.example.com) used to
 	// build the OAuth redirect URI.
 	BaseURL string
-	// Scopes is a space-separated OAuth scope list (defaults to "repo project").
+	// Scopes is a space-separated OAuth scope list (defaults to the forge's).
 	Scopes string
 	// SessionFile, when set, persists the dynamic MCP client registry to this
 	// path so registered clients survive restarts. GitHub tokens (sessions) are

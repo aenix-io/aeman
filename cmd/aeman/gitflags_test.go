@@ -2,7 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"flag"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -242,4 +249,85 @@ func TestFillGitTokenFillsOnlyTheDomainsWithoutOne(t *testing.T) {
 	if cfg.Repos[0].Token != "own-token" || cfg.Repos[1].Token != "default-token" {
 		t.Fatalf("tokens = %q / %q", cfg.Repos[0].Token, cfg.Repos[1].Token)
 	}
+}
+
+// The GitHub App credential replaces the PAT: an app id plus its private
+// key (inline, base64, or a file) build the minting credential, and the
+// static token stays empty. The key is validated here — a broken one stops
+// the start, and a board on GitLab refuses the GitHub-only credential.
+func TestGitConfigBuildsTheGitHubAppCredential(t *testing.T) {
+	pemKey := testAppKeyPEM(t)
+
+	parse := func(env map[string]string) (*server.GitConfig, error) {
+		fs := flag.NewFlagSet("test", flag.ContinueOnError)
+		gf := addGitFlags(fs, func(k string) string { return env[k] })
+		if err := fs.Parse(nil); err != nil {
+			t.Fatal(err)
+		}
+		return gf.config()
+	}
+
+	cfg, err := parse(map[string]string{
+		"AEMAN_REPOS":          "board=https://github.com/acme/board.git",
+		"AEMAN_GITHUB_APP_ID":  "12345",
+		"AEMAN_GITHUB_APP_KEY": string(pemKey),
+	})
+	if err != nil || cfg.App == nil {
+		t.Fatalf("inline key: err = %v", err)
+	}
+	if cfg.Token != "" {
+		t.Fatalf("the static token must stay empty in app mode, got %q", cfg.Token)
+	}
+
+	// A .env file cannot hold a multiline PEM: base64 of the key works too.
+	cfg, err = parse(map[string]string{
+		"AEMAN_REPOS":          "board=https://github.com/acme/board.git",
+		"AEMAN_GITHUB_APP_ID":  "12345",
+		"AEMAN_GITHUB_APP_KEY": base64.StdEncoding.EncodeToString(pemKey),
+	})
+	if err != nil || cfg.App == nil {
+		t.Fatalf("base64 key: err = %v", err)
+	}
+
+	// Or a file path.
+	keyFile := filepath.Join(t.TempDir(), "app.pem")
+	if err := os.WriteFile(keyFile, pemKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = parse(map[string]string{
+		"AEMAN_REPOS":               "board=https://github.com/acme/board.git",
+		"AEMAN_GITHUB_APP_ID":       "12345",
+		"AEMAN_GITHUB_APP_KEY_FILE": keyFile,
+	})
+	if err != nil || cfg.App == nil {
+		t.Fatalf("key file: err = %v", err)
+	}
+
+	// An id without a key is a configuration error, named at start.
+	if _, err := parse(map[string]string{
+		"AEMAN_REPOS":         "board=https://github.com/acme/board.git",
+		"AEMAN_GITHUB_APP_ID": "12345",
+	}); err == nil {
+		t.Fatal("an app id without a key must be refused")
+	}
+
+	// The credential is GitHub's; a GitLab board cannot use it.
+	if _, err := parse(map[string]string{
+		"AEMAN_REPOS":          "board=https://gitlab.com/acme/board.git",
+		"AEMAN_GITHUB_APP_ID":  "12345",
+		"AEMAN_GITHUB_APP_KEY": string(pemKey),
+	}); err == nil {
+		t.Fatal("a GitLab board with a GitHub App credential must be refused")
+	}
+}
+
+// testAppKeyPEM is a throwaway RSA key in the PKCS#1 PEM shape GitHub
+// hands out for an app.
+func testAppKeyPEM(t *testing.T) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 }

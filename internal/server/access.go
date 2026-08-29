@@ -134,9 +134,12 @@ type forgeAccess struct {
 	client      *http.Client
 	domains     []RepoSpec
 	serverToken string
-	people      *people
-	ttl         time.Duration
-	now         func() time.Time
+	// app mints the server credential per repository when the deployment
+	// holds a GitHub App instead of static tokens.
+	app    *forge.GitHubApp
+	people *people
+	ttl    time.Duration
+	now    func() time.Time
 
 	mu      sync.Mutex
 	cache   map[string]cachedRights // by login
@@ -218,7 +221,7 @@ func (f *forgeAccess) splitMembers(domain string, logins []string) (unknown, sta
 // An error leaves the answers that stand — an outage must not empty a
 // picker — and is logged, since the caller has an answer either way.
 func (f *forgeAccess) askMembers(ctx context.Context, domain, url string, logins []string) {
-	found, err := f.forge.Readers(ctx, f.client, f.tokenFor(domain), url, logins)
+	found, err := f.forge.Readers(ctx, f.client, f.tokenFor(ctx, domain), url, logins)
 	if err != nil {
 		f.log("domain members", domain, err)
 		return
@@ -286,12 +289,26 @@ func (f *forgeAccess) urlFor(domain string) string {
 
 // tokenFor is the server credential a domain is asked about — its own when
 // it names one (a board spanning two organisations holds a token per
-// organisation), else the shared one.
-func (f *forgeAccess) tokenFor(domain string) string {
+// organisation), else the shared one, else a token the GitHub App mints for
+// the repository. A mint that fails answers "", which the caller reports as
+// having no credential to ask with.
+func (f *forgeAccess) tokenFor(ctx context.Context, domain string) string {
 	for _, d := range f.domains {
-		if d.Name == domain {
-			return d.token(f.serverToken)
+		if d.Name != domain {
+			continue
 		}
+		if tok := d.token(f.serverToken); tok != "" {
+			return tok
+		}
+		if f.app != nil {
+			tok, err := f.app.Token(ctx, d.URL)
+			if err != nil {
+				f.log("app token", domain, err)
+				return ""
+			}
+			return tok
+		}
+		return ""
 	}
 	return f.serverToken
 }
