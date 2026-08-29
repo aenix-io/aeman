@@ -1785,9 +1785,20 @@ func processIndexOf(list []board.Process, itemID string) int {
 	return -1
 }
 
-// SetProcess renames a process on its state card, or re-points a task at
-// a renamed process; neither is a card row, so the rosters are updated here.
+// SetProcess renames a process on its state card, re-points a task at a
+// renamed process — or, on an ORDINARY card, ties it to a process
+// (SetCardProcess). The first two are roster rows; the tie is a card row,
+// and skipping the card mutation here left the cache serving process=""
+// right after the write acknowledged it.
 func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
+	if card.Title != board.ProcessStateTitle && card.Title != board.ProcessTaskTitle {
+		b.mutateCard(ctx, bd, card.ItemID, "process", "tie "+cardRef(card)+" to its process", func(c *board.Card) {
+			c.Process = process
+		}, func(ctx context.Context) error {
+			return b.inner.SetProcess(ctx, bd, card, process)
+		})
+		return nil
+	}
 	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	for i := range e.board.Processes {

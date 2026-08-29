@@ -121,6 +121,13 @@ describe("placementTargets", () => {
     expect(got.attach).toBeUndefined();
   });
 
+  it("drops the process the card is already tied to", () => {
+    // Only works because spec.process round-trips: the server serves the
+    // stored tie back, so after a re-list the card carries it here.
+    const got = placementTargets({ stage: "recurrent", process: "Invoicing" } as Card, board);
+    expect(got.processes).toEqual(["Reporting"]);
+  });
+
   it("offers projects to everything else", () => {
     const got = placementTargets({} as Card, board);
     expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);

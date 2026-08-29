@@ -39,3 +39,14 @@ func MirrorAllowed(b Board, from, to string) bool {
 	}
 	return ProjectDomain(b, from) == ProjectDomain(b, to)
 }
+
+// ProcessDomain is the repository a process was declared in, "" for the
+// primary and for a process the roster does not declare.
+func ProcessDomain(b Board, name string) string {
+	for _, p := range b.Processes {
+		if p.Name == name {
+			return b.Domains[p.ItemID]
+		}
+	}
+	return ""
+}

@@ -98,3 +98,57 @@ func TestMirrorActionsOverTheGitStore(t *testing.T) {
 		t.Fatalf("an untouched card with no other column is gone: %d", rec.Code)
 	}
 }
+
+// PATCHing process must round-trip: the write lands as Card.Process, and the
+// resource must serve it back — before this test, processOf answered only
+// for process TURNS (cards carrying a task id), so an ordinary card's tie
+// vanished on the next GET: the picker flickered, a reload erased the
+// choice, and the current process never dropped out of the targets list.
+func TestProcessPatchRoundTripsOverTheGitStore(t *testing.T) {
+	remote := gitRemoteN(t, "board")
+	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
+		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
+		{Path: gitstore.ProcessPath("01JB4PROC1"), Data: []byte("name: Invoicing\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: weekly chore\nteam: platform\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Push(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, remote)
+	const uid = "01JB4K2E7QZMX3R8V0N5T9WYC3"
+
+	spec := func() string {
+		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, "")
+		var got struct {
+			Spec struct {
+				Process string `json:"process"`
+			} `json:"spec"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got.Spec.Process
+	}
+	if rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/"+uid, `{"process":"Invoicing"}`); rec.Code != http.StatusOK {
+		t.Fatalf("patch process: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := spec(); got != "Invoicing" {
+		t.Fatalf("the tie must survive the round trip, spec.process = %q", got)
+	}
+	// "" unties, and the resource says so.
+	if rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/"+uid, `{"process":""}`); rec.Code != http.StatusOK {
+		t.Fatalf("clear process: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := spec(); got != "" {
+		t.Fatalf("clearing must round-trip too, spec.process = %q", got)
+	}
+}

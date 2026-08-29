@@ -44,3 +44,32 @@ func TestMirrorsSurviveTheCardFile(t *testing.T) {
 		t.Fatalf("no mirrors, no key:\n%s", plain)
 	}
 }
+
+// The storage is open to hand edits, and a hand-written scalar entry
+// (`mirrors: [foo]`) is not a column — decoding it into an {"", ""}
+// placement would smuggle in the very empty pair the service refuses
+// everywhere else. Half a column is no column: skipped on read.
+func TestHalfWrittenMirrorEntriesAreSkippedOnRead(t *testing.T) {
+	data := []byte(`---
+title: hand-written
+project: engineering
+epic: Cozystack
+mirrors:
+  - foo
+  - project: freedom
+  - epic: Launch
+  - project: freedom
+    epic: Launch
+rank: a
+created: 2026-08-29T10:00:00Z
+---
+`)
+	out, err := DecodeCard("01JB4K2E7QZMX3R8V0N5T9WYB2", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []board.Placement{{Project: "freedom", Epic: "Launch"}}
+	if len(out.Card.Mirrors) != 1 || out.Card.Mirrors[0] != want[0] {
+		t.Fatalf("only the full pair survives, got %+v", out.Card.Mirrors)
+	}
+}

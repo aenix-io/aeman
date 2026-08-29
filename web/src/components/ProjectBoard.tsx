@@ -1250,13 +1250,20 @@ export function ProjectBoard({
       }
       if (rest) {
         // The same card at REST — pre-preview geometry, for the lane pin.
+        // Every placement, mirrors included: pulling an edge in a MIRROR
+        // column must pin against that column's resting neighbours, not
+        // find the map empty and let the slot hop lanes under the pointer.
         const rr = weeksBetween(weeks[0], anchor);
         if (rr >= 0 && rr < weeks.length) {
           const rs = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - rr));
-          const rk = colKey(c.project ?? "", c.epic);
-          const rl = rest.get(rk) ?? [];
-          rl.push({ card: c, row: rr, span: rs, lane: 0, lanes: 1, width: 1 });
-          rest.set(rk, rl);
+          const cols = [colKey(c.project ?? "", c.epic)].concat(
+            (c.mirrors ?? []).map((mi) => colKey(mi.project, mi.epic)),
+          );
+          for (const rk of cols) {
+            const rl = rest.get(rk) ?? [];
+            rl.push({ card: c, row: rr, span: rs, lane: 0, lanes: 1, width: 1 });
+            rest.set(rk, rl);
+          }
         }
       }
     }

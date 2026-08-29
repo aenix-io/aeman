@@ -303,8 +303,12 @@ func processRefs(b board.Board) []ProcessRef {
 // processOf names the process a card is a turn of, by way of the task it was
 // copied from. Empty for every card that is not a turn.
 func processOf(b board.Board, c board.Card) string {
+	// A process turn names its task, and the task names the process. A card
+	// tied to a process DIRECTLY (SetCardProcess — the recurring shelf's
+	// counterpart of a column) carries the name itself; without this branch
+	// the write never round-tripped: PATCH process → GET → "".
 	if c.Task == "" {
-		return ""
+		return c.Process
 	}
 	for _, t := range b.Tasks {
 		if t.ItemID == c.Task {

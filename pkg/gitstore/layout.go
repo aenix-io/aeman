@@ -273,6 +273,12 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 					m.Epic = it.Content[i+1].Value
 				}
 			}
+			// A hand-written scalar (`mirrors: [foo]`) decodes to an empty
+			// pair — the very placement the service guards against
+			// everywhere else. Half a column is no column: skipped.
+			if m.Project == "" || m.Epic == "" {
+				continue
+			}
 			c.Mirrors = append(c.Mirrors, m)
 		}
 	case "zone":

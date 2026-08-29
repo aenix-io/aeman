@@ -316,6 +316,24 @@ func TestSetCardProcess(t *testing.T) {
 	}
 }
 
+// The tie is a stored reference, and references never cross a domain
+// boundary: a card of the closed repository naming a process declared in
+// the shared one would hand the closed card's existence to readers who may
+// not have it — the same rule every other reference on the board obeys.
+func TestTyingACardToAProcessOfAnotherRepositoryIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "closed chore", Stage: board.StageRecurrent, Domain: "founders"},
+	})
+	if err := New(f).SetCardProcess(ctx, "acme", "c1", "Invoicing"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("Invoicing lives in the primary repository, the card does not: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Process != "" {
+		t.Fatalf("the refused tie must not land: %+v", c)
+	}
+}
+
 // The mirror invariant must survive the OLD ways a card is re-filed, not
 // only the new actions. Three collisions, each reachable from the UI or a
 // plain PATCH before this test existed:

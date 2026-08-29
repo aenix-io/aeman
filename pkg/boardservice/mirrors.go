@@ -186,6 +186,13 @@ func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, pr
 		if !found {
 			return fmt.Errorf("%w %q", ErrProcessNotFound, process)
 		}
+		// The tie is a stored reference, and references never cross a
+		// domain boundary (git-backend.md): a card of the closed repository
+		// naming a process declared in the shared one would hand the closed
+		// card's existence to readers who may not have it.
+		if board.ProcessDomain(b, process) != c.Domain {
+			return fmt.Errorf("%w: the process %q lives in another repository", ErrCrossDomain, process)
+		}
 	}
 	if c.Process == process {
 		return nil
