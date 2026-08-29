@@ -285,3 +285,45 @@ func TestAGitHubAppsClientIDIsToldApartFromAnOAuthApps(t *testing.T) {
 		}
 	}
 }
+
+// Whether a token can push is a question for the git transport itself:
+// GET /info/refs?service=git-receive-pack answers 200 exactly when the
+// token may push, 403 when it may not, 401 when it is nobody. The REST
+// permissions block is a different animal — a GitHub App's user token can
+// push a repository the REST probe says nothing useful about.
+func TestCanPushGitAsksTheReceivePackAdvertisement(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/kvaps/personal.git/info/refs" || r.URL.Query().Get("service") != "git-receive-pack" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		user, pass, ok := r.BasicAuth()
+		switch {
+		case !ok:
+			w.WriteHeader(http.StatusUnauthorized)
+		case user == "x-access-token" && pass == "ghu_can":
+			w.Header().Set("Content-Type", "application/x-git-receive-pack-advertisement")
+			w.WriteHeader(http.StatusOK)
+		case user == "x-access-token" && pass == "ghu_cannot":
+			w.WriteHeader(http.StatusForbidden)
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	gh := NewGitHub()
+	repo := srv.URL + "/kvaps/personal.git"
+	if ok, err := CanPushGit(context.Background(), srv.Client(), gh, "ghu_can", repo); err != nil || !ok {
+		t.Fatalf("a token the transport accepts: %v, %v", ok, err)
+	}
+	// With or without the .git suffix, and with a trailing slash.
+	if ok, err := CanPushGit(context.Background(), srv.Client(), gh, "ghu_can", srv.URL+"/kvaps/personal/"); err != nil || !ok {
+		t.Fatalf("url without .git: %v, %v", ok, err)
+	}
+	if ok, err := CanPushGit(context.Background(), srv.Client(), gh, "ghu_cannot", repo); err != nil || ok {
+		t.Fatalf("a token refused by the transport: %v, %v", ok, err)
+	}
+	if ok, err := CanPushGit(context.Background(), srv.Client(), gh, "ghu_unknown", repo); err != nil || ok {
+		t.Fatalf("an unknown token: %v, %v", ok, err)
+	}
+}

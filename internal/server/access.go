@@ -321,6 +321,13 @@ func (f *forgeAccess) canPush(ctx context.Context, token, repoURL string) (bool,
 		return false, fmt.Errorf("%w: %w", errNotARepository, err)
 	}
 	_, write, err := f.probe(ctx, token, repoURL)
+	if err == nil && !write && forge.IsUserToServerToken(token) {
+		// The REST permissions probe does not answer for a GitHub App's
+		// user token the way it does for an OAuth one — live, it refused a
+		// repository the very same token had just cloned. The transport the
+		// push will face is the authority: ask it.
+		return forge.CanPushGit(ctx, f.client, f.forge, token, repoURL)
+	}
 	return write, err
 }
 

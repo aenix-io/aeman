@@ -303,3 +303,37 @@ func (g *AppGitAuth) SetAuth(r *http.Request) {
 	}
 	r.SetBasicAuth("x-access-token", tok)
 }
+
+// CanPushGit asks the git transport itself whether a token may push: the
+// receive-pack advertisement (GET /info/refs?service=git-receive-pack)
+// answers 200 exactly when it may, 403 when it may not, 401 when the token
+// is nobody there. The REST permissions block is a different animal — a
+// GitHub App's user token can push a repository the REST probe says nothing
+// useful about, and the transport is the authority the push will face
+// anyway.
+func CanPushGit(ctx context.Context, client *http.Client, f Forge, token, repoURL string) (bool, error) {
+	target := strings.TrimRight(repoURL, "/")
+	if !strings.HasSuffix(target, ".git") {
+		target += ".git"
+	}
+	target += "/info/refs?service=git-receive-pack"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil) //nolint:gosec // the repository the visitor asked to link, under the forge's host
+	if err != nil {
+		return false, err
+	}
+	auth := f.GitAuth(token)
+	req.SetBasicAuth(auth.Username, auth.Password)
+	resp, err := client.Do(req) //nolint:gosec // see above
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("receive-pack advertisement answered %s", resp.Status)
+	}
+}

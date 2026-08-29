@@ -587,3 +587,61 @@ func TestABrokenPersonalAttachIsServedAsStateAndRetriedBySetup(t *testing.T) {
 		t.Fatal("the setup callback must retry the attach")
 	}
 }
+
+// The REST permissions probe does not answer for a GitHub App's user token
+// the way it does for an OAuth token — live, it refused a repository the
+// very same token had just cloned. Whether a token can push is the git
+// transport's question, so for a ghu_ token the transport is asked when
+// REST says no: GET /info/refs?service=git-receive-pack, 200 meaning push.
+func TestLinkingFallsBackToTheGitTransportForAnAppUserToken(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+
+	// The forge: REST answers the repository without a usable permissions
+	// block; the git transport accepts the token for receive-pack.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/kvaps/personal", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id": 1}`)) // no permissions block at all
+	})
+	gitHits := 0
+	mux.HandleFunc("/kvaps/personal.git/info/refs", func(w http.ResponseWriter, r *http.Request) {
+		gitHits++
+		if _, pass, _ := r.BasicAuth(); pass != "ghu_visitor" || r.URL.Query().Get("service") != "git-receive-pack" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	forgeSrv := httptest.NewServer(mux)
+	t.Cleanup(forgeSrv.Close)
+
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, shared)
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forgeSrv.URL), forgeSrv.Client(),
+		[]RepoSpec{{Name: "shared", URL: shared.URL}}, "srv", nil)
+	// rights still come from the fake; only canPush goes through the forge.
+	srv.access = pushThrough{fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, fa}
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "ghu_visitor", "kvaps", nil }
+
+	rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+forgeSrv.URL+`/kvaps/personal.git"}`)
+	// The link is admitted (the attach that follows may fail on the fake
+	// remote — that part has its own tests); what must NOT happen is the
+	// "you need push access" refusal for a token the transport accepts.
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("the transport accepts this token; the link must not be refused: %s", rec.Body.String())
+	}
+	if gitHits == 0 {
+		t.Fatal("the git transport was never asked")
+	}
+}
+
+// pushThrough answers rights from the fake and canPush from the real
+// forge-access implementation.
+type pushThrough struct {
+	fakeAccess
+	fa *forgeAccess
+}
+
+func (p pushThrough) canPush(ctx context.Context, token, repoURL string) (bool, error) {
+	return p.fa.canPush(ctx, token, repoURL)
+}
