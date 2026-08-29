@@ -100,10 +100,8 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 	// them, so DeleteEpic refused for cards nobody could see; and a parent
 	// in another repository would carry the file away from them entirely.
 	// The home column stays: G14 blesses a subtask carrying its own column.
-	if len(card.Mirrors) > 0 {
-		if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {
-			return err
-		}
+	if err := s.clearRiders(ctx, b, card); err != nil {
+		return err
 	}
 	// A subtask always belongs to its parent's PERSON: grouping hands the
 	// child over, so a family is never split across two personal boards.
@@ -216,5 +214,25 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 	}
 	s.logEvent(ctx, b, p, board.EventProgress,
 		strconv.Itoa(p.Progress), strconv.Itoa(derived))
+	return nil
+}
+
+// clearRiders strips what a subtask cannot carry — mirrors and the process
+// tie — when a card is grouped. Left on, they were placements no board
+// showed yet InEpic counted (DeleteEpic refusing for cards nobody sees),
+// and a parent in another repository would carry the file away from both.
+// The untying is logged; the home column stays (G14).
+func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Card) error {
+	if len(card.Mirrors) > 0 {
+		if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {
+			return err
+		}
+	}
+	if card.Process != "" {
+		if err := s.backend.SetProcess(ctx, b, card, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventProcess, card.Process, "")
+	}
 	return nil
 }

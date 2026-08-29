@@ -745,3 +745,87 @@ func TestOnlyARecurrentCardTakesAProcessTie(t *testing.T) {
 		t.Fatalf("clearing is free whatever the stage is now: %v", err)
 	}
 }
+
+// The tie never crosses a domain boundary — and neither may the CARD slip
+// out from under it. Four doors, each a re-file in disguise, each refused
+// (or, for grouping, cleared) before anything is written:
+//
+//   - SetTeam: a recurrent card without a project follows its team, so
+//     re-teaming it into another repository would strand the tie;
+//   - SetEpic: attaching a teamless tied card to a project of another
+//     repository moves the file the same way;
+//   - SetEpicProject: a column move carries its home cards along;
+//   - SetReviewOf: a link outranks everything (linked cards first);
+//   - SetParent clears the tie instead, the way it clears mirrors — a
+//     subtask rides its parent, and the shelf never draws its tie.
+func TestReTeamingATiedCardToAnotherRepositoryIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	f.b.SprintStates["board"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-b"}
+	f.b.Domains = map[string]string{"st-b": "founders"}
+	svc := New(f)
+	if err := svc.SetTeam(ctx, "acme", "c1", "board", ""); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the team decides where a project-less card lives: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Team != "platform" || c.Process != "Invoicing" {
+		t.Fatalf("the refused move must leave the card whole: %+v", c)
+	}
+}
+
+func TestAttachingATiedCardToAProjectOfAnotherRepositoryIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "chore", Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	strategy := "strategy"
+	if err := New(f).SetEpic(ctx, "acme", "c1", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the attach is a repository move in disguise: %v", err)
+	}
+}
+
+func TestMovingAColumnToAnotherRepositoryIsRefusedWhileCardsAreTied(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "chore", Stage: board.StageRecurrent, Process: "Invoicing",
+			Project: "freedom", Epic: "Launch"},
+	})
+	if err := New(f).SetEpicProject(ctx, "acme", "freedom", "Launch", "strategy"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the column would carry the tied card away: %v", err)
+	}
+}
+
+func TestLinkingATiedCardIntoAnotherRepositoryIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "review chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
+		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+	})
+	if err := New(f).SetReviewOf(ctx, "acme", "c1", "orig"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the link outranks everything and would move the file: %v", err)
+	}
+}
+
+func TestGroupingATiedCardClearsTheTie(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	svc := New(f)
+	if err := svc.SetParent(ctx, "acme", "c1", "p"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Process != "" {
+		t.Fatalf("a subtask rides its parent; the tie goes with the grouping: %+v", c)
+	}
+	found := false
+	for _, e := range f.eventsOf("c1") {
+		if e.Kind == board.EventProcess && e.From == "Invoicing" && e.To == "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the untying must be logged: %+v", f.eventsOf("c1"))
+	}
+}

@@ -1508,7 +1508,6 @@ export function TeamBoard({
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 
-
   // placementsFor: the assign menu's attach/mirror section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {

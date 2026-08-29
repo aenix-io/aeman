@@ -134,6 +134,15 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if err := guardRoster(b, c.Team, to); err != nil {
 			return err
 		}
+		// A HOME card's process tie must not leave its repository with the
+		// column: the move re-files the card, and the tie would stay
+		// behind — refused before the stub is re-parented, like the
+		// mirror guards below.
+		if c.Project == from && c.Epic == epic {
+			if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
+				return fmt.Errorf("%w (card %q)", err, c.Title)
+			}
+		}
 		if len(c.Mirrors) == 0 {
 			continue
 		}

@@ -104,3 +104,30 @@ created: 2026-08-29T10:00:00Z
 		t.Fatalf("the home twin and the duplicate must go, got %+v", out.Card.Mirrors)
 	}
 }
+
+// A subtask rides its parent and is placed nowhere of its own: a
+// hand-written subtask carrying mirrors: is invisible occupancy — the
+// Project grid skips subtasks while InEpic counts them, so DeleteEpic
+// refuses for cards nobody sees. The decoder drops them, the way the
+// service clears them on grouping.
+func TestHandWrittenSubtaskMirrorsAreDroppedOnRead(t *testing.T) {
+	data := []byte(`---
+title: hand-written subtask
+parent: 01JB4K2E7QZMX3R8V0N5T9WYA1
+project: engineering
+epic: Cozystack
+mirrors:
+  - project: freedom
+    epic: Launch
+rank: a
+created: 2026-08-29T10:00:00Z
+---
+`)
+	out, err := DecodeCard("01JB4K2E7QZMX3R8V0N5T9WYB2", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Card.Mirrors) != 0 {
+		t.Fatalf("a subtask carries no mirrors, got %+v", out.Card.Mirrors)
+	}
+}

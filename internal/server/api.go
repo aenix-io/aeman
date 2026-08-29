@@ -878,7 +878,7 @@ type placementBody struct {
 	Epic    string `json:"epic"`
 }
 
-func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, requireProject bool,
+func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, requireProject, respondCard bool,
 	act func(svc *boardservice.Service, boardID, uid, project, epic string) error,
 ) {
 	var in placementBody
@@ -907,20 +907,27 @@ func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, require
 		s.apiError(w, r, err)
 		return
 	}
+	// Mirror and unmirror answer with the card resource, like the other
+	// card actions; remove-from-project cannot — its card may no longer
+	// exist — so it answers {"ok": true}.
+	if respondCard {
+		s.cardResponse(w, r, svc, boardID, r.PathValue("uid"))
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // handleMirror adds a second Project-board column to the card — the same
 // card shown in both projects, one file and one log.
 func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, true, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.Mirror(r.Context(), boardID, uid, project, epic)
 	})
 }
 
 // handleUnmirror takes one mirror column away.
 func (s *Server) handleUnmirror(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, true, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.Unmirror(r.Context(), boardID, uid, project, epic)
 	})
 }
@@ -928,7 +935,7 @@ func (s *Server) handleUnmirror(w http.ResponseWriter, r *http.Request) {
 // handleRemoveFromProject is the Project board's ×: remove the card from
 // one column, with the mirror/promote/last-column rules of the service.
 func (s *Server) handleRemoveFromProject(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, false, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, false, false, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.RemoveFromProject(r.Context(), boardID, uid, project, epic)
 	})
 }

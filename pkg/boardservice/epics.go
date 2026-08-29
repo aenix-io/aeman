@@ -191,6 +191,15 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	if err := guardRoster(b, card.Team, projectName); err != nil {
 		return err
 	}
+	// A tied card cannot be re-filed out of its process's repository — the
+	// project decides where a teamless card lives, so an attach (or a
+	// cleared column) can be a repository move in disguise.
+	if err := tiedMoveGuard(b, card, func(a *board.Card) {
+		a.Project = projectName
+		a.Epic = epic
+	}); err != nil {
+		return err
+	}
 	// The mirrors ride the re-file, and the invariant holds through it:
 	//   - the home moving where the card already mirrors drops that mirror
 	//     (a mirror equal to the home drew the slot twice and made the ×

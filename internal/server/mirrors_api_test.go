@@ -46,6 +46,12 @@ func TestMirrorActionsOverTheGitStore(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mirror: %d %s", rec.Code, rec.Body.String())
 	}
+	// The action answers with the card resource, like the other card
+	// actions — an MCP or external caller sees the new placement without a
+	// second request.
+	if body := rec.Body.String(); !strings.Contains(body, `"mirrors"`) {
+		t.Fatalf("the mirror action must answer with the card resource: %s", body)
+	}
 	rec = doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, "")
 	var got struct {
 		Spec struct {
@@ -212,5 +218,12 @@ func TestMirrorsDescTellsAddsFromRemovals(t *testing.T) {
 	// A same-length replacement is a rename's rewrite, not an addition.
 	if got := mirrorsDesc(card, []board.Placement{{Project: "freedom", Epic: "Liftoff"}}); !strings.HasPrefix(got, "rewrite ") {
 		t.Fatalf("a same-length list is a rewrite: %q", got)
+	}
+	// The tie's description follows its direction the same way.
+	if got := tieDesc(card, "Invoicing"); !strings.HasPrefix(got, "tie ") {
+		t.Fatalf("a tie is a tie: %q", got)
+	}
+	if got := tieDesc(card, ""); !strings.HasPrefix(got, "untie ") {
+		t.Fatalf("clearing is an untie, not a tie: %q", got)
 	}
 }

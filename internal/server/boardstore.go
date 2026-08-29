@@ -1659,6 +1659,15 @@ func (b *storeBackend) SetMirrors(ctx context.Context, bd board.Board, card boar
 	return nil
 }
 
+// tieDesc words the queued tie write by its direction, like mirrorsDesc:
+// the sync log must not report an untie as a tie.
+func tieDesc(card board.Card, process string) string {
+	if process == "" {
+		return "untie " + cardRef(card) + " from its process"
+	}
+	return "tie " + cardRef(card) + " to its process"
+}
+
 // mirrorsDesc words the queued write by its direction — "unmirror" for a
 // shrinking list, "mirror" for a growing one, "rewrite" for a same-length
 // replacement (a renamed column's entries) — so the sync log does not
@@ -1806,7 +1815,7 @@ func processIndexOf(list []board.Process, itemID string) int {
 // right after the write acknowledged it.
 func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
 	if card.Title != board.ProcessStateTitle && card.Title != board.ProcessTaskTitle {
-		b.mutateCard(ctx, bd, card.ItemID, "process", "tie "+cardRef(card)+" to its process", func(c *board.Card) {
+		b.mutateCard(ctx, bd, card.ItemID, "process", tieDesc(card, process), func(c *board.Card) {
 			c.Process = process
 		}, func(ctx context.Context) error {
 			return b.inner.SetProcess(ctx, bd, card, process)

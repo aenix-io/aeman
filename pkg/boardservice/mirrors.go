@@ -272,3 +272,23 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 	}
 	return nil
 }
+
+// tiedMoveGuard refuses a re-file that would carry a TIED card into
+// another repository: the tie is a reference that never crosses a domain
+// boundary (git-backend.md), and the card moving out from under it would
+// strand it — the mirror of the rule that keeps the process itself from
+// moving away (SetProcessProject). Explicit re-files refuse; grouping
+// clears the tie instead (SetParent), the way it clears mirrors.
+func tiedMoveGuard(b board.Board, c board.Card, change func(*board.Card)) error {
+	if c.Process == "" {
+		return nil
+	}
+	r := board.Resolver(b, "")
+	after := c
+	change(&after)
+	if board.DomainOf(after, r) != board.DomainOf(c, r) {
+		return fmt.Errorf("%w: the card is tied to the process %q of its own repository — untie it first",
+			ErrCrossDomain, c.Process)
+	}
+	return nil
+}
