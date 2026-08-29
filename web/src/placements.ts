@@ -288,3 +288,48 @@ export function slotDropMirrors(
     }
   }
 }
+
+/** MirrorDropProvider is the provider slice a mirror drop drives. */
+export interface MirrorDropProvider {
+  mirrorCard(uid: string, project: string, epic: string): Promise<void>;
+  unmirrorCard(uid: string, project: string, epic: string): Promise<void>;
+  patchCard(uid: string, patch: CardPatch): Promise<unknown>;
+}
+
+/** settleMirrorDrop runs the multi-request drop of a dragged mirror copy —
+ *  add the new placement first (a failure half-way must never leave the
+ *  card short one), then remove the grabbed one, then the shared dates —
+ *  and settles the UI honestly either way. A failure in the MIDDLE leaves
+ *  the server in a state the pre-drag snapshot does not describe, so the
+ *  error path must re-list rather than restore-and-believe: a rollback
+ *  without a reload showed a board the server did not hold, and overwrote
+ *  the watch frame the successful first step had already delivered. */
+export async function settleMirrorDrop(
+  provider: MirrorDropProvider,
+  itemId: string,
+  grabbed: { project: string; epic: string },
+  target: { project: string; epic: string },
+  kind: "moveMirror" | "collapseMirror",
+  dates: { start: string; end: string } | null,
+  ui: {
+    restore(): void;
+    reload(): void;
+    onError(message: string): void;
+    errMessage(err: unknown): string;
+  },
+): Promise<void> {
+  try {
+    if (kind === "moveMirror") {
+      await provider.mirrorCard(itemId, target.project, target.epic);
+    }
+    await provider.unmirrorCard(itemId, grabbed.project, grabbed.epic);
+    if (dates) {
+      await provider.patchCard(itemId, { dates });
+    }
+    ui.reload();
+  } catch (err: unknown) {
+    ui.restore();
+    ui.onError(ui.errMessage(err));
+    ui.reload();
+  }
+}

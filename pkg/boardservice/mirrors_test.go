@@ -476,6 +476,14 @@ func TestSubtasksCarryNoMirrors(t *testing.T) {
 			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
 	})
 	svc = New(f2)
+	// While the mirror stands, the column it points at is OCCUPIED — by a
+	// placement no board draws — and must refuse deletion: the negative
+	// half, the one that fails without a mirrors-aware InEpic. (DeleteEpic
+	// takes the column's NAME first, then its project — swapped once, this
+	// whole test proved a no-op on a column that does not exist.)
+	if err := svc.DeleteEpic(ctx, "acme", "Launch", "freedom"); !errors.Is(err, ErrEpicInUse) {
+		t.Fatalf("a column held only by a mirror is still held: %v", err)
+	}
 	if err := svc.SetParent(ctx, "acme", "c1", "p"); err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +497,7 @@ func TestSubtasksCarryNoMirrors(t *testing.T) {
 	}
 	// And the column the mirror pointed at is deletable again: nothing
 	// invisible stands in it.
-	if err := svc.DeleteEpic(ctx, "acme", "freedom", "Launch"); err != nil {
+	if err := svc.DeleteEpic(ctx, "acme", "Launch", "freedom"); err != nil {
 		t.Fatalf("the emptied column must be deletable: %v", err)
 	}
 }

@@ -6,6 +6,7 @@ import {
   mirrorTargets,
   placementTargets,
   removeFromProjectOutcome,
+  settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
 } from "./placements";
@@ -183,5 +184,63 @@ describe("slotDropMirrors", () => {
     expect(
       slotDropMirrors(card, grabbed, { project: "engineering", epic: "Cozystack" }, "collapseMirror"),
     ).toEqual([]);
+  });
+});
+
+// A mirror drop is up to three requests. A failure in the middle leaves the
+// server holding a state the pre-drag snapshot does not describe, so the
+// error path must re-list — a silent local restore showed a board the
+// server did not hold until something else touched the card.
+describe("settleMirrorDrop", () => {
+  const grabbed = { project: "freedom", epic: "Launch" };
+  const target = { project: "freedom", epic: "Ship" };
+  const ui = () => {
+    const calls: string[] = [];
+    return {
+      calls,
+      restore: () => calls.push("restore"),
+      reload: () => calls.push("reload"),
+      onError: (m: string) => calls.push(`error:${m}`),
+      errMessage: (e: unknown) => String(e),
+    };
+  };
+
+  it("re-lists after a failure half-way through the chain", async () => {
+    const u = ui();
+    await settleMirrorDrop(
+      {
+        mirrorCard: () => Promise.resolve(),
+        unmirrorCard: () => Promise.reject(new Error("boom")),
+        patchCard: () => Promise.resolve(),
+      },
+      "c1",
+      grabbed,
+      target,
+      "moveMirror",
+      { start: "2026-08-24", end: "2026-08-28" },
+      u,
+    );
+    expect(u.calls).toEqual(["restore", "error:Error: boom", "reload"]);
+  });
+
+  it("re-lists once on success and never restores", async () => {
+    const u = ui();
+    const seen: string[] = [];
+    await settleMirrorDrop(
+      {
+        mirrorCard: (_, p, e) => (seen.push(`mirror:${p}/${e}`), Promise.resolve()),
+        unmirrorCard: (_, p, e) => (seen.push(`unmirror:${p}/${e}`), Promise.resolve()),
+        patchCard: () => (seen.push("dates"), Promise.resolve()),
+      },
+      "c1",
+      grabbed,
+      target,
+      "moveMirror",
+      { start: "2026-08-24", end: "2026-08-28" },
+      u,
+    );
+    // The new placement lands before the old one goes.
+    expect(seen).toEqual(["mirror:freedom/Ship", "unmirror:freedom/Launch", "dates"]);
+    expect(u.calls).toEqual(["reload"]);
   });
 });

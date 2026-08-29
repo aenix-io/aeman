@@ -11,6 +11,7 @@ import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
   removeFromProjectOutcome,
+  settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
 } from "../placements";
@@ -842,20 +843,20 @@ export function ProjectBoard({
           ...(weekChanged ? dates : {}),
           mirrors: slotDropMirrors(card, grabbed, target, plan.kind),
         });
-        const steps =
-          plan.kind === "moveMirror"
-            ? provider
-                .mirrorCard(card.itemId, target.project, target.epic)
-                .then(() => provider.unmirrorCard(card.itemId, grabbed.project, grabbed.epic))
-            : provider.unmirrorCard(card.itemId, grabbed.project, grabbed.epic);
-        void steps
-          .then(() =>
-            weekChanged
-              ? provider.patchCard(card.itemId, { dates: { start: week, end } }).then(() => undefined)
-              : Promise.resolve(undefined),
-          )
-          .then(() => reload())
-          .catch(rollback);
+        void settleMirrorDrop(
+          provider,
+          card.itemId,
+          grabbed,
+          target,
+          plan.kind,
+          weekChanged ? { start: week, end } : null,
+          {
+            restore: () => patchCard(card.itemId, prev),
+            reload,
+            onError,
+            errMessage: errText,
+          },
+        );
         return;
       }
     }
