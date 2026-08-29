@@ -231,3 +231,36 @@ func TestAppGitAuthStampsAFreshTokenPerRequest(t *testing.T) {
 		t.Fatal("the rotated token did not reach the request")
 	}
 }
+
+// A token minted for a person by a GitHub App reaches only the repositories
+// the app is installed on — which is why a refusal about someone's own
+// repository has to be read as "not installed there", not "no access".
+// GitHub says which kind a token is in its prefix.
+func TestAUserToServerTokenIsToldApartByItsPrefix(t *testing.T) {
+	cases := map[string]bool{
+		"ghu_abc": true,  // user-to-server: a GitHub App acting for a person
+		"gho_abc": false, // an OAuth App's token: the person's whole account
+		"ghp_abc": false, // a classic personal access token
+		"ghs_abc": false, // an installation token — the server's own
+		"":        false,
+	}
+	for token, want := range cases {
+		if got := IsUserToServerToken(token); got != want {
+			t.Errorf("IsUserToServerToken(%q) = %v, want %v", token, got, want)
+		}
+	}
+}
+
+// InstallURL is the page where the app is installed on an account — what a
+// refusal points at. It is the app's own page, asked from the forge.
+func TestInstallURLNamesTheAppsPage(t *testing.T) {
+	var mints atomic.Int32
+	srv := fakeAppAPI(t, &mints, time.Hour)
+	app, err := NewGitHubAppAt(srv.URL, srv.Client(), "12345", testAppPEM())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := app.InstallURL(context.Background()); got != "https://github.com/apps/aenix-aeman/installations/new" {
+		t.Fatalf("InstallURL = %q", got)
+	}
+}

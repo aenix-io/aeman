@@ -138,7 +138,7 @@ func (a *GitHubApp) installationOf(ctx context.Context, slug string) (int64, err
 		_ = resp.Body.Close()
 		// The refusal carries the very link that fixes it — nobody should
 		// have to construct an install URL from an app id by hand.
-		return 0, fmt.Errorf("github app %s is not installed on %s — install it on the repository (or its organisation): %s", a.id, slug, a.installURL(ctx))
+		return 0, fmt.Errorf("github app %s is not installed on %s — install it on the repository (or its organisation): %s", a.id, slug, a.InstallURL(ctx))
 	case resp.StatusCode/100 != 2:
 		_ = resp.Body.Close()
 		return 0, fmt.Errorf("github app: installation lookup for %s answered %s", slug, resp.Status)
@@ -155,11 +155,21 @@ func (a *GitHubApp) installationOf(ctx context.Context, slug string) (int64, err
 	return body.ID, nil
 }
 
-// installURL is where the app is installed on an account: the app's own
+// IsUserToServerToken reports whether a token was minted for a person BY a
+// GitHub App: such a token reaches only the repositories the app is
+// installed on, so a refusal about someone's own repository means "not
+// installed there", not "no access". GitHub says which kind a token is in
+// its prefix — ghu_ for user-to-server, gho_ for an OAuth App's, ghp_ for a
+// classic personal token, ghs_ for an installation's own.
+func IsUserToServerToken(token string) bool {
+	return strings.HasPrefix(token, "ghu_")
+}
+
+// InstallURL is where the app is installed on an account: the app's own
 // page plus /installations/new, which lets the person pick the account and
 // the repositories. Asked from the forge once; a lookup that fails answers
 // the app's settings path, which always exists.
-func (a *GitHubApp) installURL(ctx context.Context) string {
+func (a *GitHubApp) InstallURL(ctx context.Context) string {
 	if a.homeURL == "" {
 		resp, err := a.get(ctx, http.MethodGet, "/app")
 		if err == nil && resp.StatusCode/100 == 2 {

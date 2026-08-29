@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -73,7 +75,7 @@ func (s *Server) handleLinkPersonal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !write {
-			writeJSONError(w, http.StatusForbidden, "you need push access to your personal repository")
+			writeJSONError(w, http.StatusForbidden, s.personalRefusal(r.Context(), tok))
 			return
 		}
 	}
@@ -86,6 +88,20 @@ func (s *Server) handleLinkPersonal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.PersonalInfo{Domain: board.PersonalDomain(login), URL: in.URL})
+}
+
+// personalRefusal explains why the forge would not vouch for a personal
+// repository. Signed in through a GitHub App, a person's token reaches only
+// the repositories the app is installed on — so their own repository is
+// refused until they install it there, which "you need push access" would
+// neither say nor let them act on. A token that carries the whole account
+// (an OAuth App's, a classic one) has no such excuse, and is told plainly.
+func (s *Server) personalRefusal(ctx context.Context, token string) string {
+	const base = "you need push access to your personal repository"
+	if !forge.IsUserToServerToken(token) || s.gitCfg == nil || s.gitCfg.App == nil {
+		return base
+	}
+	return base + ", and this board's GitHub App must be installed on it: " + s.gitCfg.App.InstallURL(ctx)
 }
 
 // handleUnlinkPersonal removes the link; the repository is left as it is.

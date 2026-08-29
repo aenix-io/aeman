@@ -2,8 +2,13 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +16,7 @@ import (
 
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	forgepkg "github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
@@ -370,4 +376,66 @@ func TestPersonalBoardRelinkSwitchesRepositories(t *testing.T) {
 	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/me/personal", ""); !strings.Contains(rec.Body.String(), second.URL) {
 		t.Fatalf("link = %s", rec.Body.String())
 	}
+}
+
+// noPushAccess refuses every push check — the forge's answer for a
+// repository a token cannot reach.
+type noPushAccess struct{ fakeAccess }
+
+func (noPushAccess) canPush(context.Context, string, string) (bool, error) { return false, nil }
+
+// When people sign in through a GitHub App, their token reaches only the
+// repositories the app is installed on — so the forge refuses a personal
+// repository the app was never installed on, even though its owner can
+// obviously push to it. "You need push access to your personal repository"
+// would be a lie there, and one nobody can act on: the refusal names the
+// real cause and the link that fixes it.
+func TestLinkingAPersonalBoardExplainsAMissingInstallation(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, shared)
+	srv.access = noPushAccess{fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}}
+
+	appSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"slug":"aenix-aeman","html_url":"https://github.com/apps/aenix-aeman"}`))
+	}))
+	t.Cleanup(appSrv.Close)
+	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, appSrv.Client(), "12345", testServerAppPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.gitCfg.App = app
+
+	// A token a GitHub App minted for this person.
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "ghu_visitor", "kvaps", nil }
+	rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"https://github.com/kvaps/aeman-personal-db.git"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("link refused with %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "https://github.com/apps/aenix-aeman/installations/new") {
+		t.Fatalf("the refusal must carry the install link: %s", rec.Body.String())
+	}
+
+	// Signed in through a plain OAuth App instead, the token reaches every
+	// repository its owner can: a refusal there really is about access, and
+	// must not send anyone off to install anything.
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "gho_visitor", "kvaps", nil }
+	rec = doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"https://github.com/kvaps/aeman-personal-db.git"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("oauth-app link: %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "installations/new") {
+		t.Fatalf("an OAuth App token needs no installation: %s", rec.Body.String())
+	}
+}
+
+// testServerAppPEM is a throwaway RSA key in the shape GitHub hands out.
+func testServerAppPEM(t *testing.T) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 }
