@@ -339,12 +339,16 @@ func TestDeleteParentReleasedChildInheritsAssignee(t *testing.T) {
 	}
 }
 
-// A card created today has no earlier sprint to demote into — which used to
-// mean the × deleted it, subtasks and all. It is handed back instead.
-func TestSmartRemoveCreatedTodayReleasesTheParent(t *testing.T) {
+// A card created today has no earlier sprint to demote into, and with no
+// band and no column it is nowhere else either: the × empties its only home
+// and the subtasks ride along into the delete. In a band, the same parent is
+// handed back to it instead — which is what this checks, so the cascade is
+// not mistaken for the rule.
+func TestSmartRemoveCreatedTodayHandsBackAParentThatHasABand(t *testing.T) {
 	today := board.TodayIso()
 	f := newFake([]board.Card{
-		{ItemID: "p", Team: "alpha", StartDate: today, SprintStart: today, Assignees: []string{"bob"}},
+		{ItemID: "p", Team: "alpha", StartDate: today, SprintStart: today, Assignees: []string{"bob"},
+			Plan: board.PlanFri, Week: board.MondayOf(today)},
 		{ItemID: "c", Team: "alpha", Parent: "p", StartDate: today, SprintStart: today},
 	}, map[string]board.SprintState{
 		"alpha": {Current: today, Previous: "2026-01-03"},

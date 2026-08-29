@@ -27,6 +27,10 @@ interface CardProps {
   onSelect: (card: CardModel) => void;
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
+  /** Whether the × is offered at all. A board that has nothing for it to do
+   *  — the weekly panel on a slot, which its span keeps there whatever the
+   *  band says — hides it rather than showing a button that does nothing. */
+  deletable?: boolean;
   /** The board will put its own question to the user, so the card must not
    *  ask first. */
   boardAsks?: boolean;
@@ -113,6 +117,7 @@ export function Card({
   onSelect,
   onProgress,
   onDelete,
+  deletable = true,
   boardAsks,
   onStage,
   onInProgress,
@@ -635,15 +640,17 @@ export function Card({
             {copied ? "✓" : "ID"}
           </button>
         )}
-        <button
-          type="button"
-          className="card-action card-hoveronly card-action-delete"
-          onClick={handleDelete}
-          aria-label="Delete card"
-          title="Delete"
-        >
-          ×
-        </button>
+        {deletable && (
+          <button
+            type="button"
+            className="card-action card-hoveronly card-action-delete"
+            onClick={handleDelete}
+            aria-label="Delete card"
+            title="Delete"
+          >
+            ×
+          </button>
+        )}
         {onAddSubtask && !card.parent && (
           <button
             type="button"

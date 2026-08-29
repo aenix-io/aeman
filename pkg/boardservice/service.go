@@ -1057,16 +1057,22 @@ func (s *Service) syncChildrenSprint(ctx context.Context, b board.Board, parentI
 	return nil
 }
 
-// Remove is the smart × — one method, the backend decides the outcome. It
+// Remove is the smart × — one method, the backend decides the outcome. A
+// card has two homes — the working area (a sprint and its days) and the
+// weekly plan (a band and its week) — and each × empties one of them. It
 // mirrors handleGridDelete/removeFromPlan in TeamBoard.tsx:
 //
-//   - from the grid (from = "" or "grid"): a plan-taken card is released back
-//     to plan-only (assignee + sprint cleared); a card still in the team's
-//     current sprint demotes to the previous one (all dates pulled along);
-//     anything else is deleted for real (cascading its review card).
-//   - from the plan band (from = "plan"): an assigned card keeps working and
-//     only loses the weekly marker; a pure plan card demotes to its team's
-//     previous week, or is deleted when there is none.
+//   - from the grid (from = "" or "grid"): a card still in the team's current
+//     sprint demotes to the previous one (all dates pulled along). Otherwise
+//     the card leaves the working area — assignee, sprint and dates cleared
+//     (a slot keeps its dates: they are its row) — and stays wherever else it
+//     is: its plan band, or its Project-board column. With neither it was
+//     nowhere else, and it is deleted (cascading its review card; subtasks
+//     are freed into standalone cards). What it carries changes nothing here
+//     — the UI asks first when there is work to lose.
+//   - from the plan band (from = "plan"): the card leaves the plan and stays
+//     wherever else it is — with a person, with work, in a sprint, or under
+//     a column. A pure plan card, nowhere else, is deleted.
 func (s *Service) Remove(ctx context.Context, boardID string, itemID, from string) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
@@ -1075,25 +1081,35 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	if board.IsPersonalDomain(c.Domain) {
 		return s.removePersonal(ctx, b, c)
 	}
+	// A subtask has no sprint history of its own: it rides its parent, so
+	// demoting it alone would split the family across two sprints — the very
+	// thing syncChildrenSprint prevents everywhere else — and a subtask left
+	// in an earlier sprint still renders under its parent, so the × would
+	// look like it had done nothing. It is deleted.
+	if c.Parent != "" {
+		return s.deleteWithCascade(ctx, b, c)
+	}
 	if from == "plan" {
 		// A slot of a plan is never deleted by the plan ×. It is a piece of a
 		// roadmap that happens to be in a weekly plan because someone gave it
 		// a team; taking it out of the plan means exactly that, and its dates
 		// and its column stay. (Its row is derived from its start, so the
-		// week is not cleared either.) A column is the PAIR (project, epic),
-		// so either side is enough to mark the card as a project's — a card
-		// filed under a project must not hinge on the epic side being set.
-		if c.Epic != "" || c.Project != "" {
+		// week is not cleared either.) The COLUMN is what makes it a slot,
+		// and a column needs the epic side: a bare project name puts a card
+		// on no board at all, so it cannot be the home that spares it.
+		if hasColumn(c) {
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
 			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
 			return nil
 		}
-		// A card someone is (or was) working on is never deleted by the plan ×:
-		// it sheds only its weekly membership and stays with the person and on
-		// the sprint days it passed through.
-		if len(c.Assignees) > 0 || c.Progress > 0 {
+		// A card that is still SOMEWHERE — in the working area by its sprint
+		// or its dates — sheds only its weekly membership and stays there.
+		// Being on a person or carrying progress is not a place to be: sparing
+		// a card for that left it alive with no sprint, no dates, no band and
+		// no column, which is to say nowhere anyone could find it.
+		if inWorkingArea(c) {
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
@@ -1113,24 +1129,18 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		return s.deleteWithCascade(ctx, b, c)
 	}
 	if c.Plan != board.PlanNone {
-		// The grid × on an untouched taken plan card undoes the take: it releases
-		// back to the plan pool. A card already worked on (progress > 0) must NOT
-		// lose its person or sprint history — it sheds the plan membership
-		// instead and stays a regular sprint card.
-		if c.Progress > 0 {
-			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
+		// The card is in the weekly plan too, so this × takes it out of the
+		// working area and leaves it there — whatever it carries. The grid ×
+		// used to do the opposite for a worked card (shed the band, stay on
+		// the grid), which made one gesture mean two different things
+		// depending on the progress bar.
+		if len(c.Assignees) > 0 {
+			if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
 				return err
 			}
-			if err := s.clearPlanWeek(ctx, b, c); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
-			return nil
+			s.logEvent(ctx, b, c, board.EventAssignee, c.Assignees[0], "")
 		}
-		if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
-			return err
-		}
-		return s.backend.SetSprintStart(ctx, b, c, "")
+		return s.leaveWorkingArea(ctx, b, c)
 	}
 	cur := board.CurrentSprint(b, c.Team)
 	prev := board.PreviousSprint(b, c.Team)
@@ -1157,13 +1167,107 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// ride along, staying nested under it there.
 		return s.syncChildrenSprint(ctx, b, c.ItemID, prev)
 	}
-	// Nothing left to demote into: the × hands the card back instead of
-	// destroying it. Taking a card off someone is not a statement that the work
-	// is gone, and this branch used to delete for real — a card created and
-	// assigned the same day vanished from the board on its first ×, project
-	// column and all. Deleting is its own gesture (DeleteCard), never a
-	// side effect of removing a card from a person.
-	return s.releaseToPlan(ctx, b, c)
+	// Nothing left to demote into. A card has two homes — the working area
+	// (a sprint and its days) and the weekly plan (a band and its week) —
+	// and this × empties the first one. With the plan or a Project-board
+	// column to fall back on, the card simply goes there; with neither, it
+	// was nowhere else, and removing it from the only place it was is
+	// deletion. That is what the Unassigned column's × is expected to do,
+	// and what the plan's own × already does to a card nobody took (A3).
+	//
+	// Nothing is spared here on account of what it carries: work and
+	// subtasks make a delete worth CONFIRMING, not worth turning into a
+	// move somewhere nobody asked for — the UI asks before sending this
+	// (deleteWarning in removal.ts), the way it asks about a demote that
+	// would carry work off the board (W5).
+	if !hasColumn(c) {
+		return s.deleteWithCascade(ctx, b, c)
+	}
+	return s.releaseToColumn(ctx, b, c)
+}
+
+// A card is somewhere when a board shows it: the working area (a sprint or
+// its dates, on the day grids), the weekly plan (a band), or the Project
+// board (a column). Emptying its last one is what deletion means here.
+
+// inWorkingArea reports whether the card is in the working area — in a
+// sprint, or on the day grid by its dates.
+func inWorkingArea(c board.Card) bool {
+	return c.SprintStart != "" || c.StartDate != "" || c.Day != ""
+}
+
+// childrenLeaveWorkingArea takes a card's subtasks out of the working area
+// with it: the sprint through syncChildrenSprint, and the dates that would
+// otherwise keep them listed on a day the parent has left.
+func (s *Service) childrenLeaveWorkingArea(ctx context.Context, b board.Board, parent board.Card) error {
+	if err := s.syncChildrenSprint(ctx, b, parent.ItemID, ""); err != nil {
+		return err
+	}
+	for _, k := range board.Children(b, parent.ItemID) {
+		if k.StartDate == "" && k.Day == "" {
+			continue
+		}
+		if k.StartDate != "" {
+			if err := s.backend.SetStart(ctx, b, k, ""); err != nil {
+				return err
+			}
+		}
+		if k.Day != "" {
+			if err := s.backend.SetDay(ctx, b, k, ""); err != nil {
+				return err
+			}
+		}
+		s.logEvent(ctx, b, k, board.EventDates, board.DateRange(k.StartDate, k.Day), "")
+	}
+	return nil
+}
+
+// hasColumn reports whether the card sits in a Project-board column. The
+// column is the pair (project, epic) and the EPIC side is what puts the card
+// in one: the Project board renders columns by epic and the weekly plan
+// derives a slot's band by epic, so a card carrying only a project name is
+// on no board — a label, not a home.
+func hasColumn(c board.Card) bool { return c.Epic != "" }
+
+// leaveWorkingArea takes a card out of the day grid: the sprint goes, and so
+// do the dates that would keep the grid listing it (a card whose start is
+// the viewed day shows there whatever its sprint says — which is how a card
+// handed back to the plan stayed on the board as well, in two places at
+// once). A Project-board slot keeps its dates: they are its row.
+func (s *Service) leaveWorkingArea(ctx context.Context, b board.Board, c board.Card) error {
+	if c.SprintStart != "" {
+		if err := s.backend.SetSprintStart(ctx, b, c, ""); err != nil {
+			return err
+		}
+		// The departure is RECORDED, the way a demote records its move: a
+		// card that leaves today's board without a word in its own history is
+		// a card nobody can account for afterwards (W6).
+		s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, "")
+	}
+	// The subtasks ride with their parent: left in the sprint and on the days
+	// their parent has left, they stand under a card no board shows — and a
+	// stale date is what kept the parent itself in two places.
+	if err := s.childrenLeaveWorkingArea(ctx, b, c); err != nil {
+		return err
+	}
+	if hasColumn(c) {
+		return nil // its dates are its row on the Project board
+	}
+	if c.StartDate == "" && c.Day == "" {
+		return nil
+	}
+	if c.StartDate != "" {
+		if err := s.backend.SetStart(ctx, b, c, ""); err != nil {
+			return err
+		}
+	}
+	if c.Day != "" {
+		if err := s.backend.SetDay(ctx, b, c, ""); err != nil {
+			return err
+		}
+	}
+	s.logEvent(ctx, b, c, board.EventDates, board.DateRange(c.StartDate, c.Day), "")
+	return nil
 }
 
 // removePersonal is the × on a personal board, which has no sprint to demote
@@ -1204,39 +1308,18 @@ func (s *Service) bringBack(ctx context.Context, b board.Board, c board.Card) er
 	return s.setLeftAt(ctx, b, c, "")
 }
 
-// releaseToPlan gives a card back: it loses its person and its sprint
-// membership and lands somewhere it can still be seen. A card that belongs to
-// a Project-board column already has a home — its column and its dates — and a
-// card already in a plan band keeps that band. One with neither is filed into
-// this week's plan, because a card in no sprint, no plan and no column is
-// invisible, which is what once made deleting it look like the tidy option.
-func (s *Service) releaseToPlan(ctx context.Context, b board.Board, c board.Card) error {
+// releaseToColumn gives a slot back: it loses its person and leaves the
+// working area, and its Project-board column is where it still is. Only a
+// card with a column reaches this — one without is deleted by Remove
+// instead of being filed somewhere nobody put it.
+func (s *Service) releaseToColumn(ctx context.Context, b board.Board, c board.Card) error {
 	if len(c.Assignees) > 0 {
 		if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
 			return err
 		}
 		s.logEvent(ctx, b, c, board.EventAssignee, c.Assignees[0], "")
 	}
-	if c.SprintStart != "" {
-		if err := s.backend.SetSprintStart(ctx, b, c, ""); err != nil {
-			return err
-		}
-	}
-	if c.Epic != "" || c.Project != "" || c.Plan != board.PlanNone {
-		return nil
-	}
-	if err := s.backend.SetPlan(ctx, b, c, board.PlanWed); err != nil {
-		return err
-	}
-	week := c.Week
-	if week == "" {
-		week = board.MondayOf(board.TodayIso())
-	}
-	if err := s.backend.SetWeek(ctx, b, c, week); err != nil {
-		return err
-	}
-	s.logEvent(ctx, b, c, board.EventPlanAdded, "", string(board.PlanWed))
-	return nil
+	return s.leaveWorkingArea(ctx, b, c)
 }
 
 // carryFollowers collects the subtasks that ride a carried parent into the
@@ -1661,10 +1744,9 @@ func (s *Service) SetDay(ctx context.Context, boardID string, itemID, day string
 // clearPlanWeek drops a card's plan week — except a slot's, which is derived
 // from its start date and would come straight back on the next read, having
 // meanwhile taken the slot off the Project board.
+// Only reached for a card with no column: a slot's week is its row, and the
+// plan branch returns before this for one.
 func (s *Service) clearPlanWeek(ctx context.Context, b board.Board, c board.Card) error {
-	if c.Epic != "" {
-		return nil
-	}
 	return s.backend.SetWeek(ctx, b, c, "")
 }
 
@@ -2396,32 +2478,10 @@ func (s *Service) TakeIntoPlan(ctx context.Context, boardID string, itemID, engi
 	return nil
 }
 
-// ReleaseFromPlan removes a card from the weekly plan. It mirrors removeFromPlan
-// in TeamBoard.tsx: a taken-into-work card (it has an assignee) just loses its
-// Plan + Week markers; a pure plan card is demoted to its previous plan week, or
-// deleted (cascading to a linked review card) when there is none.
+// ReleaseFromPlan removes a card from the weekly plan. It is the plan ×
+// reached through another door (/actions/release-from-plan, the MCP tool),
+// so it is that same code: two doors of one gesture drifted apart once
+// already — one cleared the week where the other kept it.
 func (s *Service) ReleaseFromPlan(ctx context.Context, boardID string, itemID string) error {
-	b, card, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	if card.Epic == "" && len(card.Assignees) == 0 && card.Progress == 0 {
-		// A pure plan card is deleted for real (an earlier-week demote would
-		// boomerang back on the next carry-week). A SLOT is never that: it
-		// belongs to a roadmap and only visits the weekly plan.
-		return s.deleteWithCascade(ctx, b, card)
-	}
-	if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
-		return err
-	}
-	// A slot's row is derived from its start date; clearing the week would
-	// only be undone by the next read, and meanwhile the slot would go
-	// missing from the Project board.
-	if card.Epic == "" {
-		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
-			return err
-		}
-	}
-	s.logEvent(ctx, b, card, board.EventPlanReleased, string(card.Plan), "")
-	return nil
+	return s.Remove(ctx, boardID, itemID, "plan")
 }

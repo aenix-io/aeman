@@ -14,6 +14,17 @@ export function isSlot(c: Banded): boolean {
   return !!c.epic && !!c.week && !!c.day;
 }
 
+/** planRemoveOffered reports whether the weekly panel's × has anything to
+ *  do for this card. Taking a card out of the plan clears its band — but a
+ *  SLOT is on the panel by derivation, its span standing in for a band, so
+ *  clearing one changes nothing anyone can see: the card stays exactly
+ *  where it was. An × that does nothing is worse than no ×, so the panel
+ *  does not offer one. (Off the panel is a matter of the slot's dates or
+ *  its column, neither of which an × means.) */
+export function planRemoveOffered(c: Banded): boolean {
+  return !isSlot(c);
+}
+
 /** slotBand derives the weekly-plan band a band-less slot occupies on `week`'s
  *  panel. Only the week the slot ENDS in can be a by-Wednesday week; every
  *  earlier covered week holds the slot open through its Friday. Mirrors the

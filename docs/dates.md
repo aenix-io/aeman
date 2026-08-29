@@ -68,6 +68,8 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
   current sprint, so a lead reviewing the day sees what came up mid-sprint.
 
 ### Team view — a card's days (`selectedDate`)
+
+A card filed under a Project-board **column** (an epic) is not on the day grid until it joins a sprint: its multi-week span would smear across every day it covers, and the column is where it is shown meanwhile. A card that merely carries a project NAME has no column — the Project board renders columns by epic — so it is an ordinary dated card and shows like one. The Me view draws the same line, with one exception: a slot someone owns shows on that person's own board, because then it is their work.
 - A **materialized** card (`startDate <= today`) shows on its sprint's start day
   (`sprintStart`) **and** on its own scheduled day (`startDate`) — so a card
   created on a later day of the sprint appears both on the sprint day (where the

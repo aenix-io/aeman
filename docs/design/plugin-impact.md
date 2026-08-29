@@ -129,12 +129,16 @@ A write that changes what the rule evaluates to is a **move**: the file is creat
 
 ## Behaviour the plugin used to replicate
 
-Unchanged rules (dates, visibility, clamps, carry-over, smart remove, review linkage, processes) are the same as before — see `docs/dates.md` and the D/S/A rows of the matrix. What changed is only **where they are written**:
+Unchanged rules (dates, visibility, clamps, carry-over, review linkage, processes) are the same as before — see `docs/dates.md` and the D/S/A rows of the matrix. What changed is only **where they are written**:
 
 - Carry-over: rewrite the team's `sprint` pointer and every carried card's dates in one commit (`Aeman-Action: carry-over`); a team already on today's sprint makes no commit; a team with nothing to carry still advances the pointer (G4).
 - Sending to review: create the review card (`reviewOf`, the original's team, no project) in the original's domain and set the original's `stage: review`.
 - Notes: append a `- <ulid> [ts] author — text` line under `## Notes`.
 - Events: none to write. Set the fields; the commit is the event. For a change the diff cannot express (a review sent to someone, a reviewer removed), add an `Aeman-Change` trailer.
+
+## The smart remove (A1/A2/W2)
+
+The × no longer "never deletes". A card has two homes — the working area (a sprint and its days) and the weekly plan (a band and its week) — and each × empties one of them: leaving the working area clears assignee, sprint AND dates (a slot keeps its dates), leaving the plan clears the band. A card with the other home, or a Project-board column, stays there; a card with nowhere else to be is **deleted**, whatever it carries — the UI asks first when there is progress or a linked review card to lose; subtasks are freed into standalone cards. A plugin replicating the old rule would hand a card back into this week's plan (the server no longer does) or refuse a delete that now happens. `model.md` must carry the two-homes rule; a plugin driving `remove_card` should ask its user before removing a worked card from its last home.
 
 ## The API surface that changed with it
 
