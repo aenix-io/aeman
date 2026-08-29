@@ -519,3 +519,86 @@ func TestSubtasksCarryNoMirrors(t *testing.T) {
 		t.Fatalf("the emptied column must be deletable: %v", err)
 	}
 }
+
+// The review link decides the card's repository before its project (linked
+// cards first, G14), so SetReviewOf is a re-file in disguise: pointing a
+// mirrored review card at an original in another repository would carry
+// the file away and leave the mirrors naming columns of the repository it
+// left — for whose readers the column looks empty while DeleteEpic refuses
+// "occupied". Refused, symmetric with SetEpic; a same-repository original
+// moves nothing and links freely; and clearing a link that holds the card
+// elsewhere is the same move in reverse, refused the same way.
+func TestTheReviewLinkCannotCarryAMirroredCardAway(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "review", Team: "platform", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "near", Title: "neighbour", Team: "platform", Project: "freedom", Epic: "Launch"},
+	})
+	svc := New(f)
+	if err := svc.SetReviewOf(ctx, "acme", "c1", "orig"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the link would re-file the card into another repository: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.ReviewOf != "" {
+		t.Fatalf("the refused link must not land: %+v", c)
+	}
+	if err := svc.SetReviewOf(ctx, "acme", "c1", "near"); err != nil {
+		t.Fatalf("a same-repository original links freely: %v", err)
+	}
+	if err := svc.SetReviewOf(ctx, "acme", "c1", ""); err != nil {
+		t.Fatalf("clearing a same-repository link moves nothing: %v", err)
+	}
+}
+
+// The other door of the same room: a review card whose link already points
+// into another repository LIVES there (its file follows the original), so
+// no column of its home project's repository may show it.
+func TestACardLinkedIntoAnotherRepositoryCannotBeMirrored(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "rev", Title: "review", Team: "platform", Project: "engineering", Epic: "Cozystack",
+			ReviewOf: "orig", Domain: "founders"},
+	})
+	if err := New(f).Mirror(ctx, "acme", "rev", "freedom", "Launch"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the card's file lives where its original does: %v", err)
+	}
+}
+
+// A process turn belongs to its task, and the task names the process:
+// writing process: on the turn itself would contradict the task and lose
+// to it on every read (processOf resolves the task first) — the silent
+// no-op the picker used to show as a flicker-then-revert. Refused.
+func TestATurnsProcessCannotBeReTied(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "turn", Title: "invoice week 35", Team: "platform",
+			Stage: board.StageRecurrent, Task: "task-1"},
+	})
+	if err := New(f).SetCardProcess(ctx, "acme", "turn", "Invoicing"); !errors.Is(err, ErrTurnProcess) {
+		t.Fatalf("a turn's process is its task's: %v", err)
+	}
+}
+
+// A rewritten mirror entry leaves the same trace a home rename does: the
+// activity log is the second documentation, and a mirror that silently
+// changed columns read as one appearing from nowhere.
+func TestARenamedMirrorLandsInTheCardsLog(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "shared", Team: "platform", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	svc := New(f)
+	if err := svc.RenameEpic(ctx, "acme", "freedom", "Launch", "Liftoff"); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range f.eventsOf("c1") {
+		if e.Kind == board.EventMirror && e.From == "freedom / Launch" && e.To == "freedom / Liftoff" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the rewrite must be logged: %+v", f.eventsOf("c1"))
+	}
+}

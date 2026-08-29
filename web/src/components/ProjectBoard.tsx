@@ -10,6 +10,7 @@ import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
+  movingSlot,
   removeFromProjectOutcome,
   settleMirrorDrop,
   slotDragPlan,
@@ -1850,7 +1851,9 @@ export function ProjectBoard({
             <div
               key={`${colKey(e.project, e.name)}\u0000${card.itemId}`}
               className={`project-slot ${slotTone(card, today)}${
-                move?.card.itemId === card.itemId ? " project-slot-moving" : ""
+                movingSlot(move, card.itemId, { project: e.project, epic: e.name })
+                  ? " project-slot-moving"
+                  : ""
               }${nudged === card.itemId ? " project-slot-nudged" : ""}`}
               // A card that fills its column leaves nowhere to start the next
               // one. Hovering its right edge steps it aside just enough to

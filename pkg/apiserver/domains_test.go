@@ -21,7 +21,13 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 		},
 		Projects:      []string{"backoffice", "strategy"},
 		ProjectStates: map[string]string{"backoffice": "pr-backoffice", "strategy": "pr-strategy"},
-		Domains:       map[string]string{"st-founders": "founders", "pr-strategy": "founders"},
+		Processes: []board.Process{
+			{Name: "Payroll", ItemID: "proc-pay"},
+			{Name: "Fundraising ops", ItemID: "proc-fund"},
+		},
+		Domains: map[string]string{
+			"st-founders": "founders", "pr-strategy": "founders", "proc-fund": "founders",
+		},
 	}
 	got := BoardResourceWithPeople(b, nil).Metadata
 	if got.TeamDomains["founders"] != "founders" {
@@ -36,6 +42,14 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 	if _, named := got.ProjectDomains["backoffice"]; named {
 		t.Fatalf("a project of the primary needs no entry: %v", got.ProjectDomains)
 	}
+	// Processes the same way: a card is only tied to a process of its own
+	// repository, so the picker needs to know where each was declared.
+	if got.ProcessDomains["Fundraising ops"] != "founders" {
+		t.Fatalf("processDomains = %v, want Fundraising ops named", got.ProcessDomains)
+	}
+	if _, named := got.ProcessDomains["Payroll"]; named {
+		t.Fatalf("a process of the primary needs no entry: %v", got.ProcessDomains)
+	}
 
 	// A board of one repository records no domains at all, and says nothing.
 	single := board.Board{
@@ -45,7 +59,8 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 		ProjectStates: map[string]string{"backoffice": "pr-backoffice"},
 	}
 	bare := BoardResourceWithPeople(single, nil).Metadata
-	if bare.TeamDomains != nil || bare.ProjectDomains != nil {
-		t.Fatalf("a single-repository board must name none: %v %v", bare.TeamDomains, bare.ProjectDomains)
+	if bare.TeamDomains != nil || bare.ProjectDomains != nil || bare.ProcessDomains != nil {
+		t.Fatalf("a single-repository board must name none: %v %v %v",
+			bare.TeamDomains, bare.ProjectDomains, bare.ProcessDomains)
 	}
 }

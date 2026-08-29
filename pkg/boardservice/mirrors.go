@@ -35,6 +35,11 @@ var ErrOwnColumn = errors.New("the card's own column is not a mirror target")
 // board ever shows — counted by the guards, seen by nobody.
 var ErrSubtaskMirror = errors.New("a subtask rides its parent and cannot be mirrored")
 
+// ErrTurnProcess is re-tying a process turn: a turn belongs to its task,
+// and the task names the process — a process written on the turn itself
+// would contradict the task and silently lose to it on every read.
+var ErrTurnProcess = errors.New("a process turn's process is its task's — it cannot be re-tied")
+
 // Mirror adds the column (project, epic) to the card. The card must already
 // have a home column — a card outside every project is attached, not
 // mirrored — the target must exist, in the same repository as the home, and
@@ -58,6 +63,14 @@ func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, e
 	}
 	if !board.MirrorAllowed(b, c.Project, project) {
 		return fmt.Errorf("%w: %q is not in %q's repository", ErrCrossDomain, project, c.Project)
+	}
+	// The card's FILE follows a linked original before its project (linked
+	// cards first, G14): a review card of an original in another repository
+	// lives there, whatever its home column says — and no column of this
+	// repository may show a file its readers may not have (G15).
+	r := board.Resolver(b, "")
+	if hd, ok := r.ProjectDomain(c.Project); ok && board.DomainOf(c, r) != hd {
+		return fmt.Errorf("%w: the card's file lives in another repository (its review link decides)", ErrCrossDomain)
 	}
 	if board.Mirrored(c, project, epic) {
 		return nil
@@ -175,6 +188,12 @@ func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, pr
 	if err != nil {
 		return err
 	}
+	// A turn is refused before anything else: processOf resolves its task
+	// first, so a process: key written here would never be read back — the
+	// silent no-op this guard turns into an honest error.
+	if c.Task != "" {
+		return ErrTurnProcess
+	}
 	if process != "" {
 		found := false
 		for _, p := range b.Processes {
@@ -219,5 +238,16 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 		}
 		next[i] = m
 	}
-	return s.backend.SetMirrors(ctx, b, c, next)
+	if err := s.backend.SetMirrors(ctx, b, c, next); err != nil {
+		return err
+	}
+	// The home's rename lands in the log as EventEpic; a mirror entry's
+	// rewrite is the same fact for this card and gets the same trace — an
+	// unlogged rewrite read as a mirror appearing from nowhere.
+	from, to := fromProject+" / "+fromEpic, toProject+" / "+toEpic
+	if fromEpic == "" {
+		from, to = fromProject, toProject
+	}
+	s.logEvent(ctx, b, c, board.EventMirror, from, to)
+	return nil
 }

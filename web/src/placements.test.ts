@@ -4,6 +4,7 @@ import {
   attachSlotDates,
   attachTargets,
   mirrorTargets,
+  movingSlot,
   placementTargets,
   removeFromProjectOutcome,
   settleMirrorDrop,
@@ -128,6 +129,25 @@ describe("placementTargets", () => {
     expect(got.processes).toEqual(["Reporting"]);
   });
 
+  it("offers a process TURN nothing — its process is its task's", () => {
+    const got = placementTargets({ stage: "recurrent", task: "t1" } as Card, board);
+    expect(got.processes).toBeUndefined();
+    expect(got.attach).toBeUndefined();
+    expect(got.mirror).toBeUndefined();
+  });
+
+  it("offers only processes of the card's own repository", () => {
+    // The server refuses a cross-repository tie (ErrCrossDomain), so the
+    // menu must not offer one: dead items ending in a 422 are not targets.
+    const multi = { ...board, processDomains: { Reporting: "founders" } };
+    expect(placementTargets({ stage: "recurrent" } as Card, multi).processes).toEqual([
+      "Invoicing",
+    ]);
+    expect(
+      placementTargets({ stage: "recurrent", domain: "founders" } as Card, multi).processes,
+    ).toEqual(["Reporting"]);
+  });
+
   it("offers projects to everything else", () => {
     const got = placementTargets({} as Card, board);
     expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
@@ -249,5 +269,21 @@ describe("settleMirrorDrop", () => {
     // The new placement lands before the old one goes.
     expect(seen).toEqual(["mirror:freedom/Ship", "unmirror:freedom/Launch", "dates"]);
     expect(u.calls).toEqual(["reload"]);
+  });
+});
+
+// A mirrored card renders once per column; while one copy is dragged, only
+// THAT placement dims — dimming by card id alone dimmed the home copy
+// whenever a mirror copy moved.
+describe("movingSlot", () => {
+  const move = {
+    card: { itemId: "c1" },
+    grabbed: { project: "freedom", epic: "Launch" },
+  };
+  it("dims exactly the grabbed placement", () => {
+    expect(movingSlot(move, "c1", { project: "freedom", epic: "Launch" })).toBe(true);
+    expect(movingSlot(move, "c1", { project: "engineering", epic: "Cozystack" })).toBe(false);
+    expect(movingSlot(move, "c2", { project: "freedom", epic: "Launch" })).toBe(false);
+    expect(movingSlot(null, "c1", { project: "freedom", epic: "Launch" })).toBe(false);
   });
 });

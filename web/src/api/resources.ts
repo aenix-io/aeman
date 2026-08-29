@@ -135,6 +135,7 @@ export interface BoardResource {
      *  sends neither. */
     teamDomains?: Record<string, string>;
     projectDomains?: Record<string, string>;
+    processDomains?: Record<string, string>;
     /** The visitor's personal board, when they linked one. `problem` says
      *  why the repository is not attached (the server cannot reach it) and
      *  `actionUrl` is the page that fixes it — installing the board's

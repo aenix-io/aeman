@@ -224,6 +224,9 @@ export interface Board {
    *  one, so the pickers narrow themselves by these. */
   teamDomains?: Record<string, string>;
   projectDomains?: Record<string, string>;
+  /** The repository each process was declared in — a card is only tied to a
+   *  process of its own repository, so the picker narrows itself by this. */
+  processDomains?: Record<string, string>;
   /** The visitor's personal board, when they linked one. */
   personal?: PersonalBoard;
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */

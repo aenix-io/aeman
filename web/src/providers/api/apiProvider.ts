@@ -52,6 +52,7 @@ export function boardMetadata(
   | "domains"
   | "teamDomains"
   | "projectDomains"
+  | "processDomains"
   | "personal"
 > {
   return {
@@ -84,6 +85,7 @@ export function boardMetadata(
     // from offering a pair the server will refuse.
     teamDomains: info.metadata.teamDomains ?? undefined,
     projectDomains: info.metadata.projectDomains ?? undefined,
+    processDomains: info.metadata.processDomains ?? undefined,
     personal: info.metadata.personal
       ? {
           domain: info.metadata.personal.domain,

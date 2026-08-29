@@ -235,6 +235,9 @@ type BoardMetadata struct {
 	// pickers must not offer it (boardservice.ErrDomainConflict).
 	TeamDomains    map[string]string `json:"teamDomains,omitempty"`
 	ProjectDomains map[string]string `json:"projectDomains,omitempty"`
+	// ProcessDomains does the same for processes: a card may only be tied
+	// to a process of its own repository, so the picker needs to know.
+	ProcessDomains map[string]string `json:"processDomains,omitempty"`
 	// Personal is the visitor's own repository when they linked one: the
 	// personal board lives there (view=personal, create with personal=true).
 	Personal *PersonalInfo `json:"personal,omitempty"`
@@ -289,6 +292,15 @@ type ProcessRef struct {
 type DeadlineRef struct {
 	Week    string `json:"week"`
 	Project string `json:"project,omitempty"`
+}
+
+// processNames lists the process names, in board order.
+func processNames(b board.Board) []string {
+	out := make([]string, 0, len(b.Processes))
+	for _, p := range b.Processes {
+		out = append(out, p.Name)
+	}
+	return out
 }
 
 // processRefs lists the processes, in board order.
@@ -540,6 +552,9 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 			TeamDomains: rosterDomains(teams, func(name string) string { return board.TeamDomain(b, name) }),
 			ProjectDomains: rosterDomains(b.Projects, func(name string) string {
 				return board.ProjectDomain(b, name)
+			}),
+			ProcessDomains: rosterDomains(processNames(b), func(name string) string {
+				return board.ProcessDomain(b, name)
 			})},
 	}
 }

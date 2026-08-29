@@ -125,12 +125,13 @@ export interface CardPlacements {
  *  from the board — the same filters the server applies, so the picker
  *  offers only what would be accepted. */
 export function placementTargets(
-  card: Pick<Card, "project" | "epic" | "mirrors" | "domain" | "stage" | "process">,
+  card: Pick<Card, "project" | "epic" | "mirrors" | "domain" | "stage" | "process" | "task">,
   board: {
     projects: string[];
     epics: EpicRef[];
     projectDomains?: RosterDomains;
     processes: { name: string }[];
+    processDomains?: RosterDomains;
   },
 ): Pick<CardPlacements, "attach" | "processes" | "mirror"> {
   if (card.epic) {
@@ -139,11 +140,22 @@ export function placementTargets(
     };
   }
   if (card.stage === "recurrent") {
-    // The process it is already tied to is where it stands, not a target.
+    if (card.task) {
+      // A process TURN belongs to its task, and the task names the
+      // process — the server refuses a re-tie, so the menu offers none.
+      return {};
+    }
+    // The process it is already tied to is where it stands, not a target —
+    // and only processes of the card's own repository: the server refuses
+    // a cross-repository tie, so the menu must not offer one.
     return {
       processes: board.processes
         .map((p) => p.name)
-        .filter((name) => name !== card.process),
+        .filter(
+          (name) =>
+            name !== card.process &&
+            rosterDomain(board.processDomains, name) === (card.domain ?? ""),
+        ),
     };
   }
   return {
@@ -182,6 +194,7 @@ export function makeCardPlacements(
     epics: EpicRef[];
     projectDomains?: RosterDomains;
     processes: { name: string }[];
+    processDomains?: RosterDomains;
   },
   deps: PlacementDeps,
 ): CardPlacements {
@@ -332,4 +345,20 @@ export async function settleMirrorDrop(
     ui.onError(ui.errMessage(err));
     ui.reload();
   }
+}
+
+/** movingSlot: is THIS rendered placement the one being dragged? A mirrored
+ *  card renders once per column, so dimming by card id alone dimmed the
+ *  home copy while a mirror copy moved — only the grabbed placement dims. */
+export function movingSlot(
+  move: { card: { itemId: string }; grabbed: { project: string; epic: string } } | null,
+  itemId: string,
+  col: { project: string; epic: string },
+): boolean {
+  return (
+    !!move &&
+    move.card.itemId === itemId &&
+    move.grabbed.project === col.project &&
+    move.grabbed.epic === col.epic
+  );
 }

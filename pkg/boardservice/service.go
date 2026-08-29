@@ -1379,6 +1379,20 @@ func (s *Service) SetReviewOf(ctx context.Context, boardID string, itemID, revie
 	if err != nil {
 		return err
 	}
+	// The review link decides the card's repository before its project
+	// (linked cards first, G14), so setting or clearing it is a re-file in
+	// disguise — and a re-file that carries a mirrored card into another
+	// repository leaves the mirrors naming columns of the one it left:
+	// G15's forbidden state. Refused while mirrors stand, symmetric with
+	// SetEpic: unmirror first.
+	if len(card.Mirrors) > 0 {
+		r := board.Resolver(b, "")
+		after := card
+		after.ReviewOf = reviewOf
+		if board.DomainOf(after, r) != board.DomainOf(card, r) {
+			return fmt.Errorf("%w: the review link would move the card — unmirror it first", ErrCrossDomain)
+		}
+	}
 	return s.backend.SetReviewOf(ctx, b, card, reviewOf)
 }
 
