@@ -63,6 +63,7 @@ export interface CardResource {
     process?: string;
     task?: string;
     project?: string;
+    mirrors?: { project: string; epic: string }[];
     reviewOf?: string;
     parent?: string;
   };
@@ -214,6 +215,7 @@ export function resourceToCard(res: CardResource): Card {
     week: spec.plan?.week || undefined,
     epic: spec.epic || undefined,
     project: spec.project || undefined,
+    mirrors: spec.mirrors?.length ? spec.mirrors : undefined,
     process: spec.process || undefined,
     task: spec.task || undefined,
     // A summary listing omits the body: description stays undefined ("not

@@ -4438,6 +4438,56 @@ button.card-age {
   text-decoration: none;
 }
 
+/* ---- placements: attach / mirror in the assign menu, mirror markers ---- */
+
+.card-placements-head,
+.card-placements-project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-placements-caret {
+  width: 10px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.card-placements-list {
+  /* The accordion can outgrow the screen a flyout would fall off of:
+     it scrolls instead. */
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.card-placements-project {
+  font-weight: 600;
+}
+
+.card-placements-leaf {
+  padding-left: 26px;
+}
+
+.card-placements-unmirror {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0 2px;
+  margin-left: 4px;
+  opacity: 0.5;
+  font-size: 11px;
+}
+
+.card-placements-unmirror:hover {
+  opacity: 1;
+}
+
+.project-slot-mirror {
+  margin-right: 4px;
+  opacity: 0.6;
+  font-size: 11px;
+}
+
 /* ---- single board, domains, roster avatars ---- */
 
 /* The board's name in the toolbar — the one board this server serves, where

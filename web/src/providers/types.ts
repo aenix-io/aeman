@@ -42,6 +42,10 @@ export interface Card {
   author?: string;
   /** ISO timestamp the card was created (its age on the board). */
   createdAt?: string;
+  /** Additional Project-board columns the same card stands in — one file,
+   *  one log, one set of dates, shown in every listed project too. Always
+   *  the card's own repository (the server admits nothing else). */
+  mirrors?: { project: string; epic: string }[];
   /** The repository the card lives in (one of the board's domains). Absent on
    *  an older server, which means the primary. */
   domain?: string;
@@ -244,6 +248,9 @@ export interface CardPatch {
   /** Re-file under a column ("" clears). Naming only the epic keeps the card
    *  inside its project; crossing projects names both halves. */
   epic?: string;
+  /** Tie the card to a process — the recurring shelf's counterpart of a
+   *  column ("" clears). The process must already exist. */
+  process?: string;
   project?: string;
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
@@ -404,6 +411,15 @@ export interface Provider {
   ): Promise<void>;
   /** Delete a team's sprint pointer; rejects while cards still use the team. */
   deleteTeam(team: string): Promise<void>;
+  /** Show the card in a second Project-board column — the same card, one
+   *  file and one log, standing in both projects. */
+  mirrorCard(uid: string, project: string, epic: string): Promise<void>;
+  /** Take one mirror column away; the home and everything else stay. */
+  unmirrorCard(uid: string, project: string, epic: string): Promise<void>;
+  /** The Project board's ×: remove the card from one column (mirror goes /
+   *  home hands over / last column keeps only a worked card, as an orphan
+   *  of the working area). */
+  removeFromProject(uid: string, project: string, epic: string): Promise<void>;
   /** Set a team's sprint pointer directly (current/previous start dates). With
    *  both empty this declares the team; `domain` picks the repository its
    *  roster entry is written to (default: the primary). */

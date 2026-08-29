@@ -9,6 +9,8 @@ import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
+import { removeFromProjectOutcome } from "../placements";
+import { deleteWarning } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
@@ -244,7 +246,11 @@ export function ProjectBoard({
   const cards = useMemo(() => {
     const shown = new Set(epics.map((e) => colKey(e.project, e.name)));
     return board.cards.filter(
-      (c) => c.epic && !c.parent && shown.has(colKey(c.project ?? "", c.epic)),
+      (c) =>
+        c.epic &&
+        !c.parent &&
+        (shown.has(colKey(c.project ?? "", c.epic)) ||
+          (c.mirrors ?? []).some((m) => shown.has(colKey(m.project, m.epic)))),
     );
   }, [board.cards, epics]);
 
@@ -1063,15 +1069,47 @@ export function ProjectBoard({
       });
   };
 
-  const deleteCard = (card: CardModel) => {
-    if (!window.confirm(`Delete "${card.title}"?`)) {
-      return;
+  // The slot's ×: remove the card from THIS column. A mirror goes, the
+  // home hands over to its first mirror, an orphaned worked card survives
+  // in the working area — only the true delete asks, naming the loss.
+  const removeFromColumn = (card: CardModel, project: string, epic: string) => {
+    const outcome = removeFromProjectOutcome(card, project, epic);
+    if (outcome === "delete") {
+      const warning =
+        deleteWarning(card, null) ?? `Delete "${card.title}"?`;
+      if (!window.confirm(warning)) {
+        return;
+      }
+      removeCard(card.itemId);
+    } else if (outcome === "unmirror") {
+      patchCard(card.itemId, {
+        mirrors: (card.mirrors ?? []).filter(
+          (m) => !(m.project === project && m.epic === epic),
+        ),
+      });
+    } else if (outcome === "promote") {
+      const heir = (card.mirrors ?? [])[0];
+      patchCard(card.itemId, {
+        project: heir.project,
+        epic: heir.epic,
+        mirrors: (card.mirrors ?? []).slice(1),
+      });
+    } else {
+      // orphan: off the Project board and the weekly plan, kept by its work.
+      patchCard(card.itemId, {
+        project: undefined,
+        epic: undefined,
+        plan: undefined,
+        week: undefined,
+      });
     }
-    removeCard(card.itemId);
-    void provider.deleteCard(card.itemId).catch((err: unknown) => {
-      onError(errText(err));
-      reload();
-    });
+    void provider
+      .removeFromProject(card.itemId, project, epic)
+      .then(() => reload())
+      .catch((err: unknown) => {
+        onError(errText(err));
+        reload();
+      });
   };
 
   // While a slot is being stretched, its span follows the pointer — the drag
@@ -1137,6 +1175,17 @@ export function ProjectBoard({
       const list = byCol.get(k) ?? [];
       list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
       byCol.set(k, list);
+      // A mirrored card stands in every one of its columns: the same entry,
+      // the same shared dates, once per placement — except while THIS card
+      // is being dragged, when only the moving preview is drawn.
+      if (move?.card.itemId !== c.itemId) {
+        for (const mi of c.mirrors ?? []) {
+          const mk = colKey(mi.project, mi.epic);
+          const ml = byCol.get(mk) ?? [];
+          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
+          byCol.set(mk, ml);
+        }
+      }
       if (rest) {
         // The same card at REST — pre-preview geometry, for the lane pin.
         const rr = weeksBetween(weeks[0], anchor);
@@ -1730,7 +1779,7 @@ export function ProjectBoard({
             .filter((s): s is typeof s & { card: CardModel } => s.card !== null)
             .map(({ card, row, span, lane, lanes, width: laneWidth }) => (
             <div
-              key={card.itemId}
+              key={`${colKey(e.project, e.name)}\u0000${card.itemId}`}
               className={`project-slot ${slotTone(card, today)}${
                 move?.card.itemId === card.itemId ? " project-slot-moving" : ""
               }${nudged === card.itemId ? " project-slot-nudged" : ""}`}
@@ -1824,6 +1873,16 @@ export function ProjectBoard({
               title={card.title}
             >
               <span className="project-slot-title">
+                {(card.mirrors ?? []).some(
+                  (m) => m.project === e.project && m.epic === e.name,
+                ) && (
+                  <span
+                    className="project-slot-mirror"
+                    title={`Mirrored here from ${card.project} · ${card.epic}`}
+                  >
+                    ⧉
+                  </span>
+                )}
                 {card.title}
                 {cardDomainBadge(board.domains, card.domain) && (
                   <span
@@ -1841,7 +1900,7 @@ export function ProjectBoard({
                   title="Delete"
                   onClick={(ev) => {
                     ev.stopPropagation();
-                    deleteCard(card);
+                    removeFromColumn(card, e.project, e.name);
                   }}
                 >
                   ×

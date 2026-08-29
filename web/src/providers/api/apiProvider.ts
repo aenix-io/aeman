@@ -236,6 +236,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
   if (patch.epic !== undefined) {
     body.epic = patch.epic;
   }
+  if (patch.process !== undefined) {
+    body.process = patch.process;
+  }
   if (patch.project !== undefined) {
     body.project = patch.project;
   }
@@ -439,6 +442,18 @@ export const apiProvider: Provider = {
 
   async deleteTeam(team: string): Promise<void> {
     await api("POST", "/sprints/actions/delete-team", { team });
+  },
+
+  async mirrorCard(uid: string, project: string, epic: string): Promise<void> {
+    await api("POST", `/cards/${uid}/actions/mirror`, { project, epic });
+  },
+
+  async unmirrorCard(uid: string, project: string, epic: string): Promise<void> {
+    await api("POST", `/cards/${uid}/actions/unmirror`, { project, epic });
+  },
+
+  async removeFromProject(uid: string, project: string, epic: string): Promise<void> {
+    await api("POST", `/cards/${uid}/actions/remove-from-project`, { project, epic });
   },
 
   async addEpic(
