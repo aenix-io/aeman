@@ -9,6 +9,14 @@ import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
+import {
+  movingSlot,
+  removeFromProjectOutcome,
+  settleMirrorDrop,
+  slotDragPlan,
+  slotDropMirrors,
+} from "../placements";
+import { deleteWarning } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
@@ -244,7 +252,11 @@ export function ProjectBoard({
   const cards = useMemo(() => {
     const shown = new Set(epics.map((e) => colKey(e.project, e.name)));
     return board.cards.filter(
-      (c) => c.epic && !c.parent && shown.has(colKey(c.project ?? "", c.epic)),
+      (c) =>
+        c.epic &&
+        !c.parent &&
+        (shown.has(colKey(c.project ?? "", c.epic)) ||
+          (c.mirrors ?? []).some((m) => shown.has(colKey(m.project, m.epic)))),
     );
   }, [board.cards, epics]);
 
@@ -542,6 +554,7 @@ export function ProjectBoard({
     card: CardModel;
     span: number;
     row: number;
+    grabbed: { project: string; epic: string };
     epic: EpicRef;
   } | null>(null);
   const setMove = (v: typeof move) => {
@@ -554,6 +567,7 @@ export function ProjectBoard({
     card: CardModel;
     row: number;
     span: number;
+    grabbed: { project: string; epic: string };
     grab: number;
     x: number;
     y: number;
@@ -696,7 +710,13 @@ export function ProjectBoard({
     window.addEventListener("pointercancel", cancel);
   };
 
-  const beginMove = (card: CardModel, row: number, span: number, e: React.PointerEvent) => {
+  const beginMove = (
+    card: CardModel,
+    row: number,
+    span: number,
+    grabbed: { project: string; epic: string },
+    e: React.PointerEvent<HTMLDivElement>,
+  ) => {
     // Only the slot's BODY drags. A press that started on a control inside it
     // (the team badge, delete, the resize grip) must reach that control: the
     // press bubbles up here, and capturing it — plus preventDefault — used to
@@ -712,6 +732,7 @@ export function ProjectBoard({
       card,
       row,
       span,
+      grabbed,
       grab: Math.max(0, rowAt(e.clientY) - row),
       x: e.clientX,
       y: e.clientY,
@@ -736,7 +757,8 @@ export function ProjectBoard({
         card: p.card,
         span: p.span,
         row: p.row,
-        epic: { name: p.card.epic ?? "", project: p.card.project ?? "" },
+        grabbed: p.grabbed,
+        epic: { name: p.grabbed.epic, project: p.grabbed.project },
       });
       return;
     }
@@ -759,14 +781,14 @@ export function ProjectBoard({
     if (!move) {
       return;
     }
-    const { card, span, row, epic } = move;
+    const { card, span, row, epic, grabbed } = move;
     setMove(null);
     const week = weeks[row];
     const end = addDays(weeks[Math.min(row + span - 1, weeks.length - 1)], 4);
-    if (
-      week === card.week &&
-      colKey(epic.project, epic.name) === colKey(card.project ?? "", card.epic ?? "")
-    ) {
+    const target = { project: epic.project, epic: epic.name };
+    const plan = slotDragPlan(card, grabbed, target);
+    const weekChanged = week !== card.week;
+    if (plan.kind === "dates" && !weekChanged) {
       return;
     }
     const prev = {
@@ -775,26 +797,70 @@ export function ProjectBoard({
       project: card.project,
       startDate: card.startDate,
       day: card.day,
+      mirrors: card.mirrors,
     };
-    patchCard(card.itemId, {
-      week,
-      epic: epic.name,
-      project: epic.project,
-      startDate: week,
-      day: end,
-    });
-    void provider
-      .patchCard(card.itemId, {
-        epic: epic.name,
-        project: epic.project,
-        // No plan.week: the server takes the row from dates.start.
-        dates: { start: week, end },
-      })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errText(err));
-      });
+    const rollback = (err: unknown) => {
+      patchCard(card.itemId, prev);
+      onError(errText(err));
+    };
+    // The date change is the card's, whatever placement was dragged.
+    const dates: Partial<CardModel> = { week, startDate: week, day: end };
+    switch (plan.kind) {
+      case "dates": {
+        patchCard(card.itemId, dates);
+        void provider
+          .patchCard(card.itemId, { dates: { start: week, end } })
+          .then(addCard)
+          .catch(rollback);
+        return;
+      }
+      case "refileHome": {
+        patchCard(card.itemId, {
+          ...dates,
+          epic: target.epic,
+          project: target.project,
+          // The server drops a mirror the home lands on; so does the patch,
+          // or the grid draws the slot twice until the reload.
+          mirrors: slotDropMirrors(card, grabbed, target, plan.kind),
+        });
+        void provider
+          .patchCard(card.itemId, {
+            epic: target.epic,
+            project: target.project,
+            // No plan.week: the server takes the row from dates.start.
+            dates: { start: week, end },
+          })
+          .then(addCard)
+          .catch(rollback);
+        return;
+      }
+      case "moveMirror":
+      case "collapseMirror": {
+        // A dragged MIRROR copy moves its own entry — never the home. The
+        // mirror is added before the old one goes, so a failure half-way
+        // never leaves the card short a placement; a drop onto the home
+        // simply folds the mirror away.
+        patchCard(card.itemId, {
+          ...(weekChanged ? dates : {}),
+          mirrors: slotDropMirrors(card, grabbed, target, plan.kind),
+        });
+        void settleMirrorDrop(
+          provider,
+          card.itemId,
+          grabbed,
+          target,
+          plan.kind,
+          weekChanged ? { start: week, end } : null,
+          {
+            restore: () => patchCard(card.itemId, prev),
+            reload,
+            onError,
+            errMessage: errText,
+          },
+        );
+        return;
+      }
+    }
   };
 
   const cancelDraft = () => setDraft(null);
@@ -1063,15 +1129,50 @@ export function ProjectBoard({
       });
   };
 
-  const deleteCard = (card: CardModel) => {
-    if (!window.confirm(`Delete "${card.title}"?`)) {
-      return;
+  // The slot's ×: remove the card from THIS column. A mirror goes, the
+  // home hands over to its first mirror, an orphaned worked card survives
+  // in the working area — only the true delete asks, naming the loss.
+  const removeFromColumn = (card: CardModel, project: string, epic: string) => {
+    const outcome = removeFromProjectOutcome(card, project, epic);
+    if (outcome === "delete") {
+      // The server cascades to the linked review card: the question names
+      // everything that goes, or the person agrees to less than happens.
+      const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
+      const warning =
+        deleteWarning(card, linkedReview?.title ?? null) ?? `Delete "${card.title}"?`;
+      if (!window.confirm(warning)) {
+        return;
+      }
+      removeCard(card.itemId);
+    } else if (outcome === "unmirror") {
+      patchCard(card.itemId, {
+        mirrors: (card.mirrors ?? []).filter(
+          (m) => !(m.project === project && m.epic === epic),
+        ),
+      });
+    } else if (outcome === "promote") {
+      const heir = (card.mirrors ?? [])[0];
+      patchCard(card.itemId, {
+        project: heir.project,
+        epic: heir.epic,
+        mirrors: (card.mirrors ?? []).slice(1),
+      });
+    } else {
+      // orphan: off the Project board and the weekly plan, kept by its work.
+      patchCard(card.itemId, {
+        project: undefined,
+        epic: undefined,
+        plan: undefined,
+        week: undefined,
+      });
     }
-    removeCard(card.itemId);
-    void provider.deleteCard(card.itemId).catch((err: unknown) => {
-      onError(errText(err));
-      reload();
-    });
+    void provider
+      .removeFromProject(card.itemId, project, epic)
+      .then(() => reload())
+      .catch((err: unknown) => {
+        onError(errText(err));
+        reload();
+      });
   };
 
   // While a slot is being stretched, its span follows the pointer — the drag
@@ -1137,15 +1238,33 @@ export function ProjectBoard({
       const list = byCol.get(k) ?? [];
       list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
       byCol.set(k, list);
+      // A mirrored card stands in every one of its columns: the same entry,
+      // the same shared dates, once per placement — except while THIS card
+      // is being dragged, when only the moving preview is drawn.
+      if (move?.card.itemId !== c.itemId) {
+        for (const mi of c.mirrors ?? []) {
+          const mk = colKey(mi.project, mi.epic);
+          const ml = byCol.get(mk) ?? [];
+          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
+          byCol.set(mk, ml);
+        }
+      }
       if (rest) {
         // The same card at REST — pre-preview geometry, for the lane pin.
+        // Every placement, mirrors included: pulling an edge in a MIRROR
+        // column must pin against that column's resting neighbours, not
+        // find the map empty and let the slot hop lanes under the pointer.
         const rr = weeksBetween(weeks[0], anchor);
         if (rr >= 0 && rr < weeks.length) {
           const rs = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - rr));
-          const rk = colKey(c.project ?? "", c.epic);
-          const rl = rest.get(rk) ?? [];
-          rl.push({ card: c, row: rr, span: rs, lane: 0, lanes: 1, width: 1 });
-          rest.set(rk, rl);
+          const cols = [colKey(c.project ?? "", c.epic)].concat(
+            (c.mirrors ?? []).map((mi) => colKey(mi.project, mi.epic)),
+          );
+          for (const rk of cols) {
+            const rl = rest.get(rk) ?? [];
+            rl.push({ card: c, row: rr, span: rs, lane: 0, lanes: 1, width: 1 });
+            rest.set(rk, rl);
+          }
         }
       }
     }
@@ -1730,9 +1849,11 @@ export function ProjectBoard({
             .filter((s): s is typeof s & { card: CardModel } => s.card !== null)
             .map(({ card, row, span, lane, lanes, width: laneWidth }) => (
             <div
-              key={card.itemId}
+              key={`${colKey(e.project, e.name)}\u0000${card.itemId}`}
               className={`project-slot ${slotTone(card, today)}${
-                move?.card.itemId === card.itemId ? " project-slot-moving" : ""
+                movingSlot(move, card.itemId, { project: e.project, epic: e.name })
+                  ? " project-slot-moving"
+                  : ""
               }${nudged === card.itemId ? " project-slot-nudged" : ""}`}
               // A card that fills its column leaves nowhere to start the next
               // one. Hovering its right edge steps it aside just enough to
@@ -1819,11 +1940,23 @@ export function ProjectBoard({
                     }
                   : {}),
               }}
-              onPointerDown={(ev) => beginMove(card, row, span, ev)}
+              onPointerDown={(ev) =>
+                beginMove(card, row, span, { project: e.project, epic: e.name }, ev)
+              }
               onDoubleClick={() => onOpen(card)}
               title={card.title}
             >
               <span className="project-slot-title">
+                {(card.mirrors ?? []).some(
+                  (m) => m.project === e.project && m.epic === e.name,
+                ) && (
+                  <span
+                    className="project-slot-mirror"
+                    title={`Mirrored here from ${card.project} · ${card.epic}`}
+                  >
+                    ⧉
+                  </span>
+                )}
                 {card.title}
                 {cardDomainBadge(board.domains, card.domain) && (
                   <span
@@ -1841,7 +1974,7 @@ export function ProjectBoard({
                   title="Delete"
                   onClick={(ev) => {
                     ev.stopPropagation();
-                    deleteCard(card);
+                    removeFromColumn(card, e.project, e.name);
                   }}
                 >
                   ×

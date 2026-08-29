@@ -1,0 +1,365 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  attachSlotDates,
+  attachTargets,
+  makeCardPlacements,
+  mirrorTargets,
+  movingSlot,
+  placementTargets,
+  removeFromProjectOutcome,
+  settleMirrorDrop,
+  slotDragPlan,
+  slotDropMirrors,
+} from "./placements";
+import type { Card } from "./providers/types";
+
+// The picker offers only columns the server would accept: projects of the
+// card's own repository, each with its epics — a pair the server refuses
+// has no business being clickable.
+describe("attach and mirror targets", () => {
+  const projects = ["engineering", "freedom", "strategy"];
+  const epics = [
+    { name: "Cozystack", project: "engineering" },
+    { name: "Ingress", project: "engineering" },
+    { name: "Launch", project: "freedom" },
+    { name: "Fundraising", project: "strategy" },
+  ];
+  const projectDomains = { strategy: "founders" };
+
+  it("offers the projects of the card's repository, with their epics", () => {
+    const got = attachTargets(projects, epics, projectDomains, "");
+    expect(got).toEqual([
+      { name: "engineering", epics: ["Cozystack", "Ingress"] },
+      { name: "freedom", epics: ["Launch"] },
+    ]);
+    // A card living in the founders repository sees only founders projects.
+    expect(attachTargets(projects, epics, projectDomains, "founders")).toEqual([
+      { name: "strategy", epics: ["Fundraising"] },
+    ]);
+  });
+
+  it("offers everything on a board that names no domains", () => {
+    expect(attachTargets(projects, epics, undefined, "").map((p) => p.name)).toEqual(projects);
+  });
+
+  it("mirror targets follow the HOME project's repository and skip where the card stands", () => {
+    const card = {
+      project: "engineering",
+      epic: "Cozystack",
+      mirrors: [{ project: "freedom", epic: "Launch" }],
+    } as Card;
+    const got = mirrorTargets(card, projects, epics, projectDomains);
+    // Cozystack is the home, Launch is already mirrored: only Ingress is left.
+    expect(got).toEqual([{ name: "engineering", epics: ["Ingress"] }]);
+  });
+});
+
+// Attaching a weekly-plan card gives it the slot of the week it was taken
+// from: start on its Monday, end on its band's day — the same dates the
+// server writes, so the optimistic card does not jump on the re-list.
+describe("attachSlotDates", () => {
+  it("spans to Friday for a by-Friday card and Wednesday for a by-Wednesday one", () => {
+    expect(attachSlotDates("fri", "2026-08-24")).toEqual({
+      startDate: "2026-08-24",
+      day: "2026-08-28",
+    });
+    expect(attachSlotDates("wed", "2026-08-24")).toEqual({
+      startDate: "2026-08-24",
+      day: "2026-08-26",
+    });
+  });
+});
+
+// The Project board's × means four different things, and the UI must know
+// which before it asks anything: a mirror goes silently, the home hands
+// over silently, an orphan survives, and only the delete is worth a
+// question.
+describe("removeFromProjectOutcome", () => {
+  const base = { project: "engineering", epic: "Cozystack" } as Card;
+
+  it("is unmirror on a mirror placement", () => {
+    const c = { ...base, mirrors: [{ project: "freedom", epic: "Launch" }] } as Card;
+    expect(removeFromProjectOutcome(c, "freedom", "Launch")).toBe("unmirror");
+  });
+
+  it("is promote on the home while mirrors remain", () => {
+    const c = { ...base, mirrors: [{ project: "freedom", epic: "Launch" }] } as Card;
+    expect(removeFromProjectOutcome(c, "engineering", "Cozystack")).toBe("promote");
+  });
+
+  it("is orphan on the last column of a worked card, delete otherwise", () => {
+    const worked = { ...base, assignees: ["kvaps"], progress: 40 } as Card;
+    expect(removeFromProjectOutcome(worked, "engineering", "Cozystack")).toBe("orphan");
+    const idle = { ...base, assignees: [] } as Card;
+    expect(removeFromProjectOutcome(idle, "engineering", "Cozystack")).toBe("delete");
+    // Progress without a person, or a person without progress, is not
+    // "worked" — the server deletes it, and the UI must ask first.
+    expect(
+      removeFromProjectOutcome({ ...base, assignees: [], progress: 40 } as Card, "engineering", "Cozystack"),
+    ).toBe("delete");
+  });
+});
+
+// placementTargets is the dispatcher the boards call: which section a card
+// gets is decided by what it is, not where it is rendered.
+describe("placementTargets", () => {
+  const board = {
+    projects: ["engineering"],
+    epics: [{ name: "Cozystack", project: "engineering" }],
+    projectDomains: undefined,
+    processes: [{ name: "Invoicing" }, { name: "Reporting" }],
+  };
+
+  it("offers mirrors to a card already in a column", () => {
+    const got = placementTargets({ project: "engineering", epic: "Cozystack" } as Card, board);
+    expect(got.mirror).toEqual([]);
+    expect(got.attach).toBeUndefined();
+  });
+
+  it("offers a card in a no-project column no mirrors at all", () => {
+    // A no-project column names no repository — the server refuses every
+    // target for it, so the menu must not offer any.
+    const got = placementTargets({ epic: "Inbox" } as Card, board);
+    expect(got.mirror).toBeUndefined();
+    expect(got.attach).toBeUndefined();
+    expect(got.processes).toBeUndefined();
+  });
+
+  it("offers processes to a recurrent card", () => {
+    const got = placementTargets({ stage: "recurrent" } as Card, board);
+    expect(got.processes).toEqual(["Invoicing", "Reporting"]);
+    expect(got.attach).toBeUndefined();
+  });
+
+  it("drops the process the card is already tied to", () => {
+    // Only works because spec.process round-trips: the server serves the
+    // stored tie back, so after a re-list the card carries it here.
+    const got = placementTargets({ stage: "recurrent", process: "Invoicing" } as Card, board);
+    expect(got.processes).toEqual(["Reporting"]);
+  });
+
+  it("offers a process TURN nothing — its process is its task's", () => {
+    const got = placementTargets({ stage: "recurrent", task: "t1" } as Card, board);
+    expect(got.processes).toBeUndefined();
+    expect(got.attach).toBeUndefined();
+    expect(got.mirror).toBeUndefined();
+  });
+
+  it("offers only processes of the card's own repository", () => {
+    // The server refuses a cross-repository tie (ErrCrossDomain), so the
+    // menu must not offer one: dead items ending in a 422 are not targets.
+    const multi = { ...board, processDomains: { Reporting: "founders" } };
+    expect(placementTargets({ stage: "recurrent" } as Card, multi).processes).toEqual([
+      "Invoicing",
+    ]);
+    expect(
+      placementTargets({ stage: "recurrent", domain: "founders" } as Card, multi).processes,
+    ).toEqual(["Reporting"]);
+  });
+
+  it("offers projects to everything else", () => {
+    const got = placementTargets({} as Card, board);
+    expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
+  });
+});
+
+// Dragging a slot acts on the placement it was grabbed in. The everyday
+// gesture — nudging a mirror copy a week down without leaving its column —
+// used to re-file the card's home into the mirror column, collapsing two
+// placements into one with no question asked.
+describe("slotDragPlan", () => {
+  const card = { project: "engineering", epic: "Cozystack" } as Card;
+  const home = { project: "engineering", epic: "Cozystack" };
+  const mirror = { project: "freedom", epic: "Launch" };
+  const third = { project: "freedom", epic: "Ship" };
+
+  it("a vertical move — in any column — is a date change only", () => {
+    expect(slotDragPlan(card, home, home)).toEqual({ kind: "dates" });
+    expect(slotDragPlan(card, mirror, mirror)).toEqual({ kind: "dates" });
+  });
+
+  it("dragging the home into another column re-files the home", () => {
+    expect(slotDragPlan(card, home, mirror)).toEqual({ kind: "refileHome" });
+  });
+
+  it("dragging a mirror copy moves the mirror, not the home", () => {
+    expect(slotDragPlan(card, mirror, third)).toEqual({ kind: "moveMirror" });
+  });
+
+  it("dropping a mirror onto the home collapses it into the home", () => {
+    expect(slotDragPlan(card, mirror, home)).toEqual({ kind: "collapseMirror" });
+  });
+});
+
+// The optimistic mirror list is the one the server converges on — a drag
+// must never draw one slot twice in a column while the round trip runs.
+describe("slotDropMirrors", () => {
+  const grabbed = { project: "freedom", epic: "Launch" };
+
+  it("folds a mirror dragged onto a column the card already mirrors", () => {
+    const card = {
+      mirrors: [grabbed, { project: "freedom", epic: "Ship" }],
+    } as Card;
+    expect(
+      slotDropMirrors(card, grabbed, { project: "freedom", epic: "Ship" }, "moveMirror"),
+    ).toEqual([{ project: "freedom", epic: "Ship" }]);
+  });
+
+  it("drops the mirror the re-filed home lands on", () => {
+    const card = { mirrors: [grabbed] } as Card;
+    expect(
+      slotDropMirrors(card, { project: "engineering", epic: "Cozystack" }, grabbed, "refileHome"),
+    ).toEqual([]);
+  });
+
+  it("keeps the standing order when a drop folds into an existing mirror", () => {
+    // The server keeps the standing entry where it is, and the FIRST
+    // mirror is the promotion heir — reordering optimistically would show
+    // the wrong heir until the re-list.
+    const card = {
+      mirrors: [
+        { project: "freedom", epic: "A" },
+        { project: "freedom", epic: "B" },
+        { project: "freedom", epic: "C" },
+      ],
+    } as Card;
+    expect(
+      slotDropMirrors(card, { project: "freedom", epic: "C" }, { project: "freedom", epic: "A" }, "moveMirror"),
+    ).toEqual([
+      { project: "freedom", epic: "A" },
+      { project: "freedom", epic: "B" },
+    ]);
+  });
+
+  it("moves and collapses as the plain cases say", () => {
+    const card = { mirrors: [grabbed] } as Card;
+    expect(
+      slotDropMirrors(card, grabbed, { project: "freedom", epic: "Ship" }, "moveMirror"),
+    ).toEqual([{ project: "freedom", epic: "Ship" }]);
+    expect(
+      slotDropMirrors(card, grabbed, { project: "engineering", epic: "Cozystack" }, "collapseMirror"),
+    ).toEqual([]);
+  });
+});
+
+// A mirror drop is up to three requests. A failure in the middle leaves the
+// server holding a state the pre-drag snapshot does not describe, so the
+// error path must re-list — a silent local restore showed a board the
+// server did not hold until something else touched the card.
+describe("settleMirrorDrop", () => {
+  const grabbed = { project: "freedom", epic: "Launch" };
+  const target = { project: "freedom", epic: "Ship" };
+  const ui = () => {
+    const calls: string[] = [];
+    return {
+      calls,
+      restore: () => calls.push("restore"),
+      reload: () => calls.push("reload"),
+      onError: (m: string) => calls.push(`error:${m}`),
+      errMessage: (e: unknown) => String(e),
+    };
+  };
+
+  it("re-lists after a failure half-way through the chain", async () => {
+    const u = ui();
+    await settleMirrorDrop(
+      {
+        mirrorCard: () => Promise.resolve(),
+        unmirrorCard: () => Promise.reject(new Error("boom")),
+        patchCard: () => Promise.resolve(),
+      },
+      "c1",
+      grabbed,
+      target,
+      "moveMirror",
+      { start: "2026-08-24", end: "2026-08-28" },
+      u,
+    );
+    expect(u.calls).toEqual(["restore", "error:Error: boom", "reload"]);
+  });
+
+  it("re-lists once on success and never restores", async () => {
+    const u = ui();
+    const seen: string[] = [];
+    await settleMirrorDrop(
+      {
+        mirrorCard: (_, p, e) => (seen.push(`mirror:${p}/${e}`), Promise.resolve()),
+        unmirrorCard: (_, p, e) => (seen.push(`unmirror:${p}/${e}`), Promise.resolve()),
+        patchCard: () => (seen.push("dates"), Promise.resolve()),
+      },
+      "c1",
+      grabbed,
+      target,
+      "moveMirror",
+      { start: "2026-08-24", end: "2026-08-28" },
+      u,
+    );
+    // The new placement lands before the old one goes.
+    expect(seen).toEqual(["mirror:freedom/Ship", "unmirror:freedom/Launch", "dates"]);
+    expect(u.calls).toEqual(["reload"]);
+  });
+});
+
+// A mirrored card renders once per column; while one copy is dragged, only
+// THAT placement dims — dimming by card id alone dimmed the home copy
+// whenever a mirror copy moved.
+describe("movingSlot", () => {
+  const move = {
+    card: { itemId: "c1" },
+    grabbed: { project: "freedom", epic: "Launch" },
+  };
+  it("dims exactly the grabbed placement", () => {
+    expect(movingSlot(move, "c1", { project: "freedom", epic: "Launch" })).toBe(true);
+    expect(movingSlot(move, "c1", { project: "engineering", epic: "Cozystack" })).toBe(false);
+    expect(movingSlot(move, "c2", { project: "freedom", epic: "Launch" })).toBe(false);
+    expect(movingSlot(null, "c1", { project: "freedom", epic: "Launch" })).toBe(false);
+  });
+});
+
+// The attach patch mirrors the server's G55 clause: only a card with NO
+// dates of its own takes its week's slot — a chosen schedule survives.
+describe("makeCardPlacements onAttachProject", () => {
+  const board = {
+    projects: ["engineering"],
+    epics: [{ name: "Cozystack", project: "engineering" }],
+    projectDomains: undefined,
+    processes: [],
+  };
+  const run = (card: Card) => {
+    const patches: Partial<Card>[] = [];
+    const deps = {
+      provider: {
+        patchCard: () => Promise.resolve(undefined),
+        mirrorCard: () => Promise.resolve(),
+        unmirrorCard: () => Promise.resolve(),
+      },
+      patchCard: (_: string, patch: Partial<Card>) => {
+        patches.push(patch);
+      },
+      reload: () => {},
+      onError: () => {},
+      errMessage: () => "",
+    };
+    makeCardPlacements(card, board, deps).onAttachProject("engineering", "Cozystack");
+    return patches[0];
+  };
+
+  it("gives a dateless plan card its week's slot", () => {
+    const patch = run({ itemId: "c1", plan: "fri", week: "2026-08-24" } as Card);
+    expect(patch.startDate).toBe("2026-08-24");
+    expect(patch.day).toBe("2026-08-28");
+  });
+
+  it("keeps a dated card's chosen schedule", () => {
+    const patch = run({
+      itemId: "c1",
+      plan: "fri",
+      week: "2026-08-24",
+      startDate: "2026-09-07",
+      day: "2026-09-09",
+    } as Card);
+    expect(patch.startDate).toBeUndefined();
+    expect(patch.day).toBeUndefined();
+  });
+});

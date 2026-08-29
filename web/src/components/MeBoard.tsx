@@ -39,6 +39,7 @@ import {
   personalRemovalKind,
   removalKind,
 } from "../removal";
+import { makeCardPlacements, type CardPlacements } from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
@@ -1181,6 +1182,23 @@ export function MeBoard({
   // question of who asks: "ask" puts the two-way question to the person (the
   // Card shows no "Delete?" of its own in front of it — see boardAsks), and
   // a subtask, having no history of its own, never opens it.
+
+  // placementsFor: the assign menu's attach/mirror section — one shared
+  // factory (makeCardPlacements), so the boards cannot drift apart.
+  const placementsFor = (card: CardModel): CardPlacements | undefined => {
+    if (card.parent || isPersonalCard(card, board.personal)) {
+      // A subtask rides its parent, and the personal board has no projects.
+      return undefined;
+    }
+    return makeCardPlacements(card, board, {
+      provider,
+      patchCard,
+      reload,
+      onError,
+      errMessage,
+    });
+  };
+
   const gridCtx = (card: CardModel) => ({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprint(board, card.team ?? null) ?? undefined,
@@ -1863,6 +1881,7 @@ export function MeBoard({
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}
       onDelete={handleDelete}
+      placements={placementsFor(card)}
       boardAsks={boardAsksAbout(
         card,
         removalOf(card) === "ask"

@@ -841,6 +841,16 @@ func (mb *MultiBackend) SetEpic(ctx context.Context, bd board.Board, card board.
 	return mb.refile(ctx, "epic", card, func(c *board.Card) { c.Epic = epic }, func(be *Backend) error { return be.SetEpic(ctx, bd, card, epic) })
 }
 
+// SetMirrors writes in the card's own domain: mirrors never move a card
+// (same-repository by the service's guard), so no refile is involved.
+func (mb *MultiBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetMirrors(ctx, bd, card, mirrors)
+}
+
 // SetProcess writes in the stub's or task's domain.
 func (mb *MultiBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
 	if card.Title == board.ProcessStateTitle && process != card.Process {

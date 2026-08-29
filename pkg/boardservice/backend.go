@@ -71,6 +71,9 @@ type Backend interface {
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	// SetEpic files the card under a Project-board column ("" clears).
 	SetEpic(ctx context.Context, b board.Board, card board.Card, epic string) error
+	// SetMirrors replaces the card's mirror placements — the additional
+	// Project-board columns the card stands in (board/mirrors.go).
+	SetMirrors(ctx context.Context, b board.Board, card board.Card, mirrors []board.Placement) error
 	// SetProcess writes the Process field of a process state card.
 	SetProcess(ctx context.Context, b board.Board, card board.Card, process string) error
 	// SetTask links an iteration to the task it came from.

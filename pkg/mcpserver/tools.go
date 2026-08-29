@@ -270,6 +270,7 @@ type updateCardInput struct {
 	PlanWeek    *string `json:"planWeek,omitempty" jsonschema:"WEEKLY-PLAN cards only: the plan week's Monday as yyyy-mm-dd, empty clears it. A Project-board slot (a card with an epic) refuses it — its week IS its start date's week, so move the dates instead and the row follows"`
 	ReviewOf    *string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
 	Parent      *string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep; empty ungroups it back to a standalone card); a subtask keeps its own description/notes/log, feeds the parent's derived progress and rides with it through carry-over"`
+	Process     *string `json:"process,omitempty" jsonschema:"tie the card to an EXISTING process — the recurring shelf's counterpart of a column (a typo is not a new process); empty clears"`
 }
 
 func (h *server) updateCard(ctx context.Context, _ *mcp.CallToolRequest, in updateCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -349,6 +350,11 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 	}
 	if in.Parent != nil {
 		if err := svc.SetParent(ctx, boardID, in.UID, *in.Parent); err != nil {
+			return err
+		}
+	}
+	if in.Process != nil {
+		if err := svc.SetCardProcess(ctx, boardID, in.UID, *in.Process); err != nil {
 			return err
 		}
 	}
@@ -820,6 +826,47 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
+}
+
+// mirrorInput names a Project-board column — the (project, epic) pair,
+// since epic names repeat across projects.
+type mirrorInput struct {
+	cardRef
+	Project string `json:"project" jsonschema:"the project half of the column"`
+	Epic    string `json:"epic" jsonschema:"the epic half of the column"`
+}
+
+func (h *server) mirrorCard(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.Mirror(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "mirrored", UID: in.UID}, nil
+}
+
+func (h *server) unmirrorCard(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.Unmirror(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "unmirrored", UID: in.UID}, nil
+}
+
+func (h *server) removeFromProject(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.RemoveFromProject(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "removed from project", UID: in.UID}, nil
 }
 
 // --- Card actions --------------------------------------------------------------

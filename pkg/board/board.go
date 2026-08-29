@@ -174,6 +174,11 @@ type Card struct {
 	// GitHubID is the Projects v2 item id a migrated card came from, kept so
 	// the id can still be resolved for a while; empty on cards born later.
 	GitHubID string `json:"githubId,omitempty"`
+	// Mirrors are additional Project-board columns the card stands in — the
+	// same card, one file and one log, shown in more than one project. The
+	// (Project, Epic) pair above stays its home: DomainOf reads it, mirrors
+	// never move the card. See mirrors.go.
+	Mirrors []Placement `json:"mirrors,omitempty"`
 	// Domain names the repository the card lives in ("" = the primary or a
 	// single-domain board). MovedFrom/MovedAt record a cross-domain move,
 	// so a torn move resolves from the tree alone.
@@ -427,6 +432,15 @@ func NewBoard(cards []Card) Board {
 			b.Cards[i].Project = match
 		}
 	}
+	// The decoder drops what one file can prove wrong (half pairs,
+	// duplicates, home twins, subtask mirrors); a mirror into another
+	// repository or onto a column nobody declared needs the ROSTER, so it
+	// is dropped here — a writer producing one is silently corrected, not
+	// honoured (G15), and the x's promotion never inherits a home the
+	// service would have refused to mirror to.
+	for i := range b.Cards {
+		b.Cards[i].Mirrors = declaredMirrors(b, b.Cards[i])
+	}
 	for team, c := range winners {
 		b.SprintStates[team] = SprintState{
 			Current:  c.SprintStart,
@@ -473,7 +487,12 @@ func FindEpic(b Board, project, name string) (EpicCol, bool) {
 // InEpic reports whether a card is filed under a column. Both halves have to
 // match: the same epic name in another project is a different column.
 func InEpic(c Card, project, name string) bool {
-	return c.Epic == name && c.Project == project
+	if c.Epic == name && c.Project == project {
+		return true
+	}
+	// A mirrored card stands in every one of its columns alike; only the
+	// home pair decides anything beyond being shown (DomainOf, promotion).
+	return Mirrored(c, project, name)
 }
 
 // FindDeadline looks a deadline up by its identity — the (project, week) pair.
@@ -516,4 +535,31 @@ func Iterations(b Board, taskID string) []Card {
 		}
 	}
 	return out
+}
+
+// declaredMirrors keeps the mirror entries the service itself would have
+// admitted: the column exists on the roster, in the home project's own
+// repository (MirrorAllowed). Everything else is a hand edit the decoder
+// could not judge without the roster.
+func declaredMirrors(b Board, c Card) []Placement {
+	if len(c.Mirrors) == 0 {
+		return c.Mirrors
+	}
+	// A fresh slice on purpose: filtering into c.Mirrors[:0] would write
+	// through to the caller's backing array, and NewBoard does not own
+	// the cards it is handed.
+	kept := make([]Placement, 0, len(c.Mirrors))
+	for _, m := range c.Mirrors {
+		if _, ok := FindEpic(b, m.Project, m.Epic); !ok {
+			continue
+		}
+		if !MirrorAllowed(b, c.Project, m.Project) {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return kept
 }

@@ -88,6 +88,10 @@ type CardSpec struct {
 	// the row, and Dates span the weeks its slot stretches over.
 	Epic    string `json:"epic,omitempty"`
 	Project string `json:"project,omitempty"`
+	// Mirrors are the additional columns the same card stands in — one
+	// file, one log, one set of dates, shown in every listed project too.
+	// Always the card's own repository (the service admits nothing else).
+	Mirrors []board.Placement `json:"mirrors,omitempty"`
 	// Process and Task, on a process turn, name the process this card is a
 	// turn of and the task it was copied from. A card on the Me or Team
 	// board carries them so a person can see what it belongs to without
@@ -231,6 +235,9 @@ type BoardMetadata struct {
 	// pickers must not offer it (boardservice.ErrDomainConflict).
 	TeamDomains    map[string]string `json:"teamDomains,omitempty"`
 	ProjectDomains map[string]string `json:"projectDomains,omitempty"`
+	// ProcessDomains does the same for processes: a card may only be tied
+	// to a process of its own repository, so the picker needs to know.
+	ProcessDomains map[string]string `json:"processDomains,omitempty"`
 	// Personal is the visitor's own repository when they linked one: the
 	// personal board lives there (view=personal, create with personal=true).
 	Personal *PersonalInfo `json:"personal,omitempty"`
@@ -287,6 +294,15 @@ type DeadlineRef struct {
 	Project string `json:"project,omitempty"`
 }
 
+// processNames lists the process names, in board order.
+func processNames(b board.Board) []string {
+	out := make([]string, 0, len(b.Processes))
+	for _, p := range b.Processes {
+		out = append(out, p.Name)
+	}
+	return out
+}
+
 // processRefs lists the processes, in board order.
 func processRefs(b board.Board) []ProcessRef {
 	out := make([]ProcessRef, 0, len(b.Processes))
@@ -296,11 +312,16 @@ func processRefs(b board.Board) []ProcessRef {
 	return out
 }
 
-// processOf names the process a card is a turn of, by way of the task it was
-// copied from. Empty for every card that is not a turn.
+// processOf names the card's process: a turn's by way of the task it was
+// copied from, a directly tied card's (SetCardProcess) from the card
+// itself. Empty for a card that is neither.
 func processOf(b board.Board, c board.Card) string {
+	// A process turn names its task, and the task names the process. A card
+	// tied to a process DIRECTLY (SetCardProcess — the recurring shelf's
+	// counterpart of a column) carries the name itself; without this branch
+	// the write never round-tripped: PATCH process → GET → "".
 	if c.Task == "" {
-		return ""
+		return c.Process
 	}
 	for _, t := range b.Tasks {
 		if t.ItemID == c.Task {
@@ -368,6 +389,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Epic:        c.Epic,
 		Project:     c.Project,
+		Mirrors:     append([]board.Placement{}, c.Mirrors...),
 		Process:     processOf(b, c),
 		Task:        c.Task,
 		ReviewOf:    c.ReviewOf,
@@ -531,6 +553,9 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 			TeamDomains: rosterDomains(teams, func(name string) string { return board.TeamDomain(b, name) }),
 			ProjectDomains: rosterDomains(b.Projects, func(name string) string {
 				return board.ProjectDomain(b, name)
+			}),
+			ProcessDomains: rosterDomains(processNames(b), func(name string) string {
+				return board.ProcessDomain(b, name)
 			})},
 	}
 }

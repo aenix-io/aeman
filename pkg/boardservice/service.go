@@ -1379,6 +1379,25 @@ func (s *Service) SetReviewOf(ctx context.Context, boardID string, itemID, revie
 	if err != nil {
 		return err
 	}
+	// The review link decides the card's repository before its project
+	// (linked cards first, G14), so setting or clearing it is a re-file in
+	// disguise — and a re-file that carries a mirrored card into another
+	// repository leaves the mirrors naming columns of the one it left:
+	// G15's forbidden state. Refused while mirrors stand, symmetric with
+	// SetEpic: unmirror first.
+	if len(card.Mirrors) > 0 {
+		r := board.Resolver(b, "")
+		after := card
+		after.ReviewOf = reviewOf
+		if board.DomainOf(after, r) != board.DomainOf(card, r) {
+			return fmt.Errorf("%w: the review link would move the card — unmirror it first", ErrCrossDomain)
+		}
+	}
+	// The tie is pinned the same way the mirrors are: a link that re-files
+	// the card into another repository would strand it.
+	if err := tiedMoveGuard(b, card, func(a *board.Card) { a.ReviewOf = reviewOf }); err != nil {
+		return err
+	}
 	return s.backend.SetReviewOf(ctx, b, card, reviewOf)
 }
 
@@ -2140,6 +2159,13 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 		day = board.TodayIso()
 	}
 	if err := guardRoster(b, team, card.Project); err != nil {
+		return err
+	}
+	// The everyday door for a tied card to slip repositories: a recurrent
+	// card without a project follows its TEAM, so re-teaming it re-files
+	// the card and would strand the tie. Refused before anything is
+	// declared or written.
+	if err := tiedMoveGuard(b, card, func(a *board.Card) { a.Team = team }); err != nil {
 		return err
 	}
 	// A team the board does not declare is declared by the assignment: over

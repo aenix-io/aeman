@@ -1649,6 +1649,39 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 	return nil
 }
 
+// SetMirrors replaces the card's mirror placements.
+func (b *storeBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
+	b.mutateCard(ctx, bd, card.ItemID, "mirrors", mirrorsDesc(card, mirrors), func(c *board.Card) {
+		c.Mirrors = mirrors
+	}, func(ctx context.Context) error {
+		return b.inner.SetMirrors(ctx, bd, card, mirrors)
+	})
+	return nil
+}
+
+// tieDesc words the queued tie write by its direction, like mirrorsDesc:
+// the sync log must not report an untie as a tie.
+func tieDesc(card board.Card, process string) string {
+	if process == "" {
+		return "untie " + cardRef(card) + " from its process"
+	}
+	return "tie " + cardRef(card) + " to its process"
+}
+
+// mirrorsDesc words the queued write by its direction — "unmirror" for a
+// shrinking list, "mirror" for a growing one, "rewrite" for a same-length
+// replacement (a renamed column's entries) — so the sync log does not
+// report a removal or a rename as an addition.
+func mirrorsDesc(card board.Card, next []board.Placement) string {
+	switch {
+	case len(next) < len(card.Mirrors):
+		return "unmirror " + cardRef(card)
+	case len(next) == len(card.Mirrors):
+		return "rewrite the mirrors of " + cardRef(card)
+	}
+	return "mirror " + cardRef(card)
+}
+
 // SetProject rebinds an epic column to a project. The target is a hidden
 // state card, which is NOT in the cached card list (NewBoard splits it out),
 // so mutateCard cannot reach it: update the roster map directly and queue the
@@ -1775,9 +1808,20 @@ func processIndexOf(list []board.Process, itemID string) int {
 	return -1
 }
 
-// SetProcess renames a process on its state card, or re-points a task at
-// a renamed process; neither is a card row, so the rosters are updated here.
+// SetProcess renames a process on its state card, re-points a task at a
+// renamed process — or, on an ORDINARY card, ties it to a process
+// (SetCardProcess). The first two are roster rows; the tie is a card row,
+// and skipping the card mutation here left the cache serving process=""
+// right after the write acknowledged it.
 func (b *storeBackend) SetProcess(ctx context.Context, bd board.Board, card board.Card, process string) error {
+	if card.Title != board.ProcessStateTitle && card.Title != board.ProcessTaskTitle {
+		b.mutateCard(ctx, bd, card.ItemID, "process", tieDesc(card, process), func(c *board.Card) {
+			c.Process = process
+		}, func(ctx context.Context) error {
+			return b.inner.SetProcess(ctx, bd, card, process)
+		})
+		return nil
+	}
 	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
 	for i := range e.board.Processes {

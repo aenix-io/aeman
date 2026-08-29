@@ -1064,6 +1064,12 @@ func (b *Backend) SetEpic(ctx context.Context, _ board.Board, card board.Card, e
 	return b.editCard(ctx, "epic", card, func(f *CardFile) { f.Card.Epic = epic })
 }
 
+// SetMirrors replaces the card's mirror placements — the additional
+// Project-board columns the same card stands in.
+func (b *Backend) SetMirrors(ctx context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
+	return b.editCard(ctx, "mirrors", card, func(f *CardFile) { f.Card.Mirrors = mirrors })
+}
+
 // SetProcess names a process on a stub (rename) or a task (its process).
 func (b *Backend) SetProcess(ctx context.Context, _ board.Board, card board.Card, process string) error {
 	if card.Title == board.ProcessStateTitle {

@@ -63,6 +63,9 @@ func (s *Service) DeleteProcess(ctx context.Context, boardID string, name string
 	if n := len(board.TasksOf(b, name)); n > 0 {
 		return fmt.Errorf("%w: %d template(s) under %q — delete them first", ErrProcessInUse, n, name)
 	}
+	if n := len(tiedTo(b, name)); n > 0 {
+		return fmt.Errorf("%w: %d card(s) tied to %q — untie them first", ErrProcessInUse, n, name)
+	}
 	p, ok := board.FindProcess(b, name)
 	if !ok || p.ItemID == "" {
 		return nil
@@ -103,6 +106,16 @@ func (s *Service) RenameProcess(ctx context.Context, boardID string, from, to st
 			return err
 		}
 	}
+	// The tie is a reference by name (issue #124's lesson): the rename
+	// follows it onto every tied card — a tie left on the old name would
+	// dangle, served dead by processOf and never excluded from the picker
+	// — and leaves the same trace the tie itself did.
+	for _, c := range tiedTo(b, from) {
+		if err := s.backend.SetProcess(ctx, b, c, to); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, c, board.EventProcess, from, to)
+	}
 	return nil
 }
 
@@ -125,6 +138,16 @@ func (s *Service) SetProcessProject(ctx context.Context, boardID string, name, p
 	}
 	if p.Project == projectName {
 		return nil
+	}
+	// Moving the process re-files its stub into the target project's
+	// repository, which would turn every standing card tie
+	// cross-repository in one stroke — the state the tie guard
+	// (SetCardProcess) exists to prevent. Refused while ties stand,
+	// symmetric with the mirrored column that cannot change repositories.
+	if board.ProjectDomain(b, projectName) != board.ProcessDomain(b, name) {
+		if n := len(tiedTo(b, name)); n > 0 {
+			return fmt.Errorf("%w: %d card(s) are tied to %q — untie them first", ErrCrossDomain, n, name)
+		}
 	}
 	stub := board.Card{ItemID: p.ItemID, Title: board.ProcessStateTitle, Process: name, Project: p.Project}
 	return s.backend.SetProject(ctx, b, stub, projectName)
@@ -641,4 +664,18 @@ func (s *Service) spawnIteration(ctx context.Context, b board.Board, t board.Car
 		return s.backend.SetDescription(ctx, b, created, desc)
 	}
 	return nil
+}
+
+// tiedTo lists the ordinary cards tied DIRECTLY to the process
+// (SetCardProcess) — the references a rename must rewrite, a delete must
+// respect and a cross-repository move must refuse. Turns are not ties:
+// they reference their process through their task.
+func tiedTo(b board.Board, name string) []board.Card {
+	var out []board.Card
+	for _, c := range b.Cards {
+		if c.Process == name && c.Task == "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }

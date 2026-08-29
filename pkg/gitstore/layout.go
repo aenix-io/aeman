@@ -94,6 +94,24 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("week", c.Week)
 	w("project", c.Project)
 	w("epic", c.Epic)
+	if len(c.Mirrors) > 0 {
+		// Structured YAML, not a joined string: project and epic names are
+		// user text and no separator survives them (#124's lesson).
+		seq := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, m := range c.Mirrors {
+			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle, Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Value: "project"}, {Kind: yaml.ScalarNode, Value: m.Project},
+				{Kind: yaml.ScalarNode, Value: "epic"}, {Kind: yaml.ScalarNode, Value: m.Epic},
+			}})
+		}
+		out, err := yaml.Marshal(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: "mirrors"}, seq,
+		}})
+		if err != nil {
+			return nil, fmt.Errorf("gitstore: encode mirrors: %w", err)
+		}
+		b.Write(out)
+	}
 	w("parent", c.Parent)
 	w("reviewOf", c.ReviewOf)
 	wi("reviewRound", c.ReviewRound)
@@ -196,6 +214,32 @@ func DecodeCard(id string, data []byte) (CardFile, error) {
 	if err := decodeFront(&f, front); err != nil {
 		return f, err
 	}
+	// A hand-written mirror equal to the home pair, or written twice, is
+	// the state the x bug lives in: the slot drawn twice, the x
+	// unmirroring instead of removing. Dropped in a post-pass — post-pass
+	// because a hand-written file guarantees no key order, so the home may
+	// be read after the mirrors.
+	// A subtask rides its parent and is placed nowhere of its own:
+	// hand-written mirrors on one are placements no board draws, yet
+	// InEpic counts them — DeleteEpic refusing for cards nobody sees.
+	if f.Card.Parent != "" {
+		f.Card.Mirrors = nil
+	}
+	if len(f.Card.Mirrors) > 0 {
+		seen := map[board.Placement]bool{}
+		kept := f.Card.Mirrors[:0]
+		for _, m := range f.Card.Mirrors {
+			if (m.Project == f.Card.Project && m.Epic == f.Card.Epic) || seen[m] {
+				continue
+			}
+			seen[m] = true
+			kept = append(kept, m)
+		}
+		f.Card.Mirrors = kept
+		if len(f.Card.Mirrors) == 0 {
+			f.Card.Mirrors = nil
+		}
+	}
 	desc, notes := splitBody(string(body))
 	f.Card.Description = desc
 	f.Card.Notes = notes
@@ -243,6 +287,25 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	case "assignees":
 		for _, it := range val.Content {
 			c.Assignees = append(c.Assignees, it.Value)
+		}
+	case "mirrors":
+		for _, it := range val.Content {
+			var m board.Placement
+			for i := 0; i+1 < len(it.Content); i += 2 {
+				switch it.Content[i].Value {
+				case "project":
+					m.Project = it.Content[i+1].Value
+				case "epic":
+					m.Epic = it.Content[i+1].Value
+				}
+			}
+			// A hand-written scalar (`mirrors: [foo]`) decodes to an empty
+			// pair — the very placement the service guards against
+			// everywhere else. Half a column is no column: skipped.
+			if m.Project == "" || m.Epic == "" {
+				continue
+			}
+			c.Mirrors = append(c.Mirrors, m)
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)

@@ -48,6 +48,7 @@ import {
   planRemoval,
   removalKind,
 } from "../removal";
+import { makeCardPlacements, type CardPlacements } from "../placements";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -1199,6 +1200,7 @@ export function TeamBoard({
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}
       onDelete={handleGridDelete}
+      placements={placementsFor(card)}
       boardAsks={
         !card.parent &&
         boardAsksAbout(
@@ -1505,6 +1507,21 @@ export function TeamBoard({
   });
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
+
+  // placementsFor: the assign menu's attach/mirror section — one shared
+  // factory (makeCardPlacements), so the boards cannot drift apart.
+  const placementsFor = (card: CardModel): CardPlacements | undefined => {
+    if (card.parent) {
+      return undefined; // a subtask rides its parent; it is placed nowhere
+    }
+    return makeCardPlacements(card, board, {
+      provider,
+      patchCard,
+      reload,
+      onError,
+      errMessage,
+    });
+  };
 
   const handleGridDelete = (card: CardModel, forced?: "demote") => {
     if (card.itemId.startsWith("tmp-")) {
@@ -2301,6 +2318,7 @@ export function TeamBoard({
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
               onDelete={card.parent ? handleGridDelete : removeFromPlan}
+              placements={placementsFor(card)}
               deletable={!!card.parent || planRemoveOffered(card)}
               boardAsks={
                 !card.parent &&

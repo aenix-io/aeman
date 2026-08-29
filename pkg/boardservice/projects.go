@@ -119,14 +119,43 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 			return err
 		}
 	}
-	// The column's cards travel with it, so the destination must not put any
-	// of them in a repository their team does not live in.
+	// EVERY refusal fires before anything is written: a guard that speaks
+	// after the column's stub has moved leaves the stub in one project and
+	// the cards in another — half a column gone. The destination must not
+	// put a card in a repository its team does not live in (G46), a card
+	// mirrored INTO this column may not follow across repositories, and a
+	// card whose HOME is here may not be carried away from its own mirrors
+	// (G15, both directions). Unbinding to the no-project bucket under
+	// mirrors is refused with the act that fixes it.
 	for _, c := range b.Cards {
 		if !board.InEpic(c, from, epic) {
 			continue
 		}
 		if err := guardRoster(b, c.Team, to); err != nil {
 			return err
+		}
+		// A HOME card's process tie must not leave its repository with the
+		// column: the move re-files the card, and the tie would stay
+		// behind — refused before the stub is re-parented, like the
+		// mirror guards below.
+		if c.Project == from && c.Epic == epic {
+			if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
+				return fmt.Errorf("%w (card %q)", err, c.Title)
+			}
+		}
+		if len(c.Mirrors) == 0 {
+			continue
+		}
+		if to == "" {
+			return fmt.Errorf("%w: %q is mirrored — unmirror it before unbinding the column", ErrCrossDomain, c.Title)
+		}
+		if board.Mirrored(c, from, epic) && !board.MirrorAllowed(b, c.Project, to) {
+			return fmt.Errorf("%w: %q mirrors this column and lives in another repository than %q",
+				ErrCrossDomain, c.Title, to)
+		}
+		if c.Project == from && c.Epic == epic && !board.MirrorAllowed(b, to, c.Mirrors[0].Project) {
+			return fmt.Errorf("%w: %q mirrors %q — unmirror it before moving its column to %q",
+				ErrCrossDomain, c.Title, c.Mirrors[0].Project, to)
 		}
 	}
 	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: epic, Project: from}
@@ -135,6 +164,12 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	}
 	for _, c := range b.Cards {
 		if !board.InEpic(c, from, epic) {
+			continue
+		}
+		if board.Mirrored(c, from, epic) {
+			if err := s.renameMirror(ctx, b, c, from, epic, to, epic); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := s.backend.SetProject(ctx, b, c, to); err != nil {
@@ -179,6 +214,21 @@ func (s *Service) RenameProject(ctx context.Context, boardID string, from, to st
 		}
 	}
 	for _, c := range b.Cards {
+		// A mirror under the renamed project follows it — independently of
+		// where the card's home is (issue #124: a rename must not strand a
+		// reference).
+		mirrored := false
+		for _, m := range c.Mirrors {
+			if m.Project == from {
+				mirrored = true
+				break
+			}
+		}
+		if mirrored {
+			if err := s.renameMirror(ctx, b, c, from, "", to, ""); err != nil {
+				return err
+			}
+		}
 		if c.Project != from {
 			continue
 		}

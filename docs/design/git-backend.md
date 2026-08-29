@@ -120,9 +120,16 @@ action with one `Aeman-Action-Id` across two domains, never a drag.
 
 ### References never cross a domain boundary
 
+A card may carry `mirrors:` — a YAML list of `{project, epic}` pairs — and
+then stands in every named column as well as its own: the same file, the
+same log, the same dates, shown in more than one project. The home pair
+(`project:`/`epic:`) keeps deciding everything beyond being shown — the
+domain rule reads it, never a mirror — and every mirror must name a column
+of the card's own repository. A writer renaming an epic or a project must
+rewrite matching mirror entries the same way it rewrites the home fields.
+
 The domain is full of links — `parent`, `reviewOf`, `task`, the
-per-team sprint pointer, and the mirrors of the unlanded
-`feat/card-mirrors` branch. A link that crosses a visibility boundary
+per-team sprint pointer, and the card mirrors (`mirrors:`). A link that crosses a visibility boundary
 would show one side an orphan, exactly the "card vanished" class of bug.
 Each link is closed by its own mechanism, so an orphan cannot be created:
 
@@ -130,7 +137,7 @@ Each link is closed by its own mechanism, so an orphan cannot be created:
 | --- | --- |
 | `parent`, `task`, `reviewOf` | the inheritance rule above places the child where the referenced card is |
 | `team` on a project-domain card | the one reference that legitimately points across: a closed project's card names a team whose file lives in the primary. The **server** reads every domain, so the visibility rules (`CurrentSprint(b, team)` in `MeView`/`TeamGrid`, `sendToReview`, carry selection) see the pointer for everyone. For a **visitor**: the primary domain must be readable or there is no board at all (403 — `board.yaml` lives there); a card whose team file the visitor cannot read is still shown, under its team name, with the team's controls (sprint, carry) unavailable to that visitor |
-| `mirrors` (when `feat/card-mirrors` lands) | a guard in `boardservice.Mirror`: the target column must be in the same domain, `ErrCrossDomain`. The branch is not in this repository yet; the exact guard order is pinned when it lands |
+| `mirrors` (for card mirrors) | a guard in `boardservice.Mirror`: the target column must be in the same domain, `ErrCrossDomain`. Pinned in behavior-matrix G15: home column required, the home itself refused, the target must exist, then the same-repository check; already mirrored is a no-op |
 | the reviewer | not a stored link but a choice: the reviewer picker offers only people who can read the card's domain. You cannot review what you cannot see; the UI says so instead of failing later |
 
 Splitting goes by **sensitivity**, never by team or by project as such:
@@ -821,7 +828,9 @@ The tests are the second documentation: each names its edges.
 | G12 | Rank insertion touches one file; rebalancing is bounded to the run and to the mover's domain | insert between neighbours: one file changes; exhausted key space: only the run between the nearest roomy neighbours is rewritten, in the same commit; a run that would cross into another domain stops at the boundary |
 | G13 | Roster fragments merge into one order across domains; duplicate names resolve to the oldest, the rest are aliases | interleaved ranks come out interleaved; identical ranks tie-break by id; two fragments declaring `portal` → one team, the older file's rank and sprint, both fragments' cards, healthz names the duplicate |
 | G14 | Domain follows the inheritance rule, linked cards first, and is never chosen per card | a card under a closed project → closed repository; a team card without a project → the team's domain; a review card of a **closed-project** original whose `team` lives in shared → closed, not shared (the review card carries the original's team and no project, so the team rule would leak it); a subtask carrying its own column → its parent's domain regardless; an iteration → its task's; moving a card moves its review card and subtasks in the same action |
-| G15 | (when `feat/card-mirrors` lands) Mirror refuses a target column in another domain | `ErrCrossDomain`; same-domain mirror still works; the guard order (exists, not own, not mirrored, same domain) is pinned |
+| — | The `reviewOf` link on a MIRRORED card cannot change the card's repository | the link is a re-file in disguise (linked cards first); it is refused while mirrors stand and the card would move (`ErrCrossDomain`), and a card whose link already holds its file elsewhere cannot be mirrored |
+| — | A card's `process:` tie (SetCardProcess) stays in the card's own repository | the tie is refused across domains (`ErrCrossDomain`) — a closed card naming a shared process would hand its existence to readers who may not have it. The tie is a reference by name and lives like one: a renamed process rewrites its ties (logged per card), a process with standing ties will not delete (`ErrProcessInUse`), and a process cannot move to a project of another repository while ties stand (`ErrCrossDomain`) — the move would strand every tie at once. The card side is closed the same way: every re-file that would carry a tied card into another repository (a new team, project, column or review link) is refused, and grouping under a parent clears the tie the way it clears mirrors |
+| G15 | Mirror refuses a target column in another domain | `ErrCrossDomain`; a same-domain mirror works; the guard order — home column required, the home itself refused, the target must exist, then the same-repository check; already mirrored is a no-op — is pinned in behavior-matrix G15. The invariant holds through re-files too: the home moving onto a mirror drops the duplicate, a cleared column clears the mirrors, and neither a mirrored card nor a mirrored column may cross repositories |
 | G16 | The reviewer picker offers only readers of the card's domain | a login without access to the closed domain is absent; with access present |
 | G17 | An unreadable domain is absent from the snapshot AND the watch stream; the primary is required | a visitor who can read one of two domains gets exactly that domain's teams, projects and cards, no placeholders; a closed-domain commit applied from remote is not delivered to that visitor's socket; a visitor who cannot read the primary gets 403 and no board; a card whose team file is unreadable is still served, under its team name, with the team's sprint controls unavailable |
 | G18 | A newer `schema` is refused; an older one is migrated in a commit | `schema: 99` → clear error at startup; `schema: 0` → one commit, `schema: 1`, files rewritten |

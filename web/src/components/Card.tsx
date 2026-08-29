@@ -3,6 +3,8 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
+import type { CardPlacements } from "../placements";
+import { PlacementMenu } from "./PlacementMenu";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { addDays, daysSince, localDateIso, todayIso, mondayOf } from "../date";
@@ -62,6 +64,9 @@ interface CardProps {
   /** This card has a linked review card; deleting it cascades (the board owns
    *  the combined confirmation, so the card skips its own delete prompt). */
   hasLinkedReview?: boolean;
+  /** Attach/mirror targets and callbacks for the assign menu's placement
+   *  section; absent hides it (see placements.ts). */
+  placements?: CardPlacements;
   /** Assignees of the linked counterpart card — the reviewer(s) on an original
    *  under review, the implementer(s) on a review card. */
   counterpartAssignees?: string[];
@@ -119,6 +124,7 @@ export function Card({
   onDelete,
   deletable = true,
   boardAsks,
+  placements,
   onStage,
   onInProgress,
   onOpen,
@@ -945,7 +951,7 @@ export function Card({
             {/* What this card is part of — the menu is where a person asks
                 "whose is this?", and the answer starts with where it came
                 from. */}
-            {(card.process || card.project) && (
+            {(card.process || card.project || placements) && (
               <div className="card-assign-origin">
                 {card.process && (
                   <span>
@@ -960,7 +966,56 @@ export function Card({
                     {card.epic ? ` · ${card.epic}` : ""}
                   </span>
                 )}
+                {(card.mirrors ?? []).map((m) => (
+                  <span key={`${m.project}\u0000${m.epic}`}>
+                    <span className="card-assign-origin-kind">mirror</span>
+                    {m.project} · {m.epic}
+                    {placements && (
+                      <button
+                        type="button"
+                        className="card-placements-unmirror"
+                        title={`No longer show in ${m.project} · ${m.epic}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          placements.onUnmirror(m.project, m.epic);
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                ))}
               </div>
+            )}
+            {placements?.attach && (
+              <PlacementMenu
+                label="Attach to project…"
+                targets={placements.attach}
+                onPick={(project, epic) => {
+                  placements.onAttachProject(project, epic);
+                  setAssignOpen(false);
+                }}
+              />
+            )}
+            {placements?.processes && (
+              <PlacementMenu
+                label="Attach to process…"
+                flat={placements.processes}
+                onPick={(process) => {
+                  placements.onAttachProcess(process);
+                  setAssignOpen(false);
+                }}
+              />
+            )}
+            {placements?.mirror && (
+              <PlacementMenu
+                label="Mirror to…"
+                targets={placements.mirror}
+                onPick={(project, epic) => {
+                  placements.onMirror(project, epic);
+                  setAssignOpen(false);
+                }}
+              />
             )}
             <div className="card-assign-cols">
               {onSetTeam && (
