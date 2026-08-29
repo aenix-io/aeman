@@ -155,6 +155,17 @@ func (a *GitHubApp) installationOf(ctx context.Context, slug string) (int64, err
 	return body.ID, nil
 }
 
+// IsAppClientID reports whether a client id belongs to a GitHub App rather
+// than an OAuth App. A GitHub App has no scopes — its permissions come from
+// the installation, and GitHub ignores a scope parameter — so asking for
+// one would leave "scope=repo" in a URL that grants nothing of the sort.
+// GitHub App client ids carry an Iv prefix (Iv1.<hex> historically, Iv23li…
+// now); anything else is taken for an OAuth App, whose sign-in breaks
+// without its scope — so the doubt falls the safe way.
+func IsAppClientID(clientID string) bool {
+	return strings.HasPrefix(clientID, "Iv")
+}
+
 // IsUserToServerToken reports whether a token was minted for a person BY a
 // GitHub App: such a token reaches only the repositories the app is
 // installed on, so a refusal about someone's own repository means "not

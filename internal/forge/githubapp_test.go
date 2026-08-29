@@ -264,3 +264,24 @@ func TestInstallURLNamesTheAppsPage(t *testing.T) {
 		t.Fatalf("InstallURL = %q", got)
 	}
 }
+
+// A GitHub App authorises people through the same endpoints as an OAuth
+// App, but it has no scopes at all — its permissions come from the
+// installation, and GitHub ignores a scope parameter. Sending one anyway
+// puts "scope=repo" in a URL that grants nothing of the sort, which is how
+// an operator ends up believing the consent screen is still wide. GitHub
+// App client ids are told apart by their prefix; anything else is an OAuth
+// App, whose sign-in breaks without its scope, so the doubt falls that way.
+func TestAGitHubAppsClientIDIsToldApartFromAnOAuthApps(t *testing.T) {
+	cases := map[string]bool{
+		"Iv23liv4QqkWNgvkfxtZ": true,  // a GitHub App, current format
+		"Iv1.8a61f9b3a7aba766": true,  // a GitHub App, older format
+		"0123456789abcdef0123": false, // an OAuth App
+		"":                     false,
+	}
+	for id, want := range cases {
+		if got := IsAppClientID(id); got != want {
+			t.Errorf("IsAppClientID(%q) = %v, want %v", id, got, want)
+		}
+	}
+}

@@ -542,7 +542,12 @@ func (a *authManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// The authorization-code grant, named: GitHub never minded the parameter
 	// missing, GitLab refuses the request without it.
 	q.Set("response_type", "code")
-	q.Set("scope", a.cfg.Scopes)
+	// A GitHub App has no scopes: its permissions come from the
+	// installation, and the parameter it ignores would still read, to
+	// anyone looking at the URL, as the access being asked for.
+	if !forge.IsAppClientID(a.cfg.ClientID) {
+		q.Set("scope", a.cfg.Scopes)
+	}
 	q.Set("state", state)
 	http.Redirect(w, r, a.authorizeURL+"?"+q.Encode(), http.StatusFound)
 }
