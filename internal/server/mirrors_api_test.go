@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
@@ -184,8 +186,27 @@ func TestRemoveFromANoProjectColumnOverHTTP(t *testing.T) {
 	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+uid, ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("an untouched card in its last column is deleted: %d", rec.Code)
 	}
-	// The epic half stays required.
-	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/remove-from-project", `{"project":"x","epic":""}`); rec.Code != http.StatusUnprocessableEntity {
+	// The epic half stays required — and the refusal must name what THIS
+	// endpoint requires: project is legally empty here, so a message
+	// demanding both halves would send the caller fixing the wrong one.
+	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/remove-from-project", `{"project":"x","epic":""}`)
+	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("an empty epic names no column: %d", rec.Code)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "project and epic are required") {
+		t.Fatalf("the refusal must not demand the project this endpoint does not need: %s", body)
+	}
+}
+
+// The queued write's description follows its direction: the sync log must
+// not report an unmirror as "mirror".
+func TestMirrorsDescTellsAddsFromRemovals(t *testing.T) {
+	card := board.Card{ItemID: "c1", Title: "shared",
+		Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}}
+	if got := mirrorsDesc(card, nil); !strings.HasPrefix(got, "unmirror ") {
+		t.Fatalf("a shrinking list is an unmirror: %q", got)
+	}
+	if got := mirrorsDesc(card, append(card.Mirrors, board.Placement{Project: "freedom", Epic: "Ship"})); !strings.HasPrefix(got, "mirror ") {
+		t.Fatalf("a growing list is a mirror: %q", got)
 	}
 }

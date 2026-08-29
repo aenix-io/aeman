@@ -1651,12 +1651,22 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 
 // SetMirrors replaces the card's mirror placements.
 func (b *storeBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
-	b.mutateCard(ctx, bd, card.ItemID, "mirrors", "mirror "+cardRef(card), func(c *board.Card) {
+	b.mutateCard(ctx, bd, card.ItemID, "mirrors", mirrorsDesc(card, mirrors), func(c *board.Card) {
 		c.Mirrors = mirrors
 	}, func(ctx context.Context) error {
 		return b.inner.SetMirrors(ctx, bd, card, mirrors)
 	})
 	return nil
+}
+
+// mirrorsDesc words the queued write by its direction — "unmirror" for a
+// shrinking list, "mirror" otherwise — so the sync log does not report a
+// removal as an addition.
+func mirrorsDesc(card board.Card, next []board.Placement) string {
+	if len(next) < len(card.Mirrors) {
+		return "unmirror " + cardRef(card)
+	}
+	return "mirror " + cardRef(card)
 }
 
 // SetProject rebinds an epic column to a project. The target is a hidden

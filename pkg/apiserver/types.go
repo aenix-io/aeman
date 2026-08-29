@@ -312,8 +312,9 @@ func processRefs(b board.Board) []ProcessRef {
 	return out
 }
 
-// processOf names the process a card is a turn of, by way of the task it was
-// copied from. Empty for every card that is not a turn.
+// processOf names the card's process: a turn's by way of the task it was
+// copied from, a directly tied card's (SetCardProcess) from the card
+// itself. Empty for a card that is neither.
 func processOf(b board.Board, c board.Card) string {
 	// A process turn names its task, and the task names the process. A card
 	// tied to a process DIRECTLY (SetCardProcess — the recurring shelf's

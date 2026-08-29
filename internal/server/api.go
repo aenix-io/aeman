@@ -888,9 +888,15 @@ func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, require
 	// A column is named by its epic; the project half may be empty ONLY for
 	// remove-from-project, where the no-project bucket is a real column
 	// with a working ×. A mirror target must name a project — the target's
-	// repository is read off it.
-	if in.Epic == "" || (requireProject && in.Project == "") {
+	// repository is read off it. Each refusal names what THIS endpoint
+	// actually requires: "project is required" from an endpoint where it
+	// is not would send the caller fixing the wrong half.
+	if requireProject && in.Project == "" {
 		writeJSONError(w, http.StatusUnprocessableEntity, "project and epic are required — a column is the pair")
+		return
+	}
+	if in.Epic == "" {
+		writeJSONError(w, http.StatusUnprocessableEntity, "the epic is required — a column is named by its epic")
 		return
 	}
 	svc, boardID, ok := s.service(w, r)

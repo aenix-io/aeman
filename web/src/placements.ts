@@ -302,7 +302,13 @@ export function slotDropMirrors(
       return without(mirrors, grabbed);
     case "moveMirror": {
       const kept = without(mirrors, grabbed);
-      return without(kept, target).concat([target]);
+      // A drop onto a column the card already mirrors FOLDS the grabbed
+      // copy away — the standing entry keeps its position, because the
+      // server keeps it too, and the first mirror is the promotion heir.
+      if (kept.some((m) => m.project === target.project && m.epic === target.epic)) {
+        return kept;
+      }
+      return kept.concat([target]);
     }
   }
 }

@@ -212,6 +212,25 @@ describe("slotDropMirrors", () => {
     ).toEqual([]);
   });
 
+  it("keeps the standing order when a drop folds into an existing mirror", () => {
+    // The server keeps the standing entry where it is, and the FIRST
+    // mirror is the promotion heir — reordering optimistically would show
+    // the wrong heir until the re-list.
+    const card = {
+      mirrors: [
+        { project: "freedom", epic: "A" },
+        { project: "freedom", epic: "B" },
+        { project: "freedom", epic: "C" },
+      ],
+    } as Card;
+    expect(
+      slotDropMirrors(card, { project: "freedom", epic: "C" }, { project: "freedom", epic: "A" }, "moveMirror"),
+    ).toEqual([
+      { project: "freedom", epic: "A" },
+      { project: "freedom", epic: "B" },
+    ]);
+  });
+
   it("moves and collapses as the plain cases say", () => {
     const card = { mirrors: [grabbed] } as Card;
     expect(
