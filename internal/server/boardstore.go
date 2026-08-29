@@ -1660,11 +1660,15 @@ func (b *storeBackend) SetMirrors(ctx context.Context, bd board.Board, card boar
 }
 
 // mirrorsDesc words the queued write by its direction — "unmirror" for a
-// shrinking list, "mirror" otherwise — so the sync log does not report a
-// removal as an addition.
+// shrinking list, "mirror" for a growing one, "rewrite" for a same-length
+// replacement (a renamed column's entries) — so the sync log does not
+// report a removal or a rename as an addition.
 func mirrorsDesc(card board.Card, next []board.Placement) string {
-	if len(next) < len(card.Mirrors) {
+	switch {
+	case len(next) < len(card.Mirrors):
 		return "unmirror " + cardRef(card)
+	case len(next) == len(card.Mirrors):
+		return "rewrite the mirrors of " + cardRef(card)
 	}
 	return "mirror " + cardRef(card)
 }

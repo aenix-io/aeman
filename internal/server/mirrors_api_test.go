@@ -116,7 +116,7 @@ func TestProcessPatchRoundTripsOverTheGitStore(t *testing.T) {
 		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
 		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
 		{Path: gitstore.ProcessPath("01JB4PROC1"), Data: []byte("name: Invoicing\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
-		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: weekly chore\nteam: platform\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
+		{Path: "cards/c/3/01JB4K2E7QZMX3R8V0N5T9WYC3.md", Data: []byte("---\ntitle: weekly chore\nteam: platform\nstage: recurrent\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -208,5 +208,9 @@ func TestMirrorsDescTellsAddsFromRemovals(t *testing.T) {
 	}
 	if got := mirrorsDesc(card, append(card.Mirrors, board.Placement{Project: "freedom", Epic: "Ship"})); !strings.HasPrefix(got, "mirror ") {
 		t.Fatalf("a growing list is a mirror: %q", got)
+	}
+	// A same-length replacement is a rename's rewrite, not an addition.
+	if got := mirrorsDesc(card, []board.Placement{{Project: "freedom", Epic: "Liftoff"}}); !strings.HasPrefix(got, "rewrite ") {
+		t.Fatalf("a same-length list is a rewrite: %q", got)
 	}
 }

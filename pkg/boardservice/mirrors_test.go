@@ -370,6 +370,13 @@ func TestRenameProjectRewritesMirrors(t *testing.T) {
 	if c.Project != "engineering" {
 		t.Fatalf("the home is untouched: %+v", c)
 	}
+	// A project rename is roster metadata: the home side writes no per-card
+	// line, and the mirror side stays symmetric — no EventMirror either.
+	for _, e := range f.eventsOf("c1") {
+		if e.Kind == board.EventMirror {
+			t.Fatalf("a project rename must not log per card: %+v", e)
+		}
+	}
 }
 
 // A weekly-plan card attached to a project takes the weekly slot it was
@@ -717,5 +724,24 @@ func TestARenamedMirrorLandsInTheCardsLog(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the rewrite must be logged: %+v", f.eventsOf("c1"))
+	}
+}
+
+// The UI offers the process picker to recurrent cards alone, and the
+// service holds the same line for the callers that skip the UI: tying a
+// non-recurrent card is refused — a tie the recurring shelf never draws
+// would be invisible state — while CLEARING stays free whatever the stage
+// became since.
+func TestOnlyARecurrentCardTakesAProcessTie(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "plain", Title: "one-off", Team: "platform"},
+		{ItemID: "was", Title: "used to recur", Team: "platform", Process: "Invoicing"},
+	})
+	svc := New(f)
+	if err := svc.SetCardProcess(ctx, "acme", "plain", "Invoicing"); !errors.Is(err, ErrNotRecurrent) {
+		t.Fatalf("a one-off card has no recurring shelf to show the tie: %v", err)
+	}
+	if err := svc.SetCardProcess(ctx, "acme", "was", ""); err != nil {
+		t.Fatalf("clearing is free whatever the stage is now: %v", err)
 	}
 }

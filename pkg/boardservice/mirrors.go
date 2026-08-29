@@ -40,6 +40,11 @@ var ErrSubtaskMirror = errors.New("a subtask rides its parent and cannot be mirr
 // would contradict the task and silently lose to it on every read.
 var ErrTurnProcess = errors.New("a process turn's process is its task's — it cannot be re-tied")
 
+// ErrNotRecurrent is tying a non-recurrent card to a process: the
+// recurring shelf is where a tie shows, and a tie nothing draws is the
+// kind of invisible state every guard here exists to refuse.
+var ErrNotRecurrent = errors.New("only a recurrent card can be tied to a process")
+
 // Mirror adds the column (project, epic) to the card. The card must already
 // have a home column — a card outside every project is attached, not
 // mirrored — the target must exist, in the same repository as the home, and
@@ -204,6 +209,12 @@ func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, pr
 		return ErrTurnProcess
 	}
 	if process != "" {
+		// The UI offers the picker to recurrent cards alone; the service
+		// holds the same line for the callers that skip the UI (MCP, a
+		// plain PATCH) — clearing stays free, whatever the stage is now.
+		if c.Stage != board.StageRecurrent {
+			return ErrNotRecurrent
+		}
 		found := false
 		for _, p := range b.Processes {
 			if p.Name == process {
@@ -250,13 +261,14 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 	if err := s.backend.SetMirrors(ctx, b, c, next); err != nil {
 		return err
 	}
-	// The home's rename lands in the log as EventEpic; a mirror entry's
-	// rewrite is the same fact for this card and gets the same trace — an
-	// unlogged rewrite read as a mirror appearing from nowhere.
-	from, to := fromProject+" / "+fromEpic, toProject+" / "+toEpic
-	if fromEpic == "" {
-		from, to = fromProject, toProject
+	// A COLUMN rename or move logs on the home side (EventEpic), so the
+	// mirror entry's rewrite gets the same trace — an unlogged rewrite
+	// read as a mirror appearing from nowhere. A PROJECT rename is roster
+	// metadata: the home side of it writes no per-card line, and the
+	// mirror side stays symmetric — quiet.
+	if fromEpic != "" {
+		s.logEvent(ctx, b, c, board.EventMirror,
+			fromProject+" / "+fromEpic, toProject+" / "+toEpic)
 	}
-	s.logEvent(ctx, b, c, board.EventMirror, from, to)
 	return nil
 }
