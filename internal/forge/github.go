@@ -179,8 +179,31 @@ func (g *github) Readers(ctx context.Context, client *http.Client, serverToken, 
 	if err != nil {
 		return nil, err
 	}
-	switch out, err := g.readersFromListing(ctx, client, serverToken, slug, logins); {
+	switch out, seen, err := g.readersFromListing(ctx, client, serverToken, slug, logins); {
 	case err == nil:
+		// The listing does not see everyone every credential can vouch for:
+		// an installation token without the app's Members permission omits
+		// the people whose access comes through the organisation, while the
+		// per-login question answers for them. Whoever the listing did not
+		// name AT ALL is asked about one by one — someone it named without
+		// read access was answered, and a full listing (a PAT) misses
+		// nobody, so nothing extra is asked.
+		missing := make([]string, 0)
+		for _, login := range logins {
+			if !seen[login] {
+				missing = append(missing, login)
+			}
+		}
+		if len(missing) == 0 {
+			return out, nil
+		}
+		rest, err := g.readersOneByOne(ctx, client, serverToken, slug, missing)
+		if err != nil {
+			return nil, err
+		}
+		for login, p := range rest {
+			out[login] = p
+		}
 		return out, nil
 	case !errors.Is(err, errNoListing):
 		return nil, err
@@ -189,28 +212,30 @@ func (g *github) Readers(ctx context.Context, client *http.Client, serverToken, 
 }
 
 // readersFromListing pages through the collaborators, keeping the asked
-// logins with any permission but none.
-func (g *github) readersFromListing(ctx context.Context, client *http.Client, serverToken, slug string, logins []string) (map[string]Person, error) {
+// logins with any permission but none; seen is every asked login the
+// listing named at all, whatever its permissions said.
+func (g *github) readersFromListing(ctx context.Context, client *http.Client, serverToken, slug string, logins []string) (map[string]Person, map[string]bool, error) {
 	wanted := map[string]bool{}
 	for _, l := range logins {
 		wanted[l] = true
 	}
 	out := map[string]Person{}
+	seen := map[string]bool{}
 	for page := 1; page <= 20; page++ {
 		resp, err := g.get(ctx, client, serverToken, "/repos/"+slug+"/collaborators?per_page=100&page="+strconv.Itoa(page))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		switch {
 		case throttled(resp):
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
+			return nil, nil, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
 		case resp.StatusCode == http.StatusForbidden, resp.StatusCode == http.StatusNotFound:
 			_ = resp.Body.Close()
-			return nil, errNoListing
+			return nil, nil, errNoListing
 		case resp.StatusCode/100 != 2:
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("forge answered %s", resp.Status)
+			return nil, nil, fmt.Errorf("forge answered %s", resp.Status)
 		}
 		more := hasNextPage(resp.Header.Get("Link"))
 		var collaborators []struct {
@@ -224,11 +249,15 @@ func (g *github) readersFromListing(ctx context.Context, client *http.Client, se
 			} `json:"permissions"`
 		}
 		if err := decodeJSON(resp, &collaborators); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, c := range collaborators {
+			if !wanted[c.Login] {
+				continue
+			}
+			seen[c.Login] = true
 			p := c.Permissions
-			if wanted[c.Login] && (p.Pull || p.Triage || p.Push || p.Maintain || p.Admin) {
+			if p.Pull || p.Triage || p.Push || p.Maintain || p.Admin {
 				out[c.Login] = Person{Login: c.Login, AvatarURL: githubAvatarURL(c.Login)}
 			}
 		}
@@ -236,7 +265,7 @@ func (g *github) readersFromListing(ctx context.Context, client *http.Client, se
 			break
 		}
 	}
-	return out, nil
+	return out, seen, nil
 }
 
 // hasNextPage reads GitHub's Link header: another page follows when it

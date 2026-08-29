@@ -264,8 +264,12 @@ func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
 	if _, err := fa.readers(context.Background(), "shared", []string{"alice", "bob", "carol", "stranger"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := calls.Load(); n != 1 {
-		t.Fatalf("%d forge calls, want 1 (one listing for everyone, then cached)", n)
+	// One listing for everyone, plus one per-login question about the
+	// stranger the listing did not name (an installation token cannot see
+	// people whose access comes through the organisation, so an unnamed
+	// login is asked about rather than assumed away) — then cached.
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("%d forge calls, want 2 (the listing and the unnamed login)", n)
 	}
 	if _, err := fa.readers(context.Background(), "nope", []string{"alice"}); err == nil {
 		t.Fatal("an unknown domain must be an error")
