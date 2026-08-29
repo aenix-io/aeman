@@ -88,6 +88,10 @@ type CardSpec struct {
 	// the row, and Dates span the weeks its slot stretches over.
 	Epic    string `json:"epic,omitempty"`
 	Project string `json:"project,omitempty"`
+	// Mirrors are the additional columns the same card stands in — one
+	// file, one log, one set of dates, shown in every listed project too.
+	// Always the card's own repository (the service admits nothing else).
+	Mirrors []board.Placement `json:"mirrors,omitempty"`
 	// Process and Task, on a process turn, name the process this card is a
 	// turn of and the task it was copied from. A card on the Me or Team
 	// board carries them so a person can see what it belongs to without
@@ -368,6 +372,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Epic:        c.Epic,
 		Project:     c.Project,
+		Mirrors:     append([]board.Placement{}, c.Mirrors...),
 		Process:     processOf(b, c),
 		Task:        c.Task,
 		ReviewOf:    c.ReviewOf,

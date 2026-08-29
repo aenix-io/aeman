@@ -62,6 +62,9 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/in-progress", s.handleInProgress)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/reopen", s.handleReopen)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/send-to-review", s.handleSendToReview)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/mirror", s.handleMirror)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/unmirror", s.handleUnmirror)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-from-project", s.handleRemoveFromProject)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-reviewer", s.handleRemoveReviewer)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/take-into-plan", s.handleTakeIntoPlan)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/release-from-plan", s.handleReleaseFromPlan)
@@ -562,6 +565,9 @@ type cardPatch struct {
 	ReviewOf *string     `json:"reviewOf"`
 	// Parent groups the card as a subtask under another card ("" ungroups).
 	Parent *string `json:"parent"`
+	// Process ties the card to a process — the recurring shelf's counterpart
+	// of a column ("" clears). The process must already exist.
+	Process *string `json:"process"`
 }
 
 // datesPatch is the spec.dates fragment of a card patch.
@@ -575,6 +581,25 @@ type datesPatch struct {
 type planPatch struct {
 	Band *string `json:"band"`
 	Week *string `json:"week"`
+}
+
+// applyGroupingPatch is the parent/process fragment of a card patch: what
+// the card is grouped under.
+func (s *Server) applyGroupingPatch(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID, uid string, p *cardPatch) bool {
+	ctx := r.Context()
+	if p.Parent != nil {
+		if err := svc.SetParent(ctx, boardID, uid, *p.Parent); err != nil {
+			s.apiError(w, r, err)
+			return false
+		}
+	}
+	if p.Process != nil {
+		if err := svc.SetCardProcess(ctx, boardID, uid, *p.Process); err != nil {
+			s.apiError(w, r, err)
+			return false
+		}
+	}
+	return true
 }
 
 // handlePatchCard applies a spec patch field by field through the service, so
@@ -657,11 +682,8 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if p.Parent != nil {
-		if err := svc.SetParent(ctx, boardID, uid, *p.Parent); err != nil {
-			s.apiError(w, r, err)
-			return
-		}
+	if !s.applyGroupingPatch(w, r, svc, boardID, uid, &p) {
+		return
 	}
 	// Assignees are applied AFTER the parent on purpose. Ungrouping hands an
 	// ownerless child the parent's person so it does not fall off every
@@ -853,6 +875,57 @@ func (s *Server) handleReopen(w http.ResponseWriter, r *http.Request) {
 // handleSendToReview sends a card to a reviewer. When a linked review card
 // already exists the action reassigns it instead — the backend decides, the
 // client just states the intent.
+// placementBody is the {project, epic} pair the mirror actions take.
+type placementBody struct {
+	Project string `json:"project"`
+	Epic    string `json:"epic"`
+}
+
+func (s *Server) placementAction(w http.ResponseWriter, r *http.Request,
+	act func(svc *boardservice.Service, boardID, uid, project, epic string) error,
+) {
+	var in placementBody
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if in.Project == "" || in.Epic == "" {
+		writeJSONError(w, http.StatusUnprocessableEntity, "project and epic are required — a column is the pair")
+		return
+	}
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	if err := act(svc, boardID, r.PathValue("uid"), in.Project, in.Epic); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleMirror adds a second Project-board column to the card — the same
+// card shown in both projects, one file and one log.
+func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
+	s.placementAction(w, r, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+		return svc.Mirror(r.Context(), boardID, uid, project, epic)
+	})
+}
+
+// handleUnmirror takes one mirror column away.
+func (s *Server) handleUnmirror(w http.ResponseWriter, r *http.Request) {
+	s.placementAction(w, r, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+		return svc.Unmirror(r.Context(), boardID, uid, project, epic)
+	})
+}
+
+// handleRemoveFromProject is the Project board's ×: remove the card from
+// one column, with the mirror/promote/last-column rules of the service.
+func (s *Server) handleRemoveFromProject(w http.ResponseWriter, r *http.Request) {
+	s.placementAction(w, r, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+		return svc.RemoveFromProject(r.Context(), boardID, uid, project, epic)
+	})
+}
+
 func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Reviewer string `json:"reviewer"`
@@ -1856,7 +1929,9 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrProcessInUse),
 		errors.Is(err, boardservice.ErrTaskNotFound),
-		errors.Is(err, boardservice.ErrDomainConflict):
+		errors.Is(err, boardservice.ErrDomainConflict),
+		errors.Is(err, boardservice.ErrCrossDomain),
+		errors.Is(err, boardservice.ErrNotInProject):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeJSONError(w, http.StatusBadGateway, err.Error())

@@ -822,6 +822,47 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
 }
 
+// mirrorInput names a Project-board column — the (project, epic) pair,
+// since epic names repeat across projects.
+type mirrorInput struct {
+	cardRef
+	Project string `json:"project" jsonschema:"the project half of the column"`
+	Epic    string `json:"epic" jsonschema:"the epic half of the column"`
+}
+
+func (h *server) mirrorCard(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.Mirror(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "mirrored", UID: in.UID}, nil
+}
+
+func (h *server) unmirrorCard(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.Unmirror(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "unmirrored", UID: in.UID}, nil
+}
+
+func (h *server) removeFromProject(ctx context.Context, _ *mcp.CallToolRequest, in mirrorInput) (*mcp.CallToolResult, statusOutput, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.RemoveFromProject(ctx, boardID, in.UID, in.Project, in.Epic); err != nil {
+		return nil, statusOutput{}, err
+	}
+	return nil, statusOutput{Status: "removed from project", UID: in.UID}, nil
+}
+
 // --- Card actions --------------------------------------------------------------
 
 // moveCardInput reorders a card on the board.
