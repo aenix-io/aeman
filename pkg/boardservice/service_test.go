@@ -419,6 +419,16 @@ func (f *fakeBackend) SetTeam(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
+func (f *fakeBackend) SetMirrors(_ context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetMirrors %s %d", card.ItemID, len(mirrors))
+	if c := f.get(card.ItemID); c != nil {
+		c.Mirrors = mirrors
+	}
+	return nil
+}
+
 func (f *fakeBackend) SetEpic(_ context.Context, _ board.Board, card board.Card, epic string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

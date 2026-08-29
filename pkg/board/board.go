@@ -174,6 +174,11 @@ type Card struct {
 	// GitHubID is the Projects v2 item id a migrated card came from, kept so
 	// the id can still be resolved for a while; empty on cards born later.
 	GitHubID string `json:"githubId,omitempty"`
+	// Mirrors are additional Project-board columns the card stands in — the
+	// same card, one file and one log, shown in more than one project. The
+	// (Project, Epic) pair above stays its home: DomainOf reads it, mirrors
+	// never move the card. See mirrors.go.
+	Mirrors []Placement `json:"mirrors,omitempty"`
 	// Domain names the repository the card lives in ("" = the primary or a
 	// single-domain board). MovedFrom/MovedAt record a cross-domain move,
 	// so a torn move resolves from the tree alone.
@@ -473,7 +478,12 @@ func FindEpic(b Board, project, name string) (EpicCol, bool) {
 // InEpic reports whether a card is filed under a column. Both halves have to
 // match: the same epic name in another project is a different column.
 func InEpic(c Card, project, name string) bool {
-	return c.Epic == name && c.Project == project
+	if c.Epic == name && c.Project == project {
+		return true
+	}
+	// A mirrored card stands in every one of its columns alike; only the
+	// home pair decides anything beyond being shown (DomainOf, promotion).
+	return Mirrored(c, project, name)
 }
 
 // FindDeadline looks a deadline up by its identity — the (project, week) pair.

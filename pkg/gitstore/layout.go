@@ -94,6 +94,24 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("week", c.Week)
 	w("project", c.Project)
 	w("epic", c.Epic)
+	if len(c.Mirrors) > 0 {
+		// Structured YAML, not a joined string: project and epic names are
+		// user text and no separator survives them (#124's lesson).
+		seq := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, m := range c.Mirrors {
+			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle, Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Value: "project"}, {Kind: yaml.ScalarNode, Value: m.Project},
+				{Kind: yaml.ScalarNode, Value: "epic"}, {Kind: yaml.ScalarNode, Value: m.Epic},
+			}})
+		}
+		out, err := yaml.Marshal(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: "mirrors"}, seq,
+		}})
+		if err != nil {
+			return nil, fmt.Errorf("gitstore: encode mirrors: %w", err)
+		}
+		b.Write(out)
+	}
 	w("parent", c.Parent)
 	w("reviewOf", c.ReviewOf)
 	wi("reviewRound", c.ReviewRound)
@@ -243,6 +261,19 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	case "assignees":
 		for _, it := range val.Content {
 			c.Assignees = append(c.Assignees, it.Value)
+		}
+	case "mirrors":
+		for _, it := range val.Content {
+			var m board.Placement
+			for i := 0; i+1 < len(it.Content); i += 2 {
+				switch it.Content[i].Value {
+				case "project":
+					m.Project = it.Content[i+1].Value
+				case "epic":
+					m.Epic = it.Content[i+1].Value
+				}
+			}
+			c.Mirrors = append(c.Mirrors, m)
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)

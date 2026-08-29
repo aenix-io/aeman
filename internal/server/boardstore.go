@@ -1649,6 +1649,16 @@ func (b *storeBackend) SetEpic(ctx context.Context, bd board.Board, card board.C
 	return nil
 }
 
+// SetMirrors replaces the card's mirror placements.
+func (b *storeBackend) SetMirrors(ctx context.Context, bd board.Board, card board.Card, mirrors []board.Placement) error {
+	b.mutateCard(ctx, bd, card.ItemID, "mirrors", "mirror "+cardRef(card), func(c *board.Card) {
+		c.Mirrors = mirrors
+	}, func(ctx context.Context) error {
+		return b.inner.SetMirrors(ctx, bd, card, mirrors)
+	})
+	return nil
+}
+
 // SetProject rebinds an epic column to a project. The target is a hidden
 // state card, which is NOT in the cached card list (NewBoard splits it out),
 // so mutateCard cannot reach it: update the roster map directly and queue the

@@ -502,6 +502,17 @@ func (f *Backend) SetEpic(_ context.Context, _ board.Board, card board.Card, epi
 	return nil
 }
 
+// SetMirrors replaces the card's mirror placements.
+func (f *Backend) SetMirrors(_ context.Context, _ board.Board, card board.Card, mirrors []board.Placement) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetMirrors %s %d", card.ItemID, len(mirrors))
+	if c := f.card(card.ItemID); c != nil {
+		c.Mirrors = mirrors
+	}
+	return nil
+}
+
 // SetProject writes a state card's Project field.
 func (f *Backend) SetProject(_ context.Context, _ board.Board, card board.Card, project string) error {
 	f.mu.Lock()

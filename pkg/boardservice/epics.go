@@ -116,6 +116,15 @@ func (s *Service) RenameEpic(ctx context.Context, boardID string, projectName, f
 		if !board.InEpic(c, projectName, from) {
 			continue
 		}
+		// InEpic sees mirrors too: a mirrored card follows the rename in its
+		// MIRROR entry — rewriting its home fields here would tear the card
+		// out of its own column.
+		if board.Mirrored(c, projectName, from) {
+			if err := s.renameMirror(ctx, b, c, projectName, from, projectName, to); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := s.backend.SetEpic(ctx, b, c, to); err != nil {
 			return err
 		}
@@ -194,11 +203,27 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 		}
 	}
 	// Filing a card under a column makes it a slot, and a slot's row is its
-	// start date's week. Without this the card lands in the column with no
-	// row at all: off the Project board until the next full load, and in a
-	// weekly plan that matches no week.
+	// start date's week. A weekly-plan card has no dates of its own — its
+	// place is the band and the week — so it takes the SLOT OF THAT WEEK on
+	// the way: start on its Monday, end on its band's day. Without this it
+	// would land in the column with no row at all and jump to another week
+	// on the next full load.
 	if epic != "" {
 		card.Epic = epic
+		if card.StartDate == "" && card.Plan != board.PlanNone && card.Week != "" {
+			end := board.AddDays(card.Week, 4) // by Friday
+			if card.Plan == board.PlanWed {
+				end = board.AddDays(card.Week, 2)
+			}
+			if err := s.backend.SetStart(ctx, b, card, card.Week); err != nil {
+				return err
+			}
+			if err := s.backend.SetDay(ctx, b, card, end); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, card, board.EventDates, "", board.DateRange(card.Week, end))
+			card.StartDate = card.Week
+		}
 		return s.syncSlotWeek(ctx, b, card, card.StartDate)
 	}
 	return nil

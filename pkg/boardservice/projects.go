@@ -137,6 +137,15 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if !board.InEpic(c, from, epic) {
 			continue
 		}
+		// A card standing in the moved column through a mirror follows with
+		// its mirror entry; only a card whose HOME is the column moves its
+		// project field.
+		if board.Mirrored(c, from, epic) {
+			if err := s.renameMirror(ctx, b, c, from, epic, to, epic); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := s.backend.SetProject(ctx, b, c, to); err != nil {
 			return err
 		}
@@ -179,6 +188,21 @@ func (s *Service) RenameProject(ctx context.Context, boardID string, from, to st
 		}
 	}
 	for _, c := range b.Cards {
+		// A mirror under the renamed project follows it — independently of
+		// where the card's home is (issue #124: a rename must not strand a
+		// reference).
+		mirrored := false
+		for _, m := range c.Mirrors {
+			if m.Project == from {
+				mirrored = true
+				break
+			}
+		}
+		if mirrored {
+			if err := s.renameMirror(ctx, b, c, from, "", to, ""); err != nil {
+				return err
+			}
+		}
 		if c.Project != from {
 			continue
 		}
