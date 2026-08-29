@@ -17,7 +17,7 @@ A GitHub App gives both halves at once: the sign-in (its Client ID/secret work i
 GitHub → the organisation's **Settings** → Developer settings → **GitHub Apps** → **New GitHub App**:
 
 - **Homepage URL:** `https://aeman.example.com`
-- **Callback URL:** `https://aeman.example.com/auth/callback`; enable **Request user authorization (OAuth) during installation**, keep **Expire user authorization tokens** on
+- **Callback URL:** `https://aeman.example.com/auth/callback`; keep **Expire user authorization tokens** on, and leave **Request user authorization (OAuth) during installation** OFF — aeman starts its own sign-in from its login button, and this option makes GitHub start one after every installation, landing people on the callback out of the blue (the server treats an installation-signed callback as the setup event, but the extra round trip serves nobody)
 - **Webhook:** off
 - **Setup URL (optional):** `https://aeman.example.com/auth/setup`, with **Redirect on update** checked — after someone installs the app (say, on their personal repository), GitHub sends them back to the board, which retries the attach at once
 - **Repository permissions:** **Contents: Read and write**, **Metadata: Read-only** (automatic)
