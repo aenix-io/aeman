@@ -777,11 +777,10 @@ grace period, not a cliff.
   dates and sprints do not change.
 - **`docs/design/behavior-matrix.md`** gets a section for the storage
   rules (below); **`docs/dates.md`** is unchanged in substance.
-- **The companion plugin** drives boards through `gh` against the
-  Projects schema. This design invalidates its access path entirely, not
-  just its docs: it must move to the REST/MCP surface or to reading the
-  repository. That cost is part of this migration's cost and is tracked
-  separately.
+- **Any tool driving boards through `gh` against the Projects schema**
+  loses its access path entirely, not just its docs: it has to move to the
+  REST/MCP surface or to reading the repository. `plugin-impact.md` is
+  what such a writer needs.
 
 ## Testing strategy
 
@@ -870,7 +869,7 @@ interface change is kept as small as it is.
 - `pkg/board`, `pkg/boardservice`, `pkg/apiserver`: the fields and
   signatures listed above — a major version for the public packages
   (`docs/embedding.md`).
-- The companion plugin's `gh`-based access path stops working.
+- Any `gh`-based access path against the Projects schema stops working.
 - A board can no longer be viewed in the GitHub Projects UI. This is
   accepted: nobody is using it.
 

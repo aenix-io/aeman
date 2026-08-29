@@ -1,6 +1,6 @@
-# Git storage — impact on the companion plugin
+# Writing a board's repositories directly
 
-The Claude Code plugin for aeman boards drives boards **without this server**, by replicating the domain rules documented in its `model.md` / `reference.md`. With the move from GitHub Projects v2 to git repositories, every write path the plugin has — `gh api graphql` mutations against project items, fields and draft bodies — stops working: there is no project any more, only files in a repository. This document lists what the plugin must know to keep driving boards, and what its two docs must say. It accompanies the storage PR; the plugin repository needs a paired PR and a version bump (breaking).
+A board is files in git, so a tool can drive one **without this server** — committing to the repositories itself. This document is what such a writer has to know. It was written when the storage moved from GitHub Projects v2 to git repositories, which invalidated every `gh api graphql` write path against project items, fields and draft bodies: there is no project any more, only files. Its other reader is whoever changes these rules — what is listed here is what a direct writer will get wrong if the rules move and this page does not.
 
 Everything below is final for this PR series and pinned by tests (`docs/design/behavior-matrix.md`, rows G1–G26, M1–M5); the API surface it lands with is in `docs/api.md`.
 

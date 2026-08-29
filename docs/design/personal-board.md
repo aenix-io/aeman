@@ -29,6 +29,6 @@ A personal board is not a new kind of thing. It is a **domain** — a repository
 - MCP: `create_card personal=true`, `list_cards view=personal`. `aeman mcp` attaches the local user's personal board at start with the token it pushes with.
 - UI: a personal column at the right of the Me screen with the same four zones; a "Personal board" entry in the user menu to link or unlink a repository. The stage menu of a personal card offers "Every day" where a team card has "Every sprint". Its day counter opens the calendar and the defer menu, as on the Team board: a card sent to a later day leaves the column until that day. The × on a worked-on card asks — delete, or keep it on yesterday's board — as the Team board asks about the previous sprint; the Me board asks the same about its team cards. **Under "View as" the column is not shown at all** — not the other person's (the server never serves it) and not the viewer's own either: that screen is someone else's day, and one's own tasks do not belong beside it. Decided so deliberately (it was tried the other way and taken back); `viewquery.test.ts` pins it.
 
-## Companion plugin
+## Writing the repositories directly
 
-A plugin writing repositories directly learns three things: `users/<login>.yaml` and what it means; that a card in a `~`-named domain stays there whatever its fields say; and `doneAt` on a card. See [plugin-impact.md](plugin-impact.md).
+A tool writing the repositories directly learns three things: `users/<login>.yaml` and what it means; that a card in a `~`-named domain stays there whatever its fields say; and `doneAt` on a card. See [plugin-impact.md](plugin-impact.md).
