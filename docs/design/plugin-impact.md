@@ -39,7 +39,7 @@ The path never encodes mutable state: renaming, re-zoning, re-teaming or moving 
 
 YAML front-matter between `---` fences, then the description, then an optional `## Notes` section. Empty fields are omitted. Unknown keys are preserved by the server; do not rely on their order.
 
-Front-matter keys, in the order the server writes them: `title, assignees, author, team, zone, stage, progress, doneFrom, doneAt, start, day, sprint, plan, week, project, epic, parent, reviewOf, reviewRound, recurrence, process, task, accumulate, link, github, movedFrom, movedAt, rank, created`.
+Front-matter keys, in the order the server writes them: `title, assignees, author, team, zone, stage, progress, doneFrom, doneAt, start, day, sprint, plan, week, project, epic, mirrors, parent, reviewOf, reviewRound, recurrence, process, task, accumulate, link, github, movedFrom, movedAt, rank, created`.
 
 - `zone`: `gray | green | yellow | red` (empty = none). `stage`: `review | locked | recurrent` (empty = none). `plan`: `wed | fri`.
 - `progress`: 0–100; review/locked clamp to [10, 90] (S1, S7). `doneFrom` is written when progress reaches 100 (the value before) and cleared when it drops below (G3, G23); `Reopen` restores it. `doneAt` is written alongside — the board day (yyyy-mm-dd) the card reached 100 — and cleared the same way (P6); the personal board shows a done card that day and hides it the next.
@@ -48,6 +48,7 @@ Front-matter keys, in the order the server writes them: `title, assignees, autho
 - `parent`, `reviewOf`, `task` are ULIDs of other files. `project`, `epic`, `team`, `process` are **names**, resolved against the roster on read.
 - `rank` orders the card in its list (see Ordering). `created` is the creation time.
 - `movedFrom` / `movedAt` appear on a card that was moved between domains (see Moves).
+- `mirrors` is a YAML list of `{project, epic}` pairs — additional columns the SAME card stands in (one file, one log, one set of dates). The home `project`/`epic` pair keeps deciding the card's domain; every mirror must name a column of the card's own repository, and a rename of an epic or a project must rewrite matching mirror entries too.
 
 Notes section:
 

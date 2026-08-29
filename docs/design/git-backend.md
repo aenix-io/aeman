@@ -120,6 +120,14 @@ action with one `Aeman-Action-Id` across two domains, never a drag.
 
 ### References never cross a domain boundary
 
+A card may carry `mirrors:` — a YAML list of `{project, epic}` pairs — and
+then stands in every named column as well as its own: the same file, the
+same log, the same dates, shown in more than one project. The home pair
+(`project:`/`epic:`) keeps deciding everything beyond being shown — the
+domain rule reads it, never a mirror — and every mirror must name a column
+of the card's own repository. A writer renaming an epic or a project must
+rewrite matching mirror entries the same way it rewrites the home fields.
+
 The domain is full of links — `parent`, `reviewOf`, `task`, the
 per-team sprint pointer, and the mirrors of the unlanded
 `feat/card-mirrors` branch. A link that crosses a visibility boundary
