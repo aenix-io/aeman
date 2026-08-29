@@ -450,3 +450,46 @@ func TestUnbindingAMirroredColumnSaysUnmirrorFirst(t *testing.T) {
 		t.Fatalf("the refusal must say what to do: %v", err)
 	}
 }
+
+// A subtask is placed nowhere of its own — the boards skip it and render it
+// under its parent — so a mirror on it would be a placement nobody sees:
+// counted by InEpic, invisible on every grid, and DeleteEpic would refuse a
+// column that looks empty. Mirroring a subtask is refused, and grouping a
+// mirrored card clears its mirrors the way it clears its plan slot; the
+// home column stays (G14 blesses a subtask carrying its own column), so the
+// emptied column can then be deleted.
+func TestSubtasksCarryNoMirrors(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "child-to-be", Team: "platform", Parent: "p",
+			Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	if err := svc.Mirror(ctx, "acme", "c1", "freedom", "Launch"); !errors.Is(err, ErrSubtaskMirror) {
+		t.Fatalf("a subtask cannot be mirrored: %v", err)
+	}
+
+	f2 := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "mirrored", Team: "platform",
+			Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	svc = New(f2)
+	if err := svc.SetParent(ctx, "acme", "c1", "p"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f2.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if len(c.Mirrors) != 0 {
+		t.Fatalf("grouping clears the mirrors: %+v", c.Mirrors)
+	}
+	if c.Epic != "Cozystack" {
+		t.Fatalf("the home column stays: %+v", c)
+	}
+	// And the column the mirror pointed at is deletable again: nothing
+	// invisible stands in it.
+	if err := svc.DeleteEpic(ctx, "acme", "freedom", "Launch"); err != nil {
+		t.Fatalf("the emptied column must be deletable: %v", err)
+	}
+}

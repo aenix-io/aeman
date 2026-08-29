@@ -30,6 +30,11 @@ var ErrNoColumn = errors.New("the card is in no project column")
 // ErrOwnColumn is naming the card's own column as a mirror target.
 var ErrOwnColumn = errors.New("the card's own column is not a mirror target")
 
+// ErrSubtaskMirror is mirroring a subtask: it rides its parent and is
+// placed nowhere of its own, so a mirror on it would be a placement no
+// board ever shows — counted by the guards, seen by nobody.
+var ErrSubtaskMirror = errors.New("a subtask rides its parent and cannot be mirrored")
+
 // Mirror adds the column (project, epic) to the card. The card must already
 // have a home column — a card outside every project is attached, not
 // mirrored — the target must exist, in the same repository as the home, and
@@ -38,6 +43,9 @@ func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, e
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
+	}
+	if c.Parent != "" {
+		return ErrSubtaskMirror
 	}
 	if c.Epic == "" {
 		return fmt.Errorf("%w — attach it to one first", ErrNoColumn)

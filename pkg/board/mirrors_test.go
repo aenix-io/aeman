@@ -8,8 +8,8 @@ import "testing"
 // (the domain rule reads the primary, never a mirror); mirrors only add
 // columns that SHOW it.
 
-// InEpic answers "does this card stand in this column" — the Project grid,
-// the epic counters and the carry rules all ask it. A mirrored card stands
+// InEpic answers "does this card stand in this column" — DeleteEpic's
+// occupancy check, RenameEpic and SetEpicProject all ask it. A mirrored card stands
 // in its own column and in every mirror column alike.
 func TestInEpicSeesMirrors(t *testing.T) {
 	c := Card{

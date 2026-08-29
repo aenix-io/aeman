@@ -94,6 +94,17 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 			return err
 		}
 	}
+	// A subtask is placed nowhere of its own: its mirrors go with the
+	// grouping the way its plan slot does. Left on, they were placements no
+	// board showed — the Project grid skips subtasks — yet InEpic counted
+	// them, so DeleteEpic refused for cards nobody could see; and a parent
+	// in another repository would carry the file away from them entirely.
+	// The home column stays: G14 blesses a subtask carrying its own column.
+	if len(card.Mirrors) > 0 {
+		if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {
+			return err
+		}
+	}
 	// A subtask always belongs to its parent's PERSON: grouping hands the
 	// child over, so a family is never split across two personal boards.
 	pLogin := ""

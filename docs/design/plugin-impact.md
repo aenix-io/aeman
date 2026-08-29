@@ -48,7 +48,7 @@ Front-matter keys, in the order the server writes them: `title, assignees, autho
 - `parent`, `reviewOf`, `task` are ULIDs of other files. `project`, `epic`, `team`, `process` are **names**, resolved against the roster on read.
 - `rank` orders the card in its list (see Ordering). `created` is the creation time.
 - `movedFrom` / `movedAt` appear on a card that was moved between domains (see Moves).
-- `mirrors` is a YAML list of `{project, epic}` pairs — additional columns the SAME card stands in (one file, one log, one set of dates). The home `project`/`epic` pair keeps deciding the card's domain; every mirror must name a column of the card's own repository, and a rename of an epic or a project must rewrite matching mirror entries too.
+- `mirrors` is a YAML list of `{project, epic}` pairs — additional columns the SAME card stands in (one file, one log, one set of dates). The home `project`/`epic` pair keeps deciding the card's domain (linked cards first, as everywhere — a parent, reviewOf or task link outranks the pair, G14); every mirror must name a column of the card's own repository, and a rename of an epic or a project must rewrite matching mirror entries too. A subtask (`parent` set) carries no mirrors: grouping clears them.
 
 Notes section:
 

@@ -1933,6 +1933,7 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrCrossDomain),
 		errors.Is(err, boardservice.ErrNoColumn),
 		errors.Is(err, boardservice.ErrOwnColumn),
+		errors.Is(err, boardservice.ErrSubtaskMirror),
 		errors.Is(err, boardservice.ErrNotInProject):
 		writeJSONError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
