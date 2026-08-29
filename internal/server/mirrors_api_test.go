@@ -62,6 +62,14 @@ func TestMirrorActionsOverTheGitStore(t *testing.T) {
 		t.Fatalf("the resource carries the mirror: %s", rec.Body.String())
 	}
 
+	// The guards land as 422, the way a refused user input must — a card
+	// without a column mirrored, or mirrored onto its own column, is the
+	// caller's mistake, not a gateway failure.
+	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/mirror", `{"project":"engineering","epic":"Cozystack"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("mirroring the card onto its own column must be a 422, got %d %s", rec.Code, rec.Body.String())
+	}
+
 	// A half-named column is refused: the pair is the identity.
 	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/mirror", `{"project":"freedom"}`); rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("half a column: %d", rec.Code)

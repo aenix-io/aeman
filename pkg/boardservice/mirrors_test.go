@@ -2,6 +2,7 @@ package boardservice
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -379,5 +380,53 @@ func TestMovingAColumnToAnotherRepositoryIsRefusedWhileCardsMirrorIt(t *testing.
 	// mirror pointing across repositories: refused, not rewritten.
 	if err := svc.SetEpicProject(ctx, "acme", "freedom", "Launch", "strategy"); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("a column with cross-repo mirrors on it cannot move there: %v", err)
+	}
+	// And refused BEFORE anything moves: a guard that fires after the
+	// column's stub has been re-parented leaves the stub in one project and
+	// every card in another — half a column gone.
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := board.FindEpic(b, "freedom", "Launch"); !ok {
+		t.Fatal("the refused move re-parented the column's stub anyway")
+	}
+}
+
+// The other direction of the same rule: a card whose HOME is in the moved
+// column, with mirrors elsewhere, must not be carried into another
+// repository while its mirrors stay behind. (Teamless on purpose: a team
+// would trip G46 first.)
+func TestMovingAColumnCannotCarryAHomeAwayFromItsMirrors(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "shared", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	svc := New(f)
+	if err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "strategy"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the home cannot leave its mirrors' repository by a column move: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := board.FindEpic(b, "engineering", "Cozystack"); !ok {
+		t.Fatal("a refused move changes nothing")
+	}
+	c, _ := findCard(b, "c1")
+	if c.Project != "engineering" {
+		t.Fatalf("the card stays put: %+v", c)
+	}
+}
+
+// Unbinding a column into the no-project bucket while mirrored cards stand
+// on it is refused with a reason a person can act on — not a sentence about
+// the repository of "".
+func TestUnbindingAMirroredColumnSaysUnmirrorFirst(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "shared", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	svc := New(f)
+	err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "")
+	if !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("unbinding under mirrors: %v", err)
+	}
+	if !strings.Contains(err.Error(), "unmirror") {
+		t.Fatalf("the refusal must say what to do: %v", err)
 	}
 }

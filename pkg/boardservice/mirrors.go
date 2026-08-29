@@ -23,6 +23,13 @@ var ErrCrossDomain = errors.New("the target project lives in another repository"
 // ErrNotInProject is removing a card from a column it does not stand in.
 var ErrNotInProject = errors.New("the card does not stand in that column")
 
+// ErrNoColumn is mirroring a card that stands in no column: there is
+// nothing to mirror — attach it to a project first.
+var ErrNoColumn = errors.New("the card is in no project column")
+
+// ErrOwnColumn is naming the card's own column as a mirror target.
+var ErrOwnColumn = errors.New("the card's own column is not a mirror target")
+
 // Mirror adds the column (project, epic) to the card. The card must already
 // have a home column — a card outside every project is attached, not
 // mirrored — the target must exist, in the same repository as the home, and
@@ -33,10 +40,10 @@ func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, e
 		return err
 	}
 	if c.Epic == "" {
-		return fmt.Errorf("a card outside every project cannot be mirrored — attach it to one first")
+		return fmt.Errorf("%w — attach it to one first", ErrNoColumn)
 	}
 	if c.Project == project && c.Epic == epic {
-		return fmt.Errorf("%q / %q is the card's own column", project, epic)
+		return fmt.Errorf("%w: %q / %q", ErrOwnColumn, project, epic)
 	}
 	if _, ok := board.FindEpic(b, project, epic); !ok {
 		return fmt.Errorf("%w %q in project %q", ErrEpicNotFound, epic, project)

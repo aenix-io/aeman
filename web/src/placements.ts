@@ -125,7 +125,7 @@ export interface CardPlacements {
  *  from the board — the same filters the server applies, so the picker
  *  offers only what would be accepted. */
 export function placementTargets(
-  card: Pick<Card, "project" | "epic" | "mirrors" | "domain" | "stage">,
+  card: Pick<Card, "project" | "epic" | "mirrors" | "domain" | "stage" | "process">,
   board: {
     projects: string[];
     epics: EpicRef[];
@@ -139,7 +139,12 @@ export function placementTargets(
     };
   }
   if (card.stage === "recurrent") {
-    return { processes: board.processes.map((p) => p.name) };
+    // The process it is already tied to is where it stands, not a target.
+    return {
+      processes: board.processes
+        .map((p) => p.name)
+        .filter((name) => name !== card.process),
+    };
   }
   return {
     attach: attachTargets(
@@ -218,4 +223,37 @@ export function makeCardPlacements(
       call(deps.provider.unmirrorCard(card.itemId, project, epic));
     },
   };
+}
+
+/** SlotDrag is what dropping a dragged slot means. The grid renders a
+ *  mirrored card once per column, and the drag must act on the PLACEMENT it
+ *  grabbed: nudging a mirror copy down a week is a date change, not an
+ *  order to re-file the card's home into the mirror column — which is what
+ *  a home-blind drop did, silently collapsing two placements into one. */
+export type SlotDrag =
+  | { kind: "dates" }
+  | { kind: "refileHome" }
+  | { kind: "moveMirror" }
+  | { kind: "collapseMirror" };
+
+/** slotDragPlan: what the drop does, given the column the slot was grabbed
+ *  in and the column it was dropped on. The date change itself is shared by
+ *  every kind — dates are the card's, not a placement's. */
+export function slotDragPlan(
+  card: Pick<Card, "project" | "epic">,
+  grabbed: { project: string; epic: string },
+  target: { project: string; epic: string },
+): SlotDrag {
+  const same = grabbed.project === target.project && grabbed.epic === target.epic;
+  if (same) {
+    return { kind: "dates" };
+  }
+  const grabbedHome =
+    grabbed.project === (card.project ?? "") && grabbed.epic === (card.epic ?? "");
+  if (grabbedHome) {
+    return { kind: "refileHome" };
+  }
+  const targetHome =
+    target.project === (card.project ?? "") && target.epic === (card.epic ?? "");
+  return targetHome ? { kind: "collapseMirror" } : { kind: "moveMirror" };
 }

@@ -9,7 +9,7 @@ import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
-import { removeFromProjectOutcome } from "../placements";
+import { removeFromProjectOutcome, slotDragPlan } from "../placements";
 import { deleteWarning } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
@@ -548,6 +548,7 @@ export function ProjectBoard({
     card: CardModel;
     span: number;
     row: number;
+    grabbed: { project: string; epic: string };
     epic: EpicRef;
   } | null>(null);
   const setMove = (v: typeof move) => {
@@ -560,6 +561,7 @@ export function ProjectBoard({
     card: CardModel;
     row: number;
     span: number;
+    grabbed: { project: string; epic: string };
     grab: number;
     x: number;
     y: number;
@@ -702,7 +704,13 @@ export function ProjectBoard({
     window.addEventListener("pointercancel", cancel);
   };
 
-  const beginMove = (card: CardModel, row: number, span: number, e: React.PointerEvent) => {
+  const beginMove = (
+    card: CardModel,
+    row: number,
+    span: number,
+    grabbed: { project: string; epic: string },
+    e: React.PointerEvent<HTMLDivElement>,
+  ) => {
     // Only the slot's BODY drags. A press that started on a control inside it
     // (the team badge, delete, the resize grip) must reach that control: the
     // press bubbles up here, and capturing it — plus preventDefault — used to
@@ -718,6 +726,7 @@ export function ProjectBoard({
       card,
       row,
       span,
+      grabbed,
       grab: Math.max(0, rowAt(e.clientY) - row),
       x: e.clientX,
       y: e.clientY,
@@ -742,7 +751,8 @@ export function ProjectBoard({
         card: p.card,
         span: p.span,
         row: p.row,
-        epic: { name: p.card.epic ?? "", project: p.card.project ?? "" },
+        grabbed: p.grabbed,
+        epic: { name: p.grabbed.epic, project: p.grabbed.project },
       });
       return;
     }
@@ -765,14 +775,14 @@ export function ProjectBoard({
     if (!move) {
       return;
     }
-    const { card, span, row, epic } = move;
+    const { card, span, row, epic, grabbed } = move;
     setMove(null);
     const week = weeks[row];
     const end = addDays(weeks[Math.min(row + span - 1, weeks.length - 1)], 4);
-    if (
-      week === card.week &&
-      colKey(epic.project, epic.name) === colKey(card.project ?? "", card.epic ?? "")
-    ) {
+    const target = { project: epic.project, epic: epic.name };
+    const plan = slotDragPlan(card, grabbed, target);
+    const weekChanged = week !== card.week;
+    if (plan.kind === "dates" && !weekChanged) {
       return;
     }
     const prev = {
@@ -781,26 +791,71 @@ export function ProjectBoard({
       project: card.project,
       startDate: card.startDate,
       day: card.day,
+      mirrors: card.mirrors,
     };
-    patchCard(card.itemId, {
-      week,
-      epic: epic.name,
-      project: epic.project,
-      startDate: week,
-      day: end,
-    });
-    void provider
-      .patchCard(card.itemId, {
-        epic: epic.name,
-        project: epic.project,
-        // No plan.week: the server takes the row from dates.start.
-        dates: { start: week, end },
-      })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errText(err));
-      });
+    const rollback = (err: unknown) => {
+      patchCard(card.itemId, prev);
+      onError(errText(err));
+    };
+    // The date change is the card's, whatever placement was dragged.
+    const dates: Partial<CardModel> = { week, startDate: week, day: end };
+    switch (plan.kind) {
+      case "dates": {
+        patchCard(card.itemId, dates);
+        void provider
+          .patchCard(card.itemId, { dates: { start: week, end } })
+          .then(addCard)
+          .catch(rollback);
+        return;
+      }
+      case "refileHome": {
+        patchCard(card.itemId, {
+          ...dates,
+          epic: target.epic,
+          project: target.project,
+        });
+        void provider
+          .patchCard(card.itemId, {
+            epic: target.epic,
+            project: target.project,
+            // No plan.week: the server takes the row from dates.start.
+            dates: { start: week, end },
+          })
+          .then(addCard)
+          .catch(rollback);
+        return;
+      }
+      case "moveMirror":
+      case "collapseMirror": {
+        // A dragged MIRROR copy moves its own entry — never the home. The
+        // mirror is added before the old one goes, so a failure half-way
+        // never leaves the card short a placement; a drop onto the home
+        // simply folds the mirror away.
+        const kept = (card.mirrors ?? []).filter(
+          (m) => !(m.project === grabbed.project && m.epic === grabbed.epic),
+        );
+        patchCard(card.itemId, {
+          ...(weekChanged ? dates : {}),
+          mirrors:
+            plan.kind === "moveMirror" ? [...kept, target] : kept,
+        });
+        const steps =
+          plan.kind === "moveMirror"
+            ? provider
+                .mirrorCard(card.itemId, target.project, target.epic)
+                .then(() => provider.unmirrorCard(card.itemId, grabbed.project, grabbed.epic))
+            : provider.unmirrorCard(card.itemId, grabbed.project, grabbed.epic);
+        void steps
+          .then(() =>
+            weekChanged
+              ? provider.patchCard(card.itemId, { dates: { start: week, end } }).then(() => undefined)
+              : Promise.resolve(undefined),
+          )
+          .then(() => reload())
+          .catch(rollback);
+        return;
+      }
+    }
   };
 
   const cancelDraft = () => setDraft(null);
@@ -1868,7 +1923,9 @@ export function ProjectBoard({
                     }
                   : {}),
               }}
-              onPointerDown={(ev) => beginMove(card, row, span, ev)}
+              onPointerDown={(ev) =>
+                beginMove(card, row, span, { project: e.project, epic: e.name }, ev)
+              }
               onDoubleClick={() => onOpen(card)}
               title={card.title}
             >

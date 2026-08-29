@@ -6,6 +6,7 @@ import {
   mirrorTargets,
   placementTargets,
   removeFromProjectOutcome,
+  slotDragPlan,
 } from "./placements";
 import type { Card } from "./providers/types";
 
@@ -121,5 +122,33 @@ describe("placementTargets", () => {
   it("offers projects to everything else", () => {
     const got = placementTargets({} as Card, board);
     expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
+  });
+});
+
+// Dragging a slot acts on the placement it was grabbed in. The everyday
+// gesture — nudging a mirror copy a week down without leaving its column —
+// used to re-file the card's home into the mirror column, collapsing two
+// placements into one with no question asked.
+describe("slotDragPlan", () => {
+  const card = { project: "engineering", epic: "Cozystack" } as Card;
+  const home = { project: "engineering", epic: "Cozystack" };
+  const mirror = { project: "freedom", epic: "Launch" };
+  const third = { project: "freedom", epic: "Ship" };
+
+  it("a vertical move — in any column — is a date change only", () => {
+    expect(slotDragPlan(card, home, home)).toEqual({ kind: "dates" });
+    expect(slotDragPlan(card, mirror, mirror)).toEqual({ kind: "dates" });
+  });
+
+  it("dragging the home into another column re-files the home", () => {
+    expect(slotDragPlan(card, home, mirror)).toEqual({ kind: "refileHome" });
+  });
+
+  it("dragging a mirror copy moves the mirror, not the home", () => {
+    expect(slotDragPlan(card, mirror, third)).toEqual({ kind: "moveMirror" });
+  });
+
+  it("dropping a mirror onto the home collapses it into the home", () => {
+    expect(slotDragPlan(card, mirror, home)).toEqual({ kind: "collapseMirror" });
   });
 });
