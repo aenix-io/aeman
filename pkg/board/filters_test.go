@@ -241,3 +241,49 @@ func TestWeeklyPlanDerivesSlotBands(t *testing.T) {
 		})
 	}
 }
+
+// A slot lives on the Project board until it joins a sprint: its column
+// holds it, so the day grid does not. A card carrying only a project name
+// has no column — the Project board renders columns by epic — so hiding it
+// here would leave it on no board at all; it shows by its dates like any
+// other card, and its project name is a label it happens to wear.
+func TestTeamGridHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
+	today := TodayIso()
+	b := Board{
+		Cards: []Card{
+			{ItemID: "slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today},
+			{ItemID: "project-only", Team: "t", Project: "P", StartDate: today, Day: today},
+			{ItemID: "slot-in-sprint", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today, SprintStart: today},
+		},
+		SprintStates: map[string]SprintState{"t": {Current: today}},
+	}
+	got := []string{}
+	for _, c := range TeamGrid(b, "t", today) {
+		got = append(got, c.ItemID)
+	}
+	if len(got) != 2 || got[0] != "project-only" || got[1] != "slot-in-sprint" {
+		t.Fatalf("grid = %v; want the project-only card and the slot that joined a sprint", got)
+	}
+}
+
+// MeView draws the same line, for the same reason.
+func TestMeViewHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
+	today := TodayIso()
+	b := Board{
+		Cards: []Card{
+			{ItemID: "slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today},
+			{ItemID: "project-only", Team: "t", Project: "P", StartDate: today, Day: today, Assignees: []string{"kvaps"}},
+			{ItemID: "owned-slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today, Assignees: []string{"kvaps"}},
+		},
+		SprintStates: map[string]SprintState{"t": {Current: today}},
+	}
+	got := []string{}
+	for _, c := range MeView(b, "kvaps", today) {
+		got = append(got, c.ItemID)
+	}
+	// The owned slot shows because its owner is looking at their own work;
+	// the unowned slot stays on the Project board.
+	if len(got) != 2 {
+		t.Fatalf("MeView = %v; want the project-only card and the owned slot", got)
+	}
+}

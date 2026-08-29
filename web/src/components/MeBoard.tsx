@@ -31,7 +31,14 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
-import { personalRemovalKind, removalKind } from "../removal";
+import {
+  boardAsksAbout,
+  deleteWarning,
+  freeSubtasks,
+  gridRemoval,
+  personalRemovalKind,
+  removalKind,
+} from "../removal";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
@@ -1113,6 +1120,36 @@ export function MeBoard({
       });
   };
 
+  // demoteOrRelease hands the card to the server's smart × and takes what
+  // it decides: a card with a Project-board column is released to it, never
+  // destroyed. The re-list brings back whatever the rule did.
+  const demoteOrRelease = (card: CardModel) => {
+    // Show the outcome at once, as every other × on this board does: the
+    // card leaves the working area (the server clears assignee, sprint and,
+    // for anything but a slot, the dates) and stays in the home it has.
+    const prev: Partial<CardModel> = {
+      assignees: card.assignees,
+      sprintStart: card.sprintStart,
+      startDate: card.startDate,
+      day: card.day,
+    };
+    patchCard(card.itemId, {
+      assignees: [],
+      sprintStart: undefined,
+      ...(card.epic ? {} : { startDate: undefined, day: undefined }),
+    });
+    void provider
+      .removeCard(card.itemId, "grid")
+      .then(() => reload())
+      .catch((err: unknown) => {
+        if (isGone(err)) {
+          return;
+        }
+        patchCard(card.itemId, prev);
+        onError(errMessage(err));
+      });
+  };
+
   // Leave a personal card behind on yesterday's board (mirrors
   // boardservice.removePersonal): leftAt set on it and its subtasks, so the
   // column drops them at once; stepping back a day finds them.
@@ -1138,12 +1175,20 @@ export function MeBoard({
   // The ×. As on the Team board, a worked-on card is not taken off the board
   // silently: a Me card still in its team's current sprint can be kept in the
   // previous one, a personal card on yesterday's board — the person is asked
-  // which they mean. A column card (a slot) is never destroyed by the ×: it
-  // demotes. Everything else deletes for real, as it always did here.
-  // What the × means for a card here: "ask" puts the two-way question to the
-  // person (the Card then shows no "Delete?" confirm of its own in front of
-  // it — see boardAsks), "demote" keeps a slot without asking, "delete" is
-  // the plain delete. A subtask has no history of its own: always "delete".
+  // which they mean. What the × then DOES is decided in one place for every
+  // board (gridRemoval): the card goes back to the home it still has, or,
+  // with none left, it is deleted. removalOf answers only the narrower
+  // question of who asks: "ask" puts the two-way question to the person (the
+  // Card shows no "Delete?" of its own in front of it — see boardAsks), and
+  // a subtask, having no history of its own, never opens it.
+  const gridCtx = (card: CardModel) => ({
+    current: currentSprint(board, card.team ?? null) ?? undefined,
+    previous: previousSprint(board, card.team ?? null) ?? undefined,
+    today: todayIso(),
+  });
+  const reviewOf = (card: CardModel) =>
+    board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
+
   const removalOf = (card: CardModel): "ask" | "demote" | "delete" => {
     if (card.parent) {
       return "delete";
@@ -1152,12 +1197,17 @@ export function MeBoard({
     if (isPersonalCard(card, board.personal)) {
       return personalRemovalKind(card, today);
     }
-    return removalKind(card, {
-      current: currentSprint(board, card.team ?? null) ?? undefined,
-      previous: previousSprint(board, card.team ?? null) ?? undefined,
-      today,
-    });
+    return removalKind(card, gridCtx(card));
   };
+
+  // What the × actually does to a team card here — the same answer the Team
+  // board gets, from the same place (gridRemoval, mirroring
+  // boardservice.Remove). This board used to decide on its own and sent
+  // everything that was not demotable to DELETE /cards/{uid}, destroying a
+  // card the other board would have left in its weekly plan: one gesture,
+  // two boards, opposite outcomes.
+  const outcomeOf = (card: CardModel): "demote" | "leave" | "delete" =>
+    gridRemoval(card, gridCtx(card));
 
   const handleDelete = (card: CardModel, forced?: "delete" | "keep") => {
     // A just-created optimistic card has no server twin yet: drop it locally
@@ -1188,15 +1238,23 @@ export function MeBoard({
         return;
       }
     }
-    // The server cascades the delete to a linked review card; one confirm for
-    // both, one request, both removed optimistically.
+    // A card filed under a project column is never destroyed by an × — that
+    // column is a home it goes back to (A1/A3). The Me board used to send it
+    // to DELETE /cards/{uid} regardless, straight past the rule, because the
+    // removal kinds speak only of demote and delete. The smart × on the
+    // server knows what to do with it.
+    if (!personal && forced !== "delete" && outcomeOf(card) !== "delete") {
+      demoteOrRelease(card);
+      return;
+    }
+    // The server cascades the delete to a linked review card and names what
+    // else goes with it: one question for all of it, one request.
     const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-    if (
-      linkedReview &&
-      !window.confirm(
-        `Delete this card and its linked review card «${linkedReview.title}»?`,
-      )
-    ) {
+    // The two-way dialog has already asked, in its own words and with the
+    // loss spelled out on its danger button; a browser confirm behind it is
+    // a second question for one gesture.
+    const warning = forced === "delete" ? null : deleteWarning(card, linkedReview?.title ?? null);
+    if (warning && !window.confirm(warning)) {
       return;
     }
     removeCard(card.itemId);
@@ -1205,19 +1263,12 @@ export function MeBoard({
     }
     // The server releases the subtasks (they return standalone, sliding into
     // the parent's slot); mirror both locally while the delete round-trips.
-    const freed = board.cards.filter((c) => c.parent === card.itemId);
-    for (const c of freed) {
-      patchCard(c.itemId, {
-        parent: undefined,
-        // An ownerless child takes the parent's person — the server does
-        // this so the card lands in a cell instead of falling off the board.
-        ...(c.assignees.length === 0 && card.assignees.length > 0
-          ? { assignees: card.assignees.slice(0, 1) }
-          : {}),
-      });
+    const freed = freeSubtasks(board.cards, card.itemId);
+    for (const f of freed) {
+      patchCard(f.itemId, f.patch);
     }
     if (freed.length > 0) {
-      const freedIds = new Set(freed.map((c) => c.itemId));
+      const freedIds = new Set(freed.map((f) => f.itemId));
       const order: string[] = [];
       for (const c of board.cards) {
         if (freedIds.has(c.itemId)) {
@@ -1812,7 +1863,15 @@ export function MeBoard({
       onSelect={(c) => setSelectedCardId(c.itemId)}
       onProgress={handleProgress}
       onDelete={handleDelete}
-      boardAsks={removalOf(card) === "ask"}
+      boardAsks={boardAsksAbout(
+        card,
+        removalOf(card) === "ask"
+          ? "ask"
+          : isPersonalCard(card, board.personal)
+            ? "delete" // personalRemovalKind answers only "ask" or "delete"
+            : outcomeOf(card),
+        reviewOf(card),
+      )}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}

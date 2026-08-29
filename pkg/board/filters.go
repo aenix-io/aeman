@@ -23,6 +23,10 @@ func TeamGrid(b Board, team, day string) []Card {
 		}
 		// An epic card lives on the Project board until it joins a sprint (see
 		// MeView) — its multi-week span must not smear across the day grid.
+		// The COLUMN is what keeps it there, and a column needs the epic
+		// side: a card carrying only a project name is on no Project board
+		// (ProjectBoard.tsx renders columns, WeeklyPlanAt derives slots — both
+		// by the epic), so hiding it here would leave it nowhere at all.
 		if c.Epic != "" && c.SprintStart == "" {
 			continue
 		}
@@ -93,9 +97,11 @@ func MeView(b Board, user, day string) []Card {
 		}
 		// An epic card lives on the Project board until it joins a sprint: its
 		// week-spanning dates would otherwise smear it across the day boards.
-		// Unless someone owns it — then it is that person's work, and their
-		// day board is where they look for it; it shows across the days its
-		// own dates cover, like any other dated card.
+		// The column is what holds it, and a column needs the epic side —
+		// TeamGrid draws the same line. Unless someone owns it: then it is
+		// that person's work, and their day board is where they look for it;
+		// it shows across the days its own dates cover, like any other dated
+		// card.
 		if c.Epic != "" && c.SprintStart == "" && len(c.Assignees) == 0 {
 			continue
 		}

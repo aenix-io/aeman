@@ -1004,16 +1004,28 @@ func TestTakeIntoPlanChangesZone(t *testing.T) {
 	}
 }
 
-func TestReleaseFromPlanClearsMarkersWhenAssigned(t *testing.T) {
-	f := newFake([]board.Card{{ItemID: "c1", Plan: board.PlanWed, Week: "2026-06-15", Assignees: []string{"bob"}}}, nil)
+func TestReleaseFromPlanClearsMarkersWhenTheCardIsAlsoInTheWorkingArea(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Plan: board.PlanWed, Week: "2026-06-15",
+		Assignees: []string{"bob"}, SprintStart: "2026-06-15", StartDate: "2026-06-15"}}, nil)
 	if err := f2svc(f).ReleaseFromPlan(ctx, "acme", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c1").Plan != board.PlanNone || f.get("c1").Week != "" {
-		t.Fatalf("assigned card should keep but lose plan markers: %+v", f.get("c1"))
+		t.Fatalf("it loses the plan markers and stays in the working area: %+v", f.get("c1"))
 	}
 	if f.count("DeleteCard") != 0 {
-		t.Fatalf("assigned card must not be deleted; log=%v", f.log)
+		t.Fatalf("a card in the working area must not be deleted; log=%v", f.log)
+	}
+	// Being on a person is not a place to be: with the plan its only home,
+	// the same release deletes it rather than leaving it where no board
+	// shows it.
+	f2 := newFake([]board.Card{{ItemID: "c2", Plan: board.PlanWed, Week: "2026-06-15",
+		Assignees: []string{"bob"}}}, nil)
+	if err := f2svc(f2).ReleaseFromPlan(ctx, "acme", "c2"); err != nil {
+		t.Fatal(err)
+	}
+	if f2.get("c2") != nil {
+		t.Fatalf("an assigned card with no other home is deleted, not hidden; log=%v", f2.log)
 	}
 }
 
@@ -1353,34 +1365,51 @@ func TestRemoveGridDemotesFromCurrentSprint(t *testing.T) {
 }
 
 // A card outside the team's current sprint has no earlier sprint to demote
-// into, so the x hands it back to the weekly plan rather than destroying it.
-func TestRemoveGridReleasesCardOutsideCurrentSprint(t *testing.T) {
+// into. What happens then is decided by where else the card is: with a plan
+// band to fall back on it goes there, and with nothing — no band, no
+// column, no work, no subtasks — the working area was the only place it
+// was, so removing it from there deletes it.
+func TestRemoveGridDeletesACardOutsideTheCurrentSprintWithNowhereElseToBe(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-03"}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).Remove(ctx, "acme", "c1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("c1") != nil {
+		t.Fatalf("a card that is nowhere else is deleted by the grid x; log=%v", f.log)
+	}
+}
+
+// The same card, also in the weekly plan, has somewhere to stay: it leaves
+// the working area — dates and all, or the day grid would go on listing it
+// — and keeps its band.
+func TestRemoveGridLeavesACardThatIsAlsoInThePlan(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-03",
+		StartDate: "2026-01-03", Day: "2026-01-03", Plan: board.PlanFri, Week: "2026-01-05"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).Remove(ctx, "acme", "c1", ""); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("c1")
 	if c == nil {
-		t.Fatalf("the grid x never deletes a top-level card; log=%v", f.log)
+		t.Fatalf("a card in the plan is not deleted by the grid x; log=%v", f.log)
 	}
-	if c.SprintStart != "" || c.Plan == board.PlanNone {
-		t.Fatalf("it leaves the sprint and lands in the weekly plan: %+v", c)
+	if c.Plan != board.PlanFri || c.Week != "2026-01-05" {
+		t.Fatalf("it keeps its place in the plan: %+v", c)
+	}
+	if c.SprintStart != "" || c.StartDate != "" || c.Day != "" {
+		t.Fatalf("it leaves the working area entirely: %+v", c)
 	}
 }
 
-func TestRemoveGridReleasesWhenNoPreviousSprint(t *testing.T) {
+func TestRemoveGridDeletesWhenNoPreviousSprintAndNowhereElse(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-10"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10"}})
 	if err := f2svc(f).Remove(ctx, "acme", "c1", ""); err != nil {
 		t.Fatal(err)
 	}
-	c := f.get("c1")
-	if c == nil {
-		t.Fatalf("no earlier sprint to demote into is not a reason to delete; log=%v", f.log)
-	}
-	if c.Plan == board.PlanNone {
-		t.Fatalf("it lands in the weekly plan: %+v", c)
+	if f.get("c1") != nil {
+		t.Fatalf("no earlier sprint and nowhere else to be: the card is deleted; log=%v", f.log)
 	}
 }
 
@@ -1409,41 +1438,75 @@ func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
 	}
 }
 
-// A card with no column and no plan band would be invisible once released, so
-// the x files it into the current week's plan instead of deleting it.
-func TestRemoveGridReleasesPlainCardIntoTheWeeklyPlan(t *testing.T) {
+// Being on someone is not a second home: a card nobody has worked on, in no
+// band and under no column, is deleted by the x even when it has an
+// assignee. Work is what earns a card the hand-back, and the next test is
+// that case.
+func TestRemoveGridDeletesAnAssignedButUntouchedCard(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: board.TodayIso(),
 		SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).Remove(ctx, "acme", "c1", ""); err != nil {
 		t.Fatal(err)
 	}
-	c := f.get("c1")
-	if c == nil {
-		t.Fatalf("the grid x never deletes a top-level card; log=%v", f.log)
-	}
-	if len(c.Assignees) != 0 || c.SprintStart != "" {
-		t.Fatalf("removing from a person hands the card back: %+v", c)
-	}
-	if c.Plan == board.PlanNone || c.Week != board.MondayOf(board.TodayIso()) {
-		t.Fatalf("a card with nowhere else to live lands in this week's plan: %+v", c)
+	if f.get("c1") != nil {
+		t.Fatalf("an untouched card that is nowhere else is deleted; log=%v", f.log)
 	}
 }
 
-// The plan x spares a project card by its column, and a column is the PAIR
-// (project, epic) — so the project side alone must be enough to spare it.
-func TestRemovePlanKeepsProjectCardWithoutEpic(t *testing.T) {
-	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Project: "Portal",
-		Plan: board.PlanWed, Week: "2026-01-05"}}, nil)
-	if err := f2svc(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
+// A card carrying progress, in a band, is handed back into that band: it
+// still has somewhere to be. (With no band and no column it would simply be
+// deleted — work makes the delete worth confirming, not worth turning into
+// a move; the UI asks before it comes here.)
+func TestRemoveGridHandsBackAWorkedCardIntoItsBand(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: board.TodayIso(),
+		SprintStart: "2026-01-10", Assignees: []string{"bob"}, Progress: 40,
+		Plan: board.PlanFri, Week: board.MondayOf(board.TodayIso())}},
+		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
+	if err := f2svc(f).Remove(ctx, "acme", "c1", ""); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("c1")
 	if c == nil {
-		t.Fatalf("a card that belongs to a project is never deleted by the plan x; log=%v", f.log)
+		t.Fatalf("a card in a band is not deleted by the x; log=%v", f.log)
 	}
-	if c.Plan != board.PlanNone {
-		t.Fatalf("it leaves the plan: %+v", c)
+	if c.Plan != board.PlanFri || c.Week != board.MondayOf(board.TodayIso()) {
+		t.Fatalf("it keeps its place in the plan: %+v", c)
+	}
+	if c.SprintStart != "" || len(c.Assignees) != 0 || c.StartDate != "" {
+		t.Fatalf("and it leaves the working area, work or no work: %+v", c)
+	}
+}
+
+// The plan × spares a card by its COLUMN, and the column is what the Project
+// board renders: an epic. A card carrying only a project name is on no
+// board, so that name cannot spare it — it used to, and the card survived
+// with no sprint, no dates, no band and no column, findable nowhere. A slot
+// (the epic side set) is spared, keeps its dates, and keeps its week too,
+// since its row is derived from them.
+func TestThePlanRemoveSparesASlotButNotABareProjectName(t *testing.T) {
+	f := newFake([]board.Card{
+		{ItemID: "slot", Team: "alpha", Project: "Portal", Epic: "Journal",
+			Plan: board.PlanWed, Week: "2026-01-05", StartDate: "2026-01-05", Day: "2026-01-09"},
+		{ItemID: "label", Team: "alpha", Project: "Portal",
+			Plan: board.PlanWed, Week: "2026-01-05"},
+	}, nil)
+	svc := f2svc(f)
+	if err := svc.Remove(ctx, "acme", "slot", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	c := f.get("slot")
+	if c == nil {
+		t.Fatalf("a slot is never deleted by the plan ×; log=%v", f.log)
+	}
+	if c.Plan != board.PlanNone || c.Week != "2026-01-05" || c.StartDate != "2026-01-05" {
+		t.Fatalf("it leaves the plan and keeps its row: %+v", c)
+	}
+	if err := svc.Remove(ctx, "acme", "label", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if f.get("label") != nil {
+		t.Fatal("a bare project name is a label, not a home: the card is deleted")
 	}
 }
 
@@ -1463,15 +1526,19 @@ func TestRemoveGridReleasesPlanTakenCard(t *testing.T) {
 	}
 }
 
-func TestRemovePlanClearsMarkerWhenAssigned(t *testing.T) {
+func TestRemovePlanClearsMarkerWhenTheCardIsAlsoInTheWorkingArea(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Plan: board.PlanFri,
-		Week: "2026-01-05", Assignees: []string{"bob"}}}, nil)
+		Week: "2026-01-05", Assignees: []string{"bob"},
+		SprintStart: "2026-01-05", StartDate: "2026-01-05"}}, nil)
 	if err := f2svc(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("c1")
 	if c == nil || c.Plan != board.PlanNone || c.Week != "" {
-		t.Fatalf("removing an assigned card from the plan clears only the marker: %+v", c)
+		t.Fatalf("it loses the marker and stays in the working area: %+v", c)
+	}
+	if c.SprintStart != "2026-01-05" {
+		t.Fatalf("its sprint is untouched: %+v", c)
 	}
 }
 
@@ -2066,27 +2133,44 @@ func TestReReviewRelocatesToNewSprintWithCounter(t *testing.T) {
 	}
 }
 
-// The plan × never deletes a card someone worked on: even unassigned, a card
-// with progress sheds only its weekly membership and survives.
-func TestPlanRemoveKeepsWorkedCard(t *testing.T) {
+// Work is not a place to be. A card with progress and a sprint sheds only
+// its weekly membership — the working area still shows it. The same card
+// with the plan as its ONLY home is deleted instead: sparing it for the
+// progress bar left it alive with no sprint, no dates, no band and no
+// column, which no board can show and no × can reach again. What it carries
+// is a question the caller asks first (deleteWarning), not a hiding place.
+func TestPlanRemoveKeepsAWorkedCardOnlyWhileItIsSomewhereElse(t *testing.T) {
 	f := newFake([]board.Card{
-		{ItemID: "p", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06", Progress: 40},
+		{ItemID: "p", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06", Progress: 40,
+			SprintStart: "2026-07-06", StartDate: "2026-07-06"},
 	}, nil)
 	if err := f2svc(f).Remove(ctx, "acme", "p", "plan"); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("p")
 	if f.count("DeleteCard") != 0 {
-		t.Fatal("a worked card must not be deleted by the plan ×")
+		t.Fatal("a card in the working area must not be deleted by the plan ×")
 	}
 	if c.Plan != board.PlanNone || c.Week != "" {
 		t.Fatalf("plan membership must be shed: %+v", c)
 	}
+
+	f2 := newFake([]board.Card{
+		{ItemID: "p", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06", Progress: 40},
+	}, nil)
+	if err := f2svc(f2).Remove(ctx, "acme", "p", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if f2.get("p") != nil {
+		t.Fatalf("with the plan its only home, the card goes; log=%v", f2.log)
+	}
 }
 
-// The grid × on a taken plan card: untouched → released back to the plan
-// (person + sprint cleared); already worked → keeps the person and its sprint
-// history, shedding only the plan membership.
+// The grid × on a card that is also in the weekly plan takes it out of the
+// working area and leaves it in the plan — the same outcome whatever it
+// carries. It used to depend on the progress bar: an untouched card went
+// back to the plan while a worked one did the opposite, shedding the band
+// and staying on the grid, so one gesture meant two different things.
 func TestGridRemoveOnTakenPlanCard(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "fresh", Team: "alpha", Plan: board.PlanWed, Week: "2026-07-06",
@@ -2095,24 +2179,23 @@ func TestGridRemoveOnTakenPlanCard(t *testing.T) {
 			Assignees: []string{"bob"}, SprintStart: "2026-07-03", StartDate: "2026-07-03", Progress: 40},
 	}, nil)
 	svc := f2svc(f)
-	if err := svc.Remove(ctx, "acme", "fresh", "grid"); err != nil {
-		t.Fatal(err)
-	}
-	if c := f.get("fresh"); len(c.Assignees) != 0 || c.SprintStart != "" || c.Plan == board.PlanNone {
-		t.Fatalf("untouched taken card must release back to the plan: %+v", c)
-	}
-	if err := svc.Remove(ctx, "acme", "worked", "grid"); err != nil {
-		t.Fatal(err)
-	}
-	c := f.get("worked")
-	if len(c.Assignees) == 0 || c.SprintStart == "" {
-		t.Fatalf("worked card must keep its person and sprint: %+v", c)
-	}
-	if c.Plan != board.PlanNone || c.Week != "" {
-		t.Fatalf("worked card sheds only the plan membership: %+v", c)
+	for _, id := range []string{"fresh", "worked"} {
+		if err := svc.Remove(ctx, "acme", id, "grid"); err != nil {
+			t.Fatal(err)
+		}
+		c := f.get(id)
+		if c == nil {
+			t.Fatalf("%s: a card in the plan is not deleted by the grid ×", id)
+		}
+		if len(c.Assignees) != 0 || c.SprintStart != "" || c.StartDate != "" {
+			t.Fatalf("%s: it leaves the working area: %+v", id, c)
+		}
+		if c.Plan != board.PlanWed || c.Week != "2026-07-06" {
+			t.Fatalf("%s: it keeps its place in the plan: %+v", id, c)
+		}
 	}
 	if f.count("DeleteCard") != 0 {
-		t.Fatal("nothing must be deleted")
+		t.Fatalf("nothing is deleted here; log=%v", f.log)
 	}
 }
 

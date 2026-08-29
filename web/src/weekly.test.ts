@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveBand, slotBand } from "./weekly";
+import { effectiveBand, planRemoveOffered, slotBand } from "./weekly";
 
 // Mirrors pkg/board WeeklyPlanAt's derived band: a Project-board slot needs no
 // stored band — its span is its plan, and the band derives from the end date.
@@ -44,5 +44,26 @@ describe("effectiveBand", () => {
   it("gives a band-less non-slot nothing", () => {
     expect(effectiveBand({ week: "2026-08-24" })).toBeUndefined();
     expect(effectiveBand({ epic: "E", week: "2026-08-24" })).toBeUndefined();
+  });
+});
+
+// The weekly panel's × clears a band. A slot has none to clear — its span
+// puts it on the panel — so pressing it would leave the card exactly where
+// it was: the panel offers no × there.
+describe("planRemoveOffered", () => {
+  it("is not offered for a slot, which the panel derives from its span", () => {
+    expect(planRemoveOffered({ epic: "Cozystack", week: "2026-08-03", day: "2026-08-28" })).toBe(
+      false,
+    );
+    // A stored band does not change that: clearing it leaves the derivation.
+    expect(
+      planRemoveOffered({ epic: "Cozystack", week: "2026-08-03", day: "2026-08-28", plan: "fri" }),
+    ).toBe(false);
+  });
+
+  it("is offered where the band is the only thing holding the card", () => {
+    expect(planRemoveOffered({ plan: "fri", week: "2026-08-03" })).toBe(true);
+    // An epic without both boundaries is not a slot: its band is stored.
+    expect(planRemoveOffered({ epic: "Cozystack", week: "2026-08-03", plan: "wed" })).toBe(true);
   });
 });

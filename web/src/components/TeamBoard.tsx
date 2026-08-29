@@ -37,9 +37,17 @@ import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
-import { isSlot, slotBand } from "../weekly";
+import { isSlot, planRemoveOffered, slotBand } from "../weekly";
 import { subtaskShows } from "../subtasks";
-import { removalKind } from "../removal";
+import {
+  boardAsksAbout,
+  deleteWarning,
+  freeSubtasks,
+  gridRemoval,
+  hasColumn,
+  planRemoval,
+  removalKind,
+} from "../removal";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -1193,12 +1201,13 @@ export function TeamBoard({
       onDelete={handleGridDelete}
       boardAsks={
         !card.parent &&
-        !card.plan &&
-        removalKind(card, {
-          current: currentSprint(board, card.team ?? null) ?? undefined,
-          previous: previousSprintFor(card) ?? undefined,
-          today: todayIso(),
-        }) === "ask"
+        boardAsksAbout(
+          card,
+          removalKind(card, gridCtx(card)) === "ask"
+            ? "ask"
+            : gridRemoval(card, gridCtx(card)),
+          reviewOf(card),
+        )
       }
       onStage={handleStage}
       onInProgress={handleInProgress}
@@ -1487,7 +1496,17 @@ export function TeamBoard({
   // team's current sprint, releases a taken plan card back to plan-only, or
   // deletes for real (cascading the linked review card). The optimistic patch
   // mirrors those rules locally; the re-list converges the server's outcome.
-  const handleGridDelete = (card: CardModel, forced?: "delete" | "demote") => {
+  // The × asks the same question on every board: gridCtx names the sprints
+  // it is asked in, reviewOf the card a delete would take along.
+  const gridCtx = (card: CardModel) => ({
+    current: currentSprint(board, card.team ?? null) ?? undefined,
+    previous: previousSprintFor(card) ?? undefined,
+    today: todayIso(),
+  });
+  const reviewOf = (card: CardModel) =>
+    board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
+
+  const handleGridDelete = (card: CardModel, forced?: "demote") => {
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
@@ -1540,44 +1559,75 @@ export function TeamBoard({
         });
         rollback = () => patchCard(card.itemId, prev);
       } else {
-        // Nothing to demote into: the server hands the card back rather than
-        // deleting it (mirrors boardservice.releaseToPlan). It loses its person
-        // and its sprint, and — when it has no Project-board column and no plan
-        // band to return to — lands in this week's plan, because a card in no
-        // sprint, no plan and no column would be invisible. Subtasks ride along
-        // under it: nothing is destroyed, so nothing is orphaned.
+        // Nothing to demote into. A card has two homes — the working area and
+        // the weekly plan — and this × empties the first (mirrors
+        // boardservice.Remove). With a plan band or a Project-board column to
+        // fall back on it goes there, leaving the working area entirely,
+        // dates and all: a card whose start is the viewed day shows on the
+        // grid whatever its sprint says, which is how a handed-back card used
+        // to sit in two places at once. With nowhere else to be, the working
+        // area was the only place it was, and removing it from there deletes
+        // it — after a question when the card carries work or a review card,
+        // which the delete takes with it. Subtasks survive as standalone
+        // cards and are not asked about.
+        if (gridRemoval(card, gridCtx(card)) === "delete") {
+          const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
+          const warning = deleteWarning(card, linkedReview?.title ?? null);
+          if (warning && !window.confirm(warning)) {
+            return;
+          }
+          // The subtasks are freed, not lost: locally too, or they vanish
+          // until a refresh — the watch skips this tab's own changes.
+          for (const f of freeSubtasks(board.cards, card.itemId)) {
+            patchCard(f.itemId, f.patch);
+          }
+          removeCard(card.itemId);
+          if (linkedReview) {
+            removeCard(linkedReview.itemId);
+          }
+          void provider
+            .removeCard(card.itemId, "grid")
+            .then(() => reload())
+            .catch((err: unknown) => {
+              if (!isGone(err)) {
+                onError(errMessage(err));
+                reload();
+              }
+            });
+          return;
+        }
         const prev: Partial<CardModel> = {
           assignees: card.assignees,
           sprintStart: card.sprintStart,
-          plan: card.plan,
-          week: card.week,
+          startDate: card.startDate,
+          day: card.day,
         };
-        const homeless = !card.epic && !card.project && !card.plan;
         patchCard(card.itemId, {
           assignees: [],
           sprintStart: undefined,
-          ...(homeless
-            ? { plan: "wed" as const, week: card.week ?? mondayOf(todayIso()) }
-            : {}),
+          // A slot keeps its dates: they are its row on the Project board.
+          // Only the epic side makes one — a bare project name is a label.
+          ...(hasColumn(card) ? {} : { startDate: undefined, day: undefined }),
         });
         rollback = () => patchCard(card.itemId, prev);
       }
     } else {
-      // An untouched taken plan card is released (assignee + sprint cleared),
-      // so it stays in the weekly plan. A card already worked on keeps its
-      // person and sprint history and sheds only the plan membership.
-      if ((card.progress ?? 0) > 0) {
-        const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
-        patchCard(card.itemId, { plan: undefined, week: undefined });
-        rollback = () => patchCard(card.itemId, prev);
-      } else {
-        const prev: Partial<CardModel> = {
-          assignees: card.assignees,
-          sprintStart: card.sprintStart,
-        };
-        patchCard(card.itemId, { assignees: [], sprintStart: undefined });
-        rollback = () => patchCard(card.itemId, prev);
-      }
+      // The card is also in the weekly plan: this × takes it out of the
+      // working area and leaves it there, whatever it carries. (The grid ×
+      // used to do the opposite for a worked card — shed the band, stay on
+      // the grid — so one gesture meant two things depending on the bar.)
+      const prev: Partial<CardModel> = {
+        assignees: card.assignees,
+        sprintStart: card.sprintStart,
+        startDate: card.startDate,
+        day: card.day,
+      };
+      patchCard(card.itemId, {
+        assignees: [],
+        sprintStart: undefined,
+        ...(hasColumn(card) ? {} : { startDate: undefined, day: undefined }),
+      });
+      rollback = () => patchCard(card.itemId, prev);
     }
     void provider
       .removeCard(card.itemId, "grid")
@@ -1591,10 +1641,11 @@ export function TeamBoard({
       });
   };
 
-  // The plan-band ×: one remove intent — the server keeps a taken (assigned)
-  // card working and clears only its weekly marker, demotes a pure plan card
-  // to its previous week, or deletes it when there is none. The optimistic
-  // patch mirrors those rules; the re-list converges the server's outcome.
+  // The plan-band ×: it empties one of the card's homes. A card that is
+  // somewhere else — in a Project-board column, or in the working area by
+  // its sprint or its dates — only loses its band and week; with the plan
+  // its last home, it is deleted, whatever it carries. planRemoval is that
+  // rule; the optimistic patch mirrors it and the re-list converges.
   const removeFromPlan = (card: CardModel) => {
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
@@ -1602,25 +1653,22 @@ export function TeamBoard({
       return;
     }
     let rollback: () => void;
-    if (
-      !card.epic &&
-      !card.project &&
-      card.assignees.length === 0 &&
-      (card.progress ?? 0) === 0
-    ) {
-      // A pure plan card — one that belongs to no Project-board column, that
-      // nobody took and nobody worked — is deleted for real (a previous-week
-      // demote would boomerang back on the next carry-week); the server
-      // cascades to a linked review card. A card filed under a project is
-      // never deleted here: it only leaves the plan.
+    if (planRemoval(card) === "delete") {
+      // The plan was this card's last home, so the × deletes it (a
+      // previous-week demote would boomerang back on the next carry-week);
+      // the server cascades to a linked review card and frees the subtasks.
+      // A card in a Project-board column is never deleted here — that column
+      // is where it goes home.
       const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-      if (
-        linkedReview &&
-        !window.confirm(
-          `Delete this card and its linked review card «${linkedReview.title}»?`,
-        )
-      ) {
+      // The plan × deletes here, so the loss is named the way the grid ×
+      // names it — the anonymous "Delete?" said nothing about the progress
+      // it was taking.
+      const warning = deleteWarning(card, linkedReview?.title ?? null);
+      if (warning && !window.confirm(warning)) {
         return;
+      }
+      for (const f of freeSubtasks(board.cards, card.itemId)) {
+        patchCard(f.itemId, f.patch);
       }
       removeCard(card.itemId);
       if (linkedReview) {
@@ -1634,7 +1682,14 @@ export function TeamBoard({
       };
     } else {
       const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
-      patchCard(card.itemId, { plan: undefined, week: undefined });
+      // A slot's week is its row on the Project board: the server keeps it
+      // (clearPlanWeek is only reached for a card with no column), and
+      // clearing it here made the slot jump out of its row until the re-list
+      // put it back.
+      patchCard(card.itemId, {
+        plan: undefined,
+        ...(card.epic ? {} : { week: undefined }),
+      });
       rollback = () => patchCard(card.itemId, prev);
     }
     void provider
@@ -2246,6 +2301,11 @@ export function TeamBoard({
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
               onDelete={card.parent ? handleGridDelete : removeFromPlan}
+              deletable={!!card.parent || planRemoveOffered(card)}
+              boardAsks={
+                !card.parent &&
+                boardAsksAbout(card, planRemoval(card), reviewOf(card))
+              }
               onStage={handleStage}
               onInProgress={handleInProgress}
               onOpen={onOpen}
@@ -2501,11 +2561,18 @@ export function TeamBoard({
           onSubmit={(hardDelete) => {
             const card = removeChoice;
             if (hardDelete) {
+              for (const f of freeSubtasks(board.cards, card.itemId)) {
+                patchCard(f.itemId, f.patch);
+              }
               removeCard(card.itemId);
-              void provider.deleteCard(card.itemId).catch((err: unknown) => {
-                addCard(card);
-                onError(errMessage(err));
-              });
+              void provider
+                .deleteCard(card.itemId)
+                .then(() => reload())
+                .catch((err: unknown) => {
+                  addCard(card);
+                  onError(errMessage(err));
+                  reload();
+                });
               return;
             }
             handleGridDelete(card, "demote");
