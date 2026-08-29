@@ -19,6 +19,7 @@ GitHub → the organisation's **Settings** → Developer settings → **GitHub A
 - **Homepage URL:** `https://aeman.example.com`
 - **Callback URL:** `https://aeman.example.com/auth/callback`; enable **Request user authorization (OAuth) during installation**, keep **Expire user authorization tokens** on
 - **Webhook:** off
+- **Setup URL (optional):** `https://aeman.example.com/auth/setup`, with **Redirect on update** checked — after someone installs the app (say, on their personal repository), GitHub sends them back to the board, which retries the attach at once
 - **Repository permissions:** **Contents: Read and write**, **Metadata: Read-only** (automatic)
 - **Where can this app be installed:** Any account, if boards of other organisations (or personal boards) will use it
 

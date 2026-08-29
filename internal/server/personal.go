@@ -26,6 +26,45 @@ import (
 // is attached the first time its owner shows up after a start, and detached
 // when they unlink it — the repository itself is never touched by that.
 
+// personalFailure is a personal domain that would not attach, and when.
+type personalFailure struct {
+	url string
+	err error
+	at  time.Time
+}
+
+// personalRetryAfter is how long a failed attach is trusted to still be
+// failing. Short enough that installing the app (or fixing access) is
+// picked up on the next page, long enough that a broken link costs one
+// round trip a minute instead of one per request.
+const personalRetryAfter = 60 * time.Second
+
+// personalProblem is why the login's personal domain is not attached, in
+// words meant for its owner; "" when there is no trouble to report.
+func (b *storeBackend) personalProblem(login string) string {
+	if b.git == nil || login == "" {
+		return ""
+	}
+	b.git.pmu.Lock()
+	defer b.git.pmu.Unlock()
+	f, ok := b.git.pfail[login]
+	if !ok {
+		return ""
+	}
+	return f.err.Error()
+}
+
+// forgetPersonalProblem drops the remembered failure, so the next attach
+// really tries — what an explicit link (or unlink) asks for.
+func (b *storeBackend) forgetPersonalProblem(login string) {
+	if b.git == nil {
+		return
+	}
+	b.git.pmu.Lock()
+	defer b.git.pmu.Unlock()
+	delete(b.git.pfail, login)
+}
+
 // personalLink is the repository the primary records for a login, if any.
 func (b *storeBackend) personalLink(login string) (string, bool) {
 	if b.git == nil || login == "" {
@@ -61,6 +100,13 @@ func (b *storeBackend) attachPersonal(ctx context.Context, login, token string) 
 	defer g.pmu.Unlock()
 	name := board.PersonalDomain(login)
 	url, linked := b.personalLink(login)
+	// A repository that would not attach a moment ago is not tried again
+	// yet: the trouble is a person's to fix (install the app, restore
+	// access), and until they do, every request would pay for the same
+	// refusal. The reason is kept, and told where they meet it.
+	if f, failed := g.pfail[login]; failed && linked && f.url == url && time.Since(f.at) < personalRetryAfter {
+		return nil
+	}
 	if d := g.domain(name); d != nil {
 		switch {
 		case !linked:
@@ -94,12 +140,12 @@ func (b *storeBackend) attachPersonal(ctx context.Context, login, token string) 
 	if errors.Is(err, errUnbornRemote) {
 		// A freshly created, empty repository: give it a board first.
 		if err = gitstore.InitBoard(ctx, memory.NewStorage(), remote, g.repoOpts, login+"'s board"); err != nil {
-			return fmt.Errorf("initialise %s: %w", url, err)
+			return g.rememberPersonalFailure(login, url, fmt.Errorf("initialise %s: %w", url, err))
 		}
 		repo, err = cloneOrOpen(dir, remote, g.repoOpts, url)
 	}
 	if err != nil {
-		return err
+		return g.rememberPersonalFailure(login, url, err)
 	}
 	if err := g.mb.AddDomain(gitstore.Domain{Name: name, Repo: repo}); err != nil {
 		return err
@@ -108,8 +154,19 @@ func (b *storeBackend) attachPersonal(ctx context.Context, login, token string) 
 	g.domains = append(g.domains, gitDomain{Domain: gitstore.Domain{Name: name, Repo: repo}, remote: remote})
 	g.applyMu.Unlock()
 	b.reloadBoard(ctx)
+	delete(g.pfail, login)
 	g.log.Info("personal board attached", "login", login, "repo", url)
 	return nil
+}
+
+// rememberPersonalFailure records why the attach failed and returns the
+// error. Callers hold pmu.
+func (g *gitSync) rememberPersonalFailure(login, url string, err error) error {
+	if g.pfail == nil {
+		g.pfail = map[string]personalFailure{}
+	}
+	g.pfail[login] = personalFailure{url: url, err: err, at: time.Now()}
+	return err
 }
 
 // detachPersonal takes a personal domain off the board; its clone stays on

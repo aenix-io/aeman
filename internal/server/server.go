@@ -195,6 +195,13 @@ func New(opts Options) (*Server, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/healthz", s.handleHealthz)
+	// GitHub sends the person here after they install (or update) the
+	// board's GitHub App, when the app's Setup URL points at
+	// <base>/auth/setup: whatever kept their personal board from attaching
+	// is forgotten and tried again at once, so installing the app fixes the
+	// board without anyone hunting for a retry button. Registered in every
+	// mode — the local one has personal boards too.
+	mux.HandleFunc("/auth/setup", s.handleAppSetup)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	if s.auth != nil {
 		mux.HandleFunc("/auth/login", s.auth.handleLogin)
@@ -457,6 +464,17 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// writeJSONErrorAction is a refusal with something to click: actionUrl is
+// the page that fixes the trouble (installing the board's GitHub App), for
+// the UI to render as a button rather than a URL buried in prose.
+func writeJSONErrorAction(w http.ResponseWriter, status int, msg, actionURL string) {
+	if actionURL == "" {
+		writeJSONError(w, status, msg)
+		return
+	}
+	writeJSON(w, status, map[string]string{"error": msg, "actionUrl": actionURL})
 }
 
 // frontendBuild fingerprints the embedded bundle: index.html names the hashed

@@ -333,17 +333,23 @@ func TestBeingThrottledIsNotTheSameAsHavingNoAccess(t *testing.T) {
 // gate comes back), a token with it simply cannot see that repository.
 func TestATokenWithoutTheRepoScopeIsAStaleAuthorization(t *testing.T) {
 	cases := []struct {
-		name, scopes string
-		status       int
-		hasHeader    bool
-		wantBad      bool
+		name, scopes, token string
+		status              int
+		hasHeader           bool
+		wantBad             bool
 	}{
-		{"minted before the scope was asked for", "project", http.StatusNotFound, true, true},
-		{"no scopes at all", "", http.StatusNotFound, true, true},
-		{"forbidden with the old scopes", "project, read:org", http.StatusForbidden, true, true},
-		{"has the scope, cannot see this repository", "repo, project", http.StatusNotFound, true, false},
-		{"has the scope, forbidden", "repo", http.StatusForbidden, true, false},
-		{"a forge that names no scopes", "", http.StatusNotFound, false, false},
+		{"minted before the scope was asked for", "project", "gho_old", http.StatusNotFound, true, true},
+		{"no scopes at all", "", "gho_old", http.StatusNotFound, true, true},
+		{"forbidden with the old scopes", "project, read:org", "gho_old", http.StatusForbidden, true, true},
+		{"has the scope, cannot see this repository", "repo, project", "gho_ok", http.StatusNotFound, true, false},
+		{"has the scope, forbidden", "repo", "gho_ok", http.StatusForbidden, true, false},
+		{"a forge that names no scopes", "", "gho_ok", http.StatusNotFound, false, false},
+		// A GitHub App's user token has no scopes BY DESIGN — its reach
+		// comes from the installations — and GitHub still sends the header,
+		// empty. Read as a stale sign-in it dropped the session of anyone
+		// who could not see one repository of the board: a sign-in loop.
+		{"an app user token cannot be scope-stale", "", "ghu_app", http.StatusNotFound, true, false},
+		{"an app user token, forbidden", "", "ghu_app", http.StatusForbidden, true, false},
 	}
 	for _, tc := range cases {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -352,7 +358,7 @@ func TestATokenWithoutTheRepoScopeIsAStaleAuthorization(t *testing.T) {
 			}
 			w.WriteHeader(tc.status)
 		}))
-		read, write, err := NewGitHubAt(srv.URL).Access(context.Background(), srv.Client(), "tok", "https://github.com/acme/repo.git")
+		read, write, err := NewGitHubAt(srv.URL).Access(context.Background(), srv.Client(), tc.token, "https://github.com/acme/repo.git")
 		switch {
 		case tc.wantBad && !errors.Is(err, ErrBadToken):
 			t.Errorf("%s: err = %v, want ErrBadToken", tc.name, err)

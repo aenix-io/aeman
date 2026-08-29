@@ -128,7 +128,9 @@ func (g *github) Access(ctx context.Context, client *http.Client, token, repoURL
 		_ = resp.Body.Close()
 		return false, false, fmt.Errorf("%w: %s", ErrRateLimited, resp.Status)
 	case resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusForbidden:
-		stale := staleScope(resp)
+		// A GitHub App's user token has no scopes by design — its reach
+		// comes from the installations — so the scope check cannot apply.
+		stale := !IsUserToServerToken(token) && staleScope(resp)
 		_ = resp.Body.Close()
 		if stale {
 			// A token minted before this server asked for `repo` cannot see

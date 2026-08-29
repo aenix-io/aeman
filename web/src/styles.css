@@ -4405,6 +4405,39 @@ button.card-age {
   transition: margin-right 90ms ease-out;
 }
 
+/* ---- personal-board trouble: the banner and the call to action ---- */
+
+.me-personal-trouble {
+  margin: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger, #c0392b) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger, #c0392b) 30%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.me-personal-trouble p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.personal-action {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.personal-action .btn,
+.me-personal-trouble .btn {
+  align-self: flex-start;
+  text-decoration: none;
+}
+
 /* ---- single board, domains, roster avatars ---- */
 
 /* The board's name in the toolbar — the one board this server serves, where

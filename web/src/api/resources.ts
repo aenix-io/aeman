@@ -134,8 +134,11 @@ export interface BoardResource {
      *  sends neither. */
     teamDomains?: Record<string, string>;
     projectDomains?: Record<string, string>;
-    /** The visitor's personal board, when they linked one. */
-    personal?: { domain: string; url: string };
+    /** The visitor's personal board, when they linked one. `problem` says
+     *  why the repository is not attached (the server cannot reach it) and
+     *  `actionUrl` is the page that fixes it — installing the board's
+     *  GitHub App on the repository. */
+    personal?: { domain: string; url: string; problem?: string; actionUrl?: string };
   };
 }
 

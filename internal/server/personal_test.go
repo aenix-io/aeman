@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -416,6 +417,13 @@ func TestLinkingAPersonalBoardExplainsAMissingInstallation(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "https://github.com/apps/aenix-aeman/installations/new") {
 		t.Fatalf("the refusal must carry the install link: %s", rec.Body.String())
 	}
+	// And as a field of its own: a URL buried in prose is not a button.
+	var refusal struct {
+		ActionURL string `json:"actionUrl"`
+	}
+	if json.Unmarshal(rec.Body.Bytes(), &refusal) != nil || refusal.ActionURL != "https://github.com/apps/aenix-aeman/installations/new" {
+		t.Fatalf("the refusal must carry actionUrl for the UI's button: %s", rec.Body.String())
+	}
 
 	// Signed in through a plain OAuth App instead, the token reaches every
 	// repository its owner can: a refusal there really is about access, and
@@ -438,4 +446,144 @@ func testServerAppPEM(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+}
+
+// A personal repository the server cannot reach — the board's GitHub App was
+// never installed on it — is the shape of trouble a person meets on a real
+// deployment. Two things must not happen: the failure must not be retried
+// against the forge on every single request (a failing clone inside the
+// request path cost twelve seconds on a live board), and the person must not
+// be told "forbidden: no write access to the card's domain" about a
+// repository they own, with the real reason left in the server's log.
+func TestAPersonalRepositoryTheServerCannotReachIsExplainedOnce(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, shared)
+
+	// A remote that refuses every git request, and counts the attempts.
+	var hits atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(remote.Close)
+	if err := srv.gitBE.linkPersonal(context.Background(), "kvaps", remote.URL+"/kvaps/personal.git"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first request tries, and fails.
+	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/board", ""); rec.Code != http.StatusOK {
+		t.Fatalf("board: %d %s", rec.Code, rec.Body.String())
+	}
+	tried := hits.Load()
+	if tried == 0 {
+		t.Fatal("the personal repository was never tried at all")
+	}
+
+	// The next requests do not go back to the forge for the same failure:
+	// a broken personal link must not cost a round trip per request.
+	for i := 0; i < 5; i++ {
+		doAs(t, srv, "kvaps", "GET", "/api/v1/board", "")
+	}
+	if again := hits.Load(); again != tried {
+		t.Fatalf("%d attempts after five more requests, want the first %d — the failure is retried per request", again, tried)
+	}
+
+	// And the person is told what is actually wrong, where they meet it.
+	rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards", `{"title":"mine","personal":true,"zone":"planned"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("personal create: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "no write access to the card's domain") {
+		t.Fatalf("the generic refusal hides the cause: %s", body)
+	}
+	if !strings.Contains(body, "personal") || !strings.Contains(body, "could not be") {
+		t.Fatalf("the refusal must name the personal repository as the trouble: %s", body)
+	}
+}
+
+// A linked personal board that would not attach is a state the UI must be
+// able to draw — a banner with the reason and a button — not an error the
+// person meets only when they try to write. GET /me/personal and the board
+// metadata carry the problem and the action URL; GitHub's post-install
+// redirect (the app's Setup URL, <base>/auth/setup) forgets the remembered
+// failure and tries again at once, so installing the app fixes the board
+// without anyone finding a retry button.
+func TestABrokenPersonalAttachIsServedAsStateAndRetriedBySetup(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, shared)
+
+	appSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"slug":"aenix-aeman","html_url":"https://github.com/apps/aenix-aeman"}`))
+	}))
+	t.Cleanup(appSrv.Close)
+	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, appSrv.Client(), "12345", testServerAppPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.gitCfg.App = app
+
+	var hits atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(remote.Close)
+	if err := srv.gitBE.linkPersonal(context.Background(), "kvaps", remote.URL+"/kvaps/personal.git"); err != nil {
+		t.Fatal(err)
+	}
+	doAs(t, srv, "kvaps", "GET", "/api/v1/board", "") // the failed attach, remembered
+
+	var info struct {
+		Domain    string `json:"domain"`
+		Problem   string `json:"problem"`
+		ActionURL string `json:"actionUrl"`
+	}
+	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/me/personal", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me/personal: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.Problem == "" || info.ActionURL != "https://github.com/apps/aenix-aeman/installations/new" {
+		t.Fatalf("me/personal must carry the trouble and the action: %s", rec.Body.String())
+	}
+
+	rec = doAs(t, srv, "kvaps", "GET", "/api/v1/board", "")
+	var meta struct {
+		Metadata struct {
+			Personal *struct {
+				Problem   string `json:"problem"`
+				ActionURL string `json:"actionUrl"`
+			} `json:"personal"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Metadata.Personal == nil || meta.Metadata.Personal.Problem == "" || meta.Metadata.Personal.ActionURL == "" {
+		t.Fatalf("the board metadata must carry the trouble: %s", rec.Body.String())
+	}
+
+	// The failure is remembered: more requests do not retry the clone.
+	tried := hits.Load()
+	doAs(t, srv, "kvaps", "GET", "/api/v1/board", "")
+	if hits.Load() != tried {
+		t.Fatal("a remembered failure went back to the forge anyway")
+	}
+
+	// GitHub sends the person to /auth/setup after they install the app:
+	// the memory is dropped and the attach genuinely retried.
+	rec = doAs(t, srv, "kvaps", "GET", "/auth/setup?setup_action=install", "")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("setup: %d, want a redirect home", rec.Code)
+	}
+	if hits.Load() == tried {
+		t.Fatal("the setup callback must retry the attach")
+	}
 }

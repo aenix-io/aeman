@@ -74,8 +74,14 @@ type gitSync struct {
 	// dataDir and repoOpts are what a personal domain's clone is made with.
 	dataDir  string
 	repoOpts gitstore.Options
-	// pmu serialises attaching and detaching personal domains.
+	// pmu serialises attaching and detaching personal domains, and guards
+	// pfail.
 	pmu sync.Mutex
+	// pfail remembers why a login's personal domain could not be attached,
+	// so a repository the server cannot reach is not tried again on every
+	// single request — a failing clone inside the request path is seconds
+	// of waiting, per request, for as long as the trouble lasts.
+	pfail map[string]personalFailure
 
 	// applyMu serializes the queue's commits with the sync's resets and
 	// replays: a group in flight finishes its commit before a rebase moves
