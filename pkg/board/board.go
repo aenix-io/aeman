@@ -545,7 +545,10 @@ func declaredMirrors(b Board, c Card) []Placement {
 	if len(c.Mirrors) == 0 {
 		return c.Mirrors
 	}
-	kept := c.Mirrors[:0]
+	// A fresh slice on purpose: filtering into c.Mirrors[:0] would write
+	// through to the caller's backing array, and NewBoard does not own
+	// the cards it is handed.
+	kept := make([]Placement, 0, len(c.Mirrors))
 	for _, m := range c.Mirrors {
 		if _, ok := FindEpic(b, m.Project, m.Epic); !ok {
 			continue

@@ -111,3 +111,24 @@ func TestNewBoardDropsMirrorsTheRosterDisowns(t *testing.T) {
 		t.Fatalf("a no-project home names no repository — its mirrors are disowned: %+v", c2.Mirrors)
 	}
 }
+
+// NewBoard does not own the cards it is handed: the assembly filter must
+// build a fresh slice, not compact into the caller's backing array.
+func TestTheAssemblyFilterLeavesTheCallersSliceAlone(t *testing.T) {
+	mirrors := []Placement{
+		{Project: "strategy", Epic: "Fundraising"}, // dropped: another repository
+		{Project: "freedom", Epic: "Launch"},       // kept
+	}
+	NewBoard([]Card{
+		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
+		{ItemID: "pr-f", Title: ProjectStateTitle, Project: "freedom"},
+		{ItemID: "pr-s", Title: ProjectStateTitle, Project: "strategy", Domain: "founders"},
+		{ItemID: "ep-launch", Title: EpicStateTitle, Epic: "Launch", Project: "freedom"},
+		{ItemID: "ep-fund", Title: EpicStateTitle, Epic: "Fundraising", Project: "strategy", Domain: "founders"},
+		{ItemID: "c1", Title: "hand-edited", Project: "engineering", Epic: "Cozystack",
+			Mirrors: mirrors},
+	})
+	if mirrors[0] != (Placement{Project: "strategy", Epic: "Fundraising"}) {
+		t.Fatalf("the caller's slice must survive assembly untouched: %+v", mirrors)
+	}
+}
