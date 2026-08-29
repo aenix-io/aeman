@@ -9,7 +9,11 @@ import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
-import { removeFromProjectOutcome, slotDragPlan } from "../placements";
+import {
+  removeFromProjectOutcome,
+  slotDragPlan,
+  slotDropMirrors,
+} from "../placements";
 import { deleteWarning } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
@@ -813,6 +817,9 @@ export function ProjectBoard({
           ...dates,
           epic: target.epic,
           project: target.project,
+          // The server drops a mirror the home lands on; so does the patch,
+          // or the grid draws the slot twice until the reload.
+          mirrors: slotDropMirrors(card, grabbed, target, plan.kind),
         });
         void provider
           .patchCard(card.itemId, {
@@ -831,13 +838,9 @@ export function ProjectBoard({
         // mirror is added before the old one goes, so a failure half-way
         // never leaves the card short a placement; a drop onto the home
         // simply folds the mirror away.
-        const kept = (card.mirrors ?? []).filter(
-          (m) => !(m.project === grabbed.project && m.epic === grabbed.epic),
-        );
         patchCard(card.itemId, {
           ...(weekChanged ? dates : {}),
-          mirrors:
-            plan.kind === "moveMirror" ? [...kept, target] : kept,
+          mirrors: slotDropMirrors(card, grabbed, target, plan.kind),
         });
         const steps =
           plan.kind === "moveMirror"
@@ -1130,8 +1133,11 @@ export function ProjectBoard({
   const removeFromColumn = (card: CardModel, project: string, epic: string) => {
     const outcome = removeFromProjectOutcome(card, project, epic);
     if (outcome === "delete") {
+      // The server cascades to the linked review card: the question names
+      // everything that goes, or the person agrees to less than happens.
+      const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
       const warning =
-        deleteWarning(card, null) ?? `Delete "${card.title}"?`;
+        deleteWarning(card, linkedReview?.title ?? null) ?? `Delete "${card.title}"?`;
       if (!window.confirm(warning)) {
         return;
       }

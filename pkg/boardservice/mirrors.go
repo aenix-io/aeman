@@ -99,6 +99,14 @@ func (s *Service) Unmirror(ctx context.Context, boardID string, itemID, project,
 //     moved it); an untouched card is deleted outright. The UI asks first
 //     when work would go (deleteWarning).
 func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, epic string) error {
+	// A column is the PAIR, and an empty pair is no column: without this, a
+	// card standing in no column "matched" ("", "") and fell through to the
+	// last-column branch — deleted outright by the very call that asked to
+	// remove it from nowhere. The HTTP layer refuses empty halves too, but
+	// this package is a public contract and the MCP tool feeds it directly.
+	if project == "" || epic == "" {
+		return fmt.Errorf("%w: a column is the (project, epic) pair — both halves are required", ErrNotInProject)
+	}
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err

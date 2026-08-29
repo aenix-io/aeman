@@ -257,3 +257,34 @@ export function slotDragPlan(
     target.project === (card.project ?? "") && target.epic === (card.epic ?? "");
   return targetHome ? { kind: "collapseMirror" } : { kind: "moveMirror" };
 }
+
+/** slotDropMirrors is the card's mirror list after a drag lands — the same
+ *  list the server converges on, so the grid never draws one slot twice in
+ *  a column while the round trip runs: moving a mirror onto a column the
+ *  card already mirrors folds them together (the server no-ops the add and
+ *  removes the grabbed one); re-filing the home onto a mirror drops the
+ *  now-duplicate mirror (the server's invariant does the same). */
+export function slotDropMirrors(
+  card: Pick<Card, "mirrors">,
+  grabbed: { project: string; epic: string },
+  target: { project: string; epic: string },
+  kind: SlotDrag["kind"],
+): { project: string; epic: string }[] {
+  const mirrors = card.mirrors ?? [];
+  const without = (list: typeof mirrors, p: { project: string; epic: string }) =>
+    list.filter((m) => !(m.project === p.project && m.epic === p.epic));
+  switch (kind) {
+    case "dates":
+      return mirrors;
+    case "refileHome":
+      // The home lands where a mirror may already stand: that mirror is a
+      // duplicate now, and the server drops it.
+      return without(mirrors, target);
+    case "collapseMirror":
+      return without(mirrors, grabbed);
+    case "moveMirror": {
+      const kept = without(mirrors, grabbed);
+      return without(kept, target).concat([target]);
+    }
+  }
+}

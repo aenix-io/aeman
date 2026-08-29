@@ -193,6 +193,26 @@ func TestRemoveFromProjectRefusesAColumnTheCardIsNotIn(t *testing.T) {
 	}
 }
 
+// An empty pair is no column. A card standing in no column has an empty
+// home, which "matched" ("", "") and fell through to the last-column branch
+// — the call that asked to remove a card from nowhere deleted it outright.
+// The MCP tool feeds this service without validating, and an agent calling
+// remove_from_project with empty halves on a column-less card is the most
+// expectable mistake there is.
+func TestRemoveFromProjectRefusesTheEmptyPair(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "no column", Team: "platform"},
+	})
+	svc := New(f)
+	if err := svc.RemoveFromProject(ctx, "acme", "c1", "", ""); !errors.Is(err, ErrNotInProject) {
+		t.Fatalf("the empty pair must be refused: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := findCard(b, "c1"); !ok {
+		t.Fatal("the refused call must not have deleted the card")
+	}
+}
+
 // Renames follow the mirrors. The rename loops match cards through InEpic,
 // which now sees mirrors — rewriting the card's HOME fields for a mirror
 // match would corrupt it, and not rewriting the mirror would strand it

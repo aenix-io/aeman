@@ -7,6 +7,7 @@ import {
   placementTargets,
   removeFromProjectOutcome,
   slotDragPlan,
+  slotDropMirrors,
 } from "./placements";
 import type { Card } from "./providers/types";
 
@@ -150,5 +151,37 @@ describe("slotDragPlan", () => {
 
   it("dropping a mirror onto the home collapses it into the home", () => {
     expect(slotDragPlan(card, mirror, home)).toEqual({ kind: "collapseMirror" });
+  });
+});
+
+// The optimistic mirror list is the one the server converges on — a drag
+// must never draw one slot twice in a column while the round trip runs.
+describe("slotDropMirrors", () => {
+  const grabbed = { project: "freedom", epic: "Launch" };
+
+  it("folds a mirror dragged onto a column the card already mirrors", () => {
+    const card = {
+      mirrors: [grabbed, { project: "freedom", epic: "Ship" }],
+    } as Card;
+    expect(
+      slotDropMirrors(card, grabbed, { project: "freedom", epic: "Ship" }, "moveMirror"),
+    ).toEqual([{ project: "freedom", epic: "Ship" }]);
+  });
+
+  it("drops the mirror the re-filed home lands on", () => {
+    const card = { mirrors: [grabbed] } as Card;
+    expect(
+      slotDropMirrors(card, { project: "engineering", epic: "Cozystack" }, grabbed, "refileHome"),
+    ).toEqual([]);
+  });
+
+  it("moves and collapses as the plain cases say", () => {
+    const card = { mirrors: [grabbed] } as Card;
+    expect(
+      slotDropMirrors(card, grabbed, { project: "freedom", epic: "Ship" }, "moveMirror"),
+    ).toEqual([{ project: "freedom", epic: "Ship" }]);
+    expect(
+      slotDropMirrors(card, grabbed, { project: "engineering", epic: "Cozystack" }, "collapseMirror"),
+    ).toEqual([]);
   });
 });
