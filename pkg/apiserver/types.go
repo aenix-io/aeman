@@ -259,6 +259,12 @@ type DomainInfo struct {
 type PersonalInfo struct {
 	Domain string `json:"domain"`
 	URL    string `json:"url"`
+	// Problem says why the linked repository is not attached — the server
+	// cannot reach it — and ActionURL is what fixes it (installing the
+	// board's GitHub App on the repository). Both empty when the board is
+	// attached and well.
+	Problem   string `json:"problem,omitempty"`
+	ActionURL string `json:"actionUrl,omitempty"`
 }
 
 // EpicRef is one Project-board column: its name and the project that owns it.

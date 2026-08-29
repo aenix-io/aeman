@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { ApiError } from "../providers/api/apiProvider";
+
 interface PersonalDialogProps {
   onClose: () => void;
   /** Link the repository; rejects with the server's message (no push access,
@@ -12,6 +14,11 @@ interface PersonalDialogProps {
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
+/** errAction is the page that fixes the refusal, when the server named one
+ *  (installing the board's GitHub App on the repository). */
+const errAction = (err: unknown) =>
+  err instanceof ApiError ? (err.actionUrl ?? null) : null;
+
 /** PersonalDialog asks for the repository to link as the visitor's personal
  *  board: one URL, one button. It stays open on failure with the server's
  *  reason under the field, and closes itself once the link is made. */
@@ -19,6 +26,7 @@ export function PersonalDialog({ onClose, onLink, repoPlaceholder }: PersonalDia
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [action, setAction] = useState<string | null>(null);
 
   const submit = () => {
     const u = url.trim();
@@ -27,10 +35,12 @@ export function PersonalDialog({ onClose, onLink, repoPlaceholder }: PersonalDia
     }
     setBusy(true);
     setError(null);
+    setAction(null);
     onLink(u)
       .then(onClose)
       .catch((err: unknown) => {
         setError(errMessage(err));
+        setAction(errAction(err));
         setBusy(false);
       });
   };
@@ -85,6 +95,22 @@ export function PersonalDialog({ onClose, onLink, repoPlaceholder }: PersonalDia
             <p className="personal-error" role="alert">
               {error}
             </p>
+          )}
+          {action && (
+            <div className="personal-action">
+              <a
+                className="btn btn-primary"
+                href={action}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Install the GitHub App
+              </a>
+              <p className="personal-hint">
+                Pick your account, select this repository, install — then press
+                Link again.
+              </p>
+            </div>
           )}
         </div>
 

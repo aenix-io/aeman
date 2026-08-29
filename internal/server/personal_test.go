@@ -2,15 +2,22 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-git/go-git/v5/storage/memory"
 
+	forgepkg "github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
@@ -370,4 +377,271 @@ func TestPersonalBoardRelinkSwitchesRepositories(t *testing.T) {
 	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/me/personal", ""); !strings.Contains(rec.Body.String(), second.URL) {
 		t.Fatalf("link = %s", rec.Body.String())
 	}
+}
+
+// noPushAccess refuses every push check — the forge's answer for a
+// repository a token cannot reach.
+type noPushAccess struct{ fakeAccess }
+
+func (noPushAccess) canPush(context.Context, string, string) (bool, error) { return false, nil }
+
+// When people sign in through a GitHub App, their token reaches only the
+// repositories the app is installed on — so the forge refuses a personal
+// repository the app was never installed on, even though its owner can
+// obviously push to it. "You need push access to your personal repository"
+// would be a lie there, and one nobody can act on: the refusal names the
+// real cause and the link that fixes it.
+func TestLinkingAPersonalBoardExplainsAMissingInstallation(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, shared)
+	srv.access = noPushAccess{fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}}
+
+	appSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"slug":"aenix-aeman","html_url":"https://github.com/apps/aenix-aeman"}`))
+	}))
+	t.Cleanup(appSrv.Close)
+	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, appSrv.Client(), "12345", testServerAppPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.gitCfg.App = app
+
+	// A token a GitHub App minted for this person.
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "ghu_visitor", "kvaps", nil }
+	rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"https://github.com/kvaps/aeman-personal-db.git"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("link refused with %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "https://github.com/apps/aenix-aeman/installations/new") {
+		t.Fatalf("the refusal must carry the install link: %s", rec.Body.String())
+	}
+	// And as a field of its own: a URL buried in prose is not a button.
+	var refusal struct {
+		ActionURL string `json:"actionUrl"`
+	}
+	if json.Unmarshal(rec.Body.Bytes(), &refusal) != nil || refusal.ActionURL != "https://github.com/apps/aenix-aeman/installations/new" {
+		t.Fatalf("the refusal must carry actionUrl for the UI's button: %s", rec.Body.String())
+	}
+
+	// Signed in through a plain OAuth App instead, the token reaches every
+	// repository its owner can: a refusal there really is about access, and
+	// must not send anyone off to install anything.
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "gho_visitor", "kvaps", nil }
+	rec = doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"https://github.com/kvaps/aeman-personal-db.git"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("oauth-app link: %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "installations/new") {
+		t.Fatalf("an OAuth App token needs no installation: %s", rec.Body.String())
+	}
+}
+
+// testServerAppPEM is a throwaway RSA key in the shape GitHub hands out.
+func testServerAppPEM(t *testing.T) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+}
+
+// A personal repository the server cannot reach — the board's GitHub App was
+// never installed on it — is the shape of trouble a person meets on a real
+// deployment. Two things must not happen: the failure must not be retried
+// against the forge on every single request (a failing clone inside the
+// request path cost twelve seconds on a live board), and the person must not
+// be told "forbidden: no write access to the card's domain" about a
+// repository they own, with the real reason left in the server's log.
+func TestAPersonalRepositoryTheServerCannotReachIsExplainedOnce(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, shared)
+
+	// A remote that refuses every git request, and counts the attempts.
+	var hits atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(remote.Close)
+	if err := srv.gitBE.linkPersonal(context.Background(), "kvaps", remote.URL+"/kvaps/personal.git"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first request tries, and fails.
+	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/board", ""); rec.Code != http.StatusOK {
+		t.Fatalf("board: %d %s", rec.Code, rec.Body.String())
+	}
+	tried := hits.Load()
+	if tried == 0 {
+		t.Fatal("the personal repository was never tried at all")
+	}
+
+	// The next requests do not go back to the forge for the same failure:
+	// a broken personal link must not cost a round trip per request.
+	for i := 0; i < 5; i++ {
+		doAs(t, srv, "kvaps", "GET", "/api/v1/board", "")
+	}
+	if again := hits.Load(); again != tried {
+		t.Fatalf("%d attempts after five more requests, want the first %d — the failure is retried per request", again, tried)
+	}
+
+	// And the person is told what is actually wrong, where they meet it.
+	rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards", `{"title":"mine","personal":true,"zone":"planned"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("personal create: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "no write access to the card's domain") {
+		t.Fatalf("the generic refusal hides the cause: %s", body)
+	}
+	if !strings.Contains(body, "personal") || !strings.Contains(body, "could not be") {
+		t.Fatalf("the refusal must name the personal repository as the trouble: %s", body)
+	}
+}
+
+// A linked personal board that would not attach is a state the UI must be
+// able to draw — a banner with the reason and a button — not an error the
+// person meets only when they try to write. GET /me/personal and the board
+// metadata carry the problem and the action URL; GitHub's post-install
+// redirect (the app's Setup URL, <base>/auth/setup) forgets the remembered
+// failure and tries again at once, so installing the app fixes the board
+// without anyone finding a retry button.
+func TestABrokenPersonalAttachIsServedAsStateAndRetriedBySetup(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, shared)
+
+	appSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"slug":"aenix-aeman","html_url":"https://github.com/apps/aenix-aeman"}`))
+	}))
+	t.Cleanup(appSrv.Close)
+	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, appSrv.Client(), "12345", testServerAppPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.gitCfg.App = app
+
+	var hits atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(remote.Close)
+	if err := srv.gitBE.linkPersonal(context.Background(), "kvaps", remote.URL+"/kvaps/personal.git"); err != nil {
+		t.Fatal(err)
+	}
+	doAs(t, srv, "kvaps", "GET", "/api/v1/board", "") // the failed attach, remembered
+
+	var info struct {
+		Domain    string `json:"domain"`
+		Problem   string `json:"problem"`
+		ActionURL string `json:"actionUrl"`
+	}
+	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/me/personal", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me/personal: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.Problem == "" || info.ActionURL != "https://github.com/apps/aenix-aeman/installations/new" {
+		t.Fatalf("me/personal must carry the trouble and the action: %s", rec.Body.String())
+	}
+
+	rec = doAs(t, srv, "kvaps", "GET", "/api/v1/board", "")
+	var meta struct {
+		Metadata struct {
+			Personal *struct {
+				Problem   string `json:"problem"`
+				ActionURL string `json:"actionUrl"`
+			} `json:"personal"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Metadata.Personal == nil || meta.Metadata.Personal.Problem == "" || meta.Metadata.Personal.ActionURL == "" {
+		t.Fatalf("the board metadata must carry the trouble: %s", rec.Body.String())
+	}
+
+	// The failure is remembered: more requests do not retry the clone.
+	tried := hits.Load()
+	doAs(t, srv, "kvaps", "GET", "/api/v1/board", "")
+	if hits.Load() != tried {
+		t.Fatal("a remembered failure went back to the forge anyway")
+	}
+
+	// GitHub sends the person to /auth/setup after they install the app:
+	// the memory is dropped and the attach genuinely retried.
+	rec = doAs(t, srv, "kvaps", "GET", "/auth/setup?setup_action=install", "")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("setup: %d, want a redirect home", rec.Code)
+	}
+	if hits.Load() == tried {
+		t.Fatal("the setup callback must retry the attach")
+	}
+}
+
+// The REST permissions probe does not answer for a GitHub App's user token
+// the way it does for an OAuth token — live, it refused a repository the
+// very same token had just cloned. Whether a token can push is the git
+// transport's question, so for a ghu_ token the transport is asked when
+// REST says no: GET /info/refs?service=git-receive-pack, 200 meaning push.
+func TestLinkingFallsBackToTheGitTransportForAnAppUserToken(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+
+	// The forge: REST answers the repository without a usable permissions
+	// block; the git transport accepts the token for receive-pack.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/kvaps/personal", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id": 1}`)) // no permissions block at all
+	})
+	gitHits := 0
+	mux.HandleFunc("/kvaps/personal.git/info/refs", func(w http.ResponseWriter, r *http.Request) {
+		gitHits++
+		if _, pass, _ := r.BasicAuth(); pass != "ghu_visitor" || r.URL.Query().Get("service") != "git-receive-pack" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	forgeSrv := httptest.NewServer(mux)
+	t.Cleanup(forgeSrv.Close)
+
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, shared)
+	fa := newForgeAccess(forgepkg.NewGitHubAt(forgeSrv.URL), forgeSrv.Client(),
+		[]RepoSpec{{Name: "shared", URL: shared.URL}}, "srv", nil)
+	// rights still come from the fake; only canPush goes through the forge.
+	srv.access = pushThrough{fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, fa}
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "ghu_visitor", "kvaps", nil }
+
+	rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+forgeSrv.URL+`/kvaps/personal.git"}`)
+	// The link is admitted (the attach that follows may fail on the fake
+	// remote — that part has its own tests); what must NOT happen is the
+	// "you need push access" refusal for a token the transport accepts.
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("the transport accepts this token; the link must not be refused: %s", rec.Body.String())
+	}
+	if gitHits == 0 {
+		t.Fatal("the git transport was never asked")
+	}
+}
+
+// pushThrough answers rights from the fake and canPush from the real
+// forge-access implementation.
+type pushThrough struct {
+	fakeAccess
+	fa *forgeAccess
+}
+
+func (p pushThrough) canPush(ctx context.Context, token, repoURL string) (bool, error) {
+	return p.fa.canPush(ctx, token, repoURL)
 }

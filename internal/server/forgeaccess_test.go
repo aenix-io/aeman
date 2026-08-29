@@ -2,6 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -260,8 +264,12 @@ func TestForgeAccessReadersByCollaboratorPermission(t *testing.T) {
 	if _, err := fa.readers(context.Background(), "shared", []string{"alice", "bob", "carol", "stranger"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := calls.Load(); n != 1 {
-		t.Fatalf("%d forge calls, want 1 (one listing for everyone, then cached)", n)
+	// One listing for everyone, plus one per-login question about the
+	// stranger the listing did not name (an installation token cannot see
+	// people whose access comes through the organisation, so an unnamed
+	// login is asked about rather than assumed away) — then cached.
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("%d forge calls, want 2 (the listing and the unnamed login)", n)
 	}
 	if _, err := fa.readers(context.Background(), "nope", []string{"alice"}); err == nil {
 		t.Fatal("an unknown domain must be an error")
@@ -303,4 +311,55 @@ func (c *fakeClock) wind(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.at = c.at.Add(d)
+}
+
+// In App mode the server holds no PAT at all: who may read a domain is
+// asked with an installation token the app mints for that repository. The
+// fake serves both sides — the App endpoints (installation lookup, token
+// mint) and the collaborator listing, which must arrive bearing the minted
+// token, not the app JWT and not nothing.
+func TestReadersAreAskedWithTheAppInstallationToken(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/shared/installation", func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ey") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"id": 7}`))
+	})
+	mux.HandleFunc("POST /app/installations/7/access_tokens", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"token":"ghs_installed","expires_at":"` + time.Now().Add(time.Hour).UTC().Format(time.RFC3339) + `"}`))
+	})
+	mux.HandleFunc("GET /repos/acme/shared/collaborators", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer ghs_installed" {
+			t.Errorf("collaborators asked with %q, want the installation token", r.Header.Get("Authorization"))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"login":"alice","permissions":{"pull":true,"push":true}}]`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	app, err := forgepkg.NewGitHubAppAt(srv.URL, srv.Client(), "12345", pemKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No static server token anywhere: the app is the credential.
+	fa := newForgeAccess(forgepkg.NewGitHubAt(srv.URL), srv.Client(),
+		[]RepoSpec{{Name: "shared", URL: "https://github.com/acme/shared"}}, "", nil)
+	fa.app = app
+	got, err := fa.readers(context.Background(), "shared", []string{"alice", "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "alice" {
+		t.Fatalf("readers = %v, want [alice]", got)
+	}
 }

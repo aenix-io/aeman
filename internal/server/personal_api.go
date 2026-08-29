@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -23,7 +25,12 @@ func (s *Server) personalOf(r *http.Request) (login string, info apiserver.Perso
 	if !linked {
 		return login, apiserver.PersonalInfo{}, false
 	}
-	return login, apiserver.PersonalInfo{Domain: board.PersonalDomain(login), URL: url}, true
+	info = apiserver.PersonalInfo{Domain: board.PersonalDomain(login), URL: url}
+	// A linked board that would not attach is a state the UI draws — the
+	// reason and the page that fixes it — not an error found on the first
+	// write.
+	info.Problem, info.ActionURL = s.personalUnavailable(r.Context(), login)
+	return login, info, true
 }
 
 func (s *Server) handleGetPersonal(w http.ResponseWriter, r *http.Request) {
@@ -73,10 +80,14 @@ func (s *Server) handleLinkPersonal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !write {
-			writeJSONError(w, http.StatusForbidden, "you need push access to your personal repository")
+			msg, action := s.personalRefusal(r.Context(), tok)
+			writeJSONErrorAction(w, http.StatusForbidden, msg, action)
 			return
 		}
 	}
+	// An explicit link is a person saying "try again": whatever went wrong
+	// last time is forgotten, so the attach below really goes to the forge.
+	s.gitBE.forgetPersonalProblem(login)
 	if err := s.gitBE.linkPersonal(r.Context(), login, in.URL); err != nil {
 		writeJSONError(w, http.StatusBadGateway, "record the link: "+err.Error())
 		return
@@ -86,6 +97,76 @@ func (s *Server) handleLinkPersonal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.PersonalInfo{Domain: board.PersonalDomain(login), URL: in.URL})
+}
+
+// personalUnavailable explains why the login's personal board is not there
+// to write to; "" when it is attached, or when nothing was ever linked (a
+// card for a board that does not exist is a different mistake, and the
+// service says so). A GitHub App that was never installed on the repository
+// is the likely cause on an app-signed deployment, so the link comes along.
+func (s *Server) personalUnavailable(ctx context.Context, login string) (msg, actionURL string) {
+	if s.gitBE == nil || s.gitBE.hasPersonal(login) {
+		return "", ""
+	}
+	why := s.gitBE.personalProblem(login)
+	if why == "" {
+		return "", ""
+	}
+	msg = "your personal board could not be attached: " + why
+	if s.gitCfg != nil && s.gitCfg.App != nil {
+		actionURL = s.gitCfg.App.InstallURL(ctx)
+		msg += " — this board's GitHub App must be installed on that repository"
+	}
+	return msg, actionURL
+}
+
+// personalRefusal explains why the forge would not vouch for a personal
+// repository. Signed in through a GitHub App, a person's token reaches only
+// the repositories the app is installed on — so their own repository is
+// refused until they install it there, which "you need push access" would
+// neither say nor let them act on. A token that carries the whole account
+// (an OAuth App's, a classic one) has no such excuse, and is told plainly.
+func (s *Server) personalRefusal(ctx context.Context, token string) (msg, actionURL string) {
+	const base = "you need push access to your personal repository"
+	if !forge.IsUserToServerToken(token) || s.gitCfg == nil || s.gitCfg.App == nil {
+		return base, ""
+	}
+	return base + ", and this board's GitHub App must be installed on it", s.gitCfg.App.InstallURL(ctx)
+}
+
+// handleAppSetup is where GitHub redirects after the board's GitHub App is
+// installed or updated (the app's Setup URL). The remembered attach failure
+// is dropped and the attach retried with the visitor's token; then home. A
+// visitor without a session just goes home — there is nothing to retry for.
+func (s *Server) handleAppSetup(w http.ResponseWriter, r *http.Request) {
+	// A server still waiting for the installation retries the board itself.
+	if _, waiting := s.inSetup(); waiting {
+		s.retrySetup()
+	}
+	if tok, login, err := s.apiTokens(r); err == nil && login != "" && s.gitBE != nil {
+		s.gitBE.forgetPersonalProblem(login)
+		if err := s.gitBE.attachPersonal(r.Context(), login, tok); err != nil {
+			s.log.Warn("personal board after app setup", "login", login, "err", err)
+		}
+	}
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// handleAuthCallback tells GitHub's post-install redirect apart from the
+// sign-in flow. When the app asks for user authorization during install,
+// GitHub lands here — with an installation signature (installation_id,
+// setup_action) and no state of ours — right after someone did the right
+// thing; greeting that with "invalid OAuth state" is wrong twice over. It
+// is the same event as /auth/setup and is handled as one. A callback
+// without the installation signature is the sign-in flow, CSRF check and
+// all.
+func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if q.Get("installation_id") != "" || q.Get("setup_action") != "" {
+		s.handleAppSetup(w, r)
+		return
+	}
+	s.auth.handleCallback(w, r)
 }
 
 // handleUnlinkPersonal removes the link; the repository is left as it is.

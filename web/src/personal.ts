@@ -11,6 +11,11 @@ export interface PersonalBoard {
   domain: string;
   /** The repository URL the visitor linked. */
   url: string;
+  /** Why the repository is not attached — the server cannot reach it; the
+   *  column shows a banner instead of pretending the board is empty. */
+  problem?: string;
+  /** The page that fixes it: installing the board's GitHub App there. */
+  actionUrl?: string;
 }
 
 /** personalRepoName is the short `owner/name` of a git URL — https or ssh,

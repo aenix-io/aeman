@@ -33,7 +33,10 @@ type forgeLinks struct {
 	api    string
 	client *http.Client
 	token  string
-	now    func() time.Time
+	// tokenFn, when set, mints the credential per lookup — the GitHub App
+	// mode, where the server holds no static token at all.
+	tokenFn func(context.Context) string
+	now     func() time.Time
 
 	mu    sync.Mutex
 	cache map[string]cachedLink // by URL
@@ -48,6 +51,15 @@ func newForgeLinks(api string, client *http.Client, token string) *forgeLinks {
 	return &forgeLinks{api: api, client: client, token: token, now: time.Now, cache: map[string]cachedLink{}}
 }
 
+// credential is the token a lookup goes out with: the static one, or the
+// minted one when the server credential is a GitHub App installation.
+func (f *forgeLinks) credential(ctx context.Context) string {
+	if f.tokenFn != nil {
+		return f.tokenFn(ctx)
+	}
+	return f.token
+}
+
 // ResolveIssueRef fills the reference's title and state (open, closed, or
 // merged for a pull request); a link that is not a GitHub reference passes
 // through unchanged. It is boardservice.LinkResolver.
@@ -55,7 +67,7 @@ func (f *forgeLinks) ResolveIssueRef(ctx context.Context, link board.Link) (boar
 	if !link.IsGitHubRef() {
 		return link, nil
 	}
-	if f.token == "" {
+	if f.credential(ctx) == "" {
 		return link, fmt.Errorf("%w: no server credential", errUnresolvedLink)
 	}
 	f.mu.Lock()
@@ -84,7 +96,7 @@ func (f *forgeLinks) fetch(ctx context.Context, link board.Link) (board.Link, er
 	if err != nil {
 		return link, err
 	}
-	req.Header.Set("Authorization", "Bearer "+f.token)
+	req.Header.Set("Authorization", "Bearer "+f.credential(ctx))
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := f.client.Do(req) //nolint:gosec // see above
 	if err != nil {

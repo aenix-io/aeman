@@ -333,17 +333,23 @@ func TestBeingThrottledIsNotTheSameAsHavingNoAccess(t *testing.T) {
 // gate comes back), a token with it simply cannot see that repository.
 func TestATokenWithoutTheRepoScopeIsAStaleAuthorization(t *testing.T) {
 	cases := []struct {
-		name, scopes string
-		status       int
-		hasHeader    bool
-		wantBad      bool
+		name, scopes, token string
+		status              int
+		hasHeader           bool
+		wantBad             bool
 	}{
-		{"minted before the scope was asked for", "project", http.StatusNotFound, true, true},
-		{"no scopes at all", "", http.StatusNotFound, true, true},
-		{"forbidden with the old scopes", "project, read:org", http.StatusForbidden, true, true},
-		{"has the scope, cannot see this repository", "repo, project", http.StatusNotFound, true, false},
-		{"has the scope, forbidden", "repo", http.StatusForbidden, true, false},
-		{"a forge that names no scopes", "", http.StatusNotFound, false, false},
+		{"minted before the scope was asked for", "project", "gho_old", http.StatusNotFound, true, true},
+		{"no scopes at all", "", "gho_old", http.StatusNotFound, true, true},
+		{"forbidden with the old scopes", "project, read:org", "gho_old", http.StatusForbidden, true, true},
+		{"has the scope, cannot see this repository", "repo, project", "gho_ok", http.StatusNotFound, true, false},
+		{"has the scope, forbidden", "repo", "gho_ok", http.StatusForbidden, true, false},
+		{"a forge that names no scopes", "", "gho_ok", http.StatusNotFound, false, false},
+		// A GitHub App's user token has no scopes BY DESIGN — its reach
+		// comes from the installations — and GitHub still sends the header,
+		// empty. Read as a stale sign-in it dropped the session of anyone
+		// who could not see one repository of the board: a sign-in loop.
+		{"an app user token cannot be scope-stale", "", "ghu_app", http.StatusNotFound, true, false},
+		{"an app user token, forbidden", "", "ghu_app", http.StatusForbidden, true, false},
 	}
 	for _, tc := range cases {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -352,7 +358,7 @@ func TestATokenWithoutTheRepoScopeIsAStaleAuthorization(t *testing.T) {
 			}
 			w.WriteHeader(tc.status)
 		}))
-		read, write, err := NewGitHubAt(srv.URL).Access(context.Background(), srv.Client(), "tok", "https://github.com/acme/repo.git")
+		read, write, err := NewGitHubAt(srv.URL).Access(context.Background(), srv.Client(), tc.token, "https://github.com/acme/repo.git")
 		switch {
 		case tc.wantBad && !errors.Is(err, ErrBadToken):
 			t.Errorf("%s: err = %v, want ErrBadToken", tc.name, err)
@@ -517,8 +523,11 @@ func TestGitHubReadersAreOneListingNotAQuestionPerPerson(t *testing.T) {
 	if got["alice"].AvatarURL == "" {
 		t.Fatal("a reader must carry an avatar for the picker")
 	}
-	if n := perLogin.Load(); n != 0 {
-		t.Fatalf("%d per-person questions; the listing answers them all", n)
+	// Everyone the listing names is answered by it; the stranger it does
+	// not name costs the one per-login question (he may be an org member
+	// the credential's listing cannot see).
+	if n := perLogin.Load(); n != 1 {
+		t.Fatalf("%d per-person questions, want 1 — only the unnamed login", n)
 	}
 	if n := listing.Load(); n != 2 {
 		t.Fatalf("%d listing requests, want 2 (the second page follows the Link header)", n)
@@ -541,5 +550,51 @@ func TestGitHubReadersFallBackToOneQuestionPerPersonWhenTheListingIsRefused(t *t
 	}
 	if n := perLogin.Load(); n != 4 {
 		t.Fatalf("%d per-person questions, want one per asked login", n)
+	}
+}
+
+// An installation token's collaborator listing omits the people whose
+// access comes through the organisation (that needs the app's Members
+// permission) — while the per-login question answers for them. A login the
+// listing does not name is therefore asked about one by one, so a board's
+// admins do not quietly vanish from the pickers when the server credential
+// is a GitHub App without the extra permission. With a full listing (a
+// PAT) nobody is missing and no extra question is asked.
+func TestReadersAskOneByOneAboutWhoTheListingCannotSee(t *testing.T) {
+	var listing, perLogin atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/acme/aeman-db/collaborators", func(w http.ResponseWriter, _ *http.Request) {
+		listing.Add(1)
+		// Only the direct collaborator; the org admin is invisible here.
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"login": "direct", "permissions": map[string]bool{"pull": true}},
+		})
+	})
+	mux.HandleFunc("/repos/acme/aeman-db/collaborators/", func(w http.ResponseWriter, r *http.Request) {
+		perLogin.Add(1)
+		login := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/repos/acme/aeman-db/collaborators/"), "/permission")
+		switch login {
+		case "orgadmin":
+			_ = json.NewEncoder(w).Encode(map[string]any{"permission": "admin"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	gh := NewGitHubAt(srv.URL)
+	got, err := gh.Readers(context.Background(), srv.Client(), "server-token",
+		"https://github.com/acme/aeman-db.git", []string{"direct", "orgadmin", "stranger"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["direct"].Login != "direct" || got["orgadmin"].Login != "orgadmin" {
+		t.Fatalf("readers = %+v; want direct and orgadmin", got)
+	}
+	if n := listing.Load(); n != 1 {
+		t.Fatalf("%d listings, want 1", n)
+	}
+	if n := perLogin.Load(); n != 2 {
+		t.Fatalf("%d per-login questions, want 2 — only for the logins the listing did not name", n)
 	}
 }

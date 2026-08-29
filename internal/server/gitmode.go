@@ -54,6 +54,11 @@ type GitConfig struct {
 	// repositories that name none of their own; empty means an
 	// unauthenticated transport (local file remotes, tests).
 	Token string
+	// App mints the server credential per repository from a GitHub App
+	// installation instead of a static token: nothing to issue by hand,
+	// nothing that quietly expires in a .env file. A repository that names
+	// its own Token keeps it; the App covers the rest. GitHub only.
+	App *forge.GitHubApp
 	// Forge is the code host the repositories live on: it says how the
 	// token travels over HTTPS (the basic-auth username differs per forge).
 	// GitHub when nil.
@@ -178,6 +183,20 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 		remote := gitstore.Remote{URL: spec.URL}
 		if tok := spec.token(cfg.Token); tok != "" {
 			remote.Auth = f.GitAuth(tok)
+		} else if cfg.App != nil {
+			// Mint once before the clone: a repository the app is not
+			// installed on must fail as itself (AppNotInstalledError — the
+			// one startup trouble a page with a button fixes), not as a
+			// bare 401 from the git transport.
+			mintCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_, err := cfg.App.Token(mintCtx, spec.URL)
+			cancel()
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", spec.Name, err)
+			}
+			// The installation token is asked for on every request, so one
+			// renewed between two pushes is picked up without re-wiring.
+			remote.Auth = cfg.App.GitAuthFor(spec.URL)
 		}
 		repo, err := cloneOrOpen(dir, remote, opts, spec.URL)
 		if err != nil {
@@ -218,12 +237,23 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 			return nil, err
 		}
 	}
+	links := newForgeLinks(githubAPIBase, &http.Client{Timeout: 10 * time.Second}, linksToken)
+	if linksToken == "" && cfg.App != nil && f.Kind() == forge.GitHub && len(cfg.Repos) > 0 {
+		app, primary := cfg.App, cfg.Repos[0].URL
+		links.tokenFn = func(ctx context.Context) string {
+			tok, err := app.Token(ctx, primary)
+			if err != nil {
+				log.Warn("app token for links", "err", err)
+			}
+			return tok
+		}
+	}
 	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval,
 		MaintainEvery: 24 * time.Hour, HistoryMax: cfg.HistoryMax, Logger: log,
 		DataDir: cfg.DataDir, RepoOpts: opts, Forge: f,
 		// Issue/PR titles in card descriptions are read with the push
 		// credential — the store has no per-visitor token any more.
-		Links: newForgeLinks(githubAPIBase, &http.Client{Timeout: 10 * time.Second}, linksToken)}), nil
+		Links: links}), nil
 }
 
 // rosterCollision is the start-up refusal for a name two domains declare:

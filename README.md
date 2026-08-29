@@ -104,7 +104,8 @@ For a shared instance where every visitor signs in with GitHub or GitLab — the
 - `AEMAN_GITLAB_CLIENT_ID` / `AEMAN_GITLAB_CLIENT_SECRET` — from a GitLab application (`AEMAN_GITLAB_URL` for a self-hosted GitLab). Exactly one pair.
 - `AEMAN_BASE_URL` — the public origin; the callback registered at the forge is `<AEMAN_BASE_URL>/auth/callback`.
 - `AEMAN_GIT_TOKEN` — the server's own credential for the board repositories; required in this mode.
-- `AEMAN_SCOPES` — OAuth scopes (default `repo project` on GitHub, `read_user read_api write_repository` on GitLab).
+- `AEMAN_SCOPES` — OAuth scopes (default `repo` on GitHub, `read_user read_api write_repository` on GitLab; a GitHub App ignores it).
+- `AEMAN_GITHUB_APP_ID`, `AEMAN_GITHUB_APP_KEY` (PEM or its base64) / `AEMAN_GITHUB_APP_KEY_FILE` — a GitHub App as the server credential: installation tokens minted and renewed instead of a PAT ([deploy.md](docs/deploy.md)).
 
 A `docker-compose.yml` (aeman + Caddy with automatic HTTPS) and a step-by-step guide are in [docs/deploy.md](docs/deploy.md):
 

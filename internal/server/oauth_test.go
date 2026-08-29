@@ -799,3 +799,36 @@ func TestNewestSessionFor(t *testing.T) {
 		t.Fatal("a login with no sessions must not resolve")
 	}
 }
+
+// The sign-in URL asks for scopes only when scopes are a thing: a GitHub
+// App has none — its permissions come from the installation — and a scope
+// parameter it ignores would still be there for everyone to read as the
+// access being asked for. An OAuth App keeps its scope, without which a
+// private board repository is invisible to the token it hands out.
+func TestTheSignInAsksForScopesOnlyWhenTheyMeanSomething(t *testing.T) {
+	authorizeQuery := func(clientID string) url.Values {
+		a := newAuthManager(OAuthConfig{
+			ClientID: clientID, ClientSecret: "s", BaseURL: "https://board.example",
+		}, forge.NewGitHub(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		rec := httptest.NewRecorder()
+		a.handleLogin(rec, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+		loc, err := url.Parse(rec.Header().Get("Location"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loc.Query()
+	}
+
+	app := authorizeQuery("Iv23liv4QqkWNgvkfxtZ")
+	if _, asked := app["scope"]; asked {
+		t.Fatalf("a GitHub App must ask for no scope: %v", app)
+	}
+	if app.Get("client_id") == "" || app.Get("state") == "" || app.Get("response_type") != "code" {
+		t.Fatalf("the rest of the request must stand: %v", app)
+	}
+
+	oauth := authorizeQuery("0123456789abcdef0123")
+	if oauth.Get("scope") != "repo" {
+		t.Fatalf("an OAuth App still needs its scope: %v", oauth)
+	}
+}

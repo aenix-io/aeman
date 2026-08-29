@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -184,7 +185,44 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 	}
 	cfg.AuthorEmail = g.pick(g.authorEmail, "AEMAN_AUTHOR_EMAIL", "")
 	cfg.DataDir = g.pick(g.data, "AEMAN_DATA", defaultDataDir())
+	if cfg.App, err = g.githubApp(cfg.Forge); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// githubApp builds the GitHub App credential when AEMAN_GITHUB_APP_ID is
+// set: the private key comes inline (PEM, or base64 of it — a .env file
+// cannot hold a multiline value) or from a file. The App replaces the
+// static token; a repository that names its own token keeps it.
+func (g *gitFlags) githubApp(f forge.Forge) (*forge.GitHubApp, error) {
+	id := strings.TrimSpace(g.env("AEMAN_GITHUB_APP_ID"))
+	if id == "" {
+		return nil, nil //nolint:nilnil // no app configured is not an error
+	}
+	if f.Kind() != forge.GitHub {
+		return nil, fmt.Errorf("AEMAN_GITHUB_APP_ID is set, but the board lives on %s — the GitHub App credential works on GitHub only", f.Label())
+	}
+	raw := strings.TrimSpace(g.env("AEMAN_GITHUB_APP_KEY"))
+	if raw != "" && !strings.Contains(raw, "BEGIN") {
+		decoded, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			return nil, fmt.Errorf("AEMAN_GITHUB_APP_KEY is neither PEM nor base64 of it: %w", err)
+		}
+		raw = string(decoded)
+	}
+	if raw == "" {
+		path := strings.TrimSpace(g.env("AEMAN_GITHUB_APP_KEY_FILE"))
+		if path == "" {
+			return nil, errors.New("AEMAN_GITHUB_APP_ID needs the app's private key: AEMAN_GITHUB_APP_KEY (PEM or its base64) or AEMAN_GITHUB_APP_KEY_FILE")
+		}
+		data, err := os.ReadFile(path) //nolint:gosec // the operator's own key path
+		if err != nil {
+			return nil, fmt.Errorf("AEMAN_GITHUB_APP_KEY_FILE: %w", err)
+		}
+		raw = string(data)
+	}
+	return forge.NewGitHubApp(id, []byte(raw))
 }
 
 // fillGitToken supplies the push/fetch credential when AEMAN_GIT_TOKEN is
@@ -196,7 +234,9 @@ func fillGitToken(ctx context.Context, cfg *server.GitConfig) {
 	if cfg == nil {
 		return
 	}
-	if cfg.Token == "" && !allDomainsHaveTokens(cfg) {
+	// With a GitHub App the server credential is minted, not found: the
+	// forge CLI's token is not asked for.
+	if cfg.Token == "" && cfg.App == nil && !allDomainsHaveTokens(cfg) {
 		if tok, err := resolveForgeToken(ctx, cfg.Forge, cliFor(cfg.Forge, cfg.Repos[0].URL), osEnv); err == nil {
 			cfg.Token = tok
 		}

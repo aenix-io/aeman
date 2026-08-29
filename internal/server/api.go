@@ -482,6 +482,18 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// A personal card needs the personal domain, and a domain that would not
+	// attach is refused deeper down as "no write access to the card's
+	// domain" — about a repository its owner plainly owns, with the real
+	// reason left in the server's log. Say it here instead.
+	if in.Personal {
+		if _, login, err := s.apiTokens(r); err == nil && login != "" {
+			if why, action := s.personalUnavailable(r.Context(), login); why != "" {
+				writeJSONErrorAction(w, http.StatusForbidden, why, action)
+				return
+			}
+		}
+	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return

@@ -2079,6 +2079,21 @@ export function MeBoard({
                   {personalRepoName(board.personal.url)}
                 </span>
               </div>
+              {board.personal.problem && (
+                <div className="me-personal-trouble" role="alert">
+                  <p>{board.personal.problem}</p>
+                  {board.personal.actionUrl && (
+                    <a
+                      className="btn btn-primary"
+                      href={board.personal.actionUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Install the GitHub App
+                    </a>
+                  )}
+                </div>
+              )}
               <div className="me-personal-zones">
                 <SortableBoard<MeMeta>
                   groups={personalGroups}

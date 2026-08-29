@@ -85,7 +85,12 @@ export function boardMetadata(
     teamDomains: info.metadata.teamDomains ?? undefined,
     projectDomains: info.metadata.projectDomains ?? undefined,
     personal: info.metadata.personal
-      ? { domain: info.metadata.personal.domain, url: info.metadata.personal.url }
+      ? {
+          domain: info.metadata.personal.domain,
+          url: info.metadata.personal.url,
+          problem: info.metadata.personal.problem || undefined,
+          actionUrl: info.metadata.personal.actionUrl || undefined,
+        }
       : undefined,
   };
 }
@@ -105,6 +110,9 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** The page that fixes the refusal (installing the board's GitHub App),
+     *  for the UI to render as a button rather than a URL in prose. */
+    readonly actionUrl?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -134,15 +142,17 @@ async function api<T>(
   const res = await fetch(url, init);
   if (!res.ok) {
     let msg = res.statusText;
+    let actionUrl: string | undefined;
     try {
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; actionUrl?: string };
       if (data.error) {
         msg = data.error;
       }
+      actionUrl = data.actionUrl || undefined;
     } catch {
       // No JSON error body; keep the status-text fallback.
     }
-    throw new ApiError(msg, res.status);
+    throw new ApiError(msg, res.status, actionUrl);
   }
   return (await res.json()) as T;
 }

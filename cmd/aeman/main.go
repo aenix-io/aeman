@@ -139,8 +139,8 @@ func runServe(args []string) error {
 		if baseURL == "" {
 			return fmt.Errorf("AEMAN_BASE_URL is required when %s OAuth is configured", gitCfg.Forge.Label())
 		}
-		if missing := missingTokens(gitCfg); len(missing) > 0 {
-			return fmt.Errorf("no credential for %s: in the OAuth mode the server pushes every repository of the board and asks %s who may read it with its own token — set AEMAN_GIT_TOKEN, or a token per repository",
+		if missing := missingTokens(gitCfg); len(missing) > 0 && gitCfg.App == nil {
+			return fmt.Errorf("no credential for %s: in the OAuth mode the server pushes every repository of the board and asks %s who may read it with its own token — set AEMAN_GIT_TOKEN, a token per repository, or a GitHub App (AEMAN_GITHUB_APP_ID + key)",
 				strings.Join(missing, ", "), gitCfg.Forge.Label())
 		}
 		auth = &server.OAuthConfig{
