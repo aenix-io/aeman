@@ -38,6 +38,9 @@ type GitHubApp struct {
 	mu       sync.Mutex
 	installs map[string]int64    // repository slug -> installation
 	tokens   map[int64]appMinted // installation -> its current token
+	// homeURL is the app's own page on the forge (asked once, for the
+	// install link a refusal carries); "" until first needed.
+	homeURL string
 }
 
 type appMinted struct {
@@ -133,7 +136,9 @@ func (a *GitHubApp) installationOf(ctx context.Context, slug string) (int64, err
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		_ = resp.Body.Close()
-		return 0, fmt.Errorf("github app %s is not installed on %s — install it on the repository (or its organisation) first", a.id, slug)
+		// The refusal carries the very link that fixes it — nobody should
+		// have to construct an install URL from an app id by hand.
+		return 0, fmt.Errorf("github app %s is not installed on %s — install it on the repository (or its organisation): %s", a.id, slug, a.installURL(ctx))
 	case resp.StatusCode/100 != 2:
 		_ = resp.Body.Close()
 		return 0, fmt.Errorf("github app: installation lookup for %s answered %s", slug, resp.Status)
@@ -148,6 +153,30 @@ func (a *GitHubApp) installationOf(ctx context.Context, slug string) (int64, err
 		return 0, fmt.Errorf("github app: installation lookup for %s named no installation", slug)
 	}
 	return body.ID, nil
+}
+
+// installURL is where the app is installed on an account: the app's own
+// page plus /installations/new, which lets the person pick the account and
+// the repositories. Asked from the forge once; a lookup that fails answers
+// the app's settings path, which always exists.
+func (a *GitHubApp) installURL(ctx context.Context) string {
+	if a.homeURL == "" {
+		resp, err := a.get(ctx, http.MethodGet, "/app")
+		if err == nil && resp.StatusCode/100 == 2 {
+			var body struct {
+				HTMLURL string `json:"html_url"`
+			}
+			if err := decodeJSON(resp, &body); err == nil && body.HTMLURL != "" {
+				a.homeURL = body.HTMLURL
+			}
+		} else if err == nil {
+			_ = resp.Body.Close()
+		}
+	}
+	if a.homeURL == "" {
+		return "https://github.com/settings/apps (the app's page → Install App)"
+	}
+	return a.homeURL + "/installations/new"
 }
 
 // mint trades the app JWT for an installation token.

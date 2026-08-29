@@ -83,6 +83,14 @@ func fakeAppAPI(t *testing.T, mints *atomic.Int32, expiry time.Duration) *httpte
 		}
 		return nil
 	}
+	mux.HandleFunc("GET /app", func(w http.ResponseWriter, r *http.Request) {
+		if err := checkJWT(r); err != nil {
+			t.Errorf("app lookup: %v", err)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"slug": "aenix-aeman", "html_url": "https://github.com/apps/aenix-aeman"})
+	})
 	mux.HandleFunc("GET /repos/", func(w http.ResponseWriter, r *http.Request) {
 		if err := checkJWT(r); err != nil {
 			t.Errorf("installation lookup: %v", err)
@@ -146,10 +154,15 @@ func TestAppMintsInstallationTokensPerRepository(t *testing.T) {
 	if err != nil || !strings.HasPrefix(other, "ghs_22_") {
 		t.Fatalf("other installation = %q, %v", other, err)
 	}
-	// A repository the app is not installed on is a plain answer, not a
-	// mystery 401 three layers later.
-	if _, err := app.Token(ctx, "https://github.com/no/where.git"); err == nil || !strings.Contains(err.Error(), "not installed") {
+	// A repository the app is not installed on is a plain answer carrying
+	// the very link that fixes it — nobody should have to construct an
+	// install URL by hand from an app id.
+	_, err = app.Token(ctx, "https://github.com/no/where.git")
+	if err == nil || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("uninstalled repo: %v, want a 'not installed' error", err)
+	}
+	if !strings.Contains(err.Error(), "https://github.com/apps/aenix-aeman/installations/new") {
+		t.Fatalf("the refusal must carry the install link: %v", err)
 	}
 }
 
