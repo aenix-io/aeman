@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attachSlotDates,
   attachTargets,
+  makeCardPlacements,
   mirrorTargets,
   movingSlot,
   placementTargets,
@@ -313,5 +314,52 @@ describe("movingSlot", () => {
     expect(movingSlot(move, "c1", { project: "engineering", epic: "Cozystack" })).toBe(false);
     expect(movingSlot(move, "c2", { project: "freedom", epic: "Launch" })).toBe(false);
     expect(movingSlot(null, "c1", { project: "freedom", epic: "Launch" })).toBe(false);
+  });
+});
+
+// The attach patch mirrors the server's G55 clause: only a card with NO
+// dates of its own takes its week's slot — a chosen schedule survives.
+describe("makeCardPlacements onAttachProject", () => {
+  const board = {
+    projects: ["engineering"],
+    epics: [{ name: "Cozystack", project: "engineering" }],
+    projectDomains: undefined,
+    processes: [],
+  };
+  const run = (card: Card) => {
+    const patches: Partial<Card>[] = [];
+    const deps = {
+      provider: {
+        patchCard: () => Promise.resolve(undefined),
+        mirrorCard: () => Promise.resolve(),
+        unmirrorCard: () => Promise.resolve(),
+      },
+      patchCard: (_: string, patch: Partial<Card>) => {
+        patches.push(patch);
+      },
+      reload: () => {},
+      onError: () => {},
+      errMessage: () => "",
+    };
+    makeCardPlacements(card, board, deps).onAttachProject("engineering", "Cozystack");
+    return patches[0];
+  };
+
+  it("gives a dateless plan card its week's slot", () => {
+    const patch = run({ itemId: "c1", plan: "fri", week: "2026-08-24" } as Card);
+    expect(patch.startDate).toBe("2026-08-24");
+    expect(patch.day).toBe("2026-08-28");
+  });
+
+  it("keeps a dated card's chosen schedule", () => {
+    const patch = run({
+      itemId: "c1",
+      plan: "fri",
+      week: "2026-08-24",
+      startDate: "2026-09-07",
+      day: "2026-09-09",
+    } as Card);
+    expect(patch.startDate).toBeUndefined();
+    expect(patch.day).toBeUndefined();
   });
 });

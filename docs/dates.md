@@ -152,7 +152,7 @@ A card filed under a Project-board **column** (an epic) is not on the day grid u
 
 ### Project-board slots in the Weekly plan
 
-A weekly-plan card **attached** to a Project-board column takes the slot of the week it was taken from: its start becomes that week's Monday and its end its band's day (by-Wednesday → the Wednesday, by-Friday → the Friday), so the new slot's row is the very week the card was planned in — it does not jump elsewhere on the way to the Project board (G55).
+A weekly-plan card with no dates of its own, **attached** to a Project-board column, takes the slot of the week it was taken from: its start becomes that week's Monday and its end its band's day (by-Wednesday → the Wednesday, by-Friday → the Friday), so the new slot's row is the very week the card was planned in — it does not jump elsewhere on the way to the Project board (G55). A plan card that already carries dates keeps them: the attach never rewrites a schedule someone chose.
 - A **slot** (an epic-column card: epic + `week` + `day` set) needs **no
   stored plan band** to be on the Weekly panel: its span IS its plan. It
   shows on the panel of **every week between its boundaries**.

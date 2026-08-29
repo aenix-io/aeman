@@ -221,7 +221,9 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 // tie — when a card is grouped. Left on, they were placements no board
 // showed yet InEpic counted (DeleteEpic refusing for cards nobody sees),
 // and a parent in another repository would carry the file away from both.
-// The untying is logged; the home column stays (G14).
+// The untying is logged; the mirrors go silently on purpose — like the
+// plan slot, they are placements of the parentless life, not work — and
+// the home column stays (G14).
 func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Card) error {
 	if len(card.Mirrors) > 0 {
 		if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {

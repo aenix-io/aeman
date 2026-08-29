@@ -178,6 +178,11 @@ func TestRemoveFromLastProjectDropsThePlanAndKeepsOnlyWorkedCards(t *testing.T) 
 	if err := svc.RemoveFromProject(ctx, "acme", "i", "engineering", "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
+	// The deleted card's plan was never cleared first: a write into the
+	// very commit that removes the file is a dead write.
+	if f.count("SetPlan i") != 0 || f.count("SetWeek i") != 0 {
+		t.Fatalf("no dead writes into a file about to be removed: %v", f.log)
+	}
 	b, _ = f.LoadBoard(ctx, "acme")
 	if _, ok := findCard(b, "i"); ok {
 		t.Fatal("an untouched card with no other column is deleted outright")
@@ -408,6 +413,26 @@ func TestAttachingAPlanCardTakesItsWeeksSlot(t *testing.T) {
 	c, _ = findCard(b, "c2")
 	if c.StartDate != "2026-08-24" || c.Day != "2026-08-26" {
 		t.Fatalf("a by-Wednesday card ends on its Wednesday: %+v", c)
+	}
+}
+
+// The slot rule applies only to a card with NO dates of its own: an attach
+// never rewrites a schedule someone chose — the card keeps its dates, and
+// its row is wherever those dates put it.
+func TestAttachingADatedPlanCardKeepsItsDates(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "scheduled", Team: "platform", Plan: board.PlanFri, Week: "2026-08-24",
+			StartDate: "2026-09-07", Day: "2026-09-09"},
+	})
+	svc := New(f)
+	project := "engineering"
+	if err := svc.SetEpic(ctx, "acme", "c1", "Cozystack", &project); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.StartDate != "2026-09-07" || c.Day != "2026-09-09" {
+		t.Fatalf("the chosen schedule survives the attach: %+v", c)
 	}
 }
 
@@ -827,5 +852,55 @@ func TestGroupingATiedCardClearsTheTie(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the untying must be logged: %+v", f.eventsOf("c1"))
+	}
+}
+
+// The x's last column is one more door out of the repository: orphaning
+// clears the pair, and for a TEAMLESS card the domain falls through to
+// the primary — a standing tie would be stranded. Refused before anything
+// is written; a card whose orphan life stays in the same repository keeps
+// its tie and goes free.
+func TestRemoveFromLastColumnCannotStrandTheTie(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "proc-f", Title: board.ProcessStateTitle, Process: "Fundraising ops", Domain: "founders"},
+		{ItemID: "c1", Title: "closed chore", Stage: board.StageRecurrent,
+			Project: "strategy", Epic: "Fundraising", Domain: "founders",
+			Process: "Fundraising ops", Assignees: []string{"kvaps"}, Progress: 40,
+			Plan: board.PlanFri, Week: "2026-08-24"},
+		{ItemID: "c2", Title: "open chore", Stage: board.StageRecurrent,
+			Project: "engineering", Epic: "Cozystack",
+			Process: "Invoicing", Assignees: []string{"kvaps"}, Progress: 40},
+	})
+	svc := New(f)
+	if err := svc.RemoveFromProject(ctx, "acme", "c1", "strategy", "Fundraising"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("orphaning a teamless closed card is a move to the primary: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Epic != "Fundraising" || c.Plan != board.PlanFri {
+		t.Fatalf("the refusal must fire before anything is written: %+v", c)
+	}
+	// Same repository: the orphan keeps its tie and goes free.
+	if err := svc.RemoveFromProject(ctx, "acme", "c2", "engineering", "Cozystack"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = f.LoadBoard(ctx, "acme")
+	c, _ = findCard(b, "c2")
+	if c.Epic != "" || c.Process != "Invoicing" {
+		t.Fatalf("a same-repository orphan keeps its tie: %+v", c)
+	}
+}
+
+// A subtask rides its parent, and grouping clears its tie — a re-tie one
+// request later (PATCH {parent, process} carries both) would put it right
+// back under tiedMoveGuard's radar: any re-file of the PARENT drags the
+// child across repositories unguarded. Refused outright, like the mirror.
+func TestASubtaskCannotBeTied(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "child", Team: "platform", Stage: board.StageRecurrent, Parent: "p"},
+	})
+	if err := New(f).SetCardProcess(ctx, "acme", "c1", "Invoicing"); !errors.Is(err, ErrSubtaskTie) {
+		t.Fatalf("a subtask rides its parent: %v", err)
 	}
 }

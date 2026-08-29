@@ -1946,6 +1946,7 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrTurnProcess),
 		errors.Is(err, boardservice.ErrNotRecurrent),
+		errors.Is(err, boardservice.ErrSubtaskTie),
 		errors.Is(err, boardservice.ErrProcessInUse),
 		errors.Is(err, boardservice.ErrTaskNotFound),
 		errors.Is(err, boardservice.ErrDomainConflict),

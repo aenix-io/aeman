@@ -45,6 +45,12 @@ var ErrTurnProcess = errors.New("a process turn's process is its task's — it c
 // kind of invisible state every guard here exists to refuse.
 var ErrNotRecurrent = errors.New("only a recurrent card can be tied to a process")
 
+// ErrSubtaskTie is tying a subtask: it rides its parent (whose re-file
+// would carry it into another repository, tie and all), and grouping
+// clears the tie for that very reason — re-tying it would undo the clear
+// one request later.
+var ErrSubtaskTie = errors.New("a subtask rides its parent and cannot be tied to a process")
+
 // Mirror adds the column (project, epic) to the card. The card must already
 // have a home column — a card outside every project is attached, not
 // mirrored — the target must exist, in the same repository as the home, and
@@ -169,7 +175,20 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 		s.logEvent(ctx, b, c, board.EventEpic, project+" / "+epic, heir.Project+" / "+heir.Epic)
 		return nil
 	}
-	// The last column. The weekly plan goes with it, always.
+	// The last column. Orphaning clears the pair, and for a teamless card
+	// that is a repository move (the domain falls through to the primary)
+	// — refused while a tie stands, before anything is written, like
+	// every other door.
+	if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
+		return err
+	}
+	worked := len(c.Assignees) > 0 && c.Progress > 0
+	if !worked {
+		// The whole card goes; clearing its plan first would be a dead
+		// write into the very commit that removes the file.
+		return s.deleteWithCascade(ctx, b, c)
+	}
+	// The weekly plan goes with it, always.
 	if c.Plan != board.PlanNone {
 		if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 			return err
@@ -179,10 +198,6 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 		if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
 			return err
 		}
-	}
-	worked := len(c.Assignees) > 0 && c.Progress > 0
-	if !worked {
-		return s.deleteWithCascade(ctx, b, c)
 	}
 	if err := s.backend.SetEpic(ctx, b, c, ""); err != nil {
 		return err
@@ -212,6 +227,13 @@ func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, pr
 		// The UI offers the picker to recurrent cards alone; the service
 		// holds the same line for the callers that skip the UI (MCP, a
 		// plain PATCH) — clearing stays free, whatever the stage is now.
+		// A SUBTASK is refused outright: grouping cleared its tie, and a
+		// PATCH carrying {parent, process} together would re-tie it in
+		// the same request — after which any re-file of the PARENT drags
+		// the child across repositories under tiedMoveGuard's radar.
+		if c.Parent != "" {
+			return ErrSubtaskTie
+		}
 		if c.Stage != board.StageRecurrent {
 			return ErrNotRecurrent
 		}

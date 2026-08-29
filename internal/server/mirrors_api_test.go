@@ -227,3 +227,35 @@ func TestMirrorsDescTellsAddsFromRemovals(t *testing.T) {
 		t.Fatalf("clearing is an untie, not a tie: %q", got)
 	}
 }
+
+// PATCH may carry parent and process together — grouping clears the tie,
+// so the process half must not re-tie the fresh subtask in the same
+// request: the service refuses it, and the whole PATCH answers 422.
+func TestGroupingAndTyingInOnePatchIsRefused(t *testing.T) {
+	remote := gitRemoteN(t, "board")
+	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
+		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
+		{Path: gitstore.ProcessPath("01JB4PROC1"), Data: []byte("name: Invoicing\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: "cards/e/5/01JB4K2E7QZMX3R8V0N5T9WYE5.md", Data: []byte("---\ntitle: parent\nteam: platform\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
+		{Path: "cards/f/6/01JB4K2E7QZMX3R8V0N5T9WYF6.md", Data: []byte("---\ntitle: child\nteam: platform\nstage: recurrent\nrank: b\ncreated: 2026-08-20T09:00:00Z\n---\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Push(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, remote)
+
+	rec := doAs(t, srv, "kvaps", "PATCH", "/api/v1/cards/01JB4K2E7QZMX3R8V0N5T9WYF6",
+		`{"parent":"01JB4K2E7QZMX3R8V0N5T9WYE5","process":"Invoicing"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("the re-tie of a fresh subtask must be refused: %d %s", rec.Code, rec.Body.String())
+	}
+}
