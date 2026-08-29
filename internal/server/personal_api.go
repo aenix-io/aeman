@@ -152,6 +152,23 @@ func (s *Server) handleAppSetup(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
+// handleAuthCallback tells GitHub's post-install redirect apart from the
+// sign-in flow. When the app asks for user authorization during install,
+// GitHub lands here — with an installation signature (installation_id,
+// setup_action) and no state of ours — right after someone did the right
+// thing; greeting that with "invalid OAuth state" is wrong twice over. It
+// is the same event as /auth/setup and is handled as one. A callback
+// without the installation signature is the sign-in flow, CSRF check and
+// all.
+func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if q.Get("installation_id") != "" || q.Get("setup_action") != "" {
+		s.handleAppSetup(w, r)
+		return
+	}
+	s.auth.handleCallback(w, r)
+}
+
 // handleUnlinkPersonal removes the link; the repository is left as it is.
 func (s *Server) handleUnlinkPersonal(w http.ResponseWriter, r *http.Request) {
 	tok, login, err := s.apiTokens(r)

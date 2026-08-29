@@ -118,3 +118,43 @@ func TestOtherStartupTroubleStillRefusesToStart(t *testing.T) {
 }
 
 var _ = context.Background
+
+// After someone installs (or updates) the app, GitHub may start an OAuth
+// authorization of its own and land on /auth/callback with an installation
+// signature and no state of ours. That is the same event as /auth/setup —
+// not a failed sign-in — and it kept greeting people who had just done the
+// right thing with {"error":"invalid OAuth state"}. A real sign-in without
+// a matching state is still refused: the CSRF check is only stepped around
+// for a callback that GitHub itself marks as an installation redirect.
+func TestGitHubsPostInstallRedirectIsNotAFailedSignIn(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	srv, err := New(Options{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Auth:   &OAuthConfig{ClientID: "Iv23test", ClientSecret: "s", BaseURL: "https://board.example"},
+		Git:    &GitConfig{Repos: []RepoSpec{{Name: "shared", URL: shared.URL}}, DataDir: t.TempDir(), Committer: gitstore.Identity{Name: "aeman", Email: "aeman@test"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.gitBE.git.pushDelay = 0
+
+	get := func(target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		return rec
+	}
+	for _, target := range []string{
+		"/auth/callback?code=xyz&installation_id=157446438&setup_action=install",
+		"/auth/callback?installation_id=157446438&setup_action=update",
+		"/auth/callback?code=xyz&setup_action=install&state=not-ours",
+	} {
+		if rec := get(target); rec.Code != http.StatusFound {
+			t.Fatalf("%s: %d %s, want a redirect home", target, rec.Code, rec.Body.String())
+		}
+	}
+	// An ordinary sign-in callback with a wrong state stays refused.
+	if rec := get("/auth/callback?code=xyz&state=not-ours"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a forged sign-in: %d, want 400", rec.Code)
+	}
+}
