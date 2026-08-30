@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
-import { hasPlacementOffer, type CardPlacements } from "../placements";
+import { hasOriginToShow, hasPlacementOffer, type CardPlacements } from "../placements";
 import { PlacementMenu } from "./PlacementMenu";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -951,10 +951,7 @@ export function Card({
             {/* What this card is part of — the menu is where a person asks
                 "whose is this?", and the answer starts with where it came
                 from. */}
-            {(card.process ||
-              card.project ||
-              (card.mirrors?.length ?? 0) > 0 ||
-              hasPlacementOffer(placements)) && (
+            {(hasOriginToShow(card) || hasPlacementOffer(placements)) && (
               <div className="card-assign-origin">
                 {card.process && (
                   <span>
@@ -962,11 +959,14 @@ export function Card({
                     {card.process}
                   </span>
                 )}
-                {card.project && (
+                {(card.project || card.epic) && (
                   <span>
-                    <span className="card-assign-origin-kind">project</span>
+                    <span className="card-assign-origin-kind">
+                      {card.project ? "project" : "column"}
+                    </span>
                     {card.project}
-                    {card.epic ? ` · ${card.epic}` : ""}
+                    {card.project && card.epic ? " · " : ""}
+                    {card.project ? card.epic : card.epic}
                   </span>
                 )}
                 {(card.mirrors ?? []).map((m) => (

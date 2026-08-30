@@ -530,3 +530,46 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// A column's STUB never changes repository: refile hands a stub straight
+// back to the backend that holds it (isStub). So a column cannot follow a
+// project into another repository — the service must refuse that move
+// rather than produce a column declared in one repository and owned by a
+// project of another, with every card in it stranded.
+func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
+	mb, _, _ := twoDomains(t)
+	ctx := context.Background()
+	b, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stub board.Card
+	for _, c := range b.Cards {
+		if c.Title == board.EpicStateTitle {
+			stub = c
+			break
+		}
+	}
+	if stub.ItemID == "" {
+		for _, e := range b.Epics {
+			stub = board.Card{ItemID: e.ItemID, Title: board.EpicStateTitle, Epic: e.Name, Project: e.Project}
+			break
+		}
+	}
+	if stub.ItemID == "" {
+		t.Skip("no column on the seeded board")
+	}
+	was := b.Domains[stub.ItemID]
+	if err := mb.SetProject(ctx, b, stub, "closed-project"); err != nil {
+		// A project the roster does not declare is a different failure; the
+		// point here is only where the stub's FILE ends up.
+		t.Skipf("target project not on this fixture: %v", err)
+	}
+	after, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := after.Domains[stub.ItemID]; got != was {
+		t.Fatalf("a stub does not move repositories: %q → %q", was, got)
+	}
+}

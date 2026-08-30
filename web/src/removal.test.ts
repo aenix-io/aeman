@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, planRemoval, removalKind } from "./removal";
+import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, planRemoval, removalKind , gridGesture } from "./removal";
 
 const ctx = { current: "2026-08-26", previous: "2026-08-25", today: "2026-08-26" };
 const card = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 0 };
@@ -263,5 +263,31 @@ describe("who asks about a subtask", () => {
     // The panel dispatches a subtask to the GRID handler, so scoring it by
     // the plan's rule described an action nobody was going to take.
     expect(planRemoval(worked as never)).not.toBe(gridRemoval(worked as never, ctx));
+  });
+});
+
+// Which gesture the day grid's × performs — the routing itself, lifted out
+// of the boards. A columned subtask is RELEASED (ungrouped into its
+// column), and a board that read "demote" for it sent the card through the
+// demote path, rewriting its Project-board dates to the previous sprint
+// and leaving it nested under its parent until a reload.
+describe("gridGesture", () => {
+  const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
+
+  it("releases a columned subtask, previous sprint or not", () => {
+    const card = { parent: "p", epic: "Cozystack", sprintStart: "2026-08-24" };
+    expect(gridGesture(card as never, ctx)).toBe("release");
+  });
+
+  it("deletes a columnless subtask", () => {
+    expect(gridGesture({ parent: "p", sprintStart: "2026-08-24" } as never, ctx)).toBe("delete");
+  });
+
+  it("still demotes an ordinary card with sprint history", () => {
+    // Not created today: a card whose start IS today has no history worth
+    // keeping and is deleted instead (removalKind).
+    expect(
+      gridGesture({ sprintStart: "2026-08-24", startDate: "2026-08-20" } as never, ctx),
+    ).toBe("demote");
   });
 });

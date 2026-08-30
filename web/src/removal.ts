@@ -213,3 +213,31 @@ export function boardAsksAbout(
   }
   return deleteWarning(c, linkedReview) !== null;
 }
+
+/** GridGesture is what the day grid's × actually DOES to a card — the
+ *  routing the boards used to each work out for themselves, which is how
+ *  they came to disagree about the same card. "release" is the smart × on
+ *  the server (POST actions/remove): the card leaves the working area for
+ *  whatever home it has, and a subtask standing in a column leaves the
+ *  GROUP with it (S4). "demote" walks it back a sprint, "delete" is the
+ *  last home going, and "ask" is the two-way question W5 opens. */
+export type GridGesture = "ask" | "demote" | "release" | "delete";
+
+/** gridGesture routes one × press. A columned subtask is RELEASED however
+ *  much sprint history is around: reading it as a demote sent the card
+ *  through the demote path, which rewrites the Project-board dates it
+ *  lives by and leaves it nested under its parent until a reload. */
+export function gridGesture(
+  c: RemovalHomes &
+    Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
+  ctx: RemovalContext,
+): GridGesture {
+  const outcome = gridRemoval(c, ctx);
+  if (c.parent) {
+    return outcome === "delete" ? "delete" : "release";
+  }
+  if (removalKind(c, ctx) === "ask") {
+    return "ask";
+  }
+  return outcome === "demote" ? "demote" : outcome === "delete" ? "delete" : "release";
+}

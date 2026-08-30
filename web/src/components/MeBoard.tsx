@@ -35,6 +35,7 @@ import {
   boardAsksAbout,
   deleteWarning,
   freeSubtasks,
+  gridGesture,
   gridRemoval,
   personalRemovalKind,
   removalKind,
@@ -1216,12 +1217,12 @@ export function MeBoard({
 
   const removalOf = (card: CardModel): "ask" | "demote" | "delete" => {
     if (card.parent) {
-      // A subtask is never demoted alone and never asked about as one —
-      // but WHAT the × does to it is gridRemoval's answer, not a fourth
-      // private copy of the rule: a columned subtask is ungrouped and kept
-      // (S4), and calling that "delete" here is how the boards drifted
-      // apart before.
-      return gridRemoval(card, gridCtx(card)) === "delete" ? "delete" : "demote";
+      // A subtask is never demoted alone and never asked about as one. What
+      // the × DOES to it is gridGesture's answer, not a private copy: a
+      // columned subtask is released (ungrouped into its column, S4), and
+      // reading that as a demote sent it down the demote path — dates
+      // rewritten, still nested under its parent until a reload.
+      return gridGesture(card, gridCtx(card)) === "delete" ? "delete" : "demote";
     }
     const today = todayIso();
     if (isPersonalCard(card, board.personal)) {
@@ -1262,7 +1263,10 @@ export function MeBoard({
         setRemoveChoice(card);
         return;
       }
-      if (kind === "demote" && prevSprint) {
+      // A columned subtask is RELEASED, never demoted: it has no sprint
+      // history of its own, and walking it back a sprint rewrites the dates
+      // its Project-board row is drawn from.
+      if (kind === "demote" && prevSprint && gridGesture(card, gridCtx(card)) === "demote") {
         demoteCard(card, prevSprint);
         return;
       }

@@ -6,6 +6,7 @@ import {
   countedForProgress,
   drawnAsSlot,
   drawnOnProjectBoard,
+  hasOriginToShow,
   hasPlacementOffer,
   makeCardPlacements,
   mirrorTargets,
@@ -602,5 +603,27 @@ describe("targets on an alias project", () => {
       board,
     );
     expect(got.mirror).toEqual([]);
+  });
+});
+
+// The origin block draws what the card IS, not what the menu can offer.
+// Asking the offer instead left a card in a no-project column — newly
+// mirrorable — with an empty block: a stray divider line, the artefact
+// hasPlacementOffer was written to remove.
+describe("hasOriginToShow", () => {
+  it("counts a column of no project", () => {
+    expect(hasOriginToShow({ epic: "Inbox" } as Card)).toBe(true);
+  });
+
+  it("counts a project, a process and a mirror", () => {
+    expect(hasOriginToShow({ project: "engineering" } as Card)).toBe(true);
+    expect(hasOriginToShow({ process: "Invoicing" } as Card)).toBe(true);
+    expect(
+      hasOriginToShow({ mirrors: [{ project: "freedom", epic: "Launch" }] } as Card),
+    ).toBe(true);
+  });
+
+  it("is false for a card that came from nowhere", () => {
+    expect(hasOriginToShow({} as Card)).toBe(false);
   });
 });

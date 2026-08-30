@@ -119,6 +119,20 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 			return err
 		}
 	}
+	// A column cannot change REPOSITORY. Its stub is handed straight back to
+	// the backend that holds it (gitstore isStub), so a move to a project of
+	// another repository would leave the column declared where it was while
+	// its project lives elsewhere — and every ordinary card in it, whose
+	// project decides where IT lives, re-filed away from the column it
+	// stands in: the state S4 forbids, and a trap, since from then on every
+	// guard refuses that card and no gesture frees it. Unbinding (to = "")
+	// moves nothing and is judged below, card by card.
+	colDomain, colKnown := board.ColumnDomain(b, from, epic)
+	if to != "" && colKnown && colDomain != board.ProjectDomain(b, to) {
+		return fmt.Errorf("%w: %q is in another repository than this column, which cannot follow it",
+			ErrCrossDomain, to)
+	}
+
 	// EVERY refusal fires before anything is written: a guard that speaks
 	// after the column's stub has moved leaves the stub in one project and
 	// the cards in another — half a column gone. The destination must not
@@ -153,7 +167,7 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 			r := board.Resolver(b, "")
 			after := c
 			after.Project = to
-			if board.DomainOf(after, r) != board.ProjectDomain(b, to) {
+			if board.DomainOf(after, r) != colDomain {
 				return fmt.Errorf("%w: %q cannot follow this column — its file is held in another repository",
 					ErrCrossDomain, c.Title)
 			}
@@ -164,15 +178,7 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if to == "" {
 			return fmt.Errorf("%w: %q is mirrored — unmirror it before unbinding the column", ErrCrossDomain, c.Title)
 		}
-		if board.Mirrored(c, from, epic) && !columnLands(b, c.Project, c.Epic, to) {
-			return fmt.Errorf("%w: %q mirrors this column and lives in another repository than %q",
-				ErrCrossDomain, c.Title, to)
-		}
-		if c.Project == from && c.Epic == epic &&
-			!columnLands(b, c.Mirrors[0].Project, c.Mirrors[0].Epic, to) {
-			return fmt.Errorf("%w: %q mirrors %q — unmirror it before moving its column to %q",
-				ErrCrossDomain, c.Title, c.Mirrors[0].Project, to)
-		}
+
 	}
 	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: epic, Project: from}
 	if err := s.backend.SetProject(ctx, b, stub, to); err != nil {

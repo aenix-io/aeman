@@ -463,3 +463,17 @@ export function hasPlacementOffer(
     (p?.mirror?.length ?? 0) > 0
   );
 }
+
+/** hasOriginToShow reports whether the assign menu's origin block has any
+ *  content — where the card came from. A different question from
+ *  hasPlacementOffer ("is there anywhere to send it"): a card in a
+ *  no-project column can be mirrored, so the menu offers something, while
+ *  the block itself would draw nothing but its own divider. A COLUMN
+ *  counts, project or not — it is where the card stands. */
+export function hasOriginToShow(
+  card: Pick<Card, "process" | "project" | "epic" | "mirrors">,
+): boolean {
+  return (
+    !!card.process || !!card.project || !!card.epic || (card.mirrors?.length ?? 0) > 0
+  );
+}

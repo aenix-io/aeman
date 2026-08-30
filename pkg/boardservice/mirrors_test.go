@@ -1261,22 +1261,49 @@ func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
 	}
 }
 
-// An ORDINARY card follows its column between repositories — its project
-// is what decides where it lives, so the move carries it along. Only a
-// card whose file a link holds elsewhere cannot follow, and the guard has
-// to tell them apart by asking where the card ends UP, not where it is.
-func TestMovingAColumnCarriesItsOrdinaryCardsAcrossRepositories(t *testing.T) {
+// A column cannot be moved to a project of ANOTHER repository, because its
+// stub cannot follow: the store hands a stub back to the backend that
+// holds it (isStub), so the column would stay declared where it was while
+// its new project lives elsewhere — and every ordinary card in it, whose
+// project decides where IT lives, would be re-filed away from the column
+// it stands in. That is the state S4 forbids, and it is a trap: from then
+// on every guard refuses the card, and no gesture in the product frees it.
+func TestAColumnCannotMoveToAProjectOfAnotherRepository(t *testing.T) {
 	f := mirrorBoard([]board.Card{
-		// Teamless: a team of the primary would refuse the move first (G46).
+		// Teamless: a team of the primary would refuse the move first (G46),
+		// and this is exactly the card that would be stranded.
 		{ItemID: "plain", Title: "plain card", Project: "engineering", Epic: "Cozystack"},
 	})
-	if err := New(f).SetEpicProject(ctx, "acme", "engineering", "Cozystack", "strategy"); err != nil {
-		t.Fatalf("an ordinary card follows its project: %v", err)
+	svc := New(f)
+	if err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "strategy"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the column's stub cannot follow: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	c, _ := findCard(b, "plain")
-	if c.Project != "strategy" {
-		t.Fatalf("and lands with the column: %+v", c)
+	if c.Project != "engineering" {
+		t.Fatalf("and nothing moved: %+v", c)
+	}
+	// An empty column is refused for the same reason: the column itself
+	// would end up declared in one repository and owned by a project of
+	// another, which no reader can make sense of.
+	if err := svc.SetEpicProject(ctx, "acme", "freedom", "Launch", "strategy"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("an empty column cannot move either: %v", err)
+	}
+}
+
+// UNBINDING a column of a non-primary repository keeps it exactly where it
+// is — the stub does not move — so the cards in it stay held by that same
+// repository through their team. Comparing against the target PROJECT's
+// repository (the primary, for the no-project bucket) refused this.
+func TestUnbindingANonPrimaryColumnKeepsItsCards(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "closed card", Team: "founders",
+			Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders"}
+	if err := New(f).SetEpicProject(ctx, "acme", "strategy", "Fundraising", ""); err != nil {
+		t.Fatalf("the column stays in its repository and so do its cards: %v", err)
 	}
 }
 
@@ -1474,5 +1501,10 @@ func TestRemoveFromThePlanIsNotTheGridsGestureForASubtask(t *testing.T) {
 	// nothing to empty: the card is left exactly as it was.
 	if c.Parent != "p" || c.SprintStart == "" {
 		t.Fatalf("the grid's gesture must not run in the plan's name: %+v", c)
+	}
+	// And nothing was written: an empty band cleared again is a write in
+	// the request's commit for a change nobody made.
+	if n := f.count("SetPlan"); n != 0 {
+		t.Fatalf("nothing to empty, nothing to write: %d plan writes", n)
 	}
 }

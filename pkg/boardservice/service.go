@@ -1124,6 +1124,12 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// and a column needs the epic side: a bare project name puts a card
 		// on no board at all, so it cannot be the home that spares it.
 		if hasColumn(c) {
+			// Nothing to empty, nothing to write: a card with no band
+			// cleared again lands a write in this request's commit for a
+			// change nobody made.
+			if c.Plan == board.PlanNone {
+				return nil
+			}
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
