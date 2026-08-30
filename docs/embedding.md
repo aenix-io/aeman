@@ -89,7 +89,7 @@ rep, _ := svc.CarryOver(ctx, "aeman-db", "team", false)
 _ = repo.Push(ctx, remote)                   // one push for what accumulated
 ```
 
-Each service call is its own commit. To make several calls one action — one commit per touched repository, sharing an `Aeman-Action-Id` — open a scope: `ctx, done := gitstore.WithScope(ctx, gitstore.Action{Name: "carry-over", ID: gitstore.NewID(time.Now())})`, make the calls, then `done()` commits.
+Each service call is its own commit. To make several calls one action — one commit per touched repository, sharing an `Aeman-Action-Id` — open a scope: `ctx, done := gitstore.WithScope(ctx, gitstore.Action{Name: "carry-over", ID: gitstore.NewID(time.Now())})`, make the calls, then `done()` commits. Inside a scope a write is STAGED: the files land when `done()` commits, and a plain `LoadBoard` in between still reads the repository as it was. The service does not re-read what it has just written (a create groups the card it holds, the × carries the card through the pull-out), so this is invisible from the outside — but a caller that reloads the board mid-scope and looks for its own new card will not find it. Read what you wrote from the value the call returned, or close the scope first.
 
 For read-side shapes (semantic zones, derived status, view selectors) use `pkg/apiserver`: `apiserver.CardResource`, `apiserver.FilterCards`, `apiserver.ListCards`.
 

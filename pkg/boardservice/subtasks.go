@@ -39,6 +39,16 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 	if err != nil {
 		return err
 	}
+	return s.setParentOf(ctx, b, card, parent)
+}
+
+// setParentOf is SetParent with the card IN HAND. A create groups the card
+// it has just written, and a re-read there answers differently for an
+// embedder than for the server: inside a gitstore scope the staged file is
+// invisible to a bare store, so the load fails and the create undoes
+// itself — deleting a card the caller was never told about. The same
+// reason Remove carries its card through the pull-out.
+func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Card, parent string) error {
 	if parent == "" {
 		return s.ungroup(ctx, b, card)
 	}

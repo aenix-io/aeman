@@ -167,6 +167,13 @@ export function hasColumn(c: RemovalHomes): boolean {
  *  delete it. */
 export type Outcome = "demote" | "leave" | "delete" | "ungroup";
 
+/** looseOf is the card as the × leaves it when the column it carried
+ *  cannot follow it out of the group: an ordinary, columnless card, which
+ *  is what the server then answers for (boardservice removeFromGrid). */
+function looseOf<T extends RemovalHomes>(c: T): T {
+  return { ...c, epic: undefined, project: undefined };
+}
+
 /** gridRemoval mirrors boardservice.Remove(from="grid"), in its order: a
  *  card in the weekly plan goes back to it; one with sprint history demotes;
  *  otherwise its column keeps it, or nothing does and it is deleted. One
@@ -195,8 +202,7 @@ export function gridRemoval(
       // deleted when the working area was its only home. Reading it as an
       // ungroup here made a board patch the card as kept and let a
       // destructive × through with no question.
-      const loose = { ...c, epic: undefined, project: undefined };
-      return removalKind(loose, ctx) === "delete" ? "delete" : "demote";
+      return removalKind(looseOf(c), ctx) === "delete" ? "delete" : "demote";
     }
     return "ungroup";
   }
@@ -268,7 +274,14 @@ export function gridGesture(
     if (outcome === "delete") {
       return "delete";
     }
-    return outcome === "demote" ? "demote" : "release";
+    if (outcome !== "demote") {
+      return "release";
+    }
+    // A demote is W5's question here too: it takes the card off today's
+    // board and its column with it, which reads as deletion — and a
+    // subtask exempted from the question was the only card on the grid
+    // whose work could leave silently.
+    return removalKind(looseOf(c), ctx) === "ask" ? "ask" : "demote";
   }
   if (removalKind(c, ctx) === "ask") {
     return "ask";

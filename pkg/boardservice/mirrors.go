@@ -351,8 +351,13 @@ func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownC
 	// (clearRiders), which is why the docstring promises grouping refuses
 	// over the tie nowhere. Reading the state before the change made a
 	// cross-repository grouping trip over a tie it was about to remove.
-	if after.Process != "" {
-		return fmt.Errorf("%w: the card is tied to the process %q of its own repository — untie it first",
+	//
+	// Asked exactly as a follower's tie is asked below: a process NAME is
+	// unique board-wide (G38), so "the card is moving" and "the process is
+	// not where it is moving to" are the same answer today — and two
+	// spellings of one rule are how they stop being.
+	if tieStrandedBy(b, after.Process, to) {
+		return fmt.Errorf("%w: the card is tied to the process %q of another repository — untie it first",
 			ErrCrossDomain, after.Process)
 	}
 	// Only a card that MOVES can strand what rides it, so the follower
@@ -371,12 +376,22 @@ func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownC
 		// itself is refused a tie across the boundary (SetCardProcess), and
 		// a card dragged over that boundary by a link it does not control
 		// must not end up in the state the direct door forbids.
-		if f.Process != "" && board.ProcessDomain(b, f.Process) != to {
+		if tieStrandedBy(b, f.Process, to) {
 			return fmt.Errorf("%w: %q follows this card and is tied to the process %q of another repository — untie it first",
 				ErrCrossDomain, f.Title, f.Process)
 		}
 	}
 	return nil
+}
+
+// tieStrandedBy reports whether a process tie would be left naming a
+// process of another repository once its card lands in `to`. A card with no
+// tie strands nothing; a process the roster does not declare answers ""
+// and decides nothing, which is the same non-answer every domain reader
+// gives (G59) — the tie is refused there, since a name nothing declares
+// cannot be shown to be in reach.
+func tieStrandedBy(b board.Board, process, to string) bool {
+	return process != "" && board.ProcessDomain(b, process) != to
 }
 
 // columnsAgree reports whether two columns belong to the same repository —

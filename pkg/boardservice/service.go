@@ -2645,7 +2645,11 @@ func (s *Service) ReleaseFromPlan(ctx context.Context, boardID string, itemID st
 // one of these two paths used to swallow the second error and hand back
 // the card it had just deleted.
 func (s *Service) groupOrUndo(ctx context.Context, b board.Board, card board.Card, parent string) error {
-	if err := s.SetParent(ctx, b.Board, card.ItemID, parent); err != nil {
+	// The card in hand, never re-read: it was written a moment ago, and
+	// inside a scope that write is staged — invisible to a bare store until
+	// the scope flushes. A re-read there fails and takes the undo with it,
+	// deleting the card the caller asked for (setParentOf).
+	if err := s.setParentOf(ctx, b, card, parent); err != nil {
 		if derr := s.deleteWithCascade(ctx, b, card); derr != nil {
 			return errors.Join(err, derr)
 		}

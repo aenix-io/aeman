@@ -312,6 +312,18 @@ describe("gridGesture", () => {
     expect(gridGesture(kid as never, { ...ctx, columnFollows: false })).toBe("demote");
   });
 
+  // W5 applies to that demote like any other: it takes the card off
+  // today's board AND drops the column it stood in, which reads as
+  // deletion — and a subtask exempted from the question was the one card
+  // on the grid whose work could leave without one being asked.
+  it("asks about a worked subtask whose column stays behind", () => {
+    const worked = { parent: "p", epic: "Closed", progress: 60, sprintStart: "2026-08-24" };
+    expect(gridGesture(worked as never, { ...ctx, columnFollows: false })).toBe("ask");
+    // Its column can follow on a board with one repository: nothing is
+    // lost, so nothing is asked.
+    expect(gridGesture(worked as never, ctx)).toBe("release");
+  });
+
   it("asks when the board opens its two-way choice", () => {
     // A worked card in the current sprint with a previous one to fall back
     // on is W5's question, not a gesture: the board must put it.

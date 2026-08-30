@@ -43,6 +43,7 @@ import {
   boardAsksAbout,
   deleteWarning,
   freeSubtasks,
+  gridGesture,
   gridRemoval,
   hasColumn,
   planRemoval,
@@ -1562,12 +1563,13 @@ export function TeamBoard({
     }
     // A worked-on card that would be demoted leaves today's board silently,
     // subtasks and all — that reads as deletion. Ask which one they mean.
-    if (!forced && !card.parent && !card.plan) {
-      const kind = removalKind(card, {
-        current: currentSprint(board, card.team ?? null) ?? undefined,
-        previous: previousSprintFor(card) ?? undefined,
-        today: todayIso(),
-      });
+    // A SUBTASK reaches a demote only when the column it carried cannot
+    // follow it out of the group, and the question is the same one then:
+    // gridGesture answers for both, so the two boards ask alike.
+    if (!forced && !card.plan) {
+      const kind = card.parent
+        ? gridGesture(card, gridCtx(card))
+        : removalKind(card, gridCtx(card));
       if (kind === "ask") {
         setRemoveChoice(card);
         return;
@@ -1597,17 +1599,27 @@ export function TeamBoard({
       return;
     }
     if (card.parent) {
-      // Out of the group, into its column: the row must stop being drawn
-      // under its parent at once, or the × looks inert.
+      // Out of the group — into its column, or, when that column belongs to
+      // the parent's repository and cannot follow, back a sprint with the
+      // column dropped (the server's answer, gridRemoval). Either way the
+      // row must stop being drawn under its parent at once, or the × looks
+      // inert; and the demote must show the SAME optimistic state the Me
+      // board shows, or one gesture reads two ways on two boards.
+      const demoted = gridRemoval(card, gridCtx(card)) === "demote";
+      const back = demoted ? previousSprintFor(card) ?? undefined : undefined;
       const prev: Partial<CardModel> = {
         assignees: card.assignees,
         sprintStart: card.sprintStart,
+        startDate: card.startDate,
         parent: card.parent,
+        epic: card.epic,
+        project: card.project,
       };
       patchCard(card.itemId, {
         assignees: [],
-        sprintStart: undefined,
+        sprintStart: back,
         parent: undefined,
+        ...(demoted ? { startDate: back, epic: undefined, project: undefined } : {}),
       });
       void provider
         .removeCard(card.itemId, "grid")

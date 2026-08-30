@@ -718,3 +718,53 @@ func TestTheGridRemoveOnASubtaskAcrossRepositories(t *testing.T) {
 		t.Fatalf("demoted like any other columnless card, not left nowhere: %+v", kid)
 	}
 }
+
+// A create that names a PARENT groups the card it has just written, inside
+// the one scope the whole request commits in. The card's file is staged
+// there and a bare store cannot see it until the scope flushes, so a
+// re-read at that moment fails — and the create's own undo then deletes
+// the card the caller asked for. The server never saw it (its cache
+// answers the load); an embedder, whom pkg/boardservice is published for,
+// sees nothing else.
+func TestCreatingASubtaskInsideOneScope(t *testing.T) {
+	mb, shared, _ := twoDomains(t)
+	ctx, flush := WithScope(ctxAs("kvaps"), Action{Name: "create", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N3"})
+	svc := boardservice.New(mb)
+	b, err := svc.Board(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parent board.Card
+	for _, c := range b.Cards {
+		if c.Title == "shared card" {
+			parent = c
+		}
+	}
+	if parent.ItemID == "" {
+		t.Fatal("the fixture's card is the parent")
+	}
+	kid, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{
+		Title: "child", Team: "portal", Parent: parent.ItemID,
+	})
+	if err != nil {
+		t.Fatalf("a create that groups must not fail on its own staged write: %v", err)
+	}
+	if _, err := flush(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := findByID(after, kid.ItemID)
+	if !ok {
+		t.Fatal("the card the caller was handed must exist")
+	}
+	if got.Parent != parent.ItemID {
+		t.Fatalf("and be grouped under the parent it named: %+v", got)
+	}
+	p, _ := CardPath(kid.ItemID)
+	if _, err := shared.ReadFile(p); err != nil {
+		t.Fatalf("with its file where the parent's is: %v", err)
+	}
+}
