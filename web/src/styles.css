@@ -4490,6 +4490,13 @@ button.card-age {
 
 /* A slot whose card rides a parent: the group is planned here, but the
    card's other home is the parent — the × only takes the column away. */
+/* A menu row that states a fact instead of offering a choice — a
+   subtask's team, which follows its parent. */
+.card-stage-item-static {
+  opacity: 0.7;
+  cursor: default;
+}
+
 .project-slot-subtask {
   margin-right: 4px;
   opacity: 0.6;

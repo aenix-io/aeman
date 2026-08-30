@@ -430,3 +430,33 @@ export function drawnOnProjectBoard(
     (card.mirrors ?? []).some((m) => shown.has(key(m.project, m.epic)))
   );
 }
+
+/** teamFollowsParent reports whether a card's team is decided elsewhere: a
+ *  subtask always carries its parent's team (S3), and the server rewrites
+ *  any other choice — so the badge shows it and offers no list. It is NOT
+ *  a reason to close the menu the badge opens: the same menu carries "Mark
+ *  as done" and the mirror section. */
+export function teamFollowsParent(card: Pick<Card, "parent">): boolean {
+  return !!card.parent;
+}
+
+/** drawnAsSlot reports whether the Project grid renders a slot for this
+ *  card: a column alone is not enough — a slot spans weeks, so it needs
+ *  dates. The progress bars count what is drawn, or a card nobody can see
+ *  weighs on a column's percentage. */
+export function drawnAsSlot(card: Pick<Card, "epic" | "startDate" | "week">): boolean {
+  return !!card.epic && (!!card.startDate || !!card.week);
+}
+
+/** hasPlacementOffer reports whether a placement menu would draw anything.
+ *  An empty section is still an empty section — `[]` is truthy, and a card
+ *  in a repository with no columns to offer drew a stray divider. */
+export function hasPlacementOffer(
+  p: Pick<CardPlacements, "attach" | "processes" | "mirror"> | undefined,
+): boolean {
+  return (
+    (p?.attach?.length ?? 0) > 0 ||
+    (p?.processes?.length ?? 0) > 0 ||
+    (p?.mirror?.length ?? 0) > 0
+  );
+}

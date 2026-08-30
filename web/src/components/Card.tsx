@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
-import type { CardPlacements } from "../placements";
+import { hasPlacementOffer, type CardPlacements } from "../placements";
 import { PlacementMenu } from "./PlacementMenu";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -954,9 +954,7 @@ export function Card({
             {(card.process ||
               card.project ||
               (card.mirrors?.length ?? 0) > 0 ||
-              placements?.attach ||
-              placements?.processes ||
-              placements?.mirror) && (
+              hasPlacementOffer(placements)) && (
               <div className="card-assign-origin">
                 {card.process && (
                   <span>

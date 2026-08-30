@@ -3,6 +3,7 @@ package boardservice
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -33,34 +34,7 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 		return err
 	}
 	if parent == "" {
-		if card.Parent == "" {
-			return nil
-		}
-		if err := s.backend.SetParent(ctx, b, card, ""); err != nil {
-			return err
-		}
-		// A subtask usually has no assignee of its own — it rides the
-		// parent's — so a pull-out left it ownerless: gone from every
-		// personal board and sitting in Unassigned, which from the person
-		// who pulled it looks exactly like the card vanishing.
-		// deleteWithCascade hands a released child the parent's person for
-		// this same reason.
-		if op, ok := findCard(b, card.Parent); ok &&
-			len(card.Assignees) == 0 && len(op.Assignees) > 0 {
-			if err := s.backend.SetAssignee(ctx, b, card, op.Assignees[0]); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, card, board.EventAssignee, "", op.Assignees[0])
-		}
-		// The log keeps titles, not item ids — that is what a human (or an
-		// agent reading list_log) can act on. Both sides record the change.
-		if op, ok := findCard(b, card.Parent); ok {
-			s.logEvent(ctx, b, card, board.EventParent, op.Title, "")
-			s.logEvent(ctx, b, op, board.EventSubtask, card.Title, "")
-		} else {
-			s.logEvent(ctx, b, card, board.EventParent, card.Parent, "")
-		}
-		return s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID)
+		return s.ungroup(ctx, b, card)
 	}
 	if parent == card.ItemID {
 		return ErrSubtaskDepth
@@ -100,6 +74,9 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 	// them, so DeleteEpic refused for cards nobody could see; and a parent
 	// in another repository would carry the file away from them entirely.
 	// The home column stays: G14 blesses a subtask carrying its own column.
+	if err := groupingKeepsTheColumn(b, card, parent); err != nil {
+		return err
+	}
 	if err := s.clearRiders(ctx, b, card); err != nil {
 		return err
 	}
@@ -238,4 +215,58 @@ func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Car
 		s.logEvent(ctx, b, card, board.EventProcess, card.Process, "")
 	}
 	return nil
+}
+
+// groupingKeepsTheColumn refuses a grouping that would strand the ONE
+// column a subtask may keep (G14). Its file follows its parent, so a
+// parent in another repository leaves that column naming a repository
+// that no longer holds the card — exactly what SetEpic refuses when the
+// card itself is moved. The column is the card's own, not a placement of
+// the parentless life that grouping may clear, so this refuses rather
+// than clearing.
+func groupingKeepsTheColumn(b board.Board, card board.Card, parent string) error {
+	if card.Epic == "" {
+		return nil
+	}
+	r := board.Resolver(b, "")
+	after := card
+	after.Parent = parent
+	if pd, ok := r.ProjectDomain(card.Project); !ok || pd != board.DomainOf(after, r) {
+		return fmt.Errorf("%w: %q stands in a column of another repository — take it out of the column first",
+			ErrCrossDomain, card.Title)
+	}
+	return nil
+}
+
+// ungroup pulls a subtask back out as a standalone card: the parent link
+// goes, the child keeps what it has, and both sides record the change.
+func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) error {
+	if card.Parent == "" {
+		return nil
+	}
+	if err := s.backend.SetParent(ctx, b, card, ""); err != nil {
+		return err
+	}
+	// A subtask usually has no assignee of its own — it rides the
+	// parent's — so a pull-out left it ownerless: gone from every
+	// personal board and sitting in Unassigned, which from the person
+	// who pulled it looks exactly like the card vanishing.
+	// deleteWithCascade hands a released child the parent's person for
+	// this same reason.
+	if op, ok := findCard(b, card.Parent); ok &&
+		len(card.Assignees) == 0 && len(op.Assignees) > 0 {
+		if err := s.backend.SetAssignee(ctx, b, card, op.Assignees[0]); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventAssignee, "", op.Assignees[0])
+	}
+	// The log keeps titles, not item ids — that is what a human (or an
+	// agent reading list_log) can act on. Both sides record the change.
+	if op, ok := findCard(b, card.Parent); ok {
+		s.logEvent(ctx, b, card, board.EventParent, op.Title, "")
+		s.logEvent(ctx, b, op, board.EventSubtask, card.Title, "")
+	} else {
+		s.logEvent(ctx, b, card, board.EventParent, card.Parent, "")
+	}
+	return s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID)
 }

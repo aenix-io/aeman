@@ -110,4 +110,27 @@ func TestProjectViewDeliversSubtasksThatCarryAColumn(t *testing.T) {
 	if slices.Contains(seen, "loose") {
 		t.Fatalf("a subtask without a column belongs to no Project board: %v", seen)
 	}
+	// The parent RIDES ALONG even without a column of its own: the slot is
+	// marked with its title, and the client has no other query to find it
+	// in. It is not drawn — the grid draws what carries a column.
+	if !slices.Contains(seen, "parent") {
+		t.Fatalf("the parent of a delivered subtask names the slot: %v", seen)
+	}
+}
+
+// The subtask rider must not smuggle columnless children in through a
+// parent that DOES have a column: they belong to no Project board, and
+// the client would count them into a progress bar that draws nothing.
+func TestProjectViewDropsColumnlessChildrenOfAColumnedParent(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
+		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Redis App", Project: "freedom"},
+		{ItemID: "parent", Title: "parent in a column", Project: "freedom", Epic: "Redis App"},
+		{ItemID: "loose", Title: "child without one", Parent: "parent"},
+	})
+	for _, c := range FilterCards(b, Selector{View: "project"}) {
+		if c.ItemID == "loose" {
+			t.Fatal("a columnless subtask is on no Project board, rider or not")
+		}
+	}
 }

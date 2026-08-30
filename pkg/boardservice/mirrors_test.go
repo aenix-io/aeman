@@ -990,3 +990,61 @@ func TestAColumnCannotNameARepositoryThatDoesNotHoldTheCard(t *testing.T) {
 		t.Fatalf("an ordinary card's file follows its project: %v", err)
 	}
 }
+
+// The column-holds-the-file rule has a second door: GROUPING. A subtask's
+// file follows its parent, so grouping a columned card under a parent of
+// another repository would leave its column naming a repository that no
+// longer holds it — the state SetEpic now refuses, reached by a drag
+// instead of a menu. The Project board draws such a card and counts it,
+// so the stale column is load-bearing, not merely untidy.
+func TestGroupingUnderAParentInAnotherRepositoryIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "near", Title: "parent here", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "c1", Title: "columned child", Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the column would name a repository that no longer holds the file: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Parent != "" {
+		t.Fatalf("the refused grouping must not land: %+v", c)
+	}
+	// Within the repository, grouping is free and the column stays (G14).
+	if err := svc.SetParent(ctx, "acme", "c1", "near"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = f.LoadBoard(ctx, "acme")
+	c, _ = findCard(b, "c1")
+	if c.Epic != "Cozystack" {
+		t.Fatalf("a subtask keeps the one column it carries: %+v", c)
+	}
+}
+
+// And the mirror image: moving the PARENT drags every child's file with it
+// (MultiBackend cascades the re-file), while each child's own column stays
+// behind. The guard has to look at the children, not only at the card the
+// caller named.
+func TestReFilingAParentCannotStrandItsSubtasksColumn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "c1", Title: "child", Parent: "p", Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	strategy := "strategy"
+	if err := svc.SetEpic(ctx, "acme", "p", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the child's column would be stranded: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "p")
+	if c.Project != "engineering" {
+		t.Fatalf("the refused move must not land: %+v", c)
+	}
+	// A move within the repository leaves every child's column valid.
+	freedom := "freedom"
+	if err := svc.SetEpic(ctx, "acme", "p", "Launch", &freedom); err != nil {
+		t.Fatalf("a move inside the repository is free: %v", err)
+	}
+}

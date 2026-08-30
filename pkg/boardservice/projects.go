@@ -139,7 +139,7 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		// behind — refused before the stub is re-parented, like the
 		// mirror guards below.
 		if c.Project == from && c.Epic == epic {
-			if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
+			if err := refileGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
 				return fmt.Errorf("%w (card %q)", err, c.Title)
 			}
 		}

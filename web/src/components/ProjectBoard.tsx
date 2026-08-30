@@ -11,7 +11,9 @@ import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
   countedForProgress,
+  drawnAsSlot,
   drawnOnProjectBoard,
+  teamFollowsParent,
   makeCardPlacements,
   type CardPlacements,
   movingSlot,
@@ -1131,6 +1133,11 @@ export function ProjectBoard({
   // The slot's ×: remove the card from THIS column. A mirror goes, the
   // home hands over to its first mirror, an orphaned worked card survives
   // in the working area — only the true delete asks, naming the loss.
+  // subtaskTitle words the ↳ marker: the parent's title when the query
+  // carried it, and an honest fallback when it did not.
+  const subtaskTitle = (title: string | undefined) =>
+    title ? `Subtask of «${title}»` : "Subtask — its parent is not on this board";
+
   // placementsFor: the slot menu's "Mirror to…" section. The same factory
   // the Me and Team boards use, so the three cannot drift apart — and the
   // only way to mirror a card that lives ONLY in a column: such a card
@@ -1403,7 +1410,7 @@ export function ProjectBoard({
   // the column, the overall bar and the project line disagree on one
   // screen.
   const counted = useMemo(
-    () => cards.filter((c) => countedForProgress(c, byId)),
+    () => cards.filter((c) => drawnAsSlot(c) && countedForProgress(c, byId)),
     [cards, byId],
   );
   const colProgress = useMemo(() => {
@@ -1426,7 +1433,7 @@ export function ProjectBoard({
   const allProgress = useMemo(() => {
     const byProject = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (!c.epic || !countedForProgress(c, byId)) {
+      if (!drawnAsSlot(c) || !countedForProgress(c, byId)) {
         continue;
       }
       const k = c.project ?? "";
@@ -1987,11 +1994,7 @@ export function ProjectBoard({
                 {card.parent && (
                   <span
                     className="project-slot-subtask"
-                    title={
-                      byId.get(card.parent)?.title
-                        ? `Subtask of «${byId.get(card.parent)?.title}»`
-                        : "Subtask — its parent is not on this board"
-                    }
+                    title={subtaskTitle(byId.get(card.parent)?.title)}
                   >
                     ↳
                   </span>
@@ -2032,13 +2035,14 @@ export function ProjectBoard({
                     ? { background: teamColor(card.team), color: "#fff" }
                     : undefined
                 }
-                // A subtask's team always follows its parent (S3): the
-                // server silently rewrites any other choice, so the badge
-                // shows the team and opens nothing — a menu whose every
-                // entry snaps back is worse than no menu.
-                disabled={!!card.parent}
+                // The badge is the slot's MENU HANDLE — "Mark as done", the
+                // team list, "Mirror to…" all hang off it — so it stays
+                // clickable for every card. A subtask's team follows its
+                // parent (S3, and the server rewrites any other choice):
+                // that makes the team LIST read-only inside the menu, not
+                // the menu unreachable.
                 title={
-                  card.parent
+                  teamFollowsParent(card)
                     ? `Team: ${card.team || "none"} — follows the parent`
                     : card.team
                       ? `Team: ${card.team} — click to change`
@@ -2101,36 +2105,48 @@ export function ProjectBoard({
                     it names — the server refuses that pair. What the card
                     already carries stays on the list, so a pair written
                     before the rule can be seen and fixed. */}
-                {offerableTeams(
-                  board.teams,
-                  board.teamDomains,
-                  board.projectDomains,
-                  card.project ?? "",
-                  card.team ?? "",
-                )
-                  .filter((t) => t !== "")
-                  .map((t) => (
+                {teamFollowsParent(card) ? (
+                  <div className="card-stage-item card-stage-item-static">
+                    <span
+                      className="card-stage-dot"
+                      style={card.team ? { background: teamColor(card.team) } : undefined}
+                    />
+                    {card.team || "No team"} — follows the parent
+                  </div>
+                ) : (
+                  <>
+                    {offerableTeams(
+                      board.teams,
+                      board.teamDomains,
+                      board.projectDomains,
+                      card.project ?? "",
+                      card.team ?? "",
+                    )
+                      .filter((t) => t !== "")
+                      .map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
+                          onClick={() => assignTeam(card, t)}
+                        >
+                          <span
+                            className="card-stage-dot"
+                            style={{ background: teamColor(t) }}
+                          />
+                          {t}
+                        </button>
+                      ))}
                     <button
-                      key={t}
                       type="button"
-                      className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
-                      onClick={() => assignTeam(card, t)}
+                      className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}
+                      onClick={() => assignTeam(card, null)}
                     >
-                      <span
-                        className="card-stage-dot"
-                        style={{ background: teamColor(t) }}
-                      />
-                      {t}
+                      <span className="card-stage-dot card-stage-dot-none" />
+                      No team
                     </button>
-                  ))}
-                <button
-                  type="button"
-                  className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}
-                  onClick={() => assignTeam(card, null)}
-                >
-                  <span className="card-stage-dot card-stage-dot-none" />
-                  No team
-                </button>
+                  </>
+                )}
               </Dropdown>
               {/* One grip per edge: the top moves the slot's start, the
                   bottom its end. "from" is whichever edge stays put. */}

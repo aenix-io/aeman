@@ -136,6 +136,8 @@ func (s *Service) Unmirror(ctx context.Context, boardID string, itemID, project,
 //     working area, and only when it was worked on (someone had it and
 //     moved it); an untouched card is deleted outright. The UI asks first
 //     when work would go (deleteWarning).
+//   - A SUBTASK is never deleted here, however untouched: its other home
+//     is its parent, so the × only takes the column away (S4).
 func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, epic string) error {
 	// A column is named by its EPIC — an empty epic is no column: without
 	// this, a card standing in no column "matched" ("", "") and fell
@@ -191,7 +193,7 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 	// repository move (the domain falls through to the primary) — refused
 	// while a tie stands, before anything is written, like every other
 	// door.
-	if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
+	if err := refileGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
 		return err
 	}
 	// The weekly plan goes with it, always.
@@ -301,22 +303,39 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 	return nil
 }
 
-// tiedMoveGuard refuses a re-file that would carry a TIED card into
-// another repository: the tie is a reference that never crosses a domain
-// boundary (git-backend.md), and the card moving out from under it would
-// strand it — the mirror of the rule that keeps the process itself from
-// moving away (SetProcessProject). Explicit re-files refuse; grouping
-// clears the tie instead (SetParent), the way it clears mirrors.
-func tiedMoveGuard(b board.Board, c board.Card, change func(*board.Card)) error {
-	if c.Process == "" {
-		return nil
-	}
+// refileGuard refuses a re-file that would leave a reference pointing across
+// a domain boundary. Two of them ride on a card and cannot follow it:
+//
+//   - its PROCESS TIE, a reference by name that never crosses a domain
+//     (git-backend.md) — the mirror of the rule that keeps the process
+//     itself from moving away (SetProcessProject);
+//   - its SUBTASKS' COLUMNS: a subtask's file follows this card
+//     (MultiBackend cascades the re-file), while each child's own column
+//     stays behind, naming a repository that no longer holds it — the very
+//     state SetEpic refuses when the card itself is moved.
+//
+// Explicit re-files refuse; grouping clears the tie instead (SetParent),
+// the way it clears mirrors.
+func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	r := board.Resolver(b, "")
 	after := c
 	change(&after)
-	if board.DomainOf(after, r) != board.DomainOf(c, r) {
+	to := board.DomainOf(after, r)
+	if to == board.DomainOf(c, r) {
+		return nil
+	}
+	if c.Process != "" {
 		return fmt.Errorf("%w: the card is tied to the process %q of its own repository — untie it first",
 			ErrCrossDomain, c.Process)
+	}
+	for _, child := range board.Children(b, c.ItemID) {
+		if child.Epic == "" {
+			continue
+		}
+		if pd, ok := r.ProjectDomain(child.Project); !ok || pd != to {
+			return fmt.Errorf("%w: the subtask %q stands in a column of another repository — take it out of the column first",
+				ErrCrossDomain, child.Title)
+		}
 	}
 	return nil
 }

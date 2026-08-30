@@ -4,7 +4,9 @@ import {
   attachSlotDates,
   attachTargets,
   countedForProgress,
+  drawnAsSlot,
   drawnOnProjectBoard,
+  hasPlacementOffer,
   makeCardPlacements,
   mirrorTargets,
   movingSlot,
@@ -13,6 +15,7 @@ import {
   settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
+  teamFollowsParent,
   type CardPlacements,
 } from "./placements";
 import type { Card } from "./providers/types";
@@ -492,5 +495,46 @@ describe("drawnOnProjectBoard", () => {
         shown,
       ),
     ).toBe(true);
+  });
+});
+
+// #2 the slot menu must stay reachable: a subtask's team follows its
+// parent, but that is a reason to show the team read-only, not to take the
+// menu's handle away — the same menu carries "Mark as done" and "Mirror
+// to…".
+describe("teamFollowsParent", () => {
+  it("is true for a subtask and false for a standalone card", () => {
+    expect(teamFollowsParent({ parent: "p1" } as Card)).toBe(true);
+    expect(teamFollowsParent({} as Card)).toBe(false);
+  });
+});
+
+// #8 the progress bars count what the grid DRAWS. A card in a column with
+// no dates has no slot — attaching a column to a dateless subtask (group,
+// then attach) put occupancy into the bar that nothing rendered.
+describe("drawnAsSlot", () => {
+  it("needs dates to be a slot", () => {
+    expect(drawnAsSlot({ epic: "Cozystack", startDate: "2026-08-24" } as Card)).toBe(true);
+    expect(drawnAsSlot({ epic: "Cozystack", week: "2026-08-24" } as Card)).toBe(true);
+    expect(drawnAsSlot({ epic: "Cozystack" } as Card)).toBe(false);
+  });
+});
+
+// #6 an empty target list is still an empty section: [] is truthy, so the
+// origin block drew a stray divider for a card whose repository offers no
+// column at all.
+describe("hasPlacementOffer", () => {
+  it("is false when every section is empty", () => {
+    expect(hasPlacementOffer({ attach: [] })).toBe(false);
+    expect(hasPlacementOffer({})).toBe(false);
+    expect(hasPlacementOffer(undefined)).toBe(false);
+  });
+
+  it("is true as soon as one section has an entry", () => {
+    expect(hasPlacementOffer({ attach: [{ name: "engineering", epics: ["Cozystack"] }] })).toBe(
+      true,
+    );
+    expect(hasPlacementOffer({ processes: ["Invoicing"] })).toBe(true);
+    expect(hasPlacementOffer({ mirror: [{ name: "freedom", epics: ["Launch"] }] })).toBe(true);
   });
 });

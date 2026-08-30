@@ -210,7 +210,7 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	// A tied card cannot be re-filed out of its process's repository — the
 	// project decides where a teamless card lives, so an attach (or a
 	// cleared column) can be a repository move in disguise.
-	if err := tiedMoveGuard(b, card, func(a *board.Card) {
+	if err := refileGuard(b, card, func(a *board.Card) {
 		a.Project = projectName
 		a.Epic = epic
 	}); err != nil {

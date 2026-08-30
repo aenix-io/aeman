@@ -181,10 +181,48 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		out = append(out, c)
 	}
 	out = withSubtasks(b, out, sel)
+	if sel.View == "project" {
+		out = projectViewCards(b, out)
+	}
 	if sel.IncludeReviews && (sel.View == "me" || sel.View == "team") {
 		out = withLinkedReviews(b, out)
 	}
 	return out
+}
+
+// projectViewCards settles what the Project board's query carries. The grid
+// draws a card by its COLUMN, so a subtask without one belongs to no
+// Project board — and the subtask rider would otherwise smuggle in every
+// child of a columned parent, counted by the client's progress bars and
+// drawn by nothing. The PARENT of a delivered subtask rides along instead,
+// column or not: the slot is marked with its title, and the client has no
+// other query to find it in (the motivating parent — a plan card, a
+// working-area card — never carries a column of its own).
+func projectViewCards(b board.Board, out []board.Card) []board.Card {
+	kept := make([]board.Card, 0, len(out))
+	wanted := map[string]bool{}
+	for _, c := range out {
+		if c.Epic == "" {
+			continue
+		}
+		kept = append(kept, c)
+		if c.Parent != "" {
+			wanted[c.Parent] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return kept
+	}
+	have := map[string]bool{}
+	for _, c := range kept {
+		have[c.ItemID] = true
+	}
+	for _, c := range b.Cards {
+		if wanted[c.ItemID] && !have[c.ItemID] {
+			kept = append(kept, c)
+		}
+	}
+	return kept
 }
 
 // withSubtasks appends the subtasks of every delivered parent, so a view is
