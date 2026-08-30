@@ -48,6 +48,7 @@ import {
   hasColumn,
   planRemoval,
   removalKind,
+  subtaskRemovalPatch,
 } from "../removal";
 import {
   columnFollows,
@@ -1605,22 +1606,16 @@ export function TeamBoard({
       // row must stop being drawn under its parent at once, or the × looks
       // inert; and the demote must show the SAME optimistic state the Me
       // board shows, or one gesture reads two ways on two boards.
-      const demoted = gridRemoval(card, gridCtx(card)) === "demote";
-      const back = demoted ? previousSprintFor(card) ?? undefined : undefined;
       const prev: Partial<CardModel> = {
         assignees: card.assignees,
         sprintStart: card.sprintStart,
         startDate: card.startDate,
+        day: card.day,
         parent: card.parent,
         epic: card.epic,
         project: card.project,
       };
-      patchCard(card.itemId, {
-        assignees: [],
-        sprintStart: back,
-        parent: undefined,
-        ...(demoted ? { startDate: back, epic: undefined, project: undefined } : {}),
-      });
+      patchCard(card.itemId, subtaskRemovalPatch(card, gridCtx(card)));
       void provider
         .removeCard(card.itemId, "grid")
         .then(() => reload())

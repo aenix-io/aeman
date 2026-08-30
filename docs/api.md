@@ -54,7 +54,7 @@ Base path: `/api/v1`. All requests and responses are JSON. Errors are returned a
 
 | Method & path | Purpose |
 | --- | --- |
-| `GET /api/v1/board` | The board: title, the team roster, the Project board's structure (`metadata.projects` in board order, `metadata.epics` as `{name, project}`, `metadata.deadlines` as `{week, project}`, `metadata.processes`), the people (`metadata.members`: `{login, avatarUrl}`) and the visitor's domains (`metadata.domains`). |
+| `GET /api/v1/board` | The board: title, the team roster, the Project board's structure (`metadata.projects` in board order, `metadata.epics` as `{name, project, domain}`, `metadata.deadlines` as `{week, project}`, `metadata.processes`), the people (`metadata.members`: `{login, avatarUrl}`) and the visitor's domains (`metadata.domains`). |
 | `GET /api/v1/cards` | LIST cards (selectors below), in board order. A listing is the **board-row shape**: no `spec.description` — `status.links` carries the refs extracted from it (capped at 50), and the body itself is one `GET /cards/{uid}` away. `?fields=full` opts a genuine bulk reader into complete cards. |
 | `POST /api/v1/cards` | Create a card (201). A title that is nothing but a GitHub issue/PR URL becomes that item's real title, with the link moved into the description (one-time, never re-synced). `personal: true` files the card on the caller's personal board instead — with a team, column or plan band it is a 422. |
 | `GET /api/v1/cards/{uid}` | One card. |

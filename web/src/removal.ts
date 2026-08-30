@@ -247,6 +247,47 @@ export function boardAsksAbout(
   return deleteWarning(c, linkedReview) !== null;
 }
 
+/** SubtaskPatch is the optimistic state the grid's × leaves on a SUBTASK:
+ *  the fields the server writes, and only those. A key present with
+ *  `undefined` clears it. */
+export interface SubtaskPatch {
+  parent: undefined;
+  assignees?: string[];
+  epic?: undefined;
+  project?: undefined;
+  sprintStart?: string;
+  startDate?: string;
+  day?: string;
+}
+
+/** subtaskRemovalPatch is what the × does to a subtask, in the server's own
+ *  fields — one shape, so the two boards cannot show a gesture differently
+ *  (which is how a row jumped to Unassigned on one of them and jumped back
+ *  on the next reload).
+ *
+ *  RELEASED into its column: the person goes and the sprint with it
+ *  (releaseToColumn → leaveWorkingArea), and the dates stay — they are the
+ *  slot's row. DEMOTED, because the column could not follow it out of the
+ *  group: the column goes, the card walks back a sprint — start, sprint,
+ *  and the end day when it had one — and the PERSON STAYS, since only a
+ *  release clears it (boardservice removeFromGrid). */
+export function subtaskRemovalPatch(
+  c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
+  ctx: RemovalContext,
+): SubtaskPatch {
+  if (gridRemoval(c, ctx) !== "demote") {
+    return { assignees: [], sprintStart: undefined, parent: undefined };
+  }
+  return {
+    parent: undefined,
+    epic: undefined,
+    project: undefined,
+    startDate: ctx.previous,
+    sprintStart: ctx.previous,
+    ...(c.day ? { day: ctx.previous } : {}),
+  };
+}
+
 /** GridGesture is what the day grid's × actually DOES to a card — the
  *  routing the boards used to each work out for themselves, which is how
  *  they came to disagree about the same card. "release" is the smart × on

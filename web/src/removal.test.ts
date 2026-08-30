@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, planRemoval, gridGesture, removalKind } from "./removal";
+import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, planRemoval, gridGesture, removalKind, subtaskRemovalPatch } from "./removal";
 
 const ctx = { current: "2026-08-26", previous: "2026-08-25", today: "2026-08-26" };
 const card = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 0 };
@@ -350,5 +350,49 @@ describe("gridGesture", () => {
 describe("planRemoval on a subtask", () => {
   it("leaves it, whatever else it carries", () => {
     expect(planRemoval({ parent: "p" } as never)).toBe("leave");
+  });
+});
+
+// The optimistic state the × leaves on a subtask — the server's own fields
+// and no others. Both boards patch from here: showing a released card's
+// state for a demoted one sent the row to Unassigned and left it on
+// today's grid, and it jumped back on the next reload.
+describe("subtaskRemovalPatch", () => {
+  const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
+  const kid = {
+    parent: "p",
+    epic: "Closed",
+    project: "strategy",
+    sprintStart: "2026-08-24",
+    startDate: "2026-08-20",
+    day: "2026-08-24",
+  };
+
+  it("releases into the column: the person and the sprint go, the dates stay", () => {
+    expect(subtaskRemovalPatch(kid as never, ctx)).toEqual({
+      assignees: [],
+      sprintStart: undefined,
+      parent: undefined,
+    });
+  });
+
+  it("demotes when the column cannot follow: the column goes, the person stays", () => {
+    // boardservice removeFromGrid writes start, sprint and the end day —
+    // and never touches the assignee, which only a release clears.
+    expect(subtaskRemovalPatch(kid as never, { ...ctx, columnFollows: false })).toEqual({
+      parent: undefined,
+      epic: undefined,
+      project: undefined,
+      startDate: "2026-08-17",
+      sprintStart: "2026-08-17",
+      day: "2026-08-17",
+    });
+  });
+
+  it("leaves a card with no end day without one", () => {
+    const noDay = { ...kid, day: undefined };
+    expect(
+      subtaskRemovalPatch(noDay as never, { ...ctx, columnFollows: false }),
+    ).not.toHaveProperty("day");
   });
 });

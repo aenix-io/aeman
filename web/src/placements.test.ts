@@ -1023,6 +1023,29 @@ describe("a board of one repository", () => {
     ).toBe(true);
   });
 
+  // The two rules that reached the payload's stamps without the one
+  // comparison: a card the store stamped and a picker reading the roster
+  // raw agreed only while both happened to carry the same string.
+  it("offers the mirrors and the processes of its own repository", () => {
+    const card = { project: "engineering", epic: "Cozystack", mirrors: [] } as unknown as Card;
+    const board = {
+      projects: ["engineering"],
+      epics,
+      processes: [{ name: "Invoicing" }],
+      processDomains: { Invoicing: "aeman" },
+      projectDomains: { engineering: "aeman" },
+      domains: [{ name: "aeman", writable: true, members: [] }],
+    };
+    // A card with NO stamp of its own — the shape a hand-built board and an
+    // older payload both produce — belongs to the primary, which is where
+    // both the columns and the process are.
+    expect(placementTargets(card, board).mirror).toEqual([
+      { name: "", epics: ["Inbox"] },
+    ]);
+    const chore = { stage: "recurrent" } as Card;
+    expect(placementTargets(chore, board).processes).toEqual(["Invoicing"]);
+  });
+
   it("offers every column to attach to", () => {
     expect(
       attachTargets(["engineering"], epics, "aeman", true, roster).map((p) => p.name),

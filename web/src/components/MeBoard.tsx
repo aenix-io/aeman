@@ -40,6 +40,7 @@ import {
   type GridGesture,
   personalRemovalKind,
   removalKind,
+  subtaskRemovalPatch,
   type Outcome,
 } from "../removal";
 import {
@@ -1112,17 +1113,20 @@ export function MeBoard({
       sprintStart: card.sprintStart,
       day: card.day,
     };
-    patchCard(card.itemId, {
-      startDate: prevSprint,
-      sprintStart: prevSprint,
-      ...(card.day ? { day: prevSprint } : {}),
-      // A SUBTASK only reaches a demote when the column it carried could
-      // not follow it out of the group (columnFollows): the server pulls
-      // it out, drops that column and walks it back a sprint — one
-      // gesture, so the row must stop being drawn under its parent and in
-      // that column at once.
-      ...(card.parent ? { parent: undefined, epic: undefined, project: undefined } : {}),
-    });
+    // A SUBTASK only reaches a demote when the column it carried could not
+    // follow it out of the group (columnFollows): the server pulls it out,
+    // drops that column and walks it back a sprint — one gesture, and one
+    // shape for both boards.
+    patchCard(
+      card.itemId,
+      card.parent
+        ? subtaskRemovalPatch(card, gridCtx(card))
+        : {
+            startDate: prevSprint,
+            sprintStart: prevSprint,
+            ...(card.day ? { day: prevSprint } : {}),
+          },
+    );
     void provider
       .removeCard(card.itemId, "grid")
       .then(() => reload())
@@ -1149,15 +1153,19 @@ export function MeBoard({
       day: card.day,
       parent: card.parent,
     };
-    patchCard(card.itemId, {
-      assignees: [],
-      sprintStart: undefined,
-      ...(card.epic ? {} : { startDate: undefined, day: undefined }),
-      // A subtask standing in a column leaves the GROUP here (G57): the
-      // server ungroups it and keeps it in the column, and the row must
-      // stop being drawn under its parent at once or the × looks inert.
-      ...(card.parent && card.epic ? { parent: undefined } : {}),
-    });
+    // A subtask leaves the GROUP here (G57), and what else goes with it is
+    // the same answer the Team board gets — the server's fields, from one
+    // place.
+    patchCard(
+      card.itemId,
+      card.parent
+        ? subtaskRemovalPatch(card, gridCtx(card))
+        : {
+            assignees: [],
+            sprintStart: undefined,
+            ...(card.epic ? {} : { startDate: undefined, day: undefined }),
+          },
+    );
     void provider
       .removeCard(card.itemId, "grid")
       .then(() => reload())

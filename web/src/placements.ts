@@ -270,7 +270,7 @@ export function placementTargets(
   }
   if (card.epic) {
     return {
-      mirror: mirrorTargets(card, board.projects, board.epics),
+      mirror: mirrorTargets(card, board.projects, board.epics, rosterOf(board)),
     };
   }
   if (card.stage === "recurrent") {
@@ -288,7 +288,14 @@ export function placementTargets(
         .filter(
           (name) =>
             name !== card.process &&
-            rosterDomain(board.processDomains, name) === (card.domain ?? ""),
+            // Through the one comparison, as the server asks it
+            // (ProcessDomain against FileDomain, both normalized): a raw
+            // pair agrees only while every side happens to be stamped.
+            sameRepository(
+              rosterDomain(board.processDomains, name),
+              card.domain,
+              rosterOf(board),
+            ),
         ),
     };
   }

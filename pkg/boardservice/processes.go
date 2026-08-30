@@ -189,7 +189,7 @@ func (s *Service) SetProcessPaused(ctx context.Context, boardID string, name str
 	// where it left off rather than at the next carry.
 	if !paused {
 		for _, t := range board.TasksOf(b, name) {
-			s.spawnDue(ctx, boardID, t.ItemID)
+			s.spawnDue(ctx, b, t)
 		}
 	}
 	return nil
@@ -316,7 +316,7 @@ func (s *Service) AddProcessTask(ctx context.Context, boardID string, process st
 	// If this week is already owed an iteration, hand it over now: a task
 	// added on Monday should show in Monday's plan, not after someone carries
 	// the week.
-	s.spawnDue(ctx, boardID, created.ItemID)
+	s.spawnDue(ctx, b, created)
 	return created, nil
 }
 
@@ -452,29 +452,47 @@ func (s *Service) UpdateProcessTask(ctx context.Context, boardID string, taskID 
 	// doing the work and are theirs, but the team and the owner say WHO does
 	// it — fixing that a minute after creating the task has to take
 	// effect on the card in front of them, not only on next month's.
+	// As the patch has just made it — the fields the routing reads.
+	after := t
+	if p.Team != nil {
+		after.Team = *p.Team
+	}
+	if p.Assignee != nil {
+		after.Assignees = nil
+		if *p.Assignee != "" {
+			after.Assignees = []string{*p.Assignee}
+		}
+	}
+	if p.Recurrence != nil {
+		after.Recurrence = *p.Recurrence
+	}
+	if p.Start != nil {
+		after.StartDate = *p.Start
+	}
+	if p.Accumulate != nil {
+		after.Accumulate = *p.Accumulate
+	}
 	if p.Team != nil || p.Assignee != nil {
-		if err := s.routeOpenIterations(ctx, boardID, taskID); err != nil {
+		if err := s.routeOpenIterations(ctx, b, after); err != nil {
 			return err
 		}
 	}
 	// A changed cycle, start, team or title can make this week due when it was
 	// not: give it its card now rather than at the next carry.
-	s.spawnDue(ctx, boardID, taskID)
+	s.spawnDue(ctx, b, after)
 	return nil
 }
 
 // routeOpenIterations points a task's unfinished turns at its current team
 // and owner, and dates an owned one across its week so it reaches that
 // person's day board. A finished turn is history and is left alone.
-func (s *Service) routeOpenIterations(ctx context.Context, boardID string, taskID string) error {
-	b, err := s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return err
-	}
-	t, ok := findTask(b, taskID)
-	if !ok {
-		return nil
-	}
+//
+// The task comes IN HAND — as the edit has just made it, not as a re-read
+// would find it. Inside a scope the edit is staged, so a reload returns the
+// task's OLD team and owner: every open turn then matched, nothing moved,
+// and the re-routing an embedder asked for did nothing at all.
+func (s *Service) routeOpenIterations(ctx context.Context, b board.Board, t board.Card) error {
+	taskID := t.ItemID
 	who := ""
 	if len(t.Assignees) > 0 {
 		who = t.Assignees[0]
@@ -506,14 +524,9 @@ func (s *Service) routeOpenIterations(ctx context.Context, boardID string, taskI
 		return nil
 	}
 	// The new owner always gets this week's turn, whether the old card was
-	// deleted or left standing with someone's work in it.
-	b, err = s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return err
-	}
-	if t, ok = findTask(b, taskID); !ok {
-		return nil
-	}
+	// deleted or left standing with someone's work in it. The task in hand
+	// again: spawnIteration reads the turn's shape from it, and the board
+	// only routes the write.
 	return s.spawnIteration(ctx, b, t, week)
 }
 
@@ -624,17 +637,15 @@ func (s *Service) spawnIfDue(ctx context.Context, b board.Board, t board.Card, w
 // that is due now produces its card the moment it is written rather than
 // waiting for someone to carry the week. Failing to spawn does not fail the
 // write: the task is saved either way, and the sweep will catch it.
-func (s *Service) spawnDue(ctx context.Context, boardID string, taskID string) {
-	b, err := s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return
-	}
-	t, ok := findTask(b, taskID)
-	if !ok {
-		return
-	}
+//
+// The task comes IN HAND, never by a re-read: it was written a moment ago,
+// and inside a gitstore scope that write is staged — a bare store answers
+// with the repository as it was, so the task is either missing (a create)
+// or still carrying its old cycle and owner (an edit), and the spawn
+// silently does nothing.
+func (s *Service) spawnDue(ctx context.Context, b board.Board, t board.Card) {
 	if _, err := s.spawnIfDue(ctx, b, t, board.MondayOf(board.TodayIso()), false); err != nil {
-		slog.Warn("process iteration not spawned", "task", taskID, "err", err)
+		slog.Warn("process iteration not spawned", "task", t.ItemID, "err", err)
 	}
 }
 
