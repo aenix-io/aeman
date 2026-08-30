@@ -2690,11 +2690,6 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 	return refileGuard(b, probe, func(*board.Card) {})
 }
 
-// dropAStrandedColumn takes a card's column away when the card no longer
-// lives in that column's repository — the only correction of its kind,
-// for the only re-file that cannot be refused instead (a parent being
-// deleted releases its children whatever else is true). Everywhere else
-// this state is prevented; here it is repaired, and recorded.
 // columnFollows reports whether a card's column can come with it out of a
 // group. Judged on the card WITHOUT its parent: every caller is releasing
 // it — a deleted parent frees its children, the grid's × takes a card out
@@ -2715,10 +2710,13 @@ func columnFollows(b board.Board, c board.Card) bool {
 	return !known || cd == board.HomeDomain(b, after)
 }
 
+// dropAStrandedColumn takes a card's column away when the card no longer
+// lives in that column's repository — the only correction of its kind,
+// for the only re-files that cannot be refused instead (a parent being
+// deleted releases its children whatever else is true; the grid's × on a
+// subtask strands the column by the very gesture it answers). Everywhere
+// else this state is prevented; here it is repaired, and recorded.
 func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c board.Card) error {
-	if c.Epic == "" {
-		return nil
-	}
 	if columnFollows(b, c) {
 		return nil
 	}
