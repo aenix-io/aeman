@@ -966,7 +966,7 @@ export function Card({
                     </span>
                     {card.project}
                     {card.project && card.epic ? " · " : ""}
-                    {card.project ? card.epic : card.epic}
+                    {card.epic}
                   </span>
                 )}
                 {(card.mirrors ?? []).map((m) => (

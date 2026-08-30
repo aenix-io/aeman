@@ -1508,3 +1508,28 @@ func TestRemoveFromThePlanIsNotTheGridsGestureForASubtask(t *testing.T) {
 		t.Fatalf("nothing to empty, nothing to write: %d plan writes", n)
 	}
 }
+
+// When the grouping fails the create is undone — and if the undo fails
+// too, BOTH reasons travel. One of the two create paths used to swallow
+// the second and hand back the card it had just tried to delete.
+func TestAFailedGroupingUndoesTheCreateAndReportsWhatItCannot(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+	})
+	f.parentErr = errors.New("the grouping would not take")
+	f.deleteErr = errors.New("and the branch would not budge")
+	svc := New(f)
+	card, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "child", Team: "platform", Parent: "p",
+	})
+	if err == nil {
+		t.Fatal("the grouping failed, so the create must not stand")
+	}
+	if !strings.Contains(err.Error(), "would not take") ||
+		!strings.Contains(err.Error(), "would not budge") {
+		t.Fatalf("both reasons must travel: %v", err)
+	}
+	if card.ItemID != "" {
+		t.Fatalf("and no card is handed back: %+v", card)
+	}
+}

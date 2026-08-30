@@ -127,8 +127,8 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	// stands in: the state S4 forbids, and a trap, since from then on every
 	// guard refuses that card and no gesture frees it. Unbinding (to = "")
 	// moves nothing and is judged below, card by card.
-	colDomain, colKnown := board.ColumnDomain(b, from, epic)
-	if to != "" && colKnown && colDomain != board.ProjectDomain(b, to) {
+	colDomain, _ := board.ColumnDomain(b, from, epic) // declared: FindEpic said so
+	if to != "" && colDomain != board.ProjectDomain(b, to) {
 		return fmt.Errorf("%w: %q is in another repository than this column, which cannot follow it",
 			ErrCrossDomain, to)
 	}
@@ -136,11 +136,12 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	// EVERY refusal fires before anything is written: a guard that speaks
 	// after the column's stub has moved leaves the stub in one project and
 	// the cards in another — half a column gone. The destination must not
-	// put a card in a repository its team does not live in (G46), a card
-	// mirrored INTO this column may not follow across repositories, and a
-	// card whose HOME is here may not be carried away from its own mirrors
-	// (G15, both directions). Unbinding to the no-project bucket under
-	// mirrors is refused with the act that fixes it.
+	// put a card in a repository its team does not live in (G46), and every
+	// card standing here must be able to FOLLOW: an ordinary card does (its
+	// project decides where it lives), one whose file a link holds does not.
+	// The cross-repository question is settled above, for the column as a
+	// whole. Unbinding to the no-project bucket under mirrors is refused
+	// with the act that fixes it.
 	for _, c := range b.Cards {
 		if !board.InEpic(c, from, epic) {
 			continue
@@ -168,17 +169,13 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 			after := c
 			after.Project = to
 			if board.DomainOf(after, r) != colDomain {
-				return fmt.Errorf("%w: %q cannot follow this column — its file is held in another repository",
+				return fmt.Errorf("%w: %q would leave this column's repository — its team or its links decide where it lives, not its project",
 					ErrCrossDomain, c.Title)
 			}
 		}
-		if len(c.Mirrors) == 0 {
-			continue
-		}
-		if to == "" {
+		if len(c.Mirrors) > 0 && to == "" {
 			return fmt.Errorf("%w: %q is mirrored — unmirror it before unbinding the column", ErrCrossDomain, c.Title)
 		}
-
 	}
 	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: epic, Project: from}
 	if err := s.backend.SetProject(ctx, b, stub, to); err != nil {

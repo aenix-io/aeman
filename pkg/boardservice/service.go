@@ -294,8 +294,6 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	if args.Personal {
 		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
-	// An epic card lives on the Plan board: filed under its column, anchored
-	// to its week row, optionally spanning several weeks via start..day. It
 	// joins no sprint and no plan band — assigning it to a team later places
 	// it into that team's weekly plan.
 	if args.Parent != "" {
@@ -318,6 +316,8 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 			return board.Card{}, err
 		}
 	}
+	// An epic card lives on the Plan board: filed under its column, anchored
+	// to its week row, optionally spanning several weeks via start..day. It
 	if args.Epic != "" {
 		return s.createEpicCard(ctx, b, args, linkDescription, pendingRef)
 	}
@@ -420,11 +420,8 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		s.resolveTitleAsync(ctx, b, card, pendingRef)
 	}
 	if err == nil && args.Parent != "" {
-		if perr := s.SetParent(ctx, boardID, card.ItemID, args.Parent); perr != nil {
-			// The card exists but could not finish grouping: remove it rather
-			// than leave a half-grouped twin behind.
-			_ = s.deleteWithCascade(ctx, b, card)
-			return card, perr
+		if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
+			return board.Card{}, perr
 		}
 		card.Parent = args.Parent
 	}
@@ -527,14 +524,7 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 	// top-level card standing in someone's planner. Grouping goes through
 	// SetParent like every other, guards and riders included.
 	if err == nil && args.Parent != "" {
-		if perr := s.SetParent(ctx, b.Board, card.ItemID, args.Parent); perr != nil {
-			// The card exists but could not finish grouping: remove it
-			// rather than leave a half-grouped twin behind — and if THAT
-			// fails, say so, because a stray top-level card standing in
-			// someone's column with nobody told is the worse outcome.
-			if derr := s.deleteWithCascade(ctx, b, card); derr != nil {
-				return board.Card{}, errors.Join(perr, derr)
-			}
+		if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
 			return board.Card{}, perr
 		}
 		card.Parent = args.Parent
@@ -2566,4 +2556,20 @@ func (s *Service) TakeIntoPlan(ctx context.Context, boardID string, itemID, engi
 // already — one cleared the week where the other kept it.
 func (s *Service) ReleaseFromPlan(ctx context.Context, boardID string, itemID string) error {
 	return s.Remove(ctx, boardID, itemID, "plan")
+}
+
+// groupOrUndo finishes a create by grouping the new card, and undoes the
+// create when it cannot: a half-grouped twin left standing is a stray
+// top-level card in somebody's column. If the undo itself fails, both
+// reasons travel — a card nobody was told about is the worse outcome, and
+// one of these two paths used to swallow the second error and hand back
+// the card it had just deleted.
+func (s *Service) groupOrUndo(ctx context.Context, b board.Board, card board.Card, parent string) error {
+	if err := s.SetParent(ctx, b.Board, card.ItemID, parent); err != nil {
+		if derr := s.deleteWithCascade(ctx, b, card); derr != nil {
+			return errors.Join(err, derr)
+		}
+		return err
+	}
+	return nil
 }

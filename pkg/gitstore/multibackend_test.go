@@ -2,6 +2,7 @@ package gitstore
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -533,9 +534,9 @@ func indexOf(s, sub string) int {
 
 // A column's STUB never changes repository: refile hands a stub straight
 // back to the backend that holds it (isStub). So a column cannot follow a
-// project into another repository — the service must refuse that move
-// rather than produce a column declared in one repository and owned by a
-// project of another, with every card in it stranded.
+// project into another repository — the service refuses that move rather
+// than produce a column declared in one repository and owned by a project
+// of another, with every card in it stranded (S4).
 func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
 	mb, _, _ := twoDomains(t)
 	ctx := context.Background()
@@ -543,33 +544,35 @@ func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The primary repository's column, moved to the CLOSED repository's
+	// project: the write must land where the stub already is.
 	var stub board.Card
-	for _, c := range b.Cards {
-		if c.Title == board.EpicStateTitle {
-			stub = c
-			break
-		}
-	}
-	if stub.ItemID == "" {
-		for _, e := range b.Epics {
+	for _, e := range b.Epics {
+		if e.Project == "portal" {
 			stub = board.Card{ItemID: e.ItemID, Title: board.EpicStateTitle, Epic: e.Name, Project: e.Project}
 			break
 		}
 	}
 	if stub.ItemID == "" {
-		t.Skip("no column on the seeded board")
+		t.Fatalf("the fixture must declare a column of portal: %+v", b.Epics)
 	}
 	was := b.Domains[stub.ItemID]
-	if err := mb.SetProject(ctx, b, stub, "closed-project"); err != nil {
-		// A project the roster does not declare is a different failure; the
-		// point here is only where the stub's FILE ends up.
-		t.Skipf("target project not on this fixture: %v", err)
+	// The write goes to the backend that HOLDS the stub, so the target
+	// project is looked for there — and a project of the other repository
+	// is simply not there. The store cannot perform this move at all.
+	if err := mb.SetProject(ctx, b, stub, "secret"); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("a stub is written where it already lives: %v", err)
 	}
 	after, err := mb.LoadBoard(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := after.Domains[stub.ItemID]; got != was {
-		t.Fatalf("a stub does not move repositories: %q → %q", was, got)
+		t.Fatalf("and it stays there: %q → %q", was, got)
+	}
+	// Which is why boardservice refuses the move up front, with a sentence
+	// about repositories instead of a confusing "project not found".
+	if d := board.ProjectDomain(after, "secret"); d == was {
+		t.Fatalf("the fixture's two projects must live apart: %q", d)
 	}
 }

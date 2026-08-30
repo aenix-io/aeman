@@ -17,7 +17,7 @@ export interface ProjectTargets {
 }
 
 /** attachTargets is what a card outside every project may be attached to:
- *  the projects of ITS OWN repository (the server refuses a cross-repo
+ *  the columns of ITS OWN repository (the server refuses a cross-repo
  *  pair), each with its epic columns; a project with no columns is not
  *  offered — a column is where a card lands. */
 export function attachTargets(
@@ -236,7 +236,6 @@ export function makeCardPlacements(
   board: {
     projects: string[];
     epics: EpicRef[];
-    projectDomains?: RosterDomains;
     processes: { name: string }[];
     processDomains?: RosterDomains;
   },

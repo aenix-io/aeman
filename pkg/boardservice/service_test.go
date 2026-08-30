@@ -19,13 +19,19 @@ type fakeBackend struct {
 	// mu guards every field: the service runs background goroutines (the
 	// async title resolve, carry-over sprint writes), so the fake is hit
 	// concurrently with the test's assertions.
-	mu      sync.Mutex
-	refs    map[string]board.Link
-	b       board.Board
-	events  map[string][]board.Event // the history AppendEvent recorded, by card
-	log     []string
-	creates []board.CreateInput
-	nextID  int
+	mu     sync.Mutex
+	refs   map[string]board.Link
+	b      board.Board
+	events map[string][]board.Event // the history AppendEvent recorded, by card
+	// deleteErr makes DeleteCard fail, for the paths that must report what
+	// they could not undo.
+	deleteErr error
+	// parentErr makes SetParent fail, so the create's compensating delete
+	// can be exercised at all.
+	parentErr error
+	log       []string
+	creates   []board.CreateInput
+	nextID    int
 }
 
 func newFake(cards []board.Card, states map[string]board.SprintState) *fakeBackend {
@@ -198,6 +204,9 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 }
 
 func (f *fakeBackend) DeleteCard(_ context.Context, _ board.Board, card board.Card) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("DeleteCard %s", card.ItemID)
@@ -474,6 +483,9 @@ func (f *fakeBackend) SetAssignee(_ context.Context, _ board.Board, card board.C
 }
 
 func (f *fakeBackend) SetParent(_ context.Context, _ board.Board, card board.Card, parent string) error {
+	if f.parentErr != nil {
+		return f.parentErr
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("SetParent %s %s", card.ItemID, parent)
