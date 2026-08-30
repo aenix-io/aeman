@@ -40,7 +40,11 @@ func TestEveryTestTheMatrixNamesExists(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "dist", "vendor":
+			// .claude holds this repository's worktrees — full copies on
+			// other branches. A name that exists only there would satisfy
+			// a check whose whole point is catching a name that exists
+			// nowhere in THIS tree.
+			case ".git", ".claude", "node_modules", "dist", "vendor":
 				return fs.SkipDir
 			}
 			return nil

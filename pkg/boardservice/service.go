@@ -1168,10 +1168,12 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		if err := s.ungroupKeeping(ctx, b, c, false); err != nil {
 			return err
 		}
-		b, c, err = s.loadCard(ctx, boardID, itemID)
-		if err != nil {
-			return err
-		}
+		// The card in hand, not a re-read: a staged write is invisible to a
+		// bare gitstore until the scope flushes (only the server's cache
+		// answers mid-request), so re-loading here would return the card
+		// as it was for an embedder and as it is for the server — the same
+		// call, two answers.
+		c.Parent = ""
 		return s.releaseToColumn(ctx, b, c)
 	}
 	if c.Plan != board.PlanNone {
@@ -2454,13 +2456,41 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // sprint and dates) instead of vanishing as orphans of a gone parent.
 func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card board.Card) error {
 	if reviewCard, ok := findReviewCard(b, card.ItemID); ok {
+		// The review card's OWN subtasks are freed first: deleting it out
+		// from under them left a parent id pointing at a card that is gone
+		// — a group nobody can see and nothing can dissolve.
+		if err := s.freeChildren(ctx, b, reviewCard); err != nil {
+			return err
+		}
 		if err := s.backend.DeleteCard(ctx, b, reviewCard); err != nil {
 			return err
 		}
 	}
+	if err := s.freeChildren(ctx, b, card); err != nil {
+		return err
+	}
+	return s.backend.DeleteCard(ctx, b, card)
+}
+
+// freeChildren releases a card's subtasks into standalone cards before the
+// card itself goes: they keep their own lives, their columns when those
+// still name the repository that holds them, and the parent's person when
+// they had none — so a freed child lands where its parent stood instead of
+// falling into Unassigned.
+func (s *Service) freeChildren(ctx context.Context, b board.Board, card board.Card) error {
 	anchor := card.ItemID
 	for _, c := range board.Children(b, card.ItemID) {
 		if err := s.backend.SetParent(ctx, b, c, ""); err != nil {
+			return err
+		}
+		// The child keeps the one column it carries (S4) — but only while
+		// that column still names the repository that holds it. A parent
+		// whose own domain came from a LINK (a review card takes its
+		// original's repository, G14) drops its children into the primary
+		// when it goes, and a column left behind there is the state every
+		// door refuses, reached by the one release that cannot ask the
+		// guard: its parent is being deleted.
+		if err := s.dropAStrandedColumn(ctx, b, c); err != nil {
 			return err
 		}
 		// An unassigned subtask takes the parent's person, so on the Team
@@ -2480,7 +2510,7 @@ func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card boa
 		}
 		s.logEvent(ctx, b, c, board.EventParent, card.Title, "")
 	}
-	return s.backend.DeleteCard(ctx, b, card)
+	return nil
 }
 
 // --- Weekly plan -----------------------------------------------------------
@@ -2593,12 +2623,44 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 			return ErrSubtaskDepth
 		}
 	}
-	if args.Parent == "" && args.ReviewOf == "" {
-		return nil // the project decides, and it decides for itself
+	// A COLUMN is what S4 is about, so a request that names one is asked
+	// even when it names no link: the column's repository must be the one
+	// that will hold the card. Only a request with neither has nothing to
+	// check — there the project decides, and it decides for itself.
+	if args.Epic == "" && args.Parent == "" && args.ReviewOf == "" {
+		return nil
 	}
 	probe := board.Card{
 		Parent: args.Parent, ReviewOf: args.ReviewOf, Team: args.Team,
 		Project: args.Project, Epic: args.Epic,
 	}
 	return refileGuard(b, probe, func(*board.Card) {})
+}
+
+// dropAStrandedColumn takes a card's column away when the card no longer
+// lives in that column's repository — the only correction of its kind,
+// for the only re-file that cannot be refused instead (a parent being
+// deleted releases its children whatever else is true). Everywhere else
+// this state is prevented; here it is repaired, and recorded.
+func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c board.Card) error {
+	if c.Epic == "" {
+		return nil
+	}
+	after := c
+	after.Parent = ""
+	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
+	if !known || cd == board.DomainOf(after, board.Resolver(b, "")) {
+		return nil
+	}
+	was := c.Project + " / " + c.Epic
+	if err := s.backend.SetEpic(ctx, b, c, ""); err != nil {
+		return err
+	}
+	if c.Project != "" {
+		if err := s.backend.SetProject(ctx, b, c, ""); err != nil {
+			return err
+		}
+	}
+	s.logEvent(ctx, b, c, board.EventEpic, was, "")
+	return nil
 }

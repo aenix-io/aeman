@@ -1688,3 +1688,81 @@ func TestRemoveFromThePlanWritesNothingWhenThereIsNoBand(t *testing.T) {
 		t.Fatalf("nothing to empty, nothing to write: %d writes (%v)", n, f.log)
 	}
 }
+
+// Create is a door like any other, and a COLUMN is what S4 is about: the
+// guard skipped every request that named no link, so the one gesture that
+// could still write "file here, column there" was the one that makes the
+// card. Both of the shapes the rest of the branch refuses elsewhere.
+func TestCreatingIntoAColumnOfAnotherRepositoryIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
+		{ItemID: "ep-far", Title: board.EpicStateTitle, Epic: "Far", Project: "engineering", Domain: "founders"},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders", "ep-far": "founders"}
+	svc := New(f)
+
+	// The team holds this card in founders; the column is of the primary.
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "closed card in a primary column", Team: "founders", Epic: "Loose",
+	}); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("a no-project column of the primary cannot hold it: %v", err)
+	}
+	// The same project NAME declared twice (G13): the COLUMN decides, and
+	// this one was declared in founders.
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "primary card in a closed column", Project: "engineering", Epic: "Far",
+	}); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the column's own repository is what answers: %v", err)
+	}
+	if n := f.count("CreateCard"); n != 0 {
+		t.Fatalf("and both refusals come before the write: %d creates", n)
+	}
+}
+
+// Freeing a subtask is the one ungroup that cannot ask the guard — its
+// parent is being deleted — and the invariant does NOT simply follow from
+// the other rules when the parent's domain comes from a LINK: a review
+// card takes its original's repository, a child grouped under it is
+// lawful there, and deleting the original drops the child into the
+// primary while its column stays behind. The freed card keeps its column
+// only while that column still names the repository that holds it.
+func TestFreeingASubtaskDropsAColumnItsRepositoryNoLongerHolds(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "orig", Title: "original", Team: "founders"},
+		{ItemID: "rev", Title: "review", ReviewOf: "orig"},
+		{ItemID: "kid", Title: "child", Parent: "rev", Epic: "Closed"},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
+	if err := New(f).DeleteCard(ctx, "acme", "orig"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "kid")
+	if !ok {
+		t.Fatal("a subtask is freed, not deleted, with its parent")
+	}
+	if c.Epic != "" {
+		cd, _ := board.ColumnDomain(b, c.Project, c.Epic)
+		t.Fatalf("the column names %q, the card lives in %q: %+v",
+			cd, board.DomainOf(c, board.Resolver(b, "")), c)
+	}
+}
+
+// The plan's × still deletes a card whose only home was the plan — the
+// rule api.md states — while writing nothing for a card that was never in
+// it. A SUBTASK is never deleted here: its home is its parent.
+func TestRemoveFromThePlanStillDeletesACardWithNowhereElseToBe(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "plan card", Team: "platform", Plan: board.PlanWed, Week: "2026-08-24"},
+	})
+	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := findCard(b, "c1"); ok {
+		t.Fatal("the plan was its only home")
+	}
+}
