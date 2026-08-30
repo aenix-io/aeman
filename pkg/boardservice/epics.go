@@ -191,25 +191,10 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	if err := guardRoster(b, card.Team, projectName); err != nil {
 		return err
 	}
-	// A column names a repository, and it must be the one that HOLDS the
-	// card's file. For an ordinary card the two agree by construction — the
-	// project decides the domain — but when a LINK outranks the project (a
-	// subtask riding its parent, a review card following its original, G14)
-	// the file stays put while the column can be dragged anywhere: a column
-	// of one repository would count a card another repository holds, and
-	// DeleteEpic would refuse for a card nobody there can see.
-	if epic != "" {
-		r := board.Resolver(b, "")
-		after := card
-		after.Project, after.Epic = projectName, epic
-		if cd, ok := board.ColumnDomain(b, projectName, epic); ok && board.DomainOf(after, r) != cd {
-			return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
-				ErrCrossDomain, epic)
-		}
-	}
-	// A tied card cannot be re-filed out of its process's repository — the
-	// project decides where a teamless card lives, so an attach (or a
-	// cleared column) can be a repository move in disguise.
+	// One guard for every reference this re-file could strand: the card's
+	// own column (it must name the repository that HOLDS the file — when a
+	// LINK outranks the project, the file stays put while the column moves),
+	// its process tie, and the columns of the cards whose files follow it.
 	if err := refileGuard(b, card, func(a *board.Card) {
 		a.Project = projectName
 		a.Epic = epic

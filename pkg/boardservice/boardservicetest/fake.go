@@ -30,7 +30,7 @@ type Backend struct {
 	nextID  int
 }
 
-// New builds a Backend seeded with cards and per-team sprint states.
+// SetRefs seeds the link references ResolveIssueRef will resolve.
 // Refs configures ResolveIssueRef answers, keyed by link URL (ignoring any
 // fragment). URLs absent from the map fail to resolve.
 func (f *Backend) SetRefs(refs map[string]board.Link) {
@@ -51,6 +51,9 @@ func (f *Backend) ResolveIssueRef(_ context.Context, link board.Link) (board.Lin
 	return resolved, nil
 }
 
+// New builds a Backend seeded with cards and per-team sprint states. A
+// sprint-state card among the cards seeds its team's sprint and the
+// repository the team was declared in, the way a real board records them.
 func New(cards []board.Card, states map[string]board.SprintState) *Backend {
 	if states == nil {
 		states = map[string]board.SprintState{}
@@ -145,9 +148,27 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	for k, v := range f.board.Domains {
 		domains[k] = v
 	}
+	states := map[string]board.SprintState{}
+	for k, v := range f.board.SprintStates {
+		states[k] = v
+	}
 	for _, c := range f.board.Cards {
 		if c.Domain != "" && board.IsStateTitle(c.Title) {
 			domains[c.ItemID] = c.Domain
+		}
+		if c.Title == board.SprintStateTitle {
+			// A team's repository is recorded on its sprint-state card, and
+			// its sprint pointers are that card's fields — split exactly as
+			// board.NewBoard does, or TeamDomain answers "" for every team
+			// and G46 passes silently through this fake.
+			if c.Team != "" {
+				if _, seeded := f.board.SprintStates[c.Team]; !seeded {
+					states[c.Team] = board.SprintState{
+						Current: c.SprintStart, Previous: c.StartDate, ItemID: c.ItemID,
+					}
+				}
+			}
+			continue
 		}
 		if c.Title == board.ProcessStateTitle {
 			if c.Process != "" {
@@ -186,10 +207,6 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 			continue
 		}
 		cards = append(cards, c)
-	}
-	states := map[string]board.SprintState{}
-	for k, v := range f.board.SprintStates {
-		states[k] = v
 	}
 	if len(domains) == 0 {
 		domains = nil // a single-repository board records none

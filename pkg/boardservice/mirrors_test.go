@@ -1125,3 +1125,67 @@ func TestReFilingAnOriginalCannotStrandItsReviewCardsColumn(t *testing.T) {
 		t.Fatalf("the review card's column would be stranded: %v", err)
 	}
 }
+
+// The remaining doors onto S4's invariant. A card's column must name the
+// repository that holds its file, and EVERY act that moves the file has to
+// say so — the guard that knows the rule was reached from three of them
+// and not from the other four.
+
+// Grouping moves the card's file, and the cascade drags its review card
+// along: the review card's own column stays behind.
+func TestGroupingCannotStrandAReviewCardsColumn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "orig", Title: "original", Team: "platform"},
+		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Epic: "Cozystack"},
+	})
+	if err := New(f).SetParent(ctx, "acme", "orig", "far"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the review card follows the original and would be stranded: %v", err)
+	}
+}
+
+// Pulling a subtask back out is a re-file too: the child leaves its
+// parent's repository for whatever its own project or team names.
+func TestUngroupingCannotStrandAFollowersColumn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "kid", Title: "child", Team: "platform", Parent: "far"},
+		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid",
+			Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+	})
+	if err := New(f).SetParent(ctx, "acme", "kid", ""); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the pull-out takes the review card's file out of its column's repository: %v", err)
+	}
+}
+
+// A card with no project follows its TEAM, and the no-project bucket is a
+// real column — re-teaming across repositories leaves that column behind.
+func TestReTeamingCannotStrandTheCardsOwnColumn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
+		{ItemID: "c1", Title: "loose column card", Team: "platform", Epic: "Loose"},
+	})
+	f.b.SprintStates["board"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-b"}
+	f.b.Domains = map[string]string{"st-b": "founders"}
+	svc := New(f)
+	if err := svc.SetTeam(ctx, "acme", "c1", "board", ""); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the card's column stays in the primary repository: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Team != "platform" {
+		t.Fatalf("the refused move must not land: %+v", c)
+	}
+}
+
+// The review link re-files the card to the original's repository (linked
+// cards first), and its own column does not follow.
+func TestSettingTheReviewLinkCannotStrandTheCardsOwnColumn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "c1", Title: "review", Project: "engineering", Epic: "Cozystack"},
+	})
+	if err := New(f).SetReviewOf(ctx, "acme", "c1", "orig"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the card would live in founders while its column names the primary: %v", err)
+	}
+}

@@ -319,15 +319,28 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 // the way it clears mirrors.
 func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	// Nothing to strand, nothing to check — and this runs per card of a
-	// moved COLUMN, so the scan comes before the two domain walks.
+	// moved COLUMN, so the scan comes before the domain walks.
 	followers := board.Followers(b, c.ItemID)
-	if c.Process == "" && len(followers) == 0 {
+	after := c
+	change(&after)
+	// The column to answer for is the one the card ENDS UP in: an attach
+	// gives a card its first, so reading the old pair here let every attach
+	// through.
+	if after.Epic == "" && c.Process == "" && len(followers) == 0 {
 		return nil
 	}
 	r := board.Resolver(b, "")
-	after := c
-	change(&after)
 	to := board.DomainOf(after, r)
+	// The card's OWN column first, against where the card ends up. This is
+	// the one check that matters even when the domain does not change —
+	// re-filing a subtask into another column moves no file, and the
+	// column still has to name the repository its parent's file lives in.
+	if after.Epic != "" {
+		if cd, ok := board.ColumnDomain(b, after.Project, after.Epic); ok && cd != to {
+			return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
+				ErrCrossDomain, after.Epic)
+		}
+	}
 	if to == board.DomainOf(c, r) {
 		return nil
 	}

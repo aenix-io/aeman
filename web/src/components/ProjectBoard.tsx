@@ -2086,7 +2086,14 @@ export function ProjectBoard({
                     other: a card in a column may be shown in a second one,
                     and for a card that never joined a sprint this is the
                     only place in the UI that can say so. */}
+                {/* Only for the OPEN menu: React evaluates a Dropdown's
+                    children whether or not it is open, and this walk is
+                    O(projects × epics) per slot — on every frame of a
+                    drag, since the slots recompute as the pointer moves. */}
                 {(() => {
+                  if (teamMenu !== card.itemId) {
+                    return null;
+                  }
                   const placements = placementsFor(card);
                   return placements.mirror ? (
                     <PlacementMenu

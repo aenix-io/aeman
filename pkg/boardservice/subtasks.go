@@ -3,7 +3,6 @@ package boardservice
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -43,15 +42,17 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 	if !ok || p.Title == board.SprintStateTitle || card.Title == board.SprintStateTitle {
 		return ErrParentNotFound
 	}
-	// EVERY refusal fires before anything is written: the weekly-plan
-	// handover below hands the child's slot to the parent, and a guard
-	// speaking after it left the cache holding a state the commit never
-	// made (the refusal aborts the write, not the cache mutation).
-	if err := groupingKeepsTheColumn(b, card, parent); err != nil {
-		return err
-	}
 	if p.Parent != "" || len(board.Children(b, card.ItemID)) > 0 {
 		return ErrSubtaskDepth
+	}
+	// Grouping moves the card's file to its parent's repository, so it is a
+	// re-file like any other: the same guard, the same three references it
+	// could strand. EVERY refusal fires before anything is written — the
+	// weekly-plan handover below hands the child's slot to the parent, and
+	// a guard speaking after it left the cache holding a state the commit
+	// never made (the refusal aborts the write, not the cache mutation).
+	if err := refileGuard(b, card, func(a *board.Card) { a.Parent = parent }); err != nil {
+		return err
 	}
 	// A weekly-plan card grouped under a parent hands its slot to the parent
 	// (the parent replaces it in the Weekly plan); a parent already in the
@@ -219,35 +220,17 @@ func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Car
 	return nil
 }
 
-// groupingKeepsTheColumn refuses a grouping that would strand the ONE
-// column a subtask may keep (G14). Its file follows its parent, so a
-// parent in another repository leaves that column naming a repository
-// that no longer holds the card — exactly what SetEpic refuses when the
-// card itself is moved. The column is the card's own, not a placement of
-// the parentless life that grouping may clear, so this refuses rather
-// than clearing.
-func groupingKeepsTheColumn(b board.Board, card board.Card, parent string) error {
-	if card.Epic == "" {
-		return nil
-	}
-	r := board.Resolver(b, "")
-	after := card
-	after.Parent = parent
-	// A column the roster does not declare names no repository to compare
-	// against — the same answer SetEpic gives, or one door refuses what the
-	// other allows.
-	if cd, ok := board.ColumnDomain(b, card.Project, card.Epic); ok && cd != board.DomainOf(after, r) {
-		return fmt.Errorf("%w: %q stands in a column of another repository — take it out of the column first",
-			ErrCrossDomain, card.Title)
-	}
-	return nil
-}
-
 // ungroup pulls a subtask back out as a standalone card: the parent link
 // goes, the child keeps what it has, and both sides record the change.
 func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) error {
 	if card.Parent == "" {
 		return nil
+	}
+	// A pull-out is a re-file too: the card leaves its parent's repository
+	// for whatever its own project or team names, and takes its followers'
+	// files with it.
+	if err := refileGuard(b, card, func(a *board.Card) { a.Parent = "" }); err != nil {
+		return err
 	}
 	if err := s.backend.SetParent(ctx, b, card, ""); err != nil {
 		return err
