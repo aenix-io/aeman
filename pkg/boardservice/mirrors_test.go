@@ -392,6 +392,31 @@ func TestLinkingAMirroredCardAsAReviewInsideOneRepositoryIsAllowed(t *testing.T)
 	}
 }
 
+// What rides a follower is not only its column. A review card tied to a
+// process of its original's repository is dragged along by the re-file
+// (the cascade follows reviewOf), and its tie — a reference by name that
+// never crosses a repository — would be left naming a process the new one
+// does not declare. The direct door refuses such a tie; the door that
+// moves the card underneath it must refuse too.
+func TestReFilingACardCannotStrandAFollowersProcessTie(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "the work", Team: "platform"},
+		{ItemID: "rev", Title: "review of the work", ReviewOf: "c1", Team: "platform",
+			Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders"}
+	err := New(f).SetTeam(ctx, "acme", "c1", "founders", "")
+	if !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the review card follows the original and its tie cannot: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Team != "platform" {
+		t.Fatalf("a refused re-file writes nothing: %+v", c)
+	}
+}
+
 // Renames follow the mirrors. The rename loops match cards through InEpic,
 // which now sees mirrors — rewriting the card's HOME fields for a mirror
 // match would corrupt it, and not rewriting the mirror would strand it

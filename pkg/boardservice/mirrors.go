@@ -262,7 +262,7 @@ func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, pr
 		// domain boundary (git-backend.md): a card of the closed repository
 		// naming a process declared in the shared one would hand the closed
 		// card's existence to readers who may not have it.
-		if board.ProcessDomain(b, process) != c.Domain {
+		if board.ProcessDomain(b, process) != board.FileDomain(b, c) {
 			return fmt.Errorf("%w: the process %q lives in another repository", ErrCrossDomain, process)
 		}
 	}
@@ -312,11 +312,12 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 //   - its PROCESS TIE, a reference by name that never crosses a domain
 //     (git-backend.md) — the mirror of the rule that keeps the process
 //     itself from moving away (SetProcessProject);
-//   - the COLUMNS OF THE CARDS THAT FOLLOW IT: a subtask's file follows
-//     its parent and a review card's follows its original (MultiBackend
-//     cascades the re-file along both links), while each one's own column
-//     stays behind, naming a repository that no longer holds it — the very
-//     state SetEpic refuses when the card itself is moved.
+//   - the COLUMNS AND TIES OF THE CARDS THAT FOLLOW IT: a subtask's file
+//     follows its parent and a review card's follows its original
+//     (MultiBackend cascades the re-file along both links), while each
+//     one's own column and process tie stay behind, naming a repository
+//     that no longer holds it — the very state SetEpic and SetCardProcess
+//     refuse when the card itself is moved.
 //
 // Explicit re-files refuse; grouping clears the tie instead (SetParent),
 // the way it clears mirrors.
@@ -360,12 +361,19 @@ func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownC
 	// SetEpicProject calls this once per card of a column.
 	followers := board.Followers(b, c.ItemID)
 	for _, f := range followers {
-		if f.Epic == "" {
-			continue
+		if f.Epic != "" {
+			if cd, ok := board.ColumnDomain(b, f.Project, f.Epic); ok && cd != to {
+				return fmt.Errorf("%w: %q follows this card and stands in a column of another repository — take it out of the column first",
+					ErrCrossDomain, f.Title)
+			}
 		}
-		if cd, ok := board.ColumnDomain(b, f.Project, f.Epic); ok && cd != to {
-			return fmt.Errorf("%w: %q follows this card and stands in a column of another repository — take it out of the column first",
-				ErrCrossDomain, f.Title)
+		// A follower's TIE rides it exactly as its column does. The card
+		// itself is refused a tie across the boundary (SetCardProcess), and
+		// a card dragged over that boundary by a link it does not control
+		// must not end up in the state the direct door forbids.
+		if f.Process != "" && board.ProcessDomain(b, f.Process) != to {
+			return fmt.Errorf("%w: %q follows this card and is tied to the process %q of another repository — untie it first",
+				ErrCrossDomain, f.Title, f.Process)
 		}
 	}
 	return nil

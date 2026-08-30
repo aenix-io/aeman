@@ -64,6 +64,24 @@ func (b Board) inPrimary(domain string) string {
 	return domain
 }
 
+// FileDomain is the repository whose files hold this card, read in the
+// board's ONE namespace: the stamp the store put on it — gitstore stamps
+// every card with its domain's name, the primary's included — with an
+// unstamped card read as the primary.
+//
+// It answers where the card IS, which is the question a rule about the
+// references written IN its file has to ask (a process tie names a process
+// of the repository the file sits in). HomeDomain answers where a card
+// WOULD live by the placement rule, which is what a CHANGE is judged
+// against. Comparing one against a raw stamp is how a named primary and an
+// unstamped entry became two repositories.
+func FileDomain(b Board, c Card) string {
+	if IsPersonalDomain(c.Domain) {
+		return c.Domain
+	}
+	return b.inPrimary(c.Domain)
+}
+
 // HomeDomain is the repository that HOLDS a card, in the same namespace:
 // the placement rule's answer (linked cards first, G14), with "nothing
 // places this card" read as the primary — which is where such a card's

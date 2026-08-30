@@ -197,6 +197,19 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 			t.Errorf("column %q/%q answers %q (known=%v), want %q", tc.project, tc.epic, cd, ok, tc.want)
 		}
 	}
+	// Where the card's FILE is, in the same namespace: the stamp, or the
+	// primary when the file carries none. A rule that reads a card's own
+	// stamp raw — the process tie asks whether the card and the process
+	// live together — compares it against answers that ARE normalized.
+	for _, tc := range []struct{ what, got, want string }{
+		{"an unstamped card", FileDomain(b, Card{}), "aeman-db"},
+		{"a stamped card", FileDomain(b, Card{Domain: "founders"}), "founders"},
+		{"a personal card", FileDomain(b, Card{Domain: PersonalDomain("kvaps")}), PersonalDomain("kvaps")},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s answers %q, want %q", tc.what, tc.got, tc.want)
+		}
+	}
 	// "Nothing declares this" stays its own answer: it decides nothing,
 	// and reading it as the primary would place a card by a team that
 	// does not exist.
