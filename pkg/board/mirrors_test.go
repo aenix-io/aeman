@@ -233,3 +233,41 @@ func TestAnUndeclaredHomeDoesNotDiscardTheOtherPlacements(t *testing.T) {
 		}
 	}
 }
+
+// The assembly reads one namespace. A board from the store names its
+// primary and stamps every entry with a domain NAME, so a card that
+// nothing places still belongs to that primary — and its mirrors are
+// lawful, where comparing a stamped column against an unstamped placement
+// dropped them on every load.
+func TestTheAssemblyKeepsMirrorsOnAStampedBoard(t *testing.T) {
+	b := NewBoardIn("aeman-db", []Card{
+		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering", Domain: "aeman-db"},
+		{ItemID: "ep-cozy", Title: EpicStateTitle, Epic: "Cozystack", Project: "engineering", Domain: "aeman-db"},
+		{ItemID: "ep-inbox", Title: EpicStateTitle, Epic: "Inbox", Domain: "aeman-db"},
+		{ItemID: "c1", Title: "in the bucket", Epic: "Inbox",
+			Mirrors: []Placement{{Project: "engineering", Epic: "Cozystack"}}},
+	})
+	for _, c := range b.Cards {
+		if c.ItemID == "c1" && len(c.Mirrors) != 1 {
+			t.Fatalf("a lawful mirror of the primary must survive: %+v", c.Mirrors)
+		}
+	}
+}
+
+// And ColumnDomain answers in that namespace: an entry the store stamped
+// with the primary's name, and one left unstamped by a hand-built board,
+// are the same repository.
+func TestColumnDomainAnswersInThePrimarysName(t *testing.T) {
+	b := NewBoardIn("aeman-db", []Card{
+		{ItemID: "ep-inbox", Title: EpicStateTitle, Epic: "Inbox", Domain: "aeman-db"},
+		{ItemID: "ep-bare", Title: EpicStateTitle, Epic: "Bare"},
+	})
+	stamped, _ := ColumnDomain(b, "", "Inbox")
+	bare, _ := ColumnDomain(b, "", "Bare")
+	if stamped != "aeman-db" || bare != "aeman-db" {
+		t.Fatalf("both are of the primary: %q and %q", stamped, bare)
+	}
+	if got := HomeDomain(b, Card{Epic: "Inbox"}); got != "aeman-db" {
+		t.Fatalf("a card nothing places belongs to the primary too: %q", got)
+	}
+}

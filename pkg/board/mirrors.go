@@ -48,5 +48,32 @@ func ColumnDomain(b Board, project, epic string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return b.Domains[col.ItemID], true
+	return b.inPrimary(b.Domains[col.ItemID]), true
+}
+
+// inPrimary reads an entry's stamp in ONE namespace: an unstamped entry
+// belongs to the primary, which the store names explicitly. Every "is this
+// the same repository" question must go through it, or a stamped primary
+// ("board") is compared against an unstamped one ("") and answers no.
+func (b Board) inPrimary(domain string) string {
+	if domain == "" {
+		return b.Primary
+	}
+	return domain
+}
+
+// HomeDomain is the repository that HOLDS a card, in the same namespace:
+// the placement rule's answer (linked cards first, G14), with "nothing
+// places this card" read as the primary — which is where such a card's
+// file goes.
+func HomeDomain(b Board, c Card) string {
+	// A PERSONAL card is placed by nothing — no team, no project, no link
+	// — so the placement rule says "" for it and only its file knows whose
+	// board it is. Every other card is answered by the rule, because the
+	// question is always where the card will BE after a change, not where
+	// its file happens to sit now.
+	if IsPersonalDomain(c.Domain) {
+		return c.Domain
+	}
+	return b.inPrimary(DomainOf(c, Resolver(b, b.Primary)))
 }

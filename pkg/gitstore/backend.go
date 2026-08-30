@@ -279,7 +279,14 @@ func (b *Backend) LoadBoard(_ context.Context, boardID string) (board.Board, err
 // becomes the state cards NewBoard splits back out, so the duplicate and
 // ordering rules stay in one place. Every synthesized card carries its
 // domain.
-func boardFromSnapshot(s Snapshot) board.Board {
+func boardFromSnapshot(s Snapshot) board.Board { return boardFromSnapshotIn("", s) }
+
+// boardFromSnapshotIn assembles the board for a store whose entries carry
+// their domain's NAME — which is every stamped snapshot, the primary
+// included — naming that primary so the assembly's own domain rules read
+// one namespace rather than comparing a stamped column against an
+// unstamped placement.
+func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	cards := make([]board.Card, 0, len(s.Cards)+len(s.Teams)+len(s.Projects)*4)
 	for _, t := range s.Teams {
 		cards = append(cards, board.Card{ItemID: t.ID, Title: board.SprintStateTitle, Team: t.Name,
@@ -308,7 +315,7 @@ func boardFromSnapshot(s Snapshot) board.Board {
 		}
 	}
 	cards = append(cards, s.Cards...)
-	bd := board.NewBoard(cards)
+	bd := board.NewBoardIn(primary, cards)
 	bd.Title = s.Board.Title
 	return bd
 }

@@ -1108,6 +1108,19 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		if c.Plan == board.PlanNone && (hasColumn(c) || c.Week == "") {
 			return nil
 		}
+		// A SUBTASK is never deleted by this ×: its home is its parent, so
+		// emptying the plan cannot be emptying its last home. It loses the
+		// plan's records and stays.
+		if c.Parent != "" {
+			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
+				return err
+			}
+			if err := s.clearPlanWeek(ctx, b, c); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
+			return nil
+		}
 
 		if hasColumn(c) {
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
@@ -2642,7 +2655,7 @@ func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c boar
 	after := c
 	after.Parent = ""
 	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
-	if !known || cd == board.DomainOf(after, board.Resolver(b, "")) {
+	if !known || cd == board.HomeDomain(b, after) {
 		return nil
 	}
 	was := c.Project + " / " + c.Epic

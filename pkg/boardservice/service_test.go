@@ -129,7 +129,7 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 			Domain: f.b.Domains[st.ItemID],
 		})
 	}
-	b := board.NewBoard(cards)
+	b := board.NewBoardIn(f.b.Primary, cards)
 	b.Board = f.b.Board
 	// The map is the caller's explicit word about a team's sprint, so it
 	// wins over a bare state card seeded beside it.

@@ -176,7 +176,7 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 			SprintStart: st.Current, StartDate: st.Previous,
 		})
 	}
-	b := board.NewBoard(cards)
+	b := board.NewBoardIn(f.board.Primary, cards)
 	b.Board = f.board.Board
 	return b, nil
 }

@@ -165,6 +165,12 @@ func (mb *MultiBackend) LoadBoard(_ context.Context, boardID string) (board.Boar
 	}
 	bd := boardFromSnapshot(s)
 	bd.Board = boardID
+	// The board's own repository, by name: the snapshot stamps every entry
+	// with its domain's name, the primary included, so the rules that ask
+	// "the same repository?" need to know which name that is.
+	if len(mb.domains) > 0 {
+		bd.Primary = mb.domains[0].Name
+	}
 	return bd, nil
 }
 

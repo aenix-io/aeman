@@ -80,7 +80,7 @@ func TeamDomain(b Board, team string) string {
 	if !ok {
 		return ""
 	}
-	return b.Domains[st.ItemID]
+	return b.inPrimary(b.Domains[st.ItemID])
 }
 
 // ProjectDomain is the repository a project was declared in, "" for the
@@ -93,7 +93,7 @@ func ProjectDomain(b Board, project string) string {
 	if !ok {
 		return ""
 	}
-	return b.Domains[id]
+	return b.inPrimary(b.Domains[id])
 }
 
 // RosterConflict reports a team and a project that live in different

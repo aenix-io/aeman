@@ -1871,3 +1871,98 @@ func TestTheDroppedColumnOfAFreedSubtaskIsLogged(t *testing.T) {
 		t.Fatalf("the repair must be in the card's history: %+v", f.eventsOf("kid"))
 	}
 }
+
+// stampedBoard is the board the STORE hands over: every roster entry
+// carries its domain's name, the primary included (gitstore stamps domain
+// zero like any other), and the board names that primary. Fixtures that
+// leave the primary blank model a shape no server produces — and the
+// column rules, which compare a stamped column against a card's
+// unstamped placement, were green on those fixtures and refused half the
+// board on a real one.
+func stampedBoard(cards []board.Card) *fakeBackend {
+	roster := []board.Card{
+		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering", Domain: "aeman-db"},
+		{ItemID: "ep-cozy", Title: board.EpicStateTitle, Epic: "Cozystack", Project: "engineering", Domain: "aeman-db"},
+		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox", Domain: "aeman-db"},
+		{ItemID: "ep-other", Title: board.EpicStateTitle, Epic: "Other", Domain: "aeman-db"},
+		{ItemID: "pr-s", Title: board.ProjectStateTitle, Project: "strategy", Domain: "founders"},
+		{ItemID: "ep-fund", Title: board.EpicStateTitle, Epic: "Fundraising", Project: "strategy", Domain: "founders"},
+	}
+	f := newFake(append(roster, cards...), map[string]board.SprintState{
+		"platform": {Current: board.TodayIso(), ItemID: "st-p"},
+	})
+	f.b.Primary = "aeman-db"
+	f.b.Domains = map[string]string{"st-p": "aeman-db"}
+	return f
+}
+
+// A card in a no-project column of the PRIMARY, placed by nothing else:
+// the column is stamped "aeman-db", the placement rule says "nothing
+// places this", and the two must still mean the same repository.
+func TestTheRulesReadOneNamespaceOnAStampedBoard(t *testing.T) {
+	f := stampedBoard([]board.Card{
+		{ItemID: "c1", Title: "in the bucket", Epic: "Inbox"},
+	})
+	svc := New(f)
+
+	// Creating into that column is not a cross-repository move.
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{Title: "another", Epic: "Inbox"}); err != nil {
+		t.Fatalf("the bucket is a column of this very board: %v", err)
+	}
+	// Nor is mirroring within it, nor attaching to a sibling column.
+	if err := svc.Mirror(ctx, "acme", "c1", "", "Other"); err != nil {
+		t.Fatalf("both columns are of the primary: %v", err)
+	}
+	none := ""
+	if err := svc.SetEpic(ctx, "acme", "c1", "Other", &none); err != nil {
+		t.Fatalf("and the card may be re-filed between them: %v", err)
+	}
+	// The closed repository is still closed to it.
+	if err := svc.Mirror(ctx, "acme", "c1", "strategy", "Fundraising"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("a column of another repository still cannot show it: %v", err)
+	}
+}
+
+// The repair must not fire on a card whose column was fine: deleting a
+// parent freed the child and stripped its column, because the column read
+// "aeman-db" and the freed card read "".
+func TestAStampedBoardKeepsAFreedSubtasksLawfulColumn(t *testing.T) {
+	f := stampedBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Inbox"},
+	})
+	if err := New(f).DeleteCard(ctx, "acme", "p"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "kid")
+	if !ok {
+		t.Fatal("the child is freed, not deleted")
+	}
+	if c.Epic != "Inbox" {
+		t.Fatalf("its column was never stranded and must survive: %+v", c)
+	}
+}
+
+// api.md and the matrix agree that the plan's × never deletes a SUBTASK —
+// its home is its parent, so the plan cannot be its last one. A subtask
+// carrying a plan WEEK but no band slipped past the no-band return and
+// was deleted.
+func TestThePlanRemoveNeverDeletesASubtaskThatCarriesAWeek(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "child with a stale week", Team: "platform", Parent: "p",
+			Week: "2026-08-24"},
+	})
+	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "c1")
+	if !ok {
+		t.Fatal("a subtask's home is its parent; the plan × cannot be its last home")
+	}
+	if c.Week != "" {
+		t.Fatalf("the plan's records are emptied: %+v", c)
+	}
+}

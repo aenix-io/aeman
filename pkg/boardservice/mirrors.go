@@ -83,8 +83,7 @@ func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, e
 	// its columns merged, G13), and the card's FILE says which repository
 	// holds it (linked cards first, G14: a review card lives with its
 	// original whatever its column says).
-	r := board.Resolver(b, "")
-	mine := board.DomainOf(c, r)
+	mine := board.HomeDomain(b, c)
 	if cd, ok := board.ColumnDomain(b, project, epic); !ok || cd != mine {
 		return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
 			ErrCrossDomain, epic)
@@ -324,8 +323,7 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	after := c
 	change(&after)
-	r := board.Resolver(b, "")
-	to := board.DomainOf(after, r)
+	to := board.HomeDomain(b, after)
 	// The card's OWN column first, against where the card ends up. This is
 	// the one check that matters even when the domain does not change —
 	// re-filing a subtask into another column moves no file, and the
@@ -336,7 +334,7 @@ func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 				ErrCrossDomain, after.Epic)
 		}
 	}
-	if to == board.DomainOf(c, r) {
+	if to == board.HomeDomain(b, c) {
 		return nil
 	}
 	// The tie the change ITSELF clears strands nothing: grouping clears it

@@ -303,6 +303,15 @@ type Board struct {
 	// one project's epics as its columns.
 	Projects      []string          `json:"projects,omitempty"`
 	ProjectStates map[string]string `json:"projectStates,omitempty"`
+	// Primary names the repository a board's own entries belong to — the
+	// first of its domains. The store STAMPS every roster entry with its
+	// domain's name, the primary included, while a card that nothing
+	// places resolves to "" ("no repository decides this"); the two are
+	// different namespaces, and comparing them directly answered "another
+	// repository" for every card of the primary that nothing placed.
+	// Boards built by hand (fixtures, older callers) leave it empty, which
+	// is the same thing said the other way.
+	Primary string `json:"primary,omitempty"`
 	// Domains maps a roster entry's id — a team's sprint-state card, a
 	// project, an epic column, a deadline, a process, a task — to the domain
 	// (repository) it was declared in; cards carry their own Domain. Nil on
@@ -314,8 +323,15 @@ type Board struct {
 // by team, "" = the no-team group). It mirrors mapProject's split: a sprint-state
 // card's Team is its key, its SprintStart is the team's current sprint and its
 // StartDate (the "Start" field) is the previous sprint.
-func NewBoard(cards []Card) Board {
-	b := Board{
+func NewBoard(cards []Card) Board { return NewBoardIn("", cards) }
+
+// NewBoardIn is NewBoard for a board whose entries are STAMPED with their
+// domain's name — which is every board the store hands over, the primary
+// included. The assembly's own rules ask "the same repository?" while it
+// runs (declaredMirrors), so the primary's name has to arrive with the
+// cards rather than be set on the result afterwards.
+func NewBoardIn(primary string, cards []Card) Board {
+	b := Board{Primary: primary,
 		Cards:        make([]Card, 0, len(cards)),
 		SprintStates: map[string]SprintState{},
 	}
@@ -557,7 +573,7 @@ func declaredMirrors(b Board, c Card) []Placement {
 	// only one that is the same on both sides. The home COLUMN is a
 	// different question wherever the two disagree (an older write, an
 	// outside writer), and answering it here kept mirrors Mirror refuses.
-	mine := DomainOf(c, Resolver(b, ""))
+	mine := HomeDomain(b, c)
 	kept := make([]Placement, 0, len(c.Mirrors))
 	for _, m := range c.Mirrors {
 		if d, ok := ColumnDomain(b, m.Project, m.Epic); !ok || d != mine {
