@@ -662,3 +662,59 @@ func TestAMirrorWrittenThroughTheStoreSurvivesTheNextLoad(t *testing.T) {
 		t.Fatalf("a cross-repository placement is not one this card can have: %+v", stored.Mirrors)
 	}
 }
+
+// The grid's × on a subtask standing in a column of its PARENT's
+// repository, against the real store: the pull-out moves the card's FILE
+// to the repository its own team names, the column cannot come with it and
+// is repaired away, and what is left is answered like any other columnless
+// card — demoted, not left alive in no column, no sprint and no plan. The
+// service tests prove the rule; this proves it survives the move, which is
+// the part a fake cannot show.
+func TestTheGridRemoveOnASubtaskAcrossRepositories(t *testing.T) {
+	shared := repoWith(t, map[string]string{
+		BoardPath:              "schema: 1\ntitle: b\n",
+		TeamPath("01T_PORTAL"): "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-17\n",
+	})
+	closed := repoWith(t, map[string]string{
+		ProjectPath("01P_SECRET"):          "name: secret\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		EpicPath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		// The no-project bucket of the CLOSED repository: a column that
+		// places no card by a project, so a card standing in it is placed
+		// by its own team — in the other repository.
+		ProjectPath("_"):           "rank: b\ncreated: 2026-06-02T08:00:00Z\n",
+		EpicPath("_", "01E_CHORE"): "name: Chores\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+		"cards/t/1/01PARENT1.md":   "---\ntitle: closed work\nteam: portal\nproject: secret\nepic: Risk\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n",
+		"cards/0/1/01KID00001.md":  "---\ntitle: the child\nteam: portal\nparent: 01PARENT1\nepic: Chores\nstart: 2026-08-20\nsprint: 2026-08-24\nrank: b\ncreated: 2026-08-20T09:00:00Z\n---\n",
+	})
+	clock := at("2026-08-28T09:00:00Z")
+	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
+		BackendOptions{Now: func() time.Time { clock = clock.Add(time.Second); return clock }})
+	ctx, flush := WithScope(ctxAs("kvaps"), Action{Name: "remove", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N2", Cards: []string{"01KID00001"}})
+	if err := boardservice.New(mb).Remove(ctx, "acme", "01KID00001", "grid"); err != nil {
+		t.Fatalf("the × must complete: %v", err)
+	}
+	if _, err := flush(); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := CardPath("01KID00001")
+	if _, err := shared.ReadFile(p); err != nil {
+		t.Fatalf("the file follows the card out of the group: %v", err)
+	}
+	if _, err := closed.ReadFile(p); err == nil {
+		t.Fatal("and does not stay behind in the parent's repository")
+	}
+	b, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kid, ok := findByID(b, "01KID00001")
+	if !ok {
+		t.Fatal("the card is kept: portal has a previous sprint to demote into")
+	}
+	if kid.Parent != "" || kid.Epic != "" {
+		t.Fatalf("out of the group, and out of a column its repository does not hold: %+v", kid)
+	}
+	if kid.SprintStart != "2026-08-17" {
+		t.Fatalf("demoted like any other columnless card, not left nowhere: %+v", kid)
+	}
+}
