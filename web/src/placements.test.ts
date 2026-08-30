@@ -7,7 +7,6 @@ import {
   drawnAsSlot,
   drawnOnProjectBoard,
   hasOriginToShow,
-  hasPlacementOffer,
   makeCardPlacements,
   mirrorTargets,
   movingSlot,
@@ -531,7 +530,7 @@ describe("drawnOnProjectBoard", () => {
   });
 });
 
-// #2 the slot menu must stay reachable: a subtask's team follows its
+// the slot menu must stay reachable: a subtask's team follows its
 // parent, but that is a reason to show the team read-only, not to take the
 // menu's handle away — the same menu carries "Mark as done" and "Mirror
 // to…".
@@ -542,7 +541,7 @@ describe("teamFollowsParent", () => {
   });
 });
 
-// #8 the progress bars count what the grid DRAWS. A card in a column with
+// the progress bars count what the grid DRAWS. A card in a column with
 // no dates has no slot — attaching a column to a dateless subtask (group,
 // then attach) put occupancy into the bar that nothing rendered.
 describe("drawnAsSlot", () => {
@@ -553,24 +552,6 @@ describe("drawnAsSlot", () => {
   });
 });
 
-// #6 an empty target list is still an empty section: [] is truthy, so the
-// origin block drew a stray divider for a card whose repository offers no
-// column at all.
-describe("hasPlacementOffer", () => {
-  it("is false when every section is empty", () => {
-    expect(hasPlacementOffer({ attach: [] })).toBe(false);
-    expect(hasPlacementOffer({})).toBe(false);
-    expect(hasPlacementOffer(undefined)).toBe(false);
-  });
-
-  it("is true as soon as one section has an entry", () => {
-    expect(hasPlacementOffer({ attach: [{ name: "engineering", epics: ["Cozystack"] }] })).toBe(
-      true,
-    );
-    expect(hasPlacementOffer({ processes: ["Invoicing"] })).toBe(true);
-    expect(hasPlacementOffer({ mirror: [{ name: "freedom", epics: ["Launch"] }] })).toBe(true);
-  });
-});
 
 // A project NAME can be declared in two repositories, its columns merged
 // under one entry (G13) while each column keeps its own. The picker must
@@ -609,7 +590,7 @@ describe("targets on an alias project", () => {
 // The origin block draws what the card IS, not what the menu can offer.
 // Asking the offer instead left a card in a no-project column — newly
 // mirrorable — with an empty block: a stray divider line, the artefact
-// hasPlacementOffer was written to remove.
+// the origin rule exists to prevent.
 describe("hasOriginToShow", () => {
   it("is what the block asks — the menus are its siblings, not its children", () => {
     // A fresh unattached card has attach targets and no origin: asking the

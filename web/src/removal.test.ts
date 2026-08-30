@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, planRemoval, removalKind , gridGesture } from "./removal";
+import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, planRemoval, gridGesture, removalKind } from "./removal";
 
 const ctx = { current: "2026-08-26", previous: "2026-08-25", today: "2026-08-26" };
 const card = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 0 };

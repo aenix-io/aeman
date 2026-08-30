@@ -450,22 +450,9 @@ export function drawnAsSlot(card: Pick<Card, "epic" | "startDate" | "week">): bo
   return !!card.epic && (!!card.startDate || !!card.week);
 }
 
-/** hasPlacementOffer reports whether a placement menu would draw anything.
- *  An empty section is still an empty section — `[]` is truthy, and a card
- *  in a repository with no columns to offer drew a stray divider. */
-export function hasPlacementOffer(
-  p: Pick<CardPlacements, "attach" | "processes" | "mirror"> | undefined,
-): boolean {
-  return (
-    (p?.attach?.length ?? 0) > 0 ||
-    (p?.processes?.length ?? 0) > 0 ||
-    (p?.mirror?.length ?? 0) > 0
-  );
-}
-
 /** hasOriginToShow reports whether the assign menu's origin block has any
  *  content — where the card came from. A different question from
- *  hasPlacementOffer ("is there anywhere to send it"): a card in a
+ *  what the menu can OFFER ("is there anywhere to send it"): a card in a
  *  no-project column can be mirrored, so the menu offers something, while
  *  the block itself would draw nothing but its own divider. A COLUMN
  *  counts, project or not — it is where the card stands. */

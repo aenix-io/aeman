@@ -154,10 +154,13 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 		if seeded[team] {
 			continue
 		}
+		// No domain here: the map carries none. A team whose REPOSITORY
+		// matters is seeded as a state card among the cards, which is the
+		// route docs/embedding.md documents and the only one that can say
+		// which repository declared it.
 		cards = append(cards, board.Card{
 			ItemID: st.ItemID, Title: board.SprintStateTitle, Team: team,
 			SprintStart: st.Current, StartDate: st.Previous,
-			Domain: f.board.Domains[st.ItemID],
 		})
 	}
 	b := board.NewBoard(cards)

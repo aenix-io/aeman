@@ -294,7 +294,7 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	if args.Personal {
 		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
-	if err := parentIsPossible(b, args); err != nil {
+	if err := linksArePossible(b, args); err != nil {
 		return board.Card{}, err
 	}
 	// An epic card lives on the Plan board: filed under its column, anchored
@@ -1110,13 +1110,16 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// week is not cleared either.) The COLUMN is what makes it a slot,
 		// and a column needs the epic side: a bare project name puts a card
 		// on no board at all, so it cannot be the home that spares it.
+		// Nothing in the plan, nothing to empty. A card with no band — and a
+		// SUBTASK never has one, since grouping clears it — would otherwise
+		// have empty fields cleared into this request's commit for a change
+		// nobody made. A SLOT's week is derived from its start date rather
+		// than stored plan membership, so it does not count as one here.
+		if c.Plan == board.PlanNone && (hasColumn(c) || c.Week == "") {
+			return nil
+		}
+
 		if hasColumn(c) {
-			// Nothing to empty, nothing to write: a card with no band
-			// cleared again lands a write in this request's commit for a
-			// change nobody made.
-			if c.Plan == board.PlanNone {
-				return nil
-			}
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
 			}
@@ -2571,25 +2574,30 @@ func (s *Service) groupOrUndo(ctx context.Context, b board.Board, card board.Car
 	return nil
 }
 
-// parentIsPossible answers, before anything is written, whether the card
-// being created may be born under the parent it names: the parent must
-// exist and may not be a subtask itself, and — since a card born under a
-// parent takes the parent's repository — that repository must be able to
-// hold the column asked for (S4). Refusing after the create instead leaves
-// a stray ADDED broadcast and a created event for a card that never was.
-func parentIsPossible(b board.Board, args CreateCardArgs) error {
-	if args.Parent == "" {
-		return nil
+// linksArePossible answers, before anything is written, whether the card
+// being created may be born as asked. A named PARENT must exist and may
+// not be a subtask itself; and since a LINK decides which repository holds
+// a card — reviewOf first, then parent, then the project (G14) — the
+// repository the new card lands in must be able to hold the column asked
+// for (S4). Refusing after the create instead leaves a stray ADDED
+// broadcast and a created event for a card that never was, which is why
+// the probe models every link the request carries: reading only the parent
+// answered for a different card than the one about to be written.
+func linksArePossible(b board.Board, args CreateCardArgs) error {
+	if args.Parent != "" {
+		p, ok := findCard(b, args.Parent)
+		if !ok || p.Title == board.SprintStateTitle {
+			return ErrParentNotFound
+		}
+		if p.Parent != "" {
+			return ErrSubtaskDepth
+		}
 	}
-	p, ok := findCard(b, args.Parent)
-	if !ok || p.Title == board.SprintStateTitle {
-		return ErrParentNotFound
-	}
-	if p.Parent != "" {
-		return ErrSubtaskDepth
+	if args.Parent == "" && args.ReviewOf == "" {
+		return nil // the project decides, and it decides for itself
 	}
 	probe := board.Card{
-		Parent: args.Parent, Team: args.Team,
+		Parent: args.Parent, ReviewOf: args.ReviewOf, Team: args.Team,
 		Project: args.Project, Epic: args.Epic,
 	}
 	return refileGuard(b, probe, func(*board.Card) {})

@@ -624,10 +624,11 @@ func TestUnbindingAMirroredColumnSaysUnmirrorFirst(t *testing.T) {
 	}
 }
 
-// A subtask carries at most one column of its own (S4) — never two and render it
-// under its parent — so a mirror on it would be a placement nobody sees:
-// counted by InEpic, invisible on every grid, and DeleteEpic would refuse a
-// column that looks empty. Mirroring a subtask is refused, and grouping a
+// A subtask carries at most ONE column of its own (S4), which the Project
+// board draws and counts like any other slot. A second placement it may
+// not have: its file rides its parent, so every mirror would be stranded
+// the moment the parent changes repository — naming a column of a
+// repository that no longer holds the card. Mirroring a subtask is refused, and grouping a
 // mirrored card clears its mirrors the way it clears its plan slot; the
 // home column stays (G14 blesses a subtask carrying its own column), so the
 // emptied column can then be deleted.
@@ -1620,5 +1621,70 @@ func TestUnbindingACollidingColumnIsRefused(t *testing.T) {
 	})
 	if err := New(f).SetEpicProject(ctx, "acme", "freedom", "Launch", ""); err == nil {
 		t.Fatal("the no-project bucket already holds a Launch column")
+	}
+}
+
+// The create door's guard ran only when a PARENT was named, and a review
+// link outranks the project just as a parent does (G14): a card created
+// with reviewOf in one repository and a column in another was born into
+// the state every other door refuses — file here, column there.
+func TestCreatingAColumnedReviewCardAcrossRepositoriesIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+	})
+	svc := New(f)
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "review", ReviewOf: "orig",
+		Project: "engineering", Epic: "Cozystack",
+	}); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the card would live in founders while its column names the primary: %v", err)
+	}
+	if n := f.count("CreateCard"); n != 0 {
+		t.Fatalf("and the refusal comes before the write: %d creates", n)
+	}
+}
+
+// The probe that answers before the write must model the card the request
+// actually asks for. It carried the parent but not the review link, and
+// DomainOf reads the link FIRST — so the two disagreed, the guard passed,
+// and the real refusal came from inside SetParent: after the create, with
+// the stray ADDED broadcast and created event that probe exists to avoid.
+func TestTheCreateProbeReadsTheLinkBeforeTheParent(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "orig", Title: "original", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+	})
+	svc := New(f)
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "review of an original elsewhere", Team: "platform",
+		Parent: "p", ReviewOf: "orig",
+		Project: "engineering", Epic: "Cozystack",
+	}); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the link decides where this card lives: %v", err)
+	}
+	if n := f.count("CreateCard"); n != 0 {
+		t.Fatalf("nothing may be written before the refusal: %d creates", n)
+	}
+}
+
+// The plan's × empties the weekly plan. A card with no band there has
+// nothing to empty — and a SUBTASK never has one, since grouping clears
+// it — so the gesture writes nothing at all rather than clearing an empty
+// field twice into the request's commit.
+func TestRemoveFromThePlanWritesNothingWhenThereIsNoBand(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "plain child", Team: "platform", Parent: "p",
+			SprintStart: board.TodayIso()},
+	})
+	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := findCard(b, "c1"); !ok {
+		t.Fatal("the plan × does not delete a card that was never in the plan")
+	}
+	if n := f.count("SetPlan") + f.count("SetWeek"); n != 0 {
+		t.Fatalf("nothing to empty, nothing to write: %d writes (%v)", n, f.log)
 	}
 }
