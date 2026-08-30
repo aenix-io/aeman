@@ -1570,27 +1570,6 @@ func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
 	}
 }
 
-// Every create door carries what it was given. The plan path validated the
-// parent — refusing an impossible one — and then built its card without
-// it: a request for a child answered with a top-level plan card, 201 and
-// no error.
-func TestCreatingAPlanCardUnderAParentGroupsIt(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-	})
-	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "planned child", Team: "platform", Parent: "p", Plan: board.PlanWed,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	got, _ := findCard(b, c.ItemID)
-	if got.Parent != "p" {
-		t.Fatalf("the parent was asked for and must land: %+v", got)
-	}
-}
-
 // The review link the same way, on the epic path.
 func TestCreatingAColumnedReviewCardKeepsTheLink(t *testing.T) {
 	f := mirrorBoard([]board.Card{
@@ -1764,5 +1743,81 @@ func TestRemoveFromThePlanStillDeletesACardWithNowhereElseToBe(t *testing.T) {
 	b, _ := f.LoadBoard(ctx, "acme")
 	if _, ok := findCard(b, "c1"); ok {
 		t.Fatal("the plan was its only home")
+	}
+}
+
+// The personal door is a create door like the others: a parent it names
+// must exist, must not be a subtask itself, and must live in the
+// repository the new card will — a personal card's file is in the
+// actor's own repository, so a team parent elsewhere would put the two
+// apart, which is the state the whole rule refuses. And it must actually
+// GROUP: writing the field straight through left a card that was a
+// subtask in name and in nothing else — no sprint or person synced, no
+// plan slot handed over, no riders cleared.
+func TestThePersonalDoorValidatesAndGroupsLikeTheOthers(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "mine", Title: "my own", Domain: board.PersonalDomain("kvaps"),
+			Assignees: []string{"kvaps"}},
+		{ItemID: "kid", Title: "already a subtask", Parent: "mine",
+			Domain: board.PersonalDomain("kvaps")},
+		{ItemID: "team", Title: "a team card", Team: "platform"},
+	})
+	svc := New(f)
+	actor := board.WithActor(ctx, "kvaps")
+
+	if _, err := svc.CreateCard(actor, "acme", CreateCardArgs{
+		Title: "child", Personal: true, Parent: "ghost",
+	}); !errors.Is(err, ErrParentNotFound) {
+		t.Fatalf("a parent that does not exist: %v", err)
+	}
+	if _, err := svc.CreateCard(actor, "acme", CreateCardArgs{
+		Title: "child", Personal: true, Parent: "kid",
+	}); !errors.Is(err, ErrSubtaskDepth) {
+		t.Fatalf("subtasks are one level deep: %v", err)
+	}
+	if _, err := svc.CreateCard(actor, "acme", CreateCardArgs{
+		Title: "child", Personal: true, Parent: "team",
+	}); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("a personal card's file is the actor's own: %v", err)
+	}
+	// And the lawful one is really grouped: the parent's person is on it,
+	// which only SetParent does.
+	c, err := svc.CreateCard(actor, "acme", CreateCardArgs{
+		Title: "child", Personal: true, Parent: "mine",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	got, _ := findCard(b, c.ItemID)
+	if got.Parent != "mine" {
+		t.Fatalf("grouped: %+v", got)
+	}
+	if !f.saw("SetParent " + c.ItemID + " mine") {
+		t.Fatalf("the grouping must go through SetParent, not the field: %v", f.log)
+	}
+}
+
+// A subtask is never a plan card — grouping hands its slot to the parent —
+// so a create asking for both is asking for two contradictory things. It
+// used to be answered by MOVING THE PARENT into the band the request named
+// for the child: a mutation of a card nobody asked about.
+func TestCreatingAPlanCardUnderAParentIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+	})
+	svc := New(f)
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "planned child", Team: "platform", Parent: "p", Plan: board.PlanWed,
+	}); !errors.Is(err, ErrPlanSubtask) {
+		t.Fatalf("a subtask has no band of its own: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	parent, _ := findCard(b, "p")
+	if parent.Plan != board.PlanNone {
+		t.Fatalf("and the parent keeps its own plan: %+v", parent)
+	}
+	if n := f.count("CreateCard"); n != 0 {
+		t.Fatalf("the refusal comes before the write: %d creates", n)
 	}
 }

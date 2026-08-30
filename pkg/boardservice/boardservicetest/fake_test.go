@@ -84,3 +84,35 @@ func TestTheFakeKeepsTheNoTeamGroupAndTheBoardOrder(t *testing.T) {
 		t.Fatalf("board order is the state cards' order: %+v", b.TeamOrder)
 	}
 }
+
+// The same seed must give the same board, call after call. The sprint
+// states are a MAP, and turning them into cards in map order made the
+// board's team order — and therefore every rank derived from it — differ
+// between runs: a migration over this fake produced two different trees
+// from one source, which is exactly what its determinism test forbids.
+func TestTheFakeHandsOutTheSameBoardEveryTime(t *testing.T) {
+	f := New(nil, map[string]board.SprintState{
+		"platform":   {Current: "2026-08-24", ItemID: "st-p"},
+		"founders":   {Current: "2026-08-24", ItemID: "st-f"},
+		"backoffice": {Current: "2026-08-24", ItemID: "st-b"},
+		"":           {Current: "2026-08-24", ItemID: "st-none"},
+	})
+	first, err := f.LoadBoard(t.Context(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 20 {
+		again, err := f.LoadBoard(t.Context(), "acme")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(again.TeamOrder) != len(first.TeamOrder) {
+			t.Fatalf("team count changed: %v vs %v", first.TeamOrder, again.TeamOrder)
+		}
+		for j := range first.TeamOrder {
+			if first.TeamOrder[j] != again.TeamOrder[j] {
+				t.Fatalf("board order is not stable: %v vs %v", first.TeamOrder, again.TeamOrder)
+			}
+		}
+	}
+}

@@ -17,6 +17,13 @@ var ErrSubtaskDepth = errors.New("subtasks are one level deep")
 // board (or cannot hold subtasks).
 var ErrParentNotFound = errors.New("parent card not found")
 
+// ErrPlanSubtask is asking for a card that is both a subtask and a weekly-
+// plan card. A subtask has no band of its own — grouping hands its slot to
+// the parent — so the pair is two contradictory requests, and answering it
+// by moving the PARENT into the band named for the child mutates a card
+// nobody asked about.
+var ErrPlanSubtask = errors.New("a subtask has no weekly-plan band of its own")
+
 // ErrOpenSubtasks is returned when a card with unfinished subtasks is being
 // completed — closing the parent is the human's final call, made only once
 // every subtask is done.

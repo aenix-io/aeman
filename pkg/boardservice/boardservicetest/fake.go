@@ -6,6 +6,7 @@ package boardservicetest
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -128,9 +129,10 @@ func (f *Backend) FailLoad(err error) {
 // through board.NewBoard, so the assembly's own rules (the state-card
 // split, the derived week, the mirrors the roster disowns) answer here
 // exactly as they answer the server: a fake that assembles a board by hand
-// tests the service against a board nobody has. Sprint states and domains
-// seeded directly are overlaid on top, for callers that set them without
-// state cards.
+// tests the service against a board nobody has. A sprint state passed to
+// New becomes a state CARD before the assembly runs, so it is seeded the
+// way a real board records one; the repository a team was declared in
+// travels only on such a card, since the map has no field for it.
 func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -150,7 +152,18 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 			seeded[c.Team] = true
 		}
 	}
-	for team, st := range f.board.SprintStates {
+	// In a fixed order: these cards become the board's TEAM ORDER, and a
+	// map's iteration order is random per run — a fake that hands out a
+	// different board each time makes everything downstream nondeterministic,
+	// which is how a migration's ranks came out different on two runs over
+	// the same source.
+	teams := make([]string, 0, len(f.board.SprintStates))
+	for team := range f.board.SprintStates {
+		teams = append(teams, team)
+	}
+	sort.Strings(teams)
+	for _, team := range teams {
+		st := f.board.SprintStates[team]
 		if seeded[team] {
 			continue
 		}

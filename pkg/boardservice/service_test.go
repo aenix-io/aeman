@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -107,7 +108,18 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 			seeded[c.Team] = true
 		}
 	}
-	for team, st := range f.b.SprintStates {
+	// In a fixed order: these cards become the board's TEAM ORDER, and a
+	// map's iteration order is random per run — a fake that hands out a
+	// different board each time makes everything downstream nondeterministic,
+	// which is how a migration's ranks came out different on two runs over
+	// the same source.
+	teams := make([]string, 0, len(f.b.SprintStates))
+	for team := range f.b.SprintStates {
+		teams = append(teams, team)
+	}
+	sort.Strings(teams)
+	for _, team := range teams {
+		st := f.b.SprintStates[team]
 		if seeded[team] {
 			continue
 		}

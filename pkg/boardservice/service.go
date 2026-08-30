@@ -292,6 +292,12 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// board's placement: it has a zone, dates and a body, and none of team,
 	// sprint, column or plan band — those are the team board's coordinates.
 	if args.Personal {
+		// The links are checked first here too: the personal door used to
+		// write the parent field straight through, so a personal subtask
+		// was born a subtask in name and in nothing else.
+		if err := linksArePossible(b, args); err != nil {
+			return board.Card{}, err
+		}
 		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	if err := linksArePossible(b, args); err != nil {
@@ -319,22 +325,11 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 			Assignee: args.Assignee,
 			Team:     args.Team,
 			ReviewOf: args.ReviewOf,
-			// Born parented, like every other create door: the parent was
-			// validated above, and dropping it here answered a request for
-			// a child with a top-level plan card — 201, no error, nothing
-			// grouped.
-			Parent: args.Parent,
 		})
 		card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 		if err == nil {
 			s.resolveTitleAsync(ctx, b, card, pendingRef)
 			s.logEvent(ctx, b, card, board.EventCreated, "", "")
-		}
-		if err == nil && args.Parent != "" {
-			if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
-				return board.Card{}, perr
-			}
-			card.Parent = args.Parent
 		}
 		return card, err
 	}
@@ -2621,6 +2616,9 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 		}
 		if p.Parent != "" {
 			return ErrSubtaskDepth
+		}
+		if args.Plan != board.PlanNone {
+			return ErrPlanSubtask
 		}
 	}
 	// A COLUMN is what S4 is about, so a request that names one is asked
