@@ -83,7 +83,7 @@ func TestListCardsSummaryOmitsBodies(t *testing.T) {
 	}
 }
 
-// The Project board draws a subtask that carries its own column (S4), so
+// The Project board draws a subtask that carries its own column (G57), so
 // the view has to deliver it — and deliver it on its OWN merit, not as a
 // rider of a delivered parent: the case the rule exists for is a parent
 // that lives elsewhere entirely (the weekly plan, the working area) and is
@@ -150,6 +150,34 @@ func TestProjectViewKeepsToTheProjectItWasAskedFor(t *testing.T) {
 	for _, c := range FilterCards(b, Selector{View: "project", Project: "engineering"}) {
 		if c.ItemID == "kid" {
 			t.Fatal("another project's card rides in on nobody's ticket")
+		}
+	}
+}
+
+// The riding parent is placed in BOARD ORDER, not appended as a tail: a
+// listing whose rows reshuffle on every refetch is what withSubtasks goes
+// out of its way to avoid for children, and the same must hold here.
+func TestTheProjectViewKeepsBoardOrderWithARidingParent(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
+		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Redis App", Project: "freedom"},
+		{ItemID: "first", Title: "a columned card", Project: "freedom", Epic: "Redis App"},
+		{ItemID: "parent", Title: "the parent, no column of its own"},
+		{ItemID: "child", Title: "a subtask with one", Parent: "parent",
+			Project: "freedom", Epic: "Redis App"},
+		{ItemID: "last", Title: "another columned card", Project: "freedom", Epic: "Redis App"},
+	})
+	var got []string
+	for _, c := range FilterCards(b, Selector{View: "project"}) {
+		got = append(got, c.ItemID)
+	}
+	want := []string{"first", "parent", "child", "last"}
+	if len(got) != len(want) {
+		t.Fatalf("delivered %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("board order: delivered %v, want %v", got, want)
 		}
 	}
 }

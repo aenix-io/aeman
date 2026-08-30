@@ -103,7 +103,7 @@ A tool that edits the repository directly (a plugin driving `git` itself) must r
 
 ## Testing against the board service
 
-`pkg/boardservice/boardservicetest` is a backend fake to run the service against in your own tests. Since v0.29 it splits the hidden state cards the way a real board does: a sprint-state card among the seeded cards sets its team's sprint, the repository the team was declared in and its place in board order, and is no longer returned as a card row. A test that counted rows, or that expected a team's repository to come from `SprintStates` alone, should be read again — the change is what lets the domain rules (G14, G46, S4) be exercised through the fake at all.
+`pkg/boardservice/boardservicetest` is a backend fake to run the service against in your own tests. Since the release that carries this note (v0.29.0 or later) it splits the hidden state cards the way a real board does: a sprint-state card among the seeded cards sets its team's sprint, the repository the team was declared in and its place in board order, and is no longer returned as a card row. A test that counted rows, or that expected a team's repository to come from `SprintStates` alone, should be read again — the change is what lets the domain rules (G14, G46, G57) be exercised through the fake at all.
 
 ## Versioning
 

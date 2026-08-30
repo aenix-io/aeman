@@ -96,7 +96,7 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ ...inSprint, parent: "p" }, ctx)).toBe("delete");
     expect(gridRemoval({ ...inSprint, parent: "p", plan: "fri" }, ctx)).toBe("delete");
     // A COLUMN is the exception: it is a home of its own, drawn and counted
-    // on the Project board (S4), and a card filed under one is never
+    // on the Project board (G57), and a card filed under one is never
     // deleted by either ×.
     expect(gridRemoval({ ...inSprint, parent: "p", epic: "Auth" }, ctx)).toBe("ungroup");
   });

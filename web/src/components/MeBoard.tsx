@@ -1142,7 +1142,7 @@ export function MeBoard({
       assignees: [],
       sprintStart: undefined,
       ...(card.epic ? {} : { startDate: undefined, day: undefined }),
-      // A subtask standing in a column leaves the GROUP here (S4): the
+      // A subtask standing in a column leaves the GROUP here (G57): the
       // server ungroups it and keeps it in the column, and the row must
       // stop being drawn under its parent at once or the × looks inert.
       ...(card.parent && card.epic ? { parent: undefined } : {}),

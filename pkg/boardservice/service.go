@@ -291,18 +291,13 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// A personal card lives in the actor's own repository, outside the team
 	// board's placement: it has a zone, dates and a body, and none of team,
 	// sprint, column or plan band — those are the team board's coordinates.
-	if args.Personal {
-		// The links are checked first here too: the personal door used to
-		// write the parent field straight through, so a personal subtask
-		// was born a subtask in name and in nothing else.
-		if err := linksArePossible(b, args); err != nil {
-			return board.Card{}, err
-		}
-		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
-	}
 	if err := linksArePossible(b, args); err != nil {
 		return board.Card{}, err
 	}
+	if args.Personal {
+		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
+	}
+
 	// An epic card lives on the Plan board: filed under its column, anchored
 	// to its week row, optionally spanning several weeks via start..day. It
 	// joins no sprint and no plan band — assigning it to a team later places
@@ -511,7 +506,7 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 		s.resolveTitleAsync(ctx, b, card, pendingRef)
 	}
 	// A subtask may carry a column of its own (G14), and the Project board
-	// draws it there (S4) — so the pair is a state to produce, not one to
+	// draws it there (G57) — so the pair is a state to produce, not one to
 	// drop on the floor: dropping it answered a request for a child with a
 	// top-level card standing in someone's planner. Grouping goes through
 	// SetParent like every other, guards and riders included.
@@ -1150,7 +1145,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	// thing syncChildrenSprint prevents everywhere else — and a subtask left
 	// in an earlier sprint still renders under its parent, so the × would
 	// look like it had done nothing. It is deleted — UNLESS it stands in a
-	// COLUMN, which is a home of its own (S4). Then the × takes it OUT OF
+	// COLUMN, which is a home of its own (G57). Then the × takes it OUT OF
 	// THE GROUP and leaves it there: releasing it while still a subtask
 	// would either break the person/sprint pair its parent owns (S3) or be
 	// undone by the next carry-over, which takes every open child along.
@@ -2478,7 +2473,7 @@ func (s *Service) freeChildren(ctx context.Context, b board.Board, card board.Ca
 		if err := s.backend.SetParent(ctx, b, c, ""); err != nil {
 			return err
 		}
-		// The child keeps the one column it carries (S4) — but only while
+		// The child keeps the one column it carries (G57) — but only while
 		// that column still names the repository that holds it. A parent
 		// whose own domain came from a LINK (a review card takes its
 		// original's repository, G14) drops its children into the primary
@@ -2604,7 +2599,7 @@ func (s *Service) groupOrUndo(ctx context.Context, b board.Board, card board.Car
 // not be a subtask itself; and since a LINK decides which repository holds
 // a card — reviewOf first, then parent, then the project (G14) — the
 // repository the new card lands in must be able to hold the column asked
-// for (S4). Refusing after the create instead leaves a stray ADDED
+// for (G57). Refusing after the create instead leaves a stray ADDED
 // broadcast and a created event for a card that never was, which is why
 // the probe models every link the request carries: reading only the parent
 // answered for a different card than the one about to be written.
@@ -2621,7 +2616,7 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 			return ErrPlanSubtask
 		}
 	}
-	// A COLUMN is what S4 is about, so a request that names one is asked
+	// A COLUMN is what G57 is about, so a request that names one is asked
 	// even when it names no link: the column's repository must be the one
 	// that will hold the card. Only a request with neither has nothing to
 	// check — there the project decides, and it decides for itself.

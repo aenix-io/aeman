@@ -415,7 +415,7 @@ export function movingSlot(
 /** drawnOnProjectBoard reports whether the column grid draws this card:
  *  it must stand in one of the shown columns, by its own (project, epic)
  *  pair or by a mirror. A SUBTASK counts like any other card — it carries
- *  its column, and hiding it took whole groups off the planner (S4) — but
+ *  its column, and hiding it took whole groups off the planner (G57) — but
  *  one with no column of its own is on no Project board at all. `shown`
  *  holds the column keys, project and epic joined by a NUL. */
 export function drawnOnProjectBoard(
@@ -461,5 +461,34 @@ export function hasOriginToShow(
 ): boolean {
   return (
     !!card.process || !!card.project || !!card.epic || (card.mirrors?.length ?? 0) > 0
+  );
+}
+
+/** projectsAColumnCanJoin narrows the picker that moves a column between
+ *  projects. A column cannot change REPOSITORY — its stub is written back
+ *  to the backend that holds it — so only the projects of its own
+ *  repository can take it, and the server refuses the rest (G57). The
+ *  no-project bucket is always reachable: unbinding moves nothing. */
+export function projectsAColumnCanJoin(
+  columnDomain: string,
+  projects: readonly string[],
+  projectDomains: RosterDomains,
+): string[] {
+  return projects.filter((p) => rosterDomain(projectDomains, p) === columnDomain);
+}
+
+/** teamsACardCanTake narrows the team picker for a card standing in a
+ *  COLUMN. A team decides where a card lives when its project does not, so
+ *  a card in a no-project column may only take teams of that column's
+ *  repository — every other entry is a refusal (G57). A card outside every
+ *  column is constrained by its project instead (offerableTeams). */
+export function teamsACardCanTake(
+  columnDomain: string,
+  teams: readonly string[],
+  teamDomains: RosterDomains,
+  current: string,
+): string[] {
+  return teams.filter(
+    (t) => t === current || rosterDomain(teamDomains, t) === columnDomain,
   );
 }

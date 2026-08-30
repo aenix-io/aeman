@@ -11,11 +11,13 @@ import {
   mirrorTargets,
   movingSlot,
   placementTargets,
+  projectsAColumnCanJoin,
   removeFromProjectOutcome,
   settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
   teamFollowsParent,
+  teamsACardCanTake,
   type CardPlacements,
 } from "./placements";
 import type { Card } from "./providers/types";
@@ -195,7 +197,7 @@ describe("placementTargets", () => {
   });
 
   it("offers a SUBTASK a column to attach to, but never a second one", () => {
-    // A subtask may carry ONE column of its own (G14, S4) — so the × that
+    // A subtask may carry ONE column of its own (G14, G57) — so the × that
     // takes the column away must have a way back, or the Project board
     // hands out a one-way door. What it may not have is a SECOND placement
     // or a process tie: its file rides its parent, and both would be
@@ -614,5 +616,31 @@ describe("hasOriginToShow", () => {
 
   it("is false for a card that came from nowhere", () => {
     expect(hasOriginToShow({} as Card)).toBe(false);
+  });
+});
+
+// The pickers narrow themselves to what the server accepts — the promise
+// this module opens with. Two were left offering refusals after the column
+// rules changed: a column cannot change repository at all, and a card in a
+// no-project column takes its repository from its TEAM, so only that
+// repository's teams can hold it.
+describe("pickers that must not offer a refusal", () => {
+  it("offers a column only the projects of its own repository", () => {
+    const projects = ["engineering", "strategy"];
+    const domains = { strategy: "founders" };
+    expect(projectsAColumnCanJoin("", projects, domains)).toEqual(["engineering"]);
+    expect(projectsAColumnCanJoin("founders", projects, domains)).toEqual(["strategy"]);
+  });
+
+  it("offers a card in a closed column only that repository's teams", () => {
+    const teams = ["platform", "board"];
+    const domains = { board: "founders" };
+    expect(teamsACardCanTake("founders", teams, domains, "")).toEqual(["board"]);
+    // What the card already carries stays on the list, so a pair written
+    // before the rule can be seen and changed.
+    expect(teamsACardCanTake("founders", teams, domains, "platform")).toEqual([
+      "platform",
+      "board",
+    ]);
   });
 });

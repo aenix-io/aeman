@@ -31,7 +31,7 @@ var ErrNoColumn = errors.New("the card is in no project column")
 var ErrOwnColumn = errors.New("the card's own column is not a mirror target")
 
 // ErrSubtaskMirror is mirroring a subtask: it carries the ONE column of
-// its own that G14 allows (and S4 draws), but its file rides its parent —
+// its own that G14 allows (and G57 draws), but its file rides its parent —
 // a second placement would be stranded the moment the parent changes
 // repository, naming a repository that no longer holds the card.
 var ErrSubtaskMirror = errors.New("a subtask rides its parent and cannot be mirrored")
@@ -141,7 +141,7 @@ func (s *Service) Unmirror(ctx context.Context, boardID string, itemID, project,
 //     moved it); an untouched card is deleted outright. The UI asks first
 //     when work would go (deleteWarning).
 //   - A SUBTASK is never deleted here, however untouched: its other home
-//     is its parent, so the × only takes the column away (S4).
+//     is its parent, so the × only takes the column away (G57).
 func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, epic string) error {
 	// A column is named by its EPIC — an empty epic is no column: without
 	// this, a card standing in no column "matched" ("", "") and fell

@@ -11,6 +11,8 @@ import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
   countedForProgress,
+  projectsAColumnCanJoin,
+  teamsACardCanTake,
   drawnAsSlot,
   drawnOnProjectBoard,
   teamFollowsParent,
@@ -1133,6 +1135,13 @@ export function ProjectBoard({
   // The slot's ×: remove the card from THIS column. A mirror goes, the
   // home hands over to its first mirror, an orphaned worked card survives
   // in the working area — only the true delete asks, naming the loss.
+  // columnDomain: which repository a column was declared in, as the board
+  // states it (metadata.epics[].domain). The server asks the COLUMN, never
+  // its project — one project name may be declared twice, with its columns
+  // merged under a single entry (G13).
+  const columnDomain = (col: { project: string; name: string }) =>
+    board.epics.find((e) => e.project === col.project && e.name === col.name)?.domain ?? "";
+
   // subtaskTitle words the ↳ marker: the parent's title when the query
   // carried it, and an honest fallback when it did not.
   const subtaskTitle = (title: string | undefined) =>
@@ -1673,9 +1682,17 @@ export function ProjectBoard({
                   badge a team wears on a card, not as a second line of text
                   competing with the column's own name. Inside one project the
                   badge would repeat on every column and is left off. */}
+              {/* A column cannot change REPOSITORY — its stub is written
+                  back to the backend that holds it (G57) — so only the
+                  projects of its own repository can take it; the rest are
+                  refusals the picker has no business offering. */}
               <ProjectPicker
                 current={e.project}
-                projects={board.projects}
+                projects={projectsAColumnCanJoin(
+                  columnDomain(e),
+                  board.projects,
+                  board.projectDomains,
+                )}
                 entity="epic"
                 onPick={(to) => setEpicProject(e, to)}
               />
@@ -2124,13 +2141,24 @@ export function ProjectBoard({
                   </div>
                 ) : (
                   <>
-                    {offerableTeams(
-                      board.teams,
-                      board.teamDomains,
-                      board.projectDomains,
-                      card.project ?? "",
-                      card.team ?? "",
-                    )
+                    {(card.project
+                      ? offerableTeams(
+                          board.teams,
+                          board.teamDomains,
+                          board.projectDomains,
+                          card.project,
+                          card.team ?? "",
+                        )
+                      : // No project to constrain it: the COLUMN does. A
+                        // card in a column of another repository can only
+                        // take that repository's teams — its team is what
+                        // decides where it lives (G57).
+                        teamsACardCanTake(
+                          columnDomain({ project: "", name: card.epic ?? "" }),
+                          board.teams,
+                          board.teamDomains,
+                          card.team ?? "",
+                        ))
                       .filter((t) => t !== "")
                       .map((t) => (
                         <button

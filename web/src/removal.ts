@@ -174,7 +174,7 @@ export function gridRemoval(
   // demoting it alone would split the family across two sprints — which is
   // what syncChildrenSprint exists to prevent. The × deletes it, and it is
   // gone from under its parent at once — unless it stands in a COLUMN,
-  // which is a home of its own (S4). Then the × takes it OUT OF THE GROUP
+  // which is a home of its own (G57). Then the × takes it OUT OF THE GROUP
   // and leaves it there: releasing it while still a subtask would break
   // the person/sprint pair its parent owns, or be undone by the next
   // carry-over. The work stays planned in its column.
@@ -219,7 +219,7 @@ export function boardAsksAbout(
  *  they came to disagree about the same card. "release" is the smart × on
  *  the server (POST actions/remove): the card leaves the working area for
  *  whatever home it has, and a subtask standing in a column leaves the
- *  GROUP with it (S4). "demote" walks it back a sprint, "delete" is the
+ *  GROUP with it (G57). "demote" walks it back a sprint, "delete" is the
  *  last home going, and "ask" is the two-way question W5 opens. */
 export type GridGesture = "ask" | "demote" | "release" | "delete";
 

@@ -92,7 +92,7 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 		}
 	}
 	// A subtask keeps the ONE column it carries — G14 blesses that, and the
-	// Project board draws it there (S4) — but not a SECOND placement or a
+	// Project board draws it there (G57) — but not a SECOND placement or a
 	// process tie: its file follows its parent, so both would be stranded
 	// the moment the parent changes repository. See clearRiders.
 	if err := s.clearRiders(ctx, b, card); err != nil {
@@ -214,7 +214,7 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 
 // clearRiders strips what a subtask cannot carry — mirrors and the process
 // tie — when a card is grouped. A subtask keeps the ONE column it carries
-// (G14, and the Project board draws it there, S4); what it may not keep is
+// (G14, and the Project board draws it there, G57); what it may not keep is
 // a SECOND placement or a tie, because its file follows its parent: a
 // parent in another repository would carry the card away from both, which
 // is the state ErrCrossDomain exists to prevent. The untying is logged;

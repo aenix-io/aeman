@@ -105,7 +105,7 @@ created: 2026-08-29T10:00:00Z
 	}
 }
 
-// A subtask carries at most the ONE column of its own (S4); a second
+// A subtask carries at most the ONE column of its own (G57); a second
 // placement it may not have, because its file follows its parent — into
 // another repository, if that is where the parent lives, stranding every
 // mirror. The decoder drops hand-written ones, the way the service clears

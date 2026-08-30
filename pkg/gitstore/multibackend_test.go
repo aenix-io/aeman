@@ -536,7 +536,7 @@ func indexOf(s, sub string) int {
 // back to the backend that holds it (isStub). So a column cannot follow a
 // project into another repository — the service refuses that move rather
 // than produce a column declared in one repository and owned by a project
-// of another, with every card in it stranded (S4).
+// of another, with every card in it stranded (G57).
 func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
 	mb, _, _ := twoDomains(t)
 	ctx := context.Background()

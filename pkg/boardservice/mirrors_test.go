@@ -624,7 +624,7 @@ func TestUnbindingAMirroredColumnSaysUnmirrorFirst(t *testing.T) {
 	}
 }
 
-// A subtask carries at most ONE column of its own (S4), which the Project
+// A subtask carries at most ONE column of its own (G57), which the Project
 // board draws and counts like any other slot. A second placement it may
 // not have: its file rides its parent, so every mirror would be stranded
 // the moment the parent changes repository — naming a column of a
@@ -1133,7 +1133,7 @@ func TestReFilingAnOriginalCannotStrandItsReviewCardsColumn(t *testing.T) {
 	}
 }
 
-// The remaining doors onto S4's invariant. A card's column must name the
+// The remaining doors onto G57's invariant. A card's column must name the
 // repository that holds its file, and EVERY act that moves the file has to
 // say so — the guard that knows the rule was reached from three of them
 // and not from the other four.
@@ -1267,7 +1267,7 @@ func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
 // holds it (isStub), so the column would stay declared where it was while
 // its new project lives elsewhere — and every ordinary card in it, whose
 // project decides where IT lives, would be re-filed away from the column
-// it stands in. That is the state S4 forbids, and it is a trap: from then
+// it stands in. That is the state G57 forbids, and it is a trap: from then
 // on every guard refuses the card, and no gesture in the product frees it.
 func TestAColumnCannotMoveToAProjectOfAnotherRepository(t *testing.T) {
 	f := mirrorBoard([]board.Card{
@@ -1390,7 +1390,7 @@ func TestGroupingATiedCardAcrossRepositoriesStillClearsTheTie(t *testing.T) {
 	}
 }
 
-// A subtask standing in a column is a first-class state now (S4), so the
+// A subtask standing in a column is a first-class state now (G57), so the
 // create door must produce it rather than silently drop the parent: the
 // caller asked for a child and got a top-level card, which on the Project
 // board is a slot in the wrong place with no way to tell.
@@ -1536,7 +1536,7 @@ func TestAFailedGroupingUndoesTheCreateAndReportsWhatItCannot(t *testing.T) {
 }
 
 // Deleting a parent FREES its children, and a freed child keeps the one
-// column it carries (S4). That release is the one ungroup that does not go
+// column it carries (G57). That release is the one ungroup that does not go
 // through refileGuard — it cannot, since the parent is being deleted — so
 // the invariant it would have checked is pinned here instead: the freed
 // card's column still names the repository that holds it. It holds because
@@ -1668,7 +1668,7 @@ func TestRemoveFromThePlanWritesNothingWhenThereIsNoBand(t *testing.T) {
 	}
 }
 
-// Create is a door like any other, and a COLUMN is what S4 is about: the
+// Create is a door like any other, and a COLUMN is what G57 is about: the
 // guard skipped every request that named no link, so the one gesture that
 // could still write "file here, column there" was the one that makes the
 // card. Both of the shapes the rest of the branch refuses elsewhere.
@@ -1819,5 +1819,55 @@ func TestCreatingAPlanCardUnderAParentIsRefused(t *testing.T) {
 	}
 	if n := f.count("CreateCard"); n != 0 {
 		t.Fatalf("the refusal comes before the write: %d creates", n)
+	}
+}
+
+// A create whose grouping fails leaves NOTHING behind: the point of the
+// undo, and the case the double-failure test cannot show, since there the
+// undo fails too.
+func TestAFailedGroupingLeavesNoCardBehind(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+	})
+	f.parentErr = errors.New("the grouping would not take")
+	before, _ := f.LoadBoard(ctx, "acme")
+	card, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "child", Team: "platform", Parent: "p",
+	})
+	if err == nil {
+		t.Fatal("the grouping failed")
+	}
+	if card.ItemID != "" {
+		t.Fatalf("no card is handed back: %+v", card)
+	}
+	after, _ := f.LoadBoard(ctx, "acme")
+	if len(after.Cards) != len(before.Cards) {
+		t.Fatalf("and none is left on the board: %d → %d", len(before.Cards), len(after.Cards))
+	}
+}
+
+// The one state this codebase repairs instead of refusing is RECORDED —
+// a column that disappears from a card without a line in its history is a
+// card nobody can account for afterwards.
+func TestTheDroppedColumnOfAFreedSubtaskIsLogged(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "orig", Title: "original", Team: "founders"},
+		{ItemID: "rev", Title: "review", ReviewOf: "orig"},
+		{ItemID: "kid", Title: "child", Parent: "rev", Epic: "Closed"},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
+	if err := New(f).DeleteCard(ctx, "acme", "orig"); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range f.eventsOf("kid") {
+		if e.Kind == board.EventEpic && e.From == " / Closed" && e.To == "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the repair must be in the card's history: %+v", f.eventsOf("kid"))
 	}
 }

@@ -1546,7 +1546,7 @@ export function TeamBoard({
     }
     // A subtask with nowhere else to be has no sprint history of its own:
     // the × deletes it outright, gone from under its parent immediately.
-    // One standing in a COLUMN is a different card (S4): the server
+    // One standing in a COLUMN is a different card (G57): the server
     // ungroups it and leaves it there, so this board asks gridRemoval like
     // it does for everything else instead of sending a DELETE past the
     // rule — which destroyed work the Me board would have kept.

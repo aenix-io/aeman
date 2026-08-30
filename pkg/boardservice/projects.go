@@ -129,7 +129,7 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 	// another repository would leave the column declared where it was while
 	// its project lives elsewhere — and every ordinary card in it, whose
 	// project decides where IT lives, re-filed away from the column it
-	// stands in: the state S4 forbids, and a trap, since from then on every
+	// stands in: the state G57 forbids, and a trap, since from then on every
 	// guard refuses that card and no gesture frees it. Unbinding (to = "")
 	// moves nothing and is judged below, card by card.
 	colDomain, _ := board.ColumnDomain(b, from, epic) // declared: FindEpic said so
@@ -167,7 +167,7 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 			// whose file is held by a link (a subtask riding its parent, a
 			// review card its original) stays behind while its project
 			// field is rewritten to name a column that has left: the state
-			// S4 refuses at every other door. refileGuard cannot see this
+			// G57 refuses at every other door. refileGuard cannot see this
 			// one, because the move changes nothing about THIS card's
 			// domain and the target column does not exist yet.
 			r := board.Resolver(b, "")

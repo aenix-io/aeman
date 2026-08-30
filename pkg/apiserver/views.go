@@ -129,7 +129,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		// spans teams, and a card is assigned to a team from this very board.
 		for _, c := range b.Cards {
 			// A SUBTASK that carries its own column belongs here on its own
-			// merit (S4), not as a rider of a delivered parent: the case
+			// merit (G57), not as a rider of a delivered parent: the case
 			// the rule exists for is a parent that lives elsewhere — the
 			// weekly plan, the working area — and is in no project view at
 			// all, which left the whole group visible nowhere.
