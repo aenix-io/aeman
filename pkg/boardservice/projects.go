@@ -170,10 +170,9 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 			// G57 refuses at every other door. refileGuard cannot see this
 			// one, because the move changes nothing about THIS card's
 			// domain and the target column does not exist yet.
-			r := board.Resolver(b, "")
 			after := c
 			after.Project = to
-			if board.DomainOf(after, r) != colDomain {
+			if board.HomeDomain(b, after) != colDomain {
 				return fmt.Errorf("%w: %q would leave this column's repository — its team or its links decide where it lives, not its project",
 					ErrCrossDomain, c.Title)
 			}

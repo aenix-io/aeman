@@ -184,6 +184,17 @@ func TestFollowersWalkTheWholeTreeAndSurviveACycle(t *testing.T) {
 		{ItemID: "a", Title: "a", Parent: "b"},
 		{ItemID: "b", Title: "b", Parent: "a"},
 	})
+	// A card with no id of its OWN must not join the frontier either: as
+	// "" it would adopt every root card on the next pass, and the guard
+	// that walks followers would then refuse the whole board.
+	idless := NewBoard([]Card{
+		{ItemID: "p", Title: "parent"},
+		{Title: "a child with no id", Parent: "p"},
+		{ItemID: "root", Title: "unrelated, follows nobody"},
+	})
+	if got := Followers(idless, "p"); len(got) != 0 {
+		t.Fatalf("a card with no id follows nothing and leads nowhere: %+v", got)
+	}
 	if got := len(Followers(cyc, "a")); got != 1 {
 		t.Fatalf("a cycle is walked once: %d", got)
 	}

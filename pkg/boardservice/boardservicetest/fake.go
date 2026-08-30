@@ -31,6 +31,25 @@ type Backend struct {
 	nextID  int
 }
 
+// InRepository names the board's primary repository and stamps roster
+// entries with the repository they were declared in — the shape a real
+// store hands over, where every entry carries its domain's NAME, the
+// primary included. Without it a test models the primary as "", which no
+// server produces, and the domain rules (G14, G46, G57) answer here
+// differently than they do in production.
+func (f *Backend) InRepository(primary string, entryDomains map[string]string) *Backend {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.board.Primary = primary
+	if f.board.Domains == nil {
+		f.board.Domains = map[string]string{}
+	}
+	for id, d := range entryDomains {
+		f.board.Domains[id] = d
+	}
+	return f
+}
+
 // Refs configures ResolveIssueRef answers, keyed by link URL (ignoring any
 // fragment). URLs absent from the map fail to resolve.
 func (f *Backend) SetRefs(refs map[string]board.Link) {

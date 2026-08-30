@@ -116,3 +116,27 @@ func TestTheFakeHandsOutTheSameBoardEveryTime(t *testing.T) {
 		}
 	}
 }
+
+// The fake can model the board a real store hands over: primary named,
+// every entry stamped with its domain's name. Without that an external
+// tool's test of the column rules answers in a namespace the server never
+// uses, and passes where production refuses.
+func TestTheFakeCanModelAStampedBoard(t *testing.T) {
+	f := New([]board.Card{
+		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
+	}, nil).InRepository("aeman-db", map[string]string{"ep-inbox": "aeman-db"})
+	b, err := f.LoadBoard(t.Context(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Primary != "aeman-db" {
+		t.Fatalf("the board names its primary: %q", b.Primary)
+	}
+	cd, ok := board.ColumnDomain(b, "", "Inbox")
+	if !ok || cd != "aeman-db" {
+		t.Fatalf("the column carries the stamp: %q %v", cd, ok)
+	}
+	if got := board.HomeDomain(b, board.Card{Epic: "Inbox"}); got != cd {
+		t.Fatalf("and a card nothing places belongs to the same repository: %q vs %q", got, cd)
+	}
+}

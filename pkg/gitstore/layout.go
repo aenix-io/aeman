@@ -301,9 +301,11 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 				}
 			}
 			// A hand-written scalar (`mirrors: [foo]`) decodes to an empty
-			// pair — the very placement the service guards against
-			// everywhere else. Half a column is no column: skipped.
-			if m.Project == "" || m.Epic == "" {
+			// pair. A column is named by its EPIC, though: the no-project
+			// bucket is a lawful mirror home (G15), so only the epic half
+			// is required — dropping every project-less entry erased the
+			// very placements the service had just accepted.
+			if m.Epic == "" {
 				continue
 			}
 			c.Mirrors = append(c.Mirrors, m)

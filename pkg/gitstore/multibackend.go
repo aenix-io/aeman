@@ -163,14 +163,15 @@ func (mb *MultiBackend) LoadBoard(_ context.Context, boardID string) (board.Boar
 	if err != nil {
 		return board.Board{}, err
 	}
-	bd := boardFromSnapshot(s)
+	// The board's own repository, by NAME, and before the assembly runs:
+	// the snapshot stamps every entry with its domain's name, the primary
+	// included, and the assembly's own domain rules (declaredMirrors) ask
+	// "the same repository?" while they run — setting the name on the
+	// finished board would answer them in the wrong namespace and drop the
+	// mirrors the service had just written. Through primary(), which takes
+	// the lock AddDomain writes under.
+	bd := boardFromSnapshotIn(mb.primary(), s)
 	bd.Board = boardID
-	// The board's own repository, by name: the snapshot stamps every entry
-	// with its domain's name, the primary included, so the rules that ask
-	// "the same repository?" need to know which name that is.
-	if len(mb.domains) > 0 {
-		bd.Primary = mb.domains[0].Name
-	}
 	return bd, nil
 }
 

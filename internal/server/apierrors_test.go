@@ -28,7 +28,7 @@ func TestEverySentinelIsAnsweredByApiError(t *testing.T) {
 	if len(names) < 15 {
 		t.Fatalf("only %d sentinels found — has the package moved?", len(names))
 	}
-	answered := readsSentinels(t, "api.go")
+	answered := readsSentinels(t, "api.go", "apiError")
 	var missing []string
 	for _, n := range names {
 		if !answered[n] {
@@ -88,7 +88,7 @@ func exportedSentinelNames(t *testing.T, dir string) []string {
 }
 
 // readsSentinels collects the boardservice.Err… names a file mentions.
-func readsSentinels(t *testing.T, path string) map[string]bool {
+func readsSentinels(t *testing.T, path, fn string) map[string]bool {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
@@ -96,6 +96,18 @@ func readsSentinels(t *testing.T, path string) map[string]bool {
 	}
 	out := map[string]bool{}
 	text := string(src)
+	// ONE function's body: a sentinel named by some other handler is not
+	// an answer, and counting it would make this test claim less than its
+	// docstring promises.
+	start := strings.Index(text, ") "+fn+"(")
+	if start < 0 {
+		t.Fatalf("%s has no %s", path, fn)
+	}
+	end := strings.Index(text[start:], "\n}\n")
+	if end < 0 {
+		t.Fatalf("%s's %s does not end", path, fn)
+	}
+	text = text[start : start+end]
 	for i := 0; ; {
 		j := strings.Index(text[i:], "boardservice.Err")
 		if j < 0 {

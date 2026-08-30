@@ -35,7 +35,9 @@ func Followers(b Board, itemID string) []Card {
 		var next []string
 		for _, id := range frontier {
 			for _, c := range b.Cards {
-				if seen[c.ItemID] || (c.Parent != id && c.ReviewOf != id) {
+				// A card with no id of its own would join the frontier as
+				// "" and adopt every root card on the next pass.
+				if c.ItemID == "" || seen[c.ItemID] || (c.Parent != id && c.ReviewOf != id) {
 					continue
 				}
 				seen[c.ItemID] = true

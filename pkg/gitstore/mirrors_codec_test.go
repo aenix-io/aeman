@@ -68,9 +68,17 @@ created: 2026-08-29T10:00:00Z
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []board.Placement{{Project: "freedom", Epic: "Launch"}}
-	if len(out.Card.Mirrors) != 1 || out.Card.Mirrors[0] != want[0] {
-		t.Fatalf("only the full pair survives, got %+v", out.Card.Mirrors)
+	// A column is named by its EPIC: the no-project entry is a lawful
+	// placement (the bucket is a mirror home like any other, G15), while
+	// the scalar and the project-only entry name no column at all.
+	want := []board.Placement{{Epic: "Launch"}, {Project: "freedom", Epic: "Launch"}}
+	if len(out.Card.Mirrors) != len(want) {
+		t.Fatalf("kept %+v, want %+v", out.Card.Mirrors, want)
+	}
+	for i := range want {
+		if out.Card.Mirrors[i] != want[i] {
+			t.Fatalf("kept %+v, want %+v", out.Card.Mirrors, want)
+		}
 	}
 }
 

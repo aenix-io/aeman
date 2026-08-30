@@ -576,3 +576,53 @@ func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
 		t.Fatalf("the fixture's two projects must live apart: %q", d)
 	}
 }
+
+// A mirror the service accepts must survive the next LOAD — the store is
+// the only place where the primary's name is known, so a board assembled
+// without it judges a stamped column against an unstamped placement and
+// drops exactly the placements it had just written. Both halves of the
+// rule the branch introduced, over the real MultiBackend rather than a
+// fixture that models the primary as "".
+func TestAMirrorWrittenThroughTheStoreSurvivesTheNextLoad(t *testing.T) {
+	mb, _, _ := twoDomains(t)
+	ctx := context.Background()
+	b, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Primary == "" {
+		t.Fatal("the board must name its primary repository")
+	}
+	// Two columns of the PRIMARY: the card's own, and the one it mirrors
+	// into. A no-project column is a home like any other (G15).
+	loose, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "loose column", Epic: "Chores"})
+	if err != nil {
+		t.Skipf("this fixture declares no bucket column: %v", err)
+	}
+	_ = loose
+	b, err = mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card board.Card
+	for _, c := range b.Cards {
+		if c.Title == "loose column" {
+			card = c
+		}
+	}
+	if card.ItemID == "" {
+		t.Fatal("the card was not stored")
+	}
+	if err := mb.SetMirrors(ctx, b, card, []board.Placement{{Project: "portal", Epic: "Bugs"}}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range after.Cards {
+		if c.ItemID == card.ItemID && len(c.Mirrors) != 1 {
+			t.Fatalf("the mirror must survive the load: %+v", c.Mirrors)
+		}
+	}
+}
