@@ -17,12 +17,34 @@ export interface ProjectTargets {
 }
 
 /** RosterHomes is the roster's side of a domain question: which repository
- *  each project was declared in, and the board's primary — the name an
- *  unstamped entry means. Optional throughout: a board of one repository
- *  answers every question the same way without them. */
+ *  each project was declared in, the board's primary — the name an
+ *  unstamped entry means — and whether the board draws any repository
+ *  boundaries at all. Build it with rosterOf(board). */
 export interface RosterHomes {
   projectDomains?: RosterDomains;
   primary?: string;
+  /** A board of ONE repository (or one that names none) has nowhere else
+   *  for anything to be: every domain question answers yes there, and the
+   *  server would accept every one of them. */
+  single?: boolean;
+}
+
+/** sameRepository is the ONE comparison the domain rules make: two stamps
+ *  read in the board's single namespace (an unstamped entry is the
+ *  primary), with a board that draws no boundaries answering yes to
+ *  everything. Every rule here goes through it — one of them comparing raw
+ *  stamps is how a board that stamps everything and names one repository
+ *  came to have two names for it. */
+export function sameRepository(
+  a: string | undefined,
+  b: string | undefined,
+  roster: RosterHomes,
+): boolean {
+  if (roster.single) {
+    return true;
+  }
+  const primary = roster.primary ?? "";
+  return inPrimary(a, primary) === inPrimary(b, primary);
 }
 
 /** rosterOf reads the roster's domain side off a board, so a caller that
@@ -32,9 +54,15 @@ export function rosterOf(board: {
   projectDomains?: RosterDomains;
   domains?: readonly DomainInfo[];
 }): RosterHomes {
+  const domains = board.domains ?? [];
   return {
     projectDomains: board.projectDomains,
-    primary: board.domains ? primaryDomain(board.domains) : "",
+    primary: primaryDomain(domains),
+    // A board that lists one repository — or, from a server that named
+    // none, no list at all — has no boundary to police. Reading its
+    // absent primary as "" while every entry carries the repository's
+    // NAME is the split this flag exists to make impossible.
+    single: domains.length < 2,
   };
 }
 
@@ -62,7 +90,7 @@ export function attachTargets(
     // A card its TEAM holds cannot follow: its team and its project must
     // live in one repository (G46), so a project of another one is a
     // refusal with a friendly label.
-    if (teamBound && lands !== home) {
+    if (teamBound && !sameRepository(lands, home, roster)) {
       continue;
     }
     // And the COLUMN answers for itself, never for its project: one
@@ -71,7 +99,7 @@ export function attachTargets(
     // where this project would put the card — the server compares exactly
     // these two and returns 422.
     const cols = epics
-      .filter((e) => e.project === p && inPrimary(e.domain, primary) === lands)
+      .filter((e) => e.project === p && sameRepository(e.domain, lands, roster))
       .map((e) => e.name);
     if (cols.length > 0) {
       out.push({ name: p, epics: cols });
@@ -81,12 +109,13 @@ export function attachTargets(
 }
 
 /** mirrorTargets is where a card already in a column may be mirrored to:
- *  the projects of its HOME project's repository, minus every column it
- *  already stands in. */
+ *  the columns of the repository that HOLDS the card, minus every column
+ *  it already stands in. */
 export function mirrorTargets(
   card: Pick<Card, "project" | "epic" | "mirrors" | "domain">,
   projects: readonly string[],
   epics: readonly EpicRef[],
+  roster: RosterHomes = {},
 ): ProjectTargets[] {
   const home = card.domain ?? "";
   const standing = new Set<string>([`${card.project}\u0000${card.epic}`]);
@@ -100,7 +129,7 @@ export function mirrorTargets(
       .filter(
         (e) =>
           e.project === p &&
-          (e.domain ?? "") === home &&
+          sameRepository(e.domain, home, roster) &&
           !standing.has(`${p}\u0000${e.name}`),
       )
       .map((e) => e.name);
@@ -533,12 +562,15 @@ export function projectsAColumnCanJoin(
   projects: readonly string[],
   projectDomains: RosterDomains,
   current = "",
+  roster: RosterHomes = {},
 ): string[] {
   // What the column already carries stays on the list, so a pair written
   // before the rule can be seen and changed — every other picker here
   // keeps its current value for the same reason.
   return projects.filter(
-    (p) => p === current || rosterDomain(projectDomains, p) === columnDomain,
+    (p) =>
+      p === current ||
+      sameRepository(rosterDomain(projectDomains, p), columnDomain, roster),
   );
 }
 
@@ -552,9 +584,12 @@ export function teamsACardCanTake(
   teams: readonly string[],
   teamDomains: RosterDomains,
   current: string,
+  roster: RosterHomes = {},
 ): string[] {
   return teams.filter(
-    (t) => t === current || rosterDomain(teamDomains, t) === columnDomain,
+    (t) =>
+      t === current ||
+      sameRepository(rosterDomain(teamDomains, t), columnDomain, roster),
   );
 }
 
@@ -581,7 +616,6 @@ export function columnFollows(
   if (!card.epic) {
     return true;
   }
-  const primary = roster.primary ?? "";
   const col = roster.epics.find(
     (e) => e.name === card.epic && (e.project ?? "") === (card.project ?? ""),
   );
@@ -594,7 +628,7 @@ export function columnFollows(
       : card.project
         ? rosterDomain(roster.projectDomains, card.project)
         : rosterDomain(roster.teamDomains, card.team ?? "");
-  return inPrimary(col.domain, primary) === inPrimary(home, primary);
+  return sameRepository(col.domain, home, roster);
 }
 
 /** columnsOf lists the columns a card is drawn in — its home pair and
@@ -622,13 +656,15 @@ export function columnsOf(
  *  there took away a gesture the server accepts. */
 export function teamlessIsLawful(
   columnDomain: string,
-  primary: string,
+  roster: RosterHomes,
   cardProject = "",
 ): boolean {
   if (cardProject !== "") {
     return true;
   }
-  return inPrimary(columnDomain, primary) === inPrimary("", primary);
+  // Nothing else places the card, so it belongs to the PRIMARY: the
+  // column has to be there.
+  return sameRepository(columnDomain, "", roster);
 }
 
 /** canCreateInColumn reports whether the board's "+" may open a card in
@@ -640,13 +676,10 @@ export function teamlessIsLawful(
  *  entry. Offering the gesture there only produces a 422. */
 export function canCreateInColumn(
   col: { project: string; domain?: string },
-  primary: string,
-  roster: RosterHomes = {},
+  roster: RosterHomes,
 ): boolean {
-  const lands = col.project
-    ? inPrimary(rosterDomain(roster.projectDomains, col.project), primary)
-    : inPrimary("", primary);
-  return inPrimary(col.domain, primary) === lands;
+  const lands = col.project ? rosterDomain(roster.projectDomains, col.project) : "";
+  return sameRepository(col.domain, lands, roster);
 }
 
 /** projectsWithColumns lists the projects a picker should walk: the

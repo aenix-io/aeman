@@ -17,6 +17,7 @@ import {
   projectsAColumnCanJoin,
   projectsWithColumns,
   removeFromProjectOutcome,
+  rosterOf,
   settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
@@ -45,7 +46,11 @@ describe("attach and mirror targets", () => {
   // The PROJECT carries the card into its repository and the COLUMN has to
   // be in that same one, so both stamps are part of the question — the
   // roster's for the project, the column's own for the column.
-  const roster = { projectDomains: { strategy: "founders" } };
+  const roster = {
+    projectDomains: { strategy: "founders" },
+    primary: "shared",
+    single: false,
+  };
 
   it("offers the projects of the card's repository, with their epics", () => {
     const got = attachTargets(projects, epics, "", true, roster);
@@ -194,6 +199,10 @@ describe("countedForProgress", () => {
 // gets is decided by what it is, not where it is rendered.
 describe("placementTargets", () => {
   const board = {
+    domains: [
+      { name: "shared", writable: true, members: [] },
+      { name: "closed", writable: true, members: [] },
+    ],
     projects: ["engineering"],
     epics: [{ name: "Cozystack", project: "engineering" }],
     projectDomains: undefined,
@@ -442,6 +451,10 @@ describe("movingSlot", () => {
 // dates of its own takes its week's slot — a chosen schedule survives.
 describe("makeCardPlacements onAttachProject", () => {
   const board = {
+    domains: [
+      { name: "shared", writable: true, members: [] },
+      { name: "closed", writable: true, members: [] },
+    ],
     projects: ["engineering", "freedom"],
     epics: [
       { name: "Cozystack", project: "engineering" },
@@ -571,6 +584,10 @@ describe("drawnAsSlot", () => {
 // refuses, which is exactly what these targets promise never to do.
 describe("targets on an alias project", () => {
   const board = {
+    domains: [
+      { name: "shared", writable: true, members: [] },
+      { name: "closed", writable: true, members: [] },
+    ],
     projects: ["portal"],
     epics: [
       { name: "Bugs", project: "portal" },
@@ -710,6 +727,14 @@ describe("attachTargets and the card's binding", () => {
   // As the server sends it: the project of the closed column is stamped
   // too, and a column agrees with the project that owns it.
   const projectDomains = { strategy: "founders" };
+  // Two repositories, the primary named: the shape a board with a boundary
+  // to police is served in. Without a second one there is no boundary at
+  // all and every domain rule answers yes (rosterOf().single).
+  const domains = [
+    { name: "shared", writable: true, members: [] },
+    { name: "closed", writable: true, members: [] },
+  ];
+
 
   it("offers every column to a card nothing holds", () => {
     const got = placementTargets({} as Card, {
@@ -717,6 +742,7 @@ describe("attachTargets and the card's binding", () => {
       epics,
       processes: [],
       projectDomains,
+      domains,
     });
     expect(got.attach?.map((p) => p.name)).toEqual(["engineering", "strategy"]);
   });
@@ -727,6 +753,7 @@ describe("attachTargets and the card's binding", () => {
       epics,
       processes: [],
       projectDomains,
+      domains,
     });
     expect(got.attach?.map((p) => p.name)).toEqual(["engineering"]);
   });
@@ -742,6 +769,7 @@ describe("attachTargets and the card's binding", () => {
       epics: withBucket,
       processes: [],
       projectDomains,
+      domains,
     });
     expect(got.attach?.find((p) => p.name === "")).toBeUndefined();
   });
@@ -753,6 +781,7 @@ describe("attachTargets and the card's binding", () => {
       epics: withBucket,
       processes: [],
       projectDomains,
+      domains,
     });
     expect(got.attach?.find((p) => p.name === "")?.epics).toEqual(["Inbox"]);
   });
@@ -798,34 +827,39 @@ describe("columnsOf", () => {
 // either — a card with no team is held by the PRIMARY repository, so a
 // column of another one cannot show it.
 describe("controls that must match the server", () => {
+  // A board of TWO repositories: the primary is named, and so is every
+  // entry — the shape the server serves whenever there is a boundary to
+  // police.
+  const db = { primary: "aeman-db", single: false };
+
   it("offers No team only where a teamless card can stand", () => {
-    expect(teamlessIsLawful("aeman-db", "aeman-db")).toBe(true);
-    expect(teamlessIsLawful("", "aeman-db")).toBe(true);
-    expect(teamlessIsLawful("founders", "aeman-db")).toBe(false);
+    expect(teamlessIsLawful("aeman-db", db)).toBe(true);
+    expect(teamlessIsLawful("", db)).toBe(true);
+    expect(teamlessIsLawful("founders", db)).toBe(false);
     // ...unless a PROJECT holds the card: it stays in that project's
     // repository with no team at all, so the entry is lawful there.
-    expect(teamlessIsLawful("founders", "aeman-db", "strategy")).toBe(true);
+    expect(teamlessIsLawful("founders", db, "strategy")).toBe(true);
   });
 
   it("opens a new card only where one can be created", () => {
     // The card carries no team, so its PROJECT puts it in its own
     // repository — and the column has to be there too. A project of the
     // closed repository with its own column: lawful.
-    const closed = { projectDomains: { engineering: "founders" } };
+    const closed = { ...db, projectDomains: { engineering: "founders" } };
     expect(
-      canCreateInColumn({ project: "engineering", domain: "founders" }, "aeman-db", closed),
+      canCreateInColumn({ project: "engineering", domain: "founders" }, closed),
     ).toBe(true);
     // The same column under a project of the PRIMARY — the alias case
     // (G13), where one project name holds columns of two repositories:
     // the project would put the card in the primary, and the column is
     // not there. The server returns 422; the "+" does not open.
-    expect(canCreateInColumn({ project: "engineering", domain: "founders" }, "aeman-db")).toBe(
+    expect(canCreateInColumn({ project: "engineering", domain: "founders" }, db)).toBe(
       false,
     );
     // A bucket column cannot hold a teamless card unless it is the
     // primary's own: nothing else places such a card.
-    expect(canCreateInColumn({ project: "", domain: "aeman-db" }, "aeman-db")).toBe(true);
-    expect(canCreateInColumn({ project: "", domain: "founders" }, "aeman-db")).toBe(false);
+    expect(canCreateInColumn({ project: "", domain: "aeman-db" }, db)).toBe(true);
+    expect(canCreateInColumn({ project: "", domain: "founders" }, db)).toBe(false);
   });
 });
 
@@ -946,5 +980,69 @@ describe("columnFollows", () => {
     expect(
       columnFollows({ epic: "Closed", project: "", team: "platform" }, roster, "founders"),
     ).toBe(true);
+  });
+});
+
+// The shape a SINGLE-REPOSITORY board is served in — the default
+// deployment, and the one no test covered: the board names its one
+// repository, and every entry in the payload carries that name, because
+// the store stamps them all (G59). Read with an empty primary, those
+// stamps make one repository look like two, and every rule here then
+// refuses what the server accepts: the "+" in the no-project bucket, "No
+// team", and the grid's × on a subtask, which the client would send as a
+// hard delete while the server ungroups the card and keeps it.
+describe("a board of one repository", () => {
+  const roster = rosterOf({
+    domains: [{ name: "aeman", writable: true, members: [] }],
+    projectDomains: { engineering: "aeman" },
+  });
+  const epics = [
+    { name: "Inbox", project: "", domain: "aeman" },
+    { name: "Cozystack", project: "engineering", domain: "aeman" },
+  ];
+
+  it("has no boundary to police", () => {
+    expect(roster.primary).toBe("aeman");
+    expect(roster.single).toBe(true);
+  });
+
+  it("opens the + in the no-project bucket", () => {
+    expect(canCreateInColumn({ project: "", domain: "aeman" }, roster)).toBe(true);
+    expect(canCreateInColumn({ project: "engineering", domain: "aeman" }, roster)).toBe(true);
+  });
+
+  it("offers No team in the no-project bucket", () => {
+    expect(teamlessIsLawful("aeman", roster)).toBe(true);
+  });
+
+  it("keeps a subtask's bucket column when it is pulled out of the group", () => {
+    // The server's columnFollows answers true here — nothing places the
+    // card, so it belongs to the primary, which is where the column is.
+    expect(
+      columnFollows({ epic: "Inbox", project: "", team: "" }, { ...roster, epics }),
+    ).toBe(true);
+  });
+
+  it("offers every column to attach to", () => {
+    expect(
+      attachTargets(["engineering"], epics, "aeman", true, roster).map((p) => p.name),
+    ).toEqual(["engineering", ""]);
+  });
+
+  // And a board that names NO repository at all — nothing to compare
+  // against, while the entries still carry a name — is the same case: no
+  // boundary, so nothing is refused. Read literally, that payload puts
+  // "aeman" beside an empty primary and calls one repository two.
+  it("has no boundary when the board names no repository at all", () => {
+    const unnamed = rosterOf({ projectDomains: { engineering: "aeman" } });
+    expect(unnamed.single).toBe(true);
+    expect(canCreateInColumn({ project: "", domain: "aeman" }, unnamed)).toBe(true);
+    expect(teamlessIsLawful("aeman", unnamed)).toBe(true);
+    expect(
+      columnFollows({ epic: "Inbox", project: "", team: "" }, { ...unnamed, epics }),
+    ).toBe(true);
+    expect(
+      attachTargets(["engineering"], epics, "aeman", true, unnamed).map((p) => p.name),
+    ).toEqual(["engineering", ""]);
   });
 });

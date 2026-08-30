@@ -41,6 +41,43 @@ func gitModeServer(t *testing.T, remote gitstore.Remote) *Server {
 	return srv
 }
 
+// G59 — the board NAMES its repository, one or many. Every stamp the
+// payload carries is a domain name (the store stamps the primary's entries
+// too), so a client that reads "no domains" as "the primary is the empty
+// string" ends up with two names for one repository — and every rule that
+// asks "the same repository?" answers no. On a single-repository board
+// that hid the "+" in the no-project bucket, hid "No team", and made the
+// grid's × on a subtask look like a delete to the client while the server
+// was ungrouping it.
+func TestTheBoardNamesItsRepositoryEvenWhenThereIsOnlyOne(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	srv := gitModeServer(t, remote)
+	var got struct {
+		Metadata struct {
+			Domains []struct {
+				Name     string `json:"name"`
+				Writable bool   `json:"writable"`
+			} `json:"domains"`
+			TeamDomains map[string]string `json:"teamDomains"`
+		} `json:"metadata"`
+	}
+	rec := do(t, srv, http.MethodGet, "/api/v1/board", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Metadata.Domains) != 1 || got.Metadata.Domains[0].Name != "board" {
+		t.Fatalf("the board names its own repository: %+v", got.Metadata.Domains)
+	}
+	// And what the roster is stamped with is that same name, in the same
+	// namespace the client compares in.
+	for team, domain := range got.Metadata.TeamDomains {
+		if domain != "board" {
+			t.Fatalf("team %q is stamped %q, not the board's own name", team, domain)
+		}
+	}
+}
+
 func TestGitModeServesTheConfiguredBoard(t *testing.T) {
 	remote := gitRemote(t)
 	seedGitRemote(t, remote)

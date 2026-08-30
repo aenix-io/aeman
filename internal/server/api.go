@@ -317,8 +317,14 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	info := apiserver.BoardResourceWithPeople(b, s.store.member)
 	login, personal, linked := s.personalOf(r)
-	attached := linked && s.gitBE != nil && s.gitBE.hasPersonal(login)
-	if s.gitCfg != nil && (len(s.gitCfg.Repos) > 1 || attached) {
+	// Always, one repository or many: the payload's stamps are domain
+	// NAMES — the store stamps the primary's entries too (G59) — so a
+	// board that listed none left the client comparing "aeman" against "",
+	// two names for one repository, and every rule that asks "the same
+	// repository?" answered no. The UI keys its multi-repository parts off
+	// the COUNT (isMultiDomain), not off the list's presence, so a single
+	// entry shows no badges and no repository pickers.
+	if s.gitCfg != nil {
 		logins := make([]string, 0, len(info.Metadata.Members))
 		for _, m := range info.Metadata.Members {
 			logins = append(logins, m.Login)

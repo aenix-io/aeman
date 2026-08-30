@@ -8,7 +8,7 @@ import type {
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
-import { cardDomainBadge, offerableTeams, primaryDomain } from "../domains";
+import { cardDomainBadge, offerableTeams } from "../domains";
 import {
   canCreateInColumn,
   columnsOf,
@@ -872,11 +872,10 @@ export function ProjectBoard({
 
   const cancelDraft = () => setDraft(null);
 
-  // The repository this board's own entries belong to: the server lists
-  // its repositories primary first, and stamps every entry with a domain
-  // NAME while a card that nothing places carries none — so the two are
-  // read through this name, as the server reads them.
-  const primary = primaryDomain(board.domains);
+  // The roster's side of every domain question — the board's primary and
+  // its projects' repositories — built once and handed to the rules, which
+  // are the only place that compares two stamps (placements.sameRepository).
+  const roster = rosterOf(board);
 
   // columnDomain: which repository a column was declared in, as the board
   // states it (metadata.epics[].domain). The server asks the COLUMN, never
@@ -896,8 +895,7 @@ export function ProjectBoard({
     // and the server says so; the board does not start the gesture.
     if (!canCreateInColumn(
       { project: draft.epic.project, domain: columnDomain({ project: draft.epic.project, name: draft.epic.name }) },
-      primary,
-      rosterOf(board),
+      roster,
     )) {
       onError("A card created here would have no team, and this column is not in the repository its project names");
       setDraft(null);
@@ -2225,7 +2223,7 @@ export function ProjectBoard({
                     {(!card.team ||
                       teamlessIsLawful(
                         columnDomain({ project: card.project ?? "", name: card.epic ?? "" }),
-                        primary,
+                        roster,
                         card.project ?? "",
                       )) && (
                       <button
