@@ -417,6 +417,29 @@ func TestReFilingACardCannotStrandAFollowersProcessTie(t *testing.T) {
 	}
 }
 
+// A personal board is a repository like any other for this rule. A card
+// linked to a personal card FOLLOWS it in (personal-board.md), so a team
+// card grouped under a personal parent would take its column along — a
+// column of the shared repository, named on a file that now lives on one
+// person's board, which no reader of that column holds. Refused, like
+// every other grouping that would strand a column.
+func TestGroupingUnderAPersonalParentCannotCarryAColumnIn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "mine", Title: "my own card", Domain: board.PersonalDomain("kvaps")},
+		{ItemID: "c1", Title: "team card", Team: "platform",
+			Project: "engineering", Epic: "Cozystack"},
+	})
+	err := New(f).SetParent(ctx, "acme", "c1", "mine")
+	if !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the column cannot follow the card onto a personal board: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Parent != "" || c.Epic != "Cozystack" {
+		t.Fatalf("and the refusal writes nothing: %+v", c)
+	}
+}
+
 // Renames follow the mirrors. The rename loops match cards through InEpic,
 // which now sees mirrors — rewriting the card's HOME fields for a mirror
 // match would corrupt it, and not rewriting the mirror would strand it
