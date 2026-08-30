@@ -181,14 +181,19 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
   away: the card still rides its parent, so it is never deleted from there. The
   column may be re-attached afterwards; a SECOND column (a mirror) it may not
   have, because its file follows the parent and the mirror would be stranded
-  the moment the parent changes repository. The column must name the repository
+  the moment the parent changes repository. The day grid's × on such a card
+  takes it OUT OF THE GROUP and leaves it in its column: a subtask's person
+  and sprint are its parent's, so releasing it while still grouped would
+  break that pair or be undone by the next carry-over. The column must name the repository
   that actually holds the card — the one its parent lives in.
 - The project's progress line counts such a card unless its **parent stands in
   the same project** and is drawn there itself, whose own bar already derives
   from its children: counting both would weigh that work twice on one screen. A
   parent nothing draws — a column with no dates is no slot — answers for
   nothing, and the child counts. A column's own bar asks the narrower question:
-  it drops the child only when the parent stands in that same column.
+  it drops the child only when the parent stands in that same column. Both
+  read the cards' HOME pairs; a mirror of the parent elsewhere does not
+  answer for the child.
 - **Derived progress**: while a card has subtasks its bar derives from them —
   the average of the subtasks' effective progress (done = 100) scaled into
   0–90%. The final done / 100% is always a human decision on the parent, and a

@@ -219,9 +219,10 @@ func DecodeCard(id string, data []byte) (CardFile, error) {
 	// unmirroring instead of removing. Dropped in a post-pass — post-pass
 	// because a hand-written file guarantees no key order, so the home may
 	// be read after the mirrors.
-	// A subtask rides its parent and is placed nowhere of its own:
-	// hand-written mirrors on one are placements no board draws, yet
-	// InEpic counts them — DeleteEpic refusing for cards nobody sees.
+	// A subtask carries at most the ONE column of its own (S4, which the
+	// Project board draws); a SECOND placement it may not have, because
+	// its file follows its parent and every mirror would be stranded the
+	// moment the parent changes repository.
 	if f.Card.Parent != "" {
 		f.Card.Mirrors = nil
 	}

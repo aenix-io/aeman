@@ -432,6 +432,14 @@ func NewBoard(cards []Card) Board {
 			b.Cards[i].Project = match
 		}
 	}
+	for team, c := range winners {
+		b.SprintStates[team] = SprintState{
+			Current:  c.SprintStart,
+			Previous: c.StartDate,
+			ItemID:   c.ItemID,
+		}
+	}
+
 	// The decoder drops what one file can prove wrong (half pairs,
 	// duplicates, home twins, subtask mirrors); a mirror into another
 	// repository or onto a column nobody declared needs the ROSTER, so it
@@ -440,13 +448,6 @@ func NewBoard(cards []Card) Board {
 	// service would have refused to mirror to.
 	for i := range b.Cards {
 		b.Cards[i].Mirrors = declaredMirrors(b, b.Cards[i])
-	}
-	for team, c := range winners {
-		b.SprintStates[team] = SprintState{
-			Current:  c.SprintStart,
-			Previous: c.StartDate,
-			ItemID:   c.ItemID,
-		}
 	}
 	return b
 }
@@ -552,13 +553,14 @@ func declaredMirrors(b Board, c Card) []Placement {
 	// A fresh slice on purpose: filtering into c.Mirrors[:0] would write
 	// through to the caller's backing array, and NewBoard does not own
 	// the cards it is handed.
-	home, ok := ColumnDomain(b, c.Project, c.Epic)
-	if !ok {
-		return nil // a card in no declared column carries no placements
-	}
+	// Which repository holds this CARD — the question Mirror asks, and the
+	// only one that is the same on both sides. The home COLUMN is a
+	// different question wherever the two disagree (an older write, an
+	// outside writer), and answering it here kept mirrors Mirror refuses.
+	mine := DomainOf(c, Resolver(b, ""))
 	kept := make([]Placement, 0, len(c.Mirrors))
 	for _, m := range c.Mirrors {
-		if d, ok := ColumnDomain(b, m.Project, m.Epic); !ok || d != home {
+		if d, ok := ColumnDomain(b, m.Project, m.Epic); !ok || d != mine {
 			continue
 		}
 		kept = append(kept, m)

@@ -505,6 +505,18 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 		s.logEvent(ctx, b, card, board.EventCreated, "", "")
 		s.resolveTitleAsync(ctx, b, card, pendingRef)
 	}
+	// A subtask may carry a column of its own (G14), and the Project board
+	// draws it there (S4) — so the pair is a state to produce, not one to
+	// drop on the floor: dropping it answered a request for a child with a
+	// top-level card standing in someone's planner. Grouping goes through
+	// SetParent like every other, guards and riders included.
+	if err == nil && args.Parent != "" {
+		if perr := s.SetParent(ctx, b.Board, card.ItemID, args.Parent); perr != nil {
+			_ = s.deleteWithCascade(ctx, b, card)
+			return card, perr
+		}
+		card.Parent = args.Parent
+	}
 	return card, err
 }
 
@@ -1086,15 +1098,24 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	// thing syncChildrenSprint prevents everywhere else — and a subtask left
 	// in an earlier sprint still renders under its parent, so the × would
 	// look like it had done nothing. It is deleted — UNLESS it stands in a
-	// column, which is a home of its own (S4: the Project board draws it
-	// there, counts it, and its × only takes the column away). A card filed
-	// under a column is never deleted by either ×, subtask or not: the grid
-	// lets it go and the column keeps it.
+	// COLUMN, which is a home of its own (S4). Then the × takes it OUT OF
+	// THE GROUP and leaves it there: releasing it while still a subtask
+	// would either break the person/sprint pair its parent owns (S3) or be
+	// undone by the next carry-over, which takes every open child along.
+	// Leaving the family is what makes the gesture mean something, and the
+	// work stays planned in its column.
 	if c.Parent != "" {
-		if hasColumn(c) {
-			return s.releaseToColumn(ctx, b, c)
+		if !hasColumn(c) {
+			return s.deleteWithCascade(ctx, b, c)
 		}
-		return s.deleteWithCascade(ctx, b, c)
+		if err := s.SetParent(ctx, boardID, c.ItemID, ""); err != nil {
+			return err
+		}
+		b, c, err = s.loadCard(ctx, boardID, itemID)
+		if err != nil {
+			return err
+		}
+		return s.releaseToColumn(ctx, b, c)
 	}
 	if from == "plan" {
 		// A slot of a plan is never deleted by the plan ×. It is a piece of a

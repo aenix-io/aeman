@@ -217,12 +217,16 @@ func projectViewCards(b board.Board, out []board.Card) []board.Card {
 	for _, c := range kept {
 		have[c.ItemID] = true
 	}
+	// In BOARD ORDER, like every other listing: a tail of riders would
+	// reshuffle rows on every refetch, which is what withSubtasks goes out
+	// of its way to avoid for children.
+	ordered := make([]board.Card, 0, len(kept)+len(wanted))
 	for _, c := range b.Cards {
-		if wanted[c.ItemID] && !have[c.ItemID] {
-			kept = append(kept, c)
+		if have[c.ItemID] || wanted[c.ItemID] {
+			ordered = append(ordered, c)
 		}
 	}
-	return kept
+	return ordered
 }
 
 // withSubtasks appends the subtasks of every delivered parent, so a view is

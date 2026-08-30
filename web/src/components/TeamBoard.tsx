@@ -1541,9 +1541,13 @@ export function TeamBoard({
         return;
       }
     }
-    // A subtask has no sprint history of its own: the × deletes it outright,
-    // gone from under its parent immediately.
-    if (card.parent) {
+    // A subtask with nowhere else to be has no sprint history of its own:
+    // the × deletes it outright, gone from under its parent immediately.
+    // One standing in a COLUMN is a different card (S4): the server
+    // ungroups it and leaves it there, so this board asks gridRemoval like
+    // it does for everything else instead of sending a DELETE past the
+    // rule — which destroyed work the Me board would have kept.
+    if (card.parent && gridRemoval(card, gridCtx(card)) === "delete") {
       removeCard(card.itemId);
       void provider.deleteCard(card.itemId).catch((err: unknown) => {
         if (!isGone(err)) {
@@ -1551,6 +1555,31 @@ export function TeamBoard({
           reload();
         }
       });
+      return;
+    }
+    if (card.parent) {
+      // Out of the group, into its column: the row must stop being drawn
+      // under its parent at once, or the × looks inert.
+      const prev: Partial<CardModel> = {
+        assignees: card.assignees,
+        sprintStart: card.sprintStart,
+        parent: card.parent,
+      };
+      patchCard(card.itemId, {
+        assignees: [],
+        sprintStart: undefined,
+        parent: undefined,
+      });
+      void provider
+        .removeCard(card.itemId, "grid")
+        .then(() => reload())
+        .catch((err: unknown) => {
+          if (isGone(err)) {
+            return;
+          }
+          patchCard(card.itemId, prev);
+          onError(errMessage(err));
+        });
       return;
     }
     let rollback: () => void;

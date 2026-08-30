@@ -159,7 +159,7 @@ export function hasColumn(c: RemovalHomes): boolean {
 /** Outcome is what an × does to a card: send it back to the sprint before
  *  this one, leave it in a home it still has, or — its last home emptied —
  *  delete it. */
-export type Outcome = "demote" | "leave" | "delete";
+export type Outcome = "demote" | "leave" | "delete" | "ungroup";
 
 /** gridRemoval mirrors boardservice.Remove(from="grid"), in its order: a
  *  card in the weekly plan goes back to it; one with sprint history demotes;
@@ -174,11 +174,12 @@ export function gridRemoval(
   // demoting it alone would split the family across two sprints — which is
   // what syncChildrenSprint exists to prevent. The × deletes it, and it is
   // gone from under its parent at once — unless it stands in a COLUMN,
-  // which is a home of its own: the Project board draws and counts it
-  // there (S4), and a card filed under a column is never deleted by
-  // either ×.
+  // which is a home of its own (S4). Then the × takes it OUT OF THE GROUP
+  // and leaves it there: releasing it while still a subtask would break
+  // the person/sprint pair its parent owns, or be undone by the next
+  // carry-over. The work stays planned in its column.
   if (c.parent) {
-    return hasColumn(c) ? "leave" : "delete";
+    return hasColumn(c) ? "ungroup" : "delete";
   }
   if (c.plan) {
     return "leave";

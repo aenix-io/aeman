@@ -624,7 +624,7 @@ func TestUnbindingAMirroredColumnSaysUnmirrorFirst(t *testing.T) {
 	}
 }
 
-// A subtask is placed nowhere of its own — the boards skip it and render it
+// A subtask carries at most one column of its own (S4) — never two and render it
 // under its parent — so a mirror on it would be a placement nobody sees:
 // counted by InEpic, invisible on every grid, and DeleteEpic would refuse a
 // column that looks empty. Mirroring a subtask is refused, and grouping a
@@ -1299,8 +1299,46 @@ func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
 	if !ok {
 		t.Fatal("a card filed under a column is never deleted by either ×")
 	}
-	if c.Epic != "Cozystack" || c.Parent != "p" {
-		t.Fatalf("its column and its parent stay: %+v", c)
+	if c.Epic != "Cozystack" {
+		t.Fatalf("the work stays planned in its column: %+v", c)
+	}
+	// It LEAVES THE GROUP. A subtask's person and sprint must equal its
+	// parent's (S3, syncChildrenSprint), so a card released from the grid
+	// while still a subtask would either break that pair or be dragged
+	// back by the next carry-over (carryFollowers takes every open child).
+	// Leaving the family is what makes the × mean something here.
+	if c.Parent != "" {
+		t.Fatalf("the × takes it out of the group: %+v", c)
+	}
+	// Off the day grid: an epic card out of the sprint is skipped there
+	// (TeamGrid). Its DATES stay — for a card in a column they are its row
+	// on the Project board, not a working-area life.
+	if c.SprintStart != "" {
+		t.Fatalf("and out of the sprint: %+v", c)
+	}
+	if c.StartDate == "" || c.Day == "" {
+		t.Fatalf("its Project-board row is its dates and must survive: %+v", c)
+	}
+	// The parent keeps its own life.
+	if p, _ := findCard(b, "p"); p.Team != "platform" {
+		t.Fatalf("the parent is untouched: %+v", p)
+	}
+}
+
+// A subtask with nowhere else to be is still deleted: there is no column to
+// release it into, and leaving it grouped would be an × that did nothing.
+func TestTheGridRemoveStillDeletesAColumnlessSubtask(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "plain child", Team: "platform", Parent: "p",
+			SprintStart: board.TodayIso()},
+	})
+	if err := New(f).Remove(ctx, "acme", "c1", "grid"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := findCard(b, "c1"); ok {
+		t.Fatal("nowhere else to be: the × deletes it")
 	}
 }
 
@@ -1321,5 +1359,30 @@ func TestGroupingATiedCardAcrossRepositoriesStillClearsTheTie(t *testing.T) {
 	c, _ := findCard(b, "c1")
 	if c.Process != "" || c.Parent != "far" {
 		t.Fatalf("the tie is cleared and the grouping lands: %+v", c)
+	}
+}
+
+// A subtask standing in a column is a first-class state now (S4), so the
+// create door must produce it rather than silently drop the parent: the
+// caller asked for a child and got a top-level card, which on the Project
+// board is a slot in the wrong place with no way to tell.
+func TestCreatingACardWithBothAParentAndAColumnKeepsBoth(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+	})
+	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "child in a column", Team: "platform", Parent: "p",
+		Project: "engineering", Epic: "Cozystack",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	got, _ := findCard(b, c.ItemID)
+	if got.Parent != "p" {
+		t.Fatalf("the parent was asked for and must land: %+v", got)
+	}
+	if got.Epic != "Cozystack" {
+		t.Fatalf("and the column with it: %+v", got)
 	}
 }

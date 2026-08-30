@@ -92,6 +92,8 @@ func TestNewBoardDropsMirrorsTheRosterDisowns(t *testing.T) {
 				{Project: "strategy", Epic: "Fundraising"}, // another repository
 				{Project: "freedom", Epic: "Ghost"},        // a column nobody declared
 			}},
+		// A no-project home is of the primary repository like any other
+		// column of it, so a primary mirror on this card is lawful.
 		{ItemID: "c2", Title: "no-project home", Epic: "Inbox",
 			Mirrors: []Placement{{Project: "freedom", Epic: "Launch"}}},
 	})
@@ -107,8 +109,8 @@ func TestNewBoardDropsMirrorsTheRosterDisowns(t *testing.T) {
 	if len(c1.Mirrors) != 1 || c1.Mirrors[0] != (Placement{Project: "freedom", Epic: "Launch"}) {
 		t.Fatalf("only the lawful mirror survives assembly: %+v", c1.Mirrors)
 	}
-	if c2.Mirrors != nil {
-		t.Fatalf("a no-project home names no repository — its mirrors are disowned: %+v", c2.Mirrors)
+	if len(c2.Mirrors) != 1 {
+		t.Fatalf("a lawful mirror of the primary repository survives: %+v", c2.Mirrors)
 	}
 }
 
@@ -211,5 +213,44 @@ func TestFollowersWalkTheWholeTreeAndSurviveACycle(t *testing.T) {
 	})
 	if got := len(Followers(cyc, "a")); got != 1 {
 		t.Fatalf("a cycle is walked once: %d", got)
+	}
+}
+
+// "Both ask the same question" means the same question: which repository
+// holds this CARD. Reading the home COLUMN instead answers differently for
+// a card whose column is not in its own repository — a state older writes
+// could produce (a no-project card re-teamed across repositories) and an
+// external writer still can. There the assembly kept a mirror Mirror
+// would refuse, which is G15 inverted just as surely as dropping one.
+func TestTheAssemblyAsksWhichRepositoryHoldsTheCard(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "st-f", Title: SprintStateTitle, Team: "founders", Domain: "founders"},
+		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
+		{ItemID: "ep-cozy", Title: EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
+		{ItemID: "ep-loose", Title: EpicStateTitle, Epic: "Loose"},
+		// The team holds this card in founders; its column is of the primary.
+		{ItemID: "odd", Title: "legacy", Team: "founders", Epic: "Loose",
+			Mirrors: []Placement{{Project: "engineering", Epic: "Cozystack"}}},
+	})
+	for _, c := range b.Cards {
+		if c.ItemID == "odd" && len(c.Mirrors) != 0 {
+			t.Fatalf("the card's file is in founders; a primary column cannot show it: %+v", c.Mirrors)
+		}
+	}
+}
+
+// A card whose home column the roster does not declare still has lawful
+// mirrors — the home check is the one to skip, not every placement.
+func TestAnUndeclaredHomeDoesNotDiscardTheOtherPlacements(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
+		{ItemID: "ep-cozy", Title: EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
+		{ItemID: "c1", Title: "home in a ghost column", Project: "engineering", Epic: "Ghost",
+			Mirrors: []Placement{{Project: "engineering", Epic: "Cozystack"}}},
+	})
+	for _, c := range b.Cards {
+		if c.ItemID == "c1" && len(c.Mirrors) != 1 {
+			t.Fatalf("the declared mirror survives an undeclared home: %+v", c.Mirrors)
+		}
 	}
 }

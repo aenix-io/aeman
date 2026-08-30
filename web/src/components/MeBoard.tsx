@@ -38,6 +38,7 @@ import {
   gridRemoval,
   personalRemovalKind,
   removalKind,
+  type Outcome,
 } from "../removal";
 import { makeCardPlacements, type CardPlacements } from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
@@ -1133,11 +1134,16 @@ export function MeBoard({
       sprintStart: card.sprintStart,
       startDate: card.startDate,
       day: card.day,
+      parent: card.parent,
     };
     patchCard(card.itemId, {
       assignees: [],
       sprintStart: undefined,
       ...(card.epic ? {} : { startDate: undefined, day: undefined }),
+      // A subtask standing in a column leaves the GROUP here (S4): the
+      // server ungroups it and keeps it in the column, and the row must
+      // stop being drawn under its parent at once or the × looks inert.
+      ...(card.parent && card.epic ? { parent: undefined } : {}),
     });
     void provider
       .removeCard(card.itemId, "grid")
@@ -1225,8 +1231,7 @@ export function MeBoard({
   // everything that was not demotable to DELETE /cards/{uid}, destroying a
   // card the other board would have left in its weekly plan: one gesture,
   // two boards, opposite outcomes.
-  const outcomeOf = (card: CardModel): "demote" | "leave" | "delete" =>
-    gridRemoval(card, gridCtx(card));
+  const outcomeOf = (card: CardModel): Outcome => gridRemoval(card, gridCtx(card));
 
   const handleDelete = (card: CardModel, forced?: "delete" | "keep") => {
     // A just-created optimistic card has no server twin yet: drop it locally

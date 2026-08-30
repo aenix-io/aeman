@@ -30,9 +30,10 @@ var ErrNoColumn = errors.New("the card is in no project column")
 // ErrOwnColumn is naming the card's own column as a mirror target.
 var ErrOwnColumn = errors.New("the card's own column is not a mirror target")
 
-// ErrSubtaskMirror is mirroring a subtask: it rides its parent and is
-// placed nowhere of its own, so a mirror on it would be a placement no
-// board ever shows — counted by the guards, seen by nobody.
+// ErrSubtaskMirror is mirroring a subtask: it carries the ONE column of
+// its own that G14 allows (and S4 draws), but its file rides its parent —
+// a second placement would be stranded the moment the parent changes
+// repository, naming a repository that no longer holds the card.
 var ErrSubtaskMirror = errors.New("a subtask rides its parent and cannot be mirrored")
 
 // ErrTurnProcess is re-tying a process turn: a turn belongs to its task,
@@ -327,7 +328,7 @@ func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	// column still has to name the repository its parent's file lives in.
 	if after.Epic != "" {
 		if cd, ok := board.ColumnDomain(b, after.Project, after.Epic); ok && cd != to {
-			return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
+			return fmt.Errorf("%w: the column %q is not in the repository that holds this card — take it out of the column first",
 				ErrCrossDomain, after.Epic)
 		}
 	}

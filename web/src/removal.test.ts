@@ -98,7 +98,7 @@ describe("what each × does, one answer for every board", () => {
     // A COLUMN is the exception: it is a home of its own, drawn and counted
     // on the Project board (S4), and a card filed under one is never
     // deleted by either ×.
-    expect(gridRemoval({ ...inSprint, parent: "p", epic: "Auth" }, ctx)).toBe("leave");
+    expect(gridRemoval({ ...inSprint, parent: "p", epic: "Auth" }, ctx)).toBe("ungroup");
   });
 
   it("demotes a card with sprint history", () => {
@@ -221,13 +221,13 @@ describe("who asks about a delete", () => {
 describe("gridRemoval on a subtask", () => {
   const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
 
-  it("leaves a subtask that stands in a column", () => {
+  it("ungroups a subtask that stands in a column, leaving it there", () => {
     expect(
       gridRemoval(
         { parent: "p1", project: "engineering", epic: "Cozystack", sprintStart: "2026-08-24" } as never,
         ctx,
       ),
-    ).toBe("leave");
+    ).toBe("ungroup");
   });
 
   it("deletes a subtask with nowhere else to be", () => {
