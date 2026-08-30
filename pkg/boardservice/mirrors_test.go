@@ -341,6 +341,57 @@ func TestMovingAProcessToAnotherRepositoryIsRefusedWhileCardsAreTied(t *testing.
 	}
 }
 
+// Dropping a process's project keeps it where it is when it already lives
+// in the primary — the stub does not move, so no tie is stranded and there
+// is nothing to refuse. The board NAMES its primary, the way a real store
+// hands it over, and reading "no project" as a repository of its own made
+// the unbinding look like a move out of it.
+func TestDroppingTheProjectOfAProcessInThePrimaryKeepsItsTies(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "chore", Team: "platform", Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	f.b.Primary = "aeman-db"
+	svc := New(f)
+	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", "engineering"); err != nil {
+		t.Fatalf("a move within the repository is free: %v", err)
+	}
+	if err := svc.SetProcessProject(ctx, "acme", "Invoicing", ""); err != nil {
+		t.Fatalf("and so is dropping the project, which moves the stub nowhere: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Process != "Invoicing" {
+		t.Fatalf("the tie stands: %+v", c)
+	}
+}
+
+// A review link inside ONE repository moves nothing, so a mirrored card
+// keeps its mirrors through it — the refusal is for a link that would
+// carry the card out, and this rule had no test on either side. The board
+// NAMES its primary here, the way a real store hands it over: the two
+// sides of the question are read through HomeDomain, in one namespace, so
+// that an unstamped entry beside a stamped one cannot make a link that
+// moves nothing look like a move.
+func TestLinkingAMirroredCardAsAReviewInsideOneRepositoryIsAllowed(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "orig", Title: "the work", Team: "platform"},
+		{ItemID: "rev", Title: "review", Team: "platform", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	f.b.Primary = "aeman-db"
+	if err := New(f).SetReviewOf(ctx, "acme", "rev", "orig"); err != nil {
+		t.Fatalf("both cards live in the primary; nothing is stranded: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "rev")
+	if c.ReviewOf != "orig" {
+		t.Fatalf("the link is written: %+v", c)
+	}
+	if len(c.Mirrors) != 1 {
+		t.Fatalf("and the mirrors stand: %+v", c.Mirrors)
+	}
+}
+
 // Renames follow the mirrors. The rename loops match cards through InEpic,
 // which now sees mirrors — rewriting the card's HOME fields for a mirror
 // match would corrupt it, and not rewriting the mirror would strand it
@@ -1964,6 +2015,98 @@ func TestThePlanRemoveNeverDeletesASubtaskThatCarriesAWeek(t *testing.T) {
 	}
 	if c.Week != "" {
 		t.Fatalf("the plan's records are emptied: %+v", c)
+	}
+}
+
+// Every refusal fires BEFORE anything is written. The × above repairs the
+// card's own stranded column rather than refusing over it — but a REVIEW
+// CARD standing in a column of the parent's repository follows the subtask
+// out and cannot, so the gesture is refused. Repairing first and asking
+// afterwards left the refusal on top of a write: an emptied column in a
+// commit the request never makes, kept by the server's cache until
+// something else reloads the card.
+func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "p", Title: "parent in the closed repository", Team: "founders", Domain: "founders"},
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
+			SprintStart: board.TodayIso()},
+		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid", Team: "founders",
+			Epic: "Closed", Domain: "founders"},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
+	err := New(f).Remove(ctx, "acme", "kid", "grid")
+	if !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the follower's column refuses the pull-out: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "kid")
+	if !ok {
+		t.Fatal("a refused × deletes nothing")
+	}
+	if c.Parent != "p" || c.Epic != "Closed" {
+		t.Fatalf("a refused × writes nothing: %+v", c)
+	}
+	if f.count("SetEpic") > 0 {
+		t.Fatalf("not even the repair: %v", f.log)
+	}
+}
+
+// The × on a subtask whose column cannot come along leaves the card where
+// every other columnless card lands — never alive with nothing. Releasing
+// it "to its column" after the column had been repaired away cleared its
+// sprint and its dates too, and a card with no sprint, no dates, no band
+// and no column is on no board anyone can open: findable only by id, by
+// someone who already knows it exists.
+func TestAStrandedColumnLeavesTheCardOnABoard(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
+			SprintStart: board.TodayIso(), StartDate: board.AddDays(board.TodayIso(), -2)},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
+	if err := New(f).Remove(ctx, "acme", "kid", "grid"); err != nil {
+		t.Fatalf("the × must complete: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "kid")
+	if !ok {
+		t.Fatal("the card is kept: platform has a previous sprint to demote into")
+	}
+	if hasColumn(c) || c.Plan != board.PlanNone {
+		t.Fatalf("the column could not come along, and it had no band: %+v", c)
+	}
+	if !inWorkingArea(c) {
+		t.Fatalf("so the working area is where it stays — demoted, not nowhere: %+v", c)
+	}
+	if c.SprintStart != board.AddDays(board.TodayIso(), -1) {
+		t.Fatalf("in the previous sprint, the way the × demotes any other card: %+v", c)
+	}
+}
+
+// The other half of the same law: with nothing to demote INTO, the × on
+// such a card means what it means for every other card whose last home it
+// empties — deletion. The alternative is the state above, kept alive for
+// the sake of not deleting it.
+func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "st-n", Title: board.SprintStateTitle, Team: "newcomers"},
+		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "newcomers", Epic: "Closed",
+			SprintStart: board.TodayIso()},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
+	if err := New(f).Remove(ctx, "acme", "kid", "grid"); err != nil {
+		t.Fatalf("the × must complete: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	if _, ok := findCard(b, "kid"); ok {
+		t.Fatal("nowhere left to be, and nothing keeping it: the card is deleted")
 	}
 }
 

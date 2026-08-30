@@ -247,13 +247,20 @@ func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) e
 // contradictory assignee events into one commit — noise in a log that IS
 // the history.
 func (s *Service) ungroupKeeping(ctx context.Context, b board.Board, card board.Card, handOver bool) error {
+	return s.ungroupWith(ctx, b, card, handOver, true)
+}
+
+// ungroupWith is ungroupKeeping with a say over the card's own column:
+// the grid's × repairs that column itself, so it asks the guard about
+// everything else and answers for the column afterwards.
+func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Card, handOver, ownColumn bool) error {
 	if card.Parent == "" {
 		return nil
 	}
 	// A pull-out is a re-file too: the card leaves its parent's repository
 	// for whatever its own project or team names, and takes its followers'
 	// files with it.
-	if err := refileGuard(b, card, func(a *board.Card) { a.Parent = "" }); err != nil {
+	if err := refileGuardOpts(b, card, func(a *board.Card) { a.Parent = "" }, ownColumn); err != nil {
 		return err
 	}
 	if err := s.backend.SetParent(ctx, b, card, ""); err != nil {

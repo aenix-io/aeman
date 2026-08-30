@@ -193,19 +193,41 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 		cards = append(cards, board.Card{
 			ItemID: st.ItemID, Title: board.SprintStateTitle, Team: team,
 			SprintStart: st.Current, StartDate: st.Previous,
+			Domain: f.board.Domains[st.ItemID],
 		})
 	}
+	// The stamps InRepository was given are written ON THE CARDS, before
+	// the assembly, the way a real store hands them over (gitstore.stamp):
+	// NewBoardIn reads a state card's own Domain field and the rules it
+	// runs — declaredMirrors above all — read the map it builds. Applied
+	// afterwards, the stamps arrived too late to be seen by them, and the
+	// published fake answered the domain rules differently from the store
+	// it stands in for, which is the one thing it must not do.
+	for i := range cards {
+		if d, ok := f.board.Domains[cards[i].ItemID]; ok && cards[i].Domain == "" {
+			cards[i].Domain = d
+		}
+	}
+	// And every CARD carries its repository's name too, the primary's
+	// included (gitstore.stamp writes it on all of them): a rule that reads
+	// the stamp raw — the process tie, which asks whether the card's own
+	// file and the process live together — answered "" here against a named
+	// primary and refused what the store accepts.
+	for i := range cards {
+		if cards[i].Domain == "" {
+			cards[i].Domain = f.board.Primary
+		}
+	}
 	b := board.NewBoardIn(f.board.Primary, cards)
-	// The stamps InRepository was given: NewBoardIn reads a state card's
-	// own Domain field, so an entry stamped through the map would
-	// otherwise be assembled as if it had none — the published fake
-	// answering the domain rules differently from the store it stands in
-	// for, which is the one thing it must not do.
+	// An id the board has no card for — a test naming a placement's home
+	// directly — still gets its stamp.
 	for id, d := range f.board.Domains {
 		if b.Domains == nil {
 			b.Domains = map[string]string{}
 		}
-		b.Domains[id] = d
+		if _, ok := b.Domains[id]; !ok {
+			b.Domains[id] = d
+		}
 	}
 	b.Board = f.board.Board
 	return b, nil

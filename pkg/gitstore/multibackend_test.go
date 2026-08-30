@@ -584,45 +584,81 @@ func TestAnEpicStubStaysInItsRepositoryWhenItsProjectChanges(t *testing.T) {
 // rule the branch introduced, over the real MultiBackend rather than a
 // fixture that models the primary as "".
 func TestAMirrorWrittenThroughTheStoreSurvivesTheNextLoad(t *testing.T) {
-	mb, _, _ := twoDomains(t)
-	ctx := context.Background()
+	// Two columns in the SHARED repository — a project's and the no-project
+	// bucket, which is a lawful mirror home (G15) — and one in the closed
+	// repository, which is not.
+	shared := repoWith(t, map[string]string{
+		BoardPath:                         "schema: 1\ntitle: b\n",
+		TeamPath("01T_PORTAL"):            "name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n",
+		ProjectPath("01P_PORTAL"):         "name: portal\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		EpicPath("01P_PORTAL", "01E_BUG"): "name: Bugs\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		ProjectPath("_"):                  "rank: b\ncreated: 2026-06-01T08:00:00Z\n",
+		EpicPath("_", "01E_CHORE"):        "name: Chores\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+	})
+	closed := repoWith(t, map[string]string{
+		ProjectPath("01P_SECRET"):          "name: secret\nrank: c\ncreated: 2026-06-02T08:00:00Z\n",
+		EpicPath("01P_SECRET", "01E_RISK"): "name: Risk\nrank: a\ncreated: 2026-06-02T08:00:00Z\n",
+	})
+	clock := at("2026-08-28T09:00:00Z")
+	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
+		BackendOptions{Now: func() time.Time { clock = clock.Add(time.Second); return clock }})
+	ctx := ctxAs("kvaps")
 	b, err := mb.LoadBoard(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Primary == "" {
-		t.Fatal("the board must name its primary repository")
+	if b.Primary != "shared" {
+		t.Fatalf("the board must name its primary repository: %q", b.Primary)
 	}
-	// Two columns of the PRIMARY: the card's own, and the one it mirrors
-	// into. A no-project column is a home like any other (G15).
-	loose, err := mb.CreateCard(ctx, b, board.CreateInput{Title: "loose column", Epic: "Chores"})
-	if err != nil {
-		t.Skipf("this fixture declares no bucket column: %v", err)
-	}
-	_ = loose
-	b, err = mb.LoadBoard(ctx, "acme")
+	card, err := mb.CreateCard(ctx, b, board.CreateInput{
+		Title: "shared work", Team: "portal", Project: "portal", Epic: "Bugs"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var card board.Card
-	for _, c := range b.Cards {
-		if c.Title == "loose column" {
-			card = c
-		}
+	if b, err = mb.LoadBoard(ctx, "acme"); err != nil {
+		t.Fatal(err)
 	}
-	if card.ItemID == "" {
-		t.Fatal("the card was not stored")
-	}
-	if err := mb.SetMirrors(ctx, b, card, []board.Placement{{Project: "portal", Epic: "Bugs"}}); err != nil {
+	// The bucket column of the same repository: one file, two columns.
+	if err := mb.SetMirrors(ctx, b, card, []board.Placement{{Epic: "Chores"}}); err != nil {
 		t.Fatal(err)
 	}
 	after, err := mb.LoadBoard(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range after.Cards {
-		if c.ItemID == card.ItemID && len(c.Mirrors) != 1 {
-			t.Fatalf("the mirror must survive the load: %+v", c.Mirrors)
-		}
+	stored, ok := findByID(after, card.ItemID)
+	if !ok {
+		t.Fatal("the card must come back from the store")
+	}
+	if len(stored.Mirrors) != 1 || stored.Mirrors[0] != (board.Placement{Epic: "Chores"}) {
+		t.Fatalf("the mirror must survive the load: %+v", stored.Mirrors)
+	}
+	// And the column of ANOTHER repository must not: the file that holds
+	// the card is not in it, so the placement names a column its readers
+	// may not have (G15). The store drops it on the way back, whatever a
+	// direct writer put in the file.
+	if err := mb.SetMirrors(ctx, b, stored, []board.Placement{{Project: "secret", Epic: "Risk"}}); err != nil {
+		t.Fatal(err)
+	}
+	// It IS on disk — the store writes what it is told, and a direct writer
+	// could have put it there just the same. The drop is on the way back.
+	cp, _ := CardPath(card.ItemID)
+	data, err := shared.ReadFile(cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "Risk") {
+		t.Fatalf("the placement was not written at all:\n%s", data)
+	}
+	after, err = mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, ok = findByID(after, card.ItemID)
+	if !ok {
+		t.Fatal("the card is still there")
+	}
+	if len(stored.Mirrors) != 0 {
+		t.Fatalf("a cross-repository placement is not one this card can have: %+v", stored.Mirrors)
 	}
 }

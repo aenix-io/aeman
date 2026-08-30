@@ -70,8 +70,10 @@ func DomainOf(c Card, r DomainResolver) string {
 	return ""
 }
 
-// TeamDomain is the repository a team was declared in, "" for the primary
-// and for a team the roster does not declare (which decides nothing).
+// TeamDomain is the repository a team was declared in, read in the board's
+// ONE namespace (inPrimary): an unstamped entry answers with the PRIMARY's
+// name, which is "" only on a board that does not name its own. A team the
+// roster does not declare answers "" and decides nothing.
 func TeamDomain(b Board, team string) string {
 	if team == "" {
 		return ""
@@ -83,8 +85,11 @@ func TeamDomain(b Board, team string) string {
 	return b.inPrimary(b.Domains[st.ItemID])
 }
 
-// ProjectDomain is the repository a project was declared in, "" for the
-// primary and for a project the roster does not declare.
+// ProjectDomain is the repository a project was declared in, in the same
+// namespace: the PRIMARY's name for an unstamped entry, "" for a project
+// the roster does not declare — and "" for the empty project NAME, which
+// is not a project at all and decides nothing (SetProcessProject reads
+// the primary itself for that case).
 func ProjectDomain(b Board, project string) string {
 	if project == "" {
 		return ""

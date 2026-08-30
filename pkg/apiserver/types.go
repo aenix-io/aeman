@@ -114,8 +114,11 @@ type CardStatus struct {
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
 	// Domain is the repository the card lives in — the store's decision by
-	// the inheritance rule, never a client's choice; empty when the store did
-	// not stamp it (a card in the primary is shown without a badge).
+	// the inheritance rule, never a client's choice. The store stamps every
+	// card, the primary's included, so this normally carries a NAME on a
+	// multi-repository board and the client compares it against the primary
+	// (cardDomainBadge) rather than reading an empty string as "primary".
+	// Empty only where nothing stamped it: a single-repository board.
 	Domain string `json:"domain,omitempty"`
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
@@ -678,8 +681,13 @@ func CardLogFrom(c board.Card, events []board.Event, truncatedBefore time.Time) 
 	return out
 }
 
-// rosterDomains names the repository of the entries that live outside the
-// primary; nil when they all live in it.
+// rosterDomains names the repository of every entry whose domain is known,
+// in the board's own namespace — which, on a board that names its primary,
+// includes the entries that live IN it (board.TeamDomain and friends
+// answer with the primary's name, not ""). nil when nothing names one at
+// all, which is the single-repository board. The client normalizes the
+// same way (domains.ts: primaryDomain/inPrimary), so an entry with no row
+// here and one naming the primary mean the same thing to it.
 func rosterDomains(names []string, domainOf func(string) string) map[string]string {
 	var out map[string]string
 	for _, name := range names {

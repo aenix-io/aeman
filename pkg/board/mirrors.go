@@ -26,8 +26,10 @@ func Mirrored(c Card, project, epic string) bool {
 	return false
 }
 
-// ProcessDomain is the repository a process was declared in, "" for the
-// primary and for a process the roster does not declare.
+// ProcessDomain is the repository a process was declared in, read in the
+// board's ONE namespace (inPrimary): an unstamped entry answers with the
+// PRIMARY's name, which is "" only on a board that does not name its own.
+// A process the roster does not declare answers "" and decides nothing.
 func ProcessDomain(b Board, name string) string {
 	for _, p := range b.Processes {
 		if p.Name == name {

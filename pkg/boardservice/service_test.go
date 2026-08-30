@@ -129,6 +129,16 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 			Domain: f.b.Domains[st.ItemID],
 		})
 	}
+	// And every CARD carries its repository's name too, the primary's
+	// included (gitstore.stamp writes it on all of them): a rule that reads
+	// the stamp raw — the process tie, which asks whether the card's own
+	// file and the process live together — answered "" here against a named
+	// primary and refused what the store accepts.
+	for i := range cards {
+		if cards[i].Domain == "" {
+			cards[i].Domain = f.b.Primary
+		}
+	}
 	b := board.NewBoardIn(f.b.Primary, cards)
 	b.Board = f.b.Board
 	// The map is the caller's explicit word about a team's sprint, so it

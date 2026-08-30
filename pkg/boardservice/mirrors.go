@@ -321,6 +321,15 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 // Explicit re-files refuse; grouping clears the tie instead (SetParent),
 // the way it clears mirrors.
 func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
+	return refileGuardOpts(b, c, change, true)
+}
+
+// refileGuardOpts is refileGuard with a say over the card's OWN column.
+// The grid's × repairs that column itself — ungrouping strands it, and
+// refusing would name a column the person did not touch — so it asks
+// about everything ELSE first: what a refusal must precede is a write,
+// and the repair is one.
+func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownColumn bool) error {
 	after := c
 	change(&after)
 	to := board.HomeDomain(b, after)
@@ -328,7 +337,7 @@ func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	// the one check that matters even when the domain does not change —
 	// re-filing a subtask into another column moves no file, and the
 	// column still has to name the repository its parent's file lives in.
-	if after.Epic != "" {
+	if ownColumn && after.Epic != "" {
 		if cd, ok := board.ColumnDomain(b, after.Project, after.Epic); ok && cd != to {
 			return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
 				ErrCrossDomain, after.Epic)

@@ -144,7 +144,17 @@ func (s *Service) SetProcessProject(ctx context.Context, boardID string, name, p
 	// cross-repository in one stroke — the state the tie guard
 	// (SetCardProcess) exists to prevent. Refused while ties stand,
 	// symmetric with the mirrored column that cannot change repositories.
-	if board.ProjectDomain(b, projectName) != board.ProcessDomain(b, name) {
+	// Where the stub will BE, in the board's own namespace: a process with
+	// NO project belongs to the primary, and ProjectDomain answers "" both
+	// for that and for a project of the primary — while ProcessDomain now
+	// answers with the primary's NAME. Read raw, dropping the binding of a
+	// process that never leaves the primary looked like a move out of it
+	// and refused over ties that were going nowhere.
+	to := b.Primary
+	if projectName != "" {
+		to = board.ProjectDomain(b, projectName)
+	}
+	if to != board.ProcessDomain(b, name) {
 		if n := len(tiedTo(b, name)); n > 0 {
 			return fmt.Errorf("%w: %d card(s) are tied to %q — untie them first", ErrCrossDomain, n, name)
 		}

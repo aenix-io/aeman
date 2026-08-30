@@ -46,6 +46,19 @@ repository that four people can clone; everybody else's board simply
 does not contain it. Authorization is thereby handed back to the forge,
 which is where it already lives for the code.
 
+A domain has a **name** — the one given on the command line (`--repo
+name=url`) — and every entry the reader hands over is stamped with the
+name of the repository it was read from, the primary's included. Nothing
+on disk carries that stamp: it is where the file *is*. A reader that
+leaves it out for the primary, or a rule that compares a stamped name
+against an empty one, has two names for one repository — and every "same
+repository?" question (the domain rule below, mirrors, the column
+guards) then answers no where it should answer yes. In this codebase the
+board carries its primary's name (`board.Board.Primary`) and every
+domain reader normalizes through it, so an unstamped entry and the
+primary are one answer; "nothing declares this" stays a separate,
+empty answer that decides nothing.
+
 ### One axis of inheritance
 
 Every object lives in exactly one domain, and nothing is chosen per

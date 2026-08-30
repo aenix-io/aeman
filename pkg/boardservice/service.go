@@ -1175,19 +1175,13 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		if !hasColumn(c) {
 			return s.deleteWithCascade(ctx, b, c)
 		}
-		// Ungrouping re-files the card by its own team, so a column of the
-		// PARENT's repository is stranded by the gesture itself. The guard
-		// would refuse — naming a column the person did not touch, over a
-		// move they did — so the column is repaired here instead, the way
-		// a deleted parent's release repairs it, and the × completes.
-		if err := s.dropAStrandedColumn(ctx, b, c); err != nil {
-			return err
-		}
-		b, c, err = s.loadCard(ctx, boardID, itemID)
-		if err != nil {
-			return err
-		}
-		if err := s.ungroupKeeping(ctx, b, c, false); err != nil {
+		// EVERY refusal fires before anything is written. Ungrouping strands
+		// a column of the PARENT's repository — the gesture's own doing, so
+		// the column is repaired rather than refused over — but whatever
+		// ELSE the pull-out would strand (a follower's column, a process
+		// tie) is asked FIRST, or a refusal lands after a write the commit
+		// never carries and the cache keeps.
+		if err := s.ungroupWith(ctx, b, c, false, false); err != nil {
 			return err
 		}
 		// The card in hand, not a re-read: a staged write is invisible to a
@@ -1196,8 +1190,31 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// as it was for an embedder and as it is for the server — the same
 		// call, two answers.
 		c.Parent = ""
-		return s.releaseToColumn(ctx, b, c)
+		if err := s.dropAStrandedColumn(ctx, b, c); err != nil {
+			return err
+		}
+		if columnFollows(b, c) {
+			return s.releaseToColumn(ctx, b, c)
+		}
+		// The column could not come along, so the card is an ordinary one
+		// now and the × means for it what it means for any other: demote,
+		// or delete when the working area was its only place. Releasing it
+		// as if it still had a column left it with no sprint, no dates, no
+		// band and no column — alive, and on no board anyone can open.
+		// The card in hand again, for the same reason: a re-read answers
+		// differently for an embedder than for the server.
+		c.Epic, c.Project = "", ""
+		return s.removeFromGrid(ctx, b, c)
 	}
+	return s.removeFromGrid(ctx, b, c)
+}
+
+// removeFromGrid is the day grid's × on a card that stands on its own: the
+// card leaves the working area, and where it goes is decided by what it has
+// left. Split out of Remove so the former subtask above, whose column could
+// not follow it out of the group, is answered by the SAME law rather than a
+// second copy of it.
+func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Card) error {
 	if c.Plan != board.PlanNone {
 		// The card is in the weekly plan too, so this × takes it out of the
 		// working area and leaves it there — whatever it carries. The grid ×
@@ -1456,10 +1473,14 @@ func (s *Service) SetReviewOf(ctx context.Context, boardID string, itemID, revie
 	// G15's forbidden state. Refused while mirrors stand, symmetric with
 	// SetEpic: unmirror first.
 	if len(card.Mirrors) > 0 {
-		r := board.Resolver(b, "")
 		after := card
 		after.ReviewOf = reviewOf
-		if board.DomainOf(after, r) != board.DomainOf(card, r) {
+		// Through HomeDomain, which reads BOTH sides in the board's one
+		// namespace. A resolver of its own answered "" for an unstamped
+		// team and the primary's NAME for a card the store stamped — two
+		// names for one repository inside a single comparison, so a link
+		// that moved nothing looked like a move and was refused.
+		if board.HomeDomain(b, after) != board.HomeDomain(b, card) {
 			return fmt.Errorf("%w: the review link would move the card — unmirror it first", ErrCrossDomain)
 		}
 	}
@@ -2674,18 +2695,31 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 // for the only re-file that cannot be refused instead (a parent being
 // deleted releases its children whatever else is true). Everywhere else
 // this state is prevented; here it is repaired, and recorded.
+// columnFollows reports whether a card's column can come with it out of a
+// group. Judged on the card WITHOUT its parent: every caller is releasing
+// it — a deleted parent frees its children, the grid's × takes a card out
+// of its group — so the question is which repository will hold the card
+// once the link is gone. An UNKNOWN column is left alone: no roster
+// declares it, so nothing says it belongs to another repository.
+//
+// The grid's × asks this to know what the card has left; dropAStrandedColumn
+// acts on the same answer. One function, or the two drift and the × decides
+// a card is columnless while its column is still written on it.
+func columnFollows(b board.Board, c board.Card) bool {
+	if c.Epic == "" {
+		return true
+	}
+	after := c
+	after.Parent = ""
+	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
+	return !known || cd == board.HomeDomain(b, after)
+}
+
 func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c board.Card) error {
 	if c.Epic == "" {
 		return nil
 	}
-	// Judged on the card WITHOUT its parent: both callers are releasing it
-	// — a deleted parent frees its children, the grid's × takes a card out
-	// of its group — so the question is which repository will hold it
-	// once the link is gone.
-	after := c
-	after.Parent = ""
-	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
-	if !known || cd == board.HomeDomain(b, after) {
+	if columnFollows(b, c) {
 		return nil
 	}
 	was := c.Project + " / " + c.Epic
