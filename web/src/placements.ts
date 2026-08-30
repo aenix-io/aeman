@@ -24,6 +24,7 @@ export function attachTargets(
   projects: readonly string[],
   epics: readonly EpicRef[],
   cardDomain: string,
+  teamBound = true,
 ): ProjectTargets[] {
   const out: ProjectTargets[] = [];
   for (const p of projects) {
@@ -31,8 +32,14 @@ export function attachTargets(
     // declared in two repositories with its columns merged under one entry
     // (G13), and the server asks the column — filtering by the project
     // offered columns it refuses, and hid columns it would have taken.
+    // Where the card will BE after the attach, not where it is: for a card
+    // whose PROJECT decides (no team to hold it), the new project carries
+    // it along, so a column of another repository is a lawful destination
+    // — the server accepts it, and refusing to offer it hid the move the
+    // whole no-project bucket exists for. A card whose team holds it stays
+    // in that team's repository (G46).
     const cols = epics
-      .filter((e) => e.project === p && (e.domain ?? "") === cardDomain)
+      .filter((e) => e.project === p && (!teamBound || (e.domain ?? "") === cardDomain))
       .map((e) => e.name);
     if (cols.length > 0) {
       out.push({ name: p, epics: cols });
@@ -95,12 +102,23 @@ export function removeFromProjectOutcome(
   card: Pick<Card, "project" | "epic" | "mirrors" | "assignees" | "progress" | "parent">,
   project: string,
   epic: string,
-): PlacementRemoval {
+): PlacementRemoval | "refused" {
+  // The server's two entry guards, mirrored: a column is named by its
+  // EPIC (an empty one is no column), and a card is only removed from a
+  // column it stands in. Without them an empty pair "matched" a card
+  // standing nowhere and fell through to the last-column branch, which
+  // deletes.
+  if (epic === "") {
+    return "refused";
+  }
   const mirrored = (card.mirrors ?? []).some(
     (m) => m.project === project && m.epic === epic,
   );
   if (mirrored) {
     return "unmirror";
+  }
+  if ((card.project ?? "") !== (project ?? "") || (card.epic ?? "") !== epic) {
+    return "refused";
   }
   if ((card.mirrors ?? []).length > 0) {
     return "promote";
@@ -160,7 +178,10 @@ export interface CardPlacements {
  *  from the board — the same filters the server applies, so the picker
  *  offers only what would be accepted. */
 export function placementTargets(
-  card: Pick<Card, "project" | "epic" | "mirrors" | "domain" | "stage" | "process" | "task" | "parent">,
+  card: Pick<
+    Card,
+    "project" | "epic" | "mirrors" | "domain" | "stage" | "process" | "task" | "parent" | "team"
+  >,
   board: {
     projects: string[];
     epics: EpicRef[];
@@ -180,7 +201,7 @@ export function placementTargets(
     return card.epic
       ? {}
       : {
-          attach: attachTargets(board.projects, board.epics, card.domain ?? ""),
+          attach: attachTargets(board.projects, board.epics, card.domain ?? "", !!card.team),
         };
   }
   if (card.epic) {
@@ -208,7 +229,7 @@ export function placementTargets(
     };
   }
   return {
-    attach: attachTargets(board.projects, board.epics, card.domain ?? ""),
+    attach: attachTargets(board.projects, board.epics, card.domain ?? "", !!card.team),
   };
 }
 
@@ -473,8 +494,14 @@ export function projectsAColumnCanJoin(
   columnDomain: string,
   projects: readonly string[],
   projectDomains: RosterDomains,
+  current = "",
 ): string[] {
-  return projects.filter((p) => rosterDomain(projectDomains, p) === columnDomain);
+  // What the column already carries stays on the list, so a pair written
+  // before the rule can be seen and changed — every other picker here
+  // keeps its current value for the same reason.
+  return projects.filter(
+    (p) => p === current || rosterDomain(projectDomains, p) === columnDomain,
+  );
 }
 
 /** teamsACardCanTake narrows the team picker for a card standing in a
@@ -490,5 +517,21 @@ export function teamsACardCanTake(
 ): string[] {
   return teams.filter(
     (t) => t === current || rosterDomain(teamDomains, t) === columnDomain,
+  );
+}
+
+/** columnsOf lists the columns a card is drawn in — its home pair and
+ *  every mirror. A column's own bar has to count what that column shows,
+ *  and keying the count by the home pair alone left a mirror column
+ *  reporting a total of zero while drawing slots, so the header
+ *  percentage and the sum of the columns' contradicted each other. */
+export function columnsOf(
+  card: Pick<Card, "project" | "epic" | "mirrors">,
+): { project: string; epic: string }[] {
+  if (!card.epic) {
+    return [];
+  }
+  return [{ project: card.project ?? "", epic: card.epic }].concat(
+    (card.mirrors ?? []).map((m) => ({ project: m.project, epic: m.epic })),
   );
 }

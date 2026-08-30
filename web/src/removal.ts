@@ -193,7 +193,15 @@ export function gridRemoval(
 /** planRemoval mirrors boardservice.Remove(from="plan"): the card leaves the
  *  band and stays wherever else it is — its column, or the working area.
  *  Being on a person or carrying progress is not a place to be. */
-export function planRemoval(c: RemovalHomes): Outcome {
+export function planRemoval(c: RemovalHomes & Pick<RemovableCard, "parent">): Outcome {
+  // A SUBTASK is never deleted here: its home is its parent, so the plan
+  // cannot be its last one (G57). The panel routes subtasks to the grid
+  // handler today, so this arm is the rule's statement rather than a live
+  // path — and a rule stated in one copy and not the other is how the two
+  // boards came to disagree in the first place.
+  if (c.parent) {
+    return "leave";
+  }
   return hasColumn(c) || inWorkingArea(c) ? "leave" : "delete";
 }
 

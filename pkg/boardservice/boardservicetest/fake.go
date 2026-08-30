@@ -196,6 +196,17 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 		})
 	}
 	b := board.NewBoardIn(f.board.Primary, cards)
+	// The stamps InRepository was given: NewBoardIn reads a state card's
+	// own Domain field, so an entry stamped through the map would
+	// otherwise be assembled as if it had none — the published fake
+	// answering the domain rules differently from the store it stands in
+	// for, which is the one thing it must not do.
+	for id, d := range f.board.Domains {
+		if b.Domains == nil {
+			b.Domains = map[string]string{}
+		}
+		b.Domains[id] = d
+	}
 	b.Board = f.board.Board
 	return b, nil
 }

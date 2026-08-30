@@ -1966,3 +1966,34 @@ func TestThePlanRemoveNeverDeletesASubtaskThatCarriesAWeek(t *testing.T) {
 		t.Fatalf("the plan's records are emptied: %+v", c)
 	}
 }
+
+// The grid × on a subtask whose column belongs to its PARENT's repository
+// completes: ungrouping re-files the card by its own team, so the column
+// is stranded by the gesture itself, and refusing over it would name a
+// column the person did not touch in answer to a move they did. The
+// column is repaired — the same repair a deleted parent's release makes —
+// and the card lands out of the group.
+func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
+		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
+		{ItemID: "kid", Title: "child", Parent: "p", Team: "platform", Epic: "Closed",
+			SprintStart: board.TodayIso()},
+	})
+	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
+	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
+	if err := New(f).Remove(ctx, "acme", "kid", "grid"); err != nil {
+		t.Fatalf("the × must complete: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "kid")
+	if !ok {
+		t.Fatal("the card is kept")
+	}
+	if c.Parent != "" {
+		t.Fatalf("out of the group: %+v", c)
+	}
+	if c.Epic != "" {
+		t.Fatalf("and out of a column its repository does not hold: %+v", c)
+	}
+}

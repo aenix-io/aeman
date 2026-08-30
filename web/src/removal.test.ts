@@ -302,3 +302,12 @@ describe("gridGesture", () => {
     ).toBe("demote");
   });
 });
+
+// The plan's × never deletes a subtask: its home is its parent, so the
+// plan cannot be its last one (G57). Stated in this copy too, because a
+// rule kept on one side only is how the boards drifted before.
+describe("planRemoval on a subtask", () => {
+  it("leaves it, whatever else it carries", () => {
+    expect(planRemoval({ parent: "p" } as never)).toBe("leave");
+  });
+});

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attachSlotDates,
   attachTargets,
+  columnsOf,
   countedForProgress,
   drawnAsSlot,
   drawnOnProjectBoard,
@@ -571,12 +572,15 @@ describe("targets on an alias project", () => {
   };
 
   it("attaches a primary card only to the primary column", () => {
-    const got = placementTargets({} as Card, board);
+    // A TEAM holds this card in its repository (G46), so the columns of
+    // another one are not destinations; a card nothing holds is carried
+    // by whatever project takes it, and is offered both.
+    const got = placementTargets({ team: "platform" } as Card, board);
     expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
   });
 
   it("attaches a closed card only to the closed column", () => {
-    const got = placementTargets({ domain: "closed" } as Card, board);
+    const got = placementTargets({ domain: "closed", team: "board" } as Card, board);
     expect(got.attach).toEqual([{ name: "portal", epics: ["Docs"] }]);
   });
 
@@ -642,5 +646,82 @@ describe("pickers that must not offer a refusal", () => {
       "platform",
       "board",
     ]);
+  });
+});
+
+// The exported mirrors of the server's rules carry its refusals too — an
+// outcome that says "delete" where the server says "no such column" is a
+// deletion nobody sanctioned, which is the shape the server's own guard
+// was written against.
+describe("removeFromProjectOutcome refuses what the server refuses", () => {
+  it("refuses the empty pair — a column is named by its epic", () => {
+    expect(removeFromProjectOutcome({} as Card, "", "")).toBe("refused");
+  });
+
+  it("refuses a column the card does not stand in", () => {
+    const card = { project: "engineering", epic: "Cozystack" } as Card;
+    expect(removeFromProjectOutcome(card, "freedom", "Launch")).toBe("refused");
+  });
+
+  it("still answers for the column the card is in", () => {
+    const card = {
+      project: "engineering",
+      epic: "Cozystack",
+      assignees: [],
+      progress: 0,
+    } as unknown as Card;
+    expect(removeFromProjectOutcome(card, "engineering", "Cozystack")).toBe("delete");
+  });
+});
+
+// Attaching asks where the card will BE. A card whose project decides is
+// carried along by the new one, so a column of another repository is a
+// lawful destination — the server accepts it, and hiding it kept the
+// no-project bucket unreachable. A card its TEAM holds stays put (G46).
+describe("attachTargets and the card's binding", () => {
+  const projects = ["engineering", "strategy"];
+  const epics = [
+    { name: "Cozystack", project: "engineering" },
+    { name: "Fundraising", project: "strategy", domain: "founders" },
+  ];
+
+  it("offers every column to a card nothing holds", () => {
+    const got = placementTargets({} as Card, {
+      projects,
+      epics,
+      processes: [],
+    });
+    expect(got.attach?.map((p) => p.name)).toEqual(["engineering", "strategy"]);
+  });
+
+  it("offers a team's card only its own repository", () => {
+    const got = placementTargets({ team: "platform" } as Card, {
+      projects,
+      epics,
+      processes: [],
+    });
+    expect(got.attach?.map((p) => p.name)).toEqual(["engineering"]);
+  });
+});
+
+// A column's bar counts what the column DRAWS, mirrors included: keying by
+// the home pair left a mirror column reporting nothing while showing
+// slots, so the header and the columns disagreed on one screen.
+describe("columnsOf", () => {
+  it("lists the home and every mirror", () => {
+    expect(
+      columnsOf({
+        project: "engineering",
+        epic: "Cozystack",
+        mirrors: [{ project: "freedom", epic: "Launch" }],
+      } as Card),
+    ).toEqual([
+      { project: "engineering", epic: "Cozystack" },
+      { project: "freedom", epic: "Launch" },
+    ]);
+  });
+
+  it("lists nothing for a card in no column", () => {
+    expect(columnsOf({} as Card)).toEqual([]);
   });
 });

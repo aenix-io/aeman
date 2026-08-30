@@ -280,8 +280,10 @@ type PersonalInfo struct {
 type EpicRef struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
-	// Domain is the repository the column was declared in, for the columns
-	// outside the primary. A client cannot compute it from the project: the
+	// Domain is the repository the column was declared in. A server
+	// serving several repositories names every column, the primary's
+	// included; a board assembled by hand may leave the primary's blank.
+	// Read it as a NAME to compare, never as "absent means primary". A client cannot compute it from the project: the
 	// same project NAME may be declared in two repositories with its
 	// columns merged under one entry (G13), and it is the COLUMN that
 	// decides whether a card may stand in it.
@@ -307,6 +309,17 @@ func processNames(b board.Board) []string {
 		out = append(out, p.Name)
 	}
 	return out
+}
+
+// columnDomainOf reads a column's repository the way every rule does —
+// through board.ColumnDomain, which answers in ONE namespace (an
+// unstamped entry belongs to the board's primary). Reading the raw stamp
+// here put two namespaces in one payload: epics[].domain unstamped beside
+// projectDomains stamped, and a client comparing them found no column at
+// all.
+func columnDomainOf(b board.Board, e board.EpicCol) string {
+	d, _ := board.ColumnDomain(b, e.Project, e.Name)
+	return d
 }
 
 // processRefs lists the processes, in board order.
@@ -350,7 +363,7 @@ func deadlineWeeks(b board.Board) []DeadlineRef {
 func epicRefs(b board.Board) []EpicRef {
 	out := make([]EpicRef, 0, len(b.Epics))
 	for _, e := range b.Epics {
-		out = append(out, EpicRef{Name: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]})
+		out = append(out, EpicRef{Name: e.Name, Project: e.Project, Domain: columnDomainOf(b, e)})
 	}
 	return out
 }

@@ -10,6 +10,7 @@ import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
+  columnsOf,
   countedForProgress,
   projectsAColumnCanJoin,
   teamsACardCanTake,
@@ -1427,8 +1428,14 @@ export function ProjectBoard({
     for (const c of cards.filter(
       (c) => drawnAsSlot(c) && countedForProgress(c, byId, "column"),
     )) {
-      const k = colKey(c.project ?? "", c.epic ?? "");
-      byCol.set(k, [...(byCol.get(k) ?? []), c]);
+      // Every column the card is DRAWN in, mirrors included: keyed by the
+      // home pair alone, a mirror column reported a total of zero while
+      // showing slots, and the header disagreed with the columns beneath
+      // it on one screen.
+      for (const col of columnsOf(c)) {
+        const k = colKey(col.project, col.epic);
+        byCol.set(k, [...(byCol.get(k) ?? []), c]);
+      }
     }
     const out = new Map<string, ReturnType<typeof progressOf>>();
     for (const [k, list] of byCol) {
@@ -1692,6 +1699,7 @@ export function ProjectBoard({
                   columnDomain(e),
                   board.projects,
                   board.projectDomains,
+                  e.project,
                 )}
                 entity="epic"
                 onPick={(to) => setEpicProject(e, to)}

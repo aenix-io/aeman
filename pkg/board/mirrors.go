@@ -31,7 +31,7 @@ func Mirrored(c Card, project, epic string) bool {
 func ProcessDomain(b Board, name string) string {
 	for _, p := range b.Processes {
 		if p.Name == name {
-			return b.Domains[p.ItemID]
+			return b.inPrimary(b.Domains[p.ItemID])
 		}
 	}
 	return ""

@@ -120,7 +120,7 @@ action with one `Aeman-Action-Id` across two domains, never a drag.
 
 ### References never cross a domain boundary
 
-A card may carry `mirrors:` — a YAML list of `{project, epic}` pairs — and
+A card may carry `mirrors:` — a YAML list of `{project, epic}` entries, the project half optionally empty (a column of no project) — and
 then stands in every named column as well as its own: the same file, the
 same log, the same dates, shown in more than one project. The home pair
 (`project:`/`epic:`) keeps deciding everything beyond being shown — the

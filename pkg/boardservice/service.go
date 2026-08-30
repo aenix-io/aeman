@@ -1112,13 +1112,20 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// emptying the plan cannot be emptying its last home. It loses the
 		// plan's records and stays.
 		if c.Parent != "" {
-			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
-				return err
+			if c.Plan != board.PlanNone {
+				if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
+					return err
+				}
+				s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
 			}
-			if err := s.clearPlanWeek(ctx, b, c); err != nil {
-				return err
+			// The week may outlive the band (a grouping clears only what
+			// the card had), and clearing it is the whole of the gesture
+			// for such a card.
+			if c.Week != "" {
+				if err := s.clearPlanWeek(ctx, b, c); err != nil {
+					return err
+				}
 			}
-			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
 			return nil
 		}
 
@@ -1167,6 +1174,18 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	if c.Parent != "" {
 		if !hasColumn(c) {
 			return s.deleteWithCascade(ctx, b, c)
+		}
+		// Ungrouping re-files the card by its own team, so a column of the
+		// PARENT's repository is stranded by the gesture itself. The guard
+		// would refuse — naming a column the person did not touch, over a
+		// move they did — so the column is repaired here instead, the way
+		// a deleted parent's release repairs it, and the × completes.
+		if err := s.dropAStrandedColumn(ctx, b, c); err != nil {
+			return err
+		}
+		b, c, err = s.loadCard(ctx, boardID, itemID)
+		if err != nil {
+			return err
 		}
 		if err := s.ungroupKeeping(ctx, b, c, false); err != nil {
 			return err
@@ -1874,6 +1893,13 @@ func (s *Service) SetPlan(ctx context.Context, boardID string, itemID string, pl
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
+	}
+	// A card is a SUBTASK or a plan card, never both (G58): grouping hands
+	// a subtask's slot to its parent, so writing a band back onto one
+	// re-creates by PATCH the state the create door refuses. Clearing is
+	// free — that is how the slot is handed over.
+	if card.Parent != "" && plan != board.PlanNone {
+		return ErrPlanSubtask
 	}
 	if err := s.backend.SetPlan(ctx, b, card, plan); err != nil {
 		return err
@@ -2652,6 +2678,10 @@ func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c boar
 	if c.Epic == "" {
 		return nil
 	}
+	// Judged on the card WITHOUT its parent: both callers are releasing it
+	// — a deleted parent frees its children, the grid's × takes a card out
+	// of its group — so the question is which repository will hold it
+	// once the link is gone.
 	after := c
 	after.Parent = ""
 	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
