@@ -64,3 +64,23 @@ func TestTheFakeRecordsATeamsRepository(t *testing.T) {
 		}
 	}
 }
+
+// The no-team group is a real group ("" is a team key like any other), and
+// board order comes from the state cards' positions — a fake that drops
+// either answers differently from the board it stands in for.
+func TestTheFakeKeepsTheNoTeamGroupAndTheBoardOrder(t *testing.T) {
+	f := New([]board.Card{
+		{ItemID: "st-none", Title: board.SprintStateTitle, SprintStart: "2026-08-24"},
+		{ItemID: "st-p", Title: board.SprintStateTitle, Team: "platform", SprintStart: "2026-08-24"},
+	}, nil)
+	b, err := f.LoadBoard(t.Context(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, ok := b.SprintStates[""]; !ok || st.Current != "2026-08-24" {
+		t.Fatalf("the no-team group keeps its sprint: %+v", b.SprintStates)
+	}
+	if len(b.TeamOrder) != 2 || b.TeamOrder[0] != "" || b.TeamOrder[1] != "platform" {
+		t.Fatalf("board order is the state cards' order: %+v", b.TeamOrder)
+	}
+}

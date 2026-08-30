@@ -134,13 +134,25 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if err := guardRoster(b, c.Team, to); err != nil {
 			return err
 		}
-		// A HOME card's process tie must not leave its repository with the
-		// column: the move re-files the card, and the tie would stay
-		// behind — refused before the stub is re-parented, like the
-		// mirror guards below.
 		if c.Project == from && c.Epic == epic {
+			// A HOME card's process tie must not leave its repository with
+			// the column: the move re-files the card, and the tie would
+			// stay behind — refused before the stub is re-parented, like
+			// the mirror guards below.
 			if err := refileGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
 				return fmt.Errorf("%w (card %q)", err, c.Title)
+			}
+			// And the card must be able to FOLLOW the column. An ordinary
+			// card does — its project decides where it lives — but one
+			// whose file is held by a link (a subtask riding its parent, a
+			// review card its original) stays behind while its project
+			// field is rewritten to name a column that has left: the state
+			// S4 refuses at every other door. refileGuard cannot see this
+			// one, because the move changes nothing about THIS card's
+			// domain and the target column does not exist yet.
+			if board.DomainOf(c, board.Resolver(b, "")) != board.ProjectDomain(b, to) {
+				return fmt.Errorf("%w: %q cannot follow this column — its file is held in another repository",
+					ErrCrossDomain, c.Title)
 			}
 		}
 		if len(c.Mirrors) == 0 {

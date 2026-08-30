@@ -23,15 +23,18 @@ export interface ProjectTargets {
 export function attachTargets(
   projects: readonly string[],
   epics: readonly EpicRef[],
-  projectDomains: RosterDomains,
+  _projectDomains: RosterDomains,
   cardDomain: string,
 ): ProjectTargets[] {
   const out: ProjectTargets[] = [];
   for (const p of projects) {
-    if (rosterDomain(projectDomains, p) !== cardDomain) {
-      continue;
-    }
-    const cols = epics.filter((e) => e.project === p).map((e) => e.name);
+    // The COLUMN answers, not its project: one project NAME may be
+    // declared in two repositories with its columns merged under one entry
+    // (G13), and the server asks the column — filtering by the project
+    // offered columns it refuses, and hid columns it would have taken.
+    const cols = epics
+      .filter((e) => e.project === p && (e.domain ?? "") === cardDomain)
+      .map((e) => e.name);
     if (cols.length > 0) {
       out.push({ name: p, epics: cols });
     }
@@ -43,23 +46,26 @@ export function attachTargets(
  *  the projects of its HOME project's repository, minus every column it
  *  already stands in. */
 export function mirrorTargets(
-  card: Pick<Card, "project" | "epic" | "mirrors">,
+  card: Pick<Card, "project" | "epic" | "mirrors" | "domain">,
   projects: readonly string[],
   epics: readonly EpicRef[],
-  projectDomains: RosterDomains,
+  _projectDomains: RosterDomains,
 ): ProjectTargets[] {
-  const home = rosterDomain(projectDomains, card.project ?? "");
+  const home = card.domain ?? "";
   const standing = new Set<string>([`${card.project}\u0000${card.epic}`]);
   for (const m of card.mirrors ?? []) {
     standing.add(`${m.project}\u0000${m.epic}`);
   }
   const out: ProjectTargets[] = [];
   for (const p of projects) {
-    if (rosterDomain(projectDomains, p) !== home) {
-      continue;
-    }
+    // The column's own repository decides, as it does for the server.
     const cols = epics
-      .filter((e) => e.project === p && !standing.has(`${p}\u0000${e.name}`))
+      .filter(
+        (e) =>
+          e.project === p &&
+          (e.domain ?? "") === home &&
+          !standing.has(`${p}\u0000${e.name}`),
+      )
       .map((e) => e.name);
     if (cols.length > 0) {
       out.push({ name: p, epics: cols });
@@ -186,11 +192,6 @@ export function placementTargets(
         };
   }
   if (card.epic) {
-    if (!card.project) {
-      // A no-project column names no repository, so the server refuses
-      // every mirror target — the menu offers nothing rather than 422s.
-      return {};
-    }
     return {
       mirror: mirrorTargets(card, board.projects, board.epics, board.projectDomains),
     };

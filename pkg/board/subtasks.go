@@ -17,15 +17,27 @@ func Children(b Board, itemID string) []Card {
 }
 
 // Followers lists the cards whose FILE moves with this one: its subtasks
-// and its review card (MultiBackend cascades the re-file along both links,
-// and DomainOf reads both before a project). What follows a card cannot be
-// left behind by a move — neither its file nor the rules that read it.
+// and its review card, and THEIRS — the store's cascade recurses, so a
+// walk that stopped at the first ring went blind exactly where a
+// columnless child hides a columned review card. What follows a card
+// cannot be left behind by a move: neither its file nor the rules that
+// read it.
 func Followers(b Board, itemID string) []Card {
 	var out []Card
-	for _, c := range b.Cards {
-		if c.Parent == itemID || c.ReviewOf == itemID {
-			out = append(out, c)
+	seen := map[string]bool{itemID: true}
+	for frontier := []string{itemID}; len(frontier) > 0; {
+		var next []string
+		for _, id := range frontier {
+			for _, c := range b.Cards {
+				if seen[c.ItemID] || (c.Parent != id && c.ReviewOf != id) {
+					continue
+				}
+				seen[c.ItemID] = true
+				out = append(out, c)
+				next = append(next, c.ItemID)
+			}
 		}
+		frontier = next
 	}
 	return out
 }

@@ -25,11 +25,14 @@ import type { Card } from "./providers/types";
 // has no business being clickable.
 describe("attach and mirror targets", () => {
   const projects = ["engineering", "freedom", "strategy"];
+  // The repository rides on the COLUMN, the way the server records it: a
+  // column declared in the closed repository carries it, whatever its
+  // project is called.
   const epics = [
     { name: "Cozystack", project: "engineering" },
     { name: "Ingress", project: "engineering" },
     { name: "Launch", project: "freedom" },
-    { name: "Fundraising", project: "strategy" },
+    { name: "Fundraising", project: "strategy", domain: "founders" },
   ];
   const projectDomains = { strategy: "founders" };
 
@@ -46,7 +49,8 @@ describe("attach and mirror targets", () => {
   });
 
   it("offers everything on a board that names no domains", () => {
-    expect(attachTargets(projects, epics, undefined, "").map((p) => p.name)).toEqual(projects);
+    const single = epics.map((e) => ({ name: e.name, project: e.project }));
+    expect(attachTargets(projects, single, undefined, "").map((p) => p.name)).toEqual(projects);
   });
 
   it("mirror targets follow the HOME project's repository and skip where the card stands", () => {
@@ -223,13 +227,13 @@ describe("placementTargets", () => {
     expect(got.processes).toBeUndefined();
   });
 
-  it("offers a card in a no-project column no mirrors at all", () => {
-    // A no-project column names no repository — the server refuses every
-    // target for it, so the menu must not offer any.
+  it("offers a card in a no-project column the mirrors of its repository", () => {
+    // A no-project column is a home like any other: it names a repository
+    // (its own), so the card mirrors inside it. The refusal this case used
+    // to pin was the PROJECT's answer to the column's question.
     const got = placementTargets({ epic: "Inbox" } as Card, board);
-    expect(got.mirror).toBeUndefined();
+    expect(got.mirror).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
     expect(got.attach).toBeUndefined();
-    expect(got.processes).toBeUndefined();
   });
 
   it("offers processes to a recurrent card", () => {
@@ -565,5 +569,39 @@ describe("hasPlacementOffer", () => {
     );
     expect(hasPlacementOffer({ processes: ["Invoicing"] })).toBe(true);
     expect(hasPlacementOffer({ mirror: [{ name: "freedom", epics: ["Launch"] }] })).toBe(true);
+  });
+});
+
+// A project NAME can be declared in two repositories, its columns merged
+// under one entry (G13) while each column keeps its own. The picker must
+// ask the COLUMN — filtering by the project offered a column the server
+// refuses, which is exactly what these targets promise never to do.
+describe("targets on an alias project", () => {
+  const board = {
+    projects: ["portal"],
+    epics: [
+      { name: "Bugs", project: "portal" },
+      { name: "Docs", project: "portal", domain: "closed" },
+    ],
+    projectDomains: undefined,
+    processes: [],
+  };
+
+  it("attaches a primary card only to the primary column", () => {
+    const got = placementTargets({} as Card, board);
+    expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
+  });
+
+  it("attaches a closed card only to the closed column", () => {
+    const got = placementTargets({ domain: "closed" } as Card, board);
+    expect(got.attach).toEqual([{ name: "portal", epics: ["Docs"] }]);
+  });
+
+  it("mirrors within the card's own repository", () => {
+    const got = placementTargets(
+      { project: "portal", epic: "Bugs", domain: "" } as Card,
+      board,
+    );
+    expect(got.mirror).toEqual([]);
   });
 });

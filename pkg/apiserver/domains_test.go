@@ -21,12 +21,17 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 		},
 		Projects:      []string{"backoffice", "strategy"},
 		ProjectStates: map[string]string{"backoffice": "pr-backoffice", "strategy": "pr-strategy"},
+		Epics: []board.EpicCol{
+			{Name: "Cozystack", Project: "backoffice", ItemID: "ep-cozy"},
+			{Name: "Fundraising", Project: "strategy", ItemID: "ep-fund"},
+		},
 		Processes: []board.Process{
 			{Name: "Payroll", ItemID: "proc-pay"},
 			{Name: "Fundraising ops", ItemID: "proc-fund"},
 		},
 		Domains: map[string]string{
 			"st-founders": "founders", "pr-strategy": "founders", "proc-fund": "founders",
+			"ep-fund": "founders",
 		},
 	}
 	got := BoardResourceWithPeople(b, nil).Metadata
@@ -49,6 +54,23 @@ func TestTheBoardNamesTheRepositoryOfTeamsAndProjectsOutsideThePrimary(t *testin
 	}
 	if _, named := got.ProcessDomains["Payroll"]; named {
 		t.Fatalf("a process of the primary needs no entry: %v", got.ProcessDomains)
+	}
+
+	// A column carries the repository it was declared in, which a client
+	// cannot compute from the project: the same project NAME may be
+	// declared in two repositories with its columns merged (G13), and the
+	// column is what the server asks about.
+	var closed, open bool
+	for _, e := range got.Epics {
+		if e.Name == "Fundraising" && e.Domain == "founders" {
+			closed = true
+		}
+		if e.Name == "Cozystack" && e.Domain == "" {
+			open = true
+		}
+	}
+	if !closed || !open {
+		t.Fatalf("every column names its own repository, the primary by omission: %+v", got.Epics)
 	}
 
 	// A board of one repository records no domains at all, and says nothing.

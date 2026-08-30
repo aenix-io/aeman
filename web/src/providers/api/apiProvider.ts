@@ -67,6 +67,7 @@ export function boardMetadata(
     epics: (info.metadata.epics ?? []).map((e) => ({
       name: e.name,
       project: e.project ?? "",
+      domain: e.domain || undefined,
     })),
     members: (info.metadata.members ?? []).map((m) => ({
       login: m.login,

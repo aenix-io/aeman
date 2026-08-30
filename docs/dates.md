@@ -184,8 +184,11 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
   the moment the parent changes repository. The column must name the repository
   that actually holds the card — the one its parent lives in.
 - The project's progress line counts such a card unless its **parent stands in
-  the same project**, whose own bar already derives from its children: counting
-  both would weigh that work twice on one screen.
+  the same project** and is drawn there itself, whose own bar already derives
+  from its children: counting both would weigh that work twice on one screen. A
+  parent nothing draws — a column with no dates is no slot — answers for
+  nothing, and the child counts. A column's own bar asks the narrower question:
+  it drops the child only when the parent stands in that same column.
 - **Derived progress**: while a card has subtasks its bar derives from them —
   the average of the subtasks' effective progress (done = 100) scaled into
   0–90%. The final done / 100% is always a human decision on the parent, and a

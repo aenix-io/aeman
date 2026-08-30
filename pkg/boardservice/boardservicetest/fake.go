@@ -152,21 +152,27 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	for k, v := range f.board.SprintStates {
 		states[k] = v
 	}
+	var teamOrder []string
+	seenTeam := map[string]bool{}
 	for _, c := range f.board.Cards {
 		if c.Domain != "" && board.IsStateTitle(c.Title) {
 			domains[c.ItemID] = c.Domain
 		}
 		if c.Title == board.SprintStateTitle {
-			// A team's repository is recorded on its sprint-state card, and
-			// its sprint pointers are that card's fields — split exactly as
-			// board.NewBoard does, or TeamDomain answers "" for every team
-			// and G46 passes silently through this fake.
-			if c.Team != "" {
-				if _, seeded := f.board.SprintStates[c.Team]; !seeded {
-					states[c.Team] = board.SprintState{
-						Current: c.SprintStart, Previous: c.StartDate, ItemID: c.ItemID,
-					}
+			// A team's repository is recorded on its sprint-state card, its
+			// sprint pointers are that card's fields, and the card's
+			// POSITION is the team's place in board order — split as
+			// board.NewBoard does, including the no-team group (""), or
+			// TeamDomain answers "" for every team and G46 passes silently
+			// through this fake.
+			if _, seeded := f.board.SprintStates[c.Team]; !seeded {
+				states[c.Team] = board.SprintState{
+					Current: c.SprintStart, Previous: c.StartDate, ItemID: c.ItemID,
 				}
+			}
+			if !seenTeam[c.Team] {
+				seenTeam[c.Team] = true
+				teamOrder = append(teamOrder, c.Team)
 			}
 			continue
 		}
@@ -212,7 +218,7 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 		domains = nil // a single-repository board records none
 	}
 	return board.Board{Board: f.board.Board, Cards: cards,
-		SprintStates: states, Epics: epics, Domains: domains,
+		SprintStates: states, TeamOrder: teamOrder, Epics: epics, Domains: domains,
 		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
 		Processes: processes, Tasks: tasks}, nil
 }

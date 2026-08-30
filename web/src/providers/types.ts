@@ -190,6 +190,11 @@ export interface DeadlineRef {
 export interface EpicRef {
   name: string;
   project: string;
+  /** The repository the column was declared in ("" / absent = the primary).
+   *  It cannot be computed from the project: one project NAME may be
+   *  declared in two repositories with its columns merged under one entry,
+   *  and it is the column that decides whether a card may stand in it. */
+  domain?: string;
 }
 
 /** Board is the one board the server serves: its identity and structure from

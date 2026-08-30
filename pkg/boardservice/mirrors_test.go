@@ -253,16 +253,22 @@ func TestRemoveFromANoProjectColumnWorks(t *testing.T) {
 	}
 }
 
-// A no-project column names no repository, so it cannot be a mirror HOME:
-// there is nothing to compare a target against, and the picker offers such
-// a card no mirrors at all (placements.test.ts pins the UI half).
-func TestACardInANoProjectColumnCannotBeMirrored(t *testing.T) {
+// A no-project column is a home like any other: it names a repository —
+// its own, the one its stub was declared in — so a card standing in it
+// mirrors freely INSIDE that repository and not out of it. The refusal
+// this test used to pin ("a no-project home cannot mirror at all") was the
+// PROJECT's answer to a question that belongs to the column.
+func TestACardInANoProjectColumnMirrorsWithinItsRepository(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "ep-inbox", Title: board.EpicStateTitle, Epic: "Inbox"},
 		{ItemID: "c1", Title: "unbound", Team: "platform", Epic: "Inbox"},
 	})
-	if err := New(f).Mirror(ctx, "acme", "c1", "freedom", "Launch"); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("no repository to mirror within: %v", err)
+	svc := New(f)
+	if err := svc.Mirror(ctx, "acme", "c1", "freedom", "Launch"); err != nil {
+		t.Fatalf("both columns are of the primary repository: %v", err)
+	}
+	if err := svc.Mirror(ctx, "acme", "c1", "strategy", "Fundraising"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the closed repository's column still cannot show it: %v", err)
 	}
 }
 
@@ -914,7 +920,7 @@ func TestRemoveFromLastColumnDeletesAnUntouchedTiedCard(t *testing.T) {
 
 // A subtask rides its parent, and grouping clears its tie — a re-tie one
 // request later (PATCH {parent, process} carries both) would put it right
-// back under tiedMoveGuard's radar: any re-file of the PARENT drags the
+// back under refileGuard's radar: any re-file of the PARENT drags the
 // child across repositories unguarded. Refused outright, like the mirror.
 func TestASubtaskCannotBeTied(t *testing.T) {
 	f := mirrorBoard([]board.Card{
@@ -1187,5 +1193,70 @@ func TestSettingTheReviewLinkCannotStrandTheCardsOwnColumn(t *testing.T) {
 	})
 	if err := New(f).SetReviewOf(ctx, "acme", "c1", "orig"); !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the card would live in founders while its column names the primary: %v", err)
+	}
+}
+
+// The file cascade is TRANSITIVE — it moves a card's followers, and
+// theirs — so the guard has to walk as far as the cascade does. One hop
+// was enough to blind it: a columnless child hides the columned review
+// card hanging off it.
+func TestTheGuardFollowsTheCascadeAllTheWayDown(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "grandparent", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "kid", Title: "child", Parent: "p"},
+		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid",
+			Project: "engineering", Epic: "Cozystack"},
+	})
+	strategy := "strategy"
+	if err := New(f).SetEpic(ctx, "acme", "p", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the review card two hops down would be stranded: %v", err)
+	}
+}
+
+// Moving a COLUMN is the seventh door: the stub is re-filed into the
+// target project's repository while a card whose file is held by a link
+// stays where it is — and its project field is rewritten to name the
+// column that just left.
+func TestMovingAColumnCannotStrandALinkedCardStandingInIt(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent"},
+		{ItemID: "c1", Title: "subtask", Parent: "p", Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	if err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "strategy"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the subtask's file rides its parent in the primary repository: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Project != "engineering" {
+		t.Fatalf("the refused move must not have rewritten the card: %+v", c)
+	}
+	// A move within the repository carries everyone along as before.
+	if err := svc.SetEpicProject(ctx, "acme", "engineering", "Cozystack", "freedom"); err != nil {
+		t.Fatalf("a move inside the repository is free: %v", err)
+	}
+}
+
+// A project NAME can be declared in two repositories, and then its columns
+// are merged under one entry (G13) while each column keeps the repository
+// it was declared in. The question "may this card stand in this column" is
+// therefore the COLUMN's to answer, never the project's — reading the
+// project's offered a column the store could not hold the card in.
+func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		// "engineering" is declared in the primary; the same NAME is
+		// declared again in founders, carrying its own column.
+		{ItemID: "pr-e2", Title: board.ProjectStateTitle, Project: "engineering", Domain: "founders"},
+		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed work",
+			Project: "engineering", Domain: "founders"},
+		{ItemID: "c1", Title: "primary card", Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	if err := svc.Mirror(ctx, "acme", "c1", "engineering", "Closed work"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the column lives in founders, the card does not: %v", err)
+	}
+	none := "engineering"
+	if err := svc.SetEpic(ctx, "acme", "c1", "Closed work", &none); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("and attaching to it is the same question: %v", err)
 	}
 }

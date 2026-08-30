@@ -280,6 +280,12 @@ type PersonalInfo struct {
 type EpicRef struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
+	// Domain is the repository the column was declared in, for the columns
+	// outside the primary. A client cannot compute it from the project: the
+	// same project NAME may be declared in two repositories with its
+	// columns merged under one entry (G13), and it is the COLUMN that
+	// decides whether a card may stand in it.
+	Domain string `json:"domain,omitempty"`
 }
 
 // ProcessRef is one process: its name and project.
@@ -344,7 +350,7 @@ func deadlineWeeks(b board.Board) []DeadlineRef {
 func epicRefs(b board.Board) []EpicRef {
 	out := make([]EpicRef, 0, len(b.Epics))
 	for _, e := range b.Epics {
-		out = append(out, EpicRef{Name: e.Name, Project: e.Project})
+		out = append(out, EpicRef{Name: e.Name, Project: e.Project, Domain: b.Domains[e.ItemID]})
 	}
 	return out
 }

@@ -72,22 +72,21 @@ func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, e
 	if _, ok := board.FindEpic(b, project, epic); !ok {
 		return fmt.Errorf("%w %q in project %q", ErrEpicNotFound, epic, project)
 	}
-	if c.Project == "" {
-		// The no-project bucket names no repository, so MirrorAllowed has
-		// nothing to compare a target against — said plainly, not as a
-		// refusal quoting an empty project name.
-		return fmt.Errorf("%w: the card's column belongs to no project — file it under one first", ErrCrossDomain)
-	}
-	if !board.MirrorAllowed(b, c.Project, project) {
-		return fmt.Errorf("%w: %q is not in %q's repository", ErrCrossDomain, project, c.Project)
-	}
-	// The card's FILE follows a linked original before its project (linked
-	// cards first, G14): a review card of an original in another repository
-	// lives there, whatever its home column says — and no column of this
-	// repository may show a file its readers may not have (G15).
+	// One question, one answer: may this card stand in this column? The
+	// COLUMN says which repository it belongs to (its own, never its
+	// project's — a project name may be declared in two repositories with
+	// its columns merged, G13), and the card's FILE says which repository
+	// holds it (linked cards first, G14: a review card lives with its
+	// original whatever its column says).
 	r := board.Resolver(b, "")
-	if hd, ok := r.ProjectDomain(c.Project); ok && board.DomainOf(c, r) != hd {
-		return fmt.Errorf("%w: the card's file lives in another repository (its review link decides)", ErrCrossDomain)
+	mine := board.DomainOf(c, r)
+	if cd, ok := board.ColumnDomain(b, project, epic); !ok || cd != mine {
+		return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
+			ErrCrossDomain, epic)
+	}
+	if hd, ok := board.ColumnDomain(b, c.Project, c.Epic); ok && hd != mine {
+		return fmt.Errorf("%w: the card's own column is not in the repository that holds it — fix that first",
+			ErrCrossDomain)
 	}
 	if board.Mirrored(c, project, epic) {
 		return nil
@@ -238,7 +237,7 @@ func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, pr
 		// A SUBTASK is refused outright: grouping cleared its tie, and a
 		// PATCH carrying {parent, process} together would re-tie it in
 		// the same request — after which any re-file of the PARENT drags
-		// the child across repositories under tiedMoveGuard's radar.
+		// the child across repositories under refileGuard's radar.
 		if c.Parent != "" {
 			return ErrSubtaskTie
 		}
@@ -318,17 +317,8 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 // Explicit re-files refuse; grouping clears the tie instead (SetParent),
 // the way it clears mirrors.
 func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
-	// Nothing to strand, nothing to check — and this runs per card of a
-	// moved COLUMN, so the scan comes before the domain walks.
-	followers := board.Followers(b, c.ItemID)
 	after := c
 	change(&after)
-	// The column to answer for is the one the card ENDS UP in: an attach
-	// gives a card its first, so reading the old pair here let every attach
-	// through.
-	if after.Epic == "" && c.Process == "" && len(followers) == 0 {
-		return nil
-	}
 	r := board.Resolver(b, "")
 	to := board.DomainOf(after, r)
 	// The card's OWN column first, against where the card ends up. This is
@@ -344,6 +334,10 @@ func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	if to == board.DomainOf(c, r) {
 		return nil
 	}
+	// Only a card that MOVES can strand what rides it, so the follower
+	// scan — the one linear walk here — waits until the move is certain.
+	// SetEpicProject calls this once per card of a column.
+	followers := board.Followers(b, c.ItemID)
 	if c.Process != "" {
 		return fmt.Errorf("%w: the card is tied to the process %q of its own repository — untie it first",
 			ErrCrossDomain, c.Process)
