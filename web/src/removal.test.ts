@@ -243,3 +243,25 @@ describe("boardAsksAbout for the ungroup outcome", () => {
     expect(boardAsksAbout({ title: "x", progress: 0 }, "ungroup", null)).toBe(true);
   });
 });
+
+// Who asks before a destructive ×. `boardAsks` true means "the BOARD will
+// ask, so the card's own anonymous prompt stands down" — a board that
+// claims it and then deletes in silence is worse than one that never
+// claimed it: that is a one-click loss of worked cards.
+describe("who asks about a subtask", () => {
+  const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
+  const worked = { title: "half-done subtask", parent: "p", progress: 60, sprintStart: "2026-08-24" };
+
+  it("scores a worked columnless subtask as a delete the board must name", () => {
+    expect(gridRemoval(worked as never, ctx)).toBe("delete");
+    // The board takes the question on — and must actually put it.
+    expect(boardAsksAbout(worked, "delete", null)).toBe(true);
+    expect(deleteWarning(worked, null)).toContain("60%");
+  });
+
+  it("scores a weekly-panel subtask by the gesture that will run", () => {
+    // The panel dispatches a subtask to the GRID handler, so scoring it by
+    // the plan's rule described an action nobody was going to take.
+    expect(planRemoval(worked as never)).not.toBe(gridRemoval(worked as never, ctx));
+  });
+});

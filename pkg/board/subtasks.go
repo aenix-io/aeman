@@ -23,6 +23,12 @@ func Children(b Board, itemID string) []Card {
 // cannot be left behind by a move: neither its file nor the rules that
 // read it.
 func Followers(b Board, itemID string) []Card {
+	// Nothing follows nobody. Every root card has an empty parent and an
+	// empty reviewOf, so an unset id used to adopt the whole board — and
+	// this is exported for tools that may well pass one.
+	if itemID == "" {
+		return nil
+	}
 	var out []Card
 	seen := map[string]bool{itemID: true}
 	for frontier := []string{itemID}; len(frontier) > 0; {

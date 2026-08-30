@@ -528,8 +528,14 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 	// SetParent like every other, guards and riders included.
 	if err == nil && args.Parent != "" {
 		if perr := s.SetParent(ctx, b.Board, card.ItemID, args.Parent); perr != nil {
-			_ = s.deleteWithCascade(ctx, b, card)
-			return card, perr
+			// The card exists but could not finish grouping: remove it
+			// rather than leave a half-grouped twin behind — and if THAT
+			// fails, say so, because a stray top-level card standing in
+			// someone's column with nobody told is the worse outcome.
+			if derr := s.deleteWithCascade(ctx, b, card); derr != nil {
+				return board.Card{}, errors.Join(perr, derr)
+			}
+			return board.Card{}, perr
 		}
 		card.Parent = args.Parent
 	}
@@ -1109,30 +1115,6 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	if board.IsPersonalDomain(c.Domain) {
 		return s.removePersonal(ctx, b, c)
 	}
-	// A subtask has no sprint history of its own: it rides its parent, so
-	// demoting it alone would split the family across two sprints — the very
-	// thing syncChildrenSprint prevents everywhere else — and a subtask left
-	// in an earlier sprint still renders under its parent, so the × would
-	// look like it had done nothing. It is deleted — UNLESS it stands in a
-	// COLUMN, which is a home of its own (S4). Then the × takes it OUT OF
-	// THE GROUP and leaves it there: releasing it while still a subtask
-	// would either break the person/sprint pair its parent owns (S3) or be
-	// undone by the next carry-over, which takes every open child along.
-	// Leaving the family is what makes the gesture mean something, and the
-	// work stays planned in its column.
-	if c.Parent != "" {
-		if !hasColumn(c) {
-			return s.deleteWithCascade(ctx, b, c)
-		}
-		if err := s.ungroupKeeping(ctx, b, c, false); err != nil {
-			return err
-		}
-		b, c, err = s.loadCard(ctx, boardID, itemID)
-		if err != nil {
-			return err
-		}
-		return s.releaseToColumn(ctx, b, c)
-	}
 	if from == "plan" {
 		// A slot of a plan is never deleted by the plan ×. It is a piece of a
 		// roadmap that happens to be in a weekly plan because someone gave it
@@ -1171,6 +1153,30 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// here used to blame carry-week for the same loop; that action was
 		// retired in v0.19 and the debt rule replaced it.)
 		return s.deleteWithCascade(ctx, b, c)
+	}
+	// A subtask has no sprint history of its own: it rides its parent, so
+	// demoting it alone would split the family across two sprints — the very
+	// thing syncChildrenSprint prevents everywhere else — and a subtask left
+	// in an earlier sprint still renders under its parent, so the × would
+	// look like it had done nothing. It is deleted — UNLESS it stands in a
+	// COLUMN, which is a home of its own (S4). Then the × takes it OUT OF
+	// THE GROUP and leaves it there: releasing it while still a subtask
+	// would either break the person/sprint pair its parent owns (S3) or be
+	// undone by the next carry-over, which takes every open child along.
+	// Leaving the family is what makes the gesture mean something, and the
+	// work stays planned in its column.
+	if c.Parent != "" {
+		if !hasColumn(c) {
+			return s.deleteWithCascade(ctx, b, c)
+		}
+		if err := s.ungroupKeeping(ctx, b, c, false); err != nil {
+			return err
+		}
+		b, c, err = s.loadCard(ctx, boardID, itemID)
+		if err != nil {
+			return err
+		}
+		return s.releaseToColumn(ctx, b, c)
 	}
 	if c.Plan != board.PlanNone {
 		// The card is in the weekly plan too, so this × takes it out of the

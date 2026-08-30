@@ -1449,3 +1449,30 @@ func TestCreatingUnderAnImpossibleParentCreatesNothing(t *testing.T) {
 		t.Fatalf("the refusal must come before the write, saw %d creates", n)
 	}
 }
+
+// `from` picks WHICH home the × empties — the whole two-homes contract of
+// this endpoint. The subtask branch sat above the dispatch, so a caller
+// asking for the plan (REST, MCP) got the grid's gesture instead: the card
+// ungrouped and released, in answer to a request about a band it does not
+// even have.
+func TestRemoveFromThePlanIsNotTheGridsGestureForASubtask(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "columned child", Team: "platform", Parent: "p",
+			Project: "engineering", Epic: "Cozystack",
+			StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
+	})
+	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "c1")
+	if !ok {
+		t.Fatal("the plan × has no business deleting a card that stands in a column")
+	}
+	// A subtask carries no plan band (grouping clears it), so there is
+	// nothing to empty: the card is left exactly as it was.
+	if c.Parent != "p" || c.SprintStart == "" {
+		t.Fatalf("the grid's gesture must not run in the plan's name: %+v", c)
+	}
+}

@@ -1216,7 +1216,12 @@ export function MeBoard({
 
   const removalOf = (card: CardModel): "ask" | "demote" | "delete" => {
     if (card.parent) {
-      return "delete";
+      // A subtask is never demoted alone and never asked about as one —
+      // but WHAT the × does to it is gridRemoval's answer, not a fourth
+      // private copy of the rule: a columned subtask is ungrouped and kept
+      // (S4), and calling that "delete" here is how the boards drifted
+      // apart before.
+      return gridRemoval(card, gridCtx(card)) === "delete" ? "delete" : "demote";
     }
     const today = todayIso();
     if (isPersonalCard(card, board.personal)) {

@@ -187,6 +187,12 @@ func TestFollowersWalkTheWholeTreeAndSurviveACycle(t *testing.T) {
 	if got := len(Followers(cyc, "a")); got != 1 {
 		t.Fatalf("a cycle is walked once: %d", got)
 	}
+	// The EMPTY id follows nothing. Every root card has an empty parent and
+	// an empty reviewOf, so the walk adopted the whole board — and this is
+	// an exported helper an outside tool can call with an unset field.
+	if got := Followers(b, ""); got != nil {
+		t.Fatalf("nothing follows nobody: %+v", got)
+	}
 }
 
 // "Both ask the same question" means the same question: which repository

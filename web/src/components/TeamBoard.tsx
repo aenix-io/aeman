@@ -1551,6 +1551,13 @@ export function TeamBoard({
     // it does for everything else instead of sending a DELETE past the
     // rule — which destroyed work the Me board would have kept.
     if (card.parent && gridRemoval(card, gridCtx(card)) === "delete") {
+      // The board took the question on (boardAsks), so the board must put
+      // it: the card's own prompt has stood down, and deleting in silence
+      // is how a worked subtask went in one click.
+      const warning = deleteWarning(card, reviewOf(card));
+      if (warning && !window.confirm(warning)) {
+        return;
+      }
       removeCard(card.itemId);
       void provider.deleteCard(card.itemId).catch((err: unknown) => {
         if (!isGone(err)) {
@@ -2351,7 +2358,14 @@ export function TeamBoard({
               onDelete={card.parent ? handleGridDelete : removeFromPlan}
               placements={placementsFor(card)}
               deletable={!!card.parent || planRemoveOffered(card)}
-              boardAsks={boardAsksAbout(card, planRemoval(card), reviewOf(card))}
+              // Scored by the gesture that will RUN: a subtask is
+              // dispatched to the grid handler below, so the plan's rule
+              // described an action nobody was going to take.
+              boardAsks={boardAsksAbout(
+                card,
+                card.parent ? gridRemoval(card, gridCtx(card)) : planRemoval(card),
+                reviewOf(card),
+              )}
               onStage={handleStage}
               onInProgress={handleInProgress}
               onOpen={onOpen}
