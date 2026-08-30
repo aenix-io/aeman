@@ -231,6 +231,15 @@ func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Car
 // ungroup pulls a subtask back out as a standalone card: the parent link
 // goes, the child keeps what it has, and both sides record the change.
 func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) error {
+	return s.ungroupKeeping(ctx, b, card, true)
+}
+
+// ungroupKeeping is ungroup with a say over the person hand-over: the grid
+// × releases the card to its column right after pulling it out, clearing
+// the assignee, and handing the parent's login over first would write two
+// contradictory assignee events into one commit — noise in a log that IS
+// the history.
+func (s *Service) ungroupKeeping(ctx context.Context, b board.Board, card board.Card, handOver bool) error {
 	if card.Parent == "" {
 		return nil
 	}
@@ -249,7 +258,7 @@ func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) e
 	// who pulled it looks exactly like the card vanishing.
 	// deleteWithCascade hands a released child the parent's person for
 	// this same reason.
-	if op, ok := findCard(b, card.Parent); ok &&
+	if op, ok := findCard(b, card.Parent); ok && handOver &&
 		len(card.Assignees) == 0 && len(op.Assignees) > 0 {
 		if err := s.backend.SetAssignee(ctx, b, card, op.Assignees[0]); err != nil {
 			return err

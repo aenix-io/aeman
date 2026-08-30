@@ -234,3 +234,12 @@ describe("gridRemoval on a subtask", () => {
     expect(gridRemoval({ parent: "p1", sprintStart: "2026-08-24" } as never, ctx)).toBe("delete");
   });
 });
+
+// The board's own question stands down for every outcome that KEEPS the
+// card. "Delete «…»?" in front of an × that ungroups and files the card in
+// its column is how the × came to be read as deletion.
+describe("boardAsksAbout for the ungroup outcome", () => {
+  it("asks nothing: the card is kept", () => {
+    expect(boardAsksAbout({ title: "x", progress: 0 }, "ungroup", null)).toBe(true);
+  });
+});

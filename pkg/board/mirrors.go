@@ -26,20 +26,6 @@ func Mirrored(c Card, project, epic string) bool {
 	return false
 }
 
-// MirrorAllowed reports whether a card whose home is in `from` may stand in
-// a column of `to`: both projects must be declared, and declared in the
-// same repository. A card is one file in one repository, and a column
-// elsewhere cannot show a file its readers may not have (G15).
-func MirrorAllowed(b Board, from, to string) bool {
-	if _, ok := b.ProjectStates[from]; !ok {
-		return false
-	}
-	if _, ok := b.ProjectStates[to]; !ok {
-		return false
-	}
-	return ProjectDomain(b, from) == ProjectDomain(b, to)
-}
-
 // ProcessDomain is the repository a process was declared in, "" for the
 // primary and for a process the roster does not declare.
 func ProcessDomain(b Board, name string) string {

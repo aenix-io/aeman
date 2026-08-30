@@ -1386,3 +1386,66 @@ func TestCreatingACardWithBothAParentAndAColumnKeepsBoth(t *testing.T) {
 		t.Fatalf("and the column with it: %+v", got)
 	}
 }
+
+// A column move INSIDE one repository strands nothing, mirrors or not.
+// The guard asked ColumnDomain(to, epic) — a column that cannot exist yet,
+// since epicNameFree has just proved the name free there — so it answered
+// "no such repository" every time and refused every move. The question is
+// the domain the column will HAVE once it lands: its new project's.
+func TestMovingAColumnInsideOneRepositoryIsFreeWhileCardsMirrorIt(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "mirrored into the column", Team: "platform",
+			Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+	})
+	// c1's HOME is the column being moved, and it mirrors elsewhere in the
+	// same repository: the move takes it along, and both placements stay
+	// inside the primary.
+	if err := New(f).SetEpicProject(ctx, "acme", "engineering", "Cozystack", "freedom"); err != nil {
+		t.Fatalf("nothing crosses a boundary here: %v", err)
+	}
+}
+
+func TestMovingAColumnInsideOneRepositoryIsFreeWhenACardMirrorsIntoIt(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "mirrors this column", Team: "platform",
+			Project: "freedom", Epic: "Launch",
+			Mirrors: []board.Placement{{Project: "engineering", Epic: "Cozystack"}}},
+	})
+	if err := New(f).SetEpicProject(ctx, "acme", "engineering", "Cozystack", "freedom"); err != nil {
+		t.Fatalf("the mirror and its home stay in one repository: %v", err)
+	}
+}
+
+// The create door validates the parent BEFORE writing anything: a card
+// born and then deleted because its parent was never findable is a stray
+// ADDED broadcast and a created event for a card that should not exist.
+func TestCreatingUnderAnImpossibleParentCreatesNothing(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+	})
+	svc := New(f)
+	before, _ := f.LoadBoard(ctx, "acme")
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "child", Team: "platform", Parent: "ghost",
+		Project: "engineering", Epic: "Cozystack",
+	}); !errors.Is(err, ErrParentNotFound) {
+		t.Fatalf("a parent that does not exist: %v", err)
+	}
+	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "child", Team: "platform", Parent: "far",
+		Project: "engineering", Epic: "Cozystack",
+	}); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("a parent whose repository the column is not in: %v", err)
+	}
+	after, _ := f.LoadBoard(ctx, "acme")
+	if len(after.Cards) != len(before.Cards) {
+		t.Fatalf("neither refusal may leave a card behind: %d → %d", len(before.Cards), len(after.Cards))
+	}
+	// And nothing was ever written: a create-then-delete pair broadcasts a
+	// parentless instant that watchers and mid-sync reloads see as a stray
+	// top-level card, and logs a created event for a card that never was.
+	if n := f.count("CreateCard"); n != 0 {
+		t.Fatalf("the refusal must come before the write, saw %d creates", n)
+	}
+}

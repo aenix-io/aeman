@@ -46,33 +46,6 @@ func TestMirroredTellsAMirrorFromTheHome(t *testing.T) {
 	}
 }
 
-// A mirror may only stand in a column of the card's own repository: a card
-// is one file in one repository, and a column elsewhere cannot show a file
-// its readers may not have (G15's ErrCrossDomain, pinned here at last). The
-// same-domain check is the roster's: where was the target project declared,
-// against where the card's home project was.
-func TestAMirrorTargetMustShareTheCardsRepository(t *testing.T) {
-	b := Board{
-		Projects:      []string{"engineering", "freedom", "strategy"},
-		ProjectStates: map[string]string{"engineering": "pr-e", "freedom": "pr-f", "strategy": "pr-s"},
-		Domains:       map[string]string{"pr-s": "founders"},
-	}
-	if !MirrorAllowed(b, "engineering", "freedom") {
-		t.Fatal("two projects of the primary repository mirror freely")
-	}
-	if MirrorAllowed(b, "engineering", "strategy") {
-		t.Fatal("a column in another repository cannot show this card")
-	}
-	if MirrorAllowed(b, "strategy", "engineering") {
-		t.Fatal("nor the other way round")
-	}
-	// A project the roster does not declare is no target at all; the caller
-	// refuses it before asking about domains.
-	if MirrorAllowed(b, "engineering", "ghost") {
-		t.Fatal("an undeclared project is not a lawful target")
-	}
-}
-
 // The decoder judges what one file can prove; a mirror into another
 // repository or onto a column nobody declared needs the roster, so the
 // board assembly drops it — a writer producing one is silently corrected,

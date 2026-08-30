@@ -1201,8 +1201,11 @@ export function TeamBoard({
       onProgress={handleProgress}
       onDelete={handleGridDelete}
       placements={placementsFor(card)}
+      // No exception for a subtask: gridRemoval already answers for it, and
+      // hard-coding "ask nothing" here put a "Delete «…»?" in front of an ×
+      // that ungroups the card and keeps it — the very reading of the ×
+      // this shared rule exists to prevent.
       boardAsks={
-        !card.parent &&
         boardAsksAbout(
           card,
           removalKind(card, gridCtx(card)) === "ask"
@@ -2348,10 +2351,7 @@ export function TeamBoard({
               onDelete={card.parent ? handleGridDelete : removeFromPlan}
               placements={placementsFor(card)}
               deletable={!!card.parent || planRemoveOffered(card)}
-              boardAsks={
-                !card.parent &&
-                boardAsksAbout(card, planRemoval(card), reviewOf(card))
-              }
+              boardAsks={boardAsksAbout(card, planRemoval(card), reviewOf(card))}
               onStage={handleStage}
               onInProgress={handleInProgress}
               onOpen={onOpen}

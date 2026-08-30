@@ -328,7 +328,7 @@ func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	// column still has to name the repository its parent's file lives in.
 	if after.Epic != "" {
 		if cd, ok := board.ColumnDomain(b, after.Project, after.Epic); ok && cd != to {
-			return fmt.Errorf("%w: the column %q is not in the repository that holds this card — take it out of the column first",
+			return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
 				ErrCrossDomain, after.Epic)
 		}
 	}
@@ -369,4 +369,14 @@ func columnsAgree(b board.Board, aProject, aEpic, bProject, bEpic string) bool {
 	ad, aok := board.ColumnDomain(b, aProject, aEpic)
 	bd, bok := board.ColumnDomain(b, bProject, bEpic)
 	return aok && bok && ad == bd
+}
+
+// columnLands is the same question for a column that is MOVING: it does not
+// exist under its new project yet — epicNameFree has just proved the name
+// free there — so asking ColumnDomain about it answers "no such column" and
+// refuses everything. What it will belong to is its new project's
+// repository.
+func columnLands(b board.Board, project, epic, toProject string) bool {
+	cd, ok := board.ColumnDomain(b, project, epic)
+	return ok && cd == board.ProjectDomain(b, toProject)
 }

@@ -134,3 +134,22 @@ func TestProjectViewDropsColumnlessChildrenOfAColumnedParent(t *testing.T) {
 		}
 	}
 }
+
+// ?view=project&project=X is ONE project's columns. A subtask is delivered
+// on its own merit — its epic — so a child filed under another project is
+// no more welcome than any other card of it, however its parent is filed.
+func TestProjectViewKeepsToTheProjectItWasAskedFor(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
+		{ItemID: "pr-m", Title: board.ProjectStateTitle, Project: "marketing"},
+		{ItemID: "ep-c", Title: board.EpicStateTitle, Epic: "Cozy", Project: "engineering"},
+		{ItemID: "ep-l", Title: board.EpicStateTitle, Epic: "Launch", Project: "marketing"},
+		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozy"},
+		{ItemID: "kid", Title: "child elsewhere", Parent: "p", Project: "marketing", Epic: "Launch"},
+	})
+	for _, c := range FilterCards(b, Selector{View: "project", Project: "engineering"}) {
+		if c.ItemID == "kid" {
+			t.Fatal("another project's card rides in on nobody's ticket")
+		}
+	}
+}

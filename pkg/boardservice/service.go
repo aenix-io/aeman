@@ -298,6 +298,26 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// to its week row, optionally spanning several weeks via start..day. It
 	// joins no sprint and no plan band — assigning it to a team later places
 	// it into that team's weekly plan.
+	if args.Parent != "" {
+		p, ok := findCard(b, args.Parent)
+		if !ok || p.Title == board.SprintStateTitle {
+			return board.Card{}, ErrParentNotFound
+		}
+		if p.Parent != "" {
+			return board.Card{}, ErrSubtaskDepth
+		}
+		// A card born under a parent takes the parent's repository, so its
+		// column has to be one of that repository (S4) — asked HERE, before
+		// anything is written: refusing after the create leaves a stray
+		// ADDED broadcast and a created event for a card that never was.
+		probe := board.Card{
+			Parent: args.Parent, Team: args.Team,
+			Project: args.Project, Epic: args.Epic,
+		}
+		if err := refileGuard(b, probe, func(*board.Card) {}); err != nil {
+			return board.Card{}, err
+		}
+	}
 	if args.Epic != "" {
 		return s.createEpicCard(ctx, b, args, linkDescription, pendingRef)
 	}
@@ -382,15 +402,6 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// born already parented — a create-then-group pair would broadcast (and
 	// persist) a parentless instant that watchers and mid-sync reloads see as
 	// a stray top-level card.
-	if args.Parent != "" {
-		p, ok := findCard(b, args.Parent)
-		if !ok || p.Title == board.SprintStateTitle {
-			return board.Card{}, ErrParentNotFound
-		}
-		if p.Parent != "" {
-			return board.Card{}, ErrSubtaskDepth
-		}
-	}
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
@@ -490,10 +501,15 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 	// a second value free to disagree with the dates the moment either moves.
 	week := board.MondayOf(start)
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
-		Title:    args.Title,
-		Zone:     args.Zone,
-		Epic:     args.Epic,
-		Project:  args.Project,
+		Title:   args.Title,
+		Zone:    args.Zone,
+		Epic:    args.Epic,
+		Project: args.Project,
+		// Born parented, like the ordinary path: a create-then-group pair
+		// broadcasts a parentless instant that watchers and mid-sync
+		// reloads read as a stray top-level card. SetParent below still
+		// runs, for the grouping's own side effects.
+		Parent:   args.Parent,
 		Week:     week,
 		Start:    start,
 		Day:      day,
@@ -1108,7 +1124,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		if !hasColumn(c) {
 			return s.deleteWithCascade(ctx, b, c)
 		}
-		if err := s.SetParent(ctx, boardID, c.ItemID, ""); err != nil {
+		if err := s.ungroupKeeping(ctx, b, c, false); err != nil {
 			return err
 		}
 		b, c, err = s.loadCard(ctx, boardID, itemID)

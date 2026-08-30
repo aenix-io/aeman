@@ -164,12 +164,12 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if to == "" {
 			return fmt.Errorf("%w: %q is mirrored — unmirror it before unbinding the column", ErrCrossDomain, c.Title)
 		}
-		if board.Mirrored(c, from, epic) && !columnsAgree(b, c.Project, c.Epic, to, epic) {
+		if board.Mirrored(c, from, epic) && !columnLands(b, c.Project, c.Epic, to) {
 			return fmt.Errorf("%w: %q mirrors this column and lives in another repository than %q",
 				ErrCrossDomain, c.Title, to)
 		}
 		if c.Project == from && c.Epic == epic &&
-			!columnsAgree(b, c.Mirrors[0].Project, c.Mirrors[0].Epic, to, epic) {
+			!columnLands(b, c.Mirrors[0].Project, c.Mirrors[0].Epic, to) {
 			return fmt.Errorf("%w: %q mirrors %q — unmirror it before moving its column to %q",
 				ErrCrossDomain, c.Title, c.Mirrors[0].Project, to)
 		}

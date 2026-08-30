@@ -182,7 +182,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	}
 	out = withSubtasks(b, out, sel)
 	if sel.View == "project" {
-		out = projectViewCards(b, out)
+		out = projectViewCards(b, out, sel.Project)
 	}
 	if sel.IncludeReviews && (sel.View == "me" || sel.View == "team") {
 		out = withLinkedReviews(b, out)
@@ -198,11 +198,17 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 // column or not: the slot is marked with its title, and the client has no
 // other query to find it in (the motivating parent — a plan card, a
 // working-area card — never carries a column of its own).
-func projectViewCards(b board.Board, out []board.Card) []board.Card {
+func projectViewCards(b board.Board, out []board.Card, project string) []board.Card {
 	kept := make([]board.Card, 0, len(out))
 	wanted := map[string]bool{}
 	for _, c := range out {
 		if c.Epic == "" {
+			continue
+		}
+		// The subtask rider ignores the selector, so a child filed under
+		// ANOTHER project came in on its parent's ticket: one project's
+		// columns are what this view is.
+		if project != "" && c.Project != project {
 			continue
 		}
 		kept = append(kept, c)

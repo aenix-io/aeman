@@ -164,7 +164,6 @@ export function placementTargets(
   board: {
     projects: string[];
     epics: EpicRef[];
-    projectDomains?: RosterDomains;
     processes: { name: string }[];
     processDomains?: RosterDomains;
   },

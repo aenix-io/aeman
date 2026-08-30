@@ -30,7 +30,7 @@ func TestTheFakeRecordsWhichRepositoryDeclaredEachEntry(t *testing.T) {
 	if cd, ok := board.ColumnDomain(b, "strategy", "Fundraising"); !ok || cd != "founders" {
 		t.Fatalf("a column carries the repository it was declared in: %q %v", cd, ok)
 	}
-	if board.MirrorAllowed(b, "engineering", "strategy") {
+	if d, _ := board.ColumnDomain(b, "strategy", "Fundraising"); d != "founders" {
 		t.Fatal("and the domain rules can finally be exercised through this fake")
 	}
 }
