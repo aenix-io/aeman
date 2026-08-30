@@ -309,14 +309,21 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 //   - its PROCESS TIE, a reference by name that never crosses a domain
 //     (git-backend.md) — the mirror of the rule that keeps the process
 //     itself from moving away (SetProcessProject);
-//   - its SUBTASKS' COLUMNS: a subtask's file follows this card
-//     (MultiBackend cascades the re-file), while each child's own column
+//   - the COLUMNS OF THE CARDS THAT FOLLOW IT: a subtask's file follows
+//     its parent and a review card's follows its original (MultiBackend
+//     cascades the re-file along both links), while each one's own column
 //     stays behind, naming a repository that no longer holds it — the very
 //     state SetEpic refuses when the card itself is moved.
 //
 // Explicit re-files refuse; grouping clears the tie instead (SetParent),
 // the way it clears mirrors.
 func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
+	// Nothing to strand, nothing to check — and this runs per card of a
+	// moved COLUMN, so the scan comes before the two domain walks.
+	followers := board.Followers(b, c.ItemID)
+	if c.Process == "" && len(followers) == 0 {
+		return nil
+	}
 	r := board.Resolver(b, "")
 	after := c
 	change(&after)
@@ -328,13 +335,13 @@ func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 		return fmt.Errorf("%w: the card is tied to the process %q of its own repository — untie it first",
 			ErrCrossDomain, c.Process)
 	}
-	for _, child := range board.Children(b, c.ItemID) {
-		if child.Epic == "" {
+	for _, f := range followers {
+		if f.Epic == "" {
 			continue
 		}
-		if pd, ok := r.ProjectDomain(child.Project); !ok || pd != to {
-			return fmt.Errorf("%w: the subtask %q stands in a column of another repository — take it out of the column first",
-				ErrCrossDomain, child.Title)
+		if cd, ok := board.ColumnDomain(b, f.Project, f.Epic); ok && cd != to {
+			return fmt.Errorf("%w: %q follows this card and stands in a column of another repository — take it out of the column first",
+				ErrCrossDomain, f.Title)
 		}
 	}
 	return nil

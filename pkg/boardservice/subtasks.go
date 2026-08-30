@@ -43,6 +43,13 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 	if !ok || p.Title == board.SprintStateTitle || card.Title == board.SprintStateTitle {
 		return ErrParentNotFound
 	}
+	// EVERY refusal fires before anything is written: the weekly-plan
+	// handover below hands the child's slot to the parent, and a guard
+	// speaking after it left the cache holding a state the commit never
+	// made (the refusal aborts the write, not the cache mutation).
+	if err := groupingKeepsTheColumn(b, card, parent); err != nil {
+		return err
+	}
 	if p.Parent != "" || len(board.Children(b, card.ItemID)) > 0 {
 		return ErrSubtaskDepth
 	}
@@ -68,15 +75,10 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 			return err
 		}
 	}
-	// A subtask is placed nowhere of its own: its mirrors go with the
-	// grouping the way its plan slot does. Left on, they were placements no
-	// board showed — the Project grid skips subtasks — yet InEpic counted
-	// them, so DeleteEpic refused for cards nobody could see; and a parent
-	// in another repository would carry the file away from them entirely.
-	// The home column stays: G14 blesses a subtask carrying its own column.
-	if err := groupingKeepsTheColumn(b, card, parent); err != nil {
-		return err
-	}
+	// A subtask keeps the ONE column it carries — G14 blesses that, and the
+	// Project board draws it there (S4) — but not a SECOND placement or a
+	// process tie: its file follows its parent, so both would be stranded
+	// the moment the parent changes repository. See clearRiders.
 	if err := s.clearRiders(ctx, b, card); err != nil {
 		return err
 	}
@@ -231,7 +233,10 @@ func groupingKeepsTheColumn(b board.Board, card board.Card, parent string) error
 	r := board.Resolver(b, "")
 	after := card
 	after.Parent = parent
-	if pd, ok := r.ProjectDomain(card.Project); !ok || pd != board.DomainOf(after, r) {
+	// A column the roster does not declare names no repository to compare
+	// against — the same answer SetEpic gives, or one door refuses what the
+	// other allows.
+	if cd, ok := board.ColumnDomain(b, card.Project, card.Epic); ok && cd != board.DomainOf(after, r) {
 		return fmt.Errorf("%w: %q stands in a column of another repository — take it out of the column first",
 			ErrCrossDomain, card.Title)
 	}

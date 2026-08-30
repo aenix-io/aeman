@@ -1048,3 +1048,80 @@ func TestReFilingAParentCannotStrandItsSubtasksColumn(t *testing.T) {
 		t.Fatalf("a move inside the repository is free: %v", err)
 	}
 }
+
+// A column's repository is the column's OWN — the domain of the epic stub
+// that declares it — not its project's. The two agree wherever a project
+// owns the column, but the NO-PROJECT bucket is a real column with no
+// project to ask: reading the project made every card in it ungroupable,
+// because ProjectStates never holds "" and the lookup always missed.
+func TestGroupingACardFromANoProjectColumnIsFree(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Loose"},
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "loose column child", Team: "platform", Epic: "Loose"},
+	})
+	svc := New(f)
+	if err := svc.SetParent(ctx, "acme", "c1", "p"); err != nil {
+		t.Fatalf("a no-project column of this repository strands nothing: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Epic != "Loose" || c.Parent != "p" {
+		t.Fatalf("the column survives the grouping (G14): %+v", c)
+	}
+}
+
+// The same question through the other door: attaching a card to a column
+// of ANOTHER repository is refused whether or not that column has a
+// project — the two guards must answer alike, or one of them is a way in.
+func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-far", Title: board.EpicStateTitle, Epic: "Far", Domain: "founders"},
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "child", Team: "platform", Parent: "p"},
+	})
+	none := ""
+	if err := New(f).SetEpic(ctx, "acme", "c1", "Far", &none); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("a column of the closed repository cannot hold a card of the primary: %v", err)
+	}
+}
+
+// Every refusal fires BEFORE anything is written. The grouping's weekly-plan
+// handover ran first, so a refused grouping still took the child's slot
+// away and gave it to the parent — in the cache only, since the commit
+// never happened: the board then showed a state git had never held.
+func TestARefusedGroupingLeavesThePlanSlotAlone(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "c1", Title: "planned child", Project: "engineering", Epic: "Cozystack",
+			Plan: board.PlanWed, Week: "2026-08-24"},
+	})
+	svc := New(f)
+	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the grouping is refused: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Plan != board.PlanWed || c.Week != "2026-08-24" {
+		t.Fatalf("the refused grouping must not have taken the slot: %+v", c)
+	}
+	parent, _ := findCard(b, "far")
+	if parent.Plan != board.PlanNone || parent.Week != "" {
+		t.Fatalf("nor handed it to the parent: %+v", parent)
+	}
+}
+
+// The file cascade follows reviewOf as well as parent (MultiBackend
+// cascade), so a columned REVIEW CARD is stranded by moving its original
+// exactly as a subtask is stranded by moving its parent.
+func TestReFilingAnOriginalCannotStrandItsReviewCardsColumn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "orig", Title: "original", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "rev", Title: "review", ReviewOf: "orig", Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	strategy := "strategy"
+	if err := svc.SetEpic(ctx, "acme", "orig", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the review card's column would be stranded: %v", err)
+	}
+}

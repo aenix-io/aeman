@@ -136,7 +136,19 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	var tasks []board.Card
 	seenEpic := map[string]bool{}
 	projectStates := map[string]string{}
+	// Which repository each roster entry was declared in, exactly as
+	// board.NewBoard records it — plus whatever a caller seeded directly
+	// (sprint states are seeded without cards). Without this every
+	// cross-repository rule the service holds passes silently here, which
+	// is the one thing an external tool's fake must not do.
+	domains := map[string]string{}
+	for k, v := range f.board.Domains {
+		domains[k] = v
+	}
 	for _, c := range f.board.Cards {
+		if c.Domain != "" && board.IsStateTitle(c.Title) {
+			domains[c.ItemID] = c.Domain
+		}
 		if c.Title == board.ProcessStateTitle {
 			if c.Process != "" {
 				processes = append(processes, board.Process{
@@ -179,8 +191,11 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	for k, v := range f.board.SprintStates {
 		states[k] = v
 	}
+	if len(domains) == 0 {
+		domains = nil // a single-repository board records none
+	}
 	return board.Board{Board: f.board.Board, Cards: cards,
-		SprintStates: states, Epics: epics,
+		SprintStates: states, Epics: epics, Domains: domains,
 		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
 		Processes: processes, Tasks: tasks}, nil
 }

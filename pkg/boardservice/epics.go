@@ -202,9 +202,9 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 		r := board.Resolver(b, "")
 		after := card
 		after.Project, after.Epic = projectName, epic
-		if pd, ok := r.ProjectDomain(projectName); ok && board.DomainOf(after, r) != pd {
-			return fmt.Errorf("%w: %q is not in the repository that holds this card",
-				ErrCrossDomain, projectName)
+		if cd, ok := board.ColumnDomain(b, projectName, epic); ok && board.DomainOf(after, r) != cd {
+			return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
+				ErrCrossDomain, epic)
 		}
 	}
 	// A tied card cannot be re-filed out of its process's repository — the

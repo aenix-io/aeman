@@ -132,17 +132,46 @@ describe("countedForProgress", () => {
   it("counts a subtask whose parent is on no board of this project", () => {
     // The parent lives in the weekly plan with no column of its own.
     const parent = { itemId: "p1" } as Card;
-    expect(countedForProgress(child, index([child, parent]))).toBe(true);
+    expect(countedForProgress(child, index([child, parent]), "project")).toBe(true);
   });
 
   it("skips a subtask whose parent stands in the same project", () => {
+    const parent = {
+      itemId: "p1",
+      project: "engineering",
+      epic: "Roadmap",
+      startDate: "2026-08-24",
+    } as Card;
+    expect(countedForProgress(child, index([child, parent]), "project")).toBe(false);
+  });
+
+  it("counts a subtask whose parent is drawn nowhere", () => {
+    // A parent attached to a column but carrying no dates is no slot, so
+    // nothing counts it — deferring to it dropped the child's work from
+    // every bar while its slot was drawn in the column.
     const parent = { itemId: "p1", project: "engineering", epic: "Roadmap" } as Card;
-    expect(countedForProgress(child, index([child, parent]))).toBe(false);
+    expect(countedForProgress(child, index([child, parent]), "project")).toBe(true);
+  });
+
+  it("keeps a child in ITS column's bar when the parent stands in another", () => {
+    // Column bars are per column: a parent in X answers for the work in X,
+    // and the child drawn in Y is Y's only work. Deduplicating by PROJECT
+    // there subtracted a column's own slot from its own percentage.
+    const parent = {
+      itemId: "p1",
+      project: "engineering",
+      epic: "Roadmap",
+      startDate: "2026-08-24",
+    } as Card;
+    expect(countedForProgress(child, index([child, parent]), "column")).toBe(true);
+    // The project bar still counts it once: the parent's own progress
+    // already derives from this child.
+    expect(countedForProgress(child, index([child, parent]), "project")).toBe(false);
   });
 
   it("counts an ordinary card always", () => {
     const plain = { itemId: "x", project: "engineering", epic: "Cozystack" } as Card;
-    expect(countedForProgress(plain, index([plain]))).toBe(true);
+    expect(countedForProgress(plain, index([plain]), "project")).toBe(true);
   });
 });
 

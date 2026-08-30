@@ -1410,12 +1410,14 @@ export function ProjectBoard({
   // the column, the overall bar and the project line disagree on one
   // screen.
   const counted = useMemo(
-    () => cards.filter((c) => drawnAsSlot(c) && countedForProgress(c, byId)),
+    () => cards.filter((c) => drawnAsSlot(c) && countedForProgress(c, byId, "project")),
     [cards, byId],
   );
   const colProgress = useMemo(() => {
     const byCol = new Map<string, CardModel[]>();
-    for (const c of counted) {
+    for (const c of cards.filter(
+      (c) => drawnAsSlot(c) && countedForProgress(c, byId, "column"),
+    )) {
       const k = colKey(c.project ?? "", c.epic ?? "");
       byCol.set(k, [...(byCol.get(k) ?? []), c]);
     }
@@ -1424,7 +1426,7 @@ export function ProjectBoard({
       out.set(k, progressOf(list));
     }
     return out;
-  }, [counted]);
+  }, [cards, byId]);
   const overall = useMemo(() => progressOf(counted), [counted]);
 
   // Every project's progress, filter or no filter: the point of opening the
@@ -1433,7 +1435,7 @@ export function ProjectBoard({
   const allProgress = useMemo(() => {
     const byProject = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (!drawnAsSlot(c) || !countedForProgress(c, byId)) {
+      if (!drawnAsSlot(c) || !countedForProgress(c, byId, "project")) {
         continue;
       }
       const k = c.project ?? "";

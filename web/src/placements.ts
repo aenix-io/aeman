@@ -106,20 +106,34 @@ export function removeFromProjectOutcome(
   return worked || card.parent ? "orphan" : "delete";
 }
 
-/** countedForProgress decides whether a card counts towards its project's
- *  progress line. The Project board draws a subtask that carries its own
- *  column, so it must count — unless its PARENT stands in the same
- *  project, because a parent's own progress already derives from its
- *  children and counting both would weigh that work twice. */
+/** countedForProgress decides whether a card counts towards a progress
+ *  figure. The Project board draws a subtask that carries its own column,
+ *  so it must count — unless its PARENT is counted in the SAME figure,
+ *  whose progress already derives from its children: counting both would
+ *  weigh that work twice.
+ *
+ *  Which figure matters. A column's bar is per column, so a parent in
+ *  another column answers for nothing here and the child is that column's
+ *  own work; a project's line spans them, so there the parent does answer.
+ *  And a parent nothing draws (a column with no dates is no slot) answers
+ *  nowhere — deferring to it dropped the child's work from every bar while
+ *  its slot sat in the column. */
 export function countedForProgress(
-  card: Pick<Card, "itemId" | "parent" | "project">,
-  byId: ReadonlyMap<string, Pick<Card, "itemId" | "project" | "epic">>,
+  card: Pick<Card, "itemId" | "parent" | "project" | "epic">,
+  byId: ReadonlyMap<string, Pick<Card, "itemId" | "project" | "epic" | "startDate" | "week">>,
+  scope: "project" | "column",
 ): boolean {
   if (!card.parent) {
     return true;
   }
   const parent = byId.get(card.parent);
-  return !(parent?.epic && (parent.project ?? "") === (card.project ?? ""));
+  if (!parent || !drawnAsSlot(parent)) {
+    return true;
+  }
+  if ((parent.project ?? "") !== (card.project ?? "")) {
+    return true;
+  }
+  return scope === "column" && parent.epic !== card.epic;
 }
 
 /** CardPlacements is everything the assign menu needs to attach or mirror
@@ -440,10 +454,11 @@ export function teamFollowsParent(card: Pick<Card, "parent">): boolean {
   return !!card.parent;
 }
 
-/** drawnAsSlot reports whether the Project grid renders a slot for this
- *  card: a column alone is not enough — a slot spans weeks, so it needs
- *  dates. The progress bars count what is drawn, or a card nobody can see
- *  weighs on a column's percentage. */
+/** drawnAsSlot reports whether the card HAS a slot on the Project grid: a
+ *  column alone is not enough — a slot spans weeks, so it needs dates. The
+ *  progress bars count what has a slot, whether or not the visible week
+ *  window happens to be scrolled to it; what they must not count is a card
+ *  with no slot at all, which nobody can see anywhere. */
 export function drawnAsSlot(card: Pick<Card, "epic" | "startDate" | "week">): boolean {
   return !!card.epic && (!!card.startDate || !!card.week);
 }

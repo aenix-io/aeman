@@ -16,6 +16,20 @@ func Children(b Board, itemID string) []Card {
 	return out
 }
 
+// Followers lists the cards whose FILE moves with this one: its subtasks
+// and its review card (MultiBackend cascades the re-file along both links,
+// and DomainOf reads both before a project). What follows a card cannot be
+// left behind by a move — neither its file nor the rules that read it.
+func Followers(b Board, itemID string) []Card {
+	var out []Card
+	for _, c := range b.Cards {
+		if c.Parent == itemID || c.ReviewOf == itemID {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // DerivedProgress computes a parent's progress from its subtasks: the mean of
 // each child's effective progress (a complete child counts as 100), scaled
 // into the 0..90 band — the final done/100% is always a human's call.
