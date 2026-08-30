@@ -163,6 +163,15 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
 - A **stored band always wins** — hand placement outranks derivation, so
   deriving never moves a card someone placed. The row's plan stripe in Me and
   Team uses the same effective band.
+- Except for a **debt**. A plan card or slot still open past the day it was
+  owed by shows on the CURRENT week's panel as well as on its own (the debt
+  rule), and there it stands in the **by-Wednesday** band whatever it
+  carries: it is already late, so what it faces is the nearest deadline of
+  the week it is standing in, not that week's last one. Its own week and
+  band are untouched — on the panel of the week it was owed in it is still
+  the card it was. The stripe follows the panel for the same reason: a
+  "by Friday" mark on a card sitting under "by Wednesday" is two answers to
+  one question.
 
 ### Subtasks (grouped cards)
 - A card with a **parent** (the `Parent` text field, one level deep) is a

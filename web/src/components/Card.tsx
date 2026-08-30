@@ -383,8 +383,12 @@ export function Card({
   const taken = Boolean(weekMode) && card.assignees.length > 0;
   // The plan stripe: the stored band, or — for a Project-board slot — the
   // band derived from its end date. A slot needs no stored band to be in
-  // the weekly plan, so its row must not pretend otherwise.
-  const band = effectiveBand(card);
+  // the weekly plan, so its row must not pretend otherwise. ON THE PANEL
+  // the week being looked at decides for a DEBT: a card owed in an earlier
+  // week stands in the by-Wednesday band there, and a stripe saying
+  // otherwise put a "by Friday" mark on a card sitting under "by
+  // Wednesday".
+  const band = effectiveBand(card, weekMode ? mondayOf(asOf ?? todayIso()) : undefined);
   // The small second avatar: on a weekly-plan card it is the person the card
   // is ASSIGNED to (who took it into work) — not the review counterpart; on
   // grid cards it stays the counterpart (the reviewer / the implementer).

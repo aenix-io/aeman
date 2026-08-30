@@ -203,6 +203,57 @@ func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
 	}
 }
 
+// A DEBT shows on the current week's panel beside that week's own work
+// (planShowsInWeekAt), and it goes in the BY-WEDNESDAY band: it was owed in
+// a week already past, so the nearest deadline of the week it is shown in
+// is the one it has to meet. Read by its stored band, or by the end date it
+// has already missed, such a card landed under "by Friday" — the latest
+// deadline of the week — which reads as "there is time".
+//
+// The opposite direction keeps the Friday band: a card that has moved on to
+// a LATER week is shown on the panel of a past week as history, and it
+// stayed open through that week's end.
+func TestWeeklyPlanPutsADebtInTheWednesdayBand(t *testing.T) {
+	const week, today = "2026-08-24", "2026-08-26"
+	last := AddDays(week, -7)
+	cases := []struct {
+		name  string
+		card  Card
+		panel string // the week whose panel is asked; the current one by default
+		wed   bool
+		fri   bool
+	}{
+		{"a banded card owed last week", Card{ItemID: "a", Title: "a", Team: "t",
+			Week: last, Plan: PlanFri}, "", true, false},
+		{"...whatever band it carries", Card{ItemID: "b", Title: "b", Team: "t",
+			Week: last, Plan: PlanWed}, "", true, false},
+		{"a slot that ended last week", Card{ItemID: "c", Title: "c", Team: "t",
+			Epic: "E", Week: last, Day: AddDays(week, -2)}, "", true, false},
+		{"this week's own work keeps its band", Card{ItemID: "d", Title: "d", Team: "t",
+			Week: week, Plan: PlanFri}, "", false, true},
+		// The other direction: on the panel of a week already over, a card
+		// that has moved on to a later one stayed open through that week's
+		// end — the by-Friday band, as before.
+		{"a card that moved on is history in the Friday band", Card{ItemID: "e", Title: "e",
+			Team: "t", Week: week, Plan: PlanWed, StartDate: last}, last, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			panel := tc.panel
+			if panel == "" {
+				panel = week
+			}
+			bands := WeeklyPlanAt(Board{Cards: []Card{tc.card}}, "t", panel, today)
+			if got := len(bands.Wed) == 1; got != tc.wed {
+				t.Errorf("in Wed band = %v, want %v", got, tc.wed)
+			}
+			if got := len(bands.Fri) == 1; got != tc.fri {
+				t.Errorf("in Fri band = %v, want %v", got, tc.fri)
+			}
+		})
+	}
+}
+
 // A Project-board slot has no stored plan band, yet it IS the week's work for
 // every week its span covers: the panel derives its band from the end date
 // instead of dropping it. The stored band, when present, always wins — deriving

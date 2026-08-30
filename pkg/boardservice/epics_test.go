@@ -369,10 +369,11 @@ func TestCarryWeekLeavesASlippedSlotAlone(t *testing.T) {
 	if got.Week != twoBack || got.StartDate != twoBack || got.Day != board.AddDays(twoBack, 4) {
 		t.Fatalf("the slot moved: week %s start %s end %s", got.Week, got.StartDate, got.Day)
 	}
-	// …and it shows on this week's panel as the debt it is.
+	// …and it shows on this week's panel as the debt it is: by WEDNESDAY,
+	// the nearest deadline of the week it is late into.
 	b, _ := svc.Board(context.Background(), "acme")
 	now := board.WeeklyPlan(b, "alpha", thisWeek)
-	if len(now.Fri) != 1 || now.Fri[0].ItemID != "slot" {
+	if len(now.Wed) != 1 || now.Wed[0].ItemID != "slot" {
 		t.Fatalf("the slipped slot must show on the current week's panel; got %+v", now)
 	}
 }

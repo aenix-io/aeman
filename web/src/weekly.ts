@@ -35,10 +35,31 @@ export function slotBand(week: string, endDay: string): "wed" | "fri" {
     : "fri";
 }
 
+/** owedIn is the week a card was owed in: the one it belongs to, or — for a
+ *  Project-board slot, whose span IS its plan — the week its span ENDS in,
+ *  the only week of that span with a deadline in it. Mirrors pkg/board
+ *  owedIn. */
+export function owedIn(c: Banded): string {
+  if (!c.plan && isSlot(c)) {
+    return mondayOf(c.day as string);
+  }
+  return c.week ?? "";
+}
+
 /** effectiveBand is the band a card carries as its own: the stored band when
  *  set (hand placement outranks derivation), else — for a slot — the band of
- *  the week its end falls in. A band-less non-slot has none. */
-export function effectiveBand(c: Banded): "wed" | "fri" | undefined {
+ *  the week its end falls in. A band-less non-slot has none.
+ *
+ *  On a PANEL, pass that panel's week: a card owed in an earlier week is a
+ *  DEBT there and stands in the by-Wednesday band whatever it carries, since
+ *  it is already late and the nearest deadline of the week it is shown in is
+ *  the one it faces (mirrors pkg/board WeeklyPlanAt). Without the week the
+ *  answer is the card's own band, which is what a grid row shows. */
+export function effectiveBand(c: Banded, week?: string): "wed" | "fri" | undefined {
+  const owed = owedIn(c);
+  if (week !== undefined && owed !== "" && owed < week) {
+    return "wed";
+  }
   if (c.plan) {
     return c.plan;
   }

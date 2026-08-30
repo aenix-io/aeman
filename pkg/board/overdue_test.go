@@ -29,7 +29,9 @@ func TestOverdue(t *testing.T) {
 }
 
 // An overdue plan card shows on the current week's panel beside that week's
-// work — and stays on the panel of the week it was owed in. Nothing moves.
+// work — in the BY-WEDNESDAY band, since it is already late — and stays on
+// the panel of the week it was owed in, under the band it carries there.
+// Nothing moves: the card's own week and band are untouched.
 func TestADebtFollowsYou(t *testing.T) {
 	today := "2026-08-27" // Thursday of the week of 24 Aug
 	thisWeek := "2026-08-24"
@@ -38,8 +40,11 @@ func TestADebtFollowsYou(t *testing.T) {
 	b := NewBoard([]Card{debt, paid})
 
 	now := WeeklyPlanAt(b, "alpha", thisWeek, today)
-	if len(now.Fri) != 1 || now.Fri[0].ItemID != "debt" {
-		t.Fatalf("this week's panel must carry the open debt and nothing closed; got %+v", now.Fri)
+	if len(now.Wed) != 1 || now.Wed[0].ItemID != "debt" {
+		t.Fatalf("this week's panel must carry the open debt by Wednesday, and nothing closed; got %+v", now)
+	}
+	if len(now.Fri) != 0 {
+		t.Fatalf("a debt is not this week's by-Friday work: %+v", now.Fri)
 	}
 	then := WeeklyPlanAt(b, "alpha", "2026-08-17", today)
 	if len(then.Fri) != 2 {

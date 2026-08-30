@@ -37,7 +37,7 @@ import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
-import { isSlot, planRemoveOffered, slotBand } from "../weekly";
+import { isSlot, owedIn, planRemoveOffered, slotBand } from "../weekly";
 import { subtaskShows } from "../subtasks";
 import {
   boardAsksAbout,
@@ -411,6 +411,15 @@ export function TeamBoard({
       // is its plan and its band derives from the end date. Any other
       // band-less card stays off the panel.
       if ((!c.plan && !isSlot(c)) || !showsInWeek(c) || !passesFilter(c)) {
+        continue;
+      }
+      // A DEBT — owed in a week already past, shown here beside this
+      // week's own work — stands in the by-Wednesday band: its own band
+      // belonged to the week it missed, and what it faces now is the
+      // nearest deadline of the week it is standing in.
+      const owed = owedIn(c);
+      if (owed !== "" && owed < currentWeek) {
+        wed.push(c);
         continue;
       }
       if (!c.plan) {
