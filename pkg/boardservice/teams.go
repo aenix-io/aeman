@@ -82,6 +82,9 @@ func (s *Service) createPersonalCard(ctx context.Context, b board.Board, args Cr
 		Day:      day,
 		Start:    start,
 		Assignee: actor,
+		// Grouping is SetParent's job, guards and side effects included:
+		// this door used to write the field straight through, so a personal
+		// subtask was born ungrouped in every way but the field.
 		Parent:   args.Parent,
 		Personal: true,
 		Domain:   board.PersonalDomain(actor),

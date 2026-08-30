@@ -294,30 +294,13 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	if args.Personal {
 		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
-	// joins no sprint and no plan band — assigning it to a team later places
-	// it into that team's weekly plan.
-	if args.Parent != "" {
-		p, ok := findCard(b, args.Parent)
-		if !ok || p.Title == board.SprintStateTitle {
-			return board.Card{}, ErrParentNotFound
-		}
-		if p.Parent != "" {
-			return board.Card{}, ErrSubtaskDepth
-		}
-		// A card born under a parent takes the parent's repository, so its
-		// column has to be one of that repository (S4) — asked HERE, before
-		// anything is written: refusing after the create leaves a stray
-		// ADDED broadcast and a created event for a card that never was.
-		probe := board.Card{
-			Parent: args.Parent, Team: args.Team,
-			Project: args.Project, Epic: args.Epic,
-		}
-		if err := refileGuard(b, probe, func(*board.Card) {}); err != nil {
-			return board.Card{}, err
-		}
+	if err := parentIsPossible(b, args); err != nil {
+		return board.Card{}, err
 	}
 	// An epic card lives on the Plan board: filed under its column, anchored
 	// to its week row, optionally spanning several weeks via start..day. It
+	// joins no sprint and no plan band — assigning it to a team later places
+	// it into that team's weekly plan.
 	if args.Epic != "" {
 		return s.createEpicCard(ctx, b, args, linkDescription, pendingRef)
 	}
@@ -336,11 +319,22 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 			Assignee: args.Assignee,
 			Team:     args.Team,
 			ReviewOf: args.ReviewOf,
+			// Born parented, like every other create door: the parent was
+			// validated above, and dropping it here answered a request for
+			// a child with a top-level plan card — 201, no error, nothing
+			// grouped.
+			Parent: args.Parent,
 		})
 		card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
 		if err == nil {
 			s.resolveTitleAsync(ctx, b, card, pendingRef)
 			s.logEvent(ctx, b, card, board.EventCreated, "", "")
+		}
+		if err == nil && args.Parent != "" {
+			if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
+				return board.Card{}, perr
+			}
+			card.Parent = args.Parent
 		}
 		return card, err
 	}
@@ -502,11 +496,14 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 		Zone:    args.Zone,
 		Epic:    args.Epic,
 		Project: args.Project,
-		// Born parented, like the ordinary path: a create-then-group pair
-		// broadcasts a parentless instant that watchers and mid-sync
-		// reloads read as a stray top-level card. SetParent below still
+		// Born parented and born LINKED, like the other create doors: a
+		// create-then-group pair broadcasts a parentless instant that
+		// watchers and mid-sync reloads read as a stray top-level card,
+		// and a dropped reviewOf answered a request for a review card with
+		// an ordinary one — 201, no error, no link. SetParent below still
 		// runs, for the grouping's own side effects.
 		Parent:   args.Parent,
+		ReviewOf: args.ReviewOf,
 		Week:     week,
 		Start:    start,
 		Day:      day,
@@ -2572,4 +2569,28 @@ func (s *Service) groupOrUndo(ctx context.Context, b board.Board, card board.Car
 		return err
 	}
 	return nil
+}
+
+// parentIsPossible answers, before anything is written, whether the card
+// being created may be born under the parent it names: the parent must
+// exist and may not be a subtask itself, and — since a card born under a
+// parent takes the parent's repository — that repository must be able to
+// hold the column asked for (S4). Refusing after the create instead leaves
+// a stray ADDED broadcast and a created event for a card that never was.
+func parentIsPossible(b board.Board, args CreateCardArgs) error {
+	if args.Parent == "" {
+		return nil
+	}
+	p, ok := findCard(b, args.Parent)
+	if !ok || p.Title == board.SprintStateTitle {
+		return ErrParentNotFound
+	}
+	if p.Parent != "" {
+		return ErrSubtaskDepth
+	}
+	probe := board.Card{
+		Parent: args.Parent, Team: args.Team,
+		Project: args.Project, Epic: args.Epic,
+	}
+	return refileGuard(b, probe, func(*board.Card) {})
 }

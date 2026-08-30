@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
-import { hasOriginToShow, hasPlacementOffer, type CardPlacements } from "../placements";
+import { hasOriginToShow, type CardPlacements } from "../placements";
 import { PlacementMenu } from "./PlacementMenu";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -951,7 +951,7 @@ export function Card({
             {/* What this card is part of — the menu is where a person asks
                 "whose is this?", and the answer starts with where it came
                 from. */}
-            {(hasOriginToShow(card) || hasPlacementOffer(placements)) && (
+            {hasOriginToShow(card) && (
               <div className="card-assign-origin">
                 {card.process && (
                   <span>

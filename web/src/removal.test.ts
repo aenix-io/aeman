@@ -283,6 +283,17 @@ describe("gridGesture", () => {
     expect(gridGesture({ parent: "p", sprintStart: "2026-08-24" } as never, ctx)).toBe("delete");
   });
 
+  it("asks when the board opens its two-way choice", () => {
+    // A worked card in the current sprint with a previous one to fall back
+    // on is W5's question, not a gesture: the board must put it.
+    expect(
+      gridGesture(
+        { sprintStart: "2026-08-24", startDate: "2026-08-20", progress: 40 } as never,
+        ctx,
+      ),
+    ).toBe("ask");
+  });
+
   it("still demotes an ordinary card with sprint history", () => {
     // Not created today: a card whose start IS today has no history worth
     // keeping and is deleted instead (removalKind).

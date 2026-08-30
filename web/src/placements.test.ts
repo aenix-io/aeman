@@ -611,6 +611,14 @@ describe("targets on an alias project", () => {
 // mirrorable — with an empty block: a stray divider line, the artefact
 // hasPlacementOffer was written to remove.
 describe("hasOriginToShow", () => {
+  it("is what the block asks — the menus are its siblings, not its children", () => {
+    // A fresh unattached card has attach targets and no origin: asking the
+    // OFFER drew the block empty, which is a bare divider bar with nothing
+    // above it (the placement menus render outside this block and hide
+    // themselves when they have nothing to list).
+    expect(hasOriginToShow({} as Card)).toBe(false);
+  });
+
   it("counts a column of no project", () => {
     expect(hasOriginToShow({ epic: "Inbox" } as Card)).toBe(true);
   });

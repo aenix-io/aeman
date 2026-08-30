@@ -50,9 +50,11 @@ func (f *Backend) ResolveIssueRef(_ context.Context, link board.Link) (board.Lin
 	return resolved, nil
 }
 
-// New builds a Backend seeded with cards and per-team sprint states. A
-// sprint-state card among the cards seeds its team's sprint and the
-// repository the team was declared in, the way a real board records them.
+// New builds a Backend seeded with cards and per-team sprint states. Both
+// routes are the same one: a sprint-state card among the cards seeds its
+// team's sprint and the repository the team was declared in, and a state
+// passed in the map is turned into such a card before the board is
+// assembled — the way a real board records them.
 func New(cards []board.Card, states map[string]board.SprintState) *Backend {
 	if states == nil {
 		states = map[string]board.SprintState{}
@@ -136,20 +138,30 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	if f.loadErr != nil {
 		return board.Board{}, f.loadErr
 	}
-	b := board.NewBoard(append([]board.Card{}, f.board.Cards...))
+	cards := append([]board.Card{}, f.board.Cards...)
+	// A state seeded in the map becomes a state CARD before the assembly
+	// runs — declaredMirrors reads team domains, so an overlay applied
+	// afterwards judged the mirrors against a board with no teams. A team
+	// whose card is already among the seeded cards keeps that card: two
+	// stubs for one team would let the emptier one win the assembly.
+	seeded := map[string]bool{}
+	for _, c := range cards {
+		if c.Title == board.SprintStateTitle {
+			seeded[c.Team] = true
+		}
+	}
+	for team, st := range f.board.SprintStates {
+		if seeded[team] {
+			continue
+		}
+		cards = append(cards, board.Card{
+			ItemID: st.ItemID, Title: board.SprintStateTitle, Team: team,
+			SprintStart: st.Current, StartDate: st.Previous,
+			Domain: f.board.Domains[st.ItemID],
+		})
+	}
+	b := board.NewBoard(cards)
 	b.Board = f.board.Board
-	for k, v := range f.board.SprintStates {
-		if b.SprintStates == nil {
-			b.SprintStates = map[string]board.SprintState{}
-		}
-		b.SprintStates[k] = v
-	}
-	for k, v := range f.board.Domains {
-		if b.Domains == nil {
-			b.Domains = map[string]string{}
-		}
-		b.Domains[k] = v
-	}
 	return b, nil
 }
 

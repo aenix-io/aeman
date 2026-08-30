@@ -1568,3 +1568,57 @@ func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
 		t.Fatalf("and must name the repository that holds the card: column %q, card %q", cd, mine)
 	}
 }
+
+// Every create door carries what it was given. The plan path validated the
+// parent — refusing an impossible one — and then built its card without
+// it: a request for a child answered with a top-level plan card, 201 and
+// no error.
+func TestCreatingAPlanCardUnderAParentGroupsIt(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+	})
+	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "planned child", Team: "platform", Parent: "p", Plan: board.PlanWed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	got, _ := findCard(b, c.ItemID)
+	if got.Parent != "p" {
+		t.Fatalf("the parent was asked for and must land: %+v", got)
+	}
+}
+
+// The review link the same way, on the epic path.
+func TestCreatingAColumnedReviewCardKeepsTheLink(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "orig", Title: "original", Team: "platform"},
+	})
+	c, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "review", Team: "platform", ReviewOf: "orig",
+		Project: "engineering", Epic: "Cozystack",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	got, _ := findCard(b, c.ItemID)
+	if got.ReviewOf != "orig" {
+		t.Fatalf("a review card was asked for: %+v", got)
+	}
+}
+
+// Unbinding a column into the no-project bucket is a rename into a shared
+// namespace: two columns of the same name merge under one entry there
+// (NewBoard dedups by the pair), and the losing stub's cards are then
+// refused at every door with nothing in the product to free them. The
+// name has to be free, exactly as it must be for any other destination.
+func TestUnbindingACollidingColumnIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "ep-loose", Title: board.EpicStateTitle, Epic: "Launch"},
+	})
+	if err := New(f).SetEpicProject(ctx, "acme", "freedom", "Launch", ""); err == nil {
+		t.Fatal("the no-project bucket already holds a Launch column")
+	}
+}

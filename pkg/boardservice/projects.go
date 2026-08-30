@@ -113,11 +113,16 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if err := knownProject(b, to); err != nil {
 			return err
 		}
-		// The target project may already have a column of this name, and two
-		// columns with one name inside a project cannot be told apart.
-		if err := epicNameFree(b, to, epic, ""); err != nil {
-			return err
-		}
+	}
+	// The destination may already have a column of this name, and two
+	// columns with one name in one project cannot be told apart. The
+	// NO-PROJECT bucket is a destination like any other here: NewBoard
+	// dedups columns by the (project, epic) pair, so an unbind onto a name
+	// already there merges two stubs under one entry — and the losing
+	// stub's cards are then refused at every door, with nothing in the
+	// product to free them.
+	if err := epicNameFree(b, to, epic, ""); err != nil {
+		return err
 	}
 	// A column cannot change REPOSITORY. Its stub is handed straight back to
 	// the backend that holds it (gitstore isStub), so a move to a project of

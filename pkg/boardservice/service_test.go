@@ -90,78 +90,51 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rec("LoadBoard")
-	cards := make([]board.Card, 0, len(f.b.Cards))
-	var epics []board.EpicCol
-	var projects []string
-	var deadlines []board.Deadline
-	var processes []board.Process
-	var tasks []board.Card
-	seenEpic := map[string]bool{}
-	projectStates := map[string]string{}
-	// Which repository each roster entry was declared in, as board.NewBoard
-	// records it — from the state cards, plus what a test seeded directly
-	// (sprint states are seeded without cards).
-	domains := map[string]string{}
+	// Assembled the way the real board is. A fake that reproduced the
+	// state-card split by hand never ran the assembly's own rules — the
+	// derived week, the adopted epic, declaredMirrors — so the service was
+	// tested against a board nobody has, and the branch's whole claim is
+	// that the assembly and the service must answer alike.
+	cards := append([]board.Card{}, f.b.Cards...)
+	// A state seeded in the map becomes a state CARD before the assembly
+	// runs — declaredMirrors reads team domains, so an overlay applied
+	// afterwards judged the mirrors against a board with no teams. A team
+	// whose card is already among the seeded cards keeps that card: two
+	// stubs for one team would let the emptier one win the assembly.
+	seeded := map[string]bool{}
+	for _, c := range cards {
+		if c.Title == board.SprintStateTitle {
+			seeded[c.Team] = true
+		}
+	}
+	for team, st := range f.b.SprintStates {
+		if seeded[team] {
+			continue
+		}
+		cards = append(cards, board.Card{
+			ItemID: st.ItemID, Title: board.SprintStateTitle, Team: team,
+			SprintStart: st.Current, StartDate: st.Previous,
+			Domain: f.b.Domains[st.ItemID],
+		})
+	}
+	b := board.NewBoard(cards)
+	b.Board = f.b.Board
+	// The map is the caller's explicit word about a team's sprint, so it
+	// wins over a bare state card seeded beside it.
+	for team, st := range f.b.SprintStates {
+		if st.Current != "" || st.Previous != "" {
+			b.SprintStates[team] = st
+		}
+	}
 	for k, v := range f.b.Domains {
-		domains[k] = v
+		if b.Domains == nil {
+			b.Domains = map[string]string{}
+		}
+		if _, ok := b.Domains[k]; !ok {
+			b.Domains[k] = v
+		}
 	}
-	for _, c := range f.b.Cards {
-		// Mirror board.NewBoard's split for the hidden state cards, so the
-		// service sees the same Projects/Epics rosters it would on a real
-		// board. Sprint states stay seeded directly (tests set them without
-		// state cards).
-		if c.Domain != "" && board.IsStateTitle(c.Title) {
-			domains[c.ItemID] = c.Domain
-		}
-		if c.Title == board.ProcessStateTitle {
-			if c.Process != "" {
-				processes = append(processes, board.Process{
-					Name: c.Process, Project: c.Project, Paused: c.Paused, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		if c.Title == board.ProcessTaskTitle {
-			tasks = append(tasks, c)
-			continue
-		}
-		if c.Title == board.DeadlineStateTitle {
-			if c.Week != "" {
-				deadlines = append(deadlines, board.Deadline{
-					Week: c.Week, Project: c.Project, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		if c.Title == board.ProjectStateTitle {
-			if c.Project != "" && projectStates[c.Project] == "" {
-				projects = append(projects, c.Project)
-				projectStates[c.Project] = c.ItemID
-			}
-			continue
-		}
-		if c.Title == board.EpicStateTitle {
-			if k := c.Project + "\x00" + c.Epic; c.Epic != "" && !seenEpic[k] {
-				seenEpic[k] = true
-				epics = append(epics, board.EpicCol{
-					Name: c.Epic, Project: c.Project, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		cards = append(cards, c)
-	}
-	states := map[string]board.SprintState{}
-	for k, v := range f.b.SprintStates {
-		states[k] = v
-	}
-	if len(domains) == 0 {
-		domains = nil // a single-repository board records none
-	}
-	return board.Board{Board: f.b.Board, Cards: cards,
-		SprintStates: states, Epics: epics, Domains: domains,
-		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
-		Processes: processes, Tasks: tasks}, nil
+	return b, nil
 }
 
 func (f *fakeBackend) LoadCards(_ context.Context, _ board.Board, ids []string) ([]board.Card, error) {
