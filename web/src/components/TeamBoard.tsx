@@ -1511,9 +1511,8 @@ export function TeamBoard({
   // placementsFor: the assign menu's attach/mirror section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
-    if (card.parent) {
-      return undefined; // a subtask rides its parent; it is placed nowhere
-    }
+    // A subtask needs no check here: placementTargets refuses one for
+    // every board, so the rule cannot drift between the three.
     return makeCardPlacements(card, board, {
       provider,
       patchCard,

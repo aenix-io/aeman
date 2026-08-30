@@ -10,12 +10,15 @@ import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
+  makeCardPlacements,
+  type CardPlacements,
   movingSlot,
   removeFromProjectOutcome,
   settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
 } from "../placements";
+import { PlacementMenu } from "./PlacementMenu";
 import { deleteWarning } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
@@ -1132,6 +1135,20 @@ export function ProjectBoard({
   // The slot's ×: remove the card from THIS column. A mirror goes, the
   // home hands over to its first mirror, an orphaned worked card survives
   // in the working area — only the true delete asks, naming the loss.
+  // placementsFor: the slot menu's "Mirror to…" section. The same factory
+  // the Me and Team boards use, so the three cannot drift apart — and the
+  // only way to mirror a card that lives ONLY in a column: such a card
+  // never joins a sprint, so it appears on no other board (TeamGrid hides
+  // an epic card until it does), and its card menu exists nowhere else.
+  const placementsFor = (card: CardModel): CardPlacements =>
+    makeCardPlacements(card, board, {
+      provider,
+      patchCard,
+      reload,
+      onError,
+      errMessage: errText,
+    });
+
   const removeFromColumn = (card: CardModel, project: string, epic: string) => {
     const outcome = removeFromProjectOutcome(card, project, epic);
     if (outcome === "delete") {
@@ -2026,6 +2043,23 @@ export function ProjectBoard({
                   />
                   {complete(card) ? "Reopen" : "Mark as done"}
                 </button>
+                {/* Mirroring lives in this menu because the slot has no
+                    other: a card in a column may be shown in a second one,
+                    and for a card that never joined a sprint this is the
+                    only place in the UI that can say so. */}
+                {(() => {
+                  const placements = placementsFor(card);
+                  return placements.mirror ? (
+                    <PlacementMenu
+                      label="Mirror to…"
+                      targets={placements.mirror}
+                      onPick={(project, epic) => {
+                        placements.onMirror(project, epic);
+                        setTeamMenu(null);
+                      }}
+                    />
+                  ) : null;
+                })()}
                 {/* The roster carries "" for the no-team group; the explicit
                     "No team" entry below is that, so skip the blank one. And
                     only the teams of the card's own repository are offered:

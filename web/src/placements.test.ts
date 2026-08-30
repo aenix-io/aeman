@@ -11,6 +11,7 @@ import {
   settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
+  type CardPlacements,
 } from "./placements";
 import type { Card } from "./providers/types";
 
@@ -115,6 +116,21 @@ describe("placementTargets", () => {
     const got = placementTargets({ project: "engineering", epic: "Cozystack" } as Card, board);
     expect(got.mirror).toEqual([]);
     expect(got.attach).toBeUndefined();
+  });
+
+  it("offers a SUBTASK nothing — it is placed nowhere of its own", () => {
+    // The server refuses a subtask's mirror (ErrSubtaskMirror), so no board
+    // may offer one. The Me and Team boards each remembered this on their
+    // own; the Project board renders its own slots and would have had to
+    // remember it a third time — the rule belongs here, where the module
+    // promises "only what the server would accept".
+    const got = placementTargets(
+      { project: "engineering", epic: "Cozystack", parent: "p1" } as Card,
+      board,
+    );
+    expect(got.mirror).toBeUndefined();
+    expect(got.attach).toBeUndefined();
+    expect(got.processes).toBeUndefined();
   });
 
   it("offers a card in a no-project column no mirrors at all", () => {
@@ -321,12 +337,15 @@ describe("movingSlot", () => {
 // dates of its own takes its week's slot — a chosen schedule survives.
 describe("makeCardPlacements onAttachProject", () => {
   const board = {
-    projects: ["engineering"],
-    epics: [{ name: "Cozystack", project: "engineering" }],
+    projects: ["engineering", "freedom"],
+    epics: [
+      { name: "Cozystack", project: "engineering" },
+      { name: "Launch", project: "freedom" },
+    ],
     projectDomains: undefined,
     processes: [],
   };
-  const run = (card: Card) => {
+  const run = (card: Card, act?: (p: CardPlacements) => void) => {
     const patches: Partial<Card>[] = [];
     const deps = {
       provider: {
@@ -341,7 +360,12 @@ describe("makeCardPlacements onAttachProject", () => {
       onError: () => {},
       errMessage: () => "",
     };
-    makeCardPlacements(card, board, deps).onAttachProject("engineering", "Cozystack");
+    const placements = makeCardPlacements(card, board, deps);
+    if (act) {
+      act(placements);
+    } else {
+      placements.onAttachProject("engineering", "Cozystack");
+    }
     return patches[0];
   };
 
@@ -349,6 +373,16 @@ describe("makeCardPlacements onAttachProject", () => {
     const patch = run({ itemId: "c1", plan: "fri", week: "2026-08-24" } as Card);
     expect(patch.startDate).toBe("2026-08-24");
     expect(patch.day).toBe("2026-08-28");
+  });
+
+  it("adds the placement optimistically when mirroring", () => {
+    // The Project board draws one slot per placement, so the patch is what
+    // puts the card in the second column before the round trip returns.
+    const patch = run(
+      { itemId: "c1", project: "engineering", epic: "Cozystack" } as Card,
+      (p) => p.onMirror("freedom", "Launch"),
+    );
+    expect(patch.mirrors).toEqual([{ project: "freedom", epic: "Launch" }]);
   });
 
   it("keeps a dated card's chosen schedule", () => {

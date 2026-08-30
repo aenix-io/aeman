@@ -125,7 +125,7 @@ export interface CardPlacements {
  *  from the board — the same filters the server applies, so the picker
  *  offers only what would be accepted. */
 export function placementTargets(
-  card: Pick<Card, "project" | "epic" | "mirrors" | "domain" | "stage" | "process" | "task">,
+  card: Pick<Card, "project" | "epic" | "mirrors" | "domain" | "stage" | "process" | "task" | "parent">,
   board: {
     projects: string[];
     epics: EpicRef[];
@@ -134,6 +134,13 @@ export function placementTargets(
     processDomains?: RosterDomains;
   },
 ): Pick<CardPlacements, "attach" | "processes" | "mirror"> {
+  // A subtask is placed nowhere of its own — it rides its parent — so the
+  // server refuses both a mirror (ErrSubtaskMirror) and a tie
+  // (ErrSubtaskTie). The rule lives here rather than in each board, or the
+  // next board to render cards has to remember it a third time.
+  if (card.parent) {
+    return {};
+  }
   if (card.epic) {
     if (!card.project) {
       // A no-project column names no repository, so the server refuses

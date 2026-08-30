@@ -1186,8 +1186,9 @@ export function MeBoard({
   // placementsFor: the assign menu's attach/mirror section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
-    if (card.parent || isPersonalCard(card, board.personal)) {
-      // A subtask rides its parent, and the personal board has no projects.
+    if (isPersonalCard(card, board.personal)) {
+      // The personal board has no projects to place a card in. A subtask
+      // needs no check here: placementTargets refuses one for every board.
       return undefined;
     }
     return makeCardPlacements(card, board, {
