@@ -35,9 +35,16 @@ func TestProcessAndTemplate(t *testing.T) {
 	if _, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{Title: "x"}); err == nil {
 		t.Fatal("a task needs a cycle")
 	}
+	// The anchor is NEXT week, and relative to today on purpose: adding a
+	// task files this week's card at once when the week is already owed
+	// (spawnDue), so a fixed anchor made this test pass or fail by the
+	// calendar — a monthly one anchored on the 3rd is owed in every week
+	// that contains a 3rd, and the run in such a week saw the spawned turn
+	// among the rows it asserts are empty.
+	anchor := board.AddDays(board.MondayOf(board.TodayIso()), 10)
 	tpl, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
 		Title: "Technical article", Description: "1500 words, one code sample",
-		Recurrence: "month", Start: "2026-03-03", Team: "alpha", Assignee: "writer",
+		Recurrence: "month", Start: anchor, Team: "alpha", Assignee: "writer",
 	})
 	if err != nil {
 		t.Fatal(err)
