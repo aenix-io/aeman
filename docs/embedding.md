@@ -97,6 +97,10 @@ For read-side shapes (semantic zones, derived status, view selectors) use `pkg/a
 
 A tool that edits the repository directly (a plugin driving `git` itself) must reproduce the contract by hand: the layout and file formats, the rank keys, the domain rule, the move protocol and the commit trailers are specified in [design/git-backend.md](design/git-backend.md) and summarised for that purpose in [design/plugin-impact.md](design/plugin-impact.md). The server picks such commits up on its fetch tick and reads their changes into the card log like its own.
 
+## Contract changes in this line
+
+`pkg/board` lost `MirrorAllowed` and gained `ColumnDomain` and `Followers`. The removal is the point of the change, not collateral: `MirrorAllowed` compared two PROJECTS' repositories, and a project name may be declared in two repositories with its columns merged under one entry, so it answered for the wrong thing — and answered "no" for every column of no project. `ColumnDomain(b, project, epic)` asks the column itself, which is what the server asks wherever a placement is judged. `Followers(b, id)` lists the cards whose file moves with one — its subtasks and its review card, transitively — for a caller that needs to know what a re-file drags along.
+
 ## Testing against the board service
 
 `pkg/boardservice/boardservicetest` is a backend fake to run the service against in your own tests. Since v0.29 it splits the hidden state cards the way a real board does: a sprint-state card among the seeded cards sets its team's sprint, the repository the team was declared in and its place in board order, and is no longer returned as a card row. A test that counted rows, or that expected a team's repository to come from `SprintStates` alone, should be read again — the change is what lets the domain rules (G14, G46, S4) be exercised through the fake at all.

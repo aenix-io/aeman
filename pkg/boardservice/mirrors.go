@@ -53,9 +53,13 @@ var ErrNotRecurrent = errors.New("only a recurrent card can be tied to a process
 var ErrSubtaskTie = errors.New("a subtask rides its parent and cannot be tied to a process")
 
 // Mirror adds the column (project, epic) to the card. The card must already
-// have a home column — a card outside every project is attached, not
-// mirrored — the target must exist, in the same repository as the home, and
-// mirroring where the card already stands is a no-op, not a duplicate.
+// stand in a column — one outside every column is attached, not mirrored —
+// and the target must exist in the repository that holds the CARD'S FILE
+// (DomainOf: linked cards first, G14), which is not always its home
+// column's: that column is checked separately, so a card whose own
+// placement is already wrong is told to fix that rather than adding a
+// second. A column of no project is a home like any other. Mirroring where
+// the card already stands is a no-op, not a duplicate.
 func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, epic string) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {

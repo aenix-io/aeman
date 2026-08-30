@@ -1533,3 +1533,38 @@ func TestAFailedGroupingUndoesTheCreateAndReportsWhatItCannot(t *testing.T) {
 		t.Fatalf("and no card is handed back: %+v", card)
 	}
 }
+
+// Deleting a parent FREES its children, and a freed child keeps the one
+// column it carries (S4). That release is the one ungroup that does not go
+// through refileGuard — it cannot, since the parent is being deleted — so
+// the invariant it would have checked is pinned here instead: the freed
+// card's column still names the repository that holds it. It holds because
+// a subtask's team is its parent's (S3) and a team cannot be paired with a
+// project of another repository (G46), but "it follows from two other
+// rules" is exactly the kind of claim that stops being true quietly.
+func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform", Assignees: []string{"kvaps"}},
+		{ItemID: "kid", Title: "columned child", Team: "platform", Parent: "p",
+			Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	if err := svc.DeleteCard(ctx, "acme", "p"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "kid")
+	if !ok {
+		t.Fatal("a subtask is freed, not deleted, with its parent")
+	}
+	if c.Parent != "" {
+		t.Fatalf("freed: %+v", c)
+	}
+	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
+	if !known {
+		t.Fatalf("the column it kept must still be declared: %+v", c)
+	}
+	if mine := board.DomainOf(c, board.Resolver(b, "")); cd != mine {
+		t.Fatalf("and must name the repository that holds the card: column %q, card %q", cd, mine)
+	}
+}

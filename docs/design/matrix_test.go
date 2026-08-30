@@ -6,8 +6,8 @@ package design
 // reversed and its test renamed. Cheap to check, so checked.
 
 import (
+	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -23,22 +23,42 @@ func TestEveryTestTheMatrixNamesExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Every `TestSomething` in backticks, and every Go test function in the
-	// tree. The web cases the matrix cites are prose, not identifiers, so
-	// only the Go shape is checked here.
+	// Every `TestSomething` in backticks. The web cases the matrix cites are
+	// prose, not identifiers, so only the Go shape is checked here.
 	named := regexp.MustCompile("`(Test[A-Za-z0-9_]+)`").FindAllStringSubmatch(string(matrix), -1)
 	if len(named) == 0 {
 		t.Fatal("the matrix names no tests at all — has the format changed?")
 	}
-	out, err := exec.Command("grep", "-rhoE", `^func (Test[A-Za-z0-9_]+)`, root).Output()
+	// The tree's own _test.go files, and only those: a walk rather than a
+	// grep, so the check does not depend on an external binary and cannot
+	// be satisfied by a stray match in node_modules or a build directory.
+	decl := regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]+)\(`)
+	have := map[string]bool{}
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "dist", "vendor":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range decl.FindAllStringSubmatch(string(src), -1) {
+			have[m[1]] = true
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	have := map[string]bool{}
-	for _, line := range strings.Split(string(out), "\n") {
-		if name := strings.TrimPrefix(line, "func "); name != "" {
-			have[name] = true
-		}
 	}
 	var missing []string
 	for _, m := range named {

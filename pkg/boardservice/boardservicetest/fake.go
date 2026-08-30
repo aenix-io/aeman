@@ -122,7 +122,13 @@ func (f *Backend) FailLoad(err error) {
 	f.loadErr = err
 }
 
-// LoadBoard returns a copy of the seeded board snapshot.
+// LoadBoard returns the seeded cards assembled the way the real board is —
+// through board.NewBoard, so the assembly's own rules (the state-card
+// split, the derived week, the mirrors the roster disowns) answer here
+// exactly as they answer the server: a fake that assembles a board by hand
+// tests the service against a board nobody has. Sprint states and domains
+// seeded directly are overlaid on top, for callers that set them without
+// state cards.
 func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -130,96 +136,21 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	if f.loadErr != nil {
 		return board.Board{}, f.loadErr
 	}
-	cards := make([]board.Card, 0, len(f.board.Cards))
-	var epics []board.EpicCol
-	var projects []string
-	var deadlines []board.Deadline
-	var processes []board.Process
-	var tasks []board.Card
-	seenEpic := map[string]bool{}
-	projectStates := map[string]string{}
-	// Which repository each roster entry was declared in, exactly as
-	// board.NewBoard records it — plus whatever a caller seeded directly
-	// (sprint states are seeded without cards). Without this every
-	// cross-repository rule the service holds passes silently here, which
-	// is the one thing an external tool's fake must not do.
-	domains := map[string]string{}
-	for k, v := range f.board.Domains {
-		domains[k] = v
-	}
-	states := map[string]board.SprintState{}
+	b := board.NewBoard(append([]board.Card{}, f.board.Cards...))
+	b.Board = f.board.Board
 	for k, v := range f.board.SprintStates {
-		states[k] = v
+		if b.SprintStates == nil {
+			b.SprintStates = map[string]board.SprintState{}
+		}
+		b.SprintStates[k] = v
 	}
-	var teamOrder []string
-	seenTeam := map[string]bool{}
-	for _, c := range f.board.Cards {
-		if c.Domain != "" && board.IsStateTitle(c.Title) {
-			domains[c.ItemID] = c.Domain
+	for k, v := range f.board.Domains {
+		if b.Domains == nil {
+			b.Domains = map[string]string{}
 		}
-		if c.Title == board.SprintStateTitle {
-			// A team's repository is recorded on its sprint-state card, its
-			// sprint pointers are that card's fields, and the card's
-			// POSITION is the team's place in board order — split as
-			// board.NewBoard does, including the no-team group (""), or
-			// TeamDomain answers "" for every team and G46 passes silently
-			// through this fake.
-			if _, seeded := f.board.SprintStates[c.Team]; !seeded {
-				states[c.Team] = board.SprintState{
-					Current: c.SprintStart, Previous: c.StartDate, ItemID: c.ItemID,
-				}
-			}
-			if !seenTeam[c.Team] {
-				seenTeam[c.Team] = true
-				teamOrder = append(teamOrder, c.Team)
-			}
-			continue
-		}
-		if c.Title == board.ProcessStateTitle {
-			if c.Process != "" {
-				processes = append(processes, board.Process{
-					Name: c.Process, Project: c.Project, Paused: c.Paused, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		if c.Title == board.ProcessTaskTitle {
-			tasks = append(tasks, c)
-			continue
-		}
-		if c.Title == board.DeadlineStateTitle {
-			if c.Week != "" {
-				deadlines = append(deadlines, board.Deadline{
-					Week: c.Week, Project: c.Project, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		if c.Title == board.ProjectStateTitle {
-			if c.Project != "" && projectStates[c.Project] == "" {
-				projects = append(projects, c.Project)
-				projectStates[c.Project] = c.ItemID
-			}
-			continue
-		}
-		if c.Title == board.EpicStateTitle {
-			if k := c.Project + "\x00" + c.Epic; c.Epic != "" && !seenEpic[k] {
-				seenEpic[k] = true
-				epics = append(epics, board.EpicCol{
-					Name: c.Epic, Project: c.Project, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		cards = append(cards, c)
+		b.Domains[k] = v
 	}
-	if len(domains) == 0 {
-		domains = nil // a single-repository board records none
-	}
-	return board.Board{Board: f.board.Board, Cards: cards,
-		SprintStates: states, TeamOrder: teamOrder, Epics: epics, Domains: domains,
-		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
-		Processes: processes, Tasks: tasks}, nil
+	return b, nil
 }
 
 // LoadCards returns the seeded cards matching ids, mirroring a partial reload.
