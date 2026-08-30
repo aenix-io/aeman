@@ -175,9 +175,12 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 		s.logEvent(ctx, b, c, board.EventEpic, project+" / "+epic, heir.Project+" / "+heir.Epic)
 		return nil
 	}
-	// The last column.
+	// The last column. A SUBTASK has another home — its parent — so the ×
+	// only takes the column away, however untouched the card is: deleting
+	// would destroy work that still rides the parent on every other board
+	// (the two-homes rule the × exists to honour).
 	worked := len(c.Assignees) > 0 && c.Progress > 0
-	if !worked {
+	if !worked && c.Parent == "" {
 		// The whole card goes — a deletion moves nothing, so the tie
 		// guard has no say here (delete_card removes tied cards the same
 		// way) — and clearing its plan first would be a dead write into

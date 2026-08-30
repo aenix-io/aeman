@@ -4488,6 +4488,14 @@ button.card-age {
   font-size: 11px;
 }
 
+/* A slot whose card rides a parent: the group is planned here, but the
+   card's other home is the parent — the × only takes the column away. */
+.project-slot-subtask {
+  margin-right: 4px;
+  opacity: 0.6;
+  font-size: 11px;
+}
+
 /* ---- single board, domains, roster avatars ---- */
 
 /* The board's name in the toolbar — the one board this server serves, where

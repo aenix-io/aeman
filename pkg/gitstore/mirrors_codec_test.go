@@ -105,11 +105,11 @@ created: 2026-08-29T10:00:00Z
 	}
 }
 
-// A subtask rides its parent and is placed nowhere of its own: a
-// hand-written subtask carrying mirrors: is invisible occupancy — the
-// Project grid skips subtasks while InEpic counts them, so DeleteEpic
-// refuses for cards nobody sees. The decoder drops them, the way the
-// service clears them on grouping.
+// A subtask carries at most the ONE column of its own (S4); a second
+// placement it may not have, because its file follows its parent — into
+// another repository, if that is where the parent lives, stranding every
+// mirror. The decoder drops hand-written ones, the way the service clears
+// them on grouping.
 func TestHandWrittenSubtaskMirrorsAreDroppedOnRead(t *testing.T) {
 	data := []byte(`---
 title: hand-written subtask

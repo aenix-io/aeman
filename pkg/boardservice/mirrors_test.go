@@ -925,3 +925,31 @@ func TestASubtaskCannotBeTied(t *testing.T) {
 		t.Fatalf("a subtask rides its parent: %v", err)
 	}
 }
+
+// A SUBTASK has another home: its parent. The Project board draws it in
+// the column it carries (G14 blesses that), so the × must be able to take
+// it out of the column — but never to delete it, however untouched it is.
+// Deleting here would destroy a card that is still riding its parent on
+// every other board, which is the two-homes rule the × exists to honour.
+func TestRemoveFromColumnNeverDeletesASubtask(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "untouched child", Team: "platform", Parent: "p",
+			Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	if err := svc.RemoveFromProject(ctx, "acme", "c1", "engineering", "Cozystack"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "c1")
+	if !ok {
+		t.Fatal("a subtask survives its column: its home is the parent")
+	}
+	if c.Epic != "" || c.Project != "" {
+		t.Fatalf("the column is gone: %+v", c)
+	}
+	if c.Parent != "p" {
+		t.Fatalf("the parent is untouched: %+v", c)
+	}
+}

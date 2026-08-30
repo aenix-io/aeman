@@ -10,6 +10,7 @@ import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
+  countedForProgress,
   makeCardPlacements,
   type CardPlacements,
   movingSlot,
@@ -254,10 +255,13 @@ export function ProjectBoard({
   // handed to one.
   const cards = useMemo(() => {
     const shown = new Set(epics.map((e) => colKey(e.project, e.name)));
+    // A SUBTASK that carries its own column is drawn like any other card:
+    // grouping work under a parent must not take it off the planner. Its
+    // parent usually lives elsewhere (the weekly plan, the working area),
+    // so hiding the children left the whole group visible nowhere.
     return board.cards.filter(
       (c) =>
         c.epic &&
-        !c.parent &&
         (shown.has(colKey(c.project ?? "", c.epic)) ||
           (c.mirrors ?? []).some((m) => shown.has(colKey(m.project, m.epic)))),
     );
@@ -1416,7 +1420,7 @@ export function ProjectBoard({
   const allProgress = useMemo(() => {
     const byProject = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (!c.epic || c.parent) {
+      if (!c.epic || !countedForProgress(c, board.cards)) {
         continue;
       }
       const k = c.project ?? "";
@@ -1972,6 +1976,16 @@ export function ProjectBoard({
                     title={`Mirrored here from ${card.project} · ${card.epic}`}
                   >
                     ⧉
+                  </span>
+                )}
+                {card.parent && (
+                  <span
+                    className="project-slot-subtask"
+                    title={`Subtask of «${
+                      board.cards.find((c) => c.itemId === card.parent)?.title ?? "…"
+                    }»`}
+                  >
+                    ↳
                   </span>
                 )}
                 {card.title}

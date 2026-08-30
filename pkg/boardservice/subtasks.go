@@ -218,12 +218,13 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 }
 
 // clearRiders strips what a subtask cannot carry — mirrors and the process
-// tie — when a card is grouped. Left on, they were placements no board
-// showed yet InEpic counted (DeleteEpic refusing for cards nobody sees),
-// and a parent in another repository would carry the file away from both.
-// The untying is logged; the mirrors go silently on purpose — like the
-// plan slot, they are placements of the parentless life, not work — and
-// the home column stays (G14).
+// tie — when a card is grouped. A subtask keeps the ONE column it carries
+// (G14, and the Project board draws it there, S4); what it may not keep is
+// a SECOND placement or a tie, because its file follows its parent: a
+// parent in another repository would carry the card away from both, which
+// is the state ErrCrossDomain exists to prevent. The untying is logged;
+// the mirrors go silently on purpose — like the plan slot, they are
+// placements of the parentless life, not work.
 func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Card) error {
 	if len(card.Mirrors) > 0 {
 		if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {

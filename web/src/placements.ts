@@ -88,7 +88,7 @@ export type PlacementRemoval = "unmirror" | "promote" | "orphan" | "delete";
  *  keeps only a WORKED card (someone had it and moved it) as an orphan of
  *  the working area, and deletes the rest. */
 export function removeFromProjectOutcome(
-  card: Pick<Card, "project" | "epic" | "mirrors" | "assignees" | "progress">,
+  card: Pick<Card, "project" | "epic" | "mirrors" | "assignees" | "progress" | "parent">,
   project: string,
   epic: string,
 ): PlacementRemoval {
@@ -101,8 +101,25 @@ export function removeFromProjectOutcome(
   if ((card.mirrors ?? []).length > 0) {
     return "promote";
   }
+  // A subtask's home is its parent: the column goes, the card stays.
   const worked = (card.assignees?.length ?? 0) > 0 && (card.progress ?? 0) > 0;
-  return worked ? "orphan" : "delete";
+  return worked || card.parent ? "orphan" : "delete";
+}
+
+/** countedForProgress decides whether a card counts towards its project's
+ *  progress line. The Project board draws a subtask that carries its own
+ *  column, so it must count — unless its PARENT stands in the same
+ *  project, because a parent's own progress already derives from its
+ *  children and counting both would weigh that work twice. */
+export function countedForProgress(
+  card: Pick<Card, "itemId" | "parent" | "project">,
+  cards: readonly Pick<Card, "itemId" | "project" | "epic">[],
+): boolean {
+  if (!card.parent) {
+    return true;
+  }
+  const parent = cards.find((c) => c.itemId === card.parent);
+  return !(parent?.epic && (parent.project ?? "") === (card.project ?? ""));
 }
 
 /** CardPlacements is everything the assign menu needs to attach or mirror

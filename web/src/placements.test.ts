@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attachSlotDates,
   attachTargets,
+  countedForProgress,
   makeCardPlacements,
   mirrorTargets,
   movingSlot,
@@ -99,6 +100,44 @@ describe("removeFromProjectOutcome", () => {
     expect(
       removeFromProjectOutcome({ ...base, assignees: [], progress: 40 } as Card, "engineering", "Cozystack"),
     ).toBe("delete");
+  });
+});
+
+// A subtask's home is its parent, so the Project board's × may take it out
+// of a column but never delete it — the server refuses to as well.
+describe("removeFromProjectOutcome for a subtask", () => {
+  it("orphans instead of deleting, however untouched", () => {
+    const card = {
+      project: "engineering",
+      epic: "Cozystack",
+      parent: "p1",
+      assignees: [],
+      progress: 0,
+    } as unknown as Card;
+    expect(removeFromProjectOutcome(card, "engineering", "Cozystack")).toBe("orphan");
+  });
+});
+
+// The Project board draws a subtask that carries its own column, so the
+// column's progress must count it — but never twice: a parent standing in
+// the same project already answers for its children.
+describe("countedForProgress", () => {
+  const child = { itemId: "c1", parent: "p1", project: "engineering", epic: "Cozystack" } as Card;
+
+  it("counts a subtask whose parent is on no board of this project", () => {
+    // The parent lives in the weekly plan with no column of its own.
+    const parent = { itemId: "p1" } as Card;
+    expect(countedForProgress(child, [child, parent])).toBe(true);
+  });
+
+  it("skips a subtask whose parent stands in the same project", () => {
+    const parent = { itemId: "p1", project: "engineering", epic: "Roadmap" } as Card;
+    expect(countedForProgress(child, [child, parent])).toBe(false);
+  });
+
+  it("counts an ordinary card always", () => {
+    const plain = { itemId: "x", project: "engineering", epic: "Cozystack" } as Card;
+    expect(countedForProgress(plain, [plain])).toBe(true);
   });
 });
 
