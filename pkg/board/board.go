@@ -538,9 +538,13 @@ func Iterations(b Board, taskID string) []Card {
 }
 
 // declaredMirrors keeps the mirror entries the service itself would have
-// admitted: the column exists on the roster, in the home project's own
-// repository (MirrorAllowed). Everything else is a hand edit the decoder
-// could not judge without the roster.
+// admitted: the column exists on the roster and belongs to the repository
+// that holds this card. It asks the COLUMN, exactly as Mirror does — a
+// project name may be declared in two repositories with its columns merged
+// (G13), and the no-project bucket has no project to ask at all, so the
+// project-based answer dropped placements the service had just written.
+// Everything else is a hand edit the decoder could not judge without the
+// roster.
 func declaredMirrors(b Board, c Card) []Placement {
 	if len(c.Mirrors) == 0 {
 		return c.Mirrors
@@ -548,12 +552,13 @@ func declaredMirrors(b Board, c Card) []Placement {
 	// A fresh slice on purpose: filtering into c.Mirrors[:0] would write
 	// through to the caller's backing array, and NewBoard does not own
 	// the cards it is handed.
+	home, ok := ColumnDomain(b, c.Project, c.Epic)
+	if !ok {
+		return nil // a card in no declared column carries no placements
+	}
 	kept := make([]Placement, 0, len(c.Mirrors))
 	for _, m := range c.Mirrors {
-		if _, ok := FindEpic(b, m.Project, m.Epic); !ok {
-			continue
-		}
-		if !MirrorAllowed(b, c.Project, m.Project) {
+		if d, ok := ColumnDomain(b, m.Project, m.Epic); !ok || d != home {
 			continue
 		}
 		kept = append(kept, m)

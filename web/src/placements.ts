@@ -23,7 +23,6 @@ export interface ProjectTargets {
 export function attachTargets(
   projects: readonly string[],
   epics: readonly EpicRef[],
-  _projectDomains: RosterDomains,
   cardDomain: string,
 ): ProjectTargets[] {
   const out: ProjectTargets[] = [];
@@ -49,7 +48,6 @@ export function mirrorTargets(
   card: Pick<Card, "project" | "epic" | "mirrors" | "domain">,
   projects: readonly string[],
   epics: readonly EpicRef[],
-  _projectDomains: RosterDomains,
 ): ProjectTargets[] {
   const home = card.domain ?? "";
   const standing = new Set<string>([`${card.project}\u0000${card.epic}`]);
@@ -183,17 +181,12 @@ export function placementTargets(
     return card.epic
       ? {}
       : {
-          attach: attachTargets(
-            board.projects,
-            board.epics,
-            board.projectDomains,
-            card.domain ?? "",
-          ),
+          attach: attachTargets(board.projects, board.epics, card.domain ?? ""),
         };
   }
   if (card.epic) {
     return {
-      mirror: mirrorTargets(card, board.projects, board.epics, board.projectDomains),
+      mirror: mirrorTargets(card, board.projects, board.epics),
     };
   }
   if (card.stage === "recurrent") {
@@ -216,12 +209,7 @@ export function placementTargets(
     };
   }
   return {
-    attach: attachTargets(
-      board.projects,
-      board.epics,
-      board.projectDomains,
-      card.domain ?? "",
-    ),
+    attach: attachTargets(board.projects, board.epics, card.domain ?? ""),
   };
 }
 

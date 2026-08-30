@@ -1085,8 +1085,15 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	// demoting it alone would split the family across two sprints — the very
 	// thing syncChildrenSprint prevents everywhere else — and a subtask left
 	// in an earlier sprint still renders under its parent, so the × would
-	// look like it had done nothing. It is deleted.
+	// look like it had done nothing. It is deleted — UNLESS it stands in a
+	// column, which is a home of its own (S4: the Project board draws it
+	// there, counts it, and its × only takes the column away). A card filed
+	// under a column is never deleted by either ×, subtask or not: the grid
+	// lets it go and the column keeps it.
 	if c.Parent != "" {
+		if hasColumn(c) {
+			return s.releaseToColumn(ctx, b, c)
+		}
 		return s.deleteWithCascade(ctx, b, c)
 	}
 	if from == "plan" {

@@ -132,3 +132,84 @@ func TestTheAssemblyFilterLeavesTheCallersSliceAlone(t *testing.T) {
 		t.Fatalf("the caller's slice must survive assembly untouched: %+v", mirrors)
 	}
 }
+
+// The service admits a mirror and the assembly keeps it, or the card file
+// carries a placement that vanishes on the next full load — the invariant
+// G15 states in reverse. Both ask the same question, so both must read the
+// COLUMN's repository: the no-project bucket has one like any other, and
+// the project-based answer said "no such repository" for every card in it.
+func TestTheAssemblyKeepsEveryMirrorTheServiceWouldAdmit(t *testing.T) {
+	cards := []Card{
+		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
+		{ItemID: "ep-cozy", Title: EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
+		{ItemID: "ep-loose", Title: EpicStateTitle, Epic: "Loose"},
+		{ItemID: "into", Title: "home in a project, mirrored into the bucket",
+			Project: "engineering", Epic: "Cozystack",
+			Mirrors: []Placement{{Epic: "Loose"}}},
+		{ItemID: "outof", Title: "home in the bucket, mirrored into a project",
+			Epic: "Loose", Mirrors: []Placement{{Project: "engineering", Epic: "Cozystack"}}},
+	}
+	b := NewBoard(cards)
+	for _, id := range []string{"into", "outof"} {
+		var got Card
+		for _, c := range b.Cards {
+			if c.ItemID == id {
+				got = c
+			}
+		}
+		if len(got.Mirrors) != 1 {
+			t.Fatalf("%s: the assembly dropped a lawful mirror: %+v", id, got.Mirrors)
+		}
+	}
+}
+
+// ColumnDomain answers for the column itself, and says so plainly when the
+// roster does not declare one at all.
+func TestColumnDomainReadsTheColumnsOwnStub(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
+		{ItemID: "ep-cozy", Title: EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
+		{ItemID: "ep-far", Title: EpicStateTitle, Epic: "Far", Project: "engineering", Domain: "founders"},
+		{ItemID: "ep-loose", Title: EpicStateTitle, Epic: "Loose"},
+	})
+	if d, ok := ColumnDomain(b, "engineering", "Cozystack"); !ok || d != "" {
+		t.Fatalf("a primary column names no repository: %q %v", d, ok)
+	}
+	// The same PROJECT name, a column declared elsewhere: the column wins.
+	if d, ok := ColumnDomain(b, "engineering", "Far"); !ok || d != "founders" {
+		t.Fatalf("the column carries its own repository: %q %v", d, ok)
+	}
+	if d, ok := ColumnDomain(b, "", "Loose"); !ok || d != "" {
+		t.Fatalf("the no-project bucket is a column and has one: %q %v", d, ok)
+	}
+	if _, ok := ColumnDomain(b, "engineering", "Ghost"); ok {
+		t.Fatal("a column nobody declared answers nothing")
+	}
+}
+
+// Followers is what the guard walks, and the store's cascade recurses — so
+// it must too, and survive a hand-written cycle rather than spin on it.
+func TestFollowersWalkTheWholeTreeAndSurviveACycle(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "p", Title: "parent"},
+		{ItemID: "kid", Title: "child", Parent: "p"},
+		{ItemID: "rev", Title: "review of the child", ReviewOf: "kid"},
+		{ItemID: "far", Title: "unrelated"},
+	})
+	var ids []string
+	for _, c := range Followers(b, "p") {
+		ids = append(ids, c.ItemID)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("the walk reaches the review card two hops down: %v", ids)
+	}
+	// A hand-written cycle (a card whose parent is its own descendant) must
+	// end the walk, not spin it.
+	cyc := NewBoard([]Card{
+		{ItemID: "a", Title: "a", Parent: "b"},
+		{ItemID: "b", Title: "b", Parent: "a"},
+	})
+	if got := len(Followers(cyc, "a")); got != 1 {
+		t.Fatalf("a cycle is walked once: %d", got)
+	}
+}

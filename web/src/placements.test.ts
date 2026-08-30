@@ -34,23 +34,22 @@ describe("attach and mirror targets", () => {
     { name: "Launch", project: "freedom" },
     { name: "Fundraising", project: "strategy", domain: "founders" },
   ];
-  const projectDomains = { strategy: "founders" };
 
   it("offers the projects of the card's repository, with their epics", () => {
-    const got = attachTargets(projects, epics, projectDomains, "");
+    const got = attachTargets(projects, epics, "");
     expect(got).toEqual([
       { name: "engineering", epics: ["Cozystack", "Ingress"] },
       { name: "freedom", epics: ["Launch"] },
     ]);
     // A card living in the founders repository sees only founders projects.
-    expect(attachTargets(projects, epics, projectDomains, "founders")).toEqual([
+    expect(attachTargets(projects, epics, "founders")).toEqual([
       { name: "strategy", epics: ["Fundraising"] },
     ]);
   });
 
   it("offers everything on a board that names no domains", () => {
     const single = epics.map((e) => ({ name: e.name, project: e.project }));
-    expect(attachTargets(projects, single, undefined, "").map((p) => p.name)).toEqual(projects);
+    expect(attachTargets(projects, single, "").map((p) => p.name)).toEqual(projects);
   });
 
   it("mirror targets follow the HOME project's repository and skip where the card stands", () => {
@@ -59,7 +58,7 @@ describe("attach and mirror targets", () => {
       epic: "Cozystack",
       mirrors: [{ project: "freedom", epic: "Launch" }],
     } as Card;
-    const got = mirrorTargets(card, projects, epics, projectDomains);
+    const got = mirrorTargets(card, projects, epics);
     // Cozystack is the home, Launch is already mirrored: only Ingress is left.
     expect(got).toEqual([{ name: "engineering", epics: ["Ingress"] }]);
   });

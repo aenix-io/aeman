@@ -216,7 +216,8 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 			}
 			card.Mirrors = nil
 		} else {
-			if projectName != card.Project && !board.MirrorAllowed(b, projectName, card.Mirrors[0].Project) {
+			if projectName != card.Project &&
+				!columnsAgree(b, projectName, epic, card.Mirrors[0].Project, card.Mirrors[0].Epic) {
 				return fmt.Errorf("%w: the card mirrors %q — unmirror it before moving to %q",
 					ErrCrossDomain, card.Mirrors[0].Project, projectName)
 			}

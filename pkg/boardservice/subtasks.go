@@ -51,7 +51,15 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 	// weekly-plan handover below hands the child's slot to the parent, and
 	// a guard speaking after it left the cache holding a state the commit
 	// never made (the refusal aborts the write, not the cache mutation).
-	if err := refileGuard(b, card, func(a *board.Card) { a.Parent = parent }); err != nil {
+	// The closure models what grouping PRODUCES, riders and all: it clears
+	// the tie and the mirrors (clearRiders below), so the guard must not
+	// refuse over either — only over what grouping keeps, the card's own
+	// column and the columns of everything that follows it.
+	if err := refileGuard(b, card, func(a *board.Card) {
+		a.Parent = parent
+		a.Process = ""
+		a.Mirrors = nil
+	}); err != nil {
 		return err
 	}
 	// A weekly-plan card grouped under a parent hands its slot to the parent

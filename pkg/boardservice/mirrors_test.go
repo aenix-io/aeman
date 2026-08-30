@@ -1260,3 +1260,66 @@ func TestAColumnOfAnAliasProjectAnswersForItself(t *testing.T) {
 		t.Fatalf("and attaching to it is the same question: %v", err)
 	}
 }
+
+// An ORDINARY card follows its column between repositories — its project
+// is what decides where it lives, so the move carries it along. Only a
+// card whose file a link holds elsewhere cannot follow, and the guard has
+// to tell them apart by asking where the card ends UP, not where it is.
+func TestMovingAColumnCarriesItsOrdinaryCardsAcrossRepositories(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		// Teamless: a team of the primary would refuse the move first (G46).
+		{ItemID: "plain", Title: "plain card", Project: "engineering", Epic: "Cozystack"},
+	})
+	if err := New(f).SetEpicProject(ctx, "acme", "engineering", "Cozystack", "strategy"); err != nil {
+		t.Fatalf("an ordinary card follows its project: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "plain")
+	if c.Project != "strategy" {
+		t.Fatalf("and lands with the column: %+v", c)
+	}
+}
+
+// The grid × obeys the same two-homes rule the Project board's does: a
+// card standing in a COLUMN is never deleted by it — and a subtask that
+// carries one is now a drawn, counted slot in someone else's planner, so
+// deleting it there destroys work that is visibly planned elsewhere.
+func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "c1", Title: "columned child", Team: "platform", Parent: "p",
+			Project: "engineering", Epic: "Cozystack",
+			StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
+	})
+	if err := New(f).Remove(ctx, "acme", "c1", "grid"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, ok := findCard(b, "c1")
+	if !ok {
+		t.Fatal("a card filed under a column is never deleted by either ×")
+	}
+	if c.Epic != "Cozystack" || c.Parent != "p" {
+		t.Fatalf("its column and its parent stay: %+v", c)
+	}
+}
+
+// Grouping CLEARS the tie (clearRiders) — it does not refuse over it, as
+// its own docstring and G56 say. The guard was reading the state before
+// the change, so a parent in another repository tripped the tie check that
+// grouping was about to make moot.
+func TestGroupingATiedCardAcrossRepositoriesStillClearsTheTie(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
+		{ItemID: "c1", Title: "tied chore", Stage: board.StageRecurrent, Process: "Invoicing"},
+	})
+	svc := New(f)
+	if err := svc.SetParent(ctx, "acme", "c1", "far"); err != nil {
+		t.Fatalf("grouping clears the tie, it does not refuse: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Process != "" || c.Parent != "far" {
+		t.Fatalf("the tie is cleared and the grouping lands: %+v", c)
+	}
+}

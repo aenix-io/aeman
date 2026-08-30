@@ -334,14 +334,19 @@ func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 	if to == board.DomainOf(c, r) {
 		return nil
 	}
+	// The tie the change ITSELF clears strands nothing: grouping clears it
+	// (clearRiders), which is why the docstring promises grouping refuses
+	// over the tie nowhere. Reading the state before the change made a
+	// cross-repository grouping trip over a tie it was about to remove.
+	if after.Process != "" {
+		return fmt.Errorf("%w: the card is tied to the process %q of its own repository — untie it first",
+			ErrCrossDomain, after.Process)
+	}
 	// Only a card that MOVES can strand what rides it, so the follower
-	// scan — the one linear walk here — waits until the move is certain.
+	// scan — the one linear walk here — waits until the move is certain
+	// and until the cheaper refusals above have had their say.
 	// SetEpicProject calls this once per card of a column.
 	followers := board.Followers(b, c.ItemID)
-	if c.Process != "" {
-		return fmt.Errorf("%w: the card is tied to the process %q of its own repository — untie it first",
-			ErrCrossDomain, c.Process)
-	}
 	for _, f := range followers {
 		if f.Epic == "" {
 			continue
@@ -352,4 +357,15 @@ func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
 		}
 	}
 	return nil
+}
+
+// columnsAgree reports whether two columns belong to the same repository —
+// the question every "may these placements coexist" rule asks. It is the
+// COLUMN's answer, never its project's: one project name may be declared
+// in two repositories with its columns merged under a single entry (G13),
+// and an undeclared column agrees with nothing.
+func columnsAgree(b board.Board, aProject, aEpic, bProject, bEpic string) bool {
+	ad, aok := board.ColumnDomain(b, aProject, aEpic)
+	bd, bok := board.ColumnDomain(b, bProject, bEpic)
+	return aok && bok && ad == bd
 }

@@ -150,7 +150,10 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 			// S4 refuses at every other door. refileGuard cannot see this
 			// one, because the move changes nothing about THIS card's
 			// domain and the target column does not exist yet.
-			if board.DomainOf(c, board.Resolver(b, "")) != board.ProjectDomain(b, to) {
+			r := board.Resolver(b, "")
+			after := c
+			after.Project = to
+			if board.DomainOf(after, r) != board.ProjectDomain(b, to) {
 				return fmt.Errorf("%w: %q cannot follow this column — its file is held in another repository",
 					ErrCrossDomain, c.Title)
 			}
@@ -161,11 +164,12 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if to == "" {
 			return fmt.Errorf("%w: %q is mirrored — unmirror it before unbinding the column", ErrCrossDomain, c.Title)
 		}
-		if board.Mirrored(c, from, epic) && !board.MirrorAllowed(b, c.Project, to) {
+		if board.Mirrored(c, from, epic) && !columnsAgree(b, c.Project, c.Epic, to, epic) {
 			return fmt.Errorf("%w: %q mirrors this column and lives in another repository than %q",
 				ErrCrossDomain, c.Title, to)
 		}
-		if c.Project == from && c.Epic == epic && !board.MirrorAllowed(b, to, c.Mirrors[0].Project) {
+		if c.Project == from && c.Epic == epic &&
+			!columnsAgree(b, c.Mirrors[0].Project, c.Mirrors[0].Epic, to, epic) {
 			return fmt.Errorf("%w: %q mirrors %q — unmirror it before moving its column to %q",
 				ErrCrossDomain, c.Title, c.Mirrors[0].Project, to)
 		}

@@ -95,7 +95,10 @@ describe("what each × does, one answer for every board", () => {
   it("deletes a subtask, which has no history of its own", () => {
     expect(gridRemoval({ ...inSprint, parent: "p" }, ctx)).toBe("delete");
     expect(gridRemoval({ ...inSprint, parent: "p", plan: "fri" }, ctx)).toBe("delete");
-    expect(gridRemoval({ ...inSprint, parent: "p", epic: "Auth" }, ctx)).toBe("delete");
+    // A COLUMN is the exception: it is a home of its own, drawn and counted
+    // on the Project board (S4), and a card filed under one is never
+    // deleted by either ×.
+    expect(gridRemoval({ ...inSprint, parent: "p", epic: "Auth" }, ctx)).toBe("leave");
   });
 
   it("demotes a card with sprint history", () => {
@@ -208,5 +211,26 @@ describe("who asks about a delete", () => {
 
   it("leaves the plain delete to the card", () => {
     expect(boardAsksAbout({ title: "x" }, "delete", null)).toBe(false);
+  });
+});
+
+// The grid × obeys the two-homes rule for a subtask too: with a column to
+// fall back on it lets the card go there, and only a subtask with nowhere
+// else is deleted. Before the Project board drew such a card, nobody could
+// see what the × destroyed.
+describe("gridRemoval on a subtask", () => {
+  const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
+
+  it("leaves a subtask that stands in a column", () => {
+    expect(
+      gridRemoval(
+        { parent: "p1", project: "engineering", epic: "Cozystack", sprintStart: "2026-08-24" } as never,
+        ctx,
+      ),
+    ).toBe("leave");
+  });
+
+  it("deletes a subtask with nowhere else to be", () => {
+    expect(gridRemoval({ parent: "p1", sprintStart: "2026-08-24" } as never, ctx)).toBe("delete");
   });
 });

@@ -173,9 +173,12 @@ export function gridRemoval(
   // A subtask has no sprint history of its own: it rides its parent, and
   // demoting it alone would split the family across two sprints — which is
   // what syncChildrenSprint exists to prevent. The × deletes it, and it is
-  // gone from under its parent at once.
+  // gone from under its parent at once — unless it stands in a COLUMN,
+  // which is a home of its own: the Project board draws and counts it
+  // there (S4), and a card filed under a column is never deleted by
+  // either ×.
   if (c.parent) {
-    return "delete";
+    return hasColumn(c) ? "leave" : "delete";
   }
   if (c.plan) {
     return "leave";

@@ -30,7 +30,6 @@ type Backend struct {
 	nextID  int
 }
 
-// SetRefs seeds the link references ResolveIssueRef will resolve.
 // Refs configures ResolveIssueRef answers, keyed by link URL (ignoring any
 // fragment). URLs absent from the map fail to resolve.
 func (f *Backend) SetRefs(refs map[string]board.Link) {
