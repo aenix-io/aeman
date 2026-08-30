@@ -8,11 +8,14 @@ import type {
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
-import { cardDomainBadge, offerableTeams } from "../domains";
 import {
+  primaryDomain, cardDomainBadge, offerableTeams } from "../domains";
+import {
+  canCreateInColumn,
   columnsOf,
   countedForProgress,
   projectsAColumnCanJoin,
+  teamlessIsLawful,
   teamsACardCanTake,
   drawnAsSlot,
   drawnOnProjectBoard,
@@ -874,6 +877,18 @@ export function ProjectBoard({
       setDraft(null);
       return;
     }
+    // A card created here carries no team, so its repository is its
+    // project's — or the primary, when the column has no project. A
+    // project-less column of another repository can hold no such card,
+    // and the server says so; the board does not start the gesture.
+    if (!canCreateInColumn(
+      { project: draft.epic.project, domain: columnDomain({ project: draft.epic.project, name: draft.epic.name }) },
+      primary,
+    )) {
+      onError("A card created here would have no team, and this column is not in the primary repository");
+      setDraft(null);
+      return;
+    }
     const { epic, from, to } = draft;
     setDraft(null);
     const week = weeks[from];
@@ -1136,6 +1151,12 @@ export function ProjectBoard({
   // The slot's ×: remove the card from THIS column. A mirror goes, the
   // home hands over to its first mirror, an orphaned worked card survives
   // in the working area — only the true delete asks, naming the loss.
+  // The repository this board's own entries belong to: the server lists
+  // its repositories primary first, and stamps every entry with a domain
+  // NAME while a card that nothing places carries none — so the two are
+  // read through this name, as the server reads them.
+  const primary = primaryDomain(board.domains);
+
   // columnDomain: which repository a column was declared in, as the board
   // states it (metadata.epics[].domain). The server asks the COLUMN, never
   // its project — one project name may be declared twice, with its columns
@@ -2182,14 +2203,25 @@ export function ProjectBoard({
                           {t}
                         </button>
                       ))}
-                    <button
-                      type="button"
-                      className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}
-                      onClick={() => assignTeam(card, null)}
-                    >
-                      <span className="card-stage-dot card-stage-dot-none" />
-                      No team
-                    </button>
+                    {/* A card with no team is held by the PRIMARY
+                        repository, so a column of another one could not
+                        show it: there the entry is a refusal with a
+                        friendly label. What the card already carries stays
+                        on the list. */}
+                    {(!card.team ||
+                      teamlessIsLawful(
+                        columnDomain({ project: card.project ?? "", name: card.epic ?? "" }),
+                        primary,
+                      )) && (
+                      <button
+                        type="button"
+                        className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}
+                        onClick={() => assignTeam(card, null)}
+                      >
+                        <span className="card-stage-dot card-stage-dot-none" />
+                        No team
+                      </button>
+                    )}
                   </>
                 )}
               </Dropdown>

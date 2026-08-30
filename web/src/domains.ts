@@ -28,7 +28,11 @@ export function isMultiDomain(domains: readonly DomainInfo[]): boolean {
 }
 
 /** primaryDomain names the first configured repository ("" when the server
- *  names none). */
+ *  names none) — the repository a board's own entries belong to. The
+ *  server stamps every roster entry with its domain's NAME, the primary
+ *  included, while a card that nothing places carries none, so a client
+ *  comparing the two reads them through this name (inPrimary), exactly as
+ *  board.inPrimary does on the server. */
 export function primaryDomain(domains: readonly DomainInfo[]): string {
   return domains[0]?.name ?? "";
 }
@@ -149,4 +153,11 @@ export function offerableProjects(
   return projects.filter(
     (p) => p === current || rosterDomain(projectDomains, p) === home,
   );
+}
+
+
+/** inPrimary reads an entry's stamp in that one namespace: no stamp means
+ *  the primary. */
+export function inPrimary(domain: string | undefined, primary: string): string {
+  return domain ? domain : primary;
 }

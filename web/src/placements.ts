@@ -7,7 +7,7 @@
 // optimistically.
 
 import { addDays } from "./date";
-import { rosterDomain, type RosterDomains } from "./domains";
+import { inPrimary, rosterDomain, type RosterDomains } from "./domains";
 import type { Card, CardPatch, EpicRef } from "./providers/types";
 
 /** ProjectTargets is one project the picker offers, with its columns. */
@@ -27,7 +27,7 @@ export function attachTargets(
   teamBound = true,
 ): ProjectTargets[] {
   const out: ProjectTargets[] = [];
-  for (const p of projects) {
+  for (const p of projectsWithColumns(projects, epics)) {
     // The COLUMN answers, not its project: one project NAME may be
     // declared in two repositories with its columns merged under one entry
     // (G13), and the server asks the column — filtering by the project
@@ -62,7 +62,7 @@ export function mirrorTargets(
     standing.add(`${m.project}\u0000${m.epic}`);
   }
   const out: ProjectTargets[] = [];
-  for (const p of projects) {
+  for (const p of projectsWithColumns(projects, epics)) {
     // The column's own repository decides, as it does for the server.
     const cols = epics
       .filter(
@@ -534,4 +534,43 @@ export function columnsOf(
   return [{ project: card.project ?? "", epic: card.epic }].concat(
     (card.mirrors ?? []).map((m) => ({ project: m.project, epic: m.epic })),
   );
+}
+
+/** teamlessIsLawful reports whether a card standing in this column may be
+ *  left with NO team. A card with neither team nor project is held by the
+ *  primary repository, so a column of another one could not show it — and
+ *  "No team" offered there is a refusal with a friendly label. */
+export function teamlessIsLawful(columnDomain: string, primary: string): boolean {
+  return inPrimary(columnDomain, primary) === inPrimary("", primary);
+}
+
+/** canCreateInColumn reports whether the board's "+" may open a card in
+ *  this column. A card created there carries no team, so its repository is
+ *  its PROJECT's — or the primary, when the column has no project. A
+ *  project-less column of another repository can hold no such card, and
+ *  offering the gesture there only produces a 422. */
+export function canCreateInColumn(
+  col: { project: string; domain?: string },
+  primary: string,
+): boolean {
+  if (col.project) {
+    return true; // the project decides, and it decides for itself
+  }
+  return inPrimary(col.domain, primary) === inPrimary("", primary);
+}
+
+/** projectsWithColumns lists the projects a picker should walk: the
+ *  roster's, plus the NO-PROJECT bucket when it actually holds columns.
+ *  Walking board.projects alone never reached the bucket — so the column
+ *  kind this line made a first-class home stayed unreachable from the one
+ *  place a person could have used it. */
+export function projectsWithColumns(
+  projects: readonly string[],
+  epics: readonly EpicRef[],
+): string[] {
+  const out = projects.slice();
+  if (epics.some((e) => !e.project) && !out.includes("")) {
+    out.push("");
+  }
+  return out;
 }

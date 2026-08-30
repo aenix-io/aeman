@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attachSlotDates,
   attachTargets,
+  canCreateInColumn,
   columnsOf,
   countedForProgress,
   drawnAsSlot,
@@ -13,11 +14,13 @@ import {
   movingSlot,
   placementTargets,
   projectsAColumnCanJoin,
+  projectsWithColumns,
   removeFromProjectOutcome,
   settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
   teamFollowsParent,
+  teamlessIsLawful,
   teamsACardCanTake,
   type CardPlacements,
 } from "./placements";
@@ -723,5 +726,99 @@ describe("columnsOf", () => {
 
   it("lists nothing for a card in no column", () => {
     expect(columnsOf({} as Card)).toEqual([]);
+  });
+});
+
+// The controls that create and un-team a card must not offer a refusal
+// either — a card with no team is held by the PRIMARY repository, so a
+// column of another one cannot show it.
+describe("controls that must match the server", () => {
+  it("offers No team only where a teamless card can stand", () => {
+    expect(teamlessIsLawful("aeman-db", "aeman-db")).toBe(true);
+    expect(teamlessIsLawful("", "aeman-db")).toBe(true);
+    expect(teamlessIsLawful("founders", "aeman-db")).toBe(false);
+  });
+
+  it("opens a new card only where one can be created", () => {
+    // A project decides for itself; a bucket column cannot hold a
+    // teamless card unless it is the primary's own.
+    expect(canCreateInColumn({ project: "engineering", domain: "founders" }, "aeman-db")).toBe(true);
+    expect(canCreateInColumn({ project: "", domain: "aeman-db" }, "aeman-db")).toBe(true);
+    expect(canCreateInColumn({ project: "", domain: "founders" }, "aeman-db")).toBe(false);
+  });
+});
+
+// The no-project bucket is a home the server accepts; a picker that walks
+// only the roster's projects could never name it, so the gesture the
+// codec, the store and the service were all changed for had no way in.
+describe("projectsWithColumns", () => {
+  it("adds the bucket when it holds columns", () => {
+    expect(
+      projectsWithColumns(["engineering"], [
+        { name: "Cozystack", project: "engineering" },
+        { name: "Inbox", project: "" },
+      ]),
+    ).toEqual(["engineering", ""]);
+  });
+
+  it("leaves it out when nothing is filed there", () => {
+    expect(
+      projectsWithColumns(["engineering"], [{ name: "Cozystack", project: "engineering" }]),
+    ).toEqual(["engineering"]);
+  });
+});
+
+// The optimistic side of unmirroring, which had no test while its two
+// siblings did: the placement must leave the card at once, or the slot it
+// draws stays on the grid until the re-list.
+describe("makeCardPlacements onUnmirror", () => {
+  it("drops the placement from the card at once", () => {
+    const patches: Partial<Card>[] = [];
+    const card = {
+      itemId: "c1",
+      project: "engineering",
+      epic: "Cozystack",
+      mirrors: [
+        { project: "freedom", epic: "Launch" },
+        { project: "freedom", epic: "Ship" },
+      ],
+    } as Card;
+    makeCardPlacements(
+      card,
+      { projects: ["engineering", "freedom"], epics: [], processes: [] },
+      {
+        provider: {
+          patchCard: () => Promise.resolve(undefined),
+          mirrorCard: () => Promise.resolve(),
+          unmirrorCard: () => Promise.resolve(),
+        },
+        patchCard: (_: string, patch: Partial<Card>) => {
+          patches.push(patch);
+        },
+        reload: () => {},
+        onError: () => {},
+        errMessage: () => "",
+      },
+    ).onUnmirror("freedom", "Launch");
+    expect(patches[0].mirrors).toEqual([{ project: "freedom", epic: "Ship" }]);
+  });
+});
+
+// A subtask carries at most ONE column (G57), so no drag of its slot can
+// ever ask for a second: the grid draws a subtask once, and the plans that
+// move or fold a MIRROR cannot arise from it.
+describe("dragging a subtask's slot", () => {
+  it("never asks for a mirror move", () => {
+    const kid = {
+      parent: "p",
+      project: "engineering",
+      epic: "Cozystack",
+      mirrors: [],
+    } as unknown as Card;
+    const grabbed = { project: "engineering", epic: "Cozystack" };
+    expect(slotDragPlan(kid, grabbed, { project: "freedom", epic: "Launch" }).kind).toBe(
+      "refileHome",
+    );
+    expect(slotDragPlan(kid, grabbed, grabbed).kind).toBe("dates");
   });
 });

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -72,5 +73,35 @@ func TestEveryTestTheMatrixNamesExists(t *testing.T) {
 	}
 	if len(missing) > 0 {
 		t.Fatalf("the matrix names tests that do not exist: %s", strings.Join(missing, ", "))
+	}
+}
+
+// A rule's ID is how every other document cites it, so two rows sharing
+// one make a citation ambiguous — and this branch spent a commit moving a
+// row off an id that was already taken. New rows must not add to that.
+func TestNoTwoRulesShareAnIDInTheGitBlock(t *testing.T) {
+	matrix, err := os.ReadFile("behavior-matrix.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The G-block is this line's own; the older prefixes carry collisions
+	// that predate it and are not this test's to relitigate.
+	seen := map[string]int{}
+	for _, line := range strings.Split(string(matrix), "\n") {
+		m := regexp.MustCompile(`^\| (G[0-9]+) \|`).FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		seen[m[1]]++
+	}
+	var dup []string
+	for id, n := range seen {
+		if n > 1 {
+			dup = append(dup, id)
+		}
+	}
+	if len(dup) > 0 {
+		sort.Strings(dup)
+		t.Fatalf("these ids name more than one rule: %s", strings.Join(dup, ", "))
 	}
 }

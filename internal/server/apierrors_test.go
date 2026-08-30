@@ -39,6 +39,9 @@ func TestEverySentinelIsAnsweredByApiError(t *testing.T) {
 		t.Fatalf("apiError does not name these, so they answer 502 — a rule that refused a change is not a forge failure: %s",
 			strings.Join(missing, ", "))
 	}
+	// Named, not necessarily 422: a not-found sentinel answers 404 and a
+	// forbidden one 403. What no refusal may be is a GATEWAY failure,
+	// which is what the default arm means.
 	// And the mapping is real, not just a mention: one sentinel end to end.
 	if code := statusFor(t, boardservice.ErrPlanSubtask); code != 422 {
 		t.Fatalf("ErrPlanSubtask answers %d, want 422", code)
