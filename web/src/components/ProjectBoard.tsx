@@ -8,8 +8,7 @@ import type {
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
-import {
-  primaryDomain, cardDomainBadge, offerableTeams } from "../domains";
+import { cardDomainBadge, offerableTeams, primaryDomain } from "../domains";
 import {
   canCreateInColumn,
   columnsOf,
@@ -24,6 +23,7 @@ import {
   type CardPlacements,
   movingSlot,
   removeFromProjectOutcome,
+  rosterOf,
   settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
@@ -872,6 +872,19 @@ export function ProjectBoard({
 
   const cancelDraft = () => setDraft(null);
 
+  // The repository this board's own entries belong to: the server lists
+  // its repositories primary first, and stamps every entry with a domain
+  // NAME while a card that nothing places carries none — so the two are
+  // read through this name, as the server reads them.
+  const primary = primaryDomain(board.domains);
+
+  // columnDomain: which repository a column was declared in, as the board
+  // states it (metadata.epics[].domain). The server asks the COLUMN, never
+  // its project — one project name may be declared twice, with its columns
+  // merged under a single entry (G13).
+  const columnDomain = (col: { project: string; name: string }) =>
+    board.epics.find((e) => e.project === col.project && e.name === col.name)?.domain ?? "";
+
   const createSlot = (title: string) => {
     if (!draft || !title.trim()) {
       setDraft(null);
@@ -884,8 +897,9 @@ export function ProjectBoard({
     if (!canCreateInColumn(
       { project: draft.epic.project, domain: columnDomain({ project: draft.epic.project, name: draft.epic.name }) },
       primary,
+      rosterOf(board),
     )) {
-      onError("A card created here would have no team, and this column is not in the primary repository");
+      onError("A card created here would have no team, and this column is not in the repository its project names");
       setDraft(null);
       return;
     }
@@ -1148,22 +1162,6 @@ export function ProjectBoard({
       });
   };
 
-  // The slot's ×: remove the card from THIS column. A mirror goes, the
-  // home hands over to its first mirror, an orphaned worked card survives
-  // in the working area — only the true delete asks, naming the loss.
-  // The repository this board's own entries belong to: the server lists
-  // its repositories primary first, and stamps every entry with a domain
-  // NAME while a card that nothing places carries none — so the two are
-  // read through this name, as the server reads them.
-  const primary = primaryDomain(board.domains);
-
-  // columnDomain: which repository a column was declared in, as the board
-  // states it (metadata.epics[].domain). The server asks the COLUMN, never
-  // its project — one project name may be declared twice, with its columns
-  // merged under a single entry (G13).
-  const columnDomain = (col: { project: string; name: string }) =>
-    board.epics.find((e) => e.project === col.project && e.name === col.name)?.domain ?? "";
-
   // subtaskTitle words the ↳ marker: the parent's title when the query
   // carried it, and an honest fallback when it did not.
   const subtaskTitle = (title: string | undefined) =>
@@ -1183,6 +1181,9 @@ export function ProjectBoard({
       errMessage: errText,
     });
 
+  // The slot's ×: remove the card from THIS column. A mirror goes, the
+  // home hands over to its first mirror, an orphaned worked card survives
+  // in the working area — only the true delete asks, naming the loss.
   const removeFromColumn = (card: CardModel, project: string, epic: string) => {
     const outcome = removeFromProjectOutcome(card, project, epic);
     // The server would refuse this pair — a column the card does not stand
@@ -1191,6 +1192,10 @@ export function ProjectBoard({
     // emptied the card's column on the screen over a request the server
     // never accepted, and the truth came back only with the reload.
     if (outcome === "refused") {
+      // Only a stale render gets here — the card is not in the column the
+      // click named — so the screen is what is wrong: re-read it rather
+      // than leave a click that did nothing and said nothing.
+      reload();
       return;
     }
     if (outcome === "delete") {

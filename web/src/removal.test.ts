@@ -259,10 +259,34 @@ describe("who asks about a subtask", () => {
     expect(deleteWarning(worked, null)).toContain("60%");
   });
 
-  it("scores a weekly-panel subtask by the gesture that will run", () => {
-    // The panel dispatches a subtask to the GRID handler, so scoring it by
-    // the plan's rule described an action nobody was going to take.
-    expect(planRemoval(worked as never)).not.toBe(gridRemoval(worked as never, ctx));
+  it("scores a weekly-panel subtask by the PLAN's rule, which is what runs there", () => {
+    // The panel's × is the plan's gesture for every card on it (G57: `from`
+    // picks which home is emptied). It used to dispatch subtasks to the
+    // grid handler — one × doing the other's work — and the score followed
+    // the dispatch rather than the rule.
+    expect(planRemoval(worked as never)).toBe("leave");
+    expect(boardAsksAbout(worked, planRemoval(worked as never), null)).toBe(true);
+  });
+
+  // The one case where the × on a subtask DELETES a card that stands in a
+  // column: the column belongs to the parent's repository, so the pull-out
+  // cannot take it along, and with no sprint to fall back on the card has
+  // no home left. The board must know, or it patches the card as kept and
+  // destroys work without asking (the server's
+  // TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard).
+  it("scores a columned subtask whose column cannot follow it out", () => {
+    const kid = { title: "child", parent: "p", epic: "Closed", progress: 60,
+      sprintStart: "2026-08-24" };
+    expect(gridRemoval(kid as never, { ...ctx, columnFollows: false })).toBe("demote");
+    expect(gridRemoval(kid as never, {
+      today: "2026-08-24", current: "2026-08-24", columnFollows: false,
+    })).toBe("delete");
+    // ...and the board takes the question on, with the loss named.
+    expect(boardAsksAbout(kid, "delete", null)).toBe(true);
+    expect(deleteWarning(kid, null)).toContain("60%");
+    // The column CAN follow on a single-repository board, where the
+    // question does not arise: the × ungroups and keeps it.
+    expect(gridRemoval(kid as never, ctx)).toBe("ungroup");
   });
 });
 
@@ -281,6 +305,11 @@ describe("gridGesture", () => {
 
   it("deletes a columnless subtask", () => {
     expect(gridGesture({ parent: "p", sprintStart: "2026-08-24" } as never, ctx)).toBe("delete");
+  });
+
+  it("demotes a columned subtask whose column stays behind", () => {
+    const kid = { parent: "p", epic: "Closed", sprintStart: "2026-08-24" };
+    expect(gridGesture(kid as never, { ...ctx, columnFollows: false })).toBe("demote");
   });
 
   it("asks when the board opens its two-way choice", () => {

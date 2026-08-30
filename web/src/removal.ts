@@ -18,6 +18,12 @@ export interface RemovalContext {
   current?: string;
   previous?: string;
   today: string;
+  /** Whether the column a SUBTASK carries can come with it out of the
+   *  group (placements.columnFollows, mirroring the server's rule of the
+   *  same name). False only on a multi-repository board, where the column
+   *  can belong to the parent's repository and the card cannot keep it;
+   *  absent means "it can", which is the answer everywhere else. */
+  columnFollows?: boolean;
 }
 
 /** removalKind decides what the × means for a card, mirroring
@@ -179,7 +185,20 @@ export function gridRemoval(
   // the person/sprint pair its parent owns, or be undone by the next
   // carry-over. The work stays planned in its column.
   if (c.parent) {
-    return hasColumn(c) ? "ungroup" : "delete";
+    if (!hasColumn(c)) {
+      return "delete";
+    }
+    if (ctx.columnFollows === false) {
+      // The column belongs to the repository the card is LEAVING, so the
+      // pull-out cannot take it along: the server repairs it away and the
+      // card is answered like any other columnless one — demoted, or
+      // deleted when the working area was its only home. Reading it as an
+      // ungroup here made a board patch the card as kept and let a
+      // destructive × through with no question.
+      const loose = { ...c, epic: undefined, project: undefined };
+      return removalKind(loose, ctx) === "delete" ? "delete" : "demote";
+    }
+    return "ungroup";
   }
   if (c.plan) {
     return "leave";
@@ -242,7 +261,14 @@ export function gridGesture(
 ): GridGesture {
   const outcome = gridRemoval(c, ctx);
   if (c.parent) {
-    return outcome === "delete" ? "delete" : "release";
+    // "release" is the ordinary answer; a subtask whose column cannot
+    // follow it out is the one that ends up demoted or deleted, and the
+    // gesture has to say so — a delete dressed as a release is one the
+    // board never asks about.
+    if (outcome === "delete") {
+      return "delete";
+    }
+    return outcome === "demote" ? "demote" : "release";
   }
   if (removalKind(c, ctx) === "ask") {
     return "ask";

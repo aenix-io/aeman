@@ -7,7 +7,7 @@
 // optimistically.
 
 import { addDays } from "./date";
-import { inPrimary, rosterDomain, type RosterDomains } from "./domains";
+import { inPrimary, primaryDomain, rosterDomain, type DomainInfo, type RosterDomains } from "./domains";
 import type { Card, CardPatch, EpicRef } from "./providers/types";
 
 /** ProjectTargets is one project the picker offers, with its columns. */
@@ -16,35 +16,62 @@ export interface ProjectTargets {
   epics: string[];
 }
 
-/** attachTargets is what a card outside every project may be attached to:
- *  the columns of ITS OWN repository (the server refuses a cross-repo
- *  pair), each with its epic columns; a project with no columns is not
- *  offered — a column is where a card lands. */
+/** RosterHomes is the roster's side of a domain question: which repository
+ *  each project was declared in, and the board's primary — the name an
+ *  unstamped entry means. Optional throughout: a board of one repository
+ *  answers every question the same way without them. */
+export interface RosterHomes {
+  projectDomains?: RosterDomains;
+  primary?: string;
+}
+
+/** rosterOf reads the roster's domain side off a board, so a caller that
+ *  has the board passes the board and nothing else has to remember which
+ *  two fields the domain rules need. */
+export function rosterOf(board: {
+  projectDomains?: RosterDomains;
+  domains?: readonly DomainInfo[];
+}): RosterHomes {
+  return {
+    projectDomains: board.projectDomains,
+    primary: board.domains ? primaryDomain(board.domains) : "",
+  };
+}
+
+/** attachTargets is what a card outside every project may be attached to,
+ *  with the columns of each: those the server would accept. A project with
+ *  no columns is not offered — a column is where a card lands. */
 export function attachTargets(
   projects: readonly string[],
   epics: readonly EpicRef[],
   cardDomain: string,
   teamBound = true,
+  roster: RosterHomes = {},
 ): ProjectTargets[] {
+  const primary = roster.primary ?? "";
+  const home = inPrimary(cardDomain, primary);
   const out: ProjectTargets[] = [];
   for (const p of projectsWithColumns(projects, epics)) {
-    // The COLUMN answers, not its project: one project NAME may be
-    // declared in two repositories with its columns merged under one entry
-    // (G13), and the server asks the column — filtering by the project
-    // offered columns it refuses, and hid columns it would have taken.
-    // Where the card will BE after the attach, not where it is: for a card
-    // whose PROJECT decides (no team to hold it), the new project carries
-    // it along, so a column of another repository is a lawful destination
-    // — the server accepts it, and refusing to offer it hid the move the
-    // whole no-project bucket exists for. A card whose team holds it stays
-    // in that team's repository (G46).
-    // ...but only a project NAME can carry it: the no-project bucket has
-    // none, so a bucket column of another repository is where the card
-    // would have to go alone — the server refuses it, and offering it made
-    // the entry a 422 with a friendly label.
-    const carried = !teamBound && p !== "";
+    // Where the card will BE after the attach, not where it is: the new
+    // PROJECT decides (G14), and it carries the card into its own
+    // repository — which is the move the no-project bucket and the
+    // cross-repository attach both exist for. The BUCKET carries nothing:
+    // it has no project to decide, so a card attached there stays where it
+    // already was.
+    const lands = p === "" ? home : inPrimary(rosterDomain(roster.projectDomains, p), primary);
+    // A card its TEAM holds cannot follow: its team and its project must
+    // live in one repository (G46), so a project of another one is a
+    // refusal with a friendly label.
+    if (teamBound && lands !== home) {
+      continue;
+    }
+    // And the COLUMN answers for itself, never for its project: one
+    // project NAME may be declared in two repositories with its columns
+    // merged under one entry (G13), so a column of the OTHER one is not
+    // where this project would put the card — the server compares exactly
+    // these two and returns 422.
     const cols = epics
-      .filter((e) => e.project === p && (carried || (e.domain ?? "") === cardDomain))
+      .filter((e) => e.project === p && inPrimary(e.domain, primary) === lands)
       .map((e) => e.name);
     if (cols.length > 0) {
       out.push({ name: p, epics: cols });
@@ -192,6 +219,8 @@ export function placementTargets(
     epics: EpicRef[];
     processes: { name: string }[];
     processDomains?: RosterDomains;
+    projectDomains?: RosterDomains;
+    domains?: readonly DomainInfo[];
   },
 ): Pick<CardPlacements, "attach" | "processes" | "mirror"> {
   // A subtask carries at most ONE column of its own (G14): the server
@@ -206,7 +235,8 @@ export function placementTargets(
     return card.epic
       ? {}
       : {
-          attach: attachTargets(board.projects, board.epics, card.domain ?? "", !!card.team),
+          attach: attachTargets(board.projects, board.epics, card.domain ?? "", !!card.team,
+            rosterOf(board)),
         };
   }
   if (card.epic) {
@@ -234,7 +264,8 @@ export function placementTargets(
     };
   }
   return {
-    attach: attachTargets(board.projects, board.epics, card.domain ?? "", !!card.team),
+    attach: attachTargets(board.projects, board.epics, card.domain ?? "", !!card.team,
+      rosterOf(board)),
   };
 }
 
@@ -264,6 +295,8 @@ export function makeCardPlacements(
     epics: EpicRef[];
     processes: { name: string }[];
     processDomains?: RosterDomains;
+    projectDomains?: RosterDomains;
+    domains?: readonly DomainInfo[];
   },
   deps: PlacementDeps,
 ): CardPlacements {
@@ -525,6 +558,45 @@ export function teamsACardCanTake(
   );
 }
 
+/** columnFollows mirrors boardservice.columnFollows: whether the column a
+ *  SUBTASK carries can come with it out of the group. Once the parent link
+ *  is gone the card's file goes where its own project — or, failing that,
+ *  its team — names, and a column of any OTHER repository has to be left
+ *  behind; the card is then an ordinary columnless one, which is what the ×
+ *  answers for. An UNDECLARED column is left alone, exactly as the server
+ *  leaves it.
+ *
+ *  `linked` is the repository of the card this one still points at when the
+ *  parent is gone — the original it reviews, the task it iterates — since a
+ *  link outranks both project and team (G14). Omitted for the ordinary
+ *  subtask, which points at nothing else. */
+export function columnFollows(
+  card: Pick<Card, "project" | "epic" | "team">,
+  roster: RosterHomes & {
+    epics: readonly EpicRef[];
+    teamDomains?: RosterDomains;
+  },
+  linked?: string,
+): boolean {
+  if (!card.epic) {
+    return true;
+  }
+  const primary = roster.primary ?? "";
+  const col = roster.epics.find(
+    (e) => e.name === card.epic && (e.project ?? "") === (card.project ?? ""),
+  );
+  if (!col) {
+    return true;
+  }
+  const home =
+    linked !== undefined
+      ? linked
+      : card.project
+        ? rosterDomain(roster.projectDomains, card.project)
+        : rosterDomain(roster.teamDomains, card.team ?? "");
+  return inPrimary(col.domain, primary) === inPrimary(home, primary);
+}
+
 /** columnsOf lists the columns a card is drawn in — its home pair and
  *  every mirror. A column's own bar has to count what that column shows,
  *  and keying the count by the home pair alone left a mirror column
@@ -561,17 +633,20 @@ export function teamlessIsLawful(
 
 /** canCreateInColumn reports whether the board's "+" may open a card in
  *  this column. A card created there carries no team, so its repository is
- *  its PROJECT's — or the primary, when the column has no project. A
- *  project-less column of another repository can hold no such card, and
- *  offering the gesture there only produces a 422. */
+ *  its PROJECT's — or the primary, when the column has no project. Either
+ *  way the column has to be in that same repository: a project-less column
+ *  of another one can hold no such card, and neither can a column of an
+ *  ALIAS project (G13) that was declared in the other half of the merged
+ *  entry. Offering the gesture there only produces a 422. */
 export function canCreateInColumn(
   col: { project: string; domain?: string },
   primary: string,
+  roster: RosterHomes = {},
 ): boolean {
-  if (col.project) {
-    return true; // the project decides, and it decides for itself
-  }
-  return inPrimary(col.domain, primary) === inPrimary("", primary);
+  const lands = col.project
+    ? inPrimary(rosterDomain(roster.projectDomains, col.project), primary)
+    : inPrimary("", primary);
+  return inPrimary(col.domain, primary) === lands;
 }
 
 /** projectsWithColumns lists the projects a picker should walk: the

@@ -42,7 +42,12 @@ import {
   removalKind,
   type Outcome,
 } from "../removal";
-import { makeCardPlacements, type CardPlacements } from "../placements";
+import {
+  columnFollows,
+  makeCardPlacements,
+  rosterOf,
+  type CardPlacements,
+} from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
@@ -1111,6 +1116,12 @@ export function MeBoard({
       startDate: prevSprint,
       sprintStart: prevSprint,
       ...(card.day ? { day: prevSprint } : {}),
+      // A SUBTASK only reaches a demote when the column it carried could
+      // not follow it out of the group (columnFollows): the server pulls
+      // it out, drops that column and walks it back a sprint — one
+      // gesture, so the row must stop being drawn under its parent and in
+      // that column at once.
+      ...(card.parent ? { parent: undefined, epic: undefined, project: undefined } : {}),
     });
     void provider
       .removeCard(card.itemId, "grid")
@@ -1212,7 +1223,22 @@ export function MeBoard({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprint(board, card.team ?? null) ?? undefined,
     today: todayIso(),
+  // Whether the column a subtask carries can come with it out of the group:
+  // the answer decides whether the × ungroups the card or hands it to the
+  // ordinary law (demote, or delete), and only the roster knows. A review
+  // card's link outranks its own team and project, so the card it points at
+  // answers for it.
+    columnFollows: columnFollows(card, { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains }, linkedDomainOf(card)),
   });
+  // The repository of the card a subtask would still point at once its
+  // parent is gone: its original, or the task it iterates.
+  const linkedDomainOf = (card: CardModel): string | undefined => {
+    const ref = card.reviewOf || card.task;
+    if (!ref) {
+      return undefined;
+    }
+    return board.cards.find((c) => c.itemId === ref)?.domain ?? undefined;
+  };
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 

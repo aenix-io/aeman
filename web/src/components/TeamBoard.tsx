@@ -48,7 +48,12 @@ import {
   planRemoval,
   removalKind,
 } from "../removal";
-import { makeCardPlacements, type CardPlacements } from "../placements";
+import {
+  columnFollows,
+  makeCardPlacements,
+  rosterOf,
+  type CardPlacements,
+} from "../placements";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -1507,7 +1512,22 @@ export function TeamBoard({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprintFor(card) ?? undefined,
     today: todayIso(),
+  // Whether the column a subtask carries can come with it out of the group:
+  // the answer decides whether the × ungroups the card or hands it to the
+  // ordinary law (demote, or delete), and only the roster knows. A review
+  // card's link outranks its own team and project, so the card it points at
+  // answers for it.
+    columnFollows: columnFollows(card, { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains }, linkedDomainOf(card)),
   });
+  // The repository of the card a subtask would still point at once its
+  // parent is gone: its original, or the task it iterates.
+  const linkedDomainOf = (card: CardModel): string | undefined => {
+    const ref = card.reviewOf || card.task;
+    if (!ref) {
+      return undefined;
+    }
+    return board.cards.find((c) => c.itemId === ref)?.domain ?? undefined;
+  };
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 
@@ -2355,17 +2375,18 @@ export function TeamBoard({
               selected={card.itemId === selectedCardId}
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
-              onDelete={card.parent ? handleGridDelete : removeFromPlan}
+              // The panel's × is the PLAN's gesture for every card on it,
+              // subtasks included: `from` picks which home is emptied
+              // (G57), and routing subtasks to the grid handler made one ×
+              // mean the other's — it ungrouped the card and emptied the
+              // working area in answer to a click on the plan. A subtask
+              // standing in a column is a slot like any other and gets no
+              // × at all: its plan membership is derived from its dates,
+              // so there is nothing here to empty.
+              onDelete={removeFromPlan}
               placements={placementsFor(card)}
-              deletable={!!card.parent || planRemoveOffered(card)}
-              // Scored by the gesture that will RUN: a subtask is
-              // dispatched to the grid handler below, so the plan's rule
-              // described an action nobody was going to take.
-              boardAsks={boardAsksAbout(
-                card,
-                card.parent ? gridRemoval(card, gridCtx(card)) : planRemoval(card),
-                reviewOf(card),
-              )}
+              deletable={planRemoveOffered(card)}
+              boardAsks={boardAsksAbout(card, planRemoval(card), reviewOf(card))}
               onStage={handleStage}
               onInProgress={handleInProgress}
               onOpen={onOpen}

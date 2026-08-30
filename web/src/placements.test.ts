@@ -4,6 +4,7 @@ import {
   attachSlotDates,
   attachTargets,
   canCreateInColumn,
+  columnFollows,
   columnsOf,
   countedForProgress,
   drawnAsSlot,
@@ -41,14 +42,19 @@ describe("attach and mirror targets", () => {
     { name: "Fundraising", project: "strategy", domain: "founders" },
   ];
 
+  // The PROJECT carries the card into its repository and the COLUMN has to
+  // be in that same one, so both stamps are part of the question — the
+  // roster's for the project, the column's own for the column.
+  const roster = { projectDomains: { strategy: "founders" } };
+
   it("offers the projects of the card's repository, with their epics", () => {
-    const got = attachTargets(projects, epics, "");
+    const got = attachTargets(projects, epics, "", true, roster);
     expect(got).toEqual([
       { name: "engineering", epics: ["Cozystack", "Ingress"] },
       { name: "freedom", epics: ["Launch"] },
     ]);
     // A card living in the founders repository sees only founders projects.
-    expect(attachTargets(projects, epics, "founders")).toEqual([
+    expect(attachTargets(projects, epics, "founders", true, roster)).toEqual([
       { name: "strategy", epics: ["Fundraising"] },
     ]);
   });
@@ -582,9 +588,23 @@ describe("targets on an alias project", () => {
     expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
   });
 
-  it("attaches a closed card only to the closed column", () => {
+  it("offers a closed card nothing under the alias project", () => {
+    // The merged entry resolves to ONE repository — the primary's, here —
+    // so the project would carry the card there, and its team holds it in
+    // the closed one (G46). The closed COLUMN under that name is not a
+    // destination either: the server compares the column's repository
+    // against the project's and returns 422. Offering it was the friendly
+    // label on a refusal.
     const got = placementTargets({ domain: "closed", team: "board" } as Card, board);
-    expect(got.attach).toEqual([{ name: "portal", epics: ["Docs"] }]);
+    expect(got.attach).toEqual([]);
+  });
+
+  it("offers a card nothing holds only the columns its new project can hold", () => {
+    // No team to keep it anywhere, so the project carries it — but only to
+    // the repository the project itself is in, which the OTHER half of the
+    // alias is not.
+    const got = placementTargets({} as Card, board);
+    expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
   });
 
   it("mirrors within the card's own repository", () => {
@@ -687,12 +707,16 @@ describe("attachTargets and the card's binding", () => {
     { name: "Cozystack", project: "engineering" },
     { name: "Fundraising", project: "strategy", domain: "founders" },
   ];
+  // As the server sends it: the project of the closed column is stamped
+  // too, and a column agrees with the project that owns it.
+  const projectDomains = { strategy: "founders" };
 
   it("offers every column to a card nothing holds", () => {
     const got = placementTargets({} as Card, {
       projects,
       epics,
       processes: [],
+      projectDomains,
     });
     expect(got.attach?.map((p) => p.name)).toEqual(["engineering", "strategy"]);
   });
@@ -702,6 +726,7 @@ describe("attachTargets and the card's binding", () => {
       projects,
       epics,
       processes: [],
+      projectDomains,
     });
     expect(got.attach?.map((p) => p.name)).toEqual(["engineering"]);
   });
@@ -716,6 +741,7 @@ describe("attachTargets and the card's binding", () => {
       projects,
       epics: withBucket,
       processes: [],
+      projectDomains,
     });
     expect(got.attach?.find((p) => p.name === "")).toBeUndefined();
   });
@@ -726,8 +752,23 @@ describe("attachTargets and the card's binding", () => {
       projects,
       epics: withBucket,
       processes: [],
+      projectDomains,
     });
     expect(got.attach?.find((p) => p.name === "")?.epics).toEqual(["Inbox"]);
+  });
+
+  // A column of an ALIAS project (G13) is declared in the other half of the
+  // merged entry: the project would carry the card to ITS repository, and
+  // the column is not in it. The server compares exactly those two.
+  it("never offers a column its own project could not hold the card in", () => {
+    expect(
+      attachTargets(
+        ["freedom"],
+        [{ name: "Launch", project: "freedom", domain: "closed" }],
+        "shared",
+        false,
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -767,9 +808,22 @@ describe("controls that must match the server", () => {
   });
 
   it("opens a new card only where one can be created", () => {
-    // A project decides for itself; a bucket column cannot hold a
-    // teamless card unless it is the primary's own.
-    expect(canCreateInColumn({ project: "engineering", domain: "founders" }, "aeman-db")).toBe(true);
+    // The card carries no team, so its PROJECT puts it in its own
+    // repository — and the column has to be there too. A project of the
+    // closed repository with its own column: lawful.
+    const closed = { projectDomains: { engineering: "founders" } };
+    expect(
+      canCreateInColumn({ project: "engineering", domain: "founders" }, "aeman-db", closed),
+    ).toBe(true);
+    // The same column under a project of the PRIMARY — the alias case
+    // (G13), where one project name holds columns of two repositories:
+    // the project would put the card in the primary, and the column is
+    // not there. The server returns 422; the "+" does not open.
+    expect(canCreateInColumn({ project: "engineering", domain: "founders" }, "aeman-db")).toBe(
+      false,
+    );
+    // A bucket column cannot hold a teamless card unless it is the
+    // primary's own: nothing else places such a card.
     expect(canCreateInColumn({ project: "", domain: "aeman-db" }, "aeman-db")).toBe(true);
     expect(canCreateInColumn({ project: "", domain: "founders" }, "aeman-db")).toBe(false);
   });
@@ -847,5 +901,50 @@ describe("dragging a subtask's slot", () => {
       "refileHome",
     );
     expect(slotDragPlan(kid, grabbed, grabbed).kind).toBe("dates");
+  });
+});
+
+// The client's copy of boardservice.columnFollows. A subtask's file rides
+// its parent, so a column of the parent's repository is one the card cannot
+// keep once it is pulled out — and the × means something else entirely then
+// (removal.test.ts). A board that could not ask this question let a
+// destructive × through as an ungroup.
+describe("columnFollows", () => {
+  const epics = [
+    { name: "Closed", project: "", domain: "founders" },
+    { name: "Cozystack", project: "engineering" },
+  ];
+  const roster = {
+    epics,
+    primary: "aeman-db",
+    teamDomains: { founders: "founders" },
+    projectDomains: { strategy: "founders" },
+  };
+
+  it("keeps a column of the repository the card lands in", () => {
+    expect(columnFollows({ epic: "Cozystack", project: "engineering" }, roster)).toBe(true);
+    expect(columnFollows({ epic: "Closed", project: "", team: "founders" }, roster)).toBe(true);
+  });
+
+  it("leaves behind a column of the repository the card is leaving", () => {
+    // Team "platform" is unstamped, so the card lands in the primary; the
+    // column was declared in founders.
+    expect(columnFollows({ epic: "Closed", project: "", team: "platform" }, roster)).toBe(false);
+  });
+
+  it("says nothing about a column no roster declares", () => {
+    expect(columnFollows({ epic: "Ghost", project: "", team: "platform" }, roster)).toBe(true);
+  });
+
+  it("has no column to lose when it stands in none", () => {
+    expect(columnFollows({ team: "platform" }, roster)).toBe(true);
+  });
+
+  it("follows the LINK when the card still has one", () => {
+    // A review card takes its original's repository whatever its own team
+    // says (G14), so the column of that repository comes along.
+    expect(
+      columnFollows({ epic: "Closed", project: "", team: "platform" }, roster, "founders"),
+    ).toBe(true);
   });
 });
