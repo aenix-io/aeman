@@ -99,9 +99,11 @@ export function reviewerCandidates(
   return members.filter((m) => readers.has(m));
 }
 
-/** RosterDomains names the repository a team or project was declared in, for
- *  the entries that live outside the primary. A board of one repository (and
- *  an older server) sends none. */
+/** RosterDomains names the repository a team or project was declared in.
+ *  A served board names every entry, the primary's own included, so these
+ *  are NAMES to compare against the primary's — never a presence test. An
+ *  entry with no row means the primary as well (a hand-built board, an
+ *  older server), which is what inPrimary reads it as. */
 export type RosterDomains = Record<string, string> | undefined;
 
 /** rosterDomain is the repository an entry was declared in; "" is the

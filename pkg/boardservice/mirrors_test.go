@@ -1407,7 +1407,7 @@ func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
 		t.Fatalf("the work stays planned in its column: %+v", c)
 	}
 	// It LEAVES THE GROUP. A subtask's person and sprint must equal its
-	// parent's (S3, syncChildrenSprint), so a card released from the grid
+	// parent's (S9, syncChildrenSprint), so a card released from the grid
 	// while still a subtask would either break that pair or be dragged
 	// back by the next carry-over (carryFollowers takes every open child).
 	// Leaving the family is what makes the × mean something here.
@@ -1616,7 +1616,7 @@ func TestAFailedGroupingUndoesTheCreateAndReportsWhatItCannot(t *testing.T) {
 // through refileGuard — it cannot, since the parent is being deleted — so
 // the invariant it would have checked is pinned here instead: the freed
 // card's column still names the repository that holds it. It holds because
-// a subtask's team is its parent's (S3) and a team cannot be paired with a
+// a subtask's team is its parent's (S9) and a team cannot be paired with a
 // project of another repository (G46), but "it follows from two other
 // rules" is exactly the kind of claim that stops being true quietly.
 func TestAFreedSubtasksColumnStillNamesItsRepository(t *testing.T) {
@@ -1895,6 +1895,29 @@ func TestCreatingAPlanCardUnderAParentIsRefused(t *testing.T) {
 	}
 	if n := f.count("CreateCard"); n != 0 {
 		t.Fatalf("the refusal comes before the write: %d creates", n)
+	}
+}
+
+// The same rule at the PATCH door: a card already grouped cannot be given
+// a band by an edit, or the rule would hold on the way in and be undone by
+// the next update (PATCH spec.plan.band, MCP update_card). Clearing one is
+// free — that is how grouping hands the slot over.
+func TestGivingAStandingSubtaskAPlanBandIsRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "kid", Title: "child", Team: "platform", Parent: "p"},
+	})
+	svc := New(f)
+	if err := svc.SetPlan(ctx, "acme", "kid", board.PlanWed); !errors.Is(err, ErrPlanSubtask) {
+		t.Fatalf("a subtask has no band of its own: %v", err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "kid")
+	if c.Plan != board.PlanNone {
+		t.Fatalf("and the refusal writes nothing: %+v", c)
+	}
+	if err := svc.SetPlan(ctx, "acme", "kid", board.PlanNone); err != nil {
+		t.Fatalf("clearing is free: %v", err)
 	}
 }
 

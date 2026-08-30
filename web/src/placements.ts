@@ -492,7 +492,7 @@ export function drawnOnProjectBoard(
 }
 
 /** teamFollowsParent reports whether a card's team is decided elsewhere: a
- *  subtask always carries its parent's team (S3), and the server rewrites
+ *  subtask always carries its parent's team (S9), and the server rewrites
  *  any other choice — so the badge shows it and offers no list. It is NOT
  *  a reason to close the menu the badge opens: the same menu carries "Mark
  *  as done" and the mirror section. */

@@ -2099,7 +2099,7 @@ export function ProjectBoard({
                 // The badge is the slot's MENU HANDLE — "Mark as done", the
                 // team list, "Mirror to…" all hang off it — so it stays
                 // clickable for every card. A subtask's team follows its
-                // parent (S3, and the server rewrites any other choice):
+                // parent (S9, and the server rewrites any other choice):
                 // that makes the team LIST read-only inside the menu, not
                 // the menu unreachable.
                 title={

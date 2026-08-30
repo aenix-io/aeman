@@ -283,13 +283,13 @@ type PersonalInfo struct {
 type EpicRef struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
-	// Domain is the repository the column was declared in. A server
-	// serving several repositories names every column, the primary's
-	// included; a board assembled by hand may leave the primary's blank.
-	// Read it as a NAME to compare, never as "absent means primary". A client cannot compute it from the project: the
-	// same project NAME may be declared in two repositories with its
-	// columns merged under one entry (G13), and it is the COLUMN that
-	// decides whether a card may stand in it.
+	// Domain is the repository the column was declared in. The git server
+	// names every column, the primary's included; a board assembled by
+	// hand may leave the primary's blank. Read it as a NAME to compare
+	// against domains[0], never as "absent means primary". A client cannot
+	// compute it from the project: the same project NAME may be declared
+	// in two repositories with its columns merged under one entry (G13),
+	// and it is the COLUMN that decides whether a card may stand in it.
 	Domain string `json:"domain,omitempty"`
 }
 
@@ -682,12 +682,14 @@ func CardLogFrom(c board.Card, events []board.Event, truncatedBefore time.Time) 
 }
 
 // rosterDomains names the repository of every entry whose domain is known,
-// in the board's own namespace — which, on a board that names its primary,
-// includes the entries that live IN it (board.TeamDomain and friends
-// answer with the primary's name, not ""). nil when nothing names one at
-// all, which is the single-repository board. The client normalizes the
-// same way (domains.ts: primaryDomain/inPrimary), so an entry with no row
-// here and one naming the primary mean the same thing to it.
+// in the board's own namespace — which, on a board whose primary has a
+// name, is every declared entry, the primary's included (board.TeamDomain
+// and friends answer with that name, not ""). The git store always names
+// its domains, so a served board normally fills these maps whatever it
+// spans; nil is for a board that names nothing at all, which is what a
+// hand-built one does. The client normalizes the same way (domains.ts:
+// primaryDomain/inPrimary), so an entry with no row here and one naming
+// the primary mean the same thing to it.
 func rosterDomains(names []string, domainOf func(string) string) map[string]string {
 	var out map[string]string
 	for _, name := range names {

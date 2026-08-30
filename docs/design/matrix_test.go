@@ -79,29 +79,42 @@ func TestEveryTestTheMatrixNamesExists(t *testing.T) {
 // A rule's ID is how every other document cites it, so two rows sharing
 // one make a citation ambiguous — and this branch spent a commit moving a
 // row off an id that was already taken. New rows must not add to that.
-func TestNoTwoRulesShareAnIDInTheGitBlock(t *testing.T) {
+func TestNoTwoRulesShareAnID(t *testing.T) {
 	matrix, err := os.ReadFile("behavior-matrix.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The G-block is this line's own; the older prefixes carry collisions
-	// that predate it and are not this test's to relitigate.
+	// Collisions older than this test, in blocks nothing cites by id from
+	// the code. They are recorded rather than fixed — renumbering a row
+	// rewrites every citation of it, and these have none — but the list
+	// does not grow: a NEW collision fails here, and one that is cleaned
+	// up fails here too, so the list cannot go stale either way.
+	known := map[string]bool{"M1": true, "M2": true, "M3": true, "P9": true, "V1": true, "V2": true}
 	seen := map[string]int{}
 	for _, line := range strings.Split(string(matrix), "\n") {
-		m := regexp.MustCompile(`^\| (G[0-9]+) \|`).FindStringSubmatch(line)
+		m := regexp.MustCompile(`^\| ([A-Z][0-9]+) \|`).FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
 		seen[m[1]]++
 	}
-	var dup []string
+	var dup, fixed []string
 	for id, n := range seen {
-		if n > 1 {
+		switch {
+		case n > 1 && !known[id]:
 			dup = append(dup, id)
+		case n == 1 && known[id]:
+			fixed = append(fixed, id)
 		}
 	}
 	if len(dup) > 0 {
 		sort.Strings(dup)
-		t.Fatalf("these ids name more than one rule: %s", strings.Join(dup, ", "))
+		t.Fatalf("these ids name more than one rule, so every citation of them is ambiguous: %s",
+			strings.Join(dup, ", "))
+	}
+	if len(fixed) > 0 {
+		sort.Strings(fixed)
+		t.Fatalf("these ids are no longer duplicated — take them out of the known list: %s",
+			strings.Join(fixed, ", "))
 	}
 }

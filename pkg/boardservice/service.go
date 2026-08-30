@@ -1167,7 +1167,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	// look like it had done nothing. It is deleted — UNLESS it stands in a
 	// COLUMN, which is a home of its own (G57). Then the × takes it OUT OF
 	// THE GROUP and leaves it there: releasing it while still a subtask
-	// would either break the person/sprint pair its parent owns (S3) or be
+	// would either break the person/sprint pair its parent owns (S9) or be
 	// undone by the next carry-over, which takes every open child along.
 	// Leaving the family is what makes the gesture mean something, and the
 	// work stays planned in its column.
