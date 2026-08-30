@@ -1185,6 +1185,14 @@ export function ProjectBoard({
 
   const removeFromColumn = (card: CardModel, project: string, epic: string) => {
     const outcome = removeFromProjectOutcome(card, project, epic);
+    // The server would refuse this pair — a column the card does not stand
+    // in, or none at all — so nothing is sent and nothing is patched. It
+    // takes a stale render to get here; falling through to the last arm
+    // emptied the card's column on the screen over a request the server
+    // never accepted, and the truth came back only with the reload.
+    if (outcome === "refused") {
+      return;
+    }
     if (outcome === "delete") {
       // The server cascades to the linked review card: the question names
       // everything that goes, or the person agrees to less than happens.
@@ -2203,15 +2211,17 @@ export function ProjectBoard({
                           {t}
                         </button>
                       ))}
-                    {/* A card with no team is held by the PRIMARY
-                        repository, so a column of another one could not
-                        show it: there the entry is a refusal with a
-                        friendly label. What the card already carries stays
+                    {/* A card with neither team nor project is held by the
+                        PRIMARY repository, so a column of another one could
+                        not show it: there the entry is a refusal with a
+                        friendly label. A card with a project is placed by
+                        it either way. What the card already carries stays
                         on the list. */}
                     {(!card.team ||
                       teamlessIsLawful(
                         columnDomain({ project: card.project ?? "", name: card.epic ?? "" }),
                         primary,
+                        card.project ?? "",
                       )) && (
                       <button
                         type="button"

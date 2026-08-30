@@ -705,6 +705,30 @@ describe("attachTargets and the card's binding", () => {
     });
     expect(got.attach?.map((p) => p.name)).toEqual(["engineering"]);
   });
+
+  // The relaxation is the PROJECT's doing, and the no-project bucket is not
+  // a project: a card attached there is placed by nothing, so it stays in
+  // the repository it was in. A foreign bucket column is a refusal with a
+  // friendly label.
+  it("never offers a foreign no-project bucket", () => {
+    const withBucket = [...epics, { name: "Inbox", project: "", domain: "founders" }];
+    const got = placementTargets({} as Card, {
+      projects,
+      epics: withBucket,
+      processes: [],
+    });
+    expect(got.attach?.find((p) => p.name === "")).toBeUndefined();
+  });
+
+  it("offers the bucket of the card's own repository", () => {
+    const withBucket = [...epics, { name: "Inbox", project: "" }];
+    const got = placementTargets({} as Card, {
+      projects,
+      epics: withBucket,
+      processes: [],
+    });
+    expect(got.attach?.find((p) => p.name === "")?.epics).toEqual(["Inbox"]);
+  });
 });
 
 // A column's bar counts what the column DRAWS, mirrors included: keying by
@@ -737,6 +761,9 @@ describe("controls that must match the server", () => {
     expect(teamlessIsLawful("aeman-db", "aeman-db")).toBe(true);
     expect(teamlessIsLawful("", "aeman-db")).toBe(true);
     expect(teamlessIsLawful("founders", "aeman-db")).toBe(false);
+    // ...unless a PROJECT holds the card: it stays in that project's
+    // repository with no team at all, so the entry is lawful there.
+    expect(teamlessIsLawful("founders", "aeman-db", "strategy")).toBe(true);
   });
 
   it("opens a new card only where one can be created", () => {

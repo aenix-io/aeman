@@ -38,8 +38,13 @@ export function attachTargets(
     // — the server accepts it, and refusing to offer it hid the move the
     // whole no-project bucket exists for. A card whose team holds it stays
     // in that team's repository (G46).
+    // ...but only a project NAME can carry it: the no-project bucket has
+    // none, so a bucket column of another repository is where the card
+    // would have to go alone — the server refuses it, and offering it made
+    // the entry a 422 with a friendly label.
+    const carried = !teamBound && p !== "";
     const cols = epics
-      .filter((e) => e.project === p && (!teamBound || (e.domain ?? "") === cardDomain))
+      .filter((e) => e.project === p && (carried || (e.domain ?? "") === cardDomain))
       .map((e) => e.name);
     if (cols.length > 0) {
       out.push({ name: p, epics: cols });
@@ -539,8 +544,18 @@ export function columnsOf(
 /** teamlessIsLawful reports whether a card standing in this column may be
  *  left with NO team. A card with neither team nor project is held by the
  *  primary repository, so a column of another one could not show it — and
- *  "No team" offered there is a refusal with a friendly label. */
-export function teamlessIsLawful(columnDomain: string, primary: string): boolean {
+ *  "No team" offered there is a refusal with a friendly label. A card with
+ *  a PROJECT is placed by that project whatever its team says (G14), so
+ *  dropping the team moves it nowhere and the entry is lawful: hiding it
+ *  there took away a gesture the server accepts. */
+export function teamlessIsLawful(
+  columnDomain: string,
+  primary: string,
+  cardProject = "",
+): boolean {
+  if (cardProject !== "") {
+    return true;
+  }
   return inPrimary(columnDomain, primary) === inPrimary("", primary);
 }
 

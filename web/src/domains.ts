@@ -155,7 +155,6 @@ export function offerableProjects(
   );
 }
 
-
 /** inPrimary reads an entry's stamp in that one namespace: no stamp means
  *  the primary. */
 export function inPrimary(domain: string | undefined, primary: string): string {
