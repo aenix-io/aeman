@@ -113,12 +113,12 @@ export function removeFromProjectOutcome(
  *  children and counting both would weigh that work twice. */
 export function countedForProgress(
   card: Pick<Card, "itemId" | "parent" | "project">,
-  cards: readonly Pick<Card, "itemId" | "project" | "epic">[],
+  byId: ReadonlyMap<string, Pick<Card, "itemId" | "project" | "epic">>,
 ): boolean {
   if (!card.parent) {
     return true;
   }
-  const parent = cards.find((c) => c.itemId === card.parent);
+  const parent = byId.get(card.parent);
   return !(parent?.epic && (parent.project ?? "") === (card.project ?? ""));
 }
 
@@ -151,12 +151,25 @@ export function placementTargets(
     processDomains?: RosterDomains;
   },
 ): Pick<CardPlacements, "attach" | "processes" | "mirror"> {
-  // A subtask is placed nowhere of its own — it rides its parent — so the
-  // server refuses both a mirror (ErrSubtaskMirror) and a tie
-  // (ErrSubtaskTie). The rule lives here rather than in each board, or the
-  // next board to render cards has to remember it a third time.
+  // A subtask carries at most ONE column of its own (G14): the server
+  // refuses it a second placement (ErrSubtaskMirror) and a process tie
+  // (ErrSubtaskTie), because its file rides its parent and both would be
+  // stranded the moment the parent changes repository. Attaching is its
+  // right, though — and the Project board's × takes that column away, so
+  // without the offer the × would be a one-way door. The rule lives here
+  // rather than in each board, or the next board to render cards has to
+  // remember it a third time.
   if (card.parent) {
-    return {};
+    return card.epic
+      ? {}
+      : {
+          attach: attachTargets(
+            board.projects,
+            board.epics,
+            board.projectDomains,
+            card.domain ?? "",
+          ),
+        };
   }
   if (card.epic) {
     if (!card.project) {
@@ -395,5 +408,25 @@ export function movingSlot(
     move.card.itemId === itemId &&
     move.grabbed.project === col.project &&
     move.grabbed.epic === col.epic
+  );
+}
+
+/** drawnOnProjectBoard reports whether the column grid draws this card:
+ *  it must stand in one of the shown columns, by its own (project, epic)
+ *  pair or by a mirror. A SUBTASK counts like any other card — it carries
+ *  its column, and hiding it took whole groups off the planner (S4) — but
+ *  one with no column of its own is on no Project board at all. `shown`
+ *  holds the column keys, project and epic joined by a NUL. */
+export function drawnOnProjectBoard(
+  card: Pick<Card, "project" | "epic" | "mirrors">,
+  shown: ReadonlySet<string>,
+): boolean {
+  if (!card.epic) {
+    return false;
+  }
+  const key = (project: string, epic: string) => `${project}\u0000${epic}`;
+  return (
+    shown.has(key(card.project ?? "", card.epic)) ||
+    (card.mirrors ?? []).some((m) => shown.has(key(m.project, m.epic)))
   );
 }

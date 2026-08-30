@@ -128,7 +128,12 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		// selector filters by PROJECT (an epic's owner), not by team: a project
 		// spans teams, and a card is assigned to a team from this very board.
 		for _, c := range b.Cards {
-			if c.Epic == "" || c.Parent != "" {
+			// A SUBTASK that carries its own column belongs here on its own
+			// merit (S4), not as a rider of a delivered parent: the case
+			// the rule exists for is a parent that lives elsewhere — the
+			// weekly plan, the working area — and is in no project view at
+			// all, which left the whole group visible nowhere.
+			if c.Epic == "" {
 				continue
 			}
 			if sel.Project != "" && c.Project != sel.Project {

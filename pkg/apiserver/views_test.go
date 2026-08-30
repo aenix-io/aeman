@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -79,5 +80,34 @@ func TestListCardsSummaryOmitsBodies(t *testing.T) {
 	}
 	if len(full.Items[0].Status.Links) != 2 {
 		t.Fatal("the full shape carries the derived refs too")
+	}
+}
+
+// The Project board draws a subtask that carries its own column (S4), so
+// the view has to deliver it — and deliver it on its OWN merit, not as a
+// rider of a delivered parent: the case the rule exists for is a parent
+// that lives elsewhere entirely (the weekly plan, the working area) and is
+// therefore in no project view at all. Filtering every parented card out
+// left the whole group visible nowhere.
+func TestProjectViewDeliversSubtasksThatCarryAColumn(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
+		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Redis App", Project: "freedom"},
+		// The parent is a plan card: no column, so no project view holds it.
+		{ItemID: "parent", Title: "TLS for DBaaS", Plan: board.PlanWed, Week: "2026-08-24"},
+		{ItemID: "child", Title: "TLS for Redis", Parent: "parent",
+			Project: "freedom", Epic: "Redis App"},
+		{ItemID: "loose", Title: "no column", Parent: "parent"},
+	})
+	got := FilterCards(b, Selector{View: "project"})
+	var seen []string
+	for _, c := range got {
+		seen = append(seen, c.ItemID)
+	}
+	if !slices.Contains(seen, "child") {
+		t.Fatalf("the subtask carries the column and must be delivered: %v", seen)
+	}
+	if slices.Contains(seen, "loose") {
+		t.Fatalf("a subtask without a column belongs to no Project board: %v", seen)
 	}
 }

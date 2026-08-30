@@ -953,3 +953,40 @@ func TestRemoveFromColumnNeverDeletesASubtask(t *testing.T) {
 		t.Fatalf("the parent is untouched: %+v", c)
 	}
 }
+
+// A card's column names a repository, and that repository must be the one
+// that HOLDS the card's file. For an ordinary card the two agree by
+// construction — the project decides the domain — but when a LINK outranks
+// the project (a subtask riding its parent, a review card following its
+// original, G14) the file stays put while the column can be dragged
+// anywhere. The result is the state ErrSubtaskMirror was written against:
+// a column of one repository counting a card whose file another repository
+// holds, so DeleteEpic refuses for a card nobody there can see.
+func TestAColumnCannotNameARepositoryThatDoesNotHoldTheCard(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "c1", Title: "child", Parent: "p"},
+		{ItemID: "rev", Title: "review", ReviewOf: "p"},
+		// Teamless on purpose: a team of the primary repository would refuse
+		// the move first (G46), before this rule gets a say.
+		{ItemID: "plain", Title: "ordinary", Project: "engineering", Epic: "Cozystack"},
+	})
+	svc := New(f)
+	strategy := "strategy"
+	if err := svc.SetEpic(ctx, "acme", "c1", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the subtask's file rides its parent, in the primary repository: %v", err)
+	}
+	if err := svc.SetEpic(ctx, "acme", "rev", "Fundraising", &strategy); !errors.Is(err, ErrCrossDomain) {
+		t.Fatalf("the review card's file follows its original: %v", err)
+	}
+	// The same repository is free — a subtask may carry its own column (G14).
+	freedom := "freedom"
+	if err := svc.SetEpic(ctx, "acme", "c1", "Launch", &freedom); err != nil {
+		t.Fatalf("a column of its own repository is a subtask's right: %v", err)
+	}
+	// And an ordinary teamless card still moves BETWEEN repositories freely:
+	// there the project is what decides, so the file follows the column.
+	if err := svc.SetEpic(ctx, "acme", "plain", "Fundraising", &strategy); err != nil {
+		t.Fatalf("an ordinary card's file follows its project: %v", err)
+	}
+}

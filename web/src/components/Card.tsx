@@ -951,7 +951,12 @@ export function Card({
             {/* What this card is part of — the menu is where a person asks
                 "whose is this?", and the answer starts with where it came
                 from. */}
-            {(card.process || card.project || placements) && (
+            {(card.process ||
+              card.project ||
+              (card.mirrors?.length ?? 0) > 0 ||
+              placements?.attach ||
+              placements?.processes ||
+              placements?.mirror) && (
               <div className="card-assign-origin">
                 {card.process && (
                   <span>

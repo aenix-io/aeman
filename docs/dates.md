@@ -172,6 +172,20 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
 - A subtask is a normal card in every other way: own description, own log and
   notes, own stage/progress, own assignee. It can be pulled back out as a
   standalone card at any time (clear the parent).
+- **On the Project board** a subtask that carries its own column is drawn as
+  an ordinary slot, marked `↳` with its parent's title: grouping work under a
+  parent must not take it off the planner, and a parent commonly lives
+  elsewhere (the weekly plan, the working area), so hiding the children left a
+  whole group visible in no column at all. Its team badge is read-only there —
+  a subtask's team follows its parent — and the slot's × only takes the column
+  away: the card still rides its parent, so it is never deleted from there. The
+  column may be re-attached afterwards; a SECOND column (a mirror) it may not
+  have, because its file follows the parent and the mirror would be stranded
+  the moment the parent changes repository. The column must name the repository
+  that actually holds the card — the one its parent lives in.
+- The project's progress line counts such a card unless its **parent stands in
+  the same project**, whose own bar already derives from its children: counting
+  both would weigh that work twice on one screen.
 - **Derived progress**: while a card has subtasks its bar derives from them —
   the average of the subtasks' effective progress (done = 100) scaled into
   0–90%. The final done / 100% is always a human decision on the parent, and a

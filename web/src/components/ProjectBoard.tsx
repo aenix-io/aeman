@@ -11,6 +11,7 @@ import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
   countedForProgress,
+  drawnOnProjectBoard,
   makeCardPlacements,
   type CardPlacements,
   movingSlot,
@@ -255,16 +256,7 @@ export function ProjectBoard({
   // handed to one.
   const cards = useMemo(() => {
     const shown = new Set(epics.map((e) => colKey(e.project, e.name)));
-    // A SUBTASK that carries its own column is drawn like any other card:
-    // grouping work under a parent must not take it off the planner. Its
-    // parent usually lives elsewhere (the weekly plan, the working area),
-    // so hiding the children left the whole group visible nowhere.
-    return board.cards.filter(
-      (c) =>
-        c.epic &&
-        (shown.has(colKey(c.project ?? "", c.epic)) ||
-          (c.mirrors ?? []).some((m) => shown.has(colKey(m.project, m.epic)))),
-    );
+    return board.cards.filter((c) => drawnOnProjectBoard(c, shown));
   }, [board.cards, epics]);
 
   // The week window: two weeks of history before today (or the earliest
@@ -1399,10 +1391,24 @@ export function ProjectBoard({
     return byCol;
   }, [cards, weeks, draft, move, drag]);
 
-  // How far along each column is, and the view as a whole.
+  // One index of the board, for the rules that need to look a parent up.
+  const byId = useMemo(
+    () => new Map(board.cards.map((c) => [c.itemId, c])),
+    [board.cards],
+  );
+
+  // How far along each column is, and the view as a whole. A card counts
+  // once: a subtask whose PARENT stands in the same project is left to the
+  // parent, whose progress already derives from its children — otherwise
+  // the column, the overall bar and the project line disagree on one
+  // screen.
+  const counted = useMemo(
+    () => cards.filter((c) => countedForProgress(c, byId)),
+    [cards, byId],
+  );
   const colProgress = useMemo(() => {
     const byCol = new Map<string, CardModel[]>();
-    for (const c of cards) {
+    for (const c of counted) {
       const k = colKey(c.project ?? "", c.epic ?? "");
       byCol.set(k, [...(byCol.get(k) ?? []), c]);
     }
@@ -1411,8 +1417,8 @@ export function ProjectBoard({
       out.set(k, progressOf(list));
     }
     return out;
-  }, [cards]);
-  const overall = useMemo(() => progressOf(cards), [cards]);
+  }, [counted]);
+  const overall = useMemo(() => progressOf(counted), [counted]);
 
   // Every project's progress, filter or no filter: the point of opening the
   // status line is to see the ones you are NOT looking at. The no-project
@@ -1420,7 +1426,7 @@ export function ProjectBoard({
   const allProgress = useMemo(() => {
     const byProject = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (!c.epic || !countedForProgress(c, board.cards)) {
+      if (!c.epic || !countedForProgress(c, byId)) {
         continue;
       }
       const k = c.project ?? "";
@@ -1429,7 +1435,7 @@ export function ProjectBoard({
     return [...board.projects, ""]
       .filter((p) => p !== "" || (byProject.get("")?.length ?? 0) > 0)
       .map((p) => ({ project: p, ...progressOf(byProject.get(p) ?? []) }));
-  }, [board.cards, board.projects]);
+  }, [board.cards, board.projects, byId]);
 
   const todayRow = weeks.indexOf(thisMonday);
 
@@ -1981,9 +1987,11 @@ export function ProjectBoard({
                 {card.parent && (
                   <span
                     className="project-slot-subtask"
-                    title={`Subtask of «${
-                      board.cards.find((c) => c.itemId === card.parent)?.title ?? "…"
-                    }»`}
+                    title={
+                      byId.get(card.parent)?.title
+                        ? `Subtask of «${byId.get(card.parent)?.title}»`
+                        : "Subtask — its parent is not on this board"
+                    }
                   >
                     ↳
                   </span>
@@ -2024,7 +2032,18 @@ export function ProjectBoard({
                     ? { background: teamColor(card.team), color: "#fff" }
                     : undefined
                 }
-                title={card.team ? `Team: ${card.team} — click to change` : "Assign to a team"}
+                // A subtask's team always follows its parent (S3): the
+                // server silently rewrites any other choice, so the badge
+                // shows the team and opens nothing — a menu whose every
+                // entry snaps back is worse than no menu.
+                disabled={!!card.parent}
+                title={
+                  card.parent
+                    ? `Team: ${card.team || "none"} — follows the parent`
+                    : card.team
+                      ? `Team: ${card.team} — click to change`
+                      : "Assign to a team"
+                }
                 onClick={(ev) => {
                   ev.stopPropagation();
                   teamAnchor.current = ev.currentTarget;

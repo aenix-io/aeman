@@ -4,6 +4,7 @@ import {
   attachSlotDates,
   attachTargets,
   countedForProgress,
+  drawnOnProjectBoard,
   makeCardPlacements,
   mirrorTargets,
   movingSlot,
@@ -123,21 +124,22 @@ describe("removeFromProjectOutcome for a subtask", () => {
 // the same project already answers for its children.
 describe("countedForProgress", () => {
   const child = { itemId: "c1", parent: "p1", project: "engineering", epic: "Cozystack" } as Card;
+  const index = (cards: Card[]) => new Map(cards.map((c) => [c.itemId, c]));
 
   it("counts a subtask whose parent is on no board of this project", () => {
     // The parent lives in the weekly plan with no column of its own.
     const parent = { itemId: "p1" } as Card;
-    expect(countedForProgress(child, [child, parent])).toBe(true);
+    expect(countedForProgress(child, index([child, parent]))).toBe(true);
   });
 
   it("skips a subtask whose parent stands in the same project", () => {
     const parent = { itemId: "p1", project: "engineering", epic: "Roadmap" } as Card;
-    expect(countedForProgress(child, [child, parent])).toBe(false);
+    expect(countedForProgress(child, index([child, parent]))).toBe(false);
   });
 
   it("counts an ordinary card always", () => {
     const plain = { itemId: "x", project: "engineering", epic: "Cozystack" } as Card;
-    expect(countedForProgress(plain, [plain])).toBe(true);
+    expect(countedForProgress(plain, index([plain]))).toBe(true);
   });
 });
 
@@ -157,12 +159,29 @@ describe("placementTargets", () => {
     expect(got.attach).toBeUndefined();
   });
 
-  it("offers a SUBTASK nothing — it is placed nowhere of its own", () => {
-    // The server refuses a subtask's mirror (ErrSubtaskMirror), so no board
-    // may offer one. The Me and Team boards each remembered this on their
-    // own; the Project board renders its own slots and would have had to
-    // remember it a third time — the rule belongs here, where the module
-    // promises "only what the server would accept".
+  it("offers a SUBTASK a column to attach to, but never a second one", () => {
+    // A subtask may carry ONE column of its own (G14, S4) — so the × that
+    // takes the column away must have a way back, or the Project board
+    // hands out a one-way door. What it may not have is a SECOND placement
+    // or a process tie: its file rides its parent, and both would be
+    // stranded the moment the parent changes repository.
+    const inColumn = placementTargets(
+      { project: "engineering", epic: "Cozystack", parent: "p1" } as Card,
+      board,
+    );
+    expect(inColumn.mirror).toBeUndefined();
+    expect(inColumn.processes).toBeUndefined();
+
+    const loose = placementTargets({ parent: "p1", stage: "recurrent" } as Card, board);
+    expect(loose.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
+    expect(loose.processes).toBeUndefined();
+  });
+
+  it("offers a subtask already in a column nothing more", () => {
+    // It has its column; a second one is refused by the server
+    // (ErrSubtaskMirror), so no board offers it. The Me and Team boards
+    // each remembered this separately — the rule belongs here, where the
+    // module promises "only what the server would accept".
     const got = placementTargets(
       { project: "engineering", epic: "Cozystack", parent: "p1" } as Card,
       board,
@@ -434,5 +453,44 @@ describe("makeCardPlacements onAttachProject", () => {
     } as Card);
     expect(patch.startDate).toBeUndefined();
     expect(patch.day).toBeUndefined();
+  });
+});
+
+// The Project board's own filter, as a rule rather than a line inside a
+// component: which cards a column grid draws.
+describe("drawnOnProjectBoard", () => {
+  const shown = new Set(["engineering\u0000Cozystack", "freedom\u0000Launch"]);
+
+  it("draws a card filed under a shown column", () => {
+    expect(
+      drawnOnProjectBoard({ project: "engineering", epic: "Cozystack" } as Card, shown),
+    ).toBe(true);
+  });
+
+  it("draws a SUBTASK that carries its own column", () => {
+    expect(
+      drawnOnProjectBoard(
+        { project: "engineering", epic: "Cozystack", parent: "p1" } as Card,
+        shown,
+      ),
+    ).toBe(true);
+  });
+
+  it("draws nothing for a card with no column of its own", () => {
+    expect(drawnOnProjectBoard({ parent: "p1" } as Card, shown)).toBe(false);
+    expect(drawnOnProjectBoard({ project: "engineering" } as Card, shown)).toBe(false);
+  });
+
+  it("draws a card whose MIRROR names a shown column", () => {
+    expect(
+      drawnOnProjectBoard(
+        {
+          project: "strategy",
+          epic: "Fundraising",
+          mirrors: [{ project: "freedom", epic: "Launch" }],
+        } as Card,
+        shown,
+      ),
+    ).toBe(true);
   });
 });
