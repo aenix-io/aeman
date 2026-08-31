@@ -463,6 +463,42 @@ func TestThePlanRemoveWritesNothingForAColumnCardWithNoBand(t *testing.T) {
 	}
 }
 
+// Grouping takes a card's BAND — the parent takes its place in the plan —
+// but not the WEEK of a card that stands in a COLUMN: there the week is the
+// row the Project board draws it in, and clearing it took the card's stripe
+// away and left its row to be re-derived from dates the client is not shown.
+func TestGroupingKeepsTheWeekOfACardInAColumn(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "p", Title: "parent", Team: "platform"},
+		{ItemID: "slot", Title: "a card in a column", Team: "platform",
+			Project: "engineering", Epic: "Cozystack", Plan: board.PlanFri,
+			Week: "2026-08-31", StartDate: "2026-08-31", Day: "2026-09-04"},
+		{ItemID: "plain", Title: "a plan card", Team: "platform",
+			Plan: board.PlanFri, Week: "2026-08-31"},
+	})
+	svc := New(f)
+	if err := svc.SetParent(ctx, "acme", "slot", "p"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "slot")
+	if c.Plan != board.PlanNone {
+		t.Fatalf("the band goes to the parent: %+v", c)
+	}
+	if c.Week != "2026-08-31" {
+		t.Fatalf("the week stays — it is the row the card is drawn in: %+v", c)
+	}
+	// A card with no column has no row of its own: both go.
+	if err := svc.SetParent(ctx, "acme", "plain", "p"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = f.LoadBoard(ctx, "acme")
+	c, _ = findCard(b, "plain")
+	if c.Plan != board.PlanNone || c.Week != "" {
+		t.Fatalf("a plan card hands over both: %+v", c)
+	}
+}
+
 // Renames follow the mirrors. The rename loops match cards through InEpic,
 // which now sees mirrors — rewriting the card's HOME fields for a mirror
 // match would corrupt it, and not rewriting the mirror would strand it

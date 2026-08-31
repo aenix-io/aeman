@@ -97,8 +97,16 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 		if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
 			return err
 		}
-		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
-			return err
+		// The BAND goes; the WEEK stays for a card that stands in a COLUMN.
+		// There the week is the row the Project board draws it in — its span
+		// speaks for it, not stored plan membership — and clearing it took
+		// the card's stripe away and left the row to be re-derived from
+		// dates the client cannot see. The plan's × makes the same
+		// distinction (a slot keeps its week).
+		if !hasColumn(card) {
+			if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
+				return err
+			}
 		}
 	}
 	// A subtask keeps the ONE column it carries — G14 blesses that, and the

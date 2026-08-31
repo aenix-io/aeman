@@ -513,6 +513,17 @@ export function TeamBoard({
 
   // Move a plan card between the two bands (changes its Wed/Fri deadline).
   const handleSetPlan = (card: CardModel, plan: "wed" | "fri") => {
+    // A DEBT dropped into a band of the CURRENT week is a person saying
+    // "take this into this week, due then". Its own band belongs to the
+    // week it missed, and the panel draws it by the debt rule (always the
+    // by-Wednesday band) whatever that band says — so writing the band
+    // alone moved nothing anyone could see, and an overdue card could not
+    // be dragged anywhere at all. It comes into the week first, by its
+    // dates when it is a slot (whose week IS its start), then takes the
+    // band.
+    if (owedIn(card) !== "" && owedIn(card) < currentWeek) {
+      handleSetWeek(card, currentWeek);
+    }
     const prev: Partial<CardModel> = { plan: card.plan, parent: card.parent, week: card.week };
     // A band on a SUBTASK takes it out of the group (G58): the server pulls
     // it out and plans it in the current week, so the row must stop being
@@ -1142,7 +1153,14 @@ export function TeamBoard({
       return;
     }
     const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
-    patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    // The band goes to the parent; a COLUMN card keeps its week — that is
+    // the row the Project board draws it in, not plan membership (mirrors
+    // boardservice.SetParent).
+    patchCard(card.itemId, {
+      parent: parentId,
+      plan: undefined,
+      ...(card.epic ? {} : { week: undefined }),
+    });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
