@@ -1915,15 +1915,34 @@ func (s *Service) SetPlan(ctx context.Context, boardID string, itemID string, pl
 	if err != nil {
 		return err
 	}
-	// A card is a SUBTASK or a plan card, never both (G58): grouping hands
-	// a subtask's slot to its parent, so writing a band back onto one
-	// re-creates by PATCH the state the create door refuses. Clearing is
-	// free — that is how the slot is handed over.
+	// A card is a SUBTASK or a plan card, never both (G58) — and giving a
+	// standing subtask a band is how a person says "take it out of the
+	// group and put it in the plan". Refusing left them with no gesture at
+	// all: grouping had already cleared the card's band and week, the
+	// plan's × does nothing for a subtask, and the grid's × deletes it, so
+	// a card dropped under the wrong parent was stuck there. It is pulled
+	// out first, and the band lands on the card that comes back.
 	if card.Parent != "" && plan != board.PlanNone {
-		return ErrPlanSubtask
+		if err := s.ungroup(ctx, b, card); err != nil {
+			return err
+		}
+		// The card in hand, not a re-read: a staged write is invisible to a
+		// bare store until the scope flushes.
+		card.Parent = ""
 	}
 	if err := s.backend.SetPlan(ctx, b, card, plan); err != nil {
 		return err
+	}
+	// A band with no WEEK is on no panel: the card would take the band and
+	// vanish. A card that has never been in the plan — or one whose week
+	// grouping cleared — joins the week it is being planned into, which is
+	// the current one.
+	if plan != board.PlanNone && card.Week == "" {
+		week := board.MondayOf(board.TodayIso())
+		if err := s.backend.SetWeek(ctx, b, card, week); err != nil {
+			return err
+		}
+		card.Week = week
 	}
 	// The semantic transition matters more than the raw band value: a regular
 	// card gaining a band joined the weekly plan, one losing it left the plan;

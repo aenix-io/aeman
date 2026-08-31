@@ -1944,26 +1944,48 @@ func TestCreatingAPlanCardUnderAParentIsRefused(t *testing.T) {
 	}
 }
 
-// The same rule at the PATCH door: a card already grouped cannot be given
-// a band by an edit, or the rule would hold on the way in and be undone by
-// the next update (PATCH spec.plan.band, MCP update_card). Clearing one is
-// free — that is how grouping hands the slot over.
-func TestGivingAStandingSubtaskAPlanBandIsRefused(t *testing.T) {
+// A card is a subtask or a plan card, never both (G58) — and a BAND given
+// to a standing subtask is how a person says "take it out of the group and
+// plan it". The refusal that used to stand here left them with no gesture:
+// grouping had already taken the card's band and week, the plan's × does
+// nothing for a subtask, and the grid's × deletes it, so a card dropped
+// under the wrong parent could not be freed at all. It is pulled out, and
+// the band lands on the card that comes back — in the week it is planned
+// into, since a band with no week is on no panel.
+func TestGivingAStandingSubtaskAPlanBandTakesItOutOfTheGroup(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "kid", Title: "child", Team: "platform", Parent: "p"},
 	})
 	svc := New(f)
-	if err := svc.SetPlan(ctx, "acme", "kid", board.PlanWed); !errors.Is(err, ErrPlanSubtask) {
-		t.Fatalf("a subtask has no band of its own: %v", err)
+	if err := svc.SetPlan(ctx, "acme", "kid", board.PlanWed); err != nil {
+		t.Fatalf("the band takes it out of the group: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	c, _ := findCard(b, "kid")
-	if c.Plan != board.PlanNone {
-		t.Fatalf("and the refusal writes nothing: %+v", c)
+	if c.Parent != "" {
+		t.Fatalf("out of the group: %+v", c)
 	}
+	if c.Plan != board.PlanWed {
+		t.Fatalf("with the band it was given: %+v", c)
+	}
+	if c.Week != board.MondayOf(board.TodayIso()) {
+		t.Fatalf("and a week to be planned in, or it is on no panel: %+v", c)
+	}
+	// Clearing is still free, and still means nothing more than clearing.
 	if err := svc.SetPlan(ctx, "acme", "kid", board.PlanNone); err != nil {
 		t.Fatalf("clearing is free: %v", err)
+	}
+}
+
+// The CREATE door still refuses the pair: a card born as both is a request
+// for two contradictory things, and there is no gesture to interpret.
+func TestCreatingACardThatIsBothIsStillRefused(t *testing.T) {
+	f := mirrorBoard([]board.Card{{ItemID: "p", Title: "parent", Team: "platform"}})
+	if _, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
+		Title: "both", Team: "platform", Parent: "p", Plan: board.PlanWed,
+	}); !errors.Is(err, ErrPlanSubtask) {
+		t.Fatalf("a create names one or the other: %v", err)
 	}
 }
 
