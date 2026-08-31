@@ -172,6 +172,17 @@ func WeeklyPlanAt(b Board, team, week, today string) WeeklyBands {
 		if (c.Plan == PlanNone && !slot) || c.Team != team || !planShowsInWeekAt(c, week, today) {
 			continue
 		}
+		// A SUBTASK has no plan membership of its own: grouping hands its
+		// slot to the parent, and the panel draws it as a RIDER under that
+		// parent (the board's own comment: "they are not plan cards — they
+		// just ride along visibly"). One that carries a COLUMN derives a
+		// week from its dates all the same, and that put it in the band as
+		// a row of its own — beside the very parent it rides, so the card
+		// appeared twice and the group looked like it had strays floating
+		// next to it.
+		if c.Parent != "" {
+			continue
+		}
 		switch {
 		// A DEBT — owed in a week already past, shown here beside this
 		// week's own work — goes in the by-Wednesday band. Its own band
