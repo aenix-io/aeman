@@ -31,6 +31,7 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
+import { slotWeekPatch } from "../weekly";
 import {
   boardAsksAbout,
   deleteWarning,
@@ -1890,10 +1891,13 @@ export function MeBoard({
     start: string | null,
     end: string | null,
   ) => {
-    const prev = { startDate: card.startDate, day: card.day };
+    const prev = { startDate: card.startDate, day: card.day, week: card.week };
     patchCard(card.itemId, {
       startDate: start ?? undefined,
       day: end ?? undefined,
+      // A slot's WEEK follows its start date, or the card keeps standing
+      // in the week it left until the next full load.
+      ...slotWeekPatch(card, start),
     });
     void provider
       .patchCard(card.itemId, {

@@ -53,6 +53,20 @@ export function slotBand(week: string, endDay: string): "wed" | "fri" {
     : "fri";
 }
 
+/** slotWeekPatch is the week that follows a card's dates. A card in a
+ *  COLUMN has no week of its own — the server derives it from the start
+ *  date (board.NewBoard: "a slot's row is its START date's week, never a
+ *  week stored beside it") — so a client that moves the dates and leaves
+ *  the week behind keeps drawing the card in the week it left: on the
+ *  weekly panel of that week, until the next full load says otherwise.
+ *  Empty for a card outside every column, whose week is its own. */
+export function slotWeekPatch(
+  card: { epic?: string },
+  start: string | null | undefined,
+): { week?: string } {
+  return card.epic && start ? { week: mondayOf(start) } : {};
+}
+
 /** owedIn is the week a card was owed in: the one it belongs to, or — for a
  *  Project-board slot, whose span IS its plan — the week its span ENDS in,
  *  the only week of that span with a deadline in it. Mirrors pkg/board
