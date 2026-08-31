@@ -6,6 +6,7 @@ package boardservicetest
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +31,25 @@ type Backend struct {
 	nextID  int
 }
 
-// New builds a Backend seeded with cards and per-team sprint states.
+// InRepository names the board's primary repository and stamps roster
+// entries with the repository they were declared in — the shape a real
+// store hands over, where every entry carries its domain's NAME, the
+// primary included. Without it a test models the primary as "", which no
+// server produces, and the domain rules (G14, G46, G57) answer here
+// differently than they do in production.
+func (f *Backend) InRepository(primary string, entryDomains map[string]string) *Backend {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.board.Primary = primary
+	if f.board.Domains == nil {
+		f.board.Domains = map[string]string{}
+	}
+	for id, d := range entryDomains {
+		f.board.Domains[id] = d
+	}
+	return f
+}
+
 // Refs configures ResolveIssueRef answers, keyed by link URL (ignoring any
 // fragment). URLs absent from the map fail to resolve.
 func (f *Backend) SetRefs(refs map[string]board.Link) {
@@ -51,6 +70,11 @@ func (f *Backend) ResolveIssueRef(_ context.Context, link board.Link) (board.Lin
 	return resolved, nil
 }
 
+// New builds a Backend seeded with cards and per-team sprint states. Both
+// routes are the same one: a sprint-state card among the cards seeds its
+// team's sprint and the repository the team was declared in, and a state
+// passed in the map is turned into such a card before the board is
+// assembled — the way a real board records them.
 func New(cards []board.Card, states map[string]board.SprintState) *Backend {
 	if states == nil {
 		states = map[string]board.SprintState{}
@@ -120,7 +144,14 @@ func (f *Backend) FailLoad(err error) {
 	f.loadErr = err
 }
 
-// LoadBoard returns a copy of the seeded board snapshot.
+// LoadBoard returns the seeded cards assembled the way the real board is —
+// through board.NewBoard, so the assembly's own rules (the state-card
+// split, the derived week, the mirrors the roster disowns) answer here
+// exactly as they answer the server: a fake that assembles a board by hand
+// tests the service against a board nobody has. A sprint state passed to
+// New becomes a state CARD before the assembly runs, so it is seeded the
+// way a real board records one; the repository a team was declared in
+// travels only on such a card, since the map has no field for it.
 func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -128,61 +159,78 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 	if f.loadErr != nil {
 		return board.Board{}, f.loadErr
 	}
-	cards := make([]board.Card, 0, len(f.board.Cards))
-	var epics []board.EpicCol
-	var projects []string
-	var deadlines []board.Deadline
-	var processes []board.Process
-	var tasks []board.Card
-	seenEpic := map[string]bool{}
-	projectStates := map[string]string{}
-	for _, c := range f.board.Cards {
-		if c.Title == board.ProcessStateTitle {
-			if c.Process != "" {
-				processes = append(processes, board.Process{
-					Name: c.Process, Project: c.Project, Paused: c.Paused, ItemID: c.ItemID,
-				})
-			}
-			continue
+	cards := append([]board.Card{}, f.board.Cards...)
+	// A state seeded in the map becomes a state CARD before the assembly
+	// runs — declaredMirrors reads team domains, so an overlay applied
+	// afterwards judged the mirrors against a board with no teams. A team
+	// whose card is already among the seeded cards keeps that card: two
+	// stubs for one team would let the emptier one win the assembly.
+	seeded := map[string]bool{}
+	for _, c := range cards {
+		if c.Title == board.SprintStateTitle {
+			seeded[c.Team] = true
 		}
-		if c.Title == board.ProcessTaskTitle {
-			tasks = append(tasks, c)
-			continue
-		}
-		if c.Title == board.DeadlineStateTitle {
-			if c.Week != "" {
-				deadlines = append(deadlines, board.Deadline{
-					Week: c.Week, Project: c.Project, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		if c.Title == board.ProjectStateTitle {
-			if c.Project != "" && projectStates[c.Project] == "" {
-				projects = append(projects, c.Project)
-				projectStates[c.Project] = c.ItemID
-			}
-			continue
-		}
-		if c.Title == board.EpicStateTitle {
-			if k := c.Project + "\x00" + c.Epic; c.Epic != "" && !seenEpic[k] {
-				seenEpic[k] = true
-				epics = append(epics, board.EpicCol{
-					Name: c.Epic, Project: c.Project, ItemID: c.ItemID,
-				})
-			}
-			continue
-		}
-		cards = append(cards, c)
 	}
-	states := map[string]board.SprintState{}
-	for k, v := range f.board.SprintStates {
-		states[k] = v
+	// In a fixed order: these cards become the board's TEAM ORDER, and a
+	// map's iteration order is random per run — a fake that hands out a
+	// different board each time makes everything downstream nondeterministic,
+	// which is how a migration's ranks came out different on two runs over
+	// the same source.
+	teams := make([]string, 0, len(f.board.SprintStates))
+	for team := range f.board.SprintStates {
+		teams = append(teams, team)
 	}
-	return board.Board{Board: f.board.Board, Cards: cards,
-		SprintStates: states, Epics: epics,
-		Projects: projects, ProjectStates: projectStates, Deadlines: deadlines,
-		Processes: processes, Tasks: tasks}, nil
+	sort.Strings(teams)
+	for _, team := range teams {
+		st := f.board.SprintStates[team]
+		if seeded[team] {
+			continue
+		}
+		// No domain here: the map carries none. A team whose REPOSITORY
+		// matters is seeded as a state card among the cards, which is the
+		// route docs/embedding.md documents and the only one that can say
+		// which repository declared it.
+		cards = append(cards, board.Card{
+			ItemID: st.ItemID, Title: board.SprintStateTitle, Team: team,
+			SprintStart: st.Current, StartDate: st.Previous,
+			Domain: f.board.Domains[st.ItemID],
+		})
+	}
+	// The stamps InRepository was given are written ON THE CARDS, before
+	// the assembly, the way a real store hands them over (gitstore.stamp):
+	// NewBoardIn reads a state card's own Domain field and the rules it
+	// runs — declaredMirrors above all — read the map it builds. Applied
+	// afterwards, the stamps arrived too late to be seen by them, and the
+	// published fake answered the domain rules differently from the store
+	// it stands in for, which is the one thing it must not do.
+	for i := range cards {
+		if d, ok := f.board.Domains[cards[i].ItemID]; ok && cards[i].Domain == "" {
+			cards[i].Domain = d
+		}
+	}
+	// And every CARD carries its repository's name too, the primary's
+	// included (gitstore.stamp writes it on all of them): a rule that reads
+	// the stamp raw — the process tie, which asks whether the card's own
+	// file and the process live together — answered "" here against a named
+	// primary and refused what the store accepts.
+	for i := range cards {
+		if cards[i].Domain == "" {
+			cards[i].Domain = f.board.Primary
+		}
+	}
+	b := board.NewBoardIn(f.board.Primary, cards)
+	// An id the board has no card for — a test naming a placement's home
+	// directly — still gets its stamp.
+	for id, d := range f.board.Domains {
+		if b.Domains == nil {
+			b.Domains = map[string]string{}
+		}
+		if _, ok := b.Domains[id]; !ok {
+			b.Domains[id] = d
+		}
+	}
+	b.Board = f.board.Board
+	return b, nil
 }
 
 // LoadCards returns the seeded cards matching ids, mirroring a partial reload.

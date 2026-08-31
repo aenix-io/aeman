@@ -303,6 +303,15 @@ type Board struct {
 	// one project's epics as its columns.
 	Projects      []string          `json:"projects,omitempty"`
 	ProjectStates map[string]string `json:"projectStates,omitempty"`
+	// Primary names the repository a board's own entries belong to — the
+	// first of its domains. The store STAMPS every roster entry with its
+	// domain's name, the primary included, while a card that nothing
+	// places resolves to "" ("no repository decides this"); the two are
+	// different namespaces, and comparing them directly answered "another
+	// repository" for every card of the primary that nothing placed.
+	// Boards built by hand (fixtures, older callers) leave it empty, which
+	// is the same thing said the other way.
+	Primary string `json:"primary,omitempty"`
 	// Domains maps a roster entry's id — a team's sprint-state card, a
 	// project, an epic column, a deadline, a process, a task — to the domain
 	// (repository) it was declared in; cards carry their own Domain. Nil on
@@ -314,8 +323,15 @@ type Board struct {
 // by team, "" = the no-team group). It mirrors mapProject's split: a sprint-state
 // card's Team is its key, its SprintStart is the team's current sprint and its
 // StartDate (the "Start" field) is the previous sprint.
-func NewBoard(cards []Card) Board {
-	b := Board{
+func NewBoard(cards []Card) Board { return NewBoardIn("", cards) }
+
+// NewBoardIn is NewBoard for a board whose entries are STAMPED with their
+// domain's name — which is every board the store hands over, the primary
+// included. The assembly's own rules ask "the same repository?" while it
+// runs (declaredMirrors), so the primary's name has to arrive with the
+// cards rather than be set on the result afterwards.
+func NewBoardIn(primary string, cards []Card) Board {
+	b := Board{Primary: primary,
 		Cards:        make([]Card, 0, len(cards)),
 		SprintStates: map[string]SprintState{},
 	}
@@ -432,6 +448,14 @@ func NewBoard(cards []Card) Board {
 			b.Cards[i].Project = match
 		}
 	}
+	for team, c := range winners {
+		b.SprintStates[team] = SprintState{
+			Current:  c.SprintStart,
+			Previous: c.StartDate,
+			ItemID:   c.ItemID,
+		}
+	}
+
 	// The decoder drops what one file can prove wrong (half pairs,
 	// duplicates, home twins, subtask mirrors); a mirror into another
 	// repository or onto a column nobody declared needs the ROSTER, so it
@@ -440,13 +464,6 @@ func NewBoard(cards []Card) Board {
 	// service would have refused to mirror to.
 	for i := range b.Cards {
 		b.Cards[i].Mirrors = declaredMirrors(b, b.Cards[i])
-	}
-	for team, c := range winners {
-		b.SprintStates[team] = SprintState{
-			Current:  c.SprintStart,
-			Previous: c.StartDate,
-			ItemID:   c.ItemID,
-		}
 	}
 	return b
 }
@@ -495,6 +512,22 @@ func InEpic(c Card, project, name string) bool {
 	return Mirrored(c, project, name)
 }
 
+// InProject reports whether a card stands in one project's columns — its
+// home pair, or ANY mirror it carries. A mirror is the same card standing
+// in a second column (G15), so a project's listing that read only the home
+// pair answered with less than the board it draws.
+func InProject(c Card, project string) bool {
+	if c.Project == project {
+		return true
+	}
+	for _, m := range c.Mirrors {
+		if m.Project == project {
+			return true
+		}
+	}
+	return false
+}
+
 // FindDeadline looks a deadline up by its identity — the (project, week) pair.
 func FindDeadline(b Board, project, week string) (Deadline, bool) {
 	for _, d := range b.Deadlines {
@@ -538,9 +571,13 @@ func Iterations(b Board, taskID string) []Card {
 }
 
 // declaredMirrors keeps the mirror entries the service itself would have
-// admitted: the column exists on the roster, in the home project's own
-// repository (MirrorAllowed). Everything else is a hand edit the decoder
-// could not judge without the roster.
+// admitted: the column exists on the roster and belongs to the repository
+// that holds this card. It asks the COLUMN, exactly as Mirror does — a
+// project name may be declared in two repositories with its columns merged
+// (G13), and the no-project bucket has no project to ask at all, so the
+// project-based answer dropped placements the service had just written.
+// Everything else is a hand edit the decoder could not judge without the
+// roster.
 func declaredMirrors(b Board, c Card) []Placement {
 	if len(c.Mirrors) == 0 {
 		return c.Mirrors
@@ -548,12 +585,14 @@ func declaredMirrors(b Board, c Card) []Placement {
 	// A fresh slice on purpose: filtering into c.Mirrors[:0] would write
 	// through to the caller's backing array, and NewBoard does not own
 	// the cards it is handed.
+	// Which repository holds this CARD — the question Mirror asks, and the
+	// only one that is the same on both sides. The home COLUMN is a
+	// different question wherever the two disagree (an older write, an
+	// outside writer), and answering it here kept mirrors Mirror refuses.
+	mine := HomeDomain(b, c)
 	kept := make([]Placement, 0, len(c.Mirrors))
 	for _, m := range c.Mirrors {
-		if _, ok := FindEpic(b, m.Project, m.Epic); !ok {
-			continue
-		}
-		if !MirrorAllowed(b, c.Project, m.Project) {
+		if d, ok := ColumnDomain(b, m.Project, m.Epic); !ok || d != mine {
 			continue
 		}
 		kept = append(kept, m)

@@ -279,7 +279,14 @@ func (b *Backend) LoadBoard(_ context.Context, boardID string) (board.Board, err
 // becomes the state cards NewBoard splits back out, so the duplicate and
 // ordering rules stay in one place. Every synthesized card carries its
 // domain.
-func boardFromSnapshot(s Snapshot) board.Board {
+func boardFromSnapshot(s Snapshot) board.Board { return boardFromSnapshotIn("", s) }
+
+// boardFromSnapshotIn assembles the board for a store whose entries carry
+// their domain's NAME — which is every stamped snapshot, the primary
+// included — naming that primary so the assembly's own domain rules read
+// one namespace rather than comparing a stamped column against an
+// unstamped placement.
+func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	cards := make([]board.Card, 0, len(s.Cards)+len(s.Teams)+len(s.Projects)*4)
 	for _, t := range s.Teams {
 		cards = append(cards, board.Card{ItemID: t.ID, Title: board.SprintStateTitle, Team: t.Name,
@@ -308,7 +315,7 @@ func boardFromSnapshot(s Snapshot) board.Board {
 		}
 	}
 	cards = append(cards, s.Cards...)
-	bd := board.NewBoard(cards)
+	bd := board.NewBoardIn(primary, cards)
 	bd.Title = s.Board.Title
 	return bd
 }
@@ -366,7 +373,7 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 		return board.Card{ItemID: id, Title: in.Title, Project: in.Project, Rank: rank, CreatedAt: created},
 			b.write(ctx, "add-project", nil, ProjectPath(id), data)
 	case board.EpicStateTitle:
-		pid, pr, err := b.projectByName(ctx, s, in.Project)
+		pid, pr, err := b.projectByName(ctx, s, in.Project, true)
 		if err != nil {
 			return board.Card{}, err
 		}
@@ -378,7 +385,7 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 		return board.Card{ItemID: id, Title: in.Title, Epic: in.Epic, Project: in.Project, Rank: rank, CreatedAt: created},
 			b.write(ctx, "add-epic", nil, EpicPath(pid, id), data)
 	case board.DeadlineStateTitle:
-		pid, _, err := b.projectByName(ctx, s, in.Project)
+		pid, _, err := b.projectByName(ctx, s, in.Project, true)
 		if err != nil {
 			return board.Card{}, err
 		}
@@ -457,7 +464,7 @@ func (b *Backend) snapshot(_ context.Context) (Snapshot, error) {
 	return s, err
 }
 
-func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string) (string, Project, error) {
+func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string, create bool) (string, Project, error) {
 	for _, p := range s.Projects {
 		if p.Name == name {
 			return p.ID, p, nil
@@ -468,7 +475,46 @@ func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string) (s
 			return id, Project{ID: id}, nil
 		}
 	}
+	if name == "" && create {
+		// The NO-PROJECT BUCKET is a column home like any other (G15, G54):
+		// its columns are declared under a nameless project stub, the way
+		// the no-team group has `teams/_.yaml`. Nothing can add that stub —
+		// a project must have a name — so the first column filed outside
+		// every project brings it into being here. Without it the bucket
+		// was a home the store could hold but nothing could create: adding
+		// a column to it, and unbinding one INTO it, both failed with
+		// "project not found".
+		//
+		// Only for a WRITE that means to put something there. A lookup that
+		// is merely computing a path (projectOfChild, behind a delete) must
+		// not leave a file behind: a delete that writes a project stub and
+		// then removes a path under it that never existed is a commit
+		// nobody asked for.
+		return b.bucketProject(ctx, s)
+	}
 	return "", Project{}, fmt.Errorf("%w: %q", ErrProjectNotFound, name)
+}
+
+// bucketProjectID is the nameless project's file id, `_` as the no-team
+// group's is — a name no ULID takes, and one a reader can see for what it
+// is.
+const bucketProjectID = "_"
+
+// bucketProject finds or writes the nameless project stub the no-project
+// bucket's columns hang under.
+func (b *Backend) bucketProject(ctx context.Context, s Snapshot) (string, Project, error) {
+	rank, _ := board.RankBetween(lastRank(len(s.Projects), func(i int) string { return s.Projects[i].Rank }), "")
+	data, err := EncodeProject(ProjectFile{Rank: rank, Created: b.now().UTC().Format(time.RFC3339)})
+	if err != nil {
+		return "", Project{}, err
+	}
+	if sc := scopeOf(ctx); sc != nil {
+		sc.projects[""] = bucketProjectID
+	}
+	if err := b.write(ctx, "add-project", nil, ProjectPath(bucketProjectID), data); err != nil {
+		return "", Project{}, err
+	}
+	return bucketProjectID, Project{ID: bucketProjectID, ProjectFile: ProjectFile{Rank: rank}}, nil
 }
 
 func (b *Backend) processByName(ctx context.Context, s Snapshot, name string) (string, Process, error) {
@@ -545,7 +591,7 @@ func (b *Backend) projectOfChild(ctx context.Context, s Snapshot, c board.Card, 
 			return p.ID, nil
 		}
 	}
-	id, _, err := b.projectByName(ctx, s, c.Project)
+	id, _, err := b.projectByName(ctx, s, c.Project, false)
 	return id, err
 }
 
@@ -1121,7 +1167,7 @@ func (b *Backend) moveEpic(ctx context.Context, card board.Card, project string)
 	if err != nil {
 		return err
 	}
-	toPID, _, err := b.projectByName(ctx, s, project)
+	toPID, _, err := b.projectByName(ctx, s, project, true)
 	if err != nil {
 		return err
 	}

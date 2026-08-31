@@ -302,3 +302,48 @@ func TestAHandWrittenGhostMirrorNeverPromotes(t *testing.T) {
 		t.Fatalf("no promotion into a ghost pair — the card is gone: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// The no-project bucket is a mirror home like any other (G15): a column's
+// repository is read off the COLUMN, never off a project, so the pair
+// {project: "", epic: X} names a real target. The service, the codec, MCP
+// and the docs all accept it — this door refused it, and the SPA's own
+// picker offers the bucket, so the entry was a 422 with a friendly label.
+func TestMirroringIntoTheNoProjectBucketOverHTTP(t *testing.T) {
+	remote := gitRemoteN(t, "board")
+	r, err := gitstore.Init(memory.NewStorage(), gitTestOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.Commit(gitstore.Action{Name: "import", Summary: "seed"}, []gitstore.FileWrite{
+		{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
+		{Path: gitstore.TeamPath("01JB4TEAM"), Data: []byte("name: platform\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n")},
+		{Path: gitstore.ProjectPath("01JB4PROJ"), Data: []byte("name: engineering\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: gitstore.EpicPath("01JB4PROJ", "01JB4EPIC"), Data: []byte("name: Cozystack\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		// The bucket: a nameless project stub with a column of its own.
+		{Path: gitstore.ProjectPath("_"), Data: []byte("rank: b\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: gitstore.EpicPath("_", "01JB4INBX"), Data: []byte("name: Inbox\nrank: a\ncreated: 2026-06-01T08:00:00Z\n")},
+		{Path: "cards/d/4/01JB4K2E7QZMX3R8V0N5T9WYD4.md", Data: []byte("---\ntitle: shared work\nteam: platform\nproject: engineering\nepic: Cozystack\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Push(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	rights := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": rights}}, remote)
+	const uid = "01JB4K2E7QZMX3R8V0N5T9WYD4"
+
+	rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/mirror", `{"project":"","epic":"Inbox"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a bucket column is a mirror target: %d %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "Inbox") {
+		t.Fatalf("and the card comes back standing in it: %s", body)
+	}
+	// …and the × on it is the same pair, which is how it is taken away.
+	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+uid+"/actions/unmirror", `{"project":"","epic":"Inbox"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unmirroring the same pair: %d %s", rec.Code, rec.Body.String())
+	}
+}

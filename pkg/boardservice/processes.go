@@ -144,13 +144,38 @@ func (s *Service) SetProcessProject(ctx context.Context, boardID string, name, p
 	// cross-repository in one stroke — the state the tie guard
 	// (SetCardProcess) exists to prevent. Refused while ties stand,
 	// symmetric with the mirrored column that cannot change repositories.
-	if board.ProjectDomain(b, projectName) != board.ProcessDomain(b, name) {
+	// Where the stub will BE, in the board's own namespace: a process with
+	// NO project belongs to the primary, and ProjectDomain answers "" both
+	// for that and for a project of the primary — while ProcessDomain now
+	// answers with the primary's NAME. Read raw, dropping the binding of a
+	// process that never leaves the primary looked like a move out of it
+	// and refused over ties that were going nowhere.
+	to := b.Primary
+	if projectName != "" {
+		to = board.ProjectDomain(b, projectName)
+	}
+	if to != board.ProcessDomain(b, name) {
 		if n := len(tiedTo(b, name)); n > 0 {
 			return fmt.Errorf("%w: %d card(s) are tied to %q — untie them first", ErrCrossDomain, n, name)
 		}
 	}
 	stub := board.Card{ItemID: p.ItemID, Title: board.ProcessStateTitle, Process: name, Project: p.Project}
 	return s.backend.SetProject(ctx, b, stub, projectName)
+}
+
+// livePause is the board with one process's paused flag as a write has just
+// left it. The value a caller holds is a snapshot: nothing the backend
+// writes appears in it, so a rule that reads the flag back out of it reads
+// the state from before the call.
+func livePause(b board.Board, name string, paused bool) board.Board {
+	out := b
+	out.Processes = append([]board.Process(nil), b.Processes...)
+	for i := range out.Processes {
+		if out.Processes[i].Name == name {
+			out.Processes[i].Paused = paused
+		}
+	}
+	return out
 }
 
 // SetProcessPaused stops a process spawning, or starts it again. Its
@@ -176,10 +201,14 @@ func (s *Service) SetProcessPaused(ctx context.Context, boardID string, name str
 		return err
 	}
 	// Resuming files what this week is already owed, so a process picks up
-	// where it left off rather than at the next carry.
+	// where it left off rather than at the next carry. On the board as the
+	// write has just made it: a backend does not reach back into the value
+	// in hand, so asking the one loaded a moment ago found the process
+	// still paused and filed nothing at all.
 	if !paused {
-		for _, t := range board.TasksOf(b, name) {
-			s.spawnDue(ctx, boardID, t.ItemID)
+		live := livePause(b, name, paused)
+		for _, t := range board.TasksOf(live, name) {
+			s.spawnDue(ctx, live, t)
 		}
 	}
 	return nil
@@ -306,7 +335,7 @@ func (s *Service) AddProcessTask(ctx context.Context, boardID string, process st
 	// If this week is already owed an iteration, hand it over now: a task
 	// added on Monday should show in Monday's plan, not after someone carries
 	// the week.
-	s.spawnDue(ctx, boardID, created.ItemID)
+	s.spawnDue(ctx, b, created)
 	return created, nil
 }
 
@@ -394,6 +423,11 @@ func (s *Service) UpdateProcessTask(ctx context.Context, boardID string, taskID 
 	if !ok {
 		return fmt.Errorf("%w %q", ErrTaskNotFound, taskID)
 	}
+	// after is the task as this patch makes it — what the re-routing and the
+	// spawn below read. Built field by field beside the writes, since the
+	// board in hand is a snapshot and a re-read of it would answer with the
+	// task from before this call.
+	after := t
 	if p.Title != nil || p.Description != nil {
 		title, desc := TaskTitle(t), TaskDescription(t)
 		if p.Title != nil {
@@ -405,7 +439,11 @@ func (s *Service) UpdateProcessTask(ctx context.Context, boardID string, taskID 
 		if title == "" {
 			return fmt.Errorf("task title must not be empty")
 		}
-		if err := s.backend.SetDescription(ctx, b, t, taskBody(title, desc)); err != nil {
+		// A task's title and body live in its description (taskBody), which
+		// is where the turn takes both from: leaving it off `after` spawned
+		// the new owner's card under the name the task used to have.
+		after.Description = taskBody(title, desc)
+		if err := s.backend.SetDescription(ctx, b, t, after.Description); err != nil {
 			return err
 		}
 	}
@@ -442,29 +480,45 @@ func (s *Service) UpdateProcessTask(ctx context.Context, boardID string, taskID 
 	// doing the work and are theirs, but the team and the owner say WHO does
 	// it — fixing that a minute after creating the task has to take
 	// effect on the card in front of them, not only on next month's.
+	if p.Team != nil {
+		after.Team = *p.Team
+	}
+	if p.Assignee != nil {
+		after.Assignees = nil
+		if *p.Assignee != "" {
+			after.Assignees = []string{*p.Assignee}
+		}
+	}
+	if p.Recurrence != nil {
+		after.Recurrence = *p.Recurrence
+	}
+	if p.Start != nil {
+		after.StartDate = *p.Start
+	}
+	if p.Accumulate != nil {
+		after.Accumulate = *p.Accumulate
+	}
 	if p.Team != nil || p.Assignee != nil {
-		if err := s.routeOpenIterations(ctx, boardID, taskID); err != nil {
+		if err := s.routeOpenIterations(ctx, b, after); err != nil {
 			return err
 		}
 	}
 	// A changed cycle, start, team or title can make this week due when it was
 	// not: give it its card now rather than at the next carry.
-	s.spawnDue(ctx, boardID, taskID)
+	s.spawnDue(ctx, b, after)
 	return nil
 }
 
 // routeOpenIterations points a task's unfinished turns at its current team
 // and owner, and dates an owned one across its week so it reaches that
 // person's day board. A finished turn is history and is left alone.
-func (s *Service) routeOpenIterations(ctx context.Context, boardID string, taskID string) error {
-	b, err := s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return err
-	}
-	t, ok := findTask(b, taskID)
-	if !ok {
-		return nil
-	}
+//
+// The task comes IN HAND — as the edit has just made it, not as a re-read
+// would find it. Inside a scope the edit is staged, so a reload returns the
+// task's OLD team and owner: every open turn then matched, nothing moved,
+// and the re-routing an embedder asked for did nothing at all.
+func (s *Service) routeOpenIterations(ctx context.Context, b board.Board, t board.Card) error {
+	taskID := t.ItemID
 	who := ""
 	if len(t.Assignees) > 0 {
 		who = t.Assignees[0]
@@ -496,14 +550,9 @@ func (s *Service) routeOpenIterations(ctx context.Context, boardID string, taskI
 		return nil
 	}
 	// The new owner always gets this week's turn, whether the old card was
-	// deleted or left standing with someone's work in it.
-	b, err = s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return err
-	}
-	if t, ok = findTask(b, taskID); !ok {
-		return nil
-	}
+	// deleted or left standing with someone's work in it. The task in hand
+	// again: spawnIteration reads the turn's shape from it, and the board
+	// only routes the write.
 	return s.spawnIteration(ctx, b, t, week)
 }
 
@@ -614,17 +663,15 @@ func (s *Service) spawnIfDue(ctx context.Context, b board.Board, t board.Card, w
 // that is due now produces its card the moment it is written rather than
 // waiting for someone to carry the week. Failing to spawn does not fail the
 // write: the task is saved either way, and the sweep will catch it.
-func (s *Service) spawnDue(ctx context.Context, boardID string, taskID string) {
-	b, err := s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return
-	}
-	t, ok := findTask(b, taskID)
-	if !ok {
-		return
-	}
+//
+// The task comes IN HAND, never by a re-read: it was written a moment ago,
+// and inside a gitstore scope that write is staged — a bare store answers
+// with the repository as it was, so the task is either missing (a create)
+// or still carrying its old cycle and owner (an edit), and the spawn
+// silently does nothing.
+func (s *Service) spawnDue(ctx context.Context, b board.Board, t board.Card) {
 	if _, err := s.spawnIfDue(ctx, b, t, board.MondayOf(board.TodayIso()), false); err != nil {
-		slog.Warn("process iteration not spawned", "task", taskID, "err", err)
+		slog.Warn("process iteration not spawned", "task", t.ItemID, "err", err)
 	}
 }
 

@@ -113,20 +113,40 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if err := knownProject(b, to); err != nil {
 			return err
 		}
-		// The target project may already have a column of this name, and two
-		// columns with one name inside a project cannot be told apart.
-		if err := epicNameFree(b, to, epic, ""); err != nil {
-			return err
-		}
 	}
+	// The destination may already have a column of this name, and two
+	// columns with one name in one project cannot be told apart. The
+	// NO-PROJECT bucket is a destination like any other here: NewBoard
+	// dedups columns by the (project, epic) pair, so an unbind onto a name
+	// already there merges two stubs under one entry — and the losing
+	// stub's cards are then refused at every door, with nothing in the
+	// product to free them.
+	if err := epicNameFree(b, to, epic, ""); err != nil {
+		return err
+	}
+	// A column cannot change REPOSITORY. Its stub is handed straight back to
+	// the backend that holds it (gitstore isStub), so a move to a project of
+	// another repository would leave the column declared where it was while
+	// its project lives elsewhere — and every ordinary card in it, whose
+	// project decides where IT lives, re-filed away from the column it
+	// stands in: the state G57 forbids, and a trap, since from then on every
+	// guard refuses that card and no gesture frees it. Unbinding (to = "")
+	// moves nothing and is judged below, card by card.
+	colDomain, _ := board.ColumnDomain(b, from, epic) // declared: FindEpic said so
+	if to != "" && colDomain != board.ProjectDomain(b, to) {
+		return fmt.Errorf("%w: %q is in another repository than this column, which cannot follow it",
+			ErrCrossDomain, to)
+	}
+
 	// EVERY refusal fires before anything is written: a guard that speaks
 	// after the column's stub has moved leaves the stub in one project and
 	// the cards in another — half a column gone. The destination must not
-	// put a card in a repository its team does not live in (G46), a card
-	// mirrored INTO this column may not follow across repositories, and a
-	// card whose HOME is here may not be carried away from its own mirrors
-	// (G15, both directions). Unbinding to the no-project bucket under
-	// mirrors is refused with the act that fixes it.
+	// put a card in a repository its team does not live in (G46), and every
+	// card standing here must be able to FOLLOW: an ordinary card does (its
+	// project decides where it lives), one whose file a link holds does not.
+	// The cross-repository question is settled above, for the column as a
+	// whole. Unbinding to the no-project bucket under mirrors is refused
+	// with the act that fixes it.
 	for _, c := range b.Cards {
 		if !board.InEpic(c, from, epic) {
 			continue
@@ -134,28 +154,31 @@ func (s *Service) SetEpicProject(ctx context.Context, boardID string, from, epic
 		if err := guardRoster(b, c.Team, to); err != nil {
 			return err
 		}
-		// A HOME card's process tie must not leave its repository with the
-		// column: the move re-files the card, and the tie would stay
-		// behind — refused before the stub is re-parented, like the
-		// mirror guards below.
 		if c.Project == from && c.Epic == epic {
-			if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
+			// A HOME card's process tie must not leave its repository with
+			// the column: the move re-files the card, and the tie would
+			// stay behind — refused before the stub is re-parented, like
+			// the mirror guards below.
+			if err := refileGuard(b, c, func(a *board.Card) { a.Project = to }); err != nil {
 				return fmt.Errorf("%w (card %q)", err, c.Title)
 			}
+			// And the card must be able to FOLLOW the column. An ordinary
+			// card does — its project decides where it lives — but one
+			// whose file is held by a link (a subtask riding its parent, a
+			// review card its original) stays behind while its project
+			// field is rewritten to name a column that has left: the state
+			// G57 refuses at every other door. refileGuard cannot see this
+			// one, because the move changes nothing about THIS card's
+			// domain and the target column does not exist yet.
+			after := c
+			after.Project = to
+			if board.HomeDomain(b, after) != colDomain {
+				return fmt.Errorf("%w: %q would leave this column's repository — its team or its links decide where it lives, not its project",
+					ErrCrossDomain, c.Title)
+			}
 		}
-		if len(c.Mirrors) == 0 {
-			continue
-		}
-		if to == "" {
+		if len(c.Mirrors) > 0 && to == "" {
 			return fmt.Errorf("%w: %q is mirrored — unmirror it before unbinding the column", ErrCrossDomain, c.Title)
-		}
-		if board.Mirrored(c, from, epic) && !board.MirrorAllowed(b, c.Project, to) {
-			return fmt.Errorf("%w: %q mirrors this column and lives in another repository than %q",
-				ErrCrossDomain, c.Title, to)
-		}
-		if c.Project == from && c.Epic == epic && !board.MirrorAllowed(b, to, c.Mirrors[0].Project) {
-			return fmt.Errorf("%w: %q mirrors %q — unmirror it before moving its column to %q",
-				ErrCrossDomain, c.Title, c.Mirrors[0].Project, to)
 		}
 	}
 	stub := board.Card{ItemID: col.ItemID, Title: board.EpicStateTitle, Epic: epic, Project: from}

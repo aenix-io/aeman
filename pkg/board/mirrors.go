@@ -26,27 +26,74 @@ func Mirrored(c Card, project, epic string) bool {
 	return false
 }
 
-// MirrorAllowed reports whether a card whose home is in `from` may stand in
-// a column of `to`: both projects must be declared, and declared in the
-// same repository. A card is one file in one repository, and a column
-// elsewhere cannot show a file its readers may not have (G15).
-func MirrorAllowed(b Board, from, to string) bool {
-	if _, ok := b.ProjectStates[from]; !ok {
-		return false
-	}
-	if _, ok := b.ProjectStates[to]; !ok {
-		return false
-	}
-	return ProjectDomain(b, from) == ProjectDomain(b, to)
-}
-
-// ProcessDomain is the repository a process was declared in, "" for the
-// primary and for a process the roster does not declare.
+// ProcessDomain is the repository a process was declared in, read in the
+// board's ONE namespace (inPrimary): an unstamped entry answers with the
+// PRIMARY's name, which is "" only on a board that does not name its own.
+// A process the roster does not declare answers "" and decides nothing.
 func ProcessDomain(b Board, name string) string {
 	for _, p := range b.Processes {
 		if p.Name == name {
-			return b.Domains[p.ItemID]
+			return b.inPrimary(b.Domains[p.ItemID])
 		}
 	}
 	return ""
+}
+
+// ColumnDomain is the repository a COLUMN belongs to — the domain of the
+// epic stub that declares it, not of its project. The two agree wherever a
+// project owns the column (a project and its columns live together), but
+// the NO-PROJECT bucket is a real column with no project to ask: reading
+// the project there answers "no such repository" for every card in it.
+// Reports false only for a column the roster does not declare at all.
+func ColumnDomain(b Board, project, epic string) (string, bool) {
+	col, ok := FindEpic(b, project, epic)
+	if !ok {
+		return "", false
+	}
+	return b.inPrimary(b.Domains[col.ItemID]), true
+}
+
+// inPrimary reads an entry's stamp in ONE namespace: an unstamped entry
+// belongs to the primary, which the store names explicitly. Every "is this
+// the same repository" question must go through it, or a stamped primary
+// ("board") is compared against an unstamped one ("") and answers no.
+func (b Board) inPrimary(domain string) string {
+	if domain == "" {
+		return b.Primary
+	}
+	return domain
+}
+
+// FileDomain is the repository whose files hold this card, read in the
+// board's ONE namespace: the stamp the store put on it — gitstore stamps
+// every card with its domain's name, the primary's included — with an
+// unstamped card read as the primary.
+//
+// It answers where the card IS, which is the question a rule about the
+// references written IN its file has to ask (a process tie names a process
+// of the repository the file sits in). HomeDomain answers where a card
+// WOULD live by the placement rule, which is what a CHANGE is judged
+// against. Comparing one against a raw stamp is how a named primary and an
+// unstamped entry became two repositories.
+func FileDomain(b Board, c Card) string {
+	if IsPersonalDomain(c.Domain) {
+		return c.Domain
+	}
+	return b.inPrimary(c.Domain)
+}
+
+// HomeDomain is the repository that HOLDS a card, in the same namespace:
+// the placement rule's answer (linked cards first, G14), with "nothing
+// places this card" read as the primary — which is where such a card's
+// file goes.
+func HomeDomain(b Board, c Card) string {
+	// A PERSONAL card is placed by nothing — no team, no project, no link
+	// — so the placement rule says "" for it and only its file knows whose
+	// board it is. Every other card is answered by the rule, because the
+	// question is always where the card will BE after a change, not where
+	// its file happens to sit now.
+	if IsPersonalDomain(c.Domain) {
+		return c.Domain
+	}
+	return b.inPrimary(DomainOf(c, Resolver(b, b.Primary)))
 }

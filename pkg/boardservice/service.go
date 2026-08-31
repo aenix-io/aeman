@@ -291,9 +291,13 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// A personal card lives in the actor's own repository, outside the team
 	// board's placement: it has a zone, dates and a body, and none of team,
 	// sprint, column or plan band — those are the team board's coordinates.
+	if err := linksArePossible(b, args); err != nil {
+		return board.Card{}, err
+	}
 	if args.Personal {
 		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
+
 	// An epic card lives on the Plan board: filed under its column, anchored
 	// to its week row, optionally spanning several weeks via start..day. It
 	// joins no sprint and no plan band — assigning it to a team later places
@@ -382,15 +386,6 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// born already parented — a create-then-group pair would broadcast (and
 	// persist) a parentless instant that watchers and mid-sync reloads see as
 	// a stray top-level card.
-	if args.Parent != "" {
-		p, ok := findCard(b, args.Parent)
-		if !ok || p.Title == board.SprintStateTitle {
-			return board.Card{}, ErrParentNotFound
-		}
-		if p.Parent != "" {
-			return board.Card{}, ErrSubtaskDepth
-		}
-	}
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:       args.Title,
@@ -409,11 +404,8 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		s.resolveTitleAsync(ctx, b, card, pendingRef)
 	}
 	if err == nil && args.Parent != "" {
-		if perr := s.SetParent(ctx, boardID, card.ItemID, args.Parent); perr != nil {
-			// The card exists but could not finish grouping: remove it rather
-			// than leave a half-grouped twin behind.
-			_ = s.deleteWithCascade(ctx, b, card)
-			return card, perr
+		if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
+			return board.Card{}, perr
 		}
 		card.Parent = args.Parent
 	}
@@ -490,10 +482,18 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 	// a second value free to disagree with the dates the moment either moves.
 	week := board.MondayOf(start)
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
-		Title:    args.Title,
-		Zone:     args.Zone,
-		Epic:     args.Epic,
-		Project:  args.Project,
+		Title:   args.Title,
+		Zone:    args.Zone,
+		Epic:    args.Epic,
+		Project: args.Project,
+		// Born parented and born LINKED, like the other create doors: a
+		// create-then-group pair broadcasts a parentless instant that
+		// watchers and mid-sync reloads read as a stray top-level card,
+		// and a dropped reviewOf answered a request for a review card with
+		// an ordinary one — 201, no error, no link. SetParent below still
+		// runs, for the grouping's own side effects.
+		Parent:   args.Parent,
+		ReviewOf: args.ReviewOf,
 		Week:     week,
 		Start:    start,
 		Day:      day,
@@ -504,6 +504,17 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 	if err == nil {
 		s.logEvent(ctx, b, card, board.EventCreated, "", "")
 		s.resolveTitleAsync(ctx, b, card, pendingRef)
+	}
+	// A subtask may carry a column of its own (G14), and the Project board
+	// draws it there (G57) — so the pair is a state to produce, not one to
+	// drop on the floor: dropping it answered a request for a child with a
+	// top-level card standing in someone's planner. Grouping goes through
+	// SetParent like every other, guards and riders included.
+	if err == nil && args.Parent != "" {
+		if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
+			return board.Card{}, perr
+		}
+		card.Parent = args.Parent
 	}
 	return card, err
 }
@@ -1081,14 +1092,6 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 	if board.IsPersonalDomain(c.Domain) {
 		return s.removePersonal(ctx, b, c)
 	}
-	// A subtask has no sprint history of its own: it rides its parent, so
-	// demoting it alone would split the family across two sprints — the very
-	// thing syncChildrenSprint prevents everywhere else — and a subtask left
-	// in an earlier sprint still renders under its parent, so the × would
-	// look like it had done nothing. It is deleted.
-	if c.Parent != "" {
-		return s.deleteWithCascade(ctx, b, c)
-	}
 	if from == "plan" {
 		// A slot of a plan is never deleted by the plan ×. It is a piece of a
 		// roadmap that happens to be in a weekly plan because someone gave it
@@ -1097,6 +1100,35 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// week is not cleared either.) The COLUMN is what makes it a slot,
 		// and a column needs the epic side: a bare project name puts a card
 		// on no board at all, so it cannot be the home that spares it.
+		// Nothing in the plan, nothing to empty. A card with no band — and a
+		// SUBTASK never has one, since grouping clears it — would otherwise
+		// have empty fields cleared into this request's commit for a change
+		// nobody made. A SLOT's week is derived from its start date rather
+		// than stored plan membership, so it does not count as one here.
+		if c.Plan == board.PlanNone && (hasColumn(c) || c.Week == "") {
+			return nil
+		}
+		// A SUBTASK is never deleted by this ×: its home is its parent, so
+		// emptying the plan cannot be emptying its last home. It loses the
+		// plan's records and stays.
+		if c.Parent != "" {
+			if c.Plan != board.PlanNone {
+				if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
+					return err
+				}
+				s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
+			}
+			// The week may outlive the band (a grouping clears only what
+			// the card had), and clearing it is the whole of the gesture
+			// for such a card.
+			if c.Week != "" {
+				if err := s.clearPlanWeek(ctx, b, c); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
 		if hasColumn(c) {
 			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
 				return err
@@ -1128,6 +1160,61 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// retired in v0.19 and the debt rule replaced it.)
 		return s.deleteWithCascade(ctx, b, c)
 	}
+	// A subtask has no sprint history of its own: it rides its parent, so
+	// demoting it alone would split the family across two sprints — the very
+	// thing syncChildrenSprint prevents everywhere else — and a subtask left
+	// in an earlier sprint still renders under its parent, so the × would
+	// look like it had done nothing. It is deleted — UNLESS it stands in a
+	// COLUMN, which is a home of its own (G57). Then the × takes it OUT OF
+	// THE GROUP and leaves it there: releasing it while still a subtask
+	// would either break the person/sprint pair its parent owns (S9) or be
+	// undone by the next carry-over, which takes every open child along.
+	// Leaving the family is what makes the gesture mean something, and the
+	// work stays planned in its column.
+	if c.Parent != "" {
+		if !hasColumn(c) {
+			return s.deleteWithCascade(ctx, b, c)
+		}
+		// EVERY refusal fires before anything is written. Ungrouping strands
+		// a column of the PARENT's repository — the gesture's own doing, so
+		// the column is repaired rather than refused over — but whatever
+		// ELSE the pull-out would strand (a follower's column, a process
+		// tie) is asked FIRST, or a refusal lands after a write the commit
+		// never carries and the cache keeps.
+		if err := s.ungroupWith(ctx, b, c, false, false); err != nil {
+			return err
+		}
+		// The card in hand, not a re-read: a staged write is invisible to a
+		// bare gitstore until the scope flushes (only the server's cache
+		// answers mid-request), so re-loading here would return the card
+		// as it was for an embedder and as it is for the server — the same
+		// call, two answers.
+		c.Parent = ""
+		if err := s.dropAStrandedColumn(ctx, b, c); err != nil {
+			return err
+		}
+		if columnFollows(b, c) {
+			return s.releaseToColumn(ctx, b, c)
+		}
+		// The column could not come along, so the card is an ordinary one
+		// now and the × means for it what it means for any other: demote,
+		// or delete when the working area was its only place. Releasing it
+		// as if it still had a column left it with no sprint, no dates, no
+		// band and no column — alive, and on no board anyone can open.
+		// The card in hand again, for the same reason: a re-read answers
+		// differently for an embedder than for the server.
+		c.Epic, c.Project = "", ""
+		return s.removeFromGrid(ctx, b, c)
+	}
+	return s.removeFromGrid(ctx, b, c)
+}
+
+// removeFromGrid is the day grid's × on a card that stands on its own: the
+// card leaves the working area, and where it goes is decided by what it has
+// left. Split out of Remove so the former subtask above, whose column could
+// not follow it out of the group, is answered by the SAME law rather than a
+// second copy of it.
+func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Card) error {
 	if c.Plan != board.PlanNone {
 		// The card is in the weekly plan too, so this × takes it out of the
 		// working area and leaves it there — whatever it carries. The grid ×
@@ -1386,16 +1473,20 @@ func (s *Service) SetReviewOf(ctx context.Context, boardID string, itemID, revie
 	// G15's forbidden state. Refused while mirrors stand, symmetric with
 	// SetEpic: unmirror first.
 	if len(card.Mirrors) > 0 {
-		r := board.Resolver(b, "")
 		after := card
 		after.ReviewOf = reviewOf
-		if board.DomainOf(after, r) != board.DomainOf(card, r) {
+		// Through HomeDomain, which reads BOTH sides in the board's one
+		// namespace. A resolver of its own answered "" for an unstamped
+		// team and the primary's NAME for a card the store stamped — two
+		// names for one repository inside a single comparison, so a link
+		// that moved nothing looked like a move and was refused.
+		if board.HomeDomain(b, after) != board.HomeDomain(b, card) {
 			return fmt.Errorf("%w: the review link would move the card — unmirror it first", ErrCrossDomain)
 		}
 	}
 	// The tie is pinned the same way the mirrors are: a link that re-files
 	// the card into another repository would strand it.
-	if err := tiedMoveGuard(b, card, func(a *board.Card) { a.ReviewOf = reviewOf }); err != nil {
+	if err := refileGuard(b, card, func(a *board.Card) { a.ReviewOf = reviewOf }); err != nil {
 		return err
 	}
 	return s.backend.SetReviewOf(ctx, b, card, reviewOf)
@@ -1824,6 +1915,13 @@ func (s *Service) SetPlan(ctx context.Context, boardID string, itemID string, pl
 	if err != nil {
 		return err
 	}
+	// A card is a SUBTASK or a plan card, never both (G58): grouping hands
+	// a subtask's slot to its parent, so writing a band back onto one
+	// re-creates by PATCH the state the create door refuses. Clearing is
+	// free — that is how the slot is handed over.
+	if card.Parent != "" && plan != board.PlanNone {
+		return ErrPlanSubtask
+	}
 	if err := s.backend.SetPlan(ctx, b, card, plan); err != nil {
 		return err
 	}
@@ -2165,7 +2263,7 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	// card without a project follows its TEAM, so re-teaming it re-files
 	// the card and would strand the tie. Refused before anything is
 	// declared or written.
-	if err := tiedMoveGuard(b, card, func(a *board.Card) { a.Team = team }); err != nil {
+	if err := refileGuard(b, card, func(a *board.Card) { a.Team = team }); err != nil {
 		return err
 	}
 	// A team the board does not declare is declared by the assignment: over
@@ -2408,13 +2506,41 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // sprint and dates) instead of vanishing as orphans of a gone parent.
 func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card board.Card) error {
 	if reviewCard, ok := findReviewCard(b, card.ItemID); ok {
+		// The review card's OWN subtasks are freed first: deleting it out
+		// from under them left a parent id pointing at a card that is gone
+		// — a group nobody can see and nothing can dissolve.
+		if err := s.freeChildren(ctx, b, reviewCard); err != nil {
+			return err
+		}
 		if err := s.backend.DeleteCard(ctx, b, reviewCard); err != nil {
 			return err
 		}
 	}
+	if err := s.freeChildren(ctx, b, card); err != nil {
+		return err
+	}
+	return s.backend.DeleteCard(ctx, b, card)
+}
+
+// freeChildren releases a card's subtasks into standalone cards before the
+// card itself goes: they keep their own lives, their columns when those
+// still name the repository that holds them, and the parent's person when
+// they had none — so a freed child lands where its parent stood instead of
+// falling into Unassigned.
+func (s *Service) freeChildren(ctx context.Context, b board.Board, card board.Card) error {
 	anchor := card.ItemID
 	for _, c := range board.Children(b, card.ItemID) {
 		if err := s.backend.SetParent(ctx, b, c, ""); err != nil {
+			return err
+		}
+		// The child keeps the one column it carries (G57) — but only while
+		// that column still names the repository that holds it. A parent
+		// whose own domain came from a LINK (a review card takes its
+		// original's repository, G14) drops its children into the primary
+		// when it goes, and a column left behind there is the state every
+		// door refuses, reached by the one release that cannot ask the
+		// guard: its parent is being deleted.
+		if err := s.dropAStrandedColumn(ctx, b, c); err != nil {
 			return err
 		}
 		// An unassigned subtask takes the parent's person, so on the Team
@@ -2434,7 +2560,7 @@ func (s *Service) deleteWithCascade(ctx context.Context, b board.Board, card boa
 		}
 		s.logEvent(ctx, b, c, board.EventParent, card.Title, "")
 	}
-	return s.backend.DeleteCard(ctx, b, card)
+	return nil
 }
 
 // --- Weekly plan -----------------------------------------------------------
@@ -2510,4 +2636,103 @@ func (s *Service) TakeIntoPlan(ctx context.Context, boardID string, itemID, engi
 // already — one cleared the week where the other kept it.
 func (s *Service) ReleaseFromPlan(ctx context.Context, boardID string, itemID string) error {
 	return s.Remove(ctx, boardID, itemID, "plan")
+}
+
+// groupOrUndo finishes a create by grouping the new card, and undoes the
+// create when it cannot: a half-grouped twin left standing is a stray
+// top-level card in somebody's column. If the undo itself fails, both
+// reasons travel — a card nobody was told about is the worse outcome, and
+// one of these two paths used to swallow the second error and hand back
+// the card it had just deleted.
+func (s *Service) groupOrUndo(ctx context.Context, b board.Board, card board.Card, parent string) error {
+	// The card in hand, never re-read: it was written a moment ago, and
+	// inside a scope that write is staged — invisible to a bare store until
+	// the scope flushes. A re-read there fails and takes the undo with it,
+	// deleting the card the caller asked for (setParentOf).
+	if err := s.setParentOf(ctx, b, card, parent); err != nil {
+		if derr := s.deleteWithCascade(ctx, b, card); derr != nil {
+			return errors.Join(err, derr)
+		}
+		return err
+	}
+	return nil
+}
+
+// linksArePossible answers, before anything is written, whether the card
+// being created may be born as asked. A named PARENT must exist and may
+// not be a subtask itself; and since a LINK decides which repository holds
+// a card — reviewOf first, then parent, then the project (G14) — the
+// repository the new card lands in must be able to hold the column asked
+// for (G57). Refusing after the create instead leaves a stray ADDED
+// broadcast and a created event for a card that never was, which is why
+// the probe models every link the request carries: reading only the parent
+// answered for a different card than the one about to be written.
+func linksArePossible(b board.Board, args CreateCardArgs) error {
+	if args.Parent != "" {
+		p, ok := findCard(b, args.Parent)
+		if !ok || p.Title == board.SprintStateTitle {
+			return ErrParentNotFound
+		}
+		if p.Parent != "" {
+			return ErrSubtaskDepth
+		}
+		if args.Plan != board.PlanNone {
+			return ErrPlanSubtask
+		}
+	}
+	// A COLUMN is what G57 is about, so a request that names one is asked
+	// even when it names no link: the column's repository must be the one
+	// that will hold the card. Only a request with neither has nothing to
+	// check — there the project decides, and it decides for itself.
+	if args.Epic == "" && args.Parent == "" && args.ReviewOf == "" {
+		return nil
+	}
+	probe := board.Card{
+		Parent: args.Parent, ReviewOf: args.ReviewOf, Team: args.Team,
+		Project: args.Project, Epic: args.Epic,
+	}
+	return refileGuard(b, probe, func(*board.Card) {})
+}
+
+// columnFollows reports whether a card's column can come with it out of a
+// group. Judged on the card WITHOUT its parent: every caller is releasing
+// it — a deleted parent frees its children, the grid's × takes a card out
+// of its group — so the question is which repository will hold the card
+// once the link is gone. An UNKNOWN column is left alone: no roster
+// declares it, so nothing says it belongs to another repository.
+//
+// The grid's × asks this to know what the card has left; dropAStrandedColumn
+// acts on the same answer. One function, or the two drift and the × decides
+// a card is columnless while its column is still written on it.
+func columnFollows(b board.Board, c board.Card) bool {
+	if c.Epic == "" {
+		return true
+	}
+	after := c
+	after.Parent = ""
+	cd, known := board.ColumnDomain(b, c.Project, c.Epic)
+	return !known || cd == board.HomeDomain(b, after)
+}
+
+// dropAStrandedColumn takes a card's column away when the card no longer
+// lives in that column's repository — the only correction of its kind,
+// for the only re-files that cannot be refused instead (a parent being
+// deleted releases its children whatever else is true; the grid's × on a
+// subtask strands the column by the very gesture it answers). Everywhere
+// else this state is prevented; here it is repaired, and recorded.
+func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c board.Card) error {
+	if columnFollows(b, c) {
+		return nil
+	}
+	was := c.Project + " / " + c.Epic
+	if err := s.backend.SetEpic(ctx, b, c, ""); err != nil {
+		return err
+	}
+	if c.Project != "" {
+		if err := s.backend.SetProject(ctx, b, c, ""); err != nil {
+			return err
+		}
+	}
+	s.logEvent(ctx, b, c, board.EventEpic, was, "")
+	return nil
 }

@@ -154,3 +154,72 @@ func TestATeamAndAProjectFromDifferentRepositoriesAreARefusal(t *testing.T) {
 		t.Fatal("a single-repository board has nothing to conflict")
 	}
 }
+
+// The board's ONE namespace. A real store hands over a board whose primary
+// is NAMED and whose entries carry that name (gitstore.stamp), but a file
+// may leave a stamp out and a test may not set one — so every reader has to
+// answer "unstamped" and "the primary" with the same string. Compared raw,
+// "aeman-db" and "" are two repositories where there is one, and the rules
+// that ask "the same repository?" refuse what they should allow.
+func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
+	b := NewBoardIn("aeman-db", []Card{
+		{ItemID: "st-p", Title: SprintStateTitle, Team: "platform"},
+		{ItemID: "st-f", Title: SprintStateTitle, Team: "founders", Domain: "founders"},
+		{ItemID: "pr-e", Title: ProjectStateTitle, Project: "engineering"},
+		{ItemID: "pr-s", Title: ProjectStateTitle, Project: "strategy", Domain: "founders"},
+		{ItemID: "ep-c", Title: EpicStateTitle, Project: "engineering", Epic: "Cozystack"},
+		{ItemID: "ep-i", Title: EpicStateTitle, Epic: "Inbox"},
+		{ItemID: "pc-i", Title: ProcessStateTitle, Process: "Invoicing"},
+	})
+	for _, tc := range []struct{ what, got, want string }{
+		{"an unstamped team", TeamDomain(b, "platform"), "aeman-db"},
+		{"a stamped team", TeamDomain(b, "founders"), "founders"},
+		{"an unstamped project", ProjectDomain(b, "engineering"), "aeman-db"},
+		{"a stamped project", ProjectDomain(b, "strategy"), "founders"},
+		{"an unstamped process", ProcessDomain(b, "Invoicing"), "aeman-db"},
+		{"a card its team places", HomeDomain(b, Card{Team: "platform"}), "aeman-db"},
+		{"a card its project places", HomeDomain(b, Card{Project: "strategy"}), "founders"},
+		{"a card NOTHING places", HomeDomain(b, Card{}), "aeman-db"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s answers %q, want %q", tc.what, tc.got, tc.want)
+		}
+	}
+	// A column answers by its own stub, the no-project bucket included:
+	// its project cannot be asked, and reading it there would call every
+	// card in the bucket foreign.
+	for _, tc := range []struct{ project, epic, want string }{
+		{"engineering", "Cozystack", "aeman-db"},
+		{"", "Inbox", "aeman-db"},
+	} {
+		cd, ok := ColumnDomain(b, tc.project, tc.epic)
+		if !ok || cd != tc.want {
+			t.Errorf("column %q/%q answers %q (known=%v), want %q", tc.project, tc.epic, cd, ok, tc.want)
+		}
+	}
+	// Where the card's FILE is, in the same namespace: the stamp, or the
+	// primary when the file carries none. A rule that reads a card's own
+	// stamp raw — the process tie asks whether the card and the process
+	// live together — compares it against answers that ARE normalized.
+	for _, tc := range []struct{ what, got, want string }{
+		{"an unstamped card", FileDomain(b, Card{}), "aeman-db"},
+		{"a stamped card", FileDomain(b, Card{Domain: "founders"}), "founders"},
+		{"a personal card", FileDomain(b, Card{Domain: PersonalDomain("kvaps")}), PersonalDomain("kvaps")},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s answers %q, want %q", tc.what, tc.got, tc.want)
+		}
+	}
+	// "Nothing declares this" stays its own answer: it decides nothing,
+	// and reading it as the primary would place a card by a team that
+	// does not exist.
+	if _, ok := ColumnDomain(b, "engineering", "Nope"); ok {
+		t.Error("an undeclared column is not known")
+	}
+	if got := TeamDomain(b, "ghosts"); got != "" {
+		t.Errorf("an undeclared team answers %q, want the empty non-answer", got)
+	}
+	if got := ProcessDomain(b, "Nope"); got != "" {
+		t.Errorf("an undeclared process answers %q, want the empty non-answer", got)
+	}
+}

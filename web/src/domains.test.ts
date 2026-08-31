@@ -1,14 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  cardDomainBadge,
-  declareDomain,
-  isMultiDomain,
-  primaryDomain,
-  reviewerCandidates,
-  writableDomains,
-  type DomainInfo,
-} from "./domains";
+import { cardDomainBadge, declareDomain, inPrimary, isMultiDomain, primaryDomain, reviewerCandidates, type DomainInfo, writableDomains } from "./domains";
 
 const single: DomainInfo[] = [
   { name: "acme/board", writable: true, members: ["ann", "bob"] },
@@ -182,5 +174,21 @@ describe("declareDomain", () => {
         "",
       ),
     ).toBe("rw1");
+  });
+});
+
+// The client reads repository names in one namespace, as the server does:
+// the board lists its repositories primary first, and an entry with no
+// stamp belongs to that primary.
+describe("one namespace on the client", () => {
+  it("names the primary from the board's own list", () => {
+    const d = (name: string) => ({ name, writable: true, members: [] });
+    expect(primaryDomain([d("aeman-db"), d("founders")])).toBe("aeman-db");
+    expect(primaryDomain([])).toBe("");
+  });
+
+  it("reads an unstamped entry as the primary", () => {
+    expect(inPrimary("", "aeman-db")).toBe("aeman-db");
+    expect(inPrimary("founders", "aeman-db")).toBe("founders");
   });
 });

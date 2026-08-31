@@ -163,6 +163,15 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
 - A **stored band always wins** — hand placement outranks derivation, so
   deriving never moves a card someone placed. The row's plan stripe in Me and
   Team uses the same effective band.
+- Except for a **debt**. A plan card or slot still open past the day it was
+  owed by shows on the CURRENT week's panel as well as on its own (the debt
+  rule), and there it stands in the **by-Wednesday** band whatever it
+  carries: it is already late, so what it faces is the nearest deadline of
+  the week it is standing in, not that week's last one. Its own week and
+  band are untouched — on the panel of the week it was owed in it is still
+  the card it was. The stripe follows the panel for the same reason: a
+  "by Friday" mark on a card sitting under "by Wednesday" is two answers to
+  one question.
 
 ### Subtasks (grouped cards)
 - A card with a **parent** (the `Parent` text field, one level deep) is a
@@ -172,6 +181,32 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
 - A subtask is a normal card in every other way: own description, own log and
   notes, own stage/progress, own assignee. It can be pulled back out as a
   standalone card at any time (clear the parent).
+- **On the Project board** a subtask that carries its own column is drawn as
+  an ordinary slot, marked `↳` with its parent's title: grouping work under a
+  parent must not take it off the planner, and a parent commonly lives
+  elsewhere (the weekly plan, the working area), so hiding the children left a
+  whole group visible in no column at all. Its team badge is read-only there —
+  a subtask's team follows its parent — and the slot's × only takes the column
+  away: the card still rides its parent, so it is never deleted from there. The
+  column may be re-attached afterwards; a SECOND column (a mirror) it may not
+  have, because its file follows the parent and the mirror would be stranded
+  the moment the parent changes repository. The day grid's × on such a card
+  takes it OUT OF THE GROUP and leaves it in its column: a subtask's person
+  and sprint are its parent's, so releasing it while still grouped would
+  break that pair or be undone by the next carry-over. The column must name the repository
+  that actually holds the card — the one its parent lives in.
+- The project's progress line counts such a card unless its **parent stands in
+  the same project** and is drawn there itself, whose own bar already derives
+  from its children: counting both would weigh that work twice on one screen. A
+  parent nothing draws — a column with no dates is no slot — answers for
+  nothing, and the child counts. A column's own bar asks the narrower question:
+  it drops the child only when the parent stands in that same column. Both
+  read every column the parent is DRAWN in — its home pair and its mirrors
+  — since a mirror is the same card standing in a second column: a parent
+  mirrored into the child's column answers for the child there, and the bar
+  that read home pairs alone counted the two of them. A figure that spans
+  columns (the board's header total) asks it by identity instead: the
+  parent is either drawn in that figure or it is not.
 - **Derived progress**: while a card has subtasks its bar derives from them —
   the average of the subtasks' effective progress (done = 100) scaled into
   0–90%. The final done / 100% is always a human decision on the parent, and a

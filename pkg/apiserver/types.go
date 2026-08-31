@@ -114,8 +114,12 @@ type CardStatus struct {
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
 	// Domain is the repository the card lives in — the store's decision by
-	// the inheritance rule, never a client's choice; empty when the store did
-	// not stamp it (a card in the primary is shown without a badge).
+	// the inheritance rule, never a client's choice. The store stamps every
+	// card, the primary's included, so this normally carries a NAME on a
+	// multi-repository board and the client compares it against the primary
+	// (cardDomainBadge) rather than reading an empty string as "primary".
+	// Empty only where nothing stamped it at all — a board assembled by
+	// hand; the git server stamps every card, one repository or many.
 	Domain string `json:"domain,omitempty"`
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
@@ -225,7 +229,9 @@ type BoardMetadata struct {
 	// they may write — a team, project or process is declared in one they
 	// pick when more than one is writable — and which members can read each,
 	// so a reviewer picker offers only people who will see the card. Absent
-	// on a single-domain board.
+	// primary first. The board lists its repositories whatever it spans
+	// (G59), so a client compares the stamps it carries against this list
+	// and reads a single entry as "no boundaries", never an absent one.
 	Domains []DomainInfo `json:"domains,omitempty"`
 	// TeamDomains and ProjectDomains name the repository a team or a project
 	// was declared in, for the entries that live OUTSIDE the primary — the
@@ -280,6 +286,14 @@ type PersonalInfo struct {
 type EpicRef struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
+	// Domain is the repository the column was declared in. The git server
+	// names every column, the primary's included; a board assembled by
+	// hand may leave the primary's blank. Read it as a NAME to compare
+	// against domains[0], never as "absent means primary". A client cannot
+	// compute it from the project: the same project NAME may be declared
+	// in two repositories with its columns merged under one entry (G13),
+	// and it is the COLUMN that decides whether a card may stand in it.
+	Domain string `json:"domain,omitempty"`
 }
 
 // ProcessRef is one process: its name and project.
@@ -301,6 +315,17 @@ func processNames(b board.Board) []string {
 		out = append(out, p.Name)
 	}
 	return out
+}
+
+// columnDomainOf reads a column's repository the way every rule does —
+// through board.ColumnDomain, which answers in ONE namespace (an
+// unstamped entry belongs to the board's primary). Reading the raw stamp
+// here put two namespaces in one payload: epics[].domain unstamped beside
+// projectDomains stamped, and a client comparing them found no column at
+// all.
+func columnDomainOf(b board.Board, e board.EpicCol) string {
+	d, _ := board.ColumnDomain(b, e.Project, e.Name)
+	return d
 }
 
 // processRefs lists the processes, in board order.
@@ -344,7 +369,7 @@ func deadlineWeeks(b board.Board) []DeadlineRef {
 func epicRefs(b board.Board) []EpicRef {
 	out := make([]EpicRef, 0, len(b.Epics))
 	for _, e := range b.Epics {
-		out = append(out, EpicRef{Name: e.Name, Project: e.Project})
+		out = append(out, EpicRef{Name: e.Name, Project: e.Project, Domain: columnDomainOf(b, e)})
 	}
 	return out
 }
@@ -659,8 +684,15 @@ func CardLogFrom(c board.Card, events []board.Event, truncatedBefore time.Time) 
 	return out
 }
 
-// rosterDomains names the repository of the entries that live outside the
-// primary; nil when they all live in it.
+// rosterDomains names the repository of every entry whose domain is known,
+// in the board's own namespace — which, on a board whose primary has a
+// name, is every declared entry, the primary's included (board.TeamDomain
+// and friends answer with that name, not ""). The git store always names
+// its domains, so a served board normally fills these maps whatever it
+// spans; nil is for a board that names nothing at all, which is what a
+// hand-built one does. The client normalizes the same way (domains.ts:
+// primaryDomain/inPrimary), so an entry with no row here and one naming
+// the primary mean the same thing to it.
 func rosterDomains(names []string, domainOf func(string) string) map[string]string {
 	var out map[string]string
 	for _, name := range names {

@@ -16,6 +16,45 @@ func Children(b Board, itemID string) []Card {
 	return out
 }
 
+// Followers lists the cards whose FILE moves with this one: its subtasks
+// and its review card, and THEIRS — the store's cascade recurses, so a
+// walk that stopped at the first ring went blind exactly where a
+// columnless child hides a columned review card. What follows a card
+// cannot be left behind by a move: neither its file nor the rules that
+// read it.
+// Cost: one pass over the board's cards per ring of the walk, and the
+// rings are shallow (a card, its subtasks and its review card). A caller
+// that asks for every card of a COLUMN — SetEpicProject does — pays that
+// per card; at board scale it is nothing, and a card index would be the
+// answer if a board ever made it one.
+func Followers(b Board, itemID string) []Card {
+	// Nothing follows nobody. Every root card has an empty parent and an
+	// empty reviewOf, so an unset id used to adopt the whole board — and
+	// this is exported for tools that may well pass one.
+	if itemID == "" {
+		return nil
+	}
+	var out []Card
+	seen := map[string]bool{itemID: true}
+	for frontier := []string{itemID}; len(frontier) > 0; {
+		var next []string
+		for _, id := range frontier {
+			for _, c := range b.Cards {
+				// A card with no id of its own would join the frontier as
+				// "" and adopt every root card on the next pass.
+				if c.ItemID == "" || seen[c.ItemID] || (c.Parent != id && c.ReviewOf != id) {
+					continue
+				}
+				seen[c.ItemID] = true
+				out = append(out, c)
+				next = append(next, c.ItemID)
+			}
+		}
+		frontier = next
+	}
+	return out
+}
+
 // DerivedProgress computes a parent's progress from its subtasks: the mean of
 // each child's effective progress (a complete child counts as 100), scaled
 // into the 0..90 band — the final done/100% is always a human's call.

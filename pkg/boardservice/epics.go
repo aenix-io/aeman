@@ -191,10 +191,11 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 	if err := guardRoster(b, card.Team, projectName); err != nil {
 		return err
 	}
-	// A tied card cannot be re-filed out of its process's repository — the
-	// project decides where a teamless card lives, so an attach (or a
-	// cleared column) can be a repository move in disguise.
-	if err := tiedMoveGuard(b, card, func(a *board.Card) {
+	// One guard for every reference this re-file could strand: the card's
+	// own column (it must name the repository that HOLDS the file — when a
+	// LINK outranks the project, the file stays put while the column moves),
+	// its process tie, and the columns of the cards whose files follow it.
+	if err := refileGuard(b, card, func(a *board.Card) {
 		a.Project = projectName
 		a.Epic = epic
 	}); err != nil {
@@ -215,7 +216,8 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 			}
 			card.Mirrors = nil
 		} else {
-			if projectName != card.Project && !board.MirrorAllowed(b, projectName, card.Mirrors[0].Project) {
+			if projectName != card.Project &&
+				!columnsAgree(b, projectName, epic, card.Mirrors[0].Project, card.Mirrors[0].Epic) {
 				return fmt.Errorf("%w: the card mirrors %q — unmirror it before moving to %q",
 					ErrCrossDomain, card.Mirrors[0].Project, projectName)
 			}

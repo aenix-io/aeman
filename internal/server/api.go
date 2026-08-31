@@ -317,8 +317,14 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	info := apiserver.BoardResourceWithPeople(b, s.store.member)
 	login, personal, linked := s.personalOf(r)
-	attached := linked && s.gitBE != nil && s.gitBE.hasPersonal(login)
-	if s.gitCfg != nil && (len(s.gitCfg.Repos) > 1 || attached) {
+	// Always, one repository or many: the payload's stamps are domain
+	// NAMES — the store stamps the primary's entries too (G59) — so a
+	// board that listed none left the client comparing "aeman" against "",
+	// two names for one repository, and every rule that asks "the same
+	// repository?" answered no. The UI keys its multi-repository parts off
+	// the COUNT (isMultiDomain), not off the list's presence, so a single
+	// entry shows no badges and no repository pickers.
+	if s.gitCfg != nil {
 		logins := make([]string, 0, len(info.Metadata.Members))
 		for _, m := range info.Metadata.Members {
 			logins = append(logins, m.Login)
@@ -340,6 +346,15 @@ func (s *Server) domainsFor(ctx context.Context, members []string, login string)
 	out := make([]apiserver.DomainInfo, 0, len(s.gitCfg.Repos)+1)
 	for _, d := range s.gitCfg.Repos {
 		if !rights.canRead(d.Name) {
+			continue
+		}
+		// One repository is the whole board: everyone on it can read it —
+		// a visitor who cannot is refused the board itself (G17) — so the
+		// forge is not asked who. That question exists to tell one
+		// repository's readers from another's, and it is a blocking call
+		// on a cold load for a login nothing is cached for.
+		if len(s.gitCfg.Repos) == 1 {
+			out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: append([]string(nil), members...)})
 			continue
 		}
 		readers, err := s.access.readers(ctx, d.Name, members)
@@ -878,23 +893,20 @@ type placementBody struct {
 	Epic    string `json:"epic"`
 }
 
-func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, requireProject, respondCard bool,
+func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, respondCard bool,
 	act func(svc *boardservice.Service, boardID, uid, project, epic string) error,
 ) {
 	var in placementBody
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	// A column is named by its epic; the project half may be empty ONLY for
-	// remove-from-project, where the no-project bucket is a real column
-	// with a working ×. A mirror target must name a project — the target's
-	// repository is read off it. Each refusal names what THIS endpoint
-	// actually requires: "project is required" from an endpoint where it
-	// is not would send the caller fixing the wrong half.
-	if requireProject && in.Project == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "project and epic are required — a column is the pair")
-		return
-	}
+	// A column is named by its EPIC, and the project half may be empty
+	// everywhere: the no-project bucket is a column like any other — a
+	// mirror home included, since a column's repository is read off the
+	// column's own stub and not off a project (G15/G59). This door used to
+	// require a project for a mirror, so a placement the service, the
+	// codec, MCP and the docs all accept was a 422 here — and the SPA's
+	// own picker, which offers the bucket, drove straight into it.
 	if in.Epic == "" {
 		writeJSONError(w, http.StatusUnprocessableEntity, "the epic is required — a column is named by its epic")
 		return
@@ -920,14 +932,14 @@ func (s *Server) placementAction(w http.ResponseWriter, r *http.Request, require
 // handleMirror adds a second Project-board column to the card — the same
 // card shown in both projects, one file and one log.
 func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, true, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.Mirror(r.Context(), boardID, uid, project, epic)
 	})
 }
 
 // handleUnmirror takes one mirror column away.
 func (s *Server) handleUnmirror(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, true, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, true, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.Unmirror(r.Context(), boardID, uid, project, epic)
 	})
 }
@@ -935,7 +947,7 @@ func (s *Server) handleUnmirror(w http.ResponseWriter, r *http.Request) {
 // handleRemoveFromProject is the Project board's ×: remove the card from
 // one column, with the mirror/promote/last-column rules of the service.
 func (s *Server) handleRemoveFromProject(w http.ResponseWriter, r *http.Request) {
-	s.placementAction(w, r, false, false, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
+	s.placementAction(w, r, false, func(svc *boardservice.Service, boardID, uid, project, epic string) error {
 		return svc.RemoveFromProject(r.Context(), boardID, uid, project, epic)
 	})
 }
@@ -1932,6 +1944,7 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
 		errors.Is(err, boardservice.ErrNoteTooLong),
 		errors.Is(err, boardservice.ErrSubtaskDepth),
+		errors.Is(err, boardservice.ErrPlanSubtask),
 		errors.Is(err, boardservice.ErrParentNotFound),
 		errors.Is(err, boardservice.ErrOpenSubtasks),
 		errors.Is(err, boardservice.ErrTeamInUse),

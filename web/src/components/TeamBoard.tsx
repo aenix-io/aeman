@@ -37,18 +37,26 @@ import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
-import { isSlot, planRemoveOffered, slotBand } from "../weekly";
+import { isSlot, owedIn, planRemoveOffered, slotBand } from "../weekly";
 import { subtaskShows } from "../subtasks";
 import {
   boardAsksAbout,
   deleteWarning,
   freeSubtasks,
+  gridGesture,
   gridRemoval,
   hasColumn,
   planRemoval,
   removalKind,
+  subtaskRemovalPatch,
+  subtaskRemovalUndo,
 } from "../removal";
-import { makeCardPlacements, type CardPlacements } from "../placements";
+import {
+  columnFollows,
+  makeCardPlacements,
+  rosterOf,
+  type CardPlacements,
+} from "../placements";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -406,6 +414,15 @@ export function TeamBoard({
       // is its plan and its band derives from the end date. Any other
       // band-less card stays off the panel.
       if ((!c.plan && !isSlot(c)) || !showsInWeek(c) || !passesFilter(c)) {
+        continue;
+      }
+      // A DEBT — owed in a week already past, shown here beside this
+      // week's own work — stands in the by-Wednesday band: its own band
+      // belonged to the week it missed, and what it faces now is the
+      // nearest deadline of the week it is standing in.
+      const owed = owedIn(c);
+      if (owed !== "" && owed < currentWeek) {
+        wed.push(c);
         continue;
       }
       if (!c.plan) {
@@ -1201,8 +1218,11 @@ export function TeamBoard({
       onProgress={handleProgress}
       onDelete={handleGridDelete}
       placements={placementsFor(card)}
+      // No exception for a subtask: gridRemoval already answers for it, and
+      // hard-coding "ask nothing" here put a "Delete «…»?" in front of an ×
+      // that ungroups the card and keeps it — the very reading of the ×
+      // this shared rule exists to prevent.
       boardAsks={
-        !card.parent &&
         boardAsksAbout(
           card,
           removalKind(card, gridCtx(card)) === "ask"
@@ -1504,16 +1524,38 @@ export function TeamBoard({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprintFor(card) ?? undefined,
     today: todayIso(),
+  // Whether the column a subtask carries can come with it out of the group:
+  // the answer decides whether the × ungroups the card or hands it to the
+  // ordinary law (demote, or delete), and only the roster knows. A review
+  // card's link outranks its own team and project, so the card it points at
+  // answers for it.
+    // Only a card in a column can lose one, and finding the linked card
+    // is a scan of the board: asked when the question can arise.
+    columnFollows: card.epic
+      ? columnFollows(
+          card,
+          { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains },
+          linkedDomainOf(card),
+        )
+      : true,
   });
+  // The repository of the card a subtask would still point at once its
+  // parent is gone: its original, or the task it iterates.
+  const linkedDomainOf = (card: CardModel): string | undefined => {
+    const ref = card.reviewOf || card.task;
+    if (!ref) {
+      return undefined;
+    }
+    return cardsById.get(ref)?.domain ?? undefined;
+  };
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 
   // placementsFor: the assign menu's attach/mirror section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
-    if (card.parent) {
-      return undefined; // a subtask rides its parent; it is placed nowhere
-    }
+    // A subtask needs no check here: placementTargets refuses one for
+    // every board, so the rule cannot drift between the three.
     return makeCardPlacements(card, board, {
       provider,
       patchCard,
@@ -1531,20 +1573,32 @@ export function TeamBoard({
     }
     // A worked-on card that would be demoted leaves today's board silently,
     // subtasks and all — that reads as deletion. Ask which one they mean.
-    if (!forced && !card.parent && !card.plan) {
-      const kind = removalKind(card, {
-        current: currentSprint(board, card.team ?? null) ?? undefined,
-        previous: previousSprintFor(card) ?? undefined,
-        today: todayIso(),
-      });
+    // A SUBTASK reaches a demote only when the column it carried cannot
+    // follow it out of the group, and the question is the same one then:
+    // gridGesture answers for both, so the two boards ask alike.
+    if (!forced && !card.plan) {
+      const kind = card.parent
+        ? gridGesture(card, gridCtx(card))
+        : removalKind(card, gridCtx(card));
       if (kind === "ask") {
         setRemoveChoice(card);
         return;
       }
     }
-    // A subtask has no sprint history of its own: the × deletes it outright,
-    // gone from under its parent immediately.
-    if (card.parent) {
+    // A subtask with nowhere else to be has no sprint history of its own:
+    // the × deletes it outright, gone from under its parent immediately.
+    // One standing in a COLUMN is a different card (G57): the server
+    // ungroups it and leaves it there, so this board asks gridRemoval like
+    // it does for everything else instead of sending a DELETE past the
+    // rule — which destroyed work the Me board would have kept.
+    if (card.parent && gridRemoval(card, gridCtx(card)) === "delete") {
+      // The board took the question on (boardAsks), so the board must put
+      // it: the card's own prompt has stood down, and deleting in silence
+      // is how a worked subtask went in one click.
+      const warning = deleteWarning(card, reviewOf(card));
+      if (warning && !window.confirm(warning)) {
+        return;
+      }
       removeCard(card.itemId);
       void provider.deleteCard(card.itemId).catch((err: unknown) => {
         if (!isGone(err)) {
@@ -1552,6 +1606,27 @@ export function TeamBoard({
           reload();
         }
       });
+      return;
+    }
+    if (card.parent) {
+      // Out of the group — into its column, or, when that column belongs to
+      // the parent's repository and cannot follow, back a sprint with the
+      // column dropped (the server's answer, gridRemoval). Either way the
+      // row must stop being drawn under its parent at once, or the × looks
+      // inert; and the demote must show the SAME optimistic state the Me
+      // board shows, or one gesture reads two ways on two boards.
+      const prev = subtaskRemovalUndo(card) as Partial<CardModel>;
+      patchCard(card.itemId, subtaskRemovalPatch(card, gridCtx(card)));
+      void provider
+        .removeCard(card.itemId, "grid")
+        .then(() => reload())
+        .catch((err: unknown) => {
+          if (isGone(err)) {
+            return;
+          }
+          patchCard(card.itemId, prev);
+          onError(errMessage(err));
+        });
       return;
     }
     let rollback: () => void;
@@ -1705,7 +1780,12 @@ export function TeamBoard({
       // put it back.
       patchCard(card.itemId, {
         plan: undefined,
-        ...(card.epic ? {} : { week: undefined }),
+        // A SLOT keeps its week — it is the row the Project board draws it
+        // in, and the server keeps it too. A SUBTASK does not: the server's
+        // subtask arm clears the band AND the week unconditionally, and a
+        // slot with no start date is drawn by its week, so keeping it here
+        // put the card back in a row the next reload took away.
+        ...(card.epic && !card.parent ? {} : { week: undefined }),
       });
       rollback = () => patchCard(card.itemId, prev);
     }
@@ -2317,13 +2397,18 @@ export function TeamBoard({
               selected={card.itemId === selectedCardId}
               onSelect={(c) => setSelectedCardId(c.itemId)}
               onProgress={handleProgress}
-              onDelete={card.parent ? handleGridDelete : removeFromPlan}
+              // The panel's × is the PLAN's gesture for every card on it,
+              // subtasks included: `from` picks which home is emptied
+              // (G57), and routing subtasks to the grid handler made one ×
+              // mean the other's — it ungrouped the card and emptied the
+              // working area in answer to a click on the plan. A subtask
+              // standing in a column is a slot like any other and gets no
+              // × at all: its plan membership is derived from its dates,
+              // so there is nothing here to empty.
+              onDelete={removeFromPlan}
               placements={placementsFor(card)}
-              deletable={!!card.parent || planRemoveOffered(card)}
-              boardAsks={
-                !card.parent &&
-                boardAsksAbout(card, planRemoval(card), reviewOf(card))
-              }
+              deletable={planRemoveOffered(card)}
+              boardAsks={boardAsksAbout(card, planRemoval(card), reviewOf(card))}
               onStage={handleStage}
               onInProgress={handleInProgress}
               onOpen={onOpen}

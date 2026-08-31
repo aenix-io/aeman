@@ -10,13 +10,27 @@ import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
+  canCreateInColumn,
+  columnsOf,
+  countedAmong,
+  countedForProgress,
+  projectsAColumnCanJoin,
+  teamlessIsLawful,
+  teamsACardCanTake,
+  drawnAsSlot,
+  drawnOnProjectBoard,
+  teamFollowsParent,
+  makeCardPlacements,
+  type CardPlacements,
   movingSlot,
   removeFromProjectOutcome,
+  rosterOf,
   settleMirrorDrop,
   slotDragPlan,
   slotDropMirrors,
 } from "../placements";
-import { deleteWarning } from "../removal";
+import { PlacementMenu } from "./PlacementMenu";
+import { deleteWarning, freeSubtasks } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
@@ -251,13 +265,7 @@ export function ProjectBoard({
   // handed to one.
   const cards = useMemo(() => {
     const shown = new Set(epics.map((e) => colKey(e.project, e.name)));
-    return board.cards.filter(
-      (c) =>
-        c.epic &&
-        !c.parent &&
-        (shown.has(colKey(c.project ?? "", c.epic)) ||
-          (c.mirrors ?? []).some((m) => shown.has(colKey(m.project, m.epic)))),
-    );
+    return board.cards.filter((c) => drawnOnProjectBoard(c, shown));
   }, [board.cards, epics]);
 
   // The week window: two weeks of history before today (or the earliest
@@ -865,8 +873,32 @@ export function ProjectBoard({
 
   const cancelDraft = () => setDraft(null);
 
+  // The roster's side of every domain question — the board's primary and
+  // its projects' repositories — built once and handed to the rules, which
+  // are the only place that compares two stamps (placements.sameRepository).
+  const roster = rosterOf(board);
+
+  // columnDomain: which repository a column was declared in, as the board
+  // states it (metadata.epics[].domain). The server asks the COLUMN, never
+  // its project — one project name may be declared twice, with its columns
+  // merged under a single entry (G13).
+  const columnDomain = (col: { project: string; name: string }) =>
+    board.epics.find((e) => e.project === col.project && e.name === col.name)?.domain ?? "";
+
   const createSlot = (title: string) => {
     if (!draft || !title.trim()) {
+      setDraft(null);
+      return;
+    }
+    // A card created here carries no team, so its repository is its
+    // project's — or the primary, when the column has no project. A
+    // project-less column of another repository can hold no such card,
+    // and the server says so; the board does not start the gesture.
+    if (!canCreateInColumn(
+      { project: draft.epic.project, domain: columnDomain({ project: draft.epic.project, name: draft.epic.name }) },
+      roster,
+    )) {
+      onError("A card created here would have no team, and this column is not in the repository its project names");
       setDraft(null);
       return;
     }
@@ -1129,11 +1161,42 @@ export function ProjectBoard({
       });
   };
 
+  // subtaskTitle words the ↳ marker: the parent's title when the query
+  // carried it, and an honest fallback when it did not.
+  const subtaskTitle = (title: string | undefined) =>
+    title ? `Subtask of «${title}»` : "Subtask — its parent is not on this board";
+
+  // placementsFor: the slot menu's "Mirror to…" section. The same factory
+  // the Me and Team boards use, so the three cannot drift apart — and the
+  // only way to mirror a card that lives ONLY in a column: such a card
+  // never joins a sprint, so it appears on no other board (TeamGrid hides
+  // an epic card until it does), and its card menu exists nowhere else.
+  const placementsFor = (card: CardModel): CardPlacements =>
+    makeCardPlacements(card, board, {
+      provider,
+      patchCard,
+      reload,
+      onError,
+      errMessage: errText,
+    });
+
   // The slot's ×: remove the card from THIS column. A mirror goes, the
   // home hands over to its first mirror, an orphaned worked card survives
   // in the working area — only the true delete asks, naming the loss.
   const removeFromColumn = (card: CardModel, project: string, epic: string) => {
     const outcome = removeFromProjectOutcome(card, project, epic);
+    // The server would refuse this pair — a column the card does not stand
+    // in, or none at all — so nothing is sent and nothing is patched. It
+    // takes a stale render to get here; falling through to the last arm
+    // emptied the card's column on the screen over a request the server
+    // never accepted, and the truth came back only with the reload.
+    if (outcome === "refused") {
+      // Only a stale render gets here — the card is not in the column the
+      // click named — so the screen is what is wrong: re-read it rather
+      // than leave a click that did nothing and said nothing.
+      reload();
+      return;
+    }
     if (outcome === "delete") {
       // The server cascades to the linked review card: the question names
       // everything that goes, or the person agrees to less than happens.
@@ -1144,6 +1207,16 @@ export function ProjectBoard({
         return;
       }
       removeCard(card.itemId);
+      // …and everything the server takes with it: the linked review card
+      // goes, the subtasks are FREED into standalone cards. The other two
+      // boards mirror both; here the reload papered over a window showing
+      // state the server does not hold.
+      if (linkedReview) {
+        removeCard(linkedReview.itemId);
+      }
+      for (const f of freeSubtasks(board.cards, card.itemId)) {
+        patchCard(f.itemId, f.patch);
+      }
     } else if (outcome === "unmirror") {
       patchCard(card.itemId, {
         mirrors: (card.mirrors ?? []).filter(
@@ -1378,20 +1451,52 @@ export function ProjectBoard({
     return byCol;
   }, [cards, weeks, draft, move, drag]);
 
-  // How far along each column is, and the view as a whole.
+  // One index of the board, for the rules that need to look a parent up.
+  const byId = useMemo(
+    () => new Map(board.cards.map((c) => [c.itemId, c])),
+    [board.cards],
+  );
+
+  // How far along each column is, and the view as a whole. A card counts
+  // once: a subtask whose PARENT stands in the same project is left to the
+  // parent, whose progress already derives from its children — otherwise
+  // the column, the overall bar and the project line disagree on one
+  // screen.
+  const counted = useMemo(
+    () => {
+      // The header's total spans every column on screen, so the question
+      // is whether the PARENT is drawn in the same figure — not whether it
+      // shares the child's home project, which for a mirrored card names a
+      // project nobody is looking at (and counted parent and child both).
+      const drawn = new Set(cards.filter(drawnAsSlot).map((c) => c.itemId));
+      return cards.filter((c) => drawnAsSlot(c) && countedAmong(c, drawn));
+    },
+    [cards],
+  );
   const colProgress = useMemo(() => {
     const byCol = new Map<string, CardModel[]>();
-    for (const c of cards) {
-      const k = colKey(c.project ?? "", c.epic ?? "");
-      byCol.set(k, [...(byCol.get(k) ?? []), c]);
+    for (const c of cards.filter(drawnAsSlot)) {
+      // Every column the card is DRAWN in, mirrors included: keyed by the
+      // home pair alone, a mirror column reported a total of zero while
+      // showing slots, and the header disagreed with the columns beneath
+      // it on one screen. The de-duplication is asked PER COLUMN for the
+      // same reason — a parent mirrored into this one answers for its
+      // child here, whatever its home epic says.
+      for (const col of columnsOf(c)) {
+        if (!countedForProgress(c, byId, col)) {
+          continue;
+        }
+        const k = colKey(col.project, col.epic);
+        byCol.set(k, [...(byCol.get(k) ?? []), c]);
+      }
     }
     const out = new Map<string, ReturnType<typeof progressOf>>();
     for (const [k, list] of byCol) {
       out.set(k, progressOf(list));
     }
     return out;
-  }, [cards]);
-  const overall = useMemo(() => progressOf(cards), [cards]);
+  }, [cards, byId]);
+  const overall = useMemo(() => progressOf(counted), [counted]);
 
   // Every project's progress, filter or no filter: the point of opening the
   // status line is to see the ones you are NOT looking at. The no-project
@@ -1399,16 +1504,26 @@ export function ProjectBoard({
   const allProgress = useMemo(() => {
     const byProject = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (!c.epic || c.parent) {
+      if (!drawnAsSlot(c)) {
         continue;
       }
-      const k = c.project ?? "";
-      byProject.set(k, [...(byProject.get(k) ?? []), c]);
+      // Every project the card is DRAWN in, mirrors included — the same
+      // fan-out the column bars use, and the de-duplication asked per
+      // project for the same reason: a mirrored card counts in the project
+      // it is shown in, not only in the one it calls home.
+      const seen = new Set<string>();
+      for (const col of columnsOf(c)) {
+        if (seen.has(col.project) || !countedForProgress(c, byId, { project: col.project })) {
+          continue;
+        }
+        seen.add(col.project);
+        byProject.set(col.project, [...(byProject.get(col.project) ?? []), c]);
+      }
     }
     return [...board.projects, ""]
       .filter((p) => p !== "" || (byProject.get("")?.length ?? 0) > 0)
       .map((p) => ({ project: p, ...progressOf(byProject.get(p) ?? []) }));
-  }, [board.cards, board.projects]);
+  }, [board.cards, board.projects, byId]);
 
   const todayRow = weeks.indexOf(thisMonday);
 
@@ -1637,9 +1752,19 @@ export function ProjectBoard({
                   badge a team wears on a card, not as a second line of text
                   competing with the column's own name. Inside one project the
                   badge would repeat on every column and is left off. */}
+              {/* A column cannot change REPOSITORY — its stub is written
+                  back to the backend that holds it (G57) — so only the
+                  projects of its own repository can take it; the rest are
+                  refusals the picker has no business offering. */}
               <ProjectPicker
                 current={e.project}
-                projects={board.projects}
+                projects={projectsAColumnCanJoin(
+                  columnDomain(e),
+                  board.projects,
+                  board.projectDomains,
+                  e.project,
+                  roster,
+                )}
                 entity="epic"
                 onPick={(to) => setEpicProject(e, to)}
               />
@@ -1957,6 +2082,14 @@ export function ProjectBoard({
                     ⧉
                   </span>
                 )}
+                {card.parent && (
+                  <span
+                    className="project-slot-subtask"
+                    title={subtaskTitle(byId.get(card.parent)?.title)}
+                  >
+                    ↳
+                  </span>
+                )}
                 {card.title}
                 {cardDomainBadge(board.domains, card.domain) && (
                   <span
@@ -1993,7 +2126,19 @@ export function ProjectBoard({
                     ? { background: teamColor(card.team), color: "#fff" }
                     : undefined
                 }
-                title={card.team ? `Team: ${card.team} — click to change` : "Assign to a team"}
+                // The badge is the slot's MENU HANDLE — "Mark as done", the
+                // team list, "Mirror to…" all hang off it — so it stays
+                // clickable for every card. A subtask's team follows its
+                // parent (S9, and the server rewrites any other choice):
+                // that makes the team LIST read-only inside the menu, not
+                // the menu unreachable.
+                title={
+                  teamFollowsParent(card)
+                    ? `Team: ${card.team || "none"} — follows the parent`
+                    : card.team
+                      ? `Team: ${card.team} — click to change`
+                      : "Assign to a team"
+                }
                 onClick={(ev) => {
                   ev.stopPropagation();
                   teamAnchor.current = ev.currentTarget;
@@ -2026,6 +2171,30 @@ export function ProjectBoard({
                   />
                   {complete(card) ? "Reopen" : "Mark as done"}
                 </button>
+                {/* Mirroring lives in this menu because the slot has no
+                    other: a card in a column may be shown in a second one,
+                    and for a card that never joined a sprint this is the
+                    only place in the UI that can say so. */}
+                {/* Only for the OPEN menu: React evaluates a Dropdown's
+                    children whether or not it is open, and this walk is
+                    O(projects × epics) per slot — on every frame of a
+                    drag, since the slots recompute as the pointer moves. */}
+                {(() => {
+                  if (teamMenu !== card.itemId) {
+                    return null;
+                  }
+                  const placements = placementsFor(card);
+                  return placements.mirror ? (
+                    <PlacementMenu
+                      label="Mirror to…"
+                      targets={placements.mirror}
+                      onPick={(project, epic) => {
+                        placements.onMirror(project, epic);
+                        setTeamMenu(null);
+                      }}
+                    />
+                  ) : null;
+                })()}
                 {/* The roster carries "" for the no-team group; the explicit
                     "No team" entry below is that, so skip the blank one. And
                     only the teams of the card's own repository are offered:
@@ -2034,36 +2203,73 @@ export function ProjectBoard({
                     it names — the server refuses that pair. What the card
                     already carries stays on the list, so a pair written
                     before the rule can be seen and fixed. */}
-                {offerableTeams(
-                  board.teams,
-                  board.teamDomains,
-                  board.projectDomains,
-                  card.project ?? "",
-                  card.team ?? "",
-                )
-                  .filter((t) => t !== "")
-                  .map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
-                      onClick={() => assignTeam(card, t)}
-                    >
-                      <span
-                        className="card-stage-dot"
-                        style={{ background: teamColor(t) }}
-                      />
-                      {t}
-                    </button>
-                  ))}
-                <button
-                  type="button"
-                  className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}
-                  onClick={() => assignTeam(card, null)}
-                >
-                  <span className="card-stage-dot card-stage-dot-none" />
-                  No team
-                </button>
+                {teamFollowsParent(card) ? (
+                  <div className="card-stage-item card-stage-item-static">
+                    <span
+                      className="card-stage-dot"
+                      style={card.team ? { background: teamColor(card.team) } : undefined}
+                    />
+                    {card.team || "No team"} — follows the parent
+                  </div>
+                ) : (
+                  <>
+                    {(card.project
+                      ? offerableTeams(
+                          board.teams,
+                          board.teamDomains,
+                          board.projectDomains,
+                          card.project,
+                          card.team ?? "",
+                        )
+                      : // No project to constrain it: the COLUMN does. A
+                        // card in a column of another repository can only
+                        // take that repository's teams — its team is what
+                        // decides where it lives (G57).
+                        teamsACardCanTake(
+                          columnDomain({ project: "", name: card.epic ?? "" }),
+                          board.teams,
+                          board.teamDomains,
+                          card.team ?? "",
+                          roster,
+                        ))
+                      .filter((t) => t !== "")
+                      .map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`card-stage-item${card.team === t ? " card-stage-item-active" : ""}`}
+                          onClick={() => assignTeam(card, t)}
+                        >
+                          <span
+                            className="card-stage-dot"
+                            style={{ background: teamColor(t) }}
+                          />
+                          {t}
+                        </button>
+                      ))}
+                    {/* A card with neither team nor project is held by the
+                        PRIMARY repository, so a column of another one could
+                        not show it: there the entry is a refusal with a
+                        friendly label. A card with a project is placed by
+                        it either way. What the card already carries stays
+                        on the list. */}
+                    {(!card.team ||
+                      teamlessIsLawful(
+                        columnDomain({ project: card.project ?? "", name: card.epic ?? "" }),
+                        roster,
+                        card.project ?? "",
+                      )) && (
+                      <button
+                        type="button"
+                        className={`card-stage-item${card.team ? "" : " card-stage-item-active"}`}
+                        onClick={() => assignTeam(card, null)}
+                      >
+                        <span className="card-stage-dot card-stage-dot-none" />
+                        No team
+                      </button>
+                    )}
+                  </>
+                )}
               </Dropdown>
               {/* One grip per edge: the top moves the slot's start, the
                   bottom its end. "from" is whichever edge stays put. */}

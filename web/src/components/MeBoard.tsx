@@ -35,11 +35,21 @@ import {
   boardAsksAbout,
   deleteWarning,
   freeSubtasks,
+  gridGesture,
   gridRemoval,
+  type GridGesture,
   personalRemovalKind,
   removalKind,
+  subtaskRemovalPatch,
+  subtaskRemovalUndo,
+  type Outcome,
 } from "../removal";
-import { makeCardPlacements, type CardPlacements } from "../placements";
+import {
+  columnFollows,
+  makeCardPlacements,
+  rosterOf,
+  type CardPlacements,
+} from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
@@ -1099,16 +1109,31 @@ export function MeBoard({
   // it leaves today's board and is found by stepping back; the server records
   // the move and the re-list converges its outcome.
   const demoteCard = (card: CardModel, prevSprint: string) => {
-    const prev = {
-      startDate: card.startDate,
-      sprintStart: card.sprintStart,
-      day: card.day,
-    };
-    patchCard(card.itemId, {
-      startDate: prevSprint,
-      sprintStart: prevSprint,
-      ...(card.day ? { day: prevSprint } : {}),
-    });
+    // A subtask reaches this path when its column could not follow it out,
+    // and the patch below then writes more than three fields — the undo
+    // has to put back everything it can write, or the rollback leaves the
+    // card ungrouped and columnless while the server still holds it.
+    const prev: Partial<CardModel> = card.parent
+      ? (subtaskRemovalUndo(card) as Partial<CardModel>)
+      : {
+          startDate: card.startDate,
+          sprintStart: card.sprintStart,
+          day: card.day,
+        };
+    // A SUBTASK only reaches a demote when the column it carried could not
+    // follow it out of the group (columnFollows): the server pulls it out,
+    // drops that column and walks it back a sprint — one gesture, and one
+    // shape for both boards.
+    patchCard(
+      card.itemId,
+      card.parent
+        ? subtaskRemovalPatch(card, gridCtx(card))
+        : {
+            startDate: prevSprint,
+            sprintStart: prevSprint,
+            ...(card.day ? { day: prevSprint } : {}),
+          },
+    );
     void provider
       .removeCard(card.itemId, "grid")
       .then(() => reload())
@@ -1128,17 +1153,20 @@ export function MeBoard({
     // Show the outcome at once, as every other × on this board does: the
     // card leaves the working area (the server clears assignee, sprint and,
     // for anything but a slot, the dates) and stays in the home it has.
-    const prev: Partial<CardModel> = {
-      assignees: card.assignees,
-      sprintStart: card.sprintStart,
-      startDate: card.startDate,
-      day: card.day,
-    };
-    patchCard(card.itemId, {
-      assignees: [],
-      sprintStart: undefined,
-      ...(card.epic ? {} : { startDate: undefined, day: undefined }),
-    });
+    const prev: Partial<CardModel> = subtaskRemovalUndo(card) as Partial<CardModel>;
+    // A subtask leaves the GROUP here (G57), and what else goes with it is
+    // the same answer the Team board gets — the server's fields, from one
+    // place.
+    patchCard(
+      card.itemId,
+      card.parent
+        ? subtaskRemovalPatch(card, gridCtx(card))
+        : {
+            assignees: [],
+            sprintStart: undefined,
+            ...(card.epic ? {} : { startDate: undefined, day: undefined }),
+          },
+    );
     void provider
       .removeCard(card.itemId, "grid")
       .then(() => reload())
@@ -1186,8 +1214,9 @@ export function MeBoard({
   // placementsFor: the assign menu's attach/mirror section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
-    if (card.parent || isPersonalCard(card, board.personal)) {
-      // A subtask rides its parent, and the personal board has no projects.
+    if (isPersonalCard(card, board.personal)) {
+      // The personal board has no projects to place a card in. A subtask
+      // needs no check here: placementTargets refuses one for every board.
       return undefined;
     }
     return makeCardPlacements(card, board, {
@@ -1203,13 +1232,39 @@ export function MeBoard({
     current: currentSprint(board, card.team ?? null) ?? undefined,
     previous: previousSprint(board, card.team ?? null) ?? undefined,
     today: todayIso(),
+  // Whether the column a subtask carries can come with it out of the group:
+  // the answer decides whether the × ungroups the card or hands it to the
+  // ordinary law (demote, or delete), and only the roster knows. A review
+  // card's link outranks its own team and project, so the card it points at
+  // answers for it.
+    // Only a card in a column can lose one, and finding the linked card
+    // is a scan of the board: asked when the question can arise.
+    columnFollows: card.epic
+      ? columnFollows(
+          card,
+          { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains },
+          linkedDomainOf(card),
+        )
+      : true,
   });
+  // The repository of the card a subtask would still point at once its
+  // parent is gone: its original, or the task it iterates.
+  const linkedDomainOf = (card: CardModel): string | undefined => {
+    const ref = card.reviewOf || card.task;
+    if (!ref) {
+      return undefined;
+    }
+    return board.cards.find((c) => c.itemId === ref)?.domain ?? undefined;
+  };
   const reviewOf = (card: CardModel) =>
     board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
 
-  const removalOf = (card: CardModel): "ask" | "demote" | "delete" => {
+  const removalOf = (card: CardModel): GridGesture => {
     if (card.parent) {
-      return "delete";
+      // A subtask is never demoted alone and never asked about as one: what
+      // the × DOES to it is gridGesture's answer, carried as it comes
+      // rather than dressed as a demote and corrected downstream.
+      return gridGesture(card, gridCtx(card));
     }
     const today = todayIso();
     if (isPersonalCard(card, board.personal)) {
@@ -1224,8 +1279,7 @@ export function MeBoard({
   // everything that was not demotable to DELETE /cards/{uid}, destroying a
   // card the other board would have left in its weekly plan: one gesture,
   // two boards, opposite outcomes.
-  const outcomeOf = (card: CardModel): "demote" | "leave" | "delete" =>
-    gridRemoval(card, gridCtx(card));
+  const outcomeOf = (card: CardModel): Outcome => gridRemoval(card, gridCtx(card));
 
   const handleDelete = (card: CardModel, forced?: "delete" | "keep") => {
     // A just-created optimistic card has no server twin yet: drop it locally

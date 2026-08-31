@@ -60,7 +60,10 @@ export function PlacementMenu({ label, targets, flat, onPick }: PlacementMenuPro
                 <span className="card-placements-caret">
                   {project === p.name ? "▾" : "▸"}
                 </span>
-                {p.name}
+                {/* The NO-PROJECT bucket is a real group of columns with no
+                    name of its own; drawn as its name it was a blank row —
+                    unreachable from the one place a person could use it. */}
+                {p.name === "" ? "No project" : p.name}
               </button>
               {project === p.name &&
                 p.epics.map((e) => (

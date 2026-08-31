@@ -30,9 +30,10 @@ var ErrNoColumn = errors.New("the card is in no project column")
 // ErrOwnColumn is naming the card's own column as a mirror target.
 var ErrOwnColumn = errors.New("the card's own column is not a mirror target")
 
-// ErrSubtaskMirror is mirroring a subtask: it rides its parent and is
-// placed nowhere of its own, so a mirror on it would be a placement no
-// board ever shows — counted by the guards, seen by nobody.
+// ErrSubtaskMirror is mirroring a subtask: it carries the ONE column of
+// its own that G14 allows (and G57 draws), but its file rides its parent —
+// a second placement would be stranded the moment the parent changes
+// repository, naming a repository that no longer holds the card.
 var ErrSubtaskMirror = errors.New("a subtask rides its parent and cannot be mirrored")
 
 // ErrTurnProcess is re-tying a process turn: a turn belongs to its task,
@@ -52,9 +53,13 @@ var ErrNotRecurrent = errors.New("only a recurrent card can be tied to a process
 var ErrSubtaskTie = errors.New("a subtask rides its parent and cannot be tied to a process")
 
 // Mirror adds the column (project, epic) to the card. The card must already
-// have a home column — a card outside every project is attached, not
-// mirrored — the target must exist, in the same repository as the home, and
-// mirroring where the card already stands is a no-op, not a duplicate.
+// stand in a column — one outside every column is attached, not mirrored —
+// and the target must exist in the repository that holds the CARD'S FILE
+// (DomainOf: linked cards first, G14), which is not always its home
+// column's: that column is checked separately, so a card whose own
+// placement is already wrong is told to fix that rather than adding a
+// second. A column of no project is a home like any other. Mirroring where
+// the card already stands is a no-op, not a duplicate.
 func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, epic string) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
@@ -72,22 +77,20 @@ func (s *Service) Mirror(ctx context.Context, boardID string, itemID, project, e
 	if _, ok := board.FindEpic(b, project, epic); !ok {
 		return fmt.Errorf("%w %q in project %q", ErrEpicNotFound, epic, project)
 	}
-	if c.Project == "" {
-		// The no-project bucket names no repository, so MirrorAllowed has
-		// nothing to compare a target against — said plainly, not as a
-		// refusal quoting an empty project name.
-		return fmt.Errorf("%w: the card's column belongs to no project — file it under one first", ErrCrossDomain)
+	// One question, one answer: may this card stand in this column? The
+	// COLUMN says which repository it belongs to (its own, never its
+	// project's — a project name may be declared in two repositories with
+	// its columns merged, G13), and the card's FILE says which repository
+	// holds it (linked cards first, G14: a review card lives with its
+	// original whatever its column says).
+	mine := board.HomeDomain(b, c)
+	if cd, ok := board.ColumnDomain(b, project, epic); !ok || cd != mine {
+		return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
+			ErrCrossDomain, epic)
 	}
-	if !board.MirrorAllowed(b, c.Project, project) {
-		return fmt.Errorf("%w: %q is not in %q's repository", ErrCrossDomain, project, c.Project)
-	}
-	// The card's FILE follows a linked original before its project (linked
-	// cards first, G14): a review card of an original in another repository
-	// lives there, whatever its home column says — and no column of this
-	// repository may show a file its readers may not have (G15).
-	r := board.Resolver(b, "")
-	if hd, ok := r.ProjectDomain(c.Project); ok && board.DomainOf(c, r) != hd {
-		return fmt.Errorf("%w: the card's file lives in another repository (its review link decides)", ErrCrossDomain)
+	if hd, ok := board.ColumnDomain(b, c.Project, c.Epic); ok && hd != mine {
+		return fmt.Errorf("%w: the card's own column is not in the repository that holds it — fix that first",
+			ErrCrossDomain)
 	}
 	if board.Mirrored(c, project, epic) {
 		return nil
@@ -136,6 +139,8 @@ func (s *Service) Unmirror(ctx context.Context, boardID string, itemID, project,
 //     working area, and only when it was worked on (someone had it and
 //     moved it); an untouched card is deleted outright. The UI asks first
 //     when work would go (deleteWarning).
+//   - A SUBTASK is never deleted here, however untouched: its other home
+//     is its parent, so the × only takes the column away (G57).
 func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID, project, epic string) error {
 	// A column is named by its EPIC — an empty epic is no column: without
 	// this, a card standing in no column "matched" ("", "") and fell
@@ -175,9 +180,12 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 		s.logEvent(ctx, b, c, board.EventEpic, project+" / "+epic, heir.Project+" / "+heir.Epic)
 		return nil
 	}
-	// The last column.
+	// The last column. A SUBTASK has another home — its parent — so the ×
+	// only takes the column away, however untouched the card is: deleting
+	// would destroy work that still rides the parent on every other board
+	// (the two-homes rule the × exists to honour).
 	worked := len(c.Assignees) > 0 && c.Progress > 0
-	if !worked {
+	if !worked && c.Parent == "" {
 		// The whole card goes — a deletion moves nothing, so the tie
 		// guard has no say here (delete_card removes tied cards the same
 		// way) — and clearing its plan first would be a dead write into
@@ -188,7 +196,7 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 	// repository move (the domain falls through to the primary) — refused
 	// while a tie stands, before anything is written, like every other
 	// door.
-	if err := tiedMoveGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
+	if err := refileGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
 		return err
 	}
 	// The weekly plan goes with it, always.
@@ -233,7 +241,7 @@ func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, pr
 		// A SUBTASK is refused outright: grouping cleared its tie, and a
 		// PATCH carrying {parent, process} together would re-tie it in
 		// the same request — after which any re-file of the PARENT drags
-		// the child across repositories under tiedMoveGuard's radar.
+		// the child across repositories under refileGuard's radar.
 		if c.Parent != "" {
 			return ErrSubtaskTie
 		}
@@ -254,7 +262,7 @@ func (s *Service) SetCardProcess(ctx context.Context, boardID string, itemID, pr
 		// domain boundary (git-backend.md): a card of the closed repository
 		// naming a process declared in the shared one would hand the closed
 		// card's existence to readers who may not have it.
-		if board.ProcessDomain(b, process) != c.Domain {
+		if board.ProcessDomain(b, process) != board.FileDomain(b, c) {
 			return fmt.Errorf("%w: the process %q lives in another repository", ErrCrossDomain, process)
 		}
 	}
@@ -298,22 +306,101 @@ func (s *Service) renameMirror(ctx context.Context, b board.Board, c board.Card,
 	return nil
 }
 
-// tiedMoveGuard refuses a re-file that would carry a TIED card into
-// another repository: the tie is a reference that never crosses a domain
-// boundary (git-backend.md), and the card moving out from under it would
-// strand it — the mirror of the rule that keeps the process itself from
-// moving away (SetProcessProject). Explicit re-files refuse; grouping
-// clears the tie instead (SetParent), the way it clears mirrors.
-func tiedMoveGuard(b board.Board, c board.Card, change func(*board.Card)) error {
-	if c.Process == "" {
-		return nil
-	}
-	r := board.Resolver(b, "")
+// refileGuard refuses a re-file that would leave a reference pointing across
+// a domain boundary. Two of them ride on a card and cannot follow it:
+//
+//   - its PROCESS TIE, a reference by name that never crosses a domain
+//     (git-backend.md) — the mirror of the rule that keeps the process
+//     itself from moving away (SetProcessProject);
+//   - the COLUMNS AND TIES OF THE CARDS THAT FOLLOW IT: a subtask's file
+//     follows its parent and a review card's follows its original
+//     (MultiBackend cascades the re-file along both links), while each
+//     one's own column and process tie stay behind, naming a repository
+//     that no longer holds it — the very state SetEpic and SetCardProcess
+//     refuse when the card itself is moved.
+//
+// Explicit re-files refuse; grouping clears the tie instead (SetParent),
+// the way it clears mirrors.
+func refileGuard(b board.Board, c board.Card, change func(*board.Card)) error {
+	return refileGuardOpts(b, c, change, true)
+}
+
+// refileGuardOpts is refileGuard with a say over the card's OWN column.
+// The grid's × repairs that column itself — ungrouping strands it, and
+// refusing would name a column the person did not touch — so it asks
+// about everything ELSE first: what a refusal must precede is a write,
+// and the repair is one.
+func refileGuardOpts(b board.Board, c board.Card, change func(*board.Card), ownColumn bool) error {
 	after := c
 	change(&after)
-	if board.DomainOf(after, r) != board.DomainOf(c, r) {
-		return fmt.Errorf("%w: the card is tied to the process %q of its own repository — untie it first",
-			ErrCrossDomain, c.Process)
+	to := board.HomeDomain(b, after)
+	// The card's OWN column first, against where the card ends up. This is
+	// the one check that matters even when the domain does not change —
+	// re-filing a subtask into another column moves no file, and the
+	// column still has to name the repository its parent's file lives in.
+	if ownColumn && after.Epic != "" {
+		if cd, ok := board.ColumnDomain(b, after.Project, after.Epic); ok && cd != to {
+			return fmt.Errorf("%w: the column %q is not in the repository that holds this card",
+				ErrCrossDomain, after.Epic)
+		}
+	}
+	if to == board.HomeDomain(b, c) {
+		return nil
+	}
+	// The tie the change ITSELF clears strands nothing: grouping clears it
+	// (clearRiders), which is why the docstring promises grouping refuses
+	// over the tie nowhere. Reading the state before the change made a
+	// cross-repository grouping trip over a tie it was about to remove.
+	//
+	// Asked exactly as a follower's tie is asked below: a process NAME is
+	// unique board-wide (G38), so "the card is moving" and "the process is
+	// not where it is moving to" are the same answer today — and two
+	// spellings of one rule are how they stop being.
+	if tieStrandedBy(b, after.Process, to) {
+		return fmt.Errorf("%w: the card is tied to the process %q of another repository — untie it first",
+			ErrCrossDomain, after.Process)
+	}
+	// Only a card that MOVES can strand what rides it, so the follower
+	// scan — the one linear walk here — waits until the move is certain
+	// and until the cheaper refusals above have had their say.
+	// SetEpicProject calls this once per card of a column.
+	followers := board.Followers(b, c.ItemID)
+	for _, f := range followers {
+		if f.Epic != "" {
+			if cd, ok := board.ColumnDomain(b, f.Project, f.Epic); ok && cd != to {
+				return fmt.Errorf("%w: %q follows this card and stands in a column of another repository — take it out of the column first",
+					ErrCrossDomain, f.Title)
+			}
+		}
+		// A follower's TIE rides it exactly as its column does. The card
+		// itself is refused a tie across the boundary (SetCardProcess), and
+		// a card dragged over that boundary by a link it does not control
+		// must not end up in the state the direct door forbids.
+		if tieStrandedBy(b, f.Process, to) {
+			return fmt.Errorf("%w: %q follows this card and is tied to the process %q of another repository — untie it first",
+				ErrCrossDomain, f.Title, f.Process)
+		}
 	}
 	return nil
+}
+
+// tieStrandedBy reports whether a process tie would be left naming a
+// process of another repository once its card lands in `to`. A card with no
+// tie strands nothing; a process the roster does not declare answers ""
+// and decides nothing, which is the same non-answer every domain reader
+// gives (G59) — the tie is refused there, since a name nothing declares
+// cannot be shown to be in reach.
+func tieStrandedBy(b board.Board, process, to string) bool {
+	return process != "" && board.ProcessDomain(b, process) != to
+}
+
+// columnsAgree reports whether two columns belong to the same repository —
+// the question every "may these placements coexist" rule asks. It is the
+// COLUMN's answer, never its project's: one project name may be declared
+// in two repositories with its columns merged under a single entry (G13),
+// and an undeclared column agrees with nothing.
+func columnsAgree(b board.Board, aProject, aEpic, bProject, bEpic string) bool {
+	ad, aok := board.ColumnDomain(b, aProject, aEpic)
+	bd, bok := board.ColumnDomain(b, bProject, bEpic)
+	return aok && bok && ad == bd
 }

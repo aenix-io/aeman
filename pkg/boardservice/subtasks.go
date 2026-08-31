@@ -17,6 +17,13 @@ var ErrSubtaskDepth = errors.New("subtasks are one level deep")
 // board (or cannot hold subtasks).
 var ErrParentNotFound = errors.New("parent card not found")
 
+// ErrPlanSubtask is asking for a card that is both a subtask and a weekly-
+// plan card. A subtask has no band of its own — grouping hands its slot to
+// the parent — so the pair is two contradictory requests, and answering it
+// by moving the PARENT into the band named for the child mutates a card
+// nobody asked about.
+var ErrPlanSubtask = errors.New("a subtask has no weekly-plan band of its own")
+
 // ErrOpenSubtasks is returned when a card with unfinished subtasks is being
 // completed — closing the parent is the human's final call, made only once
 // every subtask is done.
@@ -32,35 +39,18 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 	if err != nil {
 		return err
 	}
+	return s.setParentOf(ctx, b, card, parent)
+}
+
+// setParentOf is SetParent with the card IN HAND. A create groups the card
+// it has just written, and a re-read there answers differently for an
+// embedder than for the server: inside a gitstore scope the staged file is
+// invisible to a bare store, so the load fails and the create undoes
+// itself — deleting a card the caller was never told about. The same
+// reason Remove carries its card through the pull-out.
+func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Card, parent string) error {
 	if parent == "" {
-		if card.Parent == "" {
-			return nil
-		}
-		if err := s.backend.SetParent(ctx, b, card, ""); err != nil {
-			return err
-		}
-		// A subtask usually has no assignee of its own — it rides the
-		// parent's — so a pull-out left it ownerless: gone from every
-		// personal board and sitting in Unassigned, which from the person
-		// who pulled it looks exactly like the card vanishing.
-		// deleteWithCascade hands a released child the parent's person for
-		// this same reason.
-		if op, ok := findCard(b, card.Parent); ok &&
-			len(card.Assignees) == 0 && len(op.Assignees) > 0 {
-			if err := s.backend.SetAssignee(ctx, b, card, op.Assignees[0]); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, card, board.EventAssignee, "", op.Assignees[0])
-		}
-		// The log keeps titles, not item ids — that is what a human (or an
-		// agent reading list_log) can act on. Both sides record the change.
-		if op, ok := findCard(b, card.Parent); ok {
-			s.logEvent(ctx, b, card, board.EventParent, op.Title, "")
-			s.logEvent(ctx, b, op, board.EventSubtask, card.Title, "")
-		} else {
-			s.logEvent(ctx, b, card, board.EventParent, card.Parent, "")
-		}
-		return s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID)
+		return s.ungroup(ctx, b, card)
 	}
 	if parent == card.ItemID {
 		return ErrSubtaskDepth
@@ -71,6 +61,23 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 	}
 	if p.Parent != "" || len(board.Children(b, card.ItemID)) > 0 {
 		return ErrSubtaskDepth
+	}
+	// Grouping moves the card's file to its parent's repository, so it is a
+	// re-file like any other: the same guard, the same three references it
+	// could strand. EVERY refusal fires before anything is written — the
+	// weekly-plan handover below hands the child's slot to the parent, and
+	// a guard speaking after it left the cache holding a state the commit
+	// never made (the refusal aborts the write, not the cache mutation).
+	// The closure models what grouping PRODUCES, riders and all: it clears
+	// the tie and the mirrors (clearRiders below), so the guard must not
+	// refuse over either — only over what grouping keeps, the card's own
+	// column and the columns of everything that follows it.
+	if err := refileGuard(b, card, func(a *board.Card) {
+		a.Parent = parent
+		a.Process = ""
+		a.Mirrors = nil
+	}); err != nil {
+		return err
 	}
 	// A weekly-plan card grouped under a parent hands its slot to the parent
 	// (the parent replaces it in the Weekly plan); a parent already in the
@@ -94,12 +101,10 @@ func (s *Service) SetParent(ctx context.Context, boardID string, itemID, parent 
 			return err
 		}
 	}
-	// A subtask is placed nowhere of its own: its mirrors go with the
-	// grouping the way its plan slot does. Left on, they were placements no
-	// board showed — the Project grid skips subtasks — yet InEpic counted
-	// them, so DeleteEpic refused for cards nobody could see; and a parent
-	// in another repository would carry the file away from them entirely.
-	// The home column stays: G14 blesses a subtask carrying its own column.
+	// A subtask keeps the ONE column it carries — G14 blesses that, and the
+	// Project board draws it there (G57) — but not a SECOND placement or a
+	// process tie: its file follows its parent, so both would be stranded
+	// the moment the parent changes repository. See clearRiders.
 	if err := s.clearRiders(ctx, b, card); err != nil {
 		return err
 	}
@@ -218,12 +223,13 @@ func (s *Service) syncParentProgress(ctx context.Context, b board.Board, parentI
 }
 
 // clearRiders strips what a subtask cannot carry — mirrors and the process
-// tie — when a card is grouped. Left on, they were placements no board
-// showed yet InEpic counted (DeleteEpic refusing for cards nobody sees),
-// and a parent in another repository would carry the file away from both.
-// The untying is logged; the mirrors go silently on purpose — like the
-// plan slot, they are placements of the parentless life, not work — and
-// the home column stays (G14).
+// tie — when a card is grouped. A subtask keeps the ONE column it carries
+// (G14, and the Project board draws it there, G57); what it may not keep is
+// a SECOND placement or a tie, because its file follows its parent: a
+// parent in another repository would carry the card away from both, which
+// is the state ErrCrossDomain exists to prevent. The untying is logged;
+// the mirrors go silently on purpose — like the plan slot, they are
+// placements of the parentless life, not work.
 func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Card) error {
 	if len(card.Mirrors) > 0 {
 		if err := s.backend.SetMirrors(ctx, b, card, nil); err != nil {
@@ -237,4 +243,59 @@ func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Car
 		s.logEvent(ctx, b, card, board.EventProcess, card.Process, "")
 	}
 	return nil
+}
+
+// ungroup pulls a subtask back out as a standalone card: the parent link
+// goes, the child keeps what it has, and both sides record the change.
+func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) error {
+	return s.ungroupKeeping(ctx, b, card)
+}
+
+// ungroupKeeping is the plain pull-out: the person is handed over (an
+// ownerless child takes its parent's login, S8) and the card's own column
+// must survive it. The grid's × wants neither — it clears the assignee on
+// the way out, and it repairs the column itself — so it calls ungroupWith
+// directly rather than through here.
+func (s *Service) ungroupKeeping(ctx context.Context, b board.Board, card board.Card) error {
+	return s.ungroupWith(ctx, b, card, true, true)
+}
+
+// ungroupWith is ungroupKeeping with a say over the card's own column:
+// the grid's × repairs that column itself, so it asks the guard about
+// everything else and answers for the column afterwards.
+func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Card, handOver, ownColumn bool) error {
+	if card.Parent == "" {
+		return nil
+	}
+	// A pull-out is a re-file too: the card leaves its parent's repository
+	// for whatever its own project or team names, and takes its followers'
+	// files with it.
+	if err := refileGuardOpts(b, card, func(a *board.Card) { a.Parent = "" }, ownColumn); err != nil {
+		return err
+	}
+	if err := s.backend.SetParent(ctx, b, card, ""); err != nil {
+		return err
+	}
+	// A subtask usually has no assignee of its own — it rides the
+	// parent's — so a pull-out left it ownerless: gone from every
+	// personal board and sitting in Unassigned, which from the person
+	// who pulled it looks exactly like the card vanishing.
+	// deleteWithCascade hands a released child the parent's person for
+	// this same reason.
+	if op, ok := findCard(b, card.Parent); ok && handOver &&
+		len(card.Assignees) == 0 && len(op.Assignees) > 0 {
+		if err := s.backend.SetAssignee(ctx, b, card, op.Assignees[0]); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventAssignee, "", op.Assignees[0])
+	}
+	// The log keeps titles, not item ids — that is what a human (or an
+	// agent reading list_log) can act on. Both sides record the change.
+	if op, ok := findCard(b, card.Parent); ok {
+		s.logEvent(ctx, b, card, board.EventParent, op.Title, "")
+		s.logEvent(ctx, b, op, board.EventSubtask, card.Title, "")
+	} else {
+		s.logEvent(ctx, b, card, board.EventParent, card.Parent, "")
+	}
+	return s.syncParentProgress(ctx, b, card.Parent, nil, card.ItemID)
 }

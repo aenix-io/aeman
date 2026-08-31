@@ -173,6 +173,13 @@ func WeeklyPlanAt(b Board, team, week, today string) WeeklyBands {
 			continue
 		}
 		switch {
+		// A DEBT — owed in a week already past, shown here beside this
+		// week's own work — goes in the by-Wednesday band. Its own band
+		// belonged to the week it missed, and the deadline it faces now is
+		// the nearest one of the week it is standing in; under "by Friday"
+		// a card that is already late read as one with time left.
+		case owedIn(c) != "" && owedIn(c) < week:
+			bands.Wed = append(bands.Wed, c)
 		// The derived band. Only the week the slot ENDS in can be a
 		// by-Wednesday week; every earlier covered week holds the slot open
 		// through its Friday. A stored band never reaches this arm — hand
@@ -193,6 +200,17 @@ func WeeklyPlanAt(b Board, team, week, today string) WeeklyBands {
 		}
 	}
 	return bands
+}
+
+// owedIn is the week a card was owed in: the one it belongs to, or — for a
+// Project-board slot, whose span IS its plan — the week its span ENDS in,
+// which is the only week of that span with a deadline in it. "" for a card
+// that names neither. Mirrored in web/src/weekly.ts (owedIn).
+func owedIn(c Card) string {
+	if c.Plan == PlanNone && c.Epic != "" && c.Day != "" {
+		return MondayOf(c.Day)
+	}
+	return c.Week
 }
 
 // planShowsInWeekAt reports whether a plan card belongs on week W's panel: its

@@ -46,6 +46,19 @@ repository that four people can clone; everybody else's board simply
 does not contain it. Authorization is thereby handed back to the forge,
 which is where it already lives for the code.
 
+A domain has a **name** — the one given on the command line (`--repo
+name=url`) — and every entry the reader hands over is stamped with the
+name of the repository it was read from, the primary's included. Nothing
+on disk carries that stamp: it is where the file *is*. A reader that
+leaves it out for the primary, or a rule that compares a stamped name
+against an empty one, has two names for one repository — and every "same
+repository?" question (the domain rule below, mirrors, the column
+guards) then answers no where it should answer yes. In this codebase the
+board carries its primary's name (`board.Board.Primary`) and every
+domain reader normalizes through it, so an unstamped entry and the
+primary are one answer; "nothing declares this" stays a separate,
+empty answer that decides nothing.
+
 ### One axis of inheritance
 
 Every object lives in exactly one domain, and nothing is chosen per
@@ -98,9 +111,11 @@ id**, in two commits that share one `Aeman-Action-Id`; the create
 carries `Aeman-Moved-From: <domain>`, the delete `Aeman-Moved-To:
 <domain>`. The card keeps its history: the log walker follows
 `Aeman-Moved-From` into the old domain (within the horizon) and shows
-one continuous log. A move of a card **cascades** to what rules 1–3 tie
-to it — its review card and its subtasks move with it, in the same
-action.
+one continuous log. A move of a card **cascades** along the links whose
+files FOLLOW it — rules 1 and 2: its review card and its subtasks move
+with it, in the same action, and so does whatever follows THEM. Rule 3
+is not one of them: an iteration's task link never moves, since a turn
+cannot be re-tied.
 
 **Create before delete, always.** The destination commit is written to
 disk first, then the source delete; a crash between the two leaves a
@@ -120,7 +135,7 @@ action with one `Aeman-Action-Id` across two domains, never a drag.
 
 ### References never cross a domain boundary
 
-A card may carry `mirrors:` — a YAML list of `{project, epic}` pairs — and
+A card may carry `mirrors:` — a YAML list of `{project, epic}` entries, the project half optionally empty (a column of no project) — and
 then stands in every named column as well as its own: the same file, the
 same log, the same dates, shown in more than one project. The home pair
 (`project:`/`epic:`) keeps deciding everything beyond being shown — the
@@ -175,7 +190,9 @@ it is a delete plus a create, named as such.
 ```
 board.yaml                         primary domain only: schema, title
 teams/<id>.yaml                    one team: name, rank, sprint pointers
-projects/<id>/project.yaml         one project: name, rank
+projects/<id>/project.yaml         one project: name, rank; a file with no
+                                   `name` is the NO-PROJECT bucket, written
+                                   on demand (`projects/_/project.yaml`)
 projects/<id>/epics/<id>.yaml      one column: name, rank
 projects/<id>/deadlines/<id>.yaml  one deadline line: week
 processes/<id>/process.yaml        one process: name, project, paused, rank
@@ -830,6 +847,7 @@ The tests are the second documentation: each names its edges.
 | G14 | Domain follows the inheritance rule, linked cards first, and is never chosen per card | a card under a closed project → closed repository; a team card without a project → the team's domain; a review card of a **closed-project** original whose `team` lives in shared → closed, not shared (the review card carries the original's team and no project, so the team rule would leak it); a subtask carrying its own column → its parent's domain regardless; an iteration → its task's; moving a card moves its review card and subtasks in the same action |
 | — | The `reviewOf` link on a MIRRORED card cannot change the card's repository | the link is a re-file in disguise (linked cards first); it is refused while mirrors stand and the card would move (`ErrCrossDomain`), and a card whose link already holds its file elsewhere cannot be mirrored |
 | — | A card's `process:` tie (SetCardProcess) stays in the card's own repository | the tie is refused across domains (`ErrCrossDomain`) — a closed card naming a shared process would hand its existence to readers who may not have it. The tie is a reference by name and lives like one: a renamed process rewrites its ties (logged per card), a process with standing ties will not delete (`ErrProcessInUse`), and a process cannot move to a project of another repository while ties stand (`ErrCrossDomain`) — the move would strand every tie at once. The card side is closed the same way: every re-file that would carry a tied card into another repository (a new team, project, column or review link) is refused, and grouping under a parent clears the tie the way it clears mirrors |
+| G57 | A card's COLUMN names the repository that holds its file | when a link outranks the project (a subtask's parent, a review card's original, G14) the file stays with the link while the column could be dragged anywhere: attaching, re-filing, grouping, ungrouping, re-teaming or review-linking the card — and moving the card whose file it follows (a parent, a reviewed original) — is refused (`ErrCrossDomain`) rather than left naming a repository that does not hold the card. A column never changes repository — a stub is written back to the backend that holds it — so moving one to a project of another repository is refused rather than performed. A column's repository is the one its own epic stub was declared in — the no-project bucket has no project to ask |
 | G15 | Mirror refuses a target column in another domain | `ErrCrossDomain`; a same-domain mirror works; the guard order — home column required, the home itself refused, the target must exist, then the same-repository check; already mirrored is a no-op — is pinned in behavior-matrix G15. The invariant holds through re-files too: the home moving onto a mirror drops the duplicate, a cleared column clears the mirrors, and neither a mirrored card nor a mirrored column may cross repositories |
 | G16 | The reviewer picker offers only readers of the card's domain | a login without access to the closed domain is absent; with access present |
 | G17 | An unreadable domain is absent from the snapshot AND the watch stream; the primary is required | a visitor who can read one of two domains gets exactly that domain's teams, projects and cards, no placeholders; a closed-domain commit applied from remote is not delivered to that visitor's socket; a visitor who cannot read the primary gets 403 and no board; a card whose team file is unreadable is still served, under its team name, with the team's sprint controls unavailable |

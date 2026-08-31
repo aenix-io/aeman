@@ -128,10 +128,20 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		// selector filters by PROJECT (an epic's owner), not by team: a project
 		// spans teams, and a card is assigned to a team from this very board.
 		for _, c := range b.Cards {
-			if c.Epic == "" || c.Parent != "" {
+			// A SUBTASK that carries its own column belongs here on its own
+			// merit (G57), not as a rider of a delivered parent: the case
+			// the rule exists for is a parent that lives elsewhere — the
+			// weekly plan, the working area — and is in no project view at
+			// all, which left the whole group visible nowhere.
+			if c.Epic == "" {
 				continue
 			}
-			if sel.Project != "" && c.Project != sel.Project {
+			// A MIRROR is the same card standing in a second column, so a
+			// project's view holds every card that stands in one of ITS
+			// columns, home pair or mirror (G15) — the home-only reading
+			// answered an agent asking about a project with less than the
+			// board draws there.
+			if sel.Project != "" && !board.InProject(c, sel.Project) {
 				continue
 			}
 			base = append(base, c)
@@ -176,10 +186,58 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		out = append(out, c)
 	}
 	out = withSubtasks(b, out, sel)
+	if sel.View == "project" {
+		out = projectViewCards(b, out, sel.Project)
+	}
 	if sel.IncludeReviews && (sel.View == "me" || sel.View == "team") {
 		out = withLinkedReviews(b, out)
 	}
 	return out
+}
+
+// projectViewCards settles what the Project board's query carries. The grid
+// draws a card by its COLUMN, so a subtask without one belongs to no
+// Project board — and the subtask rider would otherwise smuggle in every
+// child of a columned parent, counted by the client's progress bars and
+// drawn by nothing. The PARENT of a delivered subtask rides along instead,
+// column or not: the slot is marked with its title, and the client has no
+// other query to find it in (the motivating parent — a plan card, a
+// working-area card — never carries a column of its own).
+func projectViewCards(b board.Board, out []board.Card, project string) []board.Card {
+	kept := make([]board.Card, 0, len(out))
+	wanted := map[string]bool{}
+	for _, c := range out {
+		if c.Epic == "" {
+			continue
+		}
+		// The subtask rider ignores the selector, so a child filed under
+		// ANOTHER project came in on its parent's ticket: one project's
+		// columns are what this view is.
+		if project != "" && !board.InProject(c, project) {
+			continue
+		}
+		kept = append(kept, c)
+		if c.Parent != "" {
+			wanted[c.Parent] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return kept
+	}
+	have := map[string]bool{}
+	for _, c := range kept {
+		have[c.ItemID] = true
+	}
+	// In BOARD ORDER, like every other listing: a tail of riders would
+	// reshuffle rows on every refetch, which is what withSubtasks goes out
+	// of its way to avoid for children.
+	ordered := make([]board.Card, 0, len(kept)+len(wanted))
+	for _, c := range b.Cards {
+		if have[c.ItemID] || wanted[c.ItemID] {
+			ordered = append(ordered, c)
+		}
+	}
+	return ordered
 }
 
 // withSubtasks appends the subtasks of every delivered parent, so a view is

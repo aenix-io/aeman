@@ -219,9 +219,10 @@ func DecodeCard(id string, data []byte) (CardFile, error) {
 	// unmirroring instead of removing. Dropped in a post-pass — post-pass
 	// because a hand-written file guarantees no key order, so the home may
 	// be read after the mirrors.
-	// A subtask rides its parent and is placed nowhere of its own:
-	// hand-written mirrors on one are placements no board draws, yet
-	// InEpic counts them — DeleteEpic refusing for cards nobody sees.
+	// A subtask carries at most the ONE column of its own (G57, which the
+	// Project board draws); a SECOND placement it may not have, because
+	// its file follows its parent and every mirror would be stranded the
+	// moment the parent changes repository.
 	if f.Card.Parent != "" {
 		f.Card.Mirrors = nil
 	}
@@ -300,9 +301,11 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 				}
 			}
 			// A hand-written scalar (`mirrors: [foo]`) decodes to an empty
-			// pair — the very placement the service guards against
-			// everywhere else. Half a column is no column: skipped.
-			if m.Project == "" || m.Epic == "" {
+			// pair. A column is named by its EPIC, though: the no-project
+			// bucket is a lawful mirror home (G15), so only the epic half
+			// is required — dropping every project-less entry erased the
+			// very placements the service had just accepted.
+			if m.Epic == "" {
 				continue
 			}
 			c.Mirrors = append(c.Mirrors, m)

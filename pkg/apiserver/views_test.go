@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -79,5 +80,131 @@ func TestListCardsSummaryOmitsBodies(t *testing.T) {
 	}
 	if len(full.Items[0].Status.Links) != 2 {
 		t.Fatal("the full shape carries the derived refs too")
+	}
+}
+
+// The Project board draws a subtask that carries its own column (G57), so
+// the view has to deliver it — and deliver it on its OWN merit, not as a
+// rider of a delivered parent: the case the rule exists for is a parent
+// that lives elsewhere entirely (the weekly plan, the working area) and is
+// therefore in no project view at all. Filtering every parented card out
+// left the whole group visible nowhere.
+func TestProjectViewDeliversSubtasksThatCarryAColumn(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
+		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Redis App", Project: "freedom"},
+		// The parent is a plan card: no column, so no project view holds it.
+		{ItemID: "parent", Title: "TLS for DBaaS", Plan: board.PlanWed, Week: "2026-08-24"},
+		{ItemID: "child", Title: "TLS for Redis", Parent: "parent",
+			Project: "freedom", Epic: "Redis App"},
+		{ItemID: "loose", Title: "no column", Parent: "parent"},
+	})
+	got := FilterCards(b, Selector{View: "project"})
+	var seen []string
+	for _, c := range got {
+		seen = append(seen, c.ItemID)
+	}
+	if !slices.Contains(seen, "child") {
+		t.Fatalf("the subtask carries the column and must be delivered: %v", seen)
+	}
+	if slices.Contains(seen, "loose") {
+		t.Fatalf("a subtask without a column belongs to no Project board: %v", seen)
+	}
+	// The parent RIDES ALONG even without a column of its own: the slot is
+	// marked with its title, and the client has no other query to find it
+	// in. It is not drawn — the grid draws what carries a column.
+	if !slices.Contains(seen, "parent") {
+		t.Fatalf("the parent of a delivered subtask names the slot: %v", seen)
+	}
+}
+
+// The subtask rider must not smuggle columnless children in through a
+// parent that DOES have a column: they belong to no Project board, and
+// the client would count them into a progress bar that draws nothing.
+func TestProjectViewDropsColumnlessChildrenOfAColumnedParent(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
+		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Redis App", Project: "freedom"},
+		{ItemID: "parent", Title: "parent in a column", Project: "freedom", Epic: "Redis App"},
+		{ItemID: "loose", Title: "child without one", Parent: "parent"},
+	})
+	for _, c := range FilterCards(b, Selector{View: "project"}) {
+		if c.ItemID == "loose" {
+			t.Fatal("a columnless subtask is on no Project board, rider or not")
+		}
+	}
+}
+
+// ?view=project&project=X is ONE project's columns. A subtask is delivered
+// on its own merit — its epic — so a child filed under another project is
+// no more welcome than any other card of it, however its parent is filed.
+func TestProjectViewKeepsToTheProjectItWasAskedFor(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "pr-e", Title: board.ProjectStateTitle, Project: "engineering"},
+		{ItemID: "pr-m", Title: board.ProjectStateTitle, Project: "marketing"},
+		{ItemID: "ep-c", Title: board.EpicStateTitle, Epic: "Cozy", Project: "engineering"},
+		{ItemID: "ep-l", Title: board.EpicStateTitle, Epic: "Launch", Project: "marketing"},
+		{ItemID: "p", Title: "parent", Project: "engineering", Epic: "Cozy"},
+		{ItemID: "kid", Title: "child elsewhere", Parent: "p", Project: "marketing", Epic: "Launch"},
+	})
+	for _, c := range FilterCards(b, Selector{View: "project", Project: "engineering"}) {
+		if c.ItemID == "kid" {
+			t.Fatal("another project's card rides in on nobody's ticket")
+		}
+	}
+}
+
+// The riding parent is placed in BOARD ORDER, not appended as a tail: a
+// listing whose rows reshuffle on every refetch is what withSubtasks goes
+// out of its way to avoid for children, and the same must hold here.
+func TestTheProjectViewKeepsBoardOrderWithARidingParent(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
+		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Redis App", Project: "freedom"},
+		{ItemID: "first", Title: "a columned card", Project: "freedom", Epic: "Redis App"},
+		{ItemID: "parent", Title: "the parent, no column of its own"},
+		{ItemID: "child", Title: "a subtask with one", Parent: "parent",
+			Project: "freedom", Epic: "Redis App"},
+		{ItemID: "last", Title: "another columned card", Project: "freedom", Epic: "Redis App"},
+	})
+	var got []string
+	for _, c := range FilterCards(b, Selector{View: "project"}) {
+		got = append(got, c.ItemID)
+	}
+	want := []string{"first", "parent", "child", "last"}
+	if len(got) != len(want) {
+		t.Fatalf("delivered %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("board order: delivered %v, want %v", got, want)
+		}
+	}
+}
+
+// A MIRROR is the same card standing in a second column, so one project's
+// listing holds every card that stands in ITS columns — mirrored in or at
+// home. Reading the home pair alone answered an agent asking about a
+// project (MCP list_cards project=…) with less than the board draws there,
+// while the card sat in that project's column on the screen.
+func TestProjectViewHoldsTheCardsMirroredIntoIt(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "ep-l", Title: board.EpicStateTitle, Epic: "Launch", Project: "freedom"},
+		{ItemID: "ep-c", Title: board.EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
+		{ItemID: "home", Title: "at home", Team: "t", Project: "freedom", Epic: "Launch"},
+		{ItemID: "guest", Title: "mirrored in", Team: "t", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+		{ItemID: "other", Title: "elsewhere", Team: "t", Project: "engineering", Epic: "Cozystack"},
+	})
+	got := ListCards(b, Selector{View: "project", Project: "freedom"})
+	ids := map[string]bool{}
+	for _, c := range got.Items {
+		ids[c.Metadata.UID] = true
+	}
+	if !ids["home"] || !ids["guest"] {
+		t.Fatalf("a project holds its own cards and the ones mirrored into it: %v", ids)
+	}
+	if ids["other"] {
+		t.Fatalf("and nothing that stands in neither: %v", ids)
 	}
 }

@@ -3,7 +3,10 @@
 // Pure helpers shared by the card badge, the create flows (which repository a
 // new team/project/process is declared in) and the reviewer picker.
 
-/** DomainInfo is one repository of the board as GET /board reports it. */
+/** DomainInfo is one repository of the board as GET /board reports it. The
+ *  board lists them whatever it spans — one entry for a single-repository
+ *  board — so these names are what every stamp in the payload is compared
+ *  against (G59). */
 export interface DomainInfo {
   name: string;
   /** Whether the visitor may write to this repository. */
@@ -28,7 +31,11 @@ export function isMultiDomain(domains: readonly DomainInfo[]): boolean {
 }
 
 /** primaryDomain names the first configured repository ("" when the server
- *  names none). */
+ *  names none) — the repository a board's own entries belong to. The
+ *  server stamps every roster entry with its domain's NAME, the primary
+ *  included, while a card that nothing places carries none, so a client
+ *  comparing the two reads them through this name (inPrimary), exactly as
+ *  board.inPrimary does on the server. */
 export function primaryDomain(domains: readonly DomainInfo[]): string {
   return domains[0]?.name ?? "";
 }
@@ -95,13 +102,17 @@ export function reviewerCandidates(
   return members.filter((m) => readers.has(m));
 }
 
-/** RosterDomains names the repository a team or project was declared in, for
- *  the entries that live outside the primary. A board of one repository (and
- *  an older server) sends none. */
+/** RosterDomains names the repository a team or project was declared in.
+ *  A served board names every entry, the primary's own included, so these
+ *  are NAMES to compare against the primary's — never a presence test. An
+ *  entry with no row means the primary as well (a hand-built board, an
+ *  older server), which is what inPrimary reads it as. */
 export type RosterDomains = Record<string, string> | undefined;
 
-/** rosterDomain is the repository an entry was declared in; "" is the
- *  primary, which is never named. */
+/** rosterDomain is the repository an entry was declared in, as the roster
+ *  gives it: a NAME on a served board, "" for an entry no map carries —
+ *  which means the primary too, and is what inPrimary reads it as. Compare
+ *  through inPrimary (or placements.sameRepository), never raw. */
 export function rosterDomain(domains: RosterDomains, name: string): string {
   if (!name || !domains) {
     return "";
@@ -149,4 +160,10 @@ export function offerableProjects(
   return projects.filter(
     (p) => p === current || rosterDomain(projectDomains, p) === home,
   );
+}
+
+/** inPrimary reads an entry's stamp in that one namespace: no stamp means
+ *  the primary. */
+export function inPrimary(domain: string | undefined, primary: string): string {
+  return domain ? domain : primary;
 }

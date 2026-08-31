@@ -3,7 +3,7 @@ import type { Card as CardModel, StageKey } from "../providers/types";
 import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
-import type { CardPlacements } from "../placements";
+import { hasOriginToShow, type CardPlacements } from "../placements";
 import { PlacementMenu } from "./PlacementMenu";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -383,8 +383,12 @@ export function Card({
   const taken = Boolean(weekMode) && card.assignees.length > 0;
   // The plan stripe: the stored band, or — for a Project-board slot — the
   // band derived from its end date. A slot needs no stored band to be in
-  // the weekly plan, so its row must not pretend otherwise.
-  const band = effectiveBand(card);
+  // the weekly plan, so its row must not pretend otherwise. ON THE PANEL
+  // the week being looked at decides for a DEBT: a card owed in an earlier
+  // week stands in the by-Wednesday band there, and a stripe saying
+  // otherwise put a "by Friday" mark on a card sitting under "by
+  // Wednesday".
+  const band = effectiveBand(card, weekMode ? mondayOf(asOf ?? todayIso()) : undefined);
   // The small second avatar: on a weekly-plan card it is the person the card
   // is ASSIGNED to (who took it into work) — not the review counterpart; on
   // grid cards it stays the counterpart (the reviewer / the implementer).
@@ -951,7 +955,7 @@ export function Card({
             {/* What this card is part of — the menu is where a person asks
                 "whose is this?", and the answer starts with where it came
                 from. */}
-            {(card.process || card.project || placements) && (
+            {hasOriginToShow(card) && (
               <div className="card-assign-origin">
                 {card.process && (
                   <span>
@@ -959,11 +963,14 @@ export function Card({
                     {card.process}
                   </span>
                 )}
-                {card.project && (
+                {(card.project || card.epic) && (
                   <span>
-                    <span className="card-assign-origin-kind">project</span>
+                    <span className="card-assign-origin-kind">
+                      {card.project ? "project" : "column"}
+                    </span>
                     {card.project}
-                    {card.epic ? ` · ${card.epic}` : ""}
+                    {card.project && card.epic ? " · " : ""}
+                    {card.epic}
                   </span>
                 )}
                 {(card.mirrors ?? []).map((m) => (

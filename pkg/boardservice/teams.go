@@ -69,6 +69,24 @@ func (s *Service) createPersonalCard(ctx context.Context, b board.Board, args Cr
 	if actor == "" {
 		return board.Card{}, errors.New("a personal card needs a signed-in person to belong to")
 	}
+	// A personal card's file is the ACTOR's own repository, whatever its
+	// parent is — so a parent living anywhere else would put the pair in
+	// two repositories, with the linked-cards rule (G14) saying one thing
+	// and the file saying another.
+	if args.Parent != "" {
+		p, ok := findCard(b, args.Parent)
+		if !ok {
+			return board.Card{}, ErrParentNotFound
+		}
+		// The card's own stored domain, not DomainOf: a personal card is
+		// placed by nothing — no team, no project, no link — so the rule
+		// that reads placement answers "" for it, and the file is what
+		// says whose board it is.
+		if p.Domain != board.PersonalDomain(actor) {
+			return board.Card{}, fmt.Errorf("%w: a personal card can only join a group of your own board",
+				ErrCrossDomain)
+		}
+	}
 	day, start := args.Day, args.Start
 	switch {
 	case start == "" && day != "":
@@ -82,6 +100,10 @@ func (s *Service) createPersonalCard(ctx context.Context, b board.Board, args Cr
 		Day:      day,
 		Start:    start,
 		Assignee: actor,
+		// Born parented — a create-then-group pair broadcasts a parentless
+		// instant — and grouped below through SetParent, for the side
+		// effects the field alone does not carry: the sprint and person
+		// sync, the plan slot, the riders a subtask may not keep.
 		Parent:   args.Parent,
 		Personal: true,
 		Domain:   board.PersonalDomain(actor),
@@ -90,6 +112,12 @@ func (s *Service) createPersonalCard(ctx context.Context, b board.Board, args Cr
 	if err == nil {
 		s.resolveTitleAsync(ctx, b, card, pendingRef)
 		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+	}
+	if err == nil && args.Parent != "" {
+		if perr := s.groupOrUndo(ctx, b, card, args.Parent); perr != nil {
+			return board.Card{}, perr
+		}
+		card.Parent = args.Parent
 	}
 	return card, err
 }
