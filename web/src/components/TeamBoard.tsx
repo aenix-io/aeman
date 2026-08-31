@@ -506,13 +506,21 @@ export function TeamBoard({
 
   // Move a plan card between the two bands (changes its Wed/Fri deadline).
   const handleSetPlan = (card: CardModel, plan: "wed" | "fri") => {
-    const prev = card.plan;
-    patchCard(card.itemId, { plan });
+    const prev: Partial<CardModel> = { plan: card.plan, parent: card.parent, week: card.week };
+    // A band on a SUBTASK takes it out of the group (G58): the server pulls
+    // it out and plans it in the current week, so the row must stop being
+    // drawn under its parent at once — it is the gesture that frees a card
+    // dropped under the wrong one.
+    patchCard(card.itemId, {
+      plan,
+      ...(card.parent ? { parent: undefined } : {}),
+      ...(card.week ? {} : { week: mondayOf(todayIso()) }),
+    });
     void provider
       .patchCard(card.itemId, { plan: { band: plan } })
       .then(addCard)
       .catch((err: unknown) => {
-        patchCard(card.itemId, { plan: prev });
+        patchCard(card.itemId, prev);
         onError(errMessage(err));
       });
   };
