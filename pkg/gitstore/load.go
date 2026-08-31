@@ -117,12 +117,46 @@ type BrokenFile struct {
 }
 
 // Load reads the snapshot at the branch tip.
+// clone copies a snapshot's own slices — every place a reader writes into
+// one. LoadAll stamps each entry with its domain's NAME (stamp), so two
+// readers sharing one snapshot would stamp over each other; the strings
+// themselves are shared, which is what makes this cheap next to decoding
+// the tree again.
+func (s Snapshot) clone() Snapshot {
+	out := s
+	out.Cards = append([]board.Card(nil), s.Cards...)
+	out.Teams = append([]Team(nil), s.Teams...)
+	out.Processes = append([]Process(nil), s.Processes...)
+	for i := range out.Processes {
+		out.Processes[i].Tasks = append([]Task(nil), s.Processes[i].Tasks...)
+	}
+	out.Projects = append([]Project(nil), s.Projects...)
+	for i := range out.Projects {
+		out.Projects[i].Epics = append([]Epic(nil), s.Projects[i].Epics...)
+		out.Projects[i].Deadlines = append([]Deadline(nil), s.Projects[i].Deadlines...)
+	}
+	return out
+}
+
 func Load(r *Repo) (Snapshot, error) {
 	head := r.Head()
 	if head.IsZero() {
 		return Snapshot{}, ErrEmptyRepository
 	}
-	return LoadAt(r, head)
+	// Memoized by the tip. Reading the tree means decoding every card file
+	// on the board, and every setter asks for a snapshot to decide where
+	// its card belongs — so one request that wrote fifty cards read the
+	// whole board a hundred and fifty times. The commit is immutable: the
+	// same hash is the same board, and a write moves the hash.
+	if s, ok := r.snapshotAt(head); ok {
+		return s, nil
+	}
+	s, err := LoadAt(r, head)
+	if err != nil {
+		return s, err
+	}
+	r.rememberSnapshot(head, s)
+	return s, nil
 }
 
 // LoadAt reads the snapshot at a commit — the tip, or a past one for the
