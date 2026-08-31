@@ -1153,7 +1153,14 @@ export function TeamBoard({
       return;
     }
     const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
-    patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    // The band goes to the parent; a COLUMN card keeps its week — that is
+    // the row the Project board draws it in, not plan membership (mirrors
+    // boardservice.SetParent).
+    patchCard(card.itemId, {
+      parent: parentId,
+      plan: undefined,
+      ...(card.epic ? {} : { week: undefined }),
+    });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
