@@ -56,6 +56,12 @@ func (sub *subscription) send(frame watchFrame) {
 	if err != nil {
 		return
 	}
+	sub.sendRaw(data)
+}
+
+// sendRaw delivers a frame already marshalled — one built for a whole group
+// of subscriptions that see the same board (see flushRoster).
+func (sub *subscription) sendRaw(data []byte) {
 	select {
 	case sub.ch <- data:
 	default:
@@ -159,6 +165,10 @@ type boardEntry struct {
 	// recentMove is when a local reorder last touched this board: within
 	// recentGrace the cached order outweighs a fresh (possibly stale) read.
 	recentMove time.Time
+	// rosterDue is a board announcement waiting to go out. The frame carries
+	// the whole board, so it is sent once for a burst of changes rather than
+	// once per card — see rosterBroadcast.
+	rosterDue bool
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -894,19 +904,78 @@ func (e *boardEntry) diffNotify(old board.Board) {
 // events it is already receiving: it has to re-read /board, and this is what
 // tells it to. Sent to every watcher regardless of the view it selected,
 // because the roster is the same for all of them.
+// The caller holds e.mu.
+//
+// It is ONE announcement for a burst, not one per card. The frame carries the
+// board — every project, column, deadline and process — so building it means
+// projecting the board for the watcher and marshalling the result; a
+// carry-over moves hundreds of cards, a good share of them process turns,
+// and announcing each of them to each open tab built that frame thousands of
+// times under the lock every read waits on. On the real board that was a
+// minute and a half in which nothing else was served. The changes themselves
+// reach the client as card events meanwhile; the roster catches up a moment
+// later.
 func (e *boardEntry) rosterBroadcast() {
+	if e.rosterDue {
+		return
+	}
+	e.rosterDue = true
+	time.AfterFunc(rosterCoalesce, e.flushRoster)
+}
+
+// rosterCoalesce is how long an announcement waits for the rest of its burst.
+// Short enough that a single change still looks instant, long enough that a
+// request writing many cards announces once.
+const rosterCoalesce = 25 * time.Millisecond
+
+// flushRoster sends the announcement rosterBroadcast promised: one frame per
+// distinct set of rights (the tabs of one visitor share a projection, and
+// most visitors of a one-repository board share it with everyone), marshalled
+// once and handed to every subscription it fits.
+func (e *boardEntry) flushRoster() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.rosterDue {
+		return
+	}
+	e.rosterDue = false
 	// The frame CARRIES the board, the way a Card frame carries its card: a
 	// client applies it and needs no round trip. A bare "something changed"
 	// signal sent every open tab back to GET /board — a full snapshot each,
 	// which is the opposite of what a cache is for. Processes ride along as
 	// their full structure, since the Process tab is drawn from it.
+	built := map[string][]byte{}
 	for sub := range e.watchers {
-		view := sub.view(e.board)
-		sub.send(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
-			BoardInfo: apiserver.BoardResourceWithPeople(view, e.member),
-			Processes: apiserver.ProcessesResource(view, "").Items,
-		}})
+		key := rightsKey(sub.rights)
+		data, ok := built[key]
+		if !ok {
+			view := sub.view(e.board)
+			raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
+				BoardInfo: apiserver.BoardResourceWithPeople(view, e.member),
+				Processes: apiserver.ProcessesResource(view, "").Items,
+			}})
+			if err != nil {
+				continue
+			}
+			data = raw
+			built[key] = raw
+		}
+		sub.sendRaw(data)
 	}
+}
+
+// rightsKey names a projection of the board: two subscriptions with the same
+// key see the same board and can share one built frame.
+func rightsKey(r *domainRights) string {
+	if r == nil {
+		return ""
+	}
+	names := make([]string, 0, len(r.read))
+	for d := range r.read {
+		names = append(names, d)
+	}
+	sort.Strings(names)
+	return "r\x00" + r.primary + "\x00" + strings.Join(names, "\x00")
 }
 
 // boardFrame is the Board watch frame's object: the board resource plus the

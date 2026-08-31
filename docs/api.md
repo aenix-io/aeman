@@ -248,6 +248,8 @@ The optional `client` id keys **echo suppression**: send the same value in the `
 
 **Scoped watch**: pass the same selector parameters as LIST (`view=`, `team=`, `stage=`, ...) and the subscription tracks that selection — a card entering it arrives as `ADDED` and one leaving it as `DELETED`, so a thin client can mirror a single view without knowing the board rules. Memberships are re-diffed when a sprint pointer moves and when the local day rolls over. `resources=cards,sprints,ordering` picks the kinds.
 
+**Board frames**: a change to the board's STRUCTURE — a project, a column, a deadline, a process or one of its tasks — cannot be expressed as a card event, so it arrives as a `MODIFIED` frame of kind `Board` carrying the whole board resource plus the process structure (apply it, no round trip needed). These frames are **coalesced**: one request that touches many cards announces the board once, a moment (~25 ms) after its changes, not once per card — a carry-over moving a team's whole backlog would otherwise repaint the board for every open tab hundreds of times over, and it did.
+
 Changes that reach the repository from elsewhere — another aeman replica, a plugin committing directly — arrive the same way: the server fetches on its sync tick (`--sync-interval`, 15 s), reads exactly the cards the new commits touched, and streams them.
 
 ### Health
