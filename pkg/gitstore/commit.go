@@ -54,6 +54,38 @@ type Repo struct {
 	// so a log read never waits on a commit and vice versa.
 	idxMu sync.Mutex
 	idx   *pathIndex
+	// snapMu guards the snapshot memo: the board as it reads at ONE commit.
+	// A commit is immutable, so the same hash always yields the same board —
+	// and a single request re-reads the whole tree once per field it writes
+	// otherwise (every setter takes a snapshot to decide where the card
+	// belongs), which is why a carry-over over a 2400-card board took
+	// minutes rather than the second it spends writing.
+	snapMu   sync.Mutex
+	snapHead plumbing.Hash
+	snap     *Snapshot
+}
+
+// snapshotAt returns the memoized snapshot for a tip, if that is the tip it
+// was read at. The copy is the caller's: LoadAll stamps every entry with
+// its domain's name, and a caller that wrote through to the memo would
+// hand the next reader a board stamped for somebody else.
+func (r *Repo) snapshotAt(head plumbing.Hash) (Snapshot, bool) {
+	r.snapMu.Lock()
+	defer r.snapMu.Unlock()
+	if r.snap == nil || r.snapHead != head {
+		return Snapshot{}, false
+	}
+	return r.snap.clone(), true
+}
+
+// rememberSnapshot memoizes one tip's snapshot, replacing whatever tip was
+// remembered before: the board moves forward, and a reader of an older tip
+// is a log read, which has its own path.
+func (r *Repo) rememberSnapshot(head plumbing.Hash, s Snapshot) {
+	r.snapMu.Lock()
+	defer r.snapMu.Unlock()
+	kept := s.clone()
+	r.snapHead, r.snap = head, &kept
 }
 
 // Action is what one commit records.

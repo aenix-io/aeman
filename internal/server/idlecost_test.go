@@ -303,10 +303,20 @@ func TestAPersonNobodyHasAskedAboutIsAskedAbout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The newcomer is offered at once — a login nobody has asked about yet
+	// is not "cannot read", and the picker must not lose the person a card
+	// was just assigned to — and asked about BEHIND the answer: waiting for
+	// the forge here is what put seconds between a person and their board
+	// every time somebody new appeared on it.
 	if len(got) != 2 {
-		t.Fatalf("readers = %v; the newcomer must be asked about, not assumed away", got)
+		t.Fatalf("readers = %v; the newcomer must not be assumed away", got)
 	}
+	waitForCalls(t, &calls, 2)
 	if calls.Load() != 2 {
 		t.Fatalf("%d listings, want 2 — the second for the login never seen", calls.Load())
+	}
+	// …and once the forge has answered, the answer stands.
+	if got, err := fa.readers(ctx, "shared", []string{"kvaps", "lex"}); err != nil || len(got) != 2 {
+		t.Fatalf("the settled answer: %v, %v", got, err)
 	}
 }

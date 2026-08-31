@@ -37,7 +37,7 @@ import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
-import { isSlot, owedIn, planRemoveOffered, slotBand } from "../weekly";
+import { isSlot, owedIn, planRemoveOffered, slotBand, slotWeekPatch } from "../weekly";
 import { subtaskShows } from "../subtasks";
 import {
   boardAsksAbout,
@@ -2038,6 +2038,9 @@ export function TeamBoard({
       startDate: start ?? undefined,
       sprintStart: sprint ?? undefined,
       day: end ?? undefined,
+      // A slot's WEEK follows its start date, or the card keeps standing
+      // in the week it left until the next full load.
+      ...slotWeekPatch(card, start),
     });
     void provider
       .patchCard(card.itemId, {
