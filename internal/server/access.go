@@ -122,6 +122,12 @@ const membersTTL = 5 * time.Minute
 // membersRefreshTimeout bounds a member refresh running behind an answer.
 const membersRefreshTimeout = 30 * time.Second
 
+// askBackoff is how long a login the forge was asked about but did not
+// answer for is left alone. Short enough that a passing outage is over
+// before it matters, long enough that a lasting one is not re-asked on
+// every request.
+const askBackoff = time.Minute
+
 // forgeAccess asks the forge — a repository's permissions, in the forge's
 // own terms — with the visitor's token, one request per domain, and caches
 // the answer per visitor. A stale answer stands in while the forge is
@@ -144,6 +150,9 @@ type forgeAccess struct {
 	mu      sync.Mutex
 	cache   map[string]cachedRights // by login
 	members map[string]cachedBool   // by domain + login
+	// asked is when the forge was last asked about a login, answer or no
+	// answer: a question that came back empty must not look unasked.
+	asked map[string]time.Time // by domain + login
 	// refreshing single-flights the background check per visitor: the
 	// requests of one page load share the one it triggered.
 	refreshing map[string]bool
@@ -192,16 +201,43 @@ func (f *forgeAccess) readers(ctx context.Context, domain string, logins []strin
 	}
 	unknown, stale := f.splitMembers(domain, logins)
 	switch {
-	case unknown:
+	case unknown && f.coldDomain(domain):
+		// Nobody has ever asked about this repository: pay for the answer
+		// once, so the first board of a fresh process is the true list.
 		f.askMembers(ctx, domain, url, logins)
-	case stale:
+	case unknown || stale:
+		// Everything after that goes BEHIND the answer. Asking the forge
+		// who reads a repository is a listing plus one request per login
+		// the listing does not name, and this runs on every GET /board:
+		// waiting for it put five to nine seconds between a person and
+		// their board every time a login was new — which, on a board where
+		// people are assigning cards all morning, is most of the time. The
+		// list narrows a PICKER and decides nothing about what anyone may
+		// read (the visibility projection asks the visitor's own rights),
+		// so serving it a moment stale costs nothing.
 		f.refreshMembers(domain, url, logins)
 	}
 	return f.knownReaders(domain, logins), nil
 }
 
+// coldDomain reports that no login has an answer for this domain yet — the
+// first board after a start, where waiting once is right.
+func (f *forgeAccess) coldDomain(domain string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for k := range f.members {
+		if strings.HasPrefix(k, domain+"\x00") {
+			return false
+		}
+	}
+	return true
+}
+
 // splitMembers reports whether any of the logins has no answer at all, and
-// whether any answer has aged past the TTL.
+// whether any answer has aged past the TTL. A login the forge was ASKED
+// about recently counts as neither: without that, a forge that answers for
+// nobody (an outage, a credential that cannot see the org) left every
+// login unknown and every request asking again.
 func (f *forgeAccess) splitMembers(domain string, logins []string) (unknown, stale bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -209,6 +245,9 @@ func (f *forgeAccess) splitMembers(domain string, logins []string) (unknown, sta
 		c, ok := f.members[domain+"\x00"+login]
 		switch {
 		case !ok:
+			if at, asked := f.asked[domain+"\x00"+login]; asked && f.now().Sub(at) < askBackoff {
+				continue
+			}
 			unknown = true
 		case f.now().Sub(c.at) >= membersTTL:
 			stale = true
@@ -221,6 +260,7 @@ func (f *forgeAccess) splitMembers(domain string, logins []string) (unknown, sta
 // An error leaves the answers that stand — an outage must not empty a
 // picker — and is logged, since the caller has an answer either way.
 func (f *forgeAccess) askMembers(ctx context.Context, domain, url string, logins []string) {
+	f.markAsked(domain, logins)
 	found, err := f.forge.Readers(ctx, f.client, f.tokenFor(ctx, domain), url, logins)
 	if err != nil {
 		f.log("domain members", domain, err)
@@ -234,6 +274,20 @@ func (f *forgeAccess) askMembers(ctx context.Context, domain, url string, logins
 	for _, login := range logins {
 		_, reads := found[login]
 		f.members[domain+"\x00"+login] = cachedBool{ok: reads, at: f.now()}
+	}
+}
+
+// markAsked records that the forge was asked about these logins, whatever
+// it answers: an attempt that comes back empty must not look like a
+// question nobody has asked yet.
+func (f *forgeAccess) markAsked(domain string, logins []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.asked == nil {
+		f.asked = map[string]time.Time{}
+	}
+	for _, login := range logins {
+		f.asked[domain+"\x00"+login] = f.now()
 	}
 }
 
@@ -270,7 +324,26 @@ func (f *forgeAccess) knownReaders(domain string, logins []string) []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, login := range logins {
-		if c, ok := f.members[domain+"\x00"+login]; ok && c.ok {
+		c, answered := f.members[domain+"\x00"+login]
+		if answered {
+			if c.ok {
+				out = append(out, login)
+			}
+			continue
+		}
+		// NOT YET ASKED is not "no". The forge is asked behind the answer
+		// now, so a login that appeared a moment ago — a card just
+		// assigned to somebody new — would otherwise drop out of the
+		// picker until the ask lands: the picker silently losing people it
+		// has never heard of, which is what the blocking ask was there to
+		// prevent. Offered until the forge says otherwise; what anyone may
+		// READ is decided elsewhere, by the visitor's own rights.
+		//
+		// ASKED and unanswered is different: the question was put and came
+		// back with nothing (no credential to ask with, an outage), and
+		// claiming the person can read on that basis would be inventing an
+		// answer.
+		if _, asked := f.asked[domain+"\x00"+login]; !asked {
 			out = append(out, login)
 		}
 	}
