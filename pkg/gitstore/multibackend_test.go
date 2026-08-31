@@ -820,3 +820,46 @@ func TestReRoutingATasksTurnInsideOneScope(t *testing.T) {
 		t.Fatalf("the running turn follows the task's new owner: %+v", its[0].Assignees)
 	}
 }
+
+// The NO-PROJECT BUCKET must be creatable, not only readable. This line
+// makes it a home like any other — a column cards stand in, mirror into
+// and are removed from, and the one place a teamless card can be created
+// — and G57 says a column may be UNBOUND into it. Both need a nameless
+// project stub, which nothing could write (a project must have a name), so
+// on a real board every one of those gestures failed with "project not
+// found" while the fake, holding the roster in memory, said yes.
+func TestTheNoProjectBucketCanBeCreated(t *testing.T) {
+	mb, shared, _ := twoDomains(t)
+	svc := boardservice.New(mb)
+	ctx := ctxAs("kvaps")
+
+	// A column added outside every project.
+	if err := svc.AddEpic(ctx, "acme", "Chores", ""); err != nil {
+		t.Fatalf("a column of no project: %v", err)
+	}
+	b, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := board.FindEpic(b, "", "Chores"); !ok {
+		t.Fatalf("the bucket holds it: %+v", b.Epics)
+	}
+	if _, err := shared.ReadFile(ProjectPath(bucketProjectID)); err != nil {
+		t.Fatalf("under a nameless project stub: %v", err)
+	}
+
+	// And an existing column unbound INTO it — the gesture G57 describes.
+	if err := svc.SetEpicProject(ctx, "acme", "portal", "Bugs", ""); err != nil {
+		t.Fatalf("unbinding a column moves it to the bucket: %v", err)
+	}
+	if b, err = mb.LoadBoard(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := board.FindEpic(b, "", "Bugs"); !ok {
+		t.Fatalf("and it is there: %+v", b.Epics)
+	}
+	// One stub, whatever finds it first.
+	if n := len(b.Projects); n != 2 {
+		t.Fatalf("the bucket is not a project of its own on the board: %v", b.Projects)
+	}
+}

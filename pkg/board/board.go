@@ -512,6 +512,22 @@ func InEpic(c Card, project, name string) bool {
 	return Mirrored(c, project, name)
 }
 
+// InProject reports whether a card stands in one project's columns — its
+// home pair, or ANY mirror it carries. A mirror is the same card standing
+// in a second column (G15), so a project's listing that read only the home
+// pair answered with less than the board it draws.
+func InProject(c Card, project string) bool {
+	if c.Project == project {
+		return true
+	}
+	for _, m := range c.Mirrors {
+		if m.Project == project {
+			return true
+		}
+	}
+	return false
+}
+
 // FindDeadline looks a deadline up by its identity — the (project, week) pair.
 func FindDeadline(b Board, project, week string) (Deadline, bool) {
 	for _, d := range b.Deadlines {

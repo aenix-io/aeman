@@ -475,7 +475,40 @@ func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string) (s
 			return id, Project{ID: id}, nil
 		}
 	}
+	if name == "" {
+		// The NO-PROJECT BUCKET is a column home like any other (G15, G54):
+		// its columns are declared under a nameless project stub, the way
+		// the no-team group has `teams/_.yaml`. Nothing can add that stub —
+		// a project must have a name — so the first column filed outside
+		// every project brings it into being here. Without it the bucket
+		// was a home the store could hold but nothing could create: adding
+		// a column to it, and unbinding one INTO it, both failed with
+		// "project not found".
+		return b.bucketProject(ctx, s)
+	}
 	return "", Project{}, fmt.Errorf("%w: %q", ErrProjectNotFound, name)
+}
+
+// bucketProjectID is the nameless project's file id, `_` as the no-team
+// group's is — a name no ULID takes, and one a reader can see for what it
+// is.
+const bucketProjectID = "_"
+
+// bucketProject finds or writes the nameless project stub the no-project
+// bucket's columns hang under.
+func (b *Backend) bucketProject(ctx context.Context, s Snapshot) (string, Project, error) {
+	rank, _ := board.RankBetween(lastRank(len(s.Projects), func(i int) string { return s.Projects[i].Rank }), "")
+	data, err := EncodeProject(ProjectFile{Rank: rank, Created: b.now().UTC().Format(time.RFC3339)})
+	if err != nil {
+		return "", Project{}, err
+	}
+	if sc := scopeOf(ctx); sc != nil {
+		sc.projects[""] = bucketProjectID
+	}
+	if err := b.write(ctx, "add-project", nil, ProjectPath(bucketProjectID), data); err != nil {
+		return "", Project{}, err
+	}
+	return bucketProjectID, Project{ID: bucketProjectID, ProjectFile: ProjectFile{Rank: rank}}, nil
 }
 
 func (b *Backend) processByName(ctx context.Context, s Snapshot, name string) (string, Process, error) {

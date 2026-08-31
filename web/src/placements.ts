@@ -189,22 +189,29 @@ export function removeFromProjectOutcome(
   return worked || card.parent ? "orphan" : "delete";
 }
 
-/** countedForProgress decides whether a card counts towards a progress
+/** countedForProgress decides whether a card counts towards one progress
  *  figure. The Project board draws a subtask that carries its own column,
  *  so it must count — unless its PARENT is counted in the SAME figure,
  *  whose progress already derives from its children: counting both would
  *  weigh that work twice.
  *
- *  Which figure matters. A column's bar is per column, so a parent in
- *  another column answers for nothing here and the child is that column's
- *  own work; a project's line spans them, so there the parent does answer.
- *  And a parent nothing draws (a column with no dates is no slot) answers
+ *  `where` is the figure being computed: a project's line ({project}), or
+ *  one column ({project, epic}). The parent answers for that figure when
+ *  it is DRAWN in it — its home pair or any mirror (columnsOf) — so the
+ *  question is asked per figure and not once per card: a parent mirrored
+ *  into the very column its child stands in was counted there while the
+ *  child, whose home epic differed, was counted too.
+ *
+ *  A parent nothing draws (a column with no dates is no slot) answers
  *  nowhere — deferring to it dropped the child's work from every bar while
  *  its slot sat in the column. */
 export function countedForProgress(
   card: Pick<Card, "itemId" | "parent" | "project" | "epic">,
-  byId: ReadonlyMap<string, Pick<Card, "itemId" | "project" | "epic" | "startDate" | "week">>,
-  scope: "project" | "column",
+  byId: ReadonlyMap<
+    string,
+    Pick<Card, "itemId" | "project" | "epic" | "startDate" | "week" | "mirrors">
+  >,
+  where: { project: string; epic?: string },
 ): boolean {
   if (!card.parent) {
     return true;
@@ -213,10 +220,9 @@ export function countedForProgress(
   if (!parent || !drawnAsSlot(parent)) {
     return true;
   }
-  if ((parent.project ?? "") !== (card.project ?? "")) {
-    return true;
-  }
-  return scope === "column" && parent.epic !== card.epic;
+  return !columnsOf(parent).some(
+    (c) => c.project === where.project && (where.epic === undefined || c.epic === where.epic),
+  );
 }
 
 /** CardPlacements is everything the assign menu needs to attach or mirror

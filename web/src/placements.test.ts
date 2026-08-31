@@ -152,7 +152,7 @@ describe("countedForProgress", () => {
   it("counts a subtask whose parent is on no board of this project", () => {
     // The parent lives in the weekly plan with no column of its own.
     const parent = { itemId: "p1" } as Card;
-    expect(countedForProgress(child, index([child, parent]), "project")).toBe(true);
+    expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(true);
   });
 
   it("skips a subtask whose parent stands in the same project", () => {
@@ -162,7 +162,7 @@ describe("countedForProgress", () => {
       epic: "Roadmap",
       startDate: "2026-08-24",
     } as Card;
-    expect(countedForProgress(child, index([child, parent]), "project")).toBe(false);
+    expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(false);
   });
 
   it("counts a subtask whose parent is drawn nowhere", () => {
@@ -170,7 +170,7 @@ describe("countedForProgress", () => {
     // nothing counts it — deferring to it dropped the child's work from
     // every bar while its slot was drawn in the column.
     const parent = { itemId: "p1", project: "engineering", epic: "Roadmap" } as Card;
-    expect(countedForProgress(child, index([child, parent]), "project")).toBe(true);
+    expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(true);
   });
 
   it("keeps a child in ITS column's bar when the parent stands in another", () => {
@@ -183,15 +183,41 @@ describe("countedForProgress", () => {
       epic: "Roadmap",
       startDate: "2026-08-24",
     } as Card;
-    expect(countedForProgress(child, index([child, parent]), "column")).toBe(true);
+    expect(countedForProgress(child, index([child, parent]), { project: "engineering", epic: "Cozystack" })).toBe(true);
     // The project bar still counts it once: the parent's own progress
     // already derives from this child.
-    expect(countedForProgress(child, index([child, parent]), "project")).toBe(false);
+    expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(false);
+  });
+
+  // A parent MIRRORED into the column its child stands in answers for that
+  // child there: the column's bar counted both, since the parent's home
+  // epic differed while the column it was drawn in did not.
+  it("skips a child whose parent MIRRORS into the same column", () => {
+    const parent = {
+      itemId: "p1",
+      project: "engineering",
+      epic: "Roadmap",
+      startDate: "2026-08-24",
+      mirrors: [{ project: "engineering", epic: "Cozystack" }],
+    } as unknown as Card;
+    expect(
+      countedForProgress(child, index([child, parent]), {
+        project: "engineering",
+        epic: "Cozystack",
+      }),
+    ).toBe(false);
+    // …and still counts in the column the parent is NOT drawn in.
+    expect(
+      countedForProgress(child, index([child, parent]), {
+        project: "engineering",
+        epic: "Ingress",
+      }),
+    ).toBe(true);
   });
 
   it("counts an ordinary card always", () => {
     const plain = { itemId: "x", project: "engineering", epic: "Cozystack" } as Card;
-    expect(countedForProgress(plain, index([plain]), "project")).toBe(true);
+    expect(countedForProgress(plain, index([plain]), { project: "engineering" })).toBe(true);
   });
 });
 

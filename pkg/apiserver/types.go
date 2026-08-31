@@ -228,7 +228,9 @@ type BoardMetadata struct {
 	// they may write — a team, project or process is declared in one they
 	// pick when more than one is writable — and which members can read each,
 	// so a reviewer picker offers only people who will see the card. Absent
-	// on a single-domain board.
+	// primary first. The board lists its repositories whatever it spans
+	// (G59), so a client compares the stamps it carries against this list
+	// and reads a single entry as "no boundaries", never an absent one.
 	Domains []DomainInfo `json:"domains,omitempty"`
 	// TeamDomains and ProjectDomains name the repository a team or a project
 	// was declared in, for the entries that live OUTSIDE the primary — the

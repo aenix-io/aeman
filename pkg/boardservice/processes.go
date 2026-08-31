@@ -163,6 +163,21 @@ func (s *Service) SetProcessProject(ctx context.Context, boardID string, name, p
 	return s.backend.SetProject(ctx, b, stub, projectName)
 }
 
+// livePause is the board with one process's paused flag as a write has just
+// left it. The value a caller holds is a snapshot: nothing the backend
+// writes appears in it, so a rule that reads the flag back out of it reads
+// the state from before the call.
+func livePause(b board.Board, name string, paused bool) board.Board {
+	out := b
+	out.Processes = append([]board.Process(nil), b.Processes...)
+	for i := range out.Processes {
+		if out.Processes[i].Name == name {
+			out.Processes[i].Paused = paused
+		}
+	}
+	return out
+}
+
 // SetProcessPaused stops a process spawning, or starts it again. Its
 // tasks and their history are untouched: pausing is not deleting, and a
 // process nobody can pause gets deleted instead.
@@ -186,10 +201,14 @@ func (s *Service) SetProcessPaused(ctx context.Context, boardID string, name str
 		return err
 	}
 	// Resuming files what this week is already owed, so a process picks up
-	// where it left off rather than at the next carry.
+	// where it left off rather than at the next carry. On the board as the
+	// write has just made it: a backend does not reach back into the value
+	// in hand, so asking the one loaded a moment ago found the process
+	// still paused and filed nothing at all.
 	if !paused {
-		for _, t := range board.TasksOf(b, name) {
-			s.spawnDue(ctx, b, t)
+		live := livePause(b, name, paused)
+		for _, t := range board.TasksOf(live, name) {
+			s.spawnDue(ctx, live, t)
 		}
 	}
 	return nil
@@ -404,6 +423,11 @@ func (s *Service) UpdateProcessTask(ctx context.Context, boardID string, taskID 
 	if !ok {
 		return fmt.Errorf("%w %q", ErrTaskNotFound, taskID)
 	}
+	// after is the task as this patch makes it — what the re-routing and the
+	// spawn below read. Built field by field beside the writes, since the
+	// board in hand is a snapshot and a re-read of it would answer with the
+	// task from before this call.
+	after := t
 	if p.Title != nil || p.Description != nil {
 		title, desc := TaskTitle(t), TaskDescription(t)
 		if p.Title != nil {
@@ -415,7 +439,11 @@ func (s *Service) UpdateProcessTask(ctx context.Context, boardID string, taskID 
 		if title == "" {
 			return fmt.Errorf("task title must not be empty")
 		}
-		if err := s.backend.SetDescription(ctx, b, t, taskBody(title, desc)); err != nil {
+		// A task's title and body live in its description (taskBody), which
+		// is where the turn takes both from: leaving it off `after` spawned
+		// the new owner's card under the name the task used to have.
+		after.Description = taskBody(title, desc)
+		if err := s.backend.SetDescription(ctx, b, t, after.Description); err != nil {
 			return err
 		}
 	}
@@ -452,8 +480,6 @@ func (s *Service) UpdateProcessTask(ctx context.Context, boardID string, taskID 
 	// doing the work and are theirs, but the team and the owner say WHO does
 	// it — fixing that a minute after creating the task has to take
 	// effect on the card in front of them, not only on next month's.
-	// As the patch has just made it — the fields the routing reads.
-	after := t
 	if p.Team != nil {
 		after.Team = *p.Team
 	}

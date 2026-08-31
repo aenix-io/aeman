@@ -136,7 +136,12 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			if c.Epic == "" {
 				continue
 			}
-			if sel.Project != "" && c.Project != sel.Project {
+			// A MIRROR is the same card standing in a second column, so a
+			// project's view holds every card that stands in one of ITS
+			// columns, home pair or mirror (G15) — the home-only reading
+			// answered an agent asking about a project with less than the
+			// board draws there.
+			if sel.Project != "" && !board.InProject(c, sel.Project) {
 				continue
 			}
 			base = append(base, c)
@@ -208,7 +213,7 @@ func projectViewCards(b board.Board, out []board.Card, project string) []board.C
 		// The subtask rider ignores the selector, so a child filed under
 		// ANOTHER project came in on its parent's ticket: one project's
 		// columns are what this view is.
-		if project != "" && c.Project != project {
+		if project != "" && !board.InProject(c, project) {
 			continue
 		}
 		kept = append(kept, c)

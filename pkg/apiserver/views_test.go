@@ -181,3 +181,30 @@ func TestTheProjectViewKeepsBoardOrderWithARidingParent(t *testing.T) {
 		}
 	}
 }
+
+// A MIRROR is the same card standing in a second column, so one project's
+// listing holds every card that stands in ITS columns — mirrored in or at
+// home. Reading the home pair alone answered an agent asking about a
+// project (MCP list_cards project=…) with less than the board draws there,
+// while the card sat in that project's column on the screen.
+func TestProjectViewHoldsTheCardsMirroredIntoIt(t *testing.T) {
+	b := board.NewBoard([]board.Card{
+		{ItemID: "ep-l", Title: board.EpicStateTitle, Epic: "Launch", Project: "freedom"},
+		{ItemID: "ep-c", Title: board.EpicStateTitle, Epic: "Cozystack", Project: "engineering"},
+		{ItemID: "home", Title: "at home", Team: "t", Project: "freedom", Epic: "Launch"},
+		{ItemID: "guest", Title: "mirrored in", Team: "t", Project: "engineering", Epic: "Cozystack",
+			Mirrors: []board.Placement{{Project: "freedom", Epic: "Launch"}}},
+		{ItemID: "other", Title: "elsewhere", Team: "t", Project: "engineering", Epic: "Cozystack"},
+	})
+	got := ListCards(b, Selector{View: "project", Project: "freedom"})
+	ids := map[string]bool{}
+	for _, c := range got.Items {
+		ids[c.Metadata.UID] = true
+	}
+	if !ids["home"] || !ids["guest"] {
+		t.Fatalf("a project holds its own cards and the ones mirrored into it: %v", ids)
+	}
+	if ids["other"] {
+		t.Fatalf("and nothing that stands in neither: %v", ids)
+	}
+}

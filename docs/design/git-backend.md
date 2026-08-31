@@ -111,9 +111,11 @@ id**, in two commits that share one `Aeman-Action-Id`; the create
 carries `Aeman-Moved-From: <domain>`, the delete `Aeman-Moved-To:
 <domain>`. The card keeps its history: the log walker follows
 `Aeman-Moved-From` into the old domain (within the horizon) and shows
-one continuous log. A move of a card **cascades** to what rules 1–3 tie
-to it — its review card and its subtasks move with it, in the same
-action.
+one continuous log. A move of a card **cascades** along the links whose
+files FOLLOW it — rules 1 and 2: its review card and its subtasks move
+with it, in the same action, and so does whatever follows THEM. Rule 3
+is not one of them: an iteration's task link never moves, since a turn
+cannot be re-tied.
 
 **Create before delete, always.** The destination commit is written to
 disk first, then the source delete; a crash between the two leaves a

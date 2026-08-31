@@ -40,8 +40,13 @@ export function slotBand(week: string, endDay: string): "wed" | "fri" {
  *  the only week of that span with a deadline in it. Mirrors pkg/board
  *  owedIn. */
 export function owedIn(c: Banded): string {
-  if (!c.plan && isSlot(c)) {
-    return mondayOf(c.day as string);
+  // A slot's span IS its plan, and the week it ENDS in is the only week of
+  // that span with a deadline in it. Asked exactly as pkg/board owedIn asks
+  // it — a column and an end date, the WEEK not required — since a direct
+  // git writer can leave the week off and the two answers must still
+  // agree.
+  if (!c.plan && !!c.epic && !!c.day) {
+    return mondayOf(c.day);
   }
   return c.week ?? "";
 }

@@ -616,3 +616,72 @@ func TestAnOrphanedTaskStopsFiling(t *testing.T) {
 		t.Fatalf("spawned %d (err %v), want none", n, err)
 	}
 }
+
+// Resuming a process files what this week is already owed — the point of
+// the resume, which is otherwise "wait for the next carry". The state it
+// asks about is the one the resume has just written: reading the process
+// as it was left every task still paused, and nothing was filed.
+func TestResumingAProcessFilesThisWeeksTurn(t *testing.T) {
+	fake := processBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	week := board.MondayOf(board.TodayIso())
+	if err := svc.SetProcessPaused(ctx, "acme", "Articles", true); err != nil {
+		t.Fatal(err)
+	}
+	tpl, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
+		Title: "Technical article", Recurrence: "week", Start: week, Team: "alpha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := svc.Board(ctx, "acme")
+	if its := board.Iterations(b, tpl.ItemID); len(its) != 0 {
+		t.Fatalf("a paused process files nothing; iterations = %d", len(its))
+	}
+	if err := svc.SetProcessPaused(ctx, "acme", "Articles", false); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = svc.Board(ctx, "acme")
+	if its := board.Iterations(b, tpl.ItemID); len(its) != 1 {
+		t.Fatalf("resuming files what this week is owed; iterations = %d", len(its))
+	}
+}
+
+// One PATCH carries the whole task form — title, body, team and owner
+// together, which is what the UI sends. The turn it re-routes must be the
+// task as the PATCH has just made it: spawning from the pre-edit card gave
+// the new owner a card under the OLD name.
+func TestRenamingAndReassigningATaskInOneCall(t *testing.T) {
+	fake := processBoard()
+	svc := New(fake)
+	ctx := context.Background()
+	week := board.MondayOf(board.TodayIso())
+	tpl, err := svc.AddProcessTask(ctx, "acme", "Articles", TaskArgs{
+		Title: "Invoice ACME", Description: "the old brief",
+		Recurrence: "week", Start: week, Team: "alpha", Assignee: "writer",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	title, desc, who := "Invoice Globex", "the new brief", "editor"
+	if err := svc.UpdateProcessTask(ctx, "acme", tpl.ItemID, TaskPatch{
+		Title: &title, Description: &desc, Assignee: &who,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := svc.Board(ctx, "acme")
+	its := board.Iterations(b, tpl.ItemID)
+	if len(its) != 1 {
+		t.Fatalf("one turn, re-routed rather than doubled: %d", len(its))
+	}
+	if its[0].Title != title {
+		t.Fatalf("the fresh turn carries the task's NEW title: %q", its[0].Title)
+	}
+	if its[0].Description != desc {
+		t.Fatalf("and its new body: %q", its[0].Description)
+	}
+	if len(its[0].Assignees) != 1 || its[0].Assignees[0] != who {
+		t.Fatalf("on its new owner: %+v", its[0].Assignees)
+	}
+}

@@ -41,6 +41,7 @@ import {
   personalRemovalKind,
   removalKind,
   subtaskRemovalPatch,
+  subtaskRemovalUndo,
   type Outcome,
 } from "../removal";
 import {
@@ -1108,11 +1109,17 @@ export function MeBoard({
   // it leaves today's board and is found by stepping back; the server records
   // the move and the re-list converges its outcome.
   const demoteCard = (card: CardModel, prevSprint: string) => {
-    const prev = {
-      startDate: card.startDate,
-      sprintStart: card.sprintStart,
-      day: card.day,
-    };
+    // A subtask reaches this path when its column could not follow it out,
+    // and the patch below then writes more than three fields — the undo
+    // has to put back everything it can write, or the rollback leaves the
+    // card ungrouped and columnless while the server still holds it.
+    const prev: Partial<CardModel> = card.parent
+      ? (subtaskRemovalUndo(card) as Partial<CardModel>)
+      : {
+          startDate: card.startDate,
+          sprintStart: card.sprintStart,
+          day: card.day,
+        };
     // A SUBTASK only reaches a demote when the column it carried could not
     // follow it out of the group (columnFollows): the server pulls it out,
     // drops that column and walks it back a sprint — one gesture, and one
@@ -1146,13 +1153,7 @@ export function MeBoard({
     // Show the outcome at once, as every other × on this board does: the
     // card leaves the working area (the server clears assignee, sprint and,
     // for anything but a slot, the dates) and stays in the home it has.
-    const prev: Partial<CardModel> = {
-      assignees: card.assignees,
-      sprintStart: card.sprintStart,
-      startDate: card.startDate,
-      day: card.day,
-      parent: card.parent,
-    };
+    const prev: Partial<CardModel> = subtaskRemovalUndo(card) as Partial<CardModel>;
     // A subtask leaves the GROUP here (G57), and what else goes with it is
     // the same answer the Team board gets — the server's fields, from one
     // place.

@@ -49,6 +49,7 @@ import {
   planRemoval,
   removalKind,
   subtaskRemovalPatch,
+  subtaskRemovalUndo,
 } from "../removal";
 import {
   columnFollows,
@@ -1606,15 +1607,7 @@ export function TeamBoard({
       // row must stop being drawn under its parent at once, or the × looks
       // inert; and the demote must show the SAME optimistic state the Me
       // board shows, or one gesture reads two ways on two boards.
-      const prev: Partial<CardModel> = {
-        assignees: card.assignees,
-        sprintStart: card.sprintStart,
-        startDate: card.startDate,
-        day: card.day,
-        parent: card.parent,
-        epic: card.epic,
-        project: card.project,
-      };
+      const prev = subtaskRemovalUndo(card) as Partial<CardModel>;
       patchCard(card.itemId, subtaskRemovalPatch(card, gridCtx(card)));
       void provider
         .removeCard(card.itemId, "grid")
@@ -1779,7 +1772,12 @@ export function TeamBoard({
       // put it back.
       patchCard(card.itemId, {
         plan: undefined,
-        ...(card.epic ? {} : { week: undefined }),
+        // A SLOT keeps its week — it is the row the Project board draws it
+        // in, and the server keeps it too. A SUBTASK does not: the server's
+        // subtask arm clears the band AND the week unconditionally, and a
+        // slot with no start date is drawn by its week, so keeping it here
+        // put the card back in a row the next reload took away.
+        ...(card.epic && !card.parent ? {} : { week: undefined }),
       });
       rollback = () => patchCard(card.itemId, prev);
     }

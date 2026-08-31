@@ -67,7 +67,7 @@ Same shape as a card. Its `title` field is the marker `aeman:process-task`; the 
 
 ### Roster files (YAML)
 
-- `teams/<id>.yaml`: `name`, `rank`, `created`, `sprint: {current, previous}` (dates). `teams/_.yaml` has no `name`.
+- `teams/<id>.yaml`: `name`, `rank`, `created`, `sprint: {current, previous}` (dates). `teams/_.yaml` has no `name`. The NO-PROJECT bucket is the same shape one level down: its columns hang under a project file with **no `name`** — `projects/_/project.yaml` by convention, though any nameless project file is read as the bucket. This server writes it on demand, when the first column is filed outside every project or an existing column is unbound into the bucket; a writer adding such a column must create or reuse one.
 - `projects/<id>/project.yaml`: `name`, `rank`, `created`.
 - `projects/<pid>/epics/<id>.yaml`: `name`, `rank`, `created`. Column names are unique within a project.
 - `projects/<pid>/deadlines/<id>.yaml`: `week`, `created`. One deadline per project per week.

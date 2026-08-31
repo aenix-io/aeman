@@ -288,6 +288,33 @@ export function subtaskRemovalPatch(
   };
 }
 
+/** subtaskRemovalUndo is the state to put back when the request fails: the
+ *  card's own value for every field subtaskRemovalPatch can write. One
+ *  shape for the gesture and one for its inverse, or a board rolls back
+ *  less than it patched — which left a card visibly ungrouped and stripped
+ *  of its column while the server still held it as a subtask in it. */
+export function subtaskRemovalUndo<
+  T extends {
+    assignees?: string[];
+    parent?: string;
+    epic?: string;
+    project?: string;
+    sprintStart?: string;
+    startDate?: string;
+    day?: string;
+  },
+>(c: T): SubtaskPatch & { parent?: string } {
+  return {
+    assignees: c.assignees,
+    parent: c.parent,
+    epic: c.epic,
+    project: c.project,
+    sprintStart: c.sprintStart,
+    startDate: c.startDate,
+    day: c.day,
+  } as SubtaskPatch & { parent?: string };
+}
+
 /** GridGesture is what the day grid's × actually DOES to a card — the
  *  routing the boards used to each work out for themselves, which is how
  *  they came to disagree about the same card. "release" is the smart × on

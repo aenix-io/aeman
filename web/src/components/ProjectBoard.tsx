@@ -29,7 +29,7 @@ import {
   slotDropMirrors,
 } from "../placements";
 import { PlacementMenu } from "./PlacementMenu";
-import { deleteWarning } from "../removal";
+import { deleteWarning, freeSubtasks } from "../removal";
 import { Dropdown } from "./Dropdown";
 import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
@@ -1206,6 +1206,16 @@ export function ProjectBoard({
         return;
       }
       removeCard(card.itemId);
+      // …and everything the server takes with it: the linked review card
+      // goes, the subtasks are FREED into standalone cards. The other two
+      // boards mirror both; here the reload papered over a window showing
+      // state the server does not hold.
+      if (linkedReview) {
+        removeCard(linkedReview.itemId);
+      }
+      for (const f of freeSubtasks(board.cards, card.itemId)) {
+        patchCard(f.itemId, f.patch);
+      }
     } else if (outcome === "unmirror") {
       patchCard(card.itemId, {
         mirrors: (card.mirrors ?? []).filter(
@@ -1452,19 +1462,25 @@ export function ProjectBoard({
   // the column, the overall bar and the project line disagree on one
   // screen.
   const counted = useMemo(
-    () => cards.filter((c) => drawnAsSlot(c) && countedForProgress(c, byId, "project")),
+    () =>
+      cards.filter(
+        (c) => drawnAsSlot(c) && countedForProgress(c, byId, { project: c.project ?? "" }),
+      ),
     [cards, byId],
   );
   const colProgress = useMemo(() => {
     const byCol = new Map<string, CardModel[]>();
-    for (const c of cards.filter(
-      (c) => drawnAsSlot(c) && countedForProgress(c, byId, "column"),
-    )) {
+    for (const c of cards.filter(drawnAsSlot)) {
       // Every column the card is DRAWN in, mirrors included: keyed by the
       // home pair alone, a mirror column reported a total of zero while
       // showing slots, and the header disagreed with the columns beneath
-      // it on one screen.
+      // it on one screen. The de-duplication is asked PER COLUMN for the
+      // same reason — a parent mirrored into this one answers for its
+      // child here, whatever its home epic says.
       for (const col of columnsOf(c)) {
+        if (!countedForProgress(c, byId, col)) {
+          continue;
+        }
         const k = colKey(col.project, col.epic);
         byCol.set(k, [...(byCol.get(k) ?? []), c]);
       }
@@ -1483,7 +1499,7 @@ export function ProjectBoard({
   const allProgress = useMemo(() => {
     const byProject = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (!drawnAsSlot(c) || !countedForProgress(c, byId, "project")) {
+      if (!drawnAsSlot(c) || !countedForProgress(c, byId, { project: c.project ?? "" })) {
         continue;
       }
       const k = c.project ?? "";
@@ -1732,6 +1748,7 @@ export function ProjectBoard({
                   board.projects,
                   board.projectDomains,
                   e.project,
+                  roster,
                 )}
                 entity="epic"
                 onPick={(to) => setEpicProject(e, to)}
@@ -2198,6 +2215,7 @@ export function ProjectBoard({
                           board.teams,
                           board.teamDomains,
                           card.team ?? "",
+                          roster,
                         ))
                       .filter((t) => t !== "")
                       .map((t) => (

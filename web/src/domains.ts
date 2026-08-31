@@ -3,7 +3,10 @@
 // Pure helpers shared by the card badge, the create flows (which repository a
 // new team/project/process is declared in) and the reviewer picker.
 
-/** DomainInfo is one repository of the board as GET /board reports it. */
+/** DomainInfo is one repository of the board as GET /board reports it. The
+ *  board lists them whatever it spans — one entry for a single-repository
+ *  board — so these names are what every stamp in the payload is compared
+ *  against (G59). */
 export interface DomainInfo {
   name: string;
   /** Whether the visitor may write to this repository. */
