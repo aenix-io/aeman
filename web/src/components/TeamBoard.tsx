@@ -416,6 +416,13 @@ export function TeamBoard({
       if ((!c.plan && !isSlot(c)) || !showsInWeek(c) || !passesFilter(c)) {
         continue;
       }
+      // A SUBTASK rides its parent here and takes no row of its own: its
+      // slot went to the parent at grouping, and a columned one derives a
+      // week from its dates that put it in the band beside the parent it
+      // rides (mirrors pkg/board WeeklyPlanAt).
+      if (c.parent) {
+        continue;
+      }
       // A DEBT — owed in a week already past, shown here beside this
       // week's own work — stands in the by-Wednesday band: its own band
       // belonged to the week it missed, and what it faces now is the
@@ -506,13 +513,21 @@ export function TeamBoard({
 
   // Move a plan card between the two bands (changes its Wed/Fri deadline).
   const handleSetPlan = (card: CardModel, plan: "wed" | "fri") => {
-    const prev = card.plan;
-    patchCard(card.itemId, { plan });
+    const prev: Partial<CardModel> = { plan: card.plan, parent: card.parent, week: card.week };
+    // A band on a SUBTASK takes it out of the group (G58): the server pulls
+    // it out and plans it in the current week, so the row must stop being
+    // drawn under its parent at once — it is the gesture that frees a card
+    // dropped under the wrong one.
+    patchCard(card.itemId, {
+      plan,
+      ...(card.parent ? { parent: undefined } : {}),
+      ...(card.week ? {} : { week: mondayOf(todayIso()) }),
+    });
     void provider
       .patchCard(card.itemId, { plan: { band: plan } })
       .then(addCard)
       .catch((err: unknown) => {
-        patchCard(card.itemId, { plan: prev });
+        patchCard(card.itemId, prev);
         onError(errMessage(err));
       });
   };
@@ -2405,10 +2420,19 @@ export function TeamBoard({
               // standing in a column is a slot like any other and gets no
               // × at all: its plan membership is derived from its dates,
               // so there is nothing here to empty.
-              onDelete={removeFromPlan}
+              // The panel's × is the PLAN's gesture for the cards the plan
+              // holds. A nested SUBTASK row is not one of them — it rides
+              // its parent visibly (it has no band and no week of its own),
+              // so the plan has nothing to empty for it and its × is the
+              // card's own: the one that removes the subtask.
+              onDelete={card.parent ? handleGridDelete : removeFromPlan}
               placements={placementsFor(card)}
-              deletable={planRemoveOffered(card)}
-              boardAsks={boardAsksAbout(card, planRemoval(card), reviewOf(card))}
+              deletable={card.parent ? true : planRemoveOffered(card)}
+              boardAsks={boardAsksAbout(
+                card,
+                card.parent ? gridRemoval(card, gridCtx(card)) : planRemoval(card),
+                reviewOf(card),
+              )}
               onStage={handleStage}
               onInProgress={handleInProgress}
               onOpen={onOpen}

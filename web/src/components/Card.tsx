@@ -352,10 +352,13 @@ export function Card({
   };
 
   // Plan cards: shift the plan week forward, or set it by picking a date.
-  const moveWeek = (days: number) => {
-    const base = card.week ?? mondayOf(asOf ?? todayIso());
+  // The weekly quick-moves name WEEKS, not offsets: on a card owed weeks
+  // ago "+1 week" moved it from the week it missed to another week already
+  // past — arithmetic on a date nobody was looking at. "This week" and
+  // "next week" say where the card lands, whatever week it is coming from.
+  const moveToWeek = (weeksAhead: number) => {
     setDatesOpen(false);
-    onSetWeek?.(card, addDays(base, days));
+    onSetWeek?.(card, addDays(mondayOf(asOf ?? todayIso()), weeksAhead * 7));
   };
 
   const saveWeek = () => {
@@ -798,16 +801,16 @@ export function Card({
                     <button
                       type="button"
                       className="card-move-quick-btn"
-                      onClick={() => moveWeek(7)}
+                      onClick={() => moveToWeek(0)}
                     >
-                      +1 week
+                      this week
                     </button>
                     <button
                       type="button"
                       className="card-move-quick-btn"
-                      onClick={() => moveWeek(14)}
+                      onClick={() => moveToWeek(1)}
                     >
-                      +2 week
+                      next week
                     </button>
                   </div>
                   <RangeCalendar
