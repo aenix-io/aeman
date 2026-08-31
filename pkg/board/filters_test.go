@@ -338,3 +338,24 @@ func TestMeViewHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
 		t.Fatalf("MeView = %v; want the project-only card and the owned slot", got)
 	}
 }
+
+// A SUBTASK takes no band row of its own. Grouping hands its slot to the
+// parent, and the panel draws it as a rider under that parent — but a
+// subtask that carries a COLUMN derives a week from its dates all the
+// same, and that put it in the band beside the very parent it rides: the
+// card appeared twice, and the group looked like it had strays floating
+// next to it.
+func TestWeeklyPlanLeavesSubtasksToTheirParent(t *testing.T) {
+	const week, today = "2026-08-24", "2026-08-26"
+	b := NewBoard([]Card{
+		{ItemID: "ep", Title: EpicStateTitle, Epic: "Redis App", Project: "freedom"},
+		{ItemID: "p", Title: "the parent", Team: "t", Plan: PlanFri, Week: week},
+		{ItemID: "kid", Title: "a columned subtask", Team: "t", Parent: "p",
+			Project: "freedom", Epic: "Redis App", Week: week, StartDate: week, Day: AddDays(week, 4)},
+	})
+	bands := WeeklyPlanAt(b, "t", week, today)
+	all := append(append([]Card{}, bands.Wed...), bands.Fri...)
+	if len(all) != 1 || all[0].ItemID != "p" {
+		t.Fatalf("the panel holds the parent and nothing that rides it: %v", ids(all))
+	}
+}
