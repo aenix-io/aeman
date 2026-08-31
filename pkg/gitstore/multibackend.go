@@ -334,6 +334,21 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 	target := ""
 	switch in.Title {
 	case board.EpicStateTitle, board.DeadlineStateTitle:
+		if in.Project == "" {
+			// The no-project BUCKET is not one place on the board: every
+			// repository may declare its own nameless project file, and a
+			// column of it belongs to the repository that declared it
+			// (ColumnDomain reads the column's own stub). So the CALLER
+			// decides — the primary unless asked otherwise, which is what
+			// the server authorized — never a board-wide "the bucket lives
+			// in X" read off the roster: one column unbound in a closed
+			// repository then took every later bucket column with it, out
+			// of reach of the teamless card the bucket exists for.
+			if target, err = rosterDomain(choice); err != nil {
+				return board.Card{}, err
+			}
+			break
+		}
 		if d, ok := r.projects[in.Project]; ok {
 			target = d
 		}

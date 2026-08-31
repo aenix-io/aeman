@@ -225,6 +225,19 @@ export function countedForProgress(
   );
 }
 
+/** countedAmong is the de-duplication for a figure that spans several
+ *  columns — a board's header total, a project's line: a subtask counts
+ *  unless its PARENT is drawn in the SAME figure, whose bar already derives
+ *  from it. Asked by identity, because such a figure has no single
+ *  (project, epic) pair to compare against; countedForProgress asks the
+ *  same question of one column or one project. */
+export function countedAmong(
+  card: Pick<Card, "parent">,
+  drawn: ReadonlySet<string>,
+): boolean {
+  return !card.parent || !drawn.has(card.parent);
+}
+
 /** CardPlacements is everything the assign menu needs to attach or mirror
  *  one card — targets precomputed by the board, callbacks landing on the
  *  provider. Absent means the board offers no placement editing. */
@@ -247,7 +260,16 @@ export interface CardPlacements {
 export function placementTargets(
   card: Pick<
     Card,
-    "project" | "epic" | "mirrors" | "domain" | "stage" | "process" | "task" | "parent" | "team"
+    | "project"
+    | "epic"
+    | "mirrors"
+    | "domain"
+    | "stage"
+    | "process"
+    | "task"
+    | "parent"
+    | "team"
+    | "reviewOf"
   >,
   board: {
     projects: string[];
@@ -270,7 +292,11 @@ export function placementTargets(
     return card.epic
       ? {}
       : {
-          attach: attachTargets(board.projects, board.epics, card.domain ?? "", !!card.team,
+          // A LINK holds the card where the linked card is, ahead of its
+          // project (G14) — so a subtask cannot follow a new project into
+          // another repository any more than a teamed card can, and the
+          // columns there are refusals with a friendly label.
+          attach: attachTargets(board.projects, board.epics, card.domain ?? "", true,
             rosterOf(board)),
         };
   }
@@ -306,8 +332,8 @@ export function placementTargets(
     };
   }
   return {
-    attach: attachTargets(board.projects, board.epics, card.domain ?? "", !!card.team,
-      rosterOf(board)),
+    attach: attachTargets(board.projects, board.epics, card.domain ?? "",
+      !!card.team || !!card.reviewOf || !!card.task, rosterOf(board)),
   };
 }
 

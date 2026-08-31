@@ -863,3 +863,56 @@ func TestTheNoProjectBucketCanBeCreated(t *testing.T) {
 		t.Fatalf("the bucket is not a project of its own on the board: %v", b.Projects)
 	}
 }
+
+// The no-project bucket is not ONE place on the board. Every repository may
+// declare its own nameless project file, and a column of it belongs to the
+// repository that declared it — so unbinding a column of the CLOSED
+// repository into the bucket leaves that column in closed and must not
+// make "the bucket" mean closed for everyone: the next bucket column, and
+// the board's "+" that opens a teamless card in one, both belong to the
+// primary, which is where a card nothing places lives.
+func TestUnbindingAClosedColumnDoesNotMoveTheBoardsBucket(t *testing.T) {
+	mb, shared, closed := twoDomains(t)
+	svc := boardservice.New(mb)
+	ctx := ctxAs("kvaps")
+
+	// An EMPTY column of the closed repository — a column with cards in it
+	// refuses the unbind for its own reason (their team would move them out
+	// of it, G57).
+	if err := svc.AddEpic(ctx, "acme", "Audit", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetEpicProject(ctx, "acme", "secret", "Audit", ""); err != nil {
+		t.Fatalf("unbinding a column moves nothing: %v", err)
+	}
+	if _, err := closed.ReadFile(ProjectPath(bucketProjectID)); err != nil {
+		t.Fatalf("the closed repository declares its own bucket for it: %v", err)
+	}
+
+	// A column added to the bucket now still belongs to the PRIMARY.
+	if err := svc.AddEpic(ctx, "acme", "Chores", ""); err != nil {
+		t.Fatalf("a column of no project: %v", err)
+	}
+	if _, err := shared.ReadFile(ProjectPath(bucketProjectID)); err != nil {
+		t.Fatalf("under the primary's own nameless stub: %v", err)
+	}
+	b, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cd, ok := board.ColumnDomain(b, "", "Chores"); !ok || cd != "shared" {
+		t.Fatalf("and the column is the primary's: %q %v", cd, ok)
+	}
+	// …so the gesture the bucket exists for works: a card with no team and
+	// no project, created in it.
+	if _, err := svc.CreateCard(ctx, "acme", boardservice.CreateCardArgs{
+		Title: "loose work", Epic: "Chores",
+	}); err != nil {
+		t.Fatalf("a teamless card belongs in the primary's bucket: %v", err)
+	}
+	// The closed column keeps its own repository, which is what makes it
+	// unreachable for such a card — the column's own stub answers.
+	if cd, ok := board.ColumnDomain(b, "", "Audit"); !ok || cd != "closed" {
+		t.Fatalf("the unbound column stays where its stub is: %q %v", cd, ok)
+	}
+}

@@ -118,7 +118,8 @@ type CardStatus struct {
 	// card, the primary's included, so this normally carries a NAME on a
 	// multi-repository board and the client compares it against the primary
 	// (cardDomainBadge) rather than reading an empty string as "primary".
-	// Empty only where nothing stamped it: a single-repository board.
+	// Empty only where nothing stamped it at all — a board assembled by
+	// hand; the git server stamps every card, one repository or many.
 	Domain string `json:"domain,omitempty"`
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.

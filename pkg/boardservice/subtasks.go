@@ -248,16 +248,16 @@ func (s *Service) clearRiders(ctx context.Context, b board.Board, card board.Car
 // ungroup pulls a subtask back out as a standalone card: the parent link
 // goes, the child keeps what it has, and both sides record the change.
 func (s *Service) ungroup(ctx context.Context, b board.Board, card board.Card) error {
-	return s.ungroupKeeping(ctx, b, card, true)
+	return s.ungroupKeeping(ctx, b, card)
 }
 
-// ungroupKeeping is ungroup with a say over the person hand-over: the grid
-// × releases the card to its column right after pulling it out, clearing
-// the assignee, and handing the parent's login over first would write two
-// contradictory assignee events into one commit — noise in a log that IS
-// the history.
-func (s *Service) ungroupKeeping(ctx context.Context, b board.Board, card board.Card, handOver bool) error {
-	return s.ungroupWith(ctx, b, card, handOver, true)
+// ungroupKeeping is the plain pull-out: the person is handed over (an
+// ownerless child takes its parent's login, S8) and the card's own column
+// must survive it. The grid's × wants neither — it clears the assignee on
+// the way out, and it repairs the column itself — so it calls ungroupWith
+// directly rather than through here.
+func (s *Service) ungroupKeeping(ctx context.Context, b board.Board, card board.Card) error {
+	return s.ungroupWith(ctx, b, card, true, true)
 }
 
 // ungroupWith is ungroupKeeping with a say over the card's own column:

@@ -12,6 +12,7 @@ import { cardDomainBadge, offerableTeams } from "../domains";
 import {
   canCreateInColumn,
   columnsOf,
+  countedAmong,
   countedForProgress,
   projectsAColumnCanJoin,
   teamlessIsLawful,
@@ -1462,11 +1463,15 @@ export function ProjectBoard({
   // the column, the overall bar and the project line disagree on one
   // screen.
   const counted = useMemo(
-    () =>
-      cards.filter(
-        (c) => drawnAsSlot(c) && countedForProgress(c, byId, { project: c.project ?? "" }),
-      ),
-    [cards, byId],
+    () => {
+      // The header's total spans every column on screen, so the question
+      // is whether the PARENT is drawn in the same figure — not whether it
+      // shares the child's home project, which for a mirrored card names a
+      // project nobody is looking at (and counted parent and child both).
+      const drawn = new Set(cards.filter(drawnAsSlot).map((c) => c.itemId));
+      return cards.filter((c) => drawnAsSlot(c) && countedAmong(c, drawn));
+    },
+    [cards],
   );
   const colProgress = useMemo(() => {
     const byCol = new Map<string, CardModel[]>();
@@ -1499,11 +1504,21 @@ export function ProjectBoard({
   const allProgress = useMemo(() => {
     const byProject = new Map<string, CardModel[]>();
     for (const c of board.cards) {
-      if (!drawnAsSlot(c) || !countedForProgress(c, byId, { project: c.project ?? "" })) {
+      if (!drawnAsSlot(c)) {
         continue;
       }
-      const k = c.project ?? "";
-      byProject.set(k, [...(byProject.get(k) ?? []), c]);
+      // Every project the card is DRAWN in, mirrors included — the same
+      // fan-out the column bars use, and the de-duplication asked per
+      // project for the same reason: a mirrored card counts in the project
+      // it is shown in, not only in the one it calls home.
+      const seen = new Set<string>();
+      for (const col of columnsOf(c)) {
+        if (seen.has(col.project) || !countedForProgress(c, byId, { project: col.project })) {
+          continue;
+        }
+        seen.add(col.project);
+        byProject.set(col.project, [...(byProject.get(col.project) ?? []), c]);
+      }
     }
     return [...board.projects, ""]
       .filter((p) => p !== "" || (byProject.get("")?.length ?? 0) > 0)

@@ -20,9 +20,18 @@ export function isSlot(c: Banded): boolean {
  *  clearing one changes nothing anyone can see: the card stays exactly
  *  where it was. An × that does nothing is worse than no ×, so the panel
  *  does not offer one. (Off the panel is a matter of the slot's dates or
- *  its column, neither of which an × means.) */
+ *  its column, neither of which an × means.)
+ *
+ *  Nor does a card with nothing in the plan's records at all — no band and
+ *  no week. The panel draws such cards as the nested SUBTASK rows of an
+ *  expanded parent: they ride along visibly, and the server's plan × has
+ *  nothing to empty for them (it returns without a write), so an × there
+ *  would be the inert one this rule exists to prevent. */
 export function planRemoveOffered(c: Banded): boolean {
-  return !isSlot(c);
+  if (isSlot(c)) {
+    return false;
+  }
+  return !!c.plan || !!c.week;
 }
 
 /** slotBand derives the weekly-plan band a band-less slot occupies on `week`'s
@@ -71,5 +80,10 @@ export function effectiveBand(c: Banded, week?: string): "wed" | "fri" | undefin
   if (!isSlot(c)) {
     return undefined;
   }
-  return slotBand(mondayOf(c.day as string), c.day as string);
+  // Against the PANEL's week when there is one, exactly as pkg/board
+  // derives it: a slot spanning three weeks ends by Wednesday of the last
+  // of them and stands in the by-Friday band of the earlier ones, so a
+  // stripe read against the card's own week marked it "wed" while it sat
+  // under "fri".
+  return slotBand(week ?? mondayOf(c.day as string), c.day as string);
 }

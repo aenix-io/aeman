@@ -103,3 +103,25 @@ describe("the band a debt is shown in", () => {
     expect(owedIn({})).toBe("");
   });
 });
+
+// The panel draws the nested subtask rows of an expanded parent too — they
+// ride along visibly without being plan cards. The plan's × has nothing to
+// empty for one with no band and no week, so offering it drew a button
+// that did nothing at all.
+describe("who gets an × on the weekly panel", () => {
+  it("offers none to a card with nothing in the plan's records", () => {
+    // A nested subtask row: no band, no week, nothing to empty.
+    expect(planRemoveOffered({})).toBe(false);
+  });
+
+  it("offers one to a card the plan holds", () => {
+    expect(planRemoveOffered({ plan: "fri", week: "2026-08-24" })).toBe(true);
+    // A leftover WEEK is a record of its own: grouping clears the band and
+    // the week may outlive it, and clearing it is the whole gesture there.
+    expect(planRemoveOffered({ week: "2026-08-24" })).toBe(true);
+  });
+
+  it("offers none to a slot, whose span is its plan", () => {
+    expect(planRemoveOffered({ epic: "E", week: "2026-08-24", day: "2026-08-28" })).toBe(false);
+  });
+});

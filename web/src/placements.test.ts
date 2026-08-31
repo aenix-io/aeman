@@ -6,6 +6,7 @@ import {
   canCreateInColumn,
   columnFollows,
   columnsOf,
+  countedAmong,
   countedForProgress,
   drawnAsSlot,
   drawnOnProjectBoard,
@@ -31,6 +32,11 @@ import type { Card } from "./providers/types";
 // The picker offers only columns the server would accept: projects of the
 // card's own repository, each with its epics — a pair the server refuses
 // has no business being clickable.
+/** card builds the slice of a card these rules read, TYPED. A cast through
+ *  `unknown` asserts nothing about the shape it hides, and these cases are
+ *  the rules' documentation. */
+const mk = (c: Partial<Card>): Card => c as Card;
+
 describe("attach and mirror targets", () => {
   const projects = ["engineering", "freedom", "strategy"];
   // The repository rides on the COLUMN, the way the server records it: a
@@ -102,7 +108,7 @@ describe("attachSlotDates", () => {
 // over silently, an orphan survives, and only the delete is worth a
 // question.
 describe("removeFromProjectOutcome", () => {
-  const base = { project: "engineering", epic: "Cozystack" } as Card;
+  const base = mk({ project: "engineering", epic: "Cozystack" });
 
   it("is unmirror on a mirror placement", () => {
     const c = { ...base, mirrors: [{ project: "freedom", epic: "Launch" }] } as Card;
@@ -115,14 +121,14 @@ describe("removeFromProjectOutcome", () => {
   });
 
   it("is orphan on the last column of a worked card, delete otherwise", () => {
-    const worked = { ...base, assignees: ["kvaps"], progress: 40 } as Card;
+    const worked = mk({ ...base, assignees: ["kvaps"], progress: 40 });
     expect(removeFromProjectOutcome(worked, "engineering", "Cozystack")).toBe("orphan");
-    const idle = { ...base, assignees: [] } as Card;
+    const idle = mk({ ...base, assignees: [] });
     expect(removeFromProjectOutcome(idle, "engineering", "Cozystack")).toBe("delete");
     // Progress without a person, or a person without progress, is not
     // "worked" — the server deletes it, and the UI must ask first.
     expect(
-      removeFromProjectOutcome({ ...base, assignees: [], progress: 40 } as Card, "engineering", "Cozystack"),
+      removeFromProjectOutcome(mk({ ...base, assignees: [], progress: 40 }), "engineering", "Cozystack"),
     ).toBe("delete");
   });
 });
@@ -131,13 +137,13 @@ describe("removeFromProjectOutcome", () => {
 // of a column but never delete it — the server refuses to as well.
 describe("removeFromProjectOutcome for a subtask", () => {
   it("orphans instead of deleting, however untouched", () => {
-    const card = {
+    const card = mk({
       project: "engineering",
       epic: "Cozystack",
       parent: "p1",
       assignees: [],
       progress: 0,
-    } as unknown as Card;
+    });
     expect(removeFromProjectOutcome(card, "engineering", "Cozystack")).toBe("orphan");
   });
 });
@@ -146,22 +152,22 @@ describe("removeFromProjectOutcome for a subtask", () => {
 // column's progress must count it — but never twice: a parent standing in
 // the same project already answers for its children.
 describe("countedForProgress", () => {
-  const child = { itemId: "c1", parent: "p1", project: "engineering", epic: "Cozystack" } as Card;
+  const child = mk({ itemId: "c1", parent: "p1", project: "engineering", epic: "Cozystack" });
   const index = (cards: Card[]) => new Map(cards.map((c) => [c.itemId, c]));
 
   it("counts a subtask whose parent is on no board of this project", () => {
     // The parent lives in the weekly plan with no column of its own.
-    const parent = { itemId: "p1" } as Card;
+    const parent = mk({ itemId: "p1" });
     expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(true);
   });
 
   it("skips a subtask whose parent stands in the same project", () => {
-    const parent = {
+    const parent = mk({
       itemId: "p1",
       project: "engineering",
       epic: "Roadmap",
       startDate: "2026-08-24",
-    } as Card;
+    });
     expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(false);
   });
 
@@ -169,7 +175,7 @@ describe("countedForProgress", () => {
     // A parent attached to a column but carrying no dates is no slot, so
     // nothing counts it — deferring to it dropped the child's work from
     // every bar while its slot was drawn in the column.
-    const parent = { itemId: "p1", project: "engineering", epic: "Roadmap" } as Card;
+    const parent = mk({ itemId: "p1", project: "engineering", epic: "Roadmap" });
     expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(true);
   });
 
@@ -177,12 +183,12 @@ describe("countedForProgress", () => {
     // Column bars are per column: a parent in X answers for the work in X,
     // and the child drawn in Y is Y's only work. Deduplicating by PROJECT
     // there subtracted a column's own slot from its own percentage.
-    const parent = {
+    const parent = mk({
       itemId: "p1",
       project: "engineering",
       epic: "Roadmap",
       startDate: "2026-08-24",
-    } as Card;
+    });
     expect(countedForProgress(child, index([child, parent]), { project: "engineering", epic: "Cozystack" })).toBe(true);
     // The project bar still counts it once: the parent's own progress
     // already derives from this child.
@@ -199,7 +205,7 @@ describe("countedForProgress", () => {
       epic: "Roadmap",
       startDate: "2026-08-24",
       mirrors: [{ project: "engineering", epic: "Cozystack" }],
-    } as unknown as Card;
+    } as Card;
     expect(
       countedForProgress(child, index([child, parent]), {
         project: "engineering",
@@ -216,7 +222,7 @@ describe("countedForProgress", () => {
   });
 
   it("counts an ordinary card always", () => {
-    const plain = { itemId: "x", project: "engineering", epic: "Cozystack" } as Card;
+    const plain = mk({ itemId: "x", project: "engineering", epic: "Cozystack" });
     expect(countedForProgress(plain, index([plain]), { project: "engineering" })).toBe(true);
   });
 });
@@ -236,7 +242,7 @@ describe("placementTargets", () => {
   };
 
   it("offers mirrors to a card already in a column", () => {
-    const got = placementTargets({ project: "engineering", epic: "Cozystack" } as Card, board);
+    const got = placementTargets(mk({ project: "engineering", epic: "Cozystack" }), board);
     expect(got.mirror).toEqual([]);
     expect(got.attach).toBeUndefined();
   });
@@ -248,13 +254,13 @@ describe("placementTargets", () => {
     // or a process tie: its file rides its parent, and both would be
     // stranded the moment the parent changes repository.
     const inColumn = placementTargets(
-      { project: "engineering", epic: "Cozystack", parent: "p1" } as Card,
+      mk({ project: "engineering", epic: "Cozystack", parent: "p1" }),
       board,
     );
     expect(inColumn.mirror).toBeUndefined();
     expect(inColumn.processes).toBeUndefined();
 
-    const loose = placementTargets({ parent: "p1", stage: "recurrent" } as Card, board);
+    const loose = placementTargets(mk({ parent: "p1", stage: "recurrent" }), board);
     expect(loose.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
     expect(loose.processes).toBeUndefined();
   });
@@ -265,7 +271,7 @@ describe("placementTargets", () => {
     // each remembered this separately — the rule belongs here, where the
     // module promises "only what the server would accept".
     const got = placementTargets(
-      { project: "engineering", epic: "Cozystack", parent: "p1" } as Card,
+      mk({ project: "engineering", epic: "Cozystack", parent: "p1" }),
       board,
     );
     expect(got.mirror).toBeUndefined();
@@ -277,13 +283,13 @@ describe("placementTargets", () => {
     // A no-project column is a home like any other: it names a repository
     // (its own), so the card mirrors inside it. The refusal this case used
     // to pin was the PROJECT's answer to the column's question.
-    const got = placementTargets({ epic: "Inbox" } as Card, board);
+    const got = placementTargets(mk({ epic: "Inbox" }), board);
     expect(got.mirror).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
     expect(got.attach).toBeUndefined();
   });
 
   it("offers processes to a recurrent card", () => {
-    const got = placementTargets({ stage: "recurrent" } as Card, board);
+    const got = placementTargets(mk({ stage: "recurrent" }), board);
     expect(got.processes).toEqual(["Invoicing", "Reporting"]);
     expect(got.attach).toBeUndefined();
   });
@@ -291,12 +297,12 @@ describe("placementTargets", () => {
   it("drops the process the card is already tied to", () => {
     // Only works because spec.process round-trips: the server serves the
     // stored tie back, so after a re-list the card carries it here.
-    const got = placementTargets({ stage: "recurrent", process: "Invoicing" } as Card, board);
+    const got = placementTargets(mk({ stage: "recurrent", process: "Invoicing" }), board);
     expect(got.processes).toEqual(["Reporting"]);
   });
 
   it("offers a process TURN nothing — its process is its task's", () => {
-    const got = placementTargets({ stage: "recurrent", task: "t1" } as Card, board);
+    const got = placementTargets(mk({ stage: "recurrent", task: "t1" }), board);
     expect(got.processes).toBeUndefined();
     expect(got.attach).toBeUndefined();
     expect(got.mirror).toBeUndefined();
@@ -306,16 +312,16 @@ describe("placementTargets", () => {
     // The server refuses a cross-repository tie (ErrCrossDomain), so the
     // menu must not offer one: dead items ending in a 422 are not targets.
     const multi = { ...board, processDomains: { Reporting: "founders" } };
-    expect(placementTargets({ stage: "recurrent" } as Card, multi).processes).toEqual([
+    expect(placementTargets(mk({ stage: "recurrent" }), multi).processes).toEqual([
       "Invoicing",
     ]);
     expect(
-      placementTargets({ stage: "recurrent", domain: "founders" } as Card, multi).processes,
+      placementTargets(mk({ stage: "recurrent", domain: "founders" }), multi).processes,
     ).toEqual(["Reporting"]);
   });
 
   it("offers projects to everything else", () => {
-    const got = placementTargets({} as Card, board);
+    const got = placementTargets(mk({}), board);
     expect(got.attach).toEqual([{ name: "engineering", epics: ["Cozystack"] }]);
   });
 });
@@ -325,7 +331,7 @@ describe("placementTargets", () => {
 // used to re-file the card's home into the mirror column, collapsing two
 // placements into one with no question asked.
 describe("slotDragPlan", () => {
-  const card = { project: "engineering", epic: "Cozystack" } as Card;
+  const card = mk({ project: "engineering", epic: "Cozystack" });
   const home = { project: "engineering", epic: "Cozystack" };
   const mirror = { project: "freedom", epic: "Launch" };
   const third = { project: "freedom", epic: "Ship" };
@@ -363,7 +369,7 @@ describe("slotDropMirrors", () => {
   });
 
   it("drops the mirror the re-filed home lands on", () => {
-    const card = { mirrors: [grabbed] } as Card;
+    const card = mk({ mirrors: [grabbed] });
     expect(
       slotDropMirrors(card, { project: "engineering", epic: "Cozystack" }, grabbed, "refileHome"),
     ).toEqual([]);
@@ -389,7 +395,7 @@ describe("slotDropMirrors", () => {
   });
 
   it("moves and collapses as the plain cases say", () => {
-    const card = { mirrors: [grabbed] } as Card;
+    const card = mk({ mirrors: [grabbed] });
     expect(
       slotDropMirrors(card, grabbed, { project: "freedom", epic: "Ship" }, "moveMirror"),
     ).toEqual([{ project: "freedom", epic: "Ship" }]);
@@ -514,7 +520,7 @@ describe("makeCardPlacements onAttachProject", () => {
   };
 
   it("gives a dateless plan card its week's slot", () => {
-    const patch = run({ itemId: "c1", plan: "fri", week: "2026-08-24" } as Card);
+    const patch = run(mk({ itemId: "c1", plan: "fri", week: "2026-08-24" }));
     expect(patch.startDate).toBe("2026-08-24");
     expect(patch.day).toBe("2026-08-28");
   });
@@ -523,20 +529,20 @@ describe("makeCardPlacements onAttachProject", () => {
     // The Project board draws one slot per placement, so the patch is what
     // puts the card in the second column before the round trip returns.
     const patch = run(
-      { itemId: "c1", project: "engineering", epic: "Cozystack" } as Card,
+      mk({ itemId: "c1", project: "engineering", epic: "Cozystack" }),
       (p) => p.onMirror("freedom", "Launch"),
     );
     expect(patch.mirrors).toEqual([{ project: "freedom", epic: "Launch" }]);
   });
 
   it("keeps a dated card's chosen schedule", () => {
-    const patch = run({
+    const patch = run(mk({
       itemId: "c1",
       plan: "fri",
       week: "2026-08-24",
       startDate: "2026-09-07",
       day: "2026-09-09",
-    } as Card);
+    }));
     expect(patch.startDate).toBeUndefined();
     expect(patch.day).toBeUndefined();
   });
@@ -549,22 +555,22 @@ describe("drawnOnProjectBoard", () => {
 
   it("draws a card filed under a shown column", () => {
     expect(
-      drawnOnProjectBoard({ project: "engineering", epic: "Cozystack" } as Card, shown),
+      drawnOnProjectBoard(mk({ project: "engineering", epic: "Cozystack" }), shown),
     ).toBe(true);
   });
 
   it("draws a SUBTASK that carries its own column", () => {
     expect(
       drawnOnProjectBoard(
-        { project: "engineering", epic: "Cozystack", parent: "p1" } as Card,
+        mk({ project: "engineering", epic: "Cozystack", parent: "p1" }),
         shown,
       ),
     ).toBe(true);
   });
 
   it("draws nothing for a card with no column of its own", () => {
-    expect(drawnOnProjectBoard({ parent: "p1" } as Card, shown)).toBe(false);
-    expect(drawnOnProjectBoard({ project: "engineering" } as Card, shown)).toBe(false);
+    expect(drawnOnProjectBoard(mk({ parent: "p1" }), shown)).toBe(false);
+    expect(drawnOnProjectBoard(mk({ project: "engineering" }), shown)).toBe(false);
   });
 
   it("draws a card whose MIRROR names a shown column", () => {
@@ -587,8 +593,8 @@ describe("drawnOnProjectBoard", () => {
 // to…".
 describe("teamFollowsParent", () => {
   it("is true for a subtask and false for a standalone card", () => {
-    expect(teamFollowsParent({ parent: "p1" } as Card)).toBe(true);
-    expect(teamFollowsParent({} as Card)).toBe(false);
+    expect(teamFollowsParent(mk({ parent: "p1" }))).toBe(true);
+    expect(teamFollowsParent(mk({}))).toBe(false);
   });
 });
 
@@ -597,9 +603,9 @@ describe("teamFollowsParent", () => {
 // then attach) put occupancy into the bar that nothing rendered.
 describe("drawnAsSlot", () => {
   it("needs dates to be a slot", () => {
-    expect(drawnAsSlot({ epic: "Cozystack", startDate: "2026-08-24" } as Card)).toBe(true);
-    expect(drawnAsSlot({ epic: "Cozystack", week: "2026-08-24" } as Card)).toBe(true);
-    expect(drawnAsSlot({ epic: "Cozystack" } as Card)).toBe(false);
+    expect(drawnAsSlot(mk({ epic: "Cozystack", startDate: "2026-08-24" }))).toBe(true);
+    expect(drawnAsSlot(mk({ epic: "Cozystack", week: "2026-08-24" }))).toBe(true);
+    expect(drawnAsSlot(mk({ epic: "Cozystack" }))).toBe(false);
   });
 });
 
@@ -627,7 +633,7 @@ describe("targets on an alias project", () => {
     // A TEAM holds this card in its repository (G46), so the columns of
     // another one are not destinations; a card nothing holds is carried
     // by whatever project takes it, and is offered both.
-    const got = placementTargets({ team: "platform" } as Card, board);
+    const got = placementTargets(mk({ team: "platform" }), board);
     expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
   });
 
@@ -638,7 +644,7 @@ describe("targets on an alias project", () => {
     // destination either: the server compares the column's repository
     // against the project's and returns 422. Offering it was the friendly
     // label on a refusal.
-    const got = placementTargets({ domain: "closed", team: "board" } as Card, board);
+    const got = placementTargets(mk({ domain: "closed", team: "board" }), board);
     expect(got.attach).toEqual([]);
   });
 
@@ -646,13 +652,13 @@ describe("targets on an alias project", () => {
     // No team to keep it anywhere, so the project carries it — but only to
     // the repository the project itself is in, which the OTHER half of the
     // alias is not.
-    const got = placementTargets({} as Card, board);
+    const got = placementTargets(mk({}), board);
     expect(got.attach).toEqual([{ name: "portal", epics: ["Bugs"] }]);
   });
 
   it("mirrors within the card's own repository", () => {
     const got = placementTargets(
-      { project: "portal", epic: "Bugs", domain: "" } as Card,
+      mk({ project: "portal", epic: "Bugs", domain: "" }),
       board,
     );
     expect(got.mirror).toEqual([]);
@@ -669,23 +675,23 @@ describe("hasOriginToShow", () => {
     // OFFER drew the block empty, which is a bare divider bar with nothing
     // above it (the placement menus render outside this block and hide
     // themselves when they have nothing to list).
-    expect(hasOriginToShow({} as Card)).toBe(false);
+    expect(hasOriginToShow(mk({}))).toBe(false);
   });
 
   it("counts a column of no project", () => {
-    expect(hasOriginToShow({ epic: "Inbox" } as Card)).toBe(true);
+    expect(hasOriginToShow(mk({ epic: "Inbox" }))).toBe(true);
   });
 
   it("counts a project, a process and a mirror", () => {
-    expect(hasOriginToShow({ project: "engineering" } as Card)).toBe(true);
-    expect(hasOriginToShow({ process: "Invoicing" } as Card)).toBe(true);
+    expect(hasOriginToShow(mk({ project: "engineering" }))).toBe(true);
+    expect(hasOriginToShow(mk({ process: "Invoicing" }))).toBe(true);
     expect(
       hasOriginToShow({ mirrors: [{ project: "freedom", epic: "Launch" }] } as Card),
     ).toBe(true);
   });
 
   it("is false for a card that came from nowhere", () => {
-    expect(hasOriginToShow({} as Card)).toBe(false);
+    expect(hasOriginToShow(mk({}))).toBe(false);
   });
 });
 
@@ -695,20 +701,34 @@ describe("hasOriginToShow", () => {
 // no-project column takes its repository from its TEAM, so only that
 // repository's teams can hold it.
 describe("pickers that must not offer a refusal", () => {
+  // With the roster, as the boards pass it: the stamps are read in the
+  // board's one namespace, so an unstamped entry is the primary rather
+  // than a repository of its own.
+  const roster = { primary: "aeman-db", single: false };
+
   it("offers a column only the projects of its own repository", () => {
     const projects = ["engineering", "strategy"];
     const domains = { strategy: "founders" };
-    expect(projectsAColumnCanJoin("", projects, domains)).toEqual(["engineering"]);
-    expect(projectsAColumnCanJoin("founders", projects, domains)).toEqual(["strategy"]);
+    expect(projectsAColumnCanJoin("aeman-db", projects, domains, "", roster)).toEqual([
+      "engineering",
+    ]);
+    expect(projectsAColumnCanJoin("founders", projects, domains, "", roster)).toEqual([
+      "strategy",
+    ]);
+    // And without a roster to read them in — a board that draws no
+    // boundaries — nothing is refused.
+    expect(projectsAColumnCanJoin("founders", projects, domains, "", { single: true })).toEqual(
+      projects,
+    );
   });
 
   it("offers a card in a closed column only that repository's teams", () => {
     const teams = ["platform", "board"];
     const domains = { board: "founders" };
-    expect(teamsACardCanTake("founders", teams, domains, "")).toEqual(["board"]);
+    expect(teamsACardCanTake("founders", teams, domains, "", roster)).toEqual(["board"]);
     // What the card already carries stays on the list, so a pair written
     // before the rule can be seen and changed.
-    expect(teamsACardCanTake("founders", teams, domains, "platform")).toEqual([
+    expect(teamsACardCanTake("founders", teams, domains, "platform", roster)).toEqual([
       "platform",
       "board",
     ]);
@@ -721,21 +741,21 @@ describe("pickers that must not offer a refusal", () => {
 // was written against.
 describe("removeFromProjectOutcome refuses what the server refuses", () => {
   it("refuses the empty pair — a column is named by its epic", () => {
-    expect(removeFromProjectOutcome({} as Card, "", "")).toBe("refused");
+    expect(removeFromProjectOutcome(mk({}), "", "")).toBe("refused");
   });
 
   it("refuses a column the card does not stand in", () => {
-    const card = { project: "engineering", epic: "Cozystack" } as Card;
+    const card = mk({ project: "engineering", epic: "Cozystack" });
     expect(removeFromProjectOutcome(card, "freedom", "Launch")).toBe("refused");
   });
 
   it("still answers for the column the card is in", () => {
-    const card = {
+    const card = mk({
       project: "engineering",
       epic: "Cozystack",
       assignees: [],
       progress: 0,
-    } as unknown as Card;
+    });
     expect(removeFromProjectOutcome(card, "engineering", "Cozystack")).toBe("delete");
   });
 });
@@ -763,7 +783,7 @@ describe("attachTargets and the card's binding", () => {
 
 
   it("offers every column to a card nothing holds", () => {
-    const got = placementTargets({} as Card, {
+    const got = placementTargets(mk({}), {
       projects,
       epics,
       processes: [],
@@ -774,7 +794,7 @@ describe("attachTargets and the card's binding", () => {
   });
 
   it("offers a team's card only its own repository", () => {
-    const got = placementTargets({ team: "platform" } as Card, {
+    const got = placementTargets(mk({ team: "platform" }), {
       projects,
       epics,
       processes: [],
@@ -790,7 +810,7 @@ describe("attachTargets and the card's binding", () => {
   // friendly label.
   it("never offers a foreign no-project bucket", () => {
     const withBucket = [...epics, { name: "Inbox", project: "", domain: "founders" }];
-    const got = placementTargets({} as Card, {
+    const got = placementTargets(mk({}), {
       projects,
       epics: withBucket,
       processes: [],
@@ -802,7 +822,7 @@ describe("attachTargets and the card's binding", () => {
 
   it("offers the bucket of the card's own repository", () => {
     const withBucket = [...epics, { name: "Inbox", project: "" }];
-    const got = placementTargets({} as Card, {
+    const got = placementTargets(mk({}), {
       projects,
       epics: withBucket,
       processes: [],
@@ -845,7 +865,7 @@ describe("columnsOf", () => {
   });
 
   it("lists nothing for a card in no column", () => {
-    expect(columnsOf({} as Card)).toEqual([]);
+    expect(columnsOf(mk({}))).toEqual([]);
   });
 });
 
@@ -950,12 +970,12 @@ describe("makeCardPlacements onUnmirror", () => {
 // move or fold a MIRROR cannot arise from it.
 describe("dragging a subtask's slot", () => {
   it("never asks for a mirror move", () => {
-    const kid = {
+    const kid = mk({
       parent: "p",
       project: "engineering",
       epic: "Cozystack",
       mirrors: [],
-    } as unknown as Card;
+    });
     const grabbed = { project: "engineering", epic: "Cozystack" };
     expect(slotDragPlan(kid, grabbed, { project: "freedom", epic: "Launch" }).kind).toBe(
       "refileHome",
@@ -1053,7 +1073,7 @@ describe("a board of one repository", () => {
   // comparison: a card the store stamped and a picker reading the roster
   // raw agreed only while both happened to carry the same string.
   it("offers the mirrors and the processes of its own repository", () => {
-    const card = { project: "engineering", epic: "Cozystack", mirrors: [] } as unknown as Card;
+    const card = mk({ project: "engineering", epic: "Cozystack", mirrors: [] });
     const board = {
       projects: ["engineering"],
       epics,
@@ -1068,7 +1088,7 @@ describe("a board of one repository", () => {
     expect(placementTargets(card, board).mirror).toEqual([
       { name: "", epics: ["Inbox"] },
     ]);
-    const chore = { stage: "recurrent" } as Card;
+    const chore = mk({ stage: "recurrent" });
     expect(placementTargets(chore, board).processes).toEqual(["Invoicing"]);
   });
 
@@ -1093,5 +1113,62 @@ describe("a board of one repository", () => {
     expect(
       attachTargets(["engineering"], epics, "aeman", true, unnamed).map((p) => p.name),
     ).toEqual(["engineering", ""]);
+  });
+});
+
+// A figure that spans columns — the board header's total, a project's line
+// — de-duplicates by IDENTITY: the parent is either drawn in it or not.
+// Asking about the child's HOME project instead named a project nobody was
+// looking at, and a mirrored child was counted beside the parent whose bar
+// already derives from it.
+describe("countedAmong", () => {
+  it("skips a subtask whose parent is drawn in the same figure", () => {
+    expect(countedAmong(mk({ parent: "p1" }), new Set(["p1", "c1"]))).toBe(false);
+  });
+
+  it("counts one whose parent is not", () => {
+    expect(countedAmong(mk({ parent: "p1" }), new Set(["c1"]))).toBe(true);
+  });
+
+  it("counts an ordinary card always", () => {
+    expect(countedAmong(mk({}), new Set(["c1"]))).toBe(true);
+  });
+});
+
+// A LINK decides where a card lives ahead of its project (G14), so a
+// subtask — or a review card, or an iteration — cannot be carried into
+// another repository by a new project. Offering those columns was a
+// refusal with a friendly label, exactly as it was for a teamed card.
+describe("attach targets for a card a LINK holds", () => {
+  const board = {
+    projects: ["engineering", "strategy"],
+    epics: [
+      { name: "Cozystack", project: "engineering", domain: "aeman-db" },
+      { name: "Fundraising", project: "strategy", domain: "founders" },
+    ],
+    processes: [],
+    projectDomains: { engineering: "aeman-db", strategy: "founders" },
+    domains: [
+      { name: "aeman-db", writable: true, members: [] },
+      { name: "founders", writable: true, members: [] },
+    ],
+  };
+
+  it("offers a subtask only its own repository's columns", () => {
+    const kid = mk({ parent: "p", domain: "aeman-db" });
+    expect(placementTargets(kid, board).attach?.map((p) => p.name)).toEqual(["engineering"]);
+  });
+
+  it("offers a review card the same", () => {
+    const rev = mk({ reviewOf: "orig", domain: "aeman-db" });
+    expect(placementTargets(rev, board).attach?.map((p) => p.name)).toEqual(["engineering"]);
+  });
+
+  it("still carries a card nothing holds", () => {
+    const loose = mk({ domain: "aeman-db" });
+    expect(placementTargets(loose, board).attach?.map((p) => p.name)).toEqual([
+      "engineering",
+      "strategy",
+    ]);
   });
 });

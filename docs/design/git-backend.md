@@ -190,7 +190,9 @@ it is a delete plus a create, named as such.
 ```
 board.yaml                         primary domain only: schema, title
 teams/<id>.yaml                    one team: name, rank, sprint pointers
-projects/<id>/project.yaml         one project: name, rank
+projects/<id>/project.yaml         one project: name, rank; a file with no
+                                   `name` is the NO-PROJECT bucket, written
+                                   on demand (`projects/_/project.yaml`)
 projects/<id>/epics/<id>.yaml      one column: name, rank
 projects/<id>/deadlines/<id>.yaml  one deadline line: week
 processes/<id>/process.yaml        one process: name, project, paused, rank

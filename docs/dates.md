@@ -201,8 +201,12 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
   parent nothing draws — a column with no dates is no slot — answers for
   nothing, and the child counts. A column's own bar asks the narrower question:
   it drops the child only when the parent stands in that same column. Both
-  read the cards' HOME pairs; a mirror of the parent elsewhere does not
-  answer for the child.
+  read every column the parent is DRAWN in — its home pair and its mirrors
+  — since a mirror is the same card standing in a second column: a parent
+  mirrored into the child's column answers for the child there, and the bar
+  that read home pairs alone counted the two of them. A figure that spans
+  columns (the board's header total) asks it by identity instead: the
+  parent is either drawn in that figure or it is not.
 - **Derived progress**: while a card has subtasks its bar derives from them —
   the average of the subtasks' effective progress (done = 100) scaled into
   0–90%. The final done / 100% is always a human decision on the parent, and a

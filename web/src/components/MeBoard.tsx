@@ -1237,7 +1237,15 @@ export function MeBoard({
   // ordinary law (demote, or delete), and only the roster knows. A review
   // card's link outranks its own team and project, so the card it points at
   // answers for it.
-    columnFollows: columnFollows(card, { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains }, linkedDomainOf(card)),
+    // Only a card in a column can lose one, and finding the linked card
+    // is a scan of the board: asked when the question can arise.
+    columnFollows: card.epic
+      ? columnFollows(
+          card,
+          { ...rosterOf(board), epics: board.epics, teamDomains: board.teamDomains },
+          linkedDomainOf(card),
+        )
+      : true,
   });
   // The repository of the card a subtask would still point at once its
   // parent is gone: its original, or the task it iterates.

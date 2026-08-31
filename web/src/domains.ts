@@ -109,8 +109,10 @@ export function reviewerCandidates(
  *  older server), which is what inPrimary reads it as. */
 export type RosterDomains = Record<string, string> | undefined;
 
-/** rosterDomain is the repository an entry was declared in; "" is the
- *  primary, which is never named. */
+/** rosterDomain is the repository an entry was declared in, as the roster
+ *  gives it: a NAME on a served board, "" for an entry no map carries —
+ *  which means the primary too, and is what inPrimary reads it as. Compare
+ *  through inPrimary (or placements.sameRepository), never raw. */
 export function rosterDomain(domains: RosterDomains, name: string): string {
   if (!name || !domains) {
     return "";

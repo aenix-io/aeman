@@ -220,10 +220,9 @@ export function gridRemoval(
  *  Being on a person or carrying progress is not a place to be. */
 export function planRemoval(c: RemovalHomes & Pick<RemovableCard, "parent">): Outcome {
   // A SUBTASK is never deleted here: its home is its parent, so the plan
-  // cannot be its last one (G57). The panel routes subtasks to the grid
-  // handler today, so this arm is the rule's statement rather than a live
-  // path — and a rule stated in one copy and not the other is how the two
-  // boards came to disagree in the first place.
+  // cannot be its last one (G57). This arm IS the live path — the panel's ×
+  // is the plan's gesture for every card it draws, subtasks included, and
+  // `from` is what picks which home is emptied.
   if (c.parent) {
     return "leave";
   }
@@ -293,17 +292,17 @@ export function subtaskRemovalPatch(
  *  shape for the gesture and one for its inverse, or a board rolls back
  *  less than it patched — which left a card visibly ungrouped and stripped
  *  of its column while the server still held it as a subtask in it. */
-export function subtaskRemovalUndo<
-  T extends {
-    assignees?: string[];
-    parent?: string;
-    epic?: string;
-    project?: string;
-    sprintStart?: string;
-    startDate?: string;
-    day?: string;
-  },
->(c: T): SubtaskPatch & { parent?: string } {
+export interface SubtaskUndo {
+  assignees?: string[];
+  parent?: string;
+  epic?: string;
+  project?: string;
+  sprintStart?: string;
+  startDate?: string;
+  day?: string;
+}
+
+export function subtaskRemovalUndo(c: SubtaskUndo): SubtaskUndo {
   return {
     assignees: c.assignees,
     parent: c.parent,
@@ -312,7 +311,7 @@ export function subtaskRemovalUndo<
     sprintStart: c.sprintStart,
     startDate: c.startDate,
     day: c.day,
-  } as SubtaskPatch & { parent?: string };
+  };
 }
 
 /** GridGesture is what the day grid's × actually DOES to a card — the
