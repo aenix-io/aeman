@@ -63,8 +63,10 @@ describe("planRemoveOffered", () => {
 
   it("is offered where the band is the only thing holding the card", () => {
     expect(planRemoveOffered({ plan: "fri", week: "2026-08-03" })).toBe(true);
-    // An epic without both boundaries is not a slot: its band is stored.
-    expect(planRemoveOffered({ epic: "Cozystack", week: "2026-08-03", plan: "wed" })).toBe(true);
+    // A card in a COLUMN is not that card, whatever band it carries: the
+    // column is where it lives, and the plan has nothing of its own to
+    // take away from it.
+    expect(planRemoveOffered({ epic: "Cozystack", week: "2026-08-03", plan: "wed" })).toBe(false);
   });
 });
 
@@ -119,14 +121,18 @@ describe("who gets an × on the weekly panel", () => {
     // A leftover WEEK is a record of its own: grouping clears the band and
     // the week may outlive it, and clearing it is the whole gesture there.
     expect(planRemoveOffered({ week: "2026-08-24" })).toBe(true);
-    // …but a COLUMN card's week is the row it is drawn in, not plan
-    // membership: the server writes nothing for it, band or no band, so
-    // the × would do nothing. (A subtask keeps its column on grouping and
-    // its week can outlive the band, which is how this shape arises.)
+    // …but never a card in a COLUMN: that is where it lives, and the plan
+    // has nothing of its own to take away.
     expect(planRemoveOffered({ epic: "Cozystack", week: "2026-08-24" })).toBe(false);
   });
 
-  it("offers none to a slot, whose span is its plan", () => {
+  // A card filed under a project column is not the plan's to empty — band
+  // or no band, span or no span. The column is where it lives.
+  it("offers none to a card that stands in a column", () => {
     expect(planRemoveOffered({ epic: "E", week: "2026-08-24", day: "2026-08-28" })).toBe(false);
+    expect(
+      planRemoveOffered({ epic: "E", week: "2026-08-24", day: "2026-08-28", plan: "fri" }),
+    ).toBe(false);
+    expect(planRemoveOffered({ epic: "E", week: "2026-08-24", plan: "fri" })).toBe(false);
   });
 });

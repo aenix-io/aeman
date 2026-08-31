@@ -28,15 +28,19 @@ export function isSlot(c: Banded): boolean {
  *  nothing to empty for them (it returns without a write), so an × there
  *  would be the inert one this rule exists to prevent. */
 export function planRemoveOffered(c: Banded): boolean {
-  if (isSlot(c)) {
+  // A card filed under a project COLUMN is not the plan's to empty. The
+  // column is where it lives and why the panel shows it at all — taking a
+  // band away would leave the card exactly where it is, and a card that
+  // has no plan membership to lose should not be offered a gesture that
+  // reads like losing one.
+  if (c.epic) {
     return false;
   }
-  // Mirrors what the server's plan × actually writes (Remove from="plan"):
-  // a BAND is always something to empty, and a bare WEEK only on a card
-  // outside every column — on a column card the week is the row it is
-  // drawn in, not plan membership, so there is nothing to take away and
-  // the × would be the inert one this rule exists to prevent.
-  return !!c.plan || (!c.epic && !!c.week);
+  // Everything else: a BAND is something to empty, and so is a bare WEEK
+  // (grouping can clear the band and leave the week behind). A card with
+  // neither — the nested subtask rows of an expanded parent — has nothing
+  // in the plan's records, and the server's × writes nothing for it.
+  return !!c.plan || !!c.week;
 }
 
 /** slotBand derives the weekly-plan band a band-less slot occupies on `week`'s
