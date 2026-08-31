@@ -348,6 +348,15 @@ func (s *Server) domainsFor(ctx context.Context, members []string, login string)
 		if !rights.canRead(d.Name) {
 			continue
 		}
+		// One repository is the whole board: everyone on it can read it —
+		// a visitor who cannot is refused the board itself (G17) — so the
+		// forge is not asked who. That question exists to tell one
+		// repository's readers from another's, and it is a blocking call
+		// on a cold load for a login nothing is cached for.
+		if len(s.gitCfg.Repos) == 1 {
+			out = append(out, apiserver.DomainInfo{Name: d.Name, Writable: rights.canWrite(d.Name), Members: append([]string(nil), members...)})
+			continue
+		}
 		readers, err := s.access.readers(ctx, d.Name, members)
 		if err != nil {
 			s.log.Warn("domain members", "domain", d.Name, "err", err)

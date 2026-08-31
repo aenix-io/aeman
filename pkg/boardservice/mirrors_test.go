@@ -440,6 +440,29 @@ func TestGroupingUnderAPersonalParentCannotCarryAColumnIn(t *testing.T) {
 	}
 }
 
+// The plan's × writes nothing for a card whose week is the row it is drawn
+// in rather than plan membership — a COLUMN card with no band. The panel
+// must not offer one there (weekly.planRemoveOffered): a click that does
+// nothing is the failure that rule exists to prevent, and the two copies
+// have to agree on which cards it covers.
+func TestThePlanRemoveWritesNothingForAColumnCardWithNoBand(t *testing.T) {
+	f := mirrorBoard([]board.Card{
+		{ItemID: "c1", Title: "slot", Team: "platform", Project: "engineering", Epic: "Cozystack",
+			Week: "2026-08-24"},
+	})
+	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
+		t.Fatalf("nothing to empty is not an error: %v", err)
+	}
+	if n := len(f.log); n != 1 { // the LoadBoard the call opens with
+		t.Fatalf("and nothing is written: %v", f.log)
+	}
+	b, _ := f.LoadBoard(ctx, "acme")
+	c, _ := findCard(b, "c1")
+	if c.Week != "2026-08-24" || c.Epic != "Cozystack" {
+		t.Fatalf("the card is untouched: %+v", c)
+	}
+}
+
 // Renames follow the mirrors. The rename loops match cards through InEpic,
 // which now sees mirrors — rewriting the card's HOME fields for a mirror
 // match would corrupt it, and not rewriting the mirror would strand it

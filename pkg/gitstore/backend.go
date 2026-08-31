@@ -373,7 +373,7 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 		return board.Card{ItemID: id, Title: in.Title, Project: in.Project, Rank: rank, CreatedAt: created},
 			b.write(ctx, "add-project", nil, ProjectPath(id), data)
 	case board.EpicStateTitle:
-		pid, pr, err := b.projectByName(ctx, s, in.Project)
+		pid, pr, err := b.projectByName(ctx, s, in.Project, true)
 		if err != nil {
 			return board.Card{}, err
 		}
@@ -385,7 +385,7 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 		return board.Card{ItemID: id, Title: in.Title, Epic: in.Epic, Project: in.Project, Rank: rank, CreatedAt: created},
 			b.write(ctx, "add-epic", nil, EpicPath(pid, id), data)
 	case board.DeadlineStateTitle:
-		pid, _, err := b.projectByName(ctx, s, in.Project)
+		pid, _, err := b.projectByName(ctx, s, in.Project, true)
 		if err != nil {
 			return board.Card{}, err
 		}
@@ -464,7 +464,7 @@ func (b *Backend) snapshot(_ context.Context) (Snapshot, error) {
 	return s, err
 }
 
-func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string) (string, Project, error) {
+func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string, create bool) (string, Project, error) {
 	for _, p := range s.Projects {
 		if p.Name == name {
 			return p.ID, p, nil
@@ -475,7 +475,7 @@ func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string) (s
 			return id, Project{ID: id}, nil
 		}
 	}
-	if name == "" {
+	if name == "" && create {
 		// The NO-PROJECT BUCKET is a column home like any other (G15, G54):
 		// its columns are declared under a nameless project stub, the way
 		// the no-team group has `teams/_.yaml`. Nothing can add that stub —
@@ -484,6 +484,12 @@ func (b *Backend) projectByName(ctx context.Context, s Snapshot, name string) (s
 		// was a home the store could hold but nothing could create: adding
 		// a column to it, and unbinding one INTO it, both failed with
 		// "project not found".
+		//
+		// Only for a WRITE that means to put something there. A lookup that
+		// is merely computing a path (projectOfChild, behind a delete) must
+		// not leave a file behind: a delete that writes a project stub and
+		// then removes a path under it that never existed is a commit
+		// nobody asked for.
 		return b.bucketProject(ctx, s)
 	}
 	return "", Project{}, fmt.Errorf("%w: %q", ErrProjectNotFound, name)
@@ -585,7 +591,7 @@ func (b *Backend) projectOfChild(ctx context.Context, s Snapshot, c board.Card, 
 			return p.ID, nil
 		}
 	}
-	id, _, err := b.projectByName(ctx, s, c.Project)
+	id, _, err := b.projectByName(ctx, s, c.Project, false)
 	return id, err
 }
 
@@ -1161,7 +1167,7 @@ func (b *Backend) moveEpic(ctx context.Context, card board.Card, project string)
 	if err != nil {
 		return err
 	}
-	toPID, _, err := b.projectByName(ctx, s, project)
+	toPID, _, err := b.projectByName(ctx, s, project, true)
 	if err != nil {
 		return err
 	}

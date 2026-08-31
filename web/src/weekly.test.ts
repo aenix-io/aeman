@@ -119,6 +119,11 @@ describe("who gets an × on the weekly panel", () => {
     // A leftover WEEK is a record of its own: grouping clears the band and
     // the week may outlive it, and clearing it is the whole gesture there.
     expect(planRemoveOffered({ week: "2026-08-24" })).toBe(true);
+    // …but a COLUMN card's week is the row it is drawn in, not plan
+    // membership: the server writes nothing for it, band or no band, so
+    // the × would do nothing. (A subtask keeps its column on grouping and
+    // its week can outlive the band, which is how this shape arises.)
+    expect(planRemoveOffered({ epic: "Cozystack", week: "2026-08-24" })).toBe(false);
   });
 
   it("offers none to a slot, whose span is its plan", () => {

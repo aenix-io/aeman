@@ -31,7 +31,12 @@ export function planRemoveOffered(c: Banded): boolean {
   if (isSlot(c)) {
     return false;
   }
-  return !!c.plan || !!c.week;
+  // Mirrors what the server's plan × actually writes (Remove from="plan"):
+  // a BAND is always something to empty, and a bare WEEK only on a card
+  // outside every column — on a column card the week is the row it is
+  // drawn in, not plan membership, so there is nothing to take away and
+  // the × would be the inert one this rule exists to prevent.
+  return !!c.plan || (!c.epic && !!c.week);
 }
 
 /** slotBand derives the weekly-plan band a band-less slot occupies on `week`'s

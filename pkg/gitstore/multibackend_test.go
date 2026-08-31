@@ -915,4 +915,34 @@ func TestUnbindingAClosedColumnDoesNotMoveTheBoardsBucket(t *testing.T) {
 	if cd, ok := board.ColumnDomain(b, "", "Audit"); !ok || cd != "closed" {
 		t.Fatalf("the unbound column stays where its stub is: %q %v", cd, ok)
 	}
+	// Two nameless stubs are the intended state, not a name collision:
+	// /api/healthz must not ask a maintainer to rename by hand something
+	// the board produces on purpose.
+	aliases, _ := mb.Issues()
+	for _, a := range aliases {
+		if a.Kind == "project" && a.Name == "" {
+			t.Fatalf("the bucket is reported as a duplicate to merge: %+v", a)
+		}
+	}
+}
+
+// A lookup must not write. Computing the PATH of a stub the roster no
+// longer holds (a concurrent delete, a torn move) falls through to the
+// nameless-project resolver, and minting the bucket there left a delete
+// writing a project file and then removing a path under it that never
+// existed — a commit nobody asked for.
+func TestDeletingAStrayColumnStubWritesNoBucket(t *testing.T) {
+	mb, shared, _ := twoDomains(t)
+	ctx := ctxAs("kvaps")
+	b, err := mb.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stray := board.Card{ItemID: "01STRAYCOLUMN00000000000", Title: board.EpicStateTitle, Epic: "Ghost"}
+	if err := mb.DeleteCard(ctx, b, stray); err == nil {
+		t.Log("a stub the roster does not hold deletes nothing; an error is fine either way")
+	}
+	if _, err := shared.ReadFile(ProjectPath(bucketProjectID)); err == nil {
+		t.Fatal("and it must not have written the bucket's project stub")
+	}
 }

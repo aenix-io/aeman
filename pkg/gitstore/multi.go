@@ -183,7 +183,15 @@ func mergeProjects(parts []Snapshot, aliases []Alias) ([]Project, []Alias) {
 			}
 			winner.Epics = append(winner.Epics, loser.Epics...)
 			winner.Deadlines = append(winner.Deadlines, loser.Deadlines...)
-			aliases = append(aliases, Alias{Kind: "project", Name: pr.Name, Domain: loser.Domain, ID: loser.ID, Winner: winner.ID})
+			// The NO-PROJECT bucket is not a collision: every repository may
+			// declare its own nameless project file, and their columns are
+			// meant to merge under one entry while each keeps the repository
+			// it was declared in (ColumnDomain). Reporting it on
+			// /api/healthz told a maintainer to rename by hand a state the
+			// board produces on purpose.
+			if pr.Name != "" {
+				aliases = append(aliases, Alias{Kind: "project", Name: pr.Name, Domain: loser.Domain, ID: loser.ID, Winner: winner.ID})
+			}
 			byName[pr.Name] = winner
 		}
 	}
