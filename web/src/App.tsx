@@ -38,6 +38,11 @@ import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
 
+// waitingAfterMs is how long a request may take before the board says it is
+// waiting. Below it nothing is shown: the answer arrives before the eye
+// would settle on the indicator anyway.
+const waitingAfterMs = 300;
+
 // SNAPSHOT_FROZEN is what a write attempt on a past day says. The day is
 // over: its board is a picture, and today's board is one click away.
 const SNAPSHOT_FROZEN =
@@ -220,14 +225,28 @@ export function App() {
   // The forge (GitHub / GitLab) spells the sign-in and token copy; before the
   // config answers, and on an older server, that is GitHub.
   const forge = useMemo(() => forgeCopy(config), [config]);
-  // Count of in-flight data loads (initial load + per-view card fetches);
-  // any of them showing keeps the top progress bar visible.
+  // Count of in-flight data loads (initial load + per-view card fetches, plus
+  // the slow actions the boards wrap in trackLoad); any of them showing is
+  // what the waiting mark beside the view switch reports.
   const [pendingLoads, setPendingLoads] = useState(0);
   const loading = pendingLoads > 0;
+  // waiting is `loading` that has LASTED: a request answered in a blink shows
+  // nothing at all. The old bar across the top appeared for every fetch,
+  // however short, and a flash at the edge of the screen reads as something
+  // being wrong rather than as work in progress.
+  const [waiting, setWaiting] = useState(false);
+  useEffect(() => {
+    if (!loading) {
+      setWaiting(false);
+      return;
+    }
+    const t = window.setTimeout(() => setWaiting(true), waitingAfterMs);
+    return () => window.clearTimeout(t);
+  }, [loading]);
   const beginLoad = useCallback(() => setPendingLoads((n) => n + 1), []);
   const endLoad = useCallback(() => setPendingLoads((n) => n - 1), []);
   // Boards wrap their slow server calls (carry over etc.) with this so the
-  // progress bar covers the operation itself, not just the refetch after it.
+  // waiting mark covers the operation itself, not just the refetch after it.
   const trackLoad = useCallback(
     <T,>(p: Promise<T>): Promise<T> => {
       beginLoad();
@@ -1301,6 +1320,22 @@ export function App() {
           </span>
         )}
 
+        {pendingSync === 0 && waiting && (
+          <span className="load-badge" title="Loading…" role="status" aria-label="Loading">
+            <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+              <circle
+                cx="12"
+                cy="12"
+                r="9"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray="14 42"
+              />
+            </svg>
+          </span>
+        )}
         {pendingSync > 0 && (
           <span
             className="sync-badge"

@@ -608,6 +608,32 @@ select {
   }
 }
 
+/* The browser waiting on an answer — the same corner as the sync badge and
+   deliberately not the same thing: no pill, no count, a thin ring that turns.
+   The sync badge says the SERVER owes writes; this says this tab asked and is
+   still listening. */
+.load-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-bottom: 4px;
+  padding: 0 4px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.load-badge svg {
+  animation: load-badge-spin 0.9s linear infinite;
+}
+
+@keyframes load-badge-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.load-badge + .segmented,
 .sync-badge + .segmented {
   margin-left: 8px;
 }
