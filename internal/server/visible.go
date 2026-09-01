@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
@@ -64,6 +65,28 @@ func (v *visibleBackend) LoadBoard(ctx context.Context, boardID string) (board.B
 		return board.Board{}, boardservice.ErrForbidden
 	}
 	return board.Visible(bd, v.primary, r.readable), nil
+}
+
+// LoadBoardAsOf projects a PAST day's board the same way as the live one: a
+// domain the visitor cannot read was not theirs to see that day either, and
+// history is no way around that (G17).
+func (v *visibleBackend) LoadBoardAsOf(ctx context.Context, boardID string, at time.Time) (board.Board, bool, error) {
+	r, ok := v.Backend.(boardservice.AsOfReader)
+	if !ok {
+		return board.Board{}, false, boardservice.ErrNoHistory
+	}
+	bd, ok, err := r.LoadBoardAsOf(ctx, boardID, at)
+	if err != nil || !ok {
+		return board.Board{}, ok, err
+	}
+	rights := rightsFrom(ctx)
+	if rights == nil {
+		return bd, true, nil
+	}
+	if !rights.canRead(v.primary) {
+		return board.Board{}, false, boardservice.ErrForbidden
+	}
+	return board.Visible(bd, v.primary, rights.readable), true, nil
 }
 
 // LoadCards omits what the visitor cannot read.

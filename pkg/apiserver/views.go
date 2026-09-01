@@ -28,6 +28,11 @@ type Selector struct {
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
 	Project string
+	// Snapshot asks for the board OF the day rather than today's board
+	// filtered by it: every card as it stood when that day ended. Only a
+	// PAST day has one — today is the live board — and only storage that
+	// keeps history can answer (git does).
+	Snapshot bool
 	// Fields picks the resource shape a listing delivers. The default is the
 	// board row — no description, with the derived link refs in status
 	// standing in for it; a card's body is one GET /cards/{uid} away.
@@ -58,6 +63,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Week:           q.Get("week"),
 		Assignee:       q.Get("assignee"),
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
+		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
 		Fields:         q.Get("fields"),
 	}

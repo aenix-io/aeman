@@ -93,6 +93,10 @@ interface SortableBoardProps<Meta> {
   canGroup?: (active: CardModel, target: CardModel) => boolean;
   /** Optional class wrapping the laid-out groups (e.g. a horizontal scroller). */
   scrollClassName?: string;
+  /** A board that is being LOOKED AT, not worked on — a past day's snapshot.
+   *  Nothing can be dragged: the day is over, and a card that slid across it
+   *  would be a change to today's board made from a picture of the past. */
+  frozen?: boolean;
 }
 
 type LocalGroups<Meta> = { key: string; meta: Meta; ids: string[] }[];
@@ -224,10 +228,14 @@ export function SortableBoard<Meta>({
   onDragActiveCard,
   canGroup,
   scrollClassName,
+  frozen,
 }: SortableBoardProps<Meta>) {
-  const sensors = useSensors(
+  const live = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
+  // A frozen board keeps no sensors: a drag that cannot land is worse than
+  // no drag at all — the card follows the cursor and then springs back.
+  const sensors = frozen ? [] : live;
 
   const isExternal = (id: string) => externalCards?.has(id) ?? false;
   const idOf = (c: CardModel, g: BoardGroup<Meta>) =>

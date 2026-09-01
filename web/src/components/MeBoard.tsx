@@ -31,6 +31,7 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
+import { snapshotDay } from "../viewquery";
 import { slotWeekPatch } from "../weekly";
 import {
   boardAsksAbout,
@@ -2086,6 +2087,16 @@ export function MeBoard({
         >
           Today
         </button>
+        {snapshotDay("me", selectedDate) && (
+          // The day has ended and is shown as it stood — saying so is the
+          // difference between a record and a board that looks out of date.
+          <span
+            className="snapshot-badge"
+            title={`Your board as it stood at the end of ${selectedDate}. Nothing here can be changed — Today is where the board is worked on.`}
+          >
+            as it was
+          </span>
+        )}
 
         <div className="field field-inline impersonate" ref={impRef}>
           <button
@@ -2153,6 +2164,9 @@ export function MeBoard({
           <div className="me-zones">
             <SortableBoard<MeMeta>
               groups={groups}
+              // A past day is shown as it was; nothing on it can be moved
+              // (the provider refuses writes there too — frozenProvider).
+              frozen={snapshotDay("me", selectedDate)}
               onDrop={handleDrop}
               onGroupDrop={handleGroup}
               onHoverCard={setGroupHover}
@@ -2233,6 +2247,7 @@ export function MeBoard({
               <div className="me-personal-zones">
                 <SortableBoard<MeMeta>
                   groups={personalGroups}
+                  frozen={snapshotDay("me", selectedDate)}
                   onDrop={handleDrop}
                   renderCard={(card) => renderMeCard(card, true)}
                   renderOverlay={(card) => (

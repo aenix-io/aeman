@@ -380,6 +380,10 @@ type CardList struct {
 	Kind   string         `json:"kind"`
 	Items  []Card         `json:"items"`
 	Weekly *WeeklySummary `json:"weekly,omitempty"`
+	// AsOf is the moment a snapshot listing reflects (RFC3339) — the end of
+	// the day it was asked for. Empty on a live listing; a day the history
+	// no longer reaches is refused (410) rather than answered.
+	AsOf string `json:"asOf,omitempty"`
 }
 
 // WeeklySummary is the weekly view's computed plan progress (recurrent cards

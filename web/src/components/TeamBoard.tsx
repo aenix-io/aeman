@@ -26,6 +26,7 @@ import type {
 import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, addDays, localDateIso, mondayOf, weeksBetween } from "../date";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
+import { snapshotDay } from "../viewquery";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -2370,6 +2371,17 @@ export function TeamBoard({
         >
           Today
         </button>
+        {snapshotDay("team", selectedDate) && (
+          // A day that has ended is shown as it stood, and saying so is the
+          // whole difference between a record and a board that looks oddly
+          // out of date.
+          <span
+            className="snapshot-badge"
+            title={`The board as it stood at the end of ${selectedDate}. Nothing here can be changed — Today is where the board is worked on.`}
+          >
+            as it was
+          </span>
+        )}
         <div className="sprint-wrap" ref={sprintRef}>
           <button
             type="button"
@@ -2414,6 +2426,9 @@ export function TeamBoard({
 
       <SortableBoard<TeamMeta>
         groups={groups}
+        // A past day is shown as it was; nothing on it can be moved (the
+        // provider refuses writes there too — see frozenProvider).
+        frozen={snapshotDay("team", selectedDate)}
         idForCard={(c, g) =>
           g.meta.kind === "band" ? `plan:${c.itemId}` : c.itemId
         }

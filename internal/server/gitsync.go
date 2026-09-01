@@ -607,6 +607,37 @@ func (b *storeBackend) CardLogSince(ctx context.Context, bd board.Board, id stri
 	return b.git.mb.CardLogSince(ctx, bd, id, since)
 }
 
+// LoadBoardAsOf is the board of a past day (boardservice.AsOfReader). The
+// repositories ARE the history, so the answer is the tree they had when that
+// day ended — no cache to consult, no events to replay. A day behind the
+// clone's horizon deepens once, the way a card's log does, and is answered
+// if that brings it in; --history-max still bounds how far back that goes.
+func (b *storeBackend) LoadBoardAsOf(ctx context.Context, boardID string, at time.Time) (board.Board, bool, error) {
+	if b.git == nil {
+		return board.Board{}, false, boardservice.ErrNoHistory
+	}
+	bd, ok, err := b.git.mb.LoadBoardAsOf(ctx, boardID, at)
+	if err != nil || ok {
+		return bd, ok, err
+	}
+	if b.git.historyMax <= 0 || at.Before(time.Now().Add(-b.git.historyMax)) {
+		return board.Board{}, false, nil
+	}
+	// A day before the boundary needs the commit that PRECEDES it, so the
+	// deepen reaches a little further back than the day itself. One domain
+	// refusing to deepen does not decide the answer — a repository that
+	// already holds everything reports one (go-git calls an empty
+	// upload-pack an error), and the load below is what actually knows
+	// whether the day is reachable now.
+	since := at.Add(-24 * time.Hour)
+	for _, d := range b.git.domains {
+		if err := d.Repo.DeepenSince(ctx, d.remote, since); err != nil {
+			b.git.log.Warn("history deepen for a past day failed", "domain", d.Name, "err", err)
+		}
+	}
+	return b.git.mb.LoadBoardAsOf(ctx, boardID, at)
+}
+
 func (b *storeBackend) CardLog(ctx context.Context, bd board.Board, id string) ([]board.Event, time.Time, error) {
 	if b.git == nil {
 		return nil, time.Time{}, nil

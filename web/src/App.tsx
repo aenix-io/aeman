@@ -29,7 +29,13 @@ import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
-import { queryString, viewQueries, watchQueries } from "./viewquery";
+import { queryString, snapshotDay, viewQueries, watchQueries } from "./viewquery";
+import { frozenProvider } from "./providers/frozen";
+
+// SNAPSHOT_FROZEN is what a write attempt on a past day says. The day is
+// over: its board is a picture, and today's board is one click away.
+const SNAPSHOT_FROZEN =
+  "This is the board as it was that day — go back to today to change anything.";
 import { PersonalDialog } from "./components/PersonalDialog";
 import { todayIso, setBoardTimezone } from "./date";
 import { mergeNotes } from "./notes";
@@ -410,7 +416,21 @@ export function App() {
         }
       });
   }, []);
-  const provider = useMemo(() => guardSignedOut(apiProvider, onSignedOut), [onSignedOut]);
+  // Looking BACK on the Me or Team board shows that day as it was — the
+  // server reads the board out of its own history (see snapshotDay). A day
+  // that is over is not a place to work: the provider is frozen, so a
+  // handler that did not think about the date cannot write today's board
+  // from a view of the past, and the drag sensors are off for the same
+  // reason.
+  const snapshot = snapshotDay(view, selectedDate);
+  // The watch handler is built once per socket; it reads the mode through a
+  // ref rather than closing over it.
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const provider = useMemo(() => {
+    const live = guardSignedOut(apiProvider, onSignedOut);
+    return snapshot ? frozenProvider(live, SNAPSHOT_FROZEN) : live;
+  }, [onSignedOut, snapshot]);
 
   // The roster: the board's teams in the server-side order (the sprint-state
   // cards' positions — shared by everyone, on every device), then the ones
@@ -812,6 +832,20 @@ export function App() {
       }
     };
     const applyFrame = (frame: WatchFrame) => {
+      // A past day on screen is a picture of a day that ended. Live frames
+      // are about TODAY's board — applying them here would edit the picture
+      // card by card until it showed neither day. The board's own structure
+      // (projects, columns, the sync counter) is not of any day and still
+      // arrives; returning to today re-lists everything anyway.
+      if (
+        snapshotRef.current &&
+        (frame.kind === "Card" ||
+          frame.kind === "Sprint" ||
+          frame.kind === "Ordering" ||
+          frame.kind === "Presence")
+      ) {
+        return;
+      }
       // Sync marks a finished server-side reload; the diff already arrived as
       // ordinary events, so there is nothing left to do here.
       if (frame.kind === "Sync") {

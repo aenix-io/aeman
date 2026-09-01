@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
@@ -409,12 +410,46 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A PAST day can be asked for as it stood, rather than as today's board
+	// filtered by that day's dates: the storage keeps the history, so the
+	// answer is the board that day ended with. Today has no snapshot — it is
+	// still happening — and a live listing is what every other caller gets.
+	if sel.Snapshot && sel.Day != "" && sel.Day < board.TodayIso() {
+		at, err := endOfBoardDay(sel.Day)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		past, err := svc.BoardAsOf(r.Context(), boardID, at)
+		if err != nil {
+			// A day the history no longer holds is said so (410), never
+			// answered with today's cards wearing that day's date.
+			s.apiError(w, r, err)
+			return
+		}
+		list := apiserver.ListCards(past, sel)
+		list.AsOf = at.Format(time.RFC3339)
+		writeJSON(w, http.StatusOK, list)
+		return
+	}
 	b, err := svc.Board(r.Context(), boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, apiserver.ListCards(b, sel))
+}
+
+// endOfBoardDay is a board day's last moment in the board's own time zone —
+// the instant a snapshot of that day reflects. The day belongs to everyone
+// on the board, so it is measured where the board lives, not where the
+// reader does (see board.Location).
+func endOfBoardDay(day string) (time.Time, error) {
+	start, err := time.ParseInLocation("2006-01-02", day, board.Location())
+	if err != nil {
+		return time.Time{}, fmt.Errorf("day %q: %w", day, err)
+	}
+	return start.AddDate(0, 0, 1).Add(-time.Nanosecond), nil
 }
 
 func (s *Server) handleGetCard(w http.ResponseWriter, r *http.Request) {
@@ -1935,6 +1970,15 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		writeJSONError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, gitstore.ErrUnknownDomain):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, boardservice.ErrHistoryTruncated):
+		// The day was there and is not any more — the clone's horizon moved
+		// past it. Gone says exactly that, and a client can offer to widen
+		// the horizon rather than retry.
+		writeJSONError(w, http.StatusGone, err.Error())
+	case errors.Is(err, boardservice.ErrNoHistory):
+		// Storage that keeps no past cannot be asked about one; another
+		// board (or another backend) can.
+		writeJSONError(w, http.StatusNotImplemented, err.Error())
 	case errors.Is(err, gitstore.ErrNameTaken),
 		errors.Is(err, gitstore.ErrPersonalRoster),
 		errors.Is(err, boardservice.ErrTeamExists),

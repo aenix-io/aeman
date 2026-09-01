@@ -83,6 +83,14 @@ A card filed under a Project-board **column** (an epic) is not on the day grid u
   deferring never erases where the card came from. It is hidden everywhere else
   until its day arrives, then it materializes back into the rules above.
 
+### A past day is shown as it was (the snapshot)
+
+The rules above place TODAY's cards on a day. That is what a day-lens is: dates decide where a card belongs, and a card finished this morning reads finished on every day you flip to. Going BACK on the Me or Team board answers a different question — what did the board look like then — and gets a different answer: the board **as it stood** when that day ended, read from the repositories' own history (the tree at that day's last commit). Every field is the day's own; a card created since is simply absent.
+
+- Only a **past** day, and only the day boards (Me, Team). Today is still happening, tomorrow has not, and the Project and Process boards are not day boards.
+- It is a record, not a workspace: the UI freezes the board (no drags, and every write is refused before it leaves the browser), and live changes to today's board are not applied over the picture.
+- The history has an edge. The server keeps a horizon (`--history`, two weeks by default) and deepens on demand up to `--history-max` (a year); a day behind that is refused (410) rather than answered with the oldest state at hand.
+
 ### Me view — a personal day (`selectedDate`)
 - A card (assigned to the viewer) shows when its scheduled day has arrived and the
   viewed day falls in a sprint the card **spans** — from the one it started in up
