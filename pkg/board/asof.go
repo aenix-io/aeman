@@ -17,6 +17,16 @@ func TeamsPast(live Board, day string) map[string]bool {
 	return out
 }
 
+// settled reports that the day is over for this card: its team's sprint has
+// moved past it. A PERSONAL card is never settled — it belongs to no team and
+// no sprint, its day comes from its own dates, and it lives in its owner's
+// own repository. Without this it would answer to the no-team group's sprint,
+// which it shares nothing with but an empty team name, and somebody's
+// personal column would freeze the day that group carried over.
+func settled(c Card, past map[string]bool) bool {
+	return past[c.Team] && !IsPersonalDomain(c.Domain)
+}
+
 // MergeAsOf is one day on one screen with two moments in it: the teams the
 // day is over for (past) contribute what they held THEN, everyone else what
 // they hold NOW. It returns the merged board and the ids of the cards that
@@ -31,7 +41,7 @@ func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) 
 	out.Cards = make([]Card, 0, len(live.Cards))
 	seen := make(map[string]bool, len(live.Cards))
 	for _, c := range live.Cards {
-		if past[c.Team] {
+		if settled(c, past) {
 			continue
 		}
 		out.Cards = append(out.Cards, c)
@@ -39,7 +49,7 @@ func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) 
 	}
 	fromPast := map[string]bool{}
 	for _, c := range then.Cards {
-		if !past[c.Team] || seen[c.ItemID] {
+		if !settled(c, past) || seen[c.ItemID] {
 			continue
 		}
 		out.Cards = append(out.Cards, c)

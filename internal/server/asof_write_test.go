@@ -109,6 +109,19 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 		t.Fatalf("a write to a live card on a mixed board answered %d, want 200", code)
 	}
 
+	// A NOTE is a write like any other: the day is over for this card, so
+	// the note would be filed on today's card while the person is reading a
+	// picture of that day.
+	note := httptest.NewRequest(http.MethodPost, "/api/v1/cards/"+settled+"/notes",
+		strings.NewReader(`{"text":"written into a picture"}`))
+	note.Header.Set("Content-Type", "application/json")
+	note.Header.Set("X-Aeman-As-Of", "2026-08-20")
+	rec = httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, note)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("a note written from a past day answered %d, want 409", rec.Code)
+	}
+
 	// And a write with no day claimed is an ordinary write, as every other
 	// client makes.
 	if code := patch(settled, `{"description":"from today"}`, ""); code != http.StatusOK {

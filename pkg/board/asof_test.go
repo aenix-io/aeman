@@ -106,3 +106,38 @@ func TestACardThatChangedTeamIsTakenOnce(t *testing.T) {
 		t.Fatalf("card = %+v, fromPast=%v; the team still working owns it", merged.Cards[0], fromPast)
 	}
 }
+
+// A PERSONAL card is never a record. It belongs to no team and no sprint —
+// its day comes from its own dates, and it lives in its owner's repository —
+// so the no-team group's sprint moving on must not freeze somebody's personal
+// column: the two share nothing but an empty team name.
+func TestAPersonalCardIsNeverARecord(t *testing.T) {
+	live := Board{
+		// The no-team group HAS moved on past the day.
+		SprintStates: map[string]SprintState{"": {Current: "2026-09-01", Previous: "2026-08-20"}},
+		Cards: []Card{
+			{ItemID: "team-less", Progress: 90, Rank: "a"},
+			{ItemID: "mine", Domain: "~kvaps", Progress: 90, Rank: "b"},
+		},
+	}
+	then := Board{
+		SprintStates: map[string]SprintState{"": {Current: "2026-08-20"}},
+		Cards: []Card{
+			{ItemID: "team-less", Progress: 20, Rank: "a"},
+			{ItemID: "mine", Domain: "~kvaps", Progress: 20, Rank: "b"},
+		},
+	}
+	merged, fromPast := MergeAsOf(live, then, TeamsPast(live, "2026-08-20"))
+	by := map[string]Card{}
+	for _, c := range merged.Cards {
+		by[c.ItemID] = c
+	}
+	// The no-team group's own card is a record of that day, like any team's.
+	if by["team-less"].Progress != 20 || !fromPast["team-less"] {
+		t.Fatalf("the no-team card = %+v, fromPast=%v", by["team-less"], fromPast)
+	}
+	// The personal card is the owner's own, live and editable.
+	if by["mine"].Progress != 90 || fromPast["mine"] {
+		t.Fatalf("the personal card = %+v, fromPast=%v — a personal board has no sprint to be past", by["mine"], fromPast)
+	}
+}
