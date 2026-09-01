@@ -4122,7 +4122,9 @@ button.card-age {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 0 16px 8px;
+  /* Air above them: with no top padding the row sat on the header's rule and
+     read as part of the title rather than as what the card belongs to. */
+  padding: 10px 16px 8px;
 }
 
 .modal-origin-item {
