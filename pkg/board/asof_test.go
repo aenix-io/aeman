@@ -141,3 +141,53 @@ func TestAPersonalCardIsNeverARecord(t *testing.T) {
 		t.Fatalf("the personal card = %+v, fromPast=%v — a personal board has no sprint to be past", by["mine"], fromPast)
 	}
 }
+
+// A card that has MOVED between teams since is still on the day it stood on.
+// The merge asks "is the day over for this card's team?" and the two boards
+// answer with different teams: the live one says portal (moved on, so the
+// live copy is dropped), the evening one says backoffice (still working, so
+// the record copy is dropped too) — and the card fell through both.
+func TestACardThatMovedIntoASettledTeamStaysOnTheDay(t *testing.T) {
+	live := Board{
+		SprintStates: map[string]SprintState{
+			"portal":     {Current: "2026-09-01", Previous: "2026-08-20"},
+			"backoffice": {Current: "2026-08-20"},
+		},
+		Cards: []Card{{ItemID: "c1", Team: "portal", Progress: 90, Rank: "a"}},
+	}
+	then := Board{
+		SprintStates: map[string]SprintState{
+			"portal":     {Current: "2026-08-20"},
+			"backoffice": {Current: "2026-08-20"},
+		},
+		Cards: []Card{{ItemID: "c1", Team: "backoffice", Progress: 20, Rank: "a"}},
+	}
+	merged, fromPast := MergeAsOf(live, then, TeamsPast(live, "2026-08-20"))
+	if len(merged.Cards) != 1 {
+		t.Fatalf("the card appears %d times: %+v", len(merged.Cards), merged.Cards)
+	}
+	// Its team TODAY has moved on, so the day is over for it and the record
+	// is what that evening held.
+	if merged.Cards[0].Progress != 20 || !fromPast["c1"] {
+		t.Fatalf("card = %+v, fromPast=%v", merged.Cards[0], fromPast)
+	}
+}
+
+// A team RENAMED since is the same team: the evening's cards carry the old
+// name and the sprint pointers the new one, so asking the old name whether
+// the day is over answers "no" for every card of it — and the day's record
+// came back empty.
+func TestARenamedTeamStillHasItsRecord(t *testing.T) {
+	live := Board{
+		SprintStates: map[string]SprintState{"platform": {Current: "2026-09-01", Previous: "2026-08-20"}},
+		Cards:        []Card{{ItemID: "c1", Team: "platform", Progress: 90, Rank: "a"}},
+	}
+	then := Board{
+		SprintStates: map[string]SprintState{"portal": {Current: "2026-08-20"}},
+		Cards:        []Card{{ItemID: "c1", Team: "portal", Progress: 20, Rank: "a"}},
+	}
+	merged, fromPast := MergeAsOf(live, then, TeamsPast(live, "2026-08-20"))
+	if len(merged.Cards) != 1 || merged.Cards[0].Progress != 20 || !fromPast["c1"] {
+		t.Fatalf("the renamed team's record = %+v, fromPast=%v", merged.Cards, fromPast)
+	}
+}

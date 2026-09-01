@@ -65,6 +65,9 @@ interface TeamBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
+  /** The moment this board is a RECORD of (a past day answered as it stood),
+   *  empty on a live board. What it holds cannot be added to. */
+  asOf?: string;
 
   onSelectDate: (day: string) => void;
   /** Avatars by login (the board roster). */
@@ -127,6 +130,7 @@ export function TeamBoard({
   provider,
   me,
   selectedDate,
+  asOf,
   onSelectDate,
   avatars,
   names,
@@ -240,11 +244,12 @@ export function TeamBoard({
     teamFilter === null || teamFilter.includes(card.team ?? "");
 
   // Cards passing the team filter (the scope before applying the sprint).
-  // A view holding RECORDS is a day that ENDED: there is nothing to add
-  // to it — a card created there would land on today's board, which is
-  // not what the person looking at that day means (the provider refuses
-  // it too, so the box would only produce an error).
-  const holdsRecords = board.cards.some((c) => !!c.asOf);
+  // A day that ENDED offers nothing to add: a card created there would land
+  // on TODAY's board, which is not what the person looking at that day
+  // means. The server refuses such a create outright — it cannot tell which
+  // team the box belonged to — so the boxes go whenever the board is being
+  // read as a record at all, not only where a record card happens to sit.
+  const holdsRecords = !!asOf;
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps

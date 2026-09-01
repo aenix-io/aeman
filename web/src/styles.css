@@ -851,10 +851,23 @@ select {
   opacity: 0.85;
 }
 
-/* Nothing that would CHANGE the card: the ×, the + that adds a subtask, the
-   stage dot and its menu, the age badge that edits the dates, and the
-   slider's handle. What only READS stays — the id copier, the links menu,
-   the subtask toggle. */
+/* Nothing offers to drag it: .card:active and the weekly variant both set a
+   grabbing hand, and a record does not move. */
+.card.card-record:active,
+.card.card-record.plan-card,
+.card.card-record.plan-card:active {
+  cursor: default;
+}
+
+/* What would CHANGE the card is not there: the ×, the + that adds a subtask
+   and the slider's handle. What only READS stays — the id copier, the links
+   menu, the subtask toggle — and so does what the card SAID that day: its
+   stage, age, avatar and progress, made inert below.
+
+   Named one by one rather than hiding every button inside a record: the id
+   copier and the links menu are buttons too, and they read. A control added
+   later is live until it is listed here — the provider refuses the write, so
+   it fails loudly rather than silently. */
 .card-record .card-action-delete,
 .card-record .card-subs-add,
 .card-record .card-bar-handle {
@@ -4699,4 +4712,3 @@ button.card-age {
   font-size: 12px;
   color: var(--danger);
 }
-

@@ -168,27 +168,26 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	if in.Full {
 		sel.Fields = "full"
 	}
-	b, err := svc.Board(ctx, boardID)
+	// A past day can be read AS IT STOOD. The day is built by the board
+	// service, which is what the HTTP API reads it through too: an agent and
+	// a person asking about the same day must not get different boards.
+	day := ""
+	if in.Snapshot {
+		day = sel.Day
+	}
+	b, over, at, err := svc.BoardOfDay(ctx, boardID, day)
 	if err != nil {
 		return nil, apiserver.CardList{}, err
 	}
-	// A past day can be read AS IT STOOD: the board's storage keeps the
-	// history, so the answer is the board that day ended with rather than
-	// today's cards wearing that day's dates.
-	var asOf string
-	if in.Snapshot && sel.Day != "" && sel.Day < board.TodayIso() {
-		at, err := time.ParseInLocation("2006-01-02", sel.Day, board.Location())
-		if err != nil {
-			return nil, apiserver.CardList{}, fmt.Errorf("day %q: %w", sel.Day, err)
-		}
-		at = at.AddDate(0, 0, 1).Add(-time.Nanosecond)
-		if b, err = svc.BoardAsOf(ctx, boardID, at); err != nil {
-			return nil, apiserver.CardList{}, err
-		}
+	asOf := ""
+	if !at.IsZero() {
+		// A record gives back what the × took off that day, for the teams it
+		// is a record of, and marks the cards that are one.
 		asOf = at.Format(time.RFC3339)
+		sel.LeftOn, sel.RecordTeams = sel.Day, over
 	}
 	list := apiserver.ListCards(b, sel)
-	list.AsOf = asOf
+	apiserver.MarkRecords(&list, over, asOf)
 	if in.Title != "" {
 		needle := strings.ToLower(in.Title)
 		kept := list.Items[:0]

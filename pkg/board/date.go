@@ -1,6 +1,9 @@
 package board
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // isoLayout is the yyyy-mm-dd date layout the boards orient by.
 const isoLayout = "2006-01-02"
@@ -40,6 +43,17 @@ func Location() *time.Location {
 func IsDayIso(s string) bool {
 	_, err := time.ParseInLocation(isoLayout, s, boardLocation)
 	return err == nil
+}
+
+// EndOfDay is a board day's last moment in the BOARD's own time zone — the
+// instant a record of that day reflects. The day belongs to everyone on the
+// board, so it is measured where the board lives, not where the reader does.
+func EndOfDay(day string) (time.Time, error) {
+	start, err := time.ParseInLocation(isoLayout, day, boardLocation)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("day %q: %w", day, err)
+	}
+	return start.AddDate(0, 0, 1).Add(-time.Nanosecond), nil
 }
 
 func TodayIso() string {

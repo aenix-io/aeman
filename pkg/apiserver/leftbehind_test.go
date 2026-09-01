@@ -18,6 +18,8 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 		SprintStates: map[string]board.SprintState{
 			"portal": {Current: day, Previous: prev},
 			"other":  {Current: day, Previous: prev},
+			// This one has NOT moved past the day.
+			"working": {Current: prev},
 		},
 		Cards: []board.Card{
 			// Worked on the 24th and put away: its dates are the previous
@@ -31,6 +33,9 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 			// board's business.
 			{ItemID: "elsewhere", Team: "other", Assignees: []string{"lex"}, Progress: 100,
 				SprintStart: prev, StartDate: prev, Day: prev, LeftAt: day, Rank: "c"},
+			// A team still inside that sprint: the day is not over for it.
+			{ItemID: "working-teams", Team: "working", Assignees: []string{"kvaps"}, Progress: 100,
+				SprintStart: prev, StartDate: prev, Day: prev, LeftAt: day, Rank: "d"},
 		},
 	}
 
@@ -43,14 +48,15 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 	}
 
 	// Today's board: the × did its job, the card is gone.
-	live := Selector{View: "team", Team: "portal", Day: day}
-	if got := ids(live); len(got) != 1 || got[0] != "kept" {
+	liveSel := Selector{View: "team", Team: "portal", Day: day}
+	if got := ids(liveSel); len(got) != 1 || got[0] != "kept" {
 		t.Fatalf("the live day = %v; the × takes the card off it", got)
 	}
 
 	// The record of that day: it is back, done, beside the card that stayed.
-	asRecord := live
+	asRecord := liveSel
 	asRecord.LeftOn = day
+	asRecord.RecordTeams = map[string]bool{"portal": true, "other": true}
 	got := ids(asRecord)
 	found := map[string]bool{}
 	for _, id := range got {
@@ -64,18 +70,33 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 	}
 
 	// The Me view draws the same line, and only for the person it belonged to.
-	me := Selector{View: "me", User: "kvaps", Day: day, LeftOn: day}
+	me := Selector{View: "me", User: "kvaps", Day: day, LeftOn: day,
+		RecordTeams: map[string]bool{"portal": true, "other": true}}
 	if got := ids(me); !contains(got, "tidied") {
 		t.Fatalf("the Me record of that day = %v", got)
 	}
-	notMine := Selector{View: "me", User: "lex", Day: day, LeftOn: day}
+	notMine := Selector{View: "me", User: "lex", Day: day, LeftOn: day,
+		RecordTeams: map[string]bool{"portal": true, "other": true}}
 	if got := ids(notMine); contains(got, "tidied") {
 		t.Fatalf("somebody else's card = %v", got)
 	}
 
+	// A team the day is NOT over for keeps its own day: the × took the card
+	// off it, and that is the whole point of the ×. Only the teams the record
+	// is OF give anything back.
+	stillWorking := Selector{View: "team", Team: "portal,working", Day: day, LeftOn: day,
+		RecordTeams: map[string]bool{"portal": true}}
+	if got := ids(stillWorking); contains(got, "working-teams") {
+		t.Fatalf("a live team's card came back: %v", got)
+	}
+	if got := ids(stillWorking); !contains(got, "tidied") {
+		t.Fatalf("the settled team's card must still come back: %v", got)
+	}
+
 	// A day the card was not left on gives nothing back.
-	other := live
+	other := liveSel
 	other.LeftOn = prev
+	other.RecordTeams = map[string]bool{"portal": true, "other": true}
 	if got := ids(other); contains(got, "tidied") {
 		t.Fatalf("another day's record = %v", got)
 	}

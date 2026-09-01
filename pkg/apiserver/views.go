@@ -3,6 +3,7 @@ package apiserver
 import (
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -28,6 +29,11 @@ type Selector struct {
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
 	Project string
+	// RecordTeams are the teams the listing is a RECORD of — the ones whose
+	// sprint has moved past the day. Only they give back what the × took off
+	// (LeftOn): a team still inside that sprint is working the day, and the ×
+	// took the card off it on purpose. Set together with LeftOn.
+	RecordTeams map[string]bool
 	// LeftOn gives a day back what the × took off it: a card finished that
 	// day and tidied away carries the day it was LEFT on (board.Card.LeftAt)
 	// while its dates have moved into the previous sprint, so nothing else
@@ -202,7 +208,12 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	// field filters above apply to these too — a card of another team, or
 	// somebody else's on a Me board, was not on THIS board that day.
 	if sel.LeftOn != "" {
-		out = append(out, leftBehindOn(b, sel, out)...)
+		if back := leftBehindOn(b, sel, out); len(back) > 0 {
+			out = append(out, back...)
+			// A listing is served in BOARD order; appending to the tail put
+			// the given-back cards after everything regardless of rank.
+			sort.SliceStable(out, func(i, j int) bool { return out[i].Rank < out[j].Rank })
+		}
 	}
 	out = withSubtasks(b, out, sel)
 	if sel.View == "project" {
@@ -345,6 +356,11 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 		if c.LeftAt != sel.LeftOn || seen[c.ItemID] {
 			continue
 		}
+		// Only the teams this listing is a record OF: elsewhere the day is
+		// still being worked, and the × is what takes a card off it.
+		if !sel.RecordTeams[c.Team] {
+			continue
+		}
 		if !onThisBoard(c, sel) {
 			continue
 		}
@@ -381,6 +397,24 @@ func onThisBoard(c board.Card, sel Selector) bool {
 		return false
 	}
 	return !sel.Focus || board.Workable(c)
+}
+
+// MarkRecords stamps the cards a day is OVER for with the moment they are
+// from: everything else in the same listing is today's and stays workable, so
+// the mark is per card. Asked by TEAM, the same question the day's board was
+// built with (board.IsRecord) — a listing marked any other way shows a card
+// as live that every write door refuses.
+func MarkRecords(list *CardList, over map[string]bool, asOf string) {
+	if asOf == "" || len(over) == 0 {
+		return
+	}
+	list.AsOf = asOf
+	for i := range list.Items {
+		item := &list.Items[i]
+		if over[item.Spec.Team] && !board.IsPersonalDomain(item.Status.Domain) {
+			item.Status.AsOf = asOf
+		}
+	}
 }
 
 // ListCards builds the LIST response for a selector: resources in board order,

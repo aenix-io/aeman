@@ -39,26 +39,22 @@ export function CardDetail({
   // here is editable, and the pane says so rather than pretending.
   const isRecord = !!card.asOf;
   const [title, setTitle] = useState(card.title);
-  // Esc closes it — the modal is a reader as often as an editor, and reaching
-  // for the mouse to leave a card you only opened to look at is a small tax
-  // paid over and over. The title editor answers Esc first (it cancels the
-  // rename), so a card being renamed is not closed out from under the typing.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !editingTitleRef.current) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const [editingTitle, setEditingTitle] = useState(false);
-  // Read by the Esc listener, which is installed once: the title editor
-  // answers Esc itself (it cancels the rename) and the modal must not close
-  // out from under it.
-  const editingTitleRef = useRef(editingTitle);
-  editingTitleRef.current = editingTitle;
+  // Esc closes this card — the pane is a reader as often as an editor, and
+  // reaching for the mouse to leave a card you only opened to look at is a
+  // small tax paid over and over. The key is taken on the BACKDROP rather
+  // than on the window: a dialog opened over the card answers its own Esc,
+  // and the card underneath must not close at the same time. The title
+  // editor answers first (it cancels the rename), so a card being renamed is
+  // not closed out from under the typing.
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = backdropRef.current;
+    if (node && !node.contains(document.activeElement)) {
+      node.focus();
+    }
+  }, []);
   const [description, setDescription] = useState(card.description ?? "");
   // dirty marks the draft as the user's: once they typed, nothing arriving
   // from the board (a background re-list, the lazy body fetch, a watch frame)
@@ -231,7 +227,18 @@ export function CardDetail({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      ref={backdropRef}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !editingTitle) {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
       <div
         className="modal"
         role="dialog"

@@ -48,12 +48,16 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// A write that names a card is judged by THAT card's team; one that
-		// names none (a create, a carry-over) cannot be, and a view holding
-		// records is no place to make it from.
+		// A write that names a card is judged by THAT card — through the same
+		// question the day's board is built with (board.IsRecord), or the two
+		// answer differently: a personal card, which belongs to no team and
+		// no sprint, would be live on screen and refused here the moment the
+		// no-team GROUP carried over. A write that names no card (a create, a
+		// carry-over) cannot be judged that way, and a view holding records
+		// is no place to make one from.
 		if uid := cardOfPath(r.URL.Path); uid != "" {
 			card, ok := findCardByID(bd, uid)
-			if !ok || !past[card.Team] {
+			if !ok || !board.IsRecord(card, past) {
 				next.ServeHTTP(w, r)
 				return
 			}

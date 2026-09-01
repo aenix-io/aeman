@@ -3,7 +3,6 @@ package gitstore
 import (
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -46,36 +45,6 @@ func LoadAsOf(r *Repo, at time.Time) (Snapshot, bool, error) {
 			// The board's own beginning: every commit is newer than the
 			// day asked for, so on that day the board was empty.
 			return Snapshot{}, true, nil
-		}
-		h = c.ParentHashes[0]
-	}
-}
-
-// HeadAsOf is LoadAsOf's commit, without reading the tree — what a cache
-// keys on: two days that ended on the same commit are the same board.
-func HeadAsOf(r *Repo, at time.Time) (plumbing.Hash, bool, error) {
-	head := r.Head()
-	if head.IsZero() {
-		return plumbing.ZeroHash, false, ErrEmptyRepository
-	}
-	shallow, err := r.shallows()
-	if err != nil {
-		return plumbing.ZeroHash, false, err
-	}
-	h := head
-	for {
-		c, err := object.GetCommit(r.s, h)
-		if err != nil {
-			return plumbing.ZeroHash, false, err
-		}
-		if !c.Committer.When.After(at) {
-			return h, true, nil
-		}
-		if shallow[h] {
-			return plumbing.ZeroHash, false, nil
-		}
-		if c.NumParents() == 0 {
-			return plumbing.ZeroHash, true, nil
 		}
 		h = c.ParentHashes[0]
 	}

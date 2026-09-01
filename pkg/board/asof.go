@@ -17,13 +17,17 @@ func TeamsPast(live Board, day string) map[string]bool {
 	return out
 }
 
-// settled reports that the day is over for this card: its team's sprint has
-// moved past it. A PERSONAL card is never settled — it belongs to no team and
-// no sprint, its day comes from its own dates, and it lives in its owner's
-// own repository. Without this it would answer to the no-team group's sprint,
-// which it shares nothing with but an empty team name, and somebody's
-// personal column would freeze the day that group carried over.
-func settled(c Card, past map[string]bool) bool {
+// IsRecord reports that the day is over for this card: its team's sprint has
+// moved past it, so what the card shows is a record and cannot be changed.
+// Every door asks THIS — the merge that builds the day, and the guard that
+// refuses a write made from it — or the two answer differently and a card is
+// live on screen and refused by the server.
+//
+// A PERSONAL card is never a record: it belongs to no team and no sprint, its
+// day comes from its own dates, and it lives in its owner's repository. Named
+// by an empty team, it would otherwise answer to the no-team GROUP's sprint,
+// which it shares nothing with but that empty name.
+func IsRecord(c Card, past map[string]bool) bool {
 	return past[c.Team] && !IsPersonalDomain(c.Domain)
 }
 
@@ -32,16 +36,19 @@ func settled(c Card, past map[string]bool) bool {
 // they hold NOW. It returns the merged board and the ids of the cards that
 // came from the past — a record, which a client must not offer to change.
 //
-// A card is placed by the team it belongs to in the board it comes from, so
-// a card that has since moved between a past team and a live one is taken
-// once, from the live side: its team is still working, and what they hold now
-// is the truth about it.
+// A card is judged by the copy that is CURRENT, whatever team the evening's
+// copy names: a card moved between teams since, and a team renamed since,
+// both name two different teams across the two boards, and asking each copy
+// about its own team dropped the card from both halves — it stood on the
+// board that evening and vanished from the record of it.
 func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) {
 	out := live
 	out.Cards = make([]Card, 0, len(live.Cards))
+	record := make(map[string]bool, len(live.Cards))
 	seen := make(map[string]bool, len(live.Cards))
 	for _, c := range live.Cards {
-		if settled(c, past) {
+		if IsRecord(c, past) {
+			record[c.ItemID] = true
 			continue
 		}
 		out.Cards = append(out.Cards, c)
@@ -49,7 +56,13 @@ func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) 
 	}
 	fromPast := map[string]bool{}
 	for _, c := range then.Cards {
-		if !settled(c, past) || seen[c.ItemID] {
+		if seen[c.ItemID] {
+			continue
+		}
+		// The card is a record when TODAY says so; a card the live board no
+		// longer holds at all is judged by the evening's own copy, which is
+		// the only one there is.
+		if !record[c.ItemID] && !IsRecord(c, past) {
 			continue
 		}
 		out.Cards = append(out.Cards, c)
@@ -68,6 +81,14 @@ func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) 
 			}
 		}
 		out.SprintStates[team] = st
+	}
+	// A team the evening knew under another name keeps its pointer of that
+	// evening too: its cards carry the old name, and the view places a card
+	// by the pointer of the team it names.
+	for team, st := range then.SprintStates {
+		if _, ok := out.SprintStates[team]; !ok {
+			out.SprintStates[team] = st
+		}
 	}
 	sortCards(&out)
 	return out, fromPast

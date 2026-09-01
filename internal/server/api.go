@@ -311,9 +311,12 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// The roster of a past day comes with its cards too: a column added
-	// since did not exist then, and the day's own teams are what its board
-	// was laid out with.
+	// A record's board carries that day's SPRINT POINTERS with its cards —
+	// the view rules place a card by its team's pointer, and today's would
+	// drop nearly all of them. The roster itself (projects, columns,
+	// processes, deadlines) stays TODAY's: a column added since shows on the
+	// record of an older day, which is the price of not rebuilding the whole
+	// structure per read, and is what docs/dates.md says.
 	b, _, _, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
@@ -415,79 +418,40 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 	}
 	// A PAST day can be asked for as it stood, rather than as today's board
 	// filtered by that day's dates (see boardOfRequest).
-	b, asOf, past, err := s.boardOfRequest(r, svc, boardID)
+	b, asOf, over, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
 	if asOf != "" {
-		// A record of the day gives back what the × took off it (G60).
-		sel.LeftOn = sel.Day
+		// A record of the day gives back what the × took off it, for the
+		// teams the day is over for and no others (G60).
+		sel.LeftOn, sel.RecordTeams = sel.Day, over
 	}
 	list := apiserver.ListCards(b, sel)
-	list.AsOf = asOf
-	// A day is everything that stood on it. What the morning board showed and
-	// the evening one no longer does — a card finished and tidied away into
-	// the previous sprint — belongs to that day too, in the state it last
-	// had (from the evening board, where it still exists).
-	// A card the day is OVER for carries the moment it is from: the rest of
-	// the listing is today's and stays workable, so the mark is per card
-	// rather than per listing (G60).
-	for i := range list.Items {
-		if past[list.Items[i].Metadata.UID] {
-			list.Items[i].Status.AsOf = asOf
-		}
-	}
+	apiserver.MarkRecords(&list, over, asOf)
 	writeJSON(w, http.StatusOK, list)
 }
 
 // boardOfRequest is the board a read answers from: today's, or — when the
-// request asks for a PAST day as it stood (`snapshot=1`) — the board that day
-// ended with. Every day-shaped read goes through it, because a snapshot is
-// not one endpoint's trick: the cards of that day filtered against TODAY's
-// sprint pointers are nearly all dropped by the client's own view rules, so
-// the pointers and the roster have to be of the same moment as the cards.
-// asOf is that moment, empty on a live read.
-func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boardID string) (bd board.Board, asOf string, past map[string]bool, err error) {
+// request asks for a PAST day as it stood (`snapshot=1`) — the board of that
+// day. The day itself is built by the board service (BoardOfDay), which is
+// what every other door reads it through: an agent over MCP and this handler
+// must not answer "what did that day look like" differently.
+//
+// over names the teams the day is over for (empty on a live read), and asOf
+// the moment the record reflects.
+func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boardID string) (bd board.Board, asOf string, over map[string]bool, err error) {
 	q := r.URL.Query()
 	day := q.Get("day")
-	snapshot := q.Get("snapshot") == "1" || q.Get("snapshot") == "true"
-	live, err := svc.Board(r.Context(), boardID)
-	if err != nil || !snapshot || day == "" || day >= board.TodayIso() {
-		return live, "", nil, err
+	if q.Get("snapshot") != "1" && q.Get("snapshot") != "true" {
+		day = ""
 	}
-	// Whether a day is over is each TEAM's own answer. A sprint lays itself
-	// out on its own day — that is where the lead works it from, and where a
-	// card created today lands, its pointer days old — so a team still
-	// inside that sprint keeps the live board, while a team whose sprint has
-	// moved on is done with the day and shows it as a record. One day, one
-	// screen, two moments: that is what a board of several teams is.
-	over := board.TeamsPast(live, day)
-	if len(over) == 0 {
-		return live, "", nil, nil
+	bd, over, at, err := svc.BoardOfDay(r.Context(), boardID, day)
+	if err != nil || at.IsZero() {
+		return bd, "", nil, err
 	}
-	at, err := endOfBoardDay(day)
-	if err != nil {
-		return board.Board{}, "", nil, err
-	}
-	then, err := svc.BoardAsOf(r.Context(), boardID, at)
-	if err != nil {
-		return board.Board{}, "", nil, err
-	}
-	bd, past = board.MergeAsOf(live, then, over)
-	return bd, at.Format(time.RFC3339), past, nil
-}
-
-// endOfBoardDay is a board day's last moment in the board's own time zone —
-// the instant a snapshot of that day reflects. The day belongs to everyone
-// on the board, so it is measured where the board lives, not where the
-// reader does (see board.Location).
-func endOfBoardDay(day string) (time.Time, error) {
-	start, err := time.ParseInLocation("2006-01-02", day, board.Location())
-	if err != nil {
-		return time.Time{}, fmt.Errorf("day %q: %w", day, err)
-	}
-	return start.AddDate(0, 0, 1).Add(-time.Nanosecond), nil
+	return bd, at.Format(time.RFC3339), over, nil
 }
 
 func (s *Server) handleGetCard(w http.ResponseWriter, r *http.Request) {

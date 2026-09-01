@@ -123,9 +123,6 @@ export class ApiError extends Error {
   }
 }
 
-// api issues a request against /api/v1. The server serves exactly one board,
-// so nothing addresses it. Sets a JSON content type when there is a body, and
-// on a non-2xx response surfaces the server's {error} message (falling back to
 // viewedDay is the past day the board is showing, "" while it shows today.
 // Set by the App as the day changes; every request then carries it, and the
 // server refuses the writes that day is over for.
@@ -137,6 +134,9 @@ export function showingDay(day: string): void {
   viewedDay = day;
 }
 
+// api issues a request against /api/v1. The server serves exactly one board,
+// so nothing addresses it. Sets a JSON content type when there is a body, and
+// on a non-2xx response surfaces the server's {error} message (falling back to
 // statusText).
 async function api<T>(
   method: string,

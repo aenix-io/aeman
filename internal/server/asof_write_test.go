@@ -123,7 +123,9 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 	}
 
 	// And a write with no day claimed is an ordinary write, as every other
-	// client makes.
+	// client makes. (That a PERSONAL card is never a record — it belongs to
+	// no team and no sprint — is the same question, answered where it is
+	// asked: board.IsRecord, TestAPersonalCardIsNeverARecord.)
 	if code := patch(settled, `{"description":"from today"}`, ""); code != http.StatusOK {
 		t.Fatalf("an ordinary write answered %d", code)
 	}

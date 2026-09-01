@@ -71,6 +71,9 @@ interface MeBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
+  /** The moment this board is a RECORD of (a past day answered as it stood),
+   *  empty on a live board. What it holds cannot be added to. */
+  asOf?: string;
 
   onSelectDate: (day: string) => void;
   /** "View as" impersonation, owned by the App: the Me fetch carries it as an
@@ -150,6 +153,7 @@ export function MeBoard({
   provider,
   me,
   selectedDate,
+  asOf,
   onSelectDate,
   viewAs,
   onViewAs,
@@ -233,11 +237,12 @@ export function MeBoard({
   // zones never pick them up. The column is the viewer's own (the server
   // resolves who), so it shows only while the board is viewed as oneself; a
   // card done before today has left it (mirrors view=personal).
-  // A view holding RECORDS is a day that ENDED: there is nothing to add
-  // to it — a card created there would land on today's board, which is
-  // not what the person looking at that day means (the provider refuses
-  // it too, so the box would only produce an error).
-  const holdsRecords = board.cards.some((c) => !!c.asOf);
+  // A day that ENDED offers nothing to add: a card created there would land
+  // on TODAY's board, which is not what the person looking at that day
+  // means. The server refuses such a create outright — it cannot tell which
+  // team the box belonged to — so the boxes go whenever the board is being
+  // read as a record at all, not only where a record card happens to sit.
+  const holdsRecords = !!asOf;
   const split = useMemo(
     () => splitPersonal(board.cards, board.personal),
     [board.cards, board.personal],

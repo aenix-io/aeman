@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, fetchHealth, type AppConfig } from "./api/client";
-import { apiProvider } from "./providers/api/apiProvider";
+import { ApiError, apiProvider } from "./providers/api/apiProvider";
 import { guardSignedOut } from "./session";
 import { mergeCardLists } from "./cardmerge";
 import {
@@ -31,17 +31,17 @@ import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
 import { queryString, snapshotDay, viewQueries, watchQueries } from "./viewquery";
 import { frozenProvider } from "./providers/frozen";
-
-// SNAPSHOT_FROZEN is what a write attempt on a past day says. The day is
-// over: its board is a picture, and today's board is one click away.
-const SNAPSHOT_FROZEN =
-  "This is the board as it was that day — go back to today to change anything.";
 import { PersonalDialog } from "./components/PersonalDialog";
 import { todayIso, setBoardTimezone } from "./date";
 import { mergeNotes } from "./notes";
 import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
+
+// SNAPSHOT_FROZEN is what a write attempt on a past day says. The day is
+// over: its board is a picture, and today's board is one click away.
+const SNAPSHOT_FROZEN =
+  "This is the board as it was that day — go back to today to change anything.";
 
 type ViewMode = "me" | "team" | "project" | "process";
 
@@ -476,7 +476,11 @@ export function App() {
       frozenProvider(
         guardSignedOut(apiProvider, onSignedOut),
         (uid) => recordsRef.current.has(uid),
-        () => recordsRef.current.size > 0,
+        // A write that names no card (a create, a carry-over) is refused
+        // whenever the board being read IS a record — the same question the
+        // server asks of such a write, and the same one the add boxes are
+        // hidden by. Three doors, one rule.
+        () => snapshotRef.current,
         SNAPSHOT_FROZEN,
       ),
     [onSignedOut],
@@ -683,6 +687,9 @@ export function App() {
         provider.listProcesses().catch(() => [] as ProcessInfo[]),
       ]);
       setAsOf(listingMoment(lists));
+      loadedBoardKey.current = boardQueryRef.current
+        ? queryString(boardQueryRef.current)
+        : "";
       setBoard((cur) => ({
         ...loaded,
         cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards),
@@ -738,9 +745,17 @@ export function App() {
         );
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(errMessage(err));
+        if (cancelled) {
+          return;
         }
+        // A day the history no longer reaches (410) — or storage that keeps
+        // none (501) — has no cards to show. Leaving the previous day's on
+        // screen would put them under the new date, which is the one thing a
+        // record must never do.
+        if (err instanceof ApiError && (err.status === 410 || err.status === 501)) {
+          setBoard((cur) => (cur ? { ...cur, cards: [] } : cur));
+        }
+        setError(errMessage(err));
       })
       .finally(endLoad);
     return () => {
@@ -1351,6 +1366,7 @@ export function App() {
           <MeBoard
             board={board}
             selectedDate={selectedDate}
+            asOf={asOf ?? undefined}
             onSelectDate={setSelectedDate}
             viewAs={viewAs}
             onViewAs={setViewAsPersisted}
@@ -1415,6 +1431,7 @@ export function App() {
           <TeamBoard
             board={board}
             selectedDate={selectedDate}
+            asOf={asOf ?? undefined}
             onSelectDate={setSelectedDate}
             provider={provider}
             me={config?.login ?? ""}
