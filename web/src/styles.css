@@ -841,7 +841,9 @@ select {
    every button inside it (rather than each control by name) is what keeps
    that true as the card grows new ones. It still opens: the detail pane
    shows it read-only. */
-.card-record {
+/* Two classes, not one: the base .card rule comes after this block and would
+   otherwise win on equal specificity — the card looked untouched. */
+.card.card-record {
   background: var(--line-soft);
   border-color: var(--line);
   box-shadow: none;
@@ -849,10 +851,23 @@ select {
   opacity: 0.85;
 }
 
-.card-record button {
+/* Nothing that would CHANGE the card: the ×, the + that adds a subtask, the
+   stage dot and its menu, the age badge that edits the dates, and the
+   slider's handle. What only READS stays — the id copier, the links menu,
+   the subtask toggle. */
+.card-record .card-action-delete,
+.card-record .card-subs-add,
+.card-record .card-bar-handle {
   display: none !important;
 }
 
+/* What the card SAID that day stays and stops being a control: the
+   assignee's avatar (who the day belonged to), the stage dot, the age badge
+   and the progress bar all read as values now, not as pickers. */
+.card-record .team-avatar,
+.card-record .card-assign,
+.card-record .card-stage,
+.card-record .card-age-wrap,
 .card-record .card-bar,
 .card-record .card-avatar,
 .card-record .card-domain {
