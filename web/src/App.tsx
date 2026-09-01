@@ -1070,9 +1070,6 @@ export function App() {
 
   return (
     <div className="app">
-      {loading && (
-        <div className="loading-bar" role="progressbar" aria-label="Loading data" />
-      )}
       <header className="app-header">
         <div className="brand">
           <Logo className="brand-logo" />
@@ -1158,6 +1155,22 @@ export function App() {
             className="sync-badge"
             title={`${pendingSync} change(s) applied but not yet committed`}
           >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 2v6h-6" />
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M3 22v-6h6" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
             {pendingSync}
           </span>
         )}

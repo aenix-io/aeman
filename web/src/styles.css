@@ -336,39 +336,6 @@ select {
   border-bottom: 1px solid var(--line);
 }
 
-/* Thin indeterminate progress bar pinned to the top edge while data loads.
-   Fixed and pointer-events-free, so it never displaces or blocks content. */
-.loading-bar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 200;
-}
-
-.loading-bar::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 35%;
-  border-radius: 999px;
-  background: var(--accent);
-  animation: loading-bar-slide 1.1s ease-in-out infinite;
-}
-
-@keyframes loading-bar-slide {
-  0% {
-    left: -35%;
-  }
-  100% {
-    left: 100%;
-  }
-}
-
 .brand {
   display: flex;
   align-items: center;
@@ -629,6 +596,16 @@ select {
   font-weight: 600;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+
+.sync-badge svg {
+  animation: sync-badge-spin 1.8s linear infinite;
+}
+
+@keyframes sync-badge-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sync-badge + .segmented {
