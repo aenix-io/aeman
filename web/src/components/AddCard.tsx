@@ -3,6 +3,9 @@ import { teamColor } from "../avatar";
 import { Dropdown } from "./Dropdown";
 
 interface AddCardProps {
+  /** Nothing can be added here: the board is showing a day that ended,
+   *  and a card created on it would land on TODAY's board instead. */
+  hidden?: boolean;
   onCreate: (title: string, team?: string | null) => void;
   placeholder?: string;
   /** Roster of known teams to offer in the picker. */
@@ -20,6 +23,7 @@ interface AddCardProps {
 
 /** AddCard expands into a title input with an integrated team picker. */
 export function AddCard({
+  hidden,
   onCreate,
   placeholder = "Add a card…",
   teams,
@@ -91,6 +95,13 @@ export function AddCard({
     inputRef.current?.focus();
   };
 
+  // Nothing can be added to a day that ENDED: the box would only produce
+  // an error (the provider refuses the create), so it is not offered —
+  // the collapsed "+" included. The check lives here, after the hooks:
+  // above them it would change their order the moment the board flips.
+  if (hidden) {
+    return null;
+  }
   if (!open) {
     return (
       <button

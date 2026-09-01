@@ -233,6 +233,11 @@ export function MeBoard({
   // zones never pick them up. The column is the viewer's own (the server
   // resolves who), so it shows only while the board is viewed as oneself; a
   // card done before today has left it (mirrors view=personal).
+  // A view holding RECORDS is a day that ENDED: there is nothing to add
+  // to it — a card created there would land on today's board, which is
+  // not what the person looking at that day means (the provider refuses
+  // it too, so the box would only produce an error).
+  const holdsRecords = board.cards.some((c) => !!c.asOf);
   const split = useMemo(
     () => splitPersonal(board.cards, board.personal),
     [board.cards, board.personal],
@@ -1988,6 +1993,7 @@ export function MeBoard({
   const subtaskAddForm = (parent: CardModel): ReactNode => (
     <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
       <AddCard
+        hidden={holdsRecords}
         autoOpen
         placeholder="Add a subtask…"
         onCreate={(title) => handleCreateSubtask(parent, title)}
@@ -2198,6 +2204,7 @@ export function MeBoard({
                     <div className="zone-cards">
                       {body}
                       <AddCard
+                        hidden={holdsRecords}
                         forcedTeam={
                           teamFilter?.length === 1
                             ? teamFilter[0] || null
@@ -2276,6 +2283,7 @@ export function MeBoard({
                         <div className="zone-cards">
                           {body}
                           <AddCard
+                            hidden={holdsRecords}
                             forcedTeam={null}
                             placeholder="Add a personal card…"
                             onCreate={(title) =>

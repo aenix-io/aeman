@@ -240,6 +240,11 @@ export function TeamBoard({
     teamFilter === null || teamFilter.includes(card.team ?? "");
 
   // Cards passing the team filter (the scope before applying the sprint).
+  // A view holding RECORDS is a day that ENDED: there is nothing to add
+  // to it — a card created there would land on today's board, which is
+  // not what the person looking at that day means (the provider refuses
+  // it too, so the box would only produce an error).
+  const holdsRecords = board.cards.some((c) => !!c.asOf);
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1299,6 +1304,7 @@ export function TeamBoard({
   const subtaskAddForm = (parent: CardModel): ReactNode => (
     <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
       <AddCard
+        hidden={holdsRecords}
         autoOpen
         placeholder="Add a subtask…"
         onCreate={(title) => handleCreateSubtask(parent, title)}
@@ -2519,6 +2525,7 @@ export function TeamBoard({
                 >
                   {body}
                   <AddCard
+                    hidden={holdsRecords}
                     forcedTeam={forcedTeam}
                     teams={pickerTeams}
                     allowNoTeam={pickerNoTeam}
@@ -2548,6 +2555,7 @@ export function TeamBoard({
                 <div className="zone-cards">
                   {body}
                   <AddCard
+                    hidden={holdsRecords}
                     teams={forcedTeam === undefined ? pickerTeams : undefined}
                     forcedTeam={forcedTeam}
                     allowNoTeam={pickerNoTeam}
