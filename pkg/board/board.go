@@ -163,10 +163,18 @@ type Card struct {
 	// cleared when it drops below again — what lets a board show a card the
 	// day it was done and drop it the next without reading history.
 	DoneAt string `json:"doneAt,omitempty"`
-	// LeftAt is the board day (yyyy-mm-dd) a personal card was left behind
-	// on by the × — the personal analogue of a team card demoting to the
-	// previous sprint: on the board that day and before, off it from the
-	// next. Re-dating the card (calendar, defer) clears it.
+	// LeftAt is the board day (yyyy-mm-dd) the × took the card off.
+	//
+	// On a PERSONAL card it is a live rule: the board shows it that day and
+	// before, off it from the next, and re-dating the card (calendar, defer)
+	// clears it — the card is on a day again.
+	//
+	// On a TEAM card the × demotes into the previous sprint instead, dates
+	// and all, and this records the day that happened. Nothing live reads it
+	// there: today's board drops the card, which is what the × is for. It is
+	// what a RECORD of that day gives back (G60) — the card was worked and
+	// finished on it — and a fact about a day gone by is not undone by
+	// re-dating the card, so it stands.
 	LeftAt string `json:"leftAt,omitempty"`
 	// Link is a URL the card points at — the only trace an issue-backed
 	// card keeps of its issue. Nothing is fetched through it.

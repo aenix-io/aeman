@@ -166,6 +166,22 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 		t.Fatalf("the sprint pointer of that day = %q, want the one it had (2026-08-20)", found)
 	}
 
+	// Only the DAY boards have a day to be a record of. The Project and
+	// Process boards lay every week out at once — a day means nothing there —
+	// so the flag is ignored and the live board answers, which is what
+	// docs/api.md, docs/dates.md and G60 all say.
+	for _, view := range []string{"project", "all", "weekly"} {
+		items, asOf, _ := read("view=" + view + "&day=2026-08-21&snapshot=1")
+		if asOf != "" {
+			t.Fatalf("view=%s claimed a moment (%s); only Me and Team have days", view, asOf)
+		}
+		for _, c := range items {
+			if c.Spec.Progress != 100 {
+				t.Fatalf("view=%s answered with a past board: %+v", view, c)
+			}
+		}
+	}
+
 	// A day the clone's history no longer holds is REFUSED. Answering it
 	// with the oldest state at hand would put another day's board under that
 	// date, and nothing on the page would say so.

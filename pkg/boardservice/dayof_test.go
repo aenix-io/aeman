@@ -32,12 +32,16 @@ func TestTheDayOfABoardIsOneAnswer(t *testing.T) {
 	}}
 	svc := New(p)
 
-	bd, over, at, err := svc.BoardOfDay(context.Background(), "acme", day)
+	bd, records, at, err := svc.BoardOfDay(context.Background(), "acme", day)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if at.IsZero() || !over["portal"] || over["backoffice"] {
-		t.Fatalf("over = %v, at = %v; the day is over for portal alone", over, at)
+	// What came FROM that evening, by card: the settled team's, and only it.
+	// Named by card rather than by team because the two boards may call one
+	// card's team by two names (a move, a rename), and a reader deriving the
+	// set again would lose exactly those.
+	if at.IsZero() || !records["moved-on"] || records["still-here"] {
+		t.Fatalf("records = %v, at = %v; only the settled team's card is one", records, at)
 	}
 	got := map[string]int{}
 	for _, c := range bd.Cards {
@@ -57,15 +61,15 @@ func TestTheDayOfABoardIsOneAnswer(t *testing.T) {
 	// Today, and a day nobody has moved past, are the live board — no
 	// moment claimed, nothing marked.
 	for _, d := range []string{board.TodayIso(), ""} {
-		_, over, at, err := svc.BoardOfDay(context.Background(), "acme", d)
+		_, records, at, err := svc.BoardOfDay(context.Background(), "acme", d)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !at.IsZero() || len(over) != 0 {
-			t.Fatalf("day %q: over=%v at=%v — a live read claims no moment", d, over, at)
+		if !at.IsZero() || len(records) != 0 {
+			t.Fatalf("day %q: records=%v at=%v — a live read claims no moment", d, records, at)
 		}
 	}
-	if _, over, at, err := svc.BoardOfDay(context.Background(), "acme", "2026-09-01"); err != nil || !at.IsZero() || len(over) != 0 {
-		t.Fatalf("a day every team is still in: over=%v at=%v err=%v", over, at, err)
+	if _, records, at, err := svc.BoardOfDay(context.Background(), "acme", "2026-09-01"); err != nil || !at.IsZero() || len(records) != 0 {
+		t.Fatalf("a day every team is still in: records=%v at=%v err=%v", records, at, err)
 	}
 }

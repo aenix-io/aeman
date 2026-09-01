@@ -29,11 +29,12 @@ type Selector struct {
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
 	Project string
-	// RecordTeams are the teams the listing is a RECORD of — the ones whose
-	// sprint has moved past the day. Only they give back what the × took off
-	// (LeftOn): a team still inside that sprint is working the day, and the ×
-	// took the card off it on purpose. Set together with LeftOn.
-	RecordTeams map[string]bool
+	// RecordCards are the cards this listing is a RECORD of — what the day's
+	// board took from that evening, by id (board.MergeAsOf). Only they give
+	// back what the × took off (LeftOn): a card of a team still inside that
+	// sprint is live, and the × took it off that day on purpose. Set together
+	// with LeftOn.
+	RecordCards map[string]bool
 	// LeftOn gives a day back what the × took off it: a card finished that
 	// day and tidied away carries the day it was LEFT on (board.Card.LeftAt)
 	// while its dates have moved into the previous sprint, so nothing else
@@ -356,9 +357,9 @@ func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
 		if c.LeftAt != sel.LeftOn || seen[c.ItemID] {
 			continue
 		}
-		// Only the teams this listing is a record OF: elsewhere the day is
-		// still being worked, and the × is what takes a card off it.
-		if !sel.RecordTeams[c.Team] {
+		// Only what this listing is a record OF: elsewhere the day is still
+		// being worked, and the × is what takes a card off it there.
+		if !sel.RecordCards[c.ItemID] {
 			continue
 		}
 		if !onThisBoard(c, sel) {
@@ -399,19 +400,24 @@ func onThisBoard(c board.Card, sel Selector) bool {
 	return !sel.Focus || board.Workable(c)
 }
 
-// MarkRecords stamps the cards a day is OVER for with the moment they are
-// from: everything else in the same listing is today's and stays workable, so
-// the mark is per card. Asked by TEAM, the same question the day's board was
-// built with (board.IsRecord) — a listing marked any other way shows a card
-// as live that every write door refuses.
-func MarkRecords(list *CardList, over map[string]bool, asOf string) {
-	if asOf == "" || len(over) == 0 {
+// MarkRecords stamps the cards that came FROM the past with the moment they
+// are from: everything else in the same listing is today's and stays
+// workable, so the mark is per card.
+//
+// records is what the day's board took from that evening (board.MergeAsOf's
+// own answer), by card id. Deriving it again from team names loses the cards
+// whose team differs between the two moments — one moved between teams, one
+// of a team renamed since — and such a card comes through LIVE: draggable,
+// editable, and refused by every write door. Which is the refusal G60 names
+// as the thing not to do.
+func MarkRecords(list *CardList, records map[string]bool, asOf string) {
+	if asOf == "" || len(records) == 0 {
 		return
 	}
 	list.AsOf = asOf
 	for i := range list.Items {
 		item := &list.Items[i]
-		if over[item.Spec.Team] && !board.IsPersonalDomain(item.Status.Domain) {
+		if records[item.Metadata.UID] {
 			item.Status.AsOf = asOf
 		}
 	}

@@ -172,10 +172,10 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	// service, which is what the HTTP API reads it through too: an agent and
 	// a person asking about the same day must not get different boards.
 	day := ""
-	if in.Snapshot {
+	if in.Snapshot && board.HasRecords(sel.View) {
 		day = sel.Day
 	}
-	b, over, at, err := svc.BoardOfDay(ctx, boardID, day)
+	b, records, at, err := svc.BoardOfDay(ctx, boardID, day)
 	if err != nil {
 		return nil, apiserver.CardList{}, err
 	}
@@ -184,10 +184,10 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 		// A record gives back what the × took off that day, for the teams it
 		// is a record of, and marks the cards that are one.
 		asOf = at.Format(time.RFC3339)
-		sel.LeftOn, sel.RecordTeams = sel.Day, over
+		sel.LeftOn, sel.RecordCards = sel.Day, records
 	}
 	list := apiserver.ListCards(b, sel)
-	apiserver.MarkRecords(&list, over, asOf)
+	apiserver.MarkRecords(&list, records, asOf)
 	if in.Title != "" {
 		needle := strings.ToLower(in.Title)
 		kept := list.Items[:0]

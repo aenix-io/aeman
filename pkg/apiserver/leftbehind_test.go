@@ -56,7 +56,7 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 	// The record of that day: it is back, done, beside the card that stayed.
 	asRecord := liveSel
 	asRecord.LeftOn = day
-	asRecord.RecordTeams = map[string]bool{"portal": true, "other": true}
+	asRecord.RecordCards = map[string]bool{"tidied": true, "elsewhere": true}
 	got := ids(asRecord)
 	found := map[string]bool{}
 	for _, id := range got {
@@ -71,12 +71,12 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 
 	// The Me view draws the same line, and only for the person it belonged to.
 	me := Selector{View: "me", User: "kvaps", Day: day, LeftOn: day,
-		RecordTeams: map[string]bool{"portal": true, "other": true}}
+		RecordCards: map[string]bool{"tidied": true, "elsewhere": true}}
 	if got := ids(me); !contains(got, "tidied") {
 		t.Fatalf("the Me record of that day = %v", got)
 	}
 	notMine := Selector{View: "me", User: "lex", Day: day, LeftOn: day,
-		RecordTeams: map[string]bool{"portal": true, "other": true}}
+		RecordCards: map[string]bool{"tidied": true, "elsewhere": true}}
 	if got := ids(notMine); contains(got, "tidied") {
 		t.Fatalf("somebody else's card = %v", got)
 	}
@@ -85,7 +85,7 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 	// off it, and that is the whole point of the ×. Only the teams the record
 	// is OF give anything back.
 	stillWorking := Selector{View: "team", Team: "portal,working", Day: day, LeftOn: day,
-		RecordTeams: map[string]bool{"portal": true}}
+		RecordCards: map[string]bool{"tidied": true}}
 	if got := ids(stillWorking); contains(got, "working-teams") {
 		t.Fatalf("a live team's card came back: %v", got)
 	}
@@ -96,7 +96,7 @@ func TestARecordGivesBackWhatTheCrossTookOff(t *testing.T) {
 	// A day the card was not left on gives nothing back.
 	other := liveSel
 	other.LeftOn = prev
-	other.RecordTeams = map[string]bool{"portal": true, "other": true}
+	other.RecordCards = map[string]bool{"tidied": true, "elsewhere": true}
 	if got := ids(other); contains(got, "tidied") {
 		t.Fatalf("another day's record = %v", got)
 	}

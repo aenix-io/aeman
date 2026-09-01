@@ -418,18 +418,18 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 	}
 	// A PAST day can be asked for as it stood, rather than as today's board
 	// filtered by that day's dates (see boardOfRequest).
-	b, asOf, over, err := s.boardOfRequest(r, svc, boardID)
+	b, asOf, records, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
 	if asOf != "" {
-		// A record of the day gives back what the × took off it, for the
-		// teams the day is over for and no others (G60).
-		sel.LeftOn, sel.RecordTeams = sel.Day, over
+		// A record of the day gives back what the × took off it — of the
+		// cards this listing IS a record of, and no others (G60).
+		sel.LeftOn, sel.RecordCards = sel.Day, records
 	}
 	list := apiserver.ListCards(b, sel)
-	apiserver.MarkRecords(&list, over, asOf)
+	apiserver.MarkRecords(&list, records, asOf)
 	writeJSON(w, http.StatusOK, list)
 }
 
@@ -439,19 +439,24 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 // what every other door reads it through: an agent over MCP and this handler
 // must not answer "what did that day look like" differently.
 //
-// over names the teams the day is over for (empty on a live read), and asOf
-// the moment the record reflects.
-func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boardID string) (bd board.Board, asOf string, over map[string]bool, err error) {
+// records names the cards the day's board took from that evening (empty on a
+// live read), and asOf the moment the record reflects.
+func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boardID string) (bd board.Board, asOf string, records map[string]bool, err error) {
 	q := r.URL.Query()
 	day := q.Get("day")
-	if q.Get("snapshot") != "1" && q.Get("snapshot") != "true" {
+	asked := q.Get("snapshot") == "1" || q.Get("snapshot") == "true"
+	// Only a DAY board has a day to be a record of (G60). The flag is
+	// ignored elsewhere rather than refused: /board and /sprints carry no
+	// view at all, and every reader of them is a day board asking for its
+	// own moment.
+	if !asked || (q.Get("view") != "" && !board.HasRecords(q.Get("view"))) {
 		day = ""
 	}
-	bd, over, at, err := svc.BoardOfDay(r.Context(), boardID, day)
+	bd, records, at, err := svc.BoardOfDay(r.Context(), boardID, day)
 	if err != nil || at.IsZero() {
 		return bd, "", nil, err
 	}
-	return bd, at.Format(time.RFC3339), over, nil
+	return bd, at.Format(time.RFC3339), records, nil
 }
 
 func (s *Server) handleGetCard(w http.ResponseWriter, r *http.Request) {

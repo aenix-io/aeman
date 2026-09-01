@@ -865,9 +865,12 @@ select {
    stage, age, avatar and progress, made inert below.
 
    Named one by one rather than hiding every button inside a record: the id
-   copier and the links menu are buttons too, and they read. A control added
-   later is live until it is listed here — the provider refuses the write, so
-   it fails loudly rather than silently. */
+   copier and the links menu are buttons too, and they read. This list is
+   therefore hand-kept, and NOT a boundary: a control added later is live
+   here until somebody adds it. What holds the line is the provider and the
+   server — a write from a record is refused (409) — so the failure is loud
+   rather than silent, and this is a matter of not offering what cannot
+   work. */
 .card-record .card-action-delete,
 .card-record .card-subs-add,
 .card-record .card-bar-handle {

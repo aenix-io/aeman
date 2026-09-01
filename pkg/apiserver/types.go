@@ -130,8 +130,10 @@ type CardStatus struct {
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
 	DoneAt string `json:"doneAt,omitempty"`
-	// LeftAt is the board day a personal card was left behind on by the ×
-	// (remove): the personal board shows it that day and before, not after.
+	// LeftAt is the board day the × took the card off. On a personal card
+	// that is a live rule — the board shows it that day and before, not
+	// after; on a team card the × demotes into the previous sprint and this
+	// records the day, which a RECORD of that day gives back (G60).
 	LeftAt string `json:"leftAt,omitempty"`
 	// Links are the references extracted from the card's description —
 	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).

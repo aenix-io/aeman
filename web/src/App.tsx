@@ -672,6 +672,12 @@ export function App() {
     }
   }, [teamFilter]);
 
+  // Declared before doLoad, which reads them: it runs long after the render,
+  // so the closure worked either way, but a temporal-dead-zone trap is not
+  // worth leaving lying around.
+  const loadedBoardKey = useRef("");
+  const activeQueriesRef = useRef(activeQueries);
+  const boardQueryRef = useRef(boardQuery);
   const doLoad = useCallback(async () => {
     beginLoad();
     setError(null);
@@ -687,28 +693,31 @@ export function App() {
         provider.listProcesses().catch(() => [] as ProcessInfo[]),
       ]);
       setAsOf(listingMoment(lists));
-      loadedBoardKey.current = boardQueryRef.current
-        ? queryString(boardQueryRef.current)
-        : "";
+      loadedBoardKey.current = queryString(boardQueryRef.current);
       setBoard((cur) => ({
         ...loaded,
         cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards),
         processes,
       }));
     } catch (err: unknown) {
+      // A day the history no longer reaches (410) — or storage that keeps
+      // none (501) — has no cards to show, and leaving the last day's on
+      // screen would put them under the new date. The listing effect draws
+      // the same line; a reload landing straight on such a day must too.
+      if (err instanceof ApiError && (err.status === 410 || err.status === 501)) {
+        setAsOf(null);
+        setBoard((cur) => (cur ? { ...cur, cards: [] } : cur));
+      }
       setError(errMessage(err));
     } finally {
       endLoad();
     }
   }, [provider, beginLoad, endLoad]);
-  const boardQueryRef = useRef(boardQuery);
   boardQueryRef.current = boardQuery;
 
   // Load the active view's cards whenever the selection (view/day/teams) changes
   // or the board is (re)loaded. loadBoard brings only identity + sprints; the
   // cards for one view arrive here, so the UI holds just what it shows.
-  const loadedBoardKey = useRef("");
-  const activeQueriesRef = useRef(activeQueries);
   activeQueriesRef.current = activeQueries;
   useEffect(() => {
     if (!boardLoaded) {

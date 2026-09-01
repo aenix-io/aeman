@@ -431,6 +431,8 @@ when there is one for that card and kind, else from the diff of the
 card's front-matter — which is why the file format keeps one field per
 line.
 
+**A day is read by committer time.** The board of a past day is the tree of the newest commit whose COMMITTER time is at or before that day's last moment (`LoadAsOf`, G60), walked along first parents. So every commit carries the moment it was written: a replayed one (a rejected push re-applied on the remote's tip) keeps its author and takes a fresh committer time, exactly as git's own rebase does. Kept, the old stamp would sit a 23:58 commit on top of the next morning's and a day's record would silently read another day's tree.
+
 **Author is the user, committer is the server.** Author name is the
 login; author email defaults to `<login>@users.noreply.github.com` when
 the primary remote is on GitHub (so the forge UI shows the right face)

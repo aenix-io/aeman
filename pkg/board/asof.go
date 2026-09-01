@@ -17,6 +17,13 @@ func TeamsPast(live Board, day string) map[string]bool {
 	return out
 }
 
+// HasRecords reports that a view can be shown AS IT STOOD on a day: only the
+// day boards can, because only they place a card by the day being looked at.
+// The Project board lays every week out at once and the Process tab reads a
+// structure — a day means nothing to either, so a record of one would be a
+// claim about nothing. Mirrored by snapshotDay in web/src/viewquery.ts.
+func HasRecords(view string) bool { return view == "me" || view == "team" }
+
 // IsRecord reports that the day is over for this card: its team's sprint has
 // moved past it, so what the card shows is a record and cannot be changed.
 // Every door asks THIS — the merge that builds the day, and the guard that
@@ -42,6 +49,9 @@ func IsRecord(c Card, past map[string]bool) bool {
 // about its own team dropped the card from both halves — it stood on the
 // board that evening and vanished from the record of it.
 func MergeAsOf(live, then Board, past map[string]bool) (Board, map[string]bool) {
+	// A copy, not the live board itself: what it shares stays shared (the
+	// roster is today's on purpose — see docs/dates.md), but nothing here
+	// writes through to the cached board the caller handed in.
 	out := live
 	out.Cards = make([]Card, 0, len(live.Cards))
 	record := make(map[string]bool, len(live.Cards))
