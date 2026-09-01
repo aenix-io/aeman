@@ -20,7 +20,7 @@ import { ProjectBoard } from "./components/ProjectBoard";
 import { ProcessBoard } from "./components/ProcessBoard";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
-import { boardMetadata, processesFrom } from "./providers/api/apiProvider";
+import { boardMetadata, processesFrom, showingDay } from "./providers/api/apiProvider";
 import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
@@ -446,6 +446,11 @@ export function App() {
     if (!snapshotDay(view, selectedDate)) {
       setAsOf(null);
     }
+  }, [view, selectedDate]);
+  // The server judges a write by the day it was made from, so it has to know
+  // which day is on screen — including while the answer is still in flight.
+  useEffect(() => {
+    showingDay(snapshotDay(view, selectedDate) ? selectedDate : "");
   }, [view, selectedDate]);
   // Which cards on screen are RECORDS: a card says so itself (`asOf`), set by
   // the server for the teams whose sprint has moved past the day being looked
@@ -1346,7 +1351,6 @@ export function App() {
           <MeBoard
             board={board}
             selectedDate={selectedDate}
-            frozen={snapshot}
             onSelectDate={setSelectedDate}
             viewAs={viewAs}
             onViewAs={setViewAsPersisted}
@@ -1411,7 +1415,6 @@ export function App() {
           <TeamBoard
             board={board}
             selectedDate={selectedDate}
-            frozen={snapshot}
             onSelectDate={setSelectedDate}
             provider={provider}
             me={config?.login ?? ""}

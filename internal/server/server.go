@@ -283,7 +283,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
-	s.handler = logRequests(s.log, s.setupGate(clientIDMiddleware(s.csrfGuard(s.actorMiddleware(s.accessMiddleware(actionMiddleware(staleMiddleware(mux))))))))
+	s.handler = logRequests(s.log, s.setupGate(clientIDMiddleware(s.csrfGuard(s.actorMiddleware(s.accessMiddleware(actionMiddleware(staleMiddleware(s.recordWriteGuard(mux)))))))))
 	return s, nil
 }
 

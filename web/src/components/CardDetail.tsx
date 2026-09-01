@@ -22,7 +22,11 @@ interface CardDetailProps {
   ) => void;
 }
 
-/** CardDetail is a centered modal for editing a card's title and details. */
+/** CardDetail is a centered modal for editing a card's title and details.
+ *  On a RECORD — a card as it stood on a day its team has moved past — it
+ *  reads instead: the boxes are disabled and there is nothing to save, since
+ *  a change made from there would land on today's card while the reader is
+ *  looking at a picture of a day that ended (G60). */
 export function CardDetail({
   card,
   board,
@@ -31,6 +35,9 @@ export function CardDetail({
   reload,
   patchCard,
 }: CardDetailProps) {
+  // A record: what the card was on a day its team has moved past. Nothing
+  // here is editable, and the pane says so rather than pretending.
+  const isRecord = !!card.asOf;
   const [title, setTitle] = useState(card.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const [description, setDescription] = useState(card.description ?? "");
@@ -213,7 +220,7 @@ export function CardDetail({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          {editingTitle ? (
+          {editingTitle && !isRecord ? (
             <input
               type="text"
               className="modal-title-input"
@@ -232,8 +239,11 @@ export function CardDetail({
             />
           ) : (
             <h2
-              className="modal-title modal-title-click"
+              className={isRecord ? "modal-title" : "modal-title modal-title-click"}
               onClick={() => {
+                if (isRecord) {
+                  return;
+                }
                 setTitle(card.title);
                 setEditingTitle(true);
               }}
@@ -317,7 +327,8 @@ export function CardDetail({
                       : "Loading the description…"
                 }
                 maxLength={16384}
-                disabled={!bodyLoaded && !card.itemId.startsWith("tmp-")}
+                readOnly={isRecord}
+                disabled={isRecord || (!bodyLoaded && !card.itemId.startsWith("tmp-"))}
                 onChange={(e) => {
                   setDirty(true);
                   setDescription(e.target.value);
@@ -379,7 +390,7 @@ export function CardDetail({
           <button type="button" className="btn" onClick={onClose}>
             Close
           </button>
-          {tab === "details" && (
+          {tab === "details" && !isRecord && (
             <button
               type="button"
               className="btn btn-primary"

@@ -126,6 +126,17 @@ export class ApiError extends Error {
 // api issues a request against /api/v1. The server serves exactly one board,
 // so nothing addresses it. Sets a JSON content type when there is a body, and
 // on a non-2xx response surfaces the server's {error} message (falling back to
+// viewedDay is the past day the board is showing, "" while it shows today.
+// Set by the App as the day changes; every request then carries it, and the
+// server refuses the writes that day is over for.
+let viewedDay = "";
+
+/** showingDay tells the provider which day the board is looking at ("" =
+ *  today). It rides every request as X-Aeman-As-Of. */
+export function showingDay(day: string): void {
+  viewedDay = day;
+}
+
 // statusText).
 async function api<T>(
   method: string,
@@ -135,12 +146,17 @@ async function api<T>(
   const url = `/api/v1${path}`;
   // X-Aeman-Client keys watch echo suppression: the server skips this tab's
   // own watch connection when broadcasting the changes it makes here.
-  const init: RequestInit = { method, headers: { "X-Aeman-Client": clientId } };
+  // X-Aeman-As-Of says which day the person is LOOKING AT when that is a past
+  // one: the server then refuses a write to a card the day is over for, so a
+  // UI path that forgot fails loudly instead of writing today's board from a
+  // picture of a day that ended.
+  const headers: Record<string, string> = { "X-Aeman-Client": clientId };
+  if (viewedDay) {
+    headers["X-Aeman-As-Of"] = viewedDay;
+  }
+  const init: RequestInit = { method, headers };
   if (body !== undefined) {
-    init.headers = {
-      "Content-Type": "application/json",
-      "X-Aeman-Client": clientId,
-    };
+    init.headers = { ...headers, "Content-Type": "application/json" };
     init.body = JSON.stringify(body);
   }
   const res = await fetch(url, init);

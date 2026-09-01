@@ -65,11 +65,6 @@ interface TeamBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
-  /** This view holds RECORDS: cards of teams whose sprint has moved past the
-   *  day being looked at, shown as they stood that evening. The rest of the
-   *  board is live work; the cards themselves say which they are (card.asOf),
-   *  and the chip beside Today says a moment is on screen. */
-  frozen?: boolean;
 
   onSelectDate: (day: string) => void;
   /** Avatars by login (the board roster). */
@@ -132,7 +127,6 @@ export function TeamBoard({
   provider,
   me,
   selectedDate,
-  frozen,
   onSelectDate,
   avatars,
   names,
@@ -1251,6 +1245,7 @@ export function TeamBoard({
   const renderGridCard = (card: CardModel): ReactNode => (
     <Card
       card={card}
+      record={!!card.asOf}
       selectedBy={selectedByFor(card)}
       onLoadLinks={loadCardLinks}
       selected={card.itemId === selectedCardId}
@@ -2377,17 +2372,6 @@ export function TeamBoard({
         >
           Today
         </button>
-        {frozen && (
-          // A day that has ended is shown as it stood, and saying so is the
-          // whole difference between a record and a board that looks oddly
-          // out of date.
-          <span
-            className="snapshot-badge"
-            title={`The board as it stood at the end of ${selectedDate}. Nothing here can be changed — Today is where the board is worked on.`}
-          >
-            as it was
-          </span>
-        )}
         <div className="sprint-wrap" ref={sprintRef}>
           <button
             type="button"
@@ -2447,6 +2431,7 @@ export function TeamBoard({
             group.meta.kind === "band" ? (
             <Card
               card={card}
+              record={!!card.asOf}
               selectedBy={selectedByFor(card)}
               onLoadLinks={loadCardLinks}
               selected={card.itemId === selectedCardId}
@@ -2510,6 +2495,7 @@ export function TeamBoard({
           renderOverlay={(card) => (
             <Card
               card={card}
+              record={!!card.asOf}
               selectedBy={selectedByFor(card)}
               onLoadLinks={loadCardLinks}
               selected={false}

@@ -71,11 +71,6 @@ interface MeBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
-  /** This view holds RECORDS: cards of teams whose sprint has moved past the
-   *  day being looked at, shown as they stood that evening. The rest of the
-   *  board is live work; the cards themselves say which they are (card.asOf),
-   *  and the chip beside Today says a moment is on screen. */
-  frozen?: boolean;
 
   onSelectDate: (day: string) => void;
   /** "View as" impersonation, owned by the App: the Me fetch carries it as an
@@ -155,7 +150,6 @@ export function MeBoard({
   provider,
   me,
   selectedDate,
-  frozen,
   onSelectDate,
   viewAs,
   onViewAs,
@@ -1941,6 +1935,7 @@ export function MeBoard({
   const renderMeCard = (card: CardModel, personal = false): ReactNode => (
     <Card
       card={card}
+      record={!!card.asOf}
       onLoadLinks={loadCardLinks}
       selected={card.itemId === selectedCardId}
       onSelect={(c) => setSelectedCardId(c.itemId)}
@@ -2093,16 +2088,6 @@ export function MeBoard({
         >
           Today
         </button>
-        {frozen && (
-          // The day has ended and is shown as it stood — saying so is the
-          // difference between a record and a board that looks out of date.
-          <span
-            className="snapshot-badge"
-            title={`Your board as it stood at the end of ${selectedDate}. Nothing here can be changed — Today is where the board is worked on.`}
-          >
-            as it was
-          </span>
-        )}
 
         <div className="field field-inline impersonate" ref={impRef}>
           <button
@@ -2183,6 +2168,7 @@ export function MeBoard({
               renderOverlay={(card) => (
                 <Card
                   card={card}
+                  record={!!card.asOf}
                   onLoadLinks={loadCardLinks}
                   selected={false}
                   onSelect={() => {}}
@@ -2260,6 +2246,7 @@ export function MeBoard({
                   renderOverlay={(card) => (
                     <Card
                       card={card}
+                      record={!!card.asOf}
                       onLoadLinks={loadCardLinks}
                       selected={false}
                       onSelect={() => {}}
