@@ -315,8 +315,25 @@ func TestAPersonNobodyHasAskedAboutIsAskedAbout(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatalf("%d listings, want 2 — the second for the login never seen", calls.Load())
 	}
-	// …and once the forge has answered, the answer stands.
-	if got, err := fa.readers(ctx, "shared", []string{"kvaps", "lex"}); err != nil || len(got) != 2 {
-		t.Fatalf("the settled answer: %v, %v", got, err)
+	// …and once the forge has ANSWERED, the answer stands. The listing call
+	// is counted when it is made, and the answer is recorded when it comes
+	// back: in between, the login is one the server has asked about and has
+	// no answer for, which is deliberately not offered — so settle first.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got, err := fa.readers(ctx, "shared", []string{"kvaps", "lex"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the settled answer: %v", got)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("%d listings; settling must not have asked again", n)
 	}
 }

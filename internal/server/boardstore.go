@@ -169,6 +169,16 @@ type boardEntry struct {
 	// the whole board, so it is sent once for a burst of changes rather than
 	// once per card — see rosterBroadcast.
 	rosterDue bool
+	// fanoutCost is how long the last fan-out took — what paces the next
+	// one (see fanoutDelay).
+	fanoutCost time.Duration
+	// membersDue is a scoped subscription's membership waiting to be
+	// re-decided, and moved holds the cards the burst touched with the
+	// client that touched each (for echo suppression). Deciding a view's
+	// membership means building the view, so it happens once for the burst —
+	// see cardChanged and flushMembers.
+	membersDue bool
+	moved      map[string]string
 }
 
 // recentGrace is how long a local mutation outweighs a full reload.
@@ -391,36 +401,91 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	if c.Task != "" {
 		e.rosterBroadcast()
 	}
-	res := apiserver.CardResource(e.board, c)
+	// Built on demand: on a board whose tabs are all scoped — the ordinary
+	// case — a burst of changes must not pay for a resource nobody is sent.
+	var res apiserver.Card
+	built := false
+	scoped := false
 	for sub := range e.watchers {
 		if !sub.resources["cards"] || !sub.rights.canRead(c.Domain) {
 			continue
 		}
-		suppressed := origin != "" && sub.clientID == origin
 		if sub.sel == nil {
-			if !suppressed {
+			if !mine(origin, sub.clientID) {
+				if !built {
+					res, built = apiserver.CardResource(e.board, c), true
+				}
 				sub.send(watchFrame{Type: verb, Kind: "Card", Object: res})
 			}
 			continue
 		}
-		was := sub.members[c.ItemID]
-		now := verb != "DELETED" && sub.sel.Matches(e.board, c)
-		if now {
-			sub.members[c.ItemID] = true
-		} else {
-			delete(sub.members, c.ItemID)
-		}
-		if suppressed {
+		// What a scoped subscription is told depends on whether this change
+		// moved the card INTO or OUT OF its view — a question about the
+		// whole view. Asking it here (build the view, look for one uid) is
+		// what made a carry-over cost a full board scan per card per tab; it
+		// is answered once for the burst, in flushMembers.
+		scoped = true
+	}
+	if !scoped {
+		return
+	}
+	if e.moved == nil {
+		e.moved = map[string]string{}
+	}
+	e.moved[c.ItemID] = origin
+	if !e.membersDue {
+		e.membersDue = true
+		time.AfterFunc(e.fanoutDelay(), e.flushMembers)
+	}
+}
+
+// flushMembers re-decides what each scoped subscription holds, once for the
+// burst: the view is built one time per subscription and diffed against what
+// it held, so a card that entered arrives as ADDED and one that left as
+// DELETED. The caller holds nothing.
+func (e *boardEntry) flushMembers() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.membersDue {
+		return
+	}
+	e.membersDue = false
+	started := time.Now()
+	defer func() { e.noteFanout(time.Since(started)) }()
+	moved := e.moved
+	e.moved = nil
+	for sub := range e.watchers {
+		if sub.sel == nil || !sub.resources["cards"] {
 			continue
 		}
-		switch {
-		case now && !was:
-			sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: res})
-		case was && !now:
-			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: res})
-		case was && now:
-			sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: res})
+		now := map[string]bool{}
+		for _, c := range apiserver.FilterCards(sub.view(e.board), *sub.sel) {
+			now[c.ItemID] = true
+			changed, touched := moved[c.ItemID]
+			if mine(changed, sub.clientID) {
+				continue
+			}
+			switch {
+			case !sub.members[c.ItemID]:
+				sub.send(watchFrame{Type: "ADDED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+			case touched:
+				sub.send(watchFrame{Type: "MODIFIED", Kind: "Card", Object: apiserver.CardResource(e.board, c)})
+			}
 		}
+		for id := range sub.members {
+			if now[id] || mine(moved[id], sub.clientID) {
+				continue
+			}
+			obj := apiserver.Card{Kind: "Card", Metadata: apiserver.CardMetadata{UID: id}}
+			for _, c := range e.board.Cards {
+				if c.ItemID == id {
+					obj = apiserver.CardResource(e.board, c)
+					break
+				}
+			}
+			sub.send(watchFrame{Type: "DELETED", Kind: "Card", Object: obj})
+		}
+		sub.members = now
 	}
 }
 
@@ -920,13 +985,41 @@ func (e *boardEntry) rosterBroadcast() {
 		return
 	}
 	e.rosterDue = true
-	time.AfterFunc(rosterCoalesce, e.flushRoster)
+	time.AfterFunc(e.fanoutDelay(), e.flushRoster)
 }
 
-// rosterCoalesce is how long an announcement waits for the rest of its burst.
+// fanoutWindow is how long a fan-out waits for the rest of its burst —
+// the board announcement and the scoped views' membership both ride it.
 // Short enough that a single change still looks instant, long enough that a
-// request writing many cards announces once.
-const rosterCoalesce = 25 * time.Millisecond
+// request writing many cards is answered once.
+const fanoutWindow = 25 * time.Millisecond
+
+// fanoutCeiling bounds how far the window may stretch on a board where a
+// fan-out is genuinely expensive: past a second the boards would feel stale.
+const fanoutCeiling = time.Second
+
+// mine reports that a frame would be echoed back to the client that caused
+// it. An unattributed change (origin "") belongs to nobody and is echoed to
+// everyone — including a subscription that gave no client id.
+func mine(origin, clientID string) bool { return origin != "" && origin == clientID }
+
+// fanoutDelay is how long the next fan-out waits. It follows what the last
+// one COST: a fan-out builds a view per open board, so on a big board with
+// many tabs it is not free, and firing it every 25 ms through a long burst
+// would spend the server on repainting instead of writing. Waiting four
+// times the cost keeps it under a fifth of the machine, whatever the board's
+// size — and on the ordinary board, where a fan-out is a fraction of a
+// millisecond, the window stays the plain 25 ms.
+func (e *boardEntry) fanoutDelay() time.Duration {
+	d := 4 * e.fanoutCost
+	if d < fanoutWindow {
+		return fanoutWindow
+	}
+	if d > fanoutCeiling {
+		return fanoutCeiling
+	}
+	return d
+}
 
 // flushRoster sends the announcement rosterBroadcast promised: one frame per
 // distinct set of rights (the tabs of one visitor share a projection, and
@@ -939,6 +1032,8 @@ func (e *boardEntry) flushRoster() {
 		return
 	}
 	e.rosterDue = false
+	started := time.Now()
+	defer func() { e.noteFanout(time.Since(started)) }()
 	// The frame CARRIES the board, the way a Card frame carries its card: a
 	// client applies it and needs no round trip. A bare "something changed"
 	// signal sent every open tab back to GET /board — a full snapshot each,
@@ -962,6 +1057,12 @@ func (e *boardEntry) flushRoster() {
 		}
 		sub.sendRaw(data)
 	}
+}
+
+// noteFanout records what a fan-out cost, smoothed so one slow run does not
+// stretch the window for long. The caller holds e.mu.
+func (e *boardEntry) noteFanout(d time.Duration) {
+	e.fanoutCost = (e.fanoutCost + d) / 2
 }
 
 // rightsKey names a projection of the board: two subscriptions with the same

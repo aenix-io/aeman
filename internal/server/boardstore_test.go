@@ -40,6 +40,26 @@ func readFrame(t *testing.T, sub *subscription) frame {
 	}
 }
 
+// settled waits for the coalesced fan-out to run: what a scoped view holds
+// is decided once for a burst of changes (flushMembers), so a test that made
+// one change waits for that decision the way a browser does.
+func settled(t *testing.T, e *boardEntry) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		e.mu.Lock()
+		due := e.membersDue
+		e.mu.Unlock()
+		if !due {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the membership fan-out never ran")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func noFrame(t *testing.T, sub *subscription) {
 	t.Helper()
 	select {
@@ -138,6 +158,7 @@ func TestScopedWatchMembership(t *testing.T) {
 	e.upsertCard(c2)
 	e.cardChanged("", c2, "MODIFIED")
 	e.mu.Unlock()
+	settled(t, e)
 	if f := readFrame(t, sub); f.Type != "ADDED" || frameUID(t, f) != "c2" {
 		t.Fatalf("frame = %+v", f)
 	}
@@ -149,6 +170,7 @@ func TestScopedWatchMembership(t *testing.T) {
 	e.upsertCard(c1)
 	e.cardChanged("", c1, "MODIFIED")
 	e.mu.Unlock()
+	settled(t, e)
 	if f := readFrame(t, sub); f.Type != "MODIFIED" || frameUID(t, f) != "c1" {
 		t.Fatalf("frame = %+v", f)
 	}
@@ -159,6 +181,7 @@ func TestScopedWatchMembership(t *testing.T) {
 	e.upsertCard(c1)
 	e.cardChanged("", c1, "MODIFIED")
 	e.mu.Unlock()
+	settled(t, e)
 	if f := readFrame(t, sub); f.Type != "DELETED" || frameUID(t, f) != "c1" {
 		t.Fatalf("frame = %+v", f)
 	}
@@ -180,6 +203,7 @@ func TestScopedWatchOriginMembershipTracked(t *testing.T) {
 	e.upsertCard(c2)
 	e.cardChanged("me", c2, "MODIFIED")
 	e.mu.Unlock()
+	settled(t, e)
 	noFrame(t, sub)
 	if !sub.members["c2"] {
 		t.Fatal("origin membership must be tracked")
@@ -191,6 +215,7 @@ func TestScopedWatchOriginMembershipTracked(t *testing.T) {
 	e.upsertCard(c2)
 	e.cardChanged("", c2, "MODIFIED")
 	e.mu.Unlock()
+	settled(t, e)
 	if f := readFrame(t, sub); f.Type != "MODIFIED" {
 		t.Fatalf("frame = %+v", f)
 	}

@@ -126,7 +126,7 @@ func TestACarryOverAnnouncesTheBoardOnceNotPerCard(t *testing.T) {
 		cards, turns, tabs, took, all.Load(), boards.Load())
 	// A tab hears the board once per coalescing window the request spans —
 	// a handful — and never once per card it moved.
-	windows := int64(took/rosterCoalesce) + 2
+	windows := int64(took/fanoutWindow) + 2
 	if got := boards.Load(); got > int64(tabs)*windows {
 		t.Fatalf("the board was announced %d times to %d tabs in %v; that is %d windows' worth at most",
 			got, tabs, took, windows)

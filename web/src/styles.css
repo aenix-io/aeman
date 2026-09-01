@@ -631,16 +631,6 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-.sync-badge svg {
-  animation: sync-badge-spin 1.8s linear infinite;
-}
-
-@keyframes sync-badge-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .sync-badge + .segmented {
   margin-left: 8px;
 }
