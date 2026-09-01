@@ -420,8 +420,16 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, r, err)
 		return
 	}
+	if asOf != "" {
+		// A record of the day gives back what the × took off it (G60).
+		sel.LeftOn = sel.Day
+	}
 	list := apiserver.ListCards(b, sel)
 	list.AsOf = asOf
+	// A day is everything that stood on it. What the morning board showed and
+	// the evening one no longer does — a card finished and tidied away into
+	// the previous sprint — belongs to that day too, in the state it last
+	// had (from the evening board, where it still exists).
 	// A card the day is OVER for carries the moment it is from: the rest of
 	// the listing is today's and stays workable, so the mark is per card
 	// rather than per listing (G60).
@@ -470,11 +478,6 @@ func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boar
 	return bd, at.Format(time.RFC3339), past, nil
 }
 
-// teamsInView is whose sprints a day-shaped read concerns: the teams the
-// selector names (an empty `team=` is the no-team group, which is a team
-// here), else the teams of the person whose Me board it is, else every team
-// on the board. It decides where the past begins for that read — a day
-// inside any of their running sprints is still being worked.
 // endOfBoardDay is a board day's last moment in the board's own time zone —
 // the instant a snapshot of that day reflects. The day belongs to everyone
 // on the board, so it is measured where the board lives, not where the

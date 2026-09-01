@@ -1250,6 +1250,14 @@ func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Car
 		// and writing it silently — while the subtasks dragged along did log
 		// theirs — left the card unexplained in its own history.
 		s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, prev)
+		// And the DAY it was taken off is recorded with it: the dates have
+		// just moved into the previous sprint, so nothing else remembers
+		// where the card was worked, and a record of that day would lose
+		// exactly the work it is remembered for (G60). Today's board is
+		// unaffected — taking the card off it is what the × is for.
+		if err := s.setLeftAt(ctx, b, c, board.TodayIso()); err != nil {
+			return err
+		}
 		// The demoted card keeps living in the previous sprint — its subtasks
 		// ride along, staying nested under it there.
 		return s.syncChildrenSprint(ctx, b, c.ItemID, prev)

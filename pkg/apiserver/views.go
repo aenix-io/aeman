@@ -28,6 +28,13 @@ type Selector struct {
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
 	Project string
+	// LeftOn gives a day back what the × took off it: a card finished that
+	// day and tidied away carries the day it was LEFT on (board.Card.LeftAt)
+	// while its dates have moved into the previous sprint, so nothing else
+	// remembers where it was worked. Set only when a day is read as a RECORD
+	// — today's board must not show it, since taking the card off today is
+	// what the × is for (G60).
+	LeftOn string
 	// Snapshot asks for the board OF the day rather than today's board
 	// filtered by it: every card as it stood when that day ended. Only a
 	// PAST day has one — today is the live board — and only storage that
@@ -191,6 +198,12 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 		out = append(out, c)
 	}
+	// What the × took off this day, given back to the record of it. The
+	// field filters above apply to these too — a card of another team, or
+	// somebody else's on a Me board, was not on THIS board that day.
+	if sel.LeftOn != "" {
+		out = append(out, leftBehindOn(b, sel, out)...)
+	}
 	out = withSubtasks(b, out, sel)
 	if sel.View == "project" {
 		out = projectViewCards(b, out, sel.Project)
@@ -316,6 +329,58 @@ func (s Selector) Matches(b board.Board, c board.Card) bool {
 		}
 	}
 	return false
+}
+
+// leftBehindOn is the cards the × took off the day being read as a record:
+// they carry that day in LeftAt, and their dates have since moved into the
+// previous sprint. Each is given in the state it has now — which, on the
+// board of that evening, is the state it ended the day with.
+func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
+	seen := make(map[string]bool, len(have))
+	for _, c := range have {
+		seen[c.ItemID] = true
+	}
+	var out []board.Card
+	for _, c := range b.Cards {
+		if c.LeftAt != sel.LeftOn || seen[c.ItemID] {
+			continue
+		}
+		if !onThisBoard(c, sel) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// onThisBoard is the scope a view is read in — whose board it is — applied to
+// a card the view's own placement rules never saw.
+func onThisBoard(c board.Card, sel Selector) bool {
+	switch sel.View {
+	case "team":
+		if !teamInSet(c.Team, sel.Team) {
+			return false
+		}
+	case "me":
+		if sel.User != "" && !contains(c.Assignees, sel.User) {
+			return false
+		}
+		if !teamInSet(c.Team, sel.Team) {
+			return false
+		}
+	default:
+		return false // only the day boards have a day to give back
+	}
+	if sel.Stage != nil && string(c.Stage) != *sel.Stage {
+		return false
+	}
+	if sel.Zone != nil && SemanticZone(c.Zone) != *sel.Zone {
+		return false
+	}
+	if sel.Assignee != "" && !contains(c.Assignees, sel.Assignee) {
+		return false
+	}
+	return !sel.Focus || board.Workable(c)
 }
 
 // ListCards builds the LIST response for a selector: resources in board order,
