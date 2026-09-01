@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -22,7 +22,11 @@ interface CardDetailProps {
   ) => void;
 }
 
-/** CardDetail is a centered modal for editing a card's title and details. */
+/** CardDetail is a centered modal for editing a card's title and details.
+ *  On a RECORD — a card as it stood on a day its team has moved past — it
+ *  reads instead: the boxes are disabled and there is nothing to save, since
+ *  a change made from there would land on today's card while the reader is
+ *  looking at a picture of a day that ended (G60). */
 export function CardDetail({
   card,
   board,
@@ -31,8 +35,26 @@ export function CardDetail({
   reload,
   patchCard,
 }: CardDetailProps) {
+  // A record: what the card was on a day its team has moved past. Nothing
+  // here is editable, and the pane says so rather than pretending.
+  const isRecord = !!card.asOf;
   const [title, setTitle] = useState(card.title);
+
   const [editingTitle, setEditingTitle] = useState(false);
+  // Esc closes this card — the pane is a reader as often as an editor, and
+  // reaching for the mouse to leave a card you only opened to look at is a
+  // small tax paid over and over. The key is taken on the BACKDROP rather
+  // than on the window: a dialog opened over the card answers its own Esc,
+  // and the card underneath must not close at the same time. The title
+  // editor answers first (it cancels the rename), so a card being renamed is
+  // not closed out from under the typing.
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = backdropRef.current;
+    if (node && !node.contains(document.activeElement)) {
+      node.focus();
+    }
+  }, []);
   const [description, setDescription] = useState(card.description ?? "");
   // dirty marks the draft as the user's: once they typed, nothing arriving
   // from the board (a background re-list, the lazy body fetch, a watch frame)
@@ -205,7 +227,18 @@ export function CardDetail({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      ref={backdropRef}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !editingTitle) {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
       <div
         className="modal"
         role="dialog"
@@ -213,7 +246,7 @@ export function CardDetail({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          {editingTitle ? (
+          {editingTitle && !isRecord ? (
             <input
               type="text"
               className="modal-title-input"
@@ -232,8 +265,11 @@ export function CardDetail({
             />
           ) : (
             <h2
-              className="modal-title modal-title-click"
+              className={isRecord ? "modal-title" : "modal-title modal-title-click"}
               onClick={() => {
+                if (isRecord) {
+                  return;
+                }
                 setTitle(card.title);
                 setEditingTitle(true);
               }}
@@ -255,51 +291,52 @@ export function CardDetail({
           </button>
         </div>
 
-        {/* Where this card comes from. A turn of a process and a slot of a
-            project look like ordinary cards on a day board, and the first
-            question about one is always "what is this part of?". */}
-        {(card.process || card.epic || card.project) && (
-          <div className="modal-origin">
-            {card.process && (
-              <span className="modal-origin-item" title="A turn of this process">
-                <span className="modal-origin-kind">process</span>
-                {card.process}
-              </span>
-            )}
-            {card.project && (
-              <span className="modal-origin-item" title="Part of this project">
-                <span className="modal-origin-kind">project</span>
-                {card.project}
-              </span>
-            )}
-            {card.epic && (
-              <span className="modal-origin-item" title="In this column of the plan">
-                <span className="modal-origin-kind">epic</span>
-                {card.epic}
-              </span>
-            )}
+        <div className="modal-toolbar">
+          <div className="modal-tabs" role="tablist" aria-label="Card sections">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "details"}
+              className={`modal-tab${tab === "details" ? " modal-tab-on" : ""}`}
+              onClick={() => setTab("details")}
+            >
+              Details
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "activity"}
+              className={`modal-tab${tab === "activity" ? " modal-tab-on" : ""}`}
+              onClick={() => setTab("activity")}
+            >
+              Activity
+            </button>
           </div>
-        )}
-
-        <div className="modal-tabs" role="tablist" aria-label="Card sections">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "details"}
-            className={`modal-tab${tab === "details" ? " modal-tab-on" : ""}`}
-            onClick={() => setTab("details")}
-          >
-            Details
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "activity"}
-            className={`modal-tab${tab === "activity" ? " modal-tab-on" : ""}`}
-            onClick={() => setTab("activity")}
-          >
-            Activity
-          </button>
+          {/* Where this card comes from. A turn of a process and a slot of a
+              project look like ordinary cards on a day board, and the first
+              question about one is always "what is this part of?". */}
+          {(card.process || card.epic || card.project) && (
+            <div className="modal-origin">
+              {card.process && (
+                <span className="modal-origin-item" title="A turn of this process">
+                  <span className="modal-origin-kind">process</span>
+                  {card.process}
+                </span>
+              )}
+              {card.project && (
+                <span className="modal-origin-item" title="Part of this project">
+                  <span className="modal-origin-kind">project</span>
+                  {card.project}
+                </span>
+              )}
+              {card.epic && (
+                <span className="modal-origin-item" title="In this column of the plan">
+                  <span className="modal-origin-kind">epic</span>
+                  {card.epic}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {tab === "details" && (
@@ -317,7 +354,8 @@ export function CardDetail({
                       : "Loading the description…"
                 }
                 maxLength={16384}
-                disabled={!bodyLoaded && !card.itemId.startsWith("tmp-")}
+                readOnly={isRecord}
+                disabled={isRecord || (!bodyLoaded && !card.itemId.startsWith("tmp-"))}
                 onChange={(e) => {
                   setDirty(true);
                   setDescription(e.target.value);
@@ -379,7 +417,7 @@ export function CardDetail({
           <button type="button" className="btn" onClick={onClose}>
             Close
           </button>
-          {tab === "details" && (
+          {tab === "details" && !isRecord && (
             <button
               type="button"
               className="btn btn-primary"

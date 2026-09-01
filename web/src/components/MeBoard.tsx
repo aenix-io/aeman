@@ -71,6 +71,10 @@ interface MeBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
+  /** The moment this board is a RECORD of (a past day answered as it stood),
+   *  empty on a live board. What it holds cannot be added to. */
+  asOf?: string;
+
   onSelectDate: (day: string) => void;
   /** "View as" impersonation, owned by the App: the Me fetch carries it as an
    *  explicit user (null = the caller themselves). */
@@ -149,6 +153,7 @@ export function MeBoard({
   provider,
   me,
   selectedDate,
+  asOf,
   onSelectDate,
   viewAs,
   onViewAs,
@@ -232,6 +237,12 @@ export function MeBoard({
   // zones never pick them up. The column is the viewer's own (the server
   // resolves who), so it shows only while the board is viewed as oneself; a
   // card done before today has left it (mirrors view=personal).
+  // A day that ENDED offers nothing to add: a card created there would land
+  // on TODAY's board, which is not what the person looking at that day
+  // means. The server refuses such a create outright — it cannot tell which
+  // team the box belonged to — so the boxes go whenever the board is being
+  // read as a record at all, not only where a record card happens to sit.
+  const holdsRecords = !!asOf;
   const split = useMemo(
     () => splitPersonal(board.cards, board.personal),
     [board.cards, board.personal],
@@ -1934,6 +1945,7 @@ export function MeBoard({
   const renderMeCard = (card: CardModel, personal = false): ReactNode => (
     <Card
       card={card}
+      record={!!card.asOf}
       onLoadLinks={loadCardLinks}
       selected={card.itemId === selectedCardId}
       onSelect={(c) => setSelectedCardId(c.itemId)}
@@ -1986,6 +1998,7 @@ export function MeBoard({
   const subtaskAddForm = (parent: CardModel): ReactNode => (
     <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
       <AddCard
+        hidden={holdsRecords}
         autoOpen
         placeholder="Add a subtask…"
         onCreate={(title) => handleCreateSubtask(parent, title)}
@@ -2153,6 +2166,10 @@ export function MeBoard({
           <div className="me-zones">
             <SortableBoard<MeMeta>
               groups={groups}
+              // A card of a team that has moved past this day is a record
+              // and does not move; the rest of the board is live work (the
+              // provider draws the same line — see frozenProvider).
+              isRecord={(c) => !!c.asOf}
               onDrop={handleDrop}
               onGroupDrop={handleGroup}
               onHoverCard={setGroupHover}
@@ -2162,6 +2179,7 @@ export function MeBoard({
               renderOverlay={(card) => (
                 <Card
                   card={card}
+                  record={!!card.asOf}
                   onLoadLinks={loadCardLinks}
                   selected={false}
                   onSelect={() => {}}
@@ -2191,6 +2209,7 @@ export function MeBoard({
                     <div className="zone-cards">
                       {body}
                       <AddCard
+                        hidden={holdsRecords}
                         forcedTeam={
                           teamFilter?.length === 1
                             ? teamFilter[0] || null
@@ -2233,11 +2252,13 @@ export function MeBoard({
               <div className="me-personal-zones">
                 <SortableBoard<MeMeta>
                   groups={personalGroups}
+                  isRecord={(c) => !!c.asOf}
                   onDrop={handleDrop}
                   renderCard={(card) => renderMeCard(card, true)}
                   renderOverlay={(card) => (
                     <Card
                       card={card}
+                      record={!!card.asOf}
                       onLoadLinks={loadCardLinks}
                       selected={false}
                       onSelect={() => {}}
@@ -2267,6 +2288,7 @@ export function MeBoard({
                         <div className="zone-cards">
                           {body}
                           <AddCard
+                            hidden={holdsRecords}
                             forcedTeam={null}
                             placeholder="Add a personal card…"
                             onCreate={(title) =>

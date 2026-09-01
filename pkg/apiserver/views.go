@@ -3,6 +3,7 @@ package apiserver
 import (
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -28,6 +29,24 @@ type Selector struct {
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
 	Project string
+	// RecordCards are the cards this listing is a RECORD of — what the day's
+	// board took from that evening, by id (board.MergeAsOf). Only they give
+	// back what the × took off (LeftOn): a card of a team still inside that
+	// sprint is live, and the × took it off that day on purpose. Set together
+	// with LeftOn.
+	RecordCards map[string]bool
+	// LeftOn gives a day back what the × took off it: a card finished that
+	// day and tidied away carries the day it was LEFT on (board.Card.LeftAt)
+	// while its dates have moved into the previous sprint, so nothing else
+	// remembers where it was worked. Set only when a day is read as a RECORD
+	// — today's board must not show it, since taking the card off today is
+	// what the × is for (G60).
+	LeftOn string
+	// Snapshot asks for the board OF the day rather than today's board
+	// filtered by it: every card as it stood when that day ended. Only a
+	// PAST day has one — today is the live board — and only storage that
+	// keeps history can answer (git does).
+	Snapshot bool
 	// Fields picks the resource shape a listing delivers. The default is the
 	// board row — no description, with the derived link refs in status
 	// standing in for it; a card's body is one GET /cards/{uid} away.
@@ -58,6 +77,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Week:           q.Get("week"),
 		Assignee:       q.Get("assignee"),
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
+		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
 		IncludeReviews: q.Get("reviews") == "true" || q.Get("reviews") == "1",
 		Fields:         q.Get("fields"),
 	}
@@ -185,6 +205,17 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 		out = append(out, c)
 	}
+	// What the × took off this day, given back to the record of it. The
+	// field filters above apply to these too — a card of another team, or
+	// somebody else's on a Me board, was not on THIS board that day.
+	if sel.LeftOn != "" {
+		if back := leftBehindOn(b, sel, out); len(back) > 0 {
+			out = append(out, back...)
+			// A listing is served in BOARD order; appending to the tail put
+			// the given-back cards after everything regardless of rank.
+			sort.SliceStable(out, func(i, j int) bool { return out[i].Rank < out[j].Rank })
+		}
+	}
 	out = withSubtasks(b, out, sel)
 	if sel.View == "project" {
 		out = projectViewCards(b, out, sel.Project)
@@ -310,6 +341,86 @@ func (s Selector) Matches(b board.Board, c board.Card) bool {
 		}
 	}
 	return false
+}
+
+// leftBehindOn is the cards the × took off the day being read as a record:
+// they carry that day in LeftAt, and their dates have since moved into the
+// previous sprint. Each is given in the state it has now — which, on the
+// board of that evening, is the state it ended the day with.
+func leftBehindOn(b board.Board, sel Selector, have []board.Card) []board.Card {
+	seen := make(map[string]bool, len(have))
+	for _, c := range have {
+		seen[c.ItemID] = true
+	}
+	var out []board.Card
+	for _, c := range b.Cards {
+		if c.LeftAt != sel.LeftOn || seen[c.ItemID] {
+			continue
+		}
+		// Only what this listing is a record OF: elsewhere the day is still
+		// being worked, and the × is what takes a card off it there.
+		if !sel.RecordCards[c.ItemID] {
+			continue
+		}
+		if !onThisBoard(c, sel) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// onThisBoard is the scope a view is read in — whose board it is — applied to
+// a card the view's own placement rules never saw.
+func onThisBoard(c board.Card, sel Selector) bool {
+	switch sel.View {
+	case "team":
+		if !teamInSet(c.Team, sel.Team) {
+			return false
+		}
+	case "me":
+		if sel.User != "" && !contains(c.Assignees, sel.User) {
+			return false
+		}
+		if !teamInSet(c.Team, sel.Team) {
+			return false
+		}
+	default:
+		return false // only the day boards have a day to give back
+	}
+	if sel.Stage != nil && string(c.Stage) != *sel.Stage {
+		return false
+	}
+	if sel.Zone != nil && SemanticZone(c.Zone) != *sel.Zone {
+		return false
+	}
+	if sel.Assignee != "" && !contains(c.Assignees, sel.Assignee) {
+		return false
+	}
+	return !sel.Focus || board.Workable(c)
+}
+
+// MarkRecords stamps the cards that came FROM the past with the moment they
+// are from: everything else in the same listing is today's and stays
+// workable, so the mark is per card.
+//
+// records is what the day's board took from that evening (board.MergeAsOf's
+// own answer), by card id. Deriving it again from team names loses the cards
+// whose team differs between the two moments — one moved between teams, one
+// of a team renamed since — and such a card comes through LIVE: draggable,
+// editable, and refused by every write door. Which is the refusal G60 names
+// as the thing not to do.
+func MarkRecords(list *CardList, records map[string]bool, asOf string) {
+	if asOf == "" || len(records) == 0 {
+		return
+	}
+	list.AsOf = asOf
+	for i := range list.Items {
+		item := &list.Items[i]
+		if records[item.Metadata.UID] {
+			item.Status.AsOf = asOf
+		}
+	}
 }
 
 // ListCards builds the LIST response for a selector: resources in board order,

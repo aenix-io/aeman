@@ -7,6 +7,7 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -90,7 +91,15 @@ func (r *Repo) Rebase(tip plumbing.Hash) (RebaseResult, error) {
 		if err != nil {
 			return res, err
 		}
-		h, err := r.commitLocked(c.Message, c.Author, c.Committer, writes, false)
+		// Authored by whoever wrote it, when they wrote it; COMMITTED now.
+		// The history is read by committer time — a day's record is the
+		// newest commit made at or before that evening — so a replay that
+		// kept the old stamp could sit a 23:58 commit on top of one from the
+		// next morning, and that day would then be read from a tree already
+		// holding the next day's work. Git's own rebase does the same.
+		committer := c.Committer
+		committer.When = time.Now()
+		h, err := r.commitLocked(c.Message, c.Author, committer, writes, false)
 		if err != nil {
 			return res, err
 		}

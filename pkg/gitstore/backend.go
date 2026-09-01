@@ -275,6 +275,18 @@ func (b *Backend) LoadBoard(_ context.Context, boardID string) (board.Board, err
 	return bd, nil
 }
 
+// LoadBoardAsOf is LoadBoard at a past moment — the tree this domain had
+// when that day ended (see LoadAsOf). ok is false behind the horizon.
+func (b *Backend) LoadBoardAsOf(_ context.Context, boardID string, at time.Time) (board.Board, bool, error) {
+	s, ok, err := LoadAsOf(b.repo, at)
+	if err != nil || !ok {
+		return board.Board{}, ok, err
+	}
+	bd := boardFromSnapshot(s)
+	bd.Board = boardID
+	return bd, true, nil
+}
+
 // boardFromSnapshot hands the service the shape it expects: the roster
 // becomes the state cards NewBoard splits back out, so the duplicate and
 // ordering rules stay in one place. Every synthesized card carries its

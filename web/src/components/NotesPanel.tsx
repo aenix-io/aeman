@@ -442,7 +442,7 @@ export function NotesPanel({
             {card.title}
           </button>
         )}
-        {editingId !== note.id && (
+        {editingId !== note.id && !card.asOf && (
           <span className="note-actions">
             <button
               type="button"
@@ -692,7 +692,11 @@ export function NotesPanel({
       </div>
       )}
 
-      {(pane === "log" || selectedCard) && (
+      {/* Nothing is written on a RECORD — a card of a day its team has moved
+          past. The composer is not offered there (the server refuses the note
+          too), while the same panel keeps composing for the live cards of the
+          same screen. */}
+      {(pane === "log" || selectedCard) && !selectedCard?.asOf && (
       <div className="notes-composer">
         <div className="notes-on">
           {selectedCard ? (

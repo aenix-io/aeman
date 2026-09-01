@@ -175,6 +175,20 @@ func (mb *MultiBackend) LoadBoard(_ context.Context, boardID string) (board.Boar
 	return bd, nil
 }
 
+// LoadBoardAsOf is LoadBoard at a past moment: the board every domain had
+// when that day ended. ok is false when the clone's history does not reach
+// back that far — the caller deepens and asks again, or tells the reader the
+// history is cut.
+func (mb *MultiBackend) LoadBoardAsOf(_ context.Context, boardID string, at time.Time) (board.Board, bool, error) {
+	s, ok, err := LoadAllAsOf(mb.domainList(), at)
+	if err != nil || !ok {
+		return board.Board{}, ok, err
+	}
+	bd := boardFromSnapshotIn(mb.primary(), s)
+	bd.Board = boardID
+	return bd, true, nil
+}
+
 // LoadCards reads cards by id from whichever domain holds them.
 func (mb *MultiBackend) LoadCards(ctx context.Context, bd board.Board, ids []string) ([]board.Card, error) {
 	var out []board.Card

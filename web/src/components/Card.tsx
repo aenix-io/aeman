@@ -106,6 +106,11 @@ interface CardProps {
   /** A drag is hovering this card's middle band: dropping groups the dragged
    *  card as a subtask, and the card highlights as the target. */
   groupTarget?: boolean;
+  /** A RECORD: what the card was on a day its team has since moved past. It
+   *  is set in concrete — flat, grey, with no control on it — because
+   *  nothing about that day can be changed any more (G60). It still opens:
+   *  the detail pane shows it, read-only. */
+  record?: boolean;
 }
 
 const SEGMENTS = 10;
@@ -153,6 +158,7 @@ export function Card({
   onToggleExpand,
   onAddSubtask,
   groupTarget,
+  record,
 }: CardProps) {
   // Done is derived, not stored: a card with no stage at 100% renders as done
   // (legacy cards with a stored Done option still count too).
@@ -597,7 +603,7 @@ export function Card({
         band ? ` card-plan-${band}` : ""
       }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
         dimAvatar ? " card-dim-avatar" : ""
-      }${groupTarget ? " card-group-target" : ""}`}
+      }${groupTarget ? " card-group-target" : ""}${record ? " card-record" : ""}`}
       onClick={() => onSelect(card)}
       onDoubleClick={() => onOpen(card)}
       title={card.title}

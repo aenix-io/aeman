@@ -3,6 +3,7 @@ package gitstore
 import (
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -52,6 +53,35 @@ func LoadAll(domains []Domain) (Snapshot, error) {
 		parts = append(parts, s)
 	}
 	return merge(parts), nil
+}
+
+// LoadAllAsOf is LoadAll at a past moment: every domain at the tree it had
+// when that moment passed. ok is false unless EVERY domain can answer — a
+// board missing one repository's half of that day is not that day's board,
+// it is a smaller board that never existed.
+func LoadAllAsOf(domains []Domain, at time.Time) (Snapshot, bool, error) {
+	if len(domains) == 0 {
+		return Snapshot{}, false, ErrNoDomains
+	}
+	var parts []Snapshot
+	for i, d := range domains {
+		s, ok, err := LoadAsOf(d.Repo, at)
+		if err != nil {
+			if i == 0 || !errors.Is(err, ErrEmptyRepository) {
+				return Snapshot{}, false, err
+			}
+			continue // an unborn secondary contributes nothing yet
+		}
+		if !ok {
+			return Snapshot{}, false, nil
+		}
+		stamp(&s, d.Name)
+		if i > 0 {
+			s.Board = BoardFile{} // only the primary names the board
+		}
+		parts = append(parts, s)
+	}
+	return merge(parts), true, nil
 }
 
 // stamp marks every entry of a snapshot with its domain.

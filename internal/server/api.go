@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/apiserver"
 	"github.com/aenix-io/aeman/pkg/board"
@@ -310,7 +311,13 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	b, err := svc.Board(r.Context(), boardID)
+	// A record's board carries that day's SPRINT POINTERS with its cards —
+	// the view rules place a card by its team's pointer, and today's would
+	// drop nearly all of them. The roster itself (projects, columns,
+	// processes, deadlines) stays TODAY's: a column added since shows on the
+	// record of an older day, which is the price of not rebuilding the whole
+	// structure per read, and is what docs/dates.md says.
+	b, _, _, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -409,12 +416,47 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	b, err := svc.Board(r.Context(), boardID)
+	// A PAST day can be asked for as it stood, rather than as today's board
+	// filtered by that day's dates (see boardOfRequest).
+	b, asOf, records, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, apiserver.ListCards(b, sel))
+	if asOf != "" {
+		// A record of the day gives back what the × took off it — of the
+		// cards this listing IS a record of, and no others (G60).
+		sel.LeftOn, sel.RecordCards = sel.Day, records
+	}
+	list := apiserver.ListCards(b, sel)
+	apiserver.MarkRecords(&list, records, asOf)
+	writeJSON(w, http.StatusOK, list)
+}
+
+// boardOfRequest is the board a read answers from: today's, or — when the
+// request asks for a PAST day as it stood (`snapshot=1`) — the board of that
+// day. The day itself is built by the board service (BoardOfDay), which is
+// what every other door reads it through: an agent over MCP and this handler
+// must not answer "what did that day look like" differently.
+//
+// records names the cards the day's board took from that evening (empty on a
+// live read), and asOf the moment the record reflects.
+func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boardID string) (bd board.Board, asOf string, records map[string]bool, err error) {
+	q := r.URL.Query()
+	day := q.Get("day")
+	asked := q.Get("snapshot") == "1" || q.Get("snapshot") == "true"
+	// Only a DAY board has a day to be a record of (G60). The flag is
+	// ignored elsewhere rather than refused: /board and /sprints carry no
+	// view at all, and every reader of them is a day board asking for its
+	// own moment.
+	if !asked || (q.Get("view") != "" && !board.HasRecords(q.Get("view"))) {
+		day = ""
+	}
+	bd, records, at, err := svc.BoardOfDay(r.Context(), boardID, day)
+	if err != nil || at.IsZero() {
+		return bd, "", nil, err
+	}
+	return bd, at.Format(time.RFC3339), records, nil
 }
 
 func (s *Server) handleGetCard(w http.ResponseWriter, r *http.Request) {
@@ -430,7 +472,10 @@ func (s *Server) handleListSprints(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	b, err := svc.Board(r.Context(), boardID)
+	// A past day's pointers come with its cards: the client's own view rules
+	// compare a card's sprint against them, so today's pointers over that
+	// day's cards drop nearly all of them.
+	b, _, _, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1935,6 +1980,15 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		writeJSONError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, gitstore.ErrUnknownDomain):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, boardservice.ErrHistoryTruncated):
+		// The day was there and is not any more — the clone's horizon moved
+		// past it. Gone says exactly that, and a client can offer to widen
+		// the horizon rather than retry.
+		writeJSONError(w, http.StatusGone, err.Error())
+	case errors.Is(err, boardservice.ErrNoHistory):
+		// Storage that keeps no past cannot be asked about one; another
+		// board (or another backend) can.
+		writeJSONError(w, http.StatusNotImplemented, err.Error())
 	case errors.Is(err, gitstore.ErrNameTaken),
 		errors.Is(err, gitstore.ErrPersonalRoster),
 		errors.Is(err, boardservice.ErrTeamExists),

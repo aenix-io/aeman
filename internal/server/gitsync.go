@@ -89,6 +89,10 @@ type gitSync struct {
 	// clobbering the other replica's fields.
 	applyMu sync.Mutex
 
+	// asOf keeps the boards of past days (and paces the deepen behind them);
+	// see asofcache.go.
+	asOf *asOfCache
+
 	mu          sync.Mutex
 	lastPushErr error
 	pushTimer   *time.Timer
@@ -112,7 +116,7 @@ func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *sto
 		inner: mb,
 		store: store,
 		git: &gitSync{forge: opts.Forge, domains: domains, mb: mb, pushDelay: opts.PushDelay, historyMax: opts.HistoryMax, links: opts.Links, log: opts.Logger,
-			dataDir: opts.DataDir, repoOpts: opts.RepoOpts},
+			dataDir: opts.DataDir, repoOpts: opts.RepoOpts, asOf: newAsOfCache()},
 	}
 	if opts.SyncInterval > 0 {
 		go be.runSync(context.Background(), opts.SyncInterval)
@@ -605,6 +609,80 @@ func (b *storeBackend) CardLogSince(ctx context.Context, bd board.Board, id stri
 		return nil, time.Time{}, nil
 	}
 	return b.git.mb.CardLogSince(ctx, bd, id, since)
+}
+
+// LoadBoardAsOf is the board of a past day (boardservice.AsOfReader). The
+// repositories ARE the history, so the answer is the tree they had when that
+// day ended — no cache to consult, no events to replay. A day behind the
+// clone's horizon deepens once, the way a card's log does, and is answered
+// if that brings it in; --history-max still bounds how far back that goes.
+func (b *storeBackend) LoadBoardAsOf(ctx context.Context, boardID string, at time.Time) (board.Board, bool, error) {
+	if b.git == nil {
+		return board.Board{}, false, boardservice.ErrNoHistory
+	}
+	// A date flip reads the same day three times (cards, sprints, roster),
+	// and each read is a commit walk plus a full parse of every tree. The
+	// answer is kept until a commit lands.
+	key := b.git.asOfKey(at)
+	if bd, kept := b.git.asOf.get(key); kept {
+		return bd, true, nil
+	}
+	bd, ok, err := b.git.mb.LoadBoardAsOf(ctx, boardID, at)
+	if err != nil {
+		return bd, ok, err
+	}
+	if ok {
+		b.git.asOf.put(key, bd)
+		b.git.asOf.reached(at.Format(time.RFC3339))
+		return bd, true, nil
+	}
+	if b.git.historyMax <= 0 || at.Before(time.Now().Add(-b.git.historyMax)) {
+		return board.Board{}, false, nil
+	}
+	// Once per day, then not again for a while: the three reads of one flip
+	// arrive together, and a day the remote itself does not hold would
+	// otherwise pull history on every request for as long as that date stays
+	// on screen.
+	if !b.git.asOf.shouldDeepen(at.Format(time.RFC3339), time.Now()) {
+		return board.Board{}, false, nil
+	}
+	// A day before the boundary needs the commit that PRECEDES it, so the
+	// deepen reaches a little further back than the day itself. One domain
+	// refusing to deepen does not decide the answer — a repository that
+	// already holds everything reports one (go-git calls an empty
+	// upload-pack an error), and the load below is what actually knows
+	// whether the day is reachable now.
+	since := at.Add(-24 * time.Hour)
+	for _, d := range b.git.domains {
+		if err := d.Repo.DeepenSince(ctx, d.remote, since); err != nil {
+			b.git.log.Warn("history deepen for a past day failed", "domain", d.Name, "err", err)
+		}
+	}
+	bd, ok, err = b.git.mb.LoadBoardAsOf(ctx, boardID, at)
+	if ok && err == nil {
+		b.git.asOf.put(b.git.asOfKey(at), bd)
+		b.git.asOf.reached(at.Format(time.RFC3339))
+	}
+	return bd, ok, err
+}
+
+// asOfKey names one reading of a past day: the moment, and what every
+// domain's branch pointed at while it was read. A commit landing — ours or
+// another replica's — makes a new key, so a kept board is never stale.
+func (g *gitSync) asOfKey(at time.Time) string {
+	key := at.UTC().Format(time.RFC3339Nano)
+	for _, d := range g.domains {
+		key += "\x00" + d.Name + ":" + d.Repo.Head().String()
+		// The HORIZON is part of the answer too: a deepen moves the shallow
+		// boundary and makes days readable that were not, without the branch
+		// moving at all.
+		if shallow, err := d.Repo.Storer().Shallow(); err == nil {
+			for _, h := range shallow {
+				key += "+" + h.String()
+			}
+		}
+	}
+	return key
 }
 
 func (b *storeBackend) CardLog(ctx context.Context, bd board.Board, id string) ([]board.Event, time.Time, error) {

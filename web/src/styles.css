@@ -836,6 +836,60 @@ select {
 }
 
 /* ---- compact card (fixed 500 × 37) ---- */
+/* A RECORD: the card as it stood on a day its team has moved past. Set in
+   concrete — flat and grey, no shadow, no controls, nothing to grab. Hiding
+   every button inside it (rather than each control by name) is what keeps
+   that true as the card grows new ones. It still opens: the detail pane
+   shows it read-only. */
+/* Two classes, not one: the base .card rule comes after this block and would
+   otherwise win on equal specificity — the card looked untouched. */
+.card.card-record {
+  background: var(--line-soft);
+  border-color: var(--line);
+  box-shadow: none;
+  cursor: default;
+  opacity: 0.85;
+}
+
+/* Nothing offers to drag it: .card:active and the weekly variant both set a
+   grabbing hand, and a record does not move. */
+.card.card-record:active,
+.card.card-record.plan-card,
+.card.card-record.plan-card:active {
+  cursor: default;
+}
+
+/* What would CHANGE the card is not there: the ×, the + that adds a subtask
+   and the slider's handle. What only READS stays — the id copier, the links
+   menu, the subtask toggle — and so does what the card SAID that day: its
+   stage, age, avatar and progress, made inert below.
+
+   Named one by one rather than hiding every button inside a record: the id
+   copier and the links menu are buttons too, and they read. This list is
+   therefore hand-kept, and NOT a boundary: a control added later is live
+   here until somebody adds it. What holds the line is the provider and the
+   server — a write from a record is refused (409) — so the failure is loud
+   rather than silent, and this is a matter of not offering what cannot
+   work. */
+.card-record .card-action-delete,
+.card-record .card-subs-add,
+.card-record .card-bar-handle {
+  display: none !important;
+}
+
+/* What the card SAID that day stays and stops being a control: the
+   assignee's avatar (who the day belonged to), the stage dot, the age badge
+   and the progress bar all read as values now, not as pickers. */
+.card-record .team-avatar,
+.card-record .card-assign,
+.card-record .card-stage,
+.card-record .card-age-wrap,
+.card-record .card-bar,
+.card-record .card-avatar,
+.card-record .card-domain {
+  pointer-events: none;
+}
+
 .card {
   position: relative;
   display: flex;
@@ -4079,12 +4133,27 @@ button.card-age {
   pointer-events: none;
 }
 
+/* One row under the title: the tabs on the left, what the card belongs to on
+   the right, so the badges read as context rather than as part of the title. */
+.modal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 16px 0;
+}
+
+.modal-toolbar .modal-tabs {
+  margin: 0;
+}
+
 /* Where a card comes from, in its detail and in its badge menu. */
 .modal-origin {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  padding: 0 16px 8px;
+  margin-left: auto;
+  min-width: 0;
 }
 
 .modal-origin-item {

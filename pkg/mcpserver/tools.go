@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -113,6 +114,7 @@ type listCardsInput struct {
 	Focus    bool   `json:"focus,omitempty" jsonschema:"keep only cards workable right now — drops done, on-review and locked; use this to show what can be picked up and worked on here and now"`
 	Title    string `json:"title,omitempty" jsonschema:"case-insensitive substring filter on the card title — the cheap way to resolve a title someone mentioned to its uid: one call, a handful of rows"`
 	Full     bool   `json:"full,omitempty" jsonschema:"include each card's full description in the listing. Default false: a listing is the board's row view — title, team, zone, assignees, progress, stage, dates, link refs — and card bodies come from get_card. Set only when genuinely reading many descriptions at once (bulk analysis), not to inspect one card"`
+	Snapshot bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
 }
 
 func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listCardsInput) (*mcp.CallToolResult, apiserver.CardList, error) {
@@ -166,11 +168,26 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	if in.Full {
 		sel.Fields = "full"
 	}
-	b, err := svc.Board(ctx, boardID)
+	// A past day can be read AS IT STOOD. The day is built by the board
+	// service, which is what the HTTP API reads it through too: an agent and
+	// a person asking about the same day must not get different boards.
+	day := ""
+	if in.Snapshot && board.HasRecords(sel.View) {
+		day = sel.Day
+	}
+	b, records, at, err := svc.BoardOfDay(ctx, boardID, day)
 	if err != nil {
 		return nil, apiserver.CardList{}, err
 	}
+	asOf := ""
+	if !at.IsZero() {
+		// A record gives back what the × took off that day, for the teams it
+		// is a record of, and marks the cards that are one.
+		asOf = at.Format(time.RFC3339)
+		sel.LeftOn, sel.RecordCards = sel.Day, records
+	}
 	list := apiserver.ListCards(b, sel)
+	apiserver.MarkRecords(&list, records, asOf)
 	if in.Title != "" {
 		needle := strings.ToLower(in.Title)
 		kept := list.Items[:0]

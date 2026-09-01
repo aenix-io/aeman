@@ -1,7 +1,7 @@
 // The LIST/watch selectors for a board view, shared by the data fetch and the
 // scoped watch so both cover exactly what the active board shows.
 
-import { mondayOf } from "./date";
+import { mondayOf, todayIso } from "./date";
 
 export type ViewMode = "me" | "team" | "project" | "process";
 
@@ -20,15 +20,23 @@ export function viewQueries(
   teams: string[],
   viewAs?: string,
   personal = false,
+  today = todayIso(),
 ): Record<string, string>[] {
+  // A day already past is asked for AS IT WAS: the server answers from the
+  // board's history rather than filtering today's cards by that day's dates
+  // (see snapshotDay). Tomorrow is not a snapshot — nothing has happened
+  // there yet — and neither is today, which is still happening.
+  const snap: Record<string, string> = snapshotDay(view, day, today)
+    ? { snapshot: "1" }
+    : {};
   if (view === "me") {
-    const q: Record<string, string> = { view: "me", day, reviews: "true" };
+    const q: Record<string, string> = { view: "me", day, reviews: "true", ...snap };
     if (viewAs) {
       q.user = viewAs;
     }
     // The personal column follows the day being looked at, like the day
     // board beside it: flipped to tomorrow, it shows tomorrow's plan.
-    return personal && !viewAs ? [q, { view: "personal", day }] : [q];
+    return personal && !viewAs ? [q, { view: "personal", day, ...snap }] : [q];
   }
   if (view === "project" || view === "process") {
     // Every epic-filed card of every project, all weeks: the Project board
@@ -40,9 +48,26 @@ export function viewQueries(
   }
   const team = teams.join(",");
   return [
-    { view: "team", team, day, reviews: "true" },
-    { view: "weekly", team, week: mondayOf(day) },
+    { view: "team", team, day, reviews: "true", ...snap },
+    // The plan panel rides with the grid, so it is of the same moment: a
+    // historical grid beside a live panel is the confusion the snapshot
+    // exists to remove. `day` is what names that moment (the week alone
+    // does not), and the weekly filter itself ignores it.
+    {
+      view: "weekly",
+      team,
+      week: mondayOf(day),
+      ...(snap.snapshot ? { day, snapshot: "1" } : {}),
+    },
   ];
+}
+
+// snapshotDay reports that a day is one the board can be shown AS IT WAS: a
+// past day on a daily board (Me or Team). Today is live, tomorrow has not
+// happened, and the Project and Process boards are not day boards at all.
+// Mirrors the server's own condition in handleListCards.
+export function snapshotDay(view: ViewMode, day: string, today = todayIso()): boolean {
+  return (view === "me" || view === "team") && day !== "" && day < today;
 }
 
 // watchQuery is the scoped-watch selector for a view. The Team board watches

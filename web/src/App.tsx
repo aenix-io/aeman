@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clientId, fetchConfig, fetchHealth, type AppConfig } from "./api/client";
-import { apiProvider } from "./providers/api/apiProvider";
+import { ApiError, apiProvider } from "./providers/api/apiProvider";
 import { guardSignedOut } from "./session";
 import { mergeCardLists } from "./cardmerge";
 import {
@@ -20,7 +20,7 @@ import { ProjectBoard } from "./components/ProjectBoard";
 import { ProcessBoard } from "./components/ProcessBoard";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
-import { boardMetadata, processesFrom } from "./providers/api/apiProvider";
+import { boardMetadata, processesFrom, showingDay } from "./providers/api/apiProvider";
 import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
@@ -29,13 +29,19 @@ import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
-import { queryString, viewQueries, watchQueries } from "./viewquery";
+import { queryString, snapshotDay, viewQueries, watchQueries } from "./viewquery";
+import { frozenProvider } from "./providers/frozen";
 import { PersonalDialog } from "./components/PersonalDialog";
 import { todayIso, setBoardTimezone } from "./date";
 import { mergeNotes } from "./notes";
 import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
 import { applyAppearance, persistAppearance, readAppearance, type Appearance } from "./theme";
+
+// SNAPSHOT_FROZEN is what a write attempt on a past day says. The day is
+// over: its board is a picture, and today's board is one click away.
+const SNAPSHOT_FROZEN =
+  "This is the board as it was that day — go back to today to change anything.";
 
 type ViewMode = "me" | "team" | "project" | "process";
 
@@ -86,6 +92,19 @@ function readFilter(): string[] | null {
 
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
+
+// listingMoment is the moment a set of listings reflects: a snapshot's `asOf`
+// when the server answered with a past day's board, null when it answered
+// live. One answer decides for the view — the listings of a view are all of
+// the same moment because they carry the same day.
+function listingMoment(lists: { asOf?: string }[]): string | null {
+  for (const l of lists) {
+    if (l.asOf) {
+      return l.asOf;
+    }
+  }
+  return null;
+}
 
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -410,7 +429,62 @@ export function App() {
         }
       });
   }, []);
-  const provider = useMemo(() => guardSignedOut(apiProvider, onSignedOut), [onSignedOut]);
+  // Looking BACK on the Me or Team board shows that day as it was — the
+  // server reads the board out of its own history (see snapshotDay). A day
+  // that is over is not a place to work: the provider is frozen, so a
+  // handler that did not think about the date cannot write today's board
+  // from a view of the past, and the drag sensors are off for the same
+  // reason.
+  const [asOf, setAsOf] = useState<string | null>(null);
+  // A day is frozen when the SERVER answered with a past day's board — it
+  // owns that judgement, because a day inside the running sprint is still
+  // live however far back the calendar has moved (the sprint lays itself out
+  // on its own day and the team works it from there). Asking is the client's
+  // part: snapshotDay decides which days are worth asking about.
+  const snapshot = asOf !== null && snapshotDay(view, selectedDate);
+  useEffect(() => {
+    if (!snapshotDay(view, selectedDate)) {
+      setAsOf(null);
+    }
+  }, [view, selectedDate]);
+  // The server judges a write by the day it was made from, so it has to know
+  // which day is on screen — including while the answer is still in flight.
+  useEffect(() => {
+    showingDay(snapshotDay(view, selectedDate) ? selectedDate : "");
+  }, [view, selectedDate]);
+  // Which cards on screen are RECORDS: a card says so itself (`asOf`), set by
+  // the server for the teams whose sprint has moved past the day being looked
+  // at. One screen can hold both — a team still inside that sprint is working
+  // it, and its cards stay live.
+  const records = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of board?.cards ?? []) {
+      if (c.asOf) {
+        ids.add(c.itemId);
+      }
+    }
+    return ids;
+  }, [board?.cards]);
+  // The watch handler and the provider are built once; they read the current
+  // records through a ref rather than closing over them.
+  const recordsRef = useRef(records);
+  recordsRef.current = records;
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const provider = useMemo(
+    () =>
+      frozenProvider(
+        guardSignedOut(apiProvider, onSignedOut),
+        (uid) => recordsRef.current.has(uid),
+        // A write that names no card (a create, a carry-over) is refused
+        // whenever the board being read IS a record — the same question the
+        // server asks of such a write, and the same one the add boxes are
+        // hidden by. Three doors, one rule.
+        () => snapshotRef.current,
+        SNAPSHOT_FROZEN,
+      ),
+    [onSignedOut],
+  );
 
   // The roster: the board's teams in the server-side order (the sprint-state
   // cards' positions — shared by everyone, on every device), then the ones
@@ -467,6 +541,22 @@ export function App() {
     [view, selectedDate, teamFilter, roster, viewAs, hasPersonal],
   );
   const activeKey = activeQueries.map(queryString).join("|");
+  // The board (roster + sprint pointers) is fetched for the SAME moment as
+  // the cards: the view rules compare a card's sprint against the pointers,
+  // so a past day's cards under today's pointers are nearly all dropped —
+  // which looks exactly like the snapshot not working.
+  const boardQuery = useMemo<Record<string, string>>(() => {
+    if (!snapshotDay(view, selectedDate)) {
+      return {};
+    }
+    // The SAME selector the cards are asked with, minus what only a listing
+    // needs: where the past begins depends on whose sprints are in view, and
+    // the three reads of one board (cards, sprints, roster) must agree on it
+    // or the day's cards land under another moment's pointers.
+    const { reviews: _reviews, ...rest } = activeQueries[0] ?? {};
+    return { ...rest, snapshot: "1" };
+  }, [view, selectedDate, activeQueries]);
+  const boardKey = queryString(boardQuery);
   const watchKeys = useMemo(
     () =>
       watchQueries(
@@ -582,6 +672,12 @@ export function App() {
     }
   }, [teamFilter]);
 
+  // Declared before doLoad, which reads them: it runs long after the render,
+  // so the closure worked either way, but a temporal-dead-zone trap is not
+  // worth leaving lying around.
+  const loadedBoardKey = useRef("");
+  const activeQueriesRef = useRef(activeQueries);
+  const boardQueryRef = useRef(boardQuery);
   const doLoad = useCallback(async () => {
     beginLoad();
     setError(null);
@@ -590,28 +686,38 @@ export function App() {
       // as one board: a reload() must never leave the board empty while the
       // cards are still in flight (loadBoard itself carries no cards).
       const [loaded, lists, processes] = await Promise.all([
-        provider.loadBoard(),
+        provider.loadBoard(boardQueryRef.current),
         Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q))),
         // The process structure rides with the board from the start; the
         // Board watch frame keeps it current afterwards.
         provider.listProcesses().catch(() => [] as ProcessInfo[]),
       ]);
+      setAsOf(listingMoment(lists));
+      loadedBoardKey.current = queryString(boardQueryRef.current);
       setBoard((cur) => ({
         ...loaded,
-        cards: mergeCardLists(lists, cur?.cards),
+        cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards),
         processes,
       }));
     } catch (err: unknown) {
+      // A day the history no longer reaches (410) — or storage that keeps
+      // none (501) — has no cards to show, and leaving the last day's on
+      // screen would put them under the new date. The listing effect draws
+      // the same line; a reload landing straight on such a day must too.
+      if (err instanceof ApiError && (err.status === 410 || err.status === 501)) {
+        setAsOf(null);
+        setBoard((cur) => (cur ? { ...cur, cards: [] } : cur));
+      }
       setError(errMessage(err));
     } finally {
       endLoad();
     }
   }, [provider, beginLoad, endLoad]);
+  boardQueryRef.current = boardQuery;
 
   // Load the active view's cards whenever the selection (view/day/teams) changes
   // or the board is (re)loaded. loadBoard brings only identity + sprints; the
   // cards for one view arrive here, so the UI holds just what it shows.
-  const activeQueriesRef = useRef(activeQueries);
   activeQueriesRef.current = activeQueries;
   useEffect(() => {
     if (!boardLoaded) {
@@ -619,28 +725,52 @@ export function App() {
     }
     let cancelled = false;
     beginLoad();
-    Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q)))
-      .then((lists) => {
+    const wantBoard = loadedBoardKey.current !== boardKey;
+    Promise.all([
+      Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q))),
+      wantBoard ? provider.loadBoard(boardQuery) : Promise.resolve(null),
+    ])
+      .then(([lists, loaded]) => {
         if (cancelled) {
           return;
         }
+        if (loaded) {
+          loadedBoardKey.current = boardKey;
+        }
+        setAsOf(listingMoment(lists));
         // The listing is the row view; the notes, events and bodies already
         // fetched are kept, so switching views costs one request, not one
-        // per card all over again.
+        // per card all over again. A board fetched alongside (the day moved
+        // into or out of a snapshot) replaces the roster and the pointers,
+        // never the cards — those are the listing's.
         setBoard((cur) =>
-          cur ? { ...cur, cards: mergeCardLists(lists, cur.cards) } : cur,
+          cur
+            ? {
+                ...cur,
+                ...(loaded ? { ...loaded, cards: cur.cards, processes: cur.processes } : {}),
+                cards: mergeCardLists(lists.map((l) => l.cards), cur.cards),
+              }
+            : cur,
         );
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(errMessage(err));
+        if (cancelled) {
+          return;
         }
+        // A day the history no longer reaches (410) — or storage that keeps
+        // none (501) — has no cards to show. Leaving the previous day's on
+        // screen would put them under the new date, which is the one thing a
+        // record must never do.
+        if (err instanceof ApiError && (err.status === 410 || err.status === 501)) {
+          setBoard((cur) => (cur ? { ...cur, cards: [] } : cur));
+        }
+        setError(errMessage(err));
       })
       .finally(endLoad);
     return () => {
       cancelled = true;
     };
-  }, [boardLoaded, activeKey, provider, beginLoad, endLoad]);
+  }, [boardLoaded, activeKey, boardKey, boardQuery, provider, beginLoad, endLoad]);
 
   // The board loads once the session is known (and, in OAuth mode, signed in).
   // A visitor the server turns away gets the load error as the placeholder.
@@ -812,6 +942,27 @@ export function App() {
       }
     };
     const applyFrame = (frame: WatchFrame) => {
+      // A past day on screen is a picture of a day that ended. Live frames
+      // are about TODAY's board — applying them here would edit the picture
+      // card by card until it showed neither day. The board's own structure
+      // (projects, columns, the sync counter) is not of any day and still
+      // arrives; returning to today re-lists everything anyway.
+      if (snapshotRef.current) {
+        // The records on screen are of a day that ended; today's traffic is
+        // not about them, and applying it would edit the picture card by
+        // card. The board's own structure still arrives, and the live half
+        // of the same screen keeps its stream (a Card frame is checked
+        // against the record set below).
+        if (frame.kind === "Sprint" || frame.kind === "Ordering") {
+          return;
+        }
+        if (frame.kind === "Card" && frame.object) {
+          const uid = (frame.object as CardResource).metadata?.uid;
+          if (uid && recordsRef.current.has(uid)) {
+            return;
+          }
+        }
+      }
       // Sync marks a finished server-side reload; the diff already arrived as
       // ordinary events, so there is nothing left to do here.
       if (frame.kind === "Sync") {
@@ -1224,6 +1375,7 @@ export function App() {
           <MeBoard
             board={board}
             selectedDate={selectedDate}
+            asOf={asOf ?? undefined}
             onSelectDate={setSelectedDate}
             viewAs={viewAs}
             onViewAs={setViewAsPersisted}
@@ -1288,6 +1440,7 @@ export function App() {
           <TeamBoard
             board={board}
             selectedDate={selectedDate}
+            asOf={asOf ?? undefined}
             onSelectDate={setSelectedDate}
             provider={provider}
             me={config?.login ?? ""}

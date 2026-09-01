@@ -113,6 +113,12 @@ type CardStatus struct {
 	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
+	// AsOf marks a card served from the PAST: its team's sprint has moved on
+	// past the day asked for, so this is what the card was that evening, not
+	// what it is. A record — a client shows it as one and does not offer to
+	// change it. Absent on every live card, including on the same listing:
+	// whether a day is over is each team's own answer (G60).
+	AsOf string `json:"asOf,omitempty"`
 	// Domain is the repository the card lives in — the store's decision by
 	// the inheritance rule, never a client's choice. The store stamps every
 	// card, the primary's included, so this normally carries a NAME on a
@@ -124,8 +130,10 @@ type CardStatus struct {
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
 	DoneAt string `json:"doneAt,omitempty"`
-	// LeftAt is the board day a personal card was left behind on by the ×
-	// (remove): the personal board shows it that day and before, not after.
+	// LeftAt is the board day the × took the card off. On a personal card
+	// that is a live rule — the board shows it that day and before, not
+	// after; on a team card the × demotes into the previous sprint and this
+	// records the day, which a RECORD of that day gives back (G60).
 	LeftAt string `json:"leftAt,omitempty"`
 	// Links are the references extracted from the card's description —
 	// unresolved (no titles or states; GET /cards/{uid}/links resolves those).
@@ -380,6 +388,10 @@ type CardList struct {
 	Kind   string         `json:"kind"`
 	Items  []Card         `json:"items"`
 	Weekly *WeeklySummary `json:"weekly,omitempty"`
+	// AsOf is the moment a snapshot listing reflects (RFC3339) — the end of
+	// the day it was asked for. Empty on a live listing; a day the history
+	// no longer reaches is refused (410) rather than answered.
+	AsOf string `json:"asOf,omitempty"`
 }
 
 // WeeklySummary is the weekly view's computed plan progress (recurrent cards

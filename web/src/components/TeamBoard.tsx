@@ -65,6 +65,10 @@ interface TeamBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
+  /** The moment this board is a RECORD of (a past day answered as it stood),
+   *  empty on a live board. What it holds cannot be added to. */
+  asOf?: string;
+
   onSelectDate: (day: string) => void;
   /** Avatars by login (the board roster). */
   avatars: Avatars;
@@ -126,6 +130,7 @@ export function TeamBoard({
   provider,
   me,
   selectedDate,
+  asOf,
   onSelectDate,
   avatars,
   names,
@@ -239,6 +244,12 @@ export function TeamBoard({
     teamFilter === null || teamFilter.includes(card.team ?? "");
 
   // Cards passing the team filter (the scope before applying the sprint).
+  // A day that ENDED offers nothing to add: a card created there would land
+  // on TODAY's board, which is not what the person looking at that day
+  // means. The server refuses such a create outright — it cannot tell which
+  // team the box belonged to — so the boxes go whenever the board is being
+  // read as a record at all, not only where a record card happens to sit.
+  const holdsRecords = !!asOf;
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1244,6 +1255,7 @@ export function TeamBoard({
   const renderGridCard = (card: CardModel): ReactNode => (
     <Card
       card={card}
+      record={!!card.asOf}
       selectedBy={selectedByFor(card)}
       onLoadLinks={loadCardLinks}
       selected={card.itemId === selectedCardId}
@@ -1297,6 +1309,7 @@ export function TeamBoard({
   const subtaskAddForm = (parent: CardModel): ReactNode => (
     <div className="subtask-add" onPointerDown={(e) => e.stopPropagation()}>
       <AddCard
+        hidden={holdsRecords}
         autoOpen
         placeholder="Add a subtask…"
         onCreate={(title) => handleCreateSubtask(parent, title)}
@@ -2414,6 +2427,7 @@ export function TeamBoard({
 
       <SortableBoard<TeamMeta>
         groups={groups}
+        isRecord={(c) => !!c.asOf}
         idForCard={(c, g) =>
           g.meta.kind === "band" ? `plan:${c.itemId}` : c.itemId
         }
@@ -2428,6 +2442,7 @@ export function TeamBoard({
             group.meta.kind === "band" ? (
             <Card
               card={card}
+              record={!!card.asOf}
               selectedBy={selectedByFor(card)}
               onLoadLinks={loadCardLinks}
               selected={card.itemId === selectedCardId}
@@ -2491,6 +2506,7 @@ export function TeamBoard({
           renderOverlay={(card) => (
             <Card
               card={card}
+              record={!!card.asOf}
               selectedBy={selectedByFor(card)}
               onLoadLinks={loadCardLinks}
               selected={false}
@@ -2514,6 +2530,7 @@ export function TeamBoard({
                 >
                   {body}
                   <AddCard
+                    hidden={holdsRecords}
                     forcedTeam={forcedTeam}
                     teams={pickerTeams}
                     allowNoTeam={pickerNoTeam}
@@ -2543,6 +2560,7 @@ export function TeamBoard({
                 <div className="zone-cards">
                   {body}
                   <AddCard
+                    hidden={holdsRecords}
                     teams={forcedTeam === undefined ? pickerTeams : undefined}
                     forcedTeam={forcedTeam}
                     allowNoTeam={pickerNoTeam}
