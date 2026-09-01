@@ -86,6 +86,10 @@ export interface Card {
   /** A card from a plan — a slot, a turn, a weekly-plan card — still open past
    *  the day it was owed by. Derived by the server from the card's dates. */
   overdue?: boolean;
+  /** The moment this card is FROM, when it is a record rather than the live
+   *  card: its team's sprint has moved on past the day being looked at. The
+   *  board shows it as it was and refuses to change it (G60). */
+  asOf?: string;
   /** The board day (yyyy-mm-dd) the card reached done; cleared when it
    *  reopens. The personal column shows a done card that day, not the next. */
   doneAt?: string;

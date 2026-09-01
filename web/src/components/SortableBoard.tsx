@@ -93,10 +93,11 @@ interface SortableBoardProps<Meta> {
   canGroup?: (active: CardModel, target: CardModel) => boolean;
   /** Optional class wrapping the laid-out groups (e.g. a horizontal scroller). */
   scrollClassName?: string;
-  /** A board that is being LOOKED AT, not worked on — a past day's snapshot.
-   *  Nothing can be dragged: the day is over, and a card that slid across it
-   *  would be a change to today's board made from a picture of the past. */
-  frozen?: boolean;
+  /** Whether a card is a RECORD — what it was on a day its team has since
+   *  moved past. It cannot be dragged: a card that slid across a day that is
+   *  over would be a change to today's board made from a picture. The rest
+   *  of the same board is live work and drags as usual. */
+  isRecord?: (card: CardModel) => boolean;
 }
 
 type LocalGroups<Meta> = { key: string; meta: Meta; ids: string[] }[];
@@ -106,6 +107,7 @@ function SortableCard({
   id,
   groupable,
   nested,
+  frozen,
   children,
 }: {
   id: string;
@@ -113,10 +115,12 @@ function SortableCard({
   /** The Notion-style tuck-in preview: the placeholder slides to the subtask
    *  indent while the drop would group it under the card above. */
   nested: boolean;
+  /** A record of a day its team has moved past: it does not move. */
+  frozen: boolean;
   children: ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id });
+    useSortable({ id, disabled: frozen });
   // A second droppable on the same node is the grouping target: the collision
   // detector retargets to it while a drag hovers this card's middle band, so
   // grouping needs no reorder preview and nothing shifts under the pointer.
@@ -163,6 +167,7 @@ function DroppableGroup<Meta>({
   groupable,
   renderGroup,
   renderCard,
+  isRecord,
 }: {
   group: BoardGroup<Meta>;
   ids: string[];
@@ -173,6 +178,7 @@ function DroppableGroup<Meta>({
   groupable: boolean;
   renderGroup: SortableBoardProps<Meta>["renderGroup"];
   renderCard: (card: CardModel, group: BoardGroup<Meta>) => ReactNode;
+  isRecord?: (card: CardModel) => boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: group.key });
   const body = (
@@ -188,6 +194,9 @@ function DroppableGroup<Meta>({
             id={id}
             groupable={groupable}
             nested={id === nestedId}
+            // A record does not move: a drag that cannot land is worse than
+            // no drag at all — the card follows the cursor and springs back.
+            frozen={isRecord?.(c) ?? false}
           >
             {renderCard(c, group)}
           </SortableCard>
@@ -228,14 +237,11 @@ export function SortableBoard<Meta>({
   onDragActiveCard,
   canGroup,
   scrollClassName,
-  frozen,
+  isRecord,
 }: SortableBoardProps<Meta>) {
-  const live = useSensors(
+  const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
-  // A frozen board keeps no sensors: a drag that cannot land is worse than
-  // no drag at all — the card follows the cursor and then springs back.
-  const sensors = frozen ? [] : live;
 
   const isExternal = (id: string) => externalCards?.has(id) ?? false;
   const idOf = (c: CardModel, g: BoardGroup<Meta>) =>
@@ -778,6 +784,7 @@ export function SortableBoard<Meta>({
         groupable={!!onGroupDrop}
         renderGroup={renderGroup}
         renderCard={renderCard}
+        isRecord={isRecord}
       />,
     );
   }

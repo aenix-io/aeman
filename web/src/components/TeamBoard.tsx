@@ -65,9 +65,10 @@ interface TeamBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
-  /** The board being LOOKED AT rather than worked on: the server answered
-   *  with a past day's board (a day before the running sprint). Nothing here
-   *  can be dragged or written — the provider refuses writes too. */
+  /** This view holds RECORDS: cards of teams whose sprint has moved past the
+   *  day being looked at, shown as they stood that evening. The rest of the
+   *  board is live work; the cards themselves say which they are (card.asOf),
+   *  and the chip beside Today says a moment is on screen. */
   frozen?: boolean;
 
   onSelectDate: (day: string) => void;
@@ -2431,9 +2432,7 @@ export function TeamBoard({
 
       <SortableBoard<TeamMeta>
         groups={groups}
-        // A past day is shown as it was; nothing on it can be moved (the
-        // provider refuses writes there too — see frozenProvider).
-        frozen={frozen}
+        isRecord={(c) => !!c.asOf}
         idForCard={(c, g) =>
           g.meta.kind === "band" ? `plan:${c.itemId}` : c.itemId
         }

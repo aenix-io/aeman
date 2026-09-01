@@ -442,19 +442,40 @@ export function App() {
   // on its own day and the team works it from there). Asking is the client's
   // part: snapshotDay decides which days are worth asking about.
   const snapshot = asOf !== null && snapshotDay(view, selectedDate);
-  // The watch handler is built once per socket; it reads the mode through a
-  // ref rather than closing over it.
   useEffect(() => {
     if (!snapshotDay(view, selectedDate)) {
       setAsOf(null);
     }
   }, [view, selectedDate]);
+  // Which cards on screen are RECORDS: a card says so itself (`asOf`), set by
+  // the server for the teams whose sprint has moved past the day being looked
+  // at. One screen can hold both — a team still inside that sprint is working
+  // it, and its cards stay live.
+  const records = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of board?.cards ?? []) {
+      if (c.asOf) {
+        ids.add(c.itemId);
+      }
+    }
+    return ids;
+  }, [board?.cards]);
+  // The watch handler and the provider are built once; they read the current
+  // records through a ref rather than closing over them.
+  const recordsRef = useRef(records);
+  recordsRef.current = records;
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
-  const provider = useMemo(() => {
-    const live = guardSignedOut(apiProvider, onSignedOut);
-    return snapshot ? frozenProvider(live, SNAPSHOT_FROZEN) : live;
-  }, [onSignedOut, snapshot]);
+  const provider = useMemo(
+    () =>
+      frozenProvider(
+        guardSignedOut(apiProvider, onSignedOut),
+        (uid) => recordsRef.current.has(uid),
+        () => recordsRef.current.size > 0,
+        SNAPSHOT_FROZEN,
+      ),
+    [onSignedOut],
+  );
 
   // The roster: the board's teams in the server-side order (the sprint-state
   // cards' positions — shared by everyone, on every device), then the ones
@@ -897,14 +918,21 @@ export function App() {
       // card by card until it showed neither day. The board's own structure
       // (projects, columns, the sync counter) is not of any day and still
       // arrives; returning to today re-lists everything anyway.
-      if (
-        snapshotRef.current &&
-        (frame.kind === "Card" ||
-          frame.kind === "Sprint" ||
-          frame.kind === "Ordering" ||
-          frame.kind === "Presence")
-      ) {
-        return;
+      if (snapshotRef.current) {
+        // The records on screen are of a day that ended; today's traffic is
+        // not about them, and applying it would edit the picture card by
+        // card. The board's own structure still arrives, and the live half
+        // of the same screen keeps its stream (a Card frame is checked
+        // against the record set below).
+        if (frame.kind === "Sprint" || frame.kind === "Ordering") {
+          return;
+        }
+        if (frame.kind === "Card" && frame.object) {
+          const uid = (frame.object as CardResource).metadata?.uid;
+          if (uid && recordsRef.current.has(uid)) {
+            return;
+          }
+        }
       }
       // Sync marks a finished server-side reload; the diff already arrived as
       // ordinary events, so there is nothing left to do here.

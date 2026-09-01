@@ -113,6 +113,12 @@ type CardStatus struct {
 	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
 	ReviewRound int    `json:"reviewRound,omitempty"`
+	// AsOf marks a card served from the PAST: its team's sprint has moved on
+	// past the day asked for, so this is what the card was that evening, not
+	// what it is. A record — a client shows it as one and does not offer to
+	// change it. Absent on every live card, including on the same listing:
+	// whether a day is over is each team's own answer (G60).
+	AsOf string `json:"asOf,omitempty"`
 	// Domain is the repository the card lives in — the store's decision by
 	// the inheritance rule, never a client's choice. The store stamps every
 	// card, the primary's included, so this normally carries a NAME on a

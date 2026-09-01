@@ -71,6 +71,10 @@ export interface CardResource {
     complete?: boolean;
     inProgress?: boolean;
     overdue?: boolean;
+    /** Set when this card comes from the PAST: its team's sprint has moved
+     *  on past the day being looked at, so this is what the card was that
+     *  evening. A record — not to be offered for change. */
+    asOf?: string;
     reviewedBy?: string;
     reviewRound?: number;
     /** The repository the card lives in; absent on an older server. */
@@ -210,6 +214,7 @@ export function resourceToCard(res: CardResource): Card {
     parent: spec.parent || undefined,
     reviewRound: res.status?.reviewRound,
     overdue: res.status?.overdue ?? false,
+    asOf: res.status?.asOf,
     doneAt: res.status?.doneAt || undefined,
     leftAt: res.status?.leftAt || undefined,
     recurrence: spec.recurrence || undefined,
