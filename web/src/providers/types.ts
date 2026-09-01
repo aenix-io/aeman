@@ -297,13 +297,26 @@ export interface CarryReport {
 /** Provider is the thin intent client of the aeman API: components state
  * intent, keep optimistic state, and reconcile from the returned resources
  * (and the watch stream). All board rules live server-side. */
+/** CardListing is a listing and what it says about itself: `asOf` is the
+ *  moment a SNAPSHOT reflects — a past day answered as it stood. The server
+ *  decides (a day inside the running sprint is still live, whatever the
+ *  calendar says), so the client reads the answer rather than guessing. */
+export interface CardListing {
+  cards: Card[];
+  asOf?: string;
+}
+
 export interface Provider {
   /** Board identity + per-team sprint pointers (no cards — the active view is
    *  loaded lazily via listCards). */
-  loadBoard(): Promise<Board>;
+  /** Board identity, roster and per-team sprint pointers. `query` carries the
+   *  snapshot selectors when a PAST day is being shown (`day`, `snapshot`), so
+   *  the pointers and the roster are of the same moment as that day's cards —
+   *  the view rules compare a card's sprint against them. */
+  loadBoard(query?: Record<string, string>): Promise<Board>;
   /** The cards of one view (GET /cards with a selector), so the UI loads only
    *  the active board — Me by default, a team's grid on demand. */
-  listCards(query: Record<string, string>): Promise<Card[]>;
+  listCards(query: Record<string, string>): Promise<CardListing>;
 
   /** Fetch one card in full — listings are the light board-row shape, and the
    *  description is loaded here when a card is selected or opened. */

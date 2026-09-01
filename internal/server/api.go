@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -311,7 +312,10 @@ func (s *Server) handleGetBoard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	b, err := svc.Board(r.Context(), boardID)
+	// The roster of a past day comes with its cards too: a column added
+	// since did not exist then, and the day's own teams are what its board
+	// was laid out with.
+	b, _, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -411,33 +415,92 @@ func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// A PAST day can be asked for as it stood, rather than as today's board
-	// filtered by that day's dates: the storage keeps the history, so the
-	// answer is the board that day ended with. Today has no snapshot — it is
-	// still happening — and a live listing is what every other caller gets.
-	if sel.Snapshot && sel.Day != "" && sel.Day < board.TodayIso() {
-		at, err := endOfBoardDay(sel.Day)
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		past, err := svc.BoardAsOf(r.Context(), boardID, at)
-		if err != nil {
-			// A day the history no longer holds is said so (410), never
-			// answered with today's cards wearing that day's date.
-			s.apiError(w, r, err)
-			return
-		}
-		list := apiserver.ListCards(past, sel)
-		list.AsOf = at.Format(time.RFC3339)
-		writeJSON(w, http.StatusOK, list)
-		return
-	}
-	b, err := svc.Board(r.Context(), boardID)
+	// filtered by that day's dates (see boardOfRequest).
+	b, asOf, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, apiserver.ListCards(b, sel))
+	list := apiserver.ListCards(b, sel)
+	list.AsOf = asOf
+	writeJSON(w, http.StatusOK, list)
+}
+
+// boardOfRequest is the board a read answers from: today's, or — when the
+// request asks for a PAST day as it stood (`snapshot=1`) — the board that day
+// ended with. Every day-shaped read goes through it, because a snapshot is
+// not one endpoint's trick: the cards of that day filtered against TODAY's
+// sprint pointers are nearly all dropped by the client's own view rules, so
+// the pointers and the roster have to be of the same moment as the cards.
+// asOf is that moment, empty on a live read.
+func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boardID string) (bd board.Board, asOf string, err error) {
+	q := r.URL.Query()
+	day := q.Get("day")
+	snapshot := q.Get("snapshot") == "1" || q.Get("snapshot") == "true"
+	live, err := svc.Board(r.Context(), boardID)
+	if err != nil || !snapshot || day == "" || day >= board.TodayIso() {
+		return live, "", err
+	}
+	// The past begins where the RUNNING sprint does, not at midnight. A
+	// sprint lays itself out on its own day — that is where the lead works
+	// it from, and where a card created today lands, its pointer days old —
+	// so a day inside it is not a record and must not freeze. The earliest
+	// running sprint among the teams in view decides: a day still inside
+	// anyone's sprint belongs to them.
+	if boundary := board.RunningSprintStart(live, s.teamsInView(r, live)); boundary == "" || day >= boundary {
+		return live, "", nil
+	}
+	at, err := endOfBoardDay(day)
+	if err != nil {
+		return board.Board{}, "", err
+	}
+	bd, err = svc.BoardAsOf(r.Context(), boardID, at)
+	if err != nil {
+		return board.Board{}, "", err
+	}
+	return bd, at.Format(time.RFC3339), nil
+}
+
+// teamsInView is whose sprints a day-shaped read concerns: the teams the
+// selector names (an empty `team=` is the no-team group, which is a team
+// here), else the teams of the person whose Me board it is, else every team
+// on the board. It decides where the past begins for that read — a day
+// inside any of their running sprints is still being worked.
+// The reads of one view — its cards, the sprint pointers and the board — must
+// answer for the SAME moment, so the question is asked of the request itself
+// (view, team, user) and "who am I" is resolved here exactly as the listing
+// resolves it: a Me board sends no user, and reading none would put the whole
+// board's teams in view and move the boundary to the oldest sprint on it.
+func (s *Server) teamsInView(r *http.Request, b board.Board) []string {
+	q := r.URL.Query()
+	if q.Has("team") {
+		return strings.Split(q.Get("team"), ",")
+	}
+	view, user := q.Get("view"), q.Get("user")
+	if (view == "me" || view == "personal") && user == "" {
+		if _, login, err := s.apiTokens(r); err == nil {
+			user = login
+		}
+	}
+	if (view == "me" || view == "personal") && user != "" {
+		seen := map[string]bool{}
+		var out []string
+		for _, c := range b.Cards {
+			if !slices.Contains(c.Assignees, user) || seen[c.Team] {
+				continue
+			}
+			seen[c.Team] = true
+			out = append(out, c.Team)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	out := make([]string, 0, len(b.SprintStates))
+	for team := range b.SprintStates {
+		out = append(out, team)
+	}
+	return out
 }
 
 // endOfBoardDay is a board day's last moment in the board's own time zone —
@@ -465,7 +528,10 @@ func (s *Server) handleListSprints(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	b, err := svc.Board(r.Context(), boardID)
+	// A past day's pointers come with its cards: the client's own view rules
+	// compare a card's sprint against them, so today's pointers over that
+	// day's cards drop nearly all of them.
+	b, _, err := s.boardOfRequest(r, svc, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return

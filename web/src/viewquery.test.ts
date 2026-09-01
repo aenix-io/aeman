@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { addDays, todayIso } from "./date";
 import {
   queryString,
   snapshotDay,
@@ -101,6 +102,18 @@ describe("snapshot selectors", () => {
     // there, so a snapshot of one would be a claim about nothing.
     expect(snapshotDay("project", PAST, TODAY)).toBe(false);
     expect(snapshotDay("process", PAST, TODAY)).toBe(false);
+  });
+
+  // The app calls these without a `today` — the fixed one above keeps the
+  // other cases honest, but it would also hide a broken default. Yesterday
+  // is a past day by the real clock too.
+  it("uses the real today when none is given", () => {
+    const yesterday = addDays(todayIso(), -1);
+    expect(snapshotDay("team", yesterday)).toBe(true);
+    expect(snapshotDay("me", yesterday)).toBe(true);
+    expect(snapshotDay("me", todayIso())).toBe(false);
+    expect(viewQueries("team", yesterday, ["portal"])[0].snapshot).toBe("1");
+    expect(viewQueries("me", yesterday, [], undefined, true)[1].snapshot).toBe("1");
   });
 
   // The watch is a live stream; a snapshot is not watched at all (the day is

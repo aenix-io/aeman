@@ -56,6 +56,16 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 		if i == 0 {
 			writes = append(first, writes...)
 		}
+		if i == len(seed)-1 {
+			// The sprint moves on: what lies BEFORE the running sprint is
+			// the past, and only that is shown as a record (a day inside a
+			// running sprint is still being worked — see
+			// TestADayInsideTheRunningSprintStaysLive).
+			writes = append(writes, gitstore.FileWrite{
+				Path: gitstore.TeamPath("01JB4TEAM"),
+				Data: []byte("name: portal\nrank: b\ncreated: 2026-06-01T08:00:00Z\nsprint:\n  current: 2026-08-24\n  previous: 2026-08-20\n"),
+			})
+		}
 		if _, err := r.Commit(gitstore.Action{Name: "progress", Summary: "set progress", At: at}, writes); err != nil {
 			t.Fatal(err)
 		}
@@ -124,6 +134,38 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 		t.Fatalf("a live listing claims no moment, got %q", asOf)
 	}
 
+	// The BOARD of that day comes with it: the sprint pointers (and the
+	// roster) as they stood. The client filters the day's cards with them —
+	// with today's pointers it drops nearly all of them, which looked
+	// exactly like the feature not working at all.
+	rec := do(t, srv, http.MethodGet, "/api/v1/sprints?day=2026-08-21&snapshot=1", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sprint snapshot: %d %s", rec.Code, rec.Body.String())
+	}
+	var sprints struct {
+		Items []struct {
+			Metadata struct {
+				Team string `json:"team"`
+			} `json:"metadata"`
+			Spec struct {
+				Current  string `json:"current"`
+				Previous string `json:"previous"`
+			} `json:"spec"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &sprints); err != nil {
+		t.Fatal(err)
+	}
+	found := ""
+	for _, s := range sprints.Items {
+		if s.Metadata.Team == "portal" {
+			found = s.Spec.Current
+		}
+	}
+	if found != "2026-08-20" {
+		t.Fatalf("the sprint pointer of that day = %q, want the one it had (2026-08-20)", found)
+	}
+
 	// A day the clone's history no longer holds is REFUSED. Answering it
 	// with the oldest state at hand would put another day's board under that
 	// date, and nothing on the page would say so.
@@ -135,7 +177,7 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 	if err := repo.Storer().SetShallow([]plumbing.Hash{tip.Hash}); err != nil {
 		t.Fatal(err)
 	}
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?view=team&team=portal&day=2026-08-21&snapshot=1", "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/cards?view=team&team=portal&day=2026-08-21&snapshot=1", "")
 	if rec.Code != http.StatusGone {
 		t.Fatalf("a day behind the horizon answered %d: %s", rec.Code, rec.Body.String())
 	}

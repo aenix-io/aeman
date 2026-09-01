@@ -26,7 +26,6 @@ import type {
 import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, addDays, localDateIso, mondayOf, weeksBetween } from "../date";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
-import { snapshotDay } from "../viewquery";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -66,6 +65,11 @@ interface TeamBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
+  /** The board being LOOKED AT rather than worked on: the server answered
+   *  with a past day's board (a day before the running sprint). Nothing here
+   *  can be dragged or written — the provider refuses writes too. */
+  frozen?: boolean;
+
   onSelectDate: (day: string) => void;
   /** Avatars by login (the board roster). */
   avatars: Avatars;
@@ -127,6 +131,7 @@ export function TeamBoard({
   provider,
   me,
   selectedDate,
+  frozen,
   onSelectDate,
   avatars,
   names,
@@ -2371,7 +2376,7 @@ export function TeamBoard({
         >
           Today
         </button>
-        {snapshotDay("team", selectedDate) && (
+        {frozen && (
           // A day that has ended is shown as it stood, and saying so is the
           // whole difference between a record and a board that looks oddly
           // out of date.
@@ -2428,7 +2433,7 @@ export function TeamBoard({
         groups={groups}
         // A past day is shown as it was; nothing on it can be moved (the
         // provider refuses writes there too — see frozenProvider).
-        frozen={snapshotDay("team", selectedDate)}
+        frozen={frozen}
         idForCard={(c, g) =>
           g.meta.kind === "band" ? `plan:${c.itemId}` : c.itemId
         }

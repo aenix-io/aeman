@@ -7,6 +7,29 @@ func CurrentSprint(b Board, team string) string {
 	return b.SprintStates[team].Current
 }
 
+// RunningSprintStart is the day the sprint that is still being worked opened
+// — the EARLIEST current sprint among the teams named. It is where the past
+// ends: a day inside a running sprint is not history, whatever the calendar
+// says, because the sprint lays itself out on its own day and the team works
+// it from there (G60). Freezing such a day would take the board away from
+// the people still standing in it, so the earliest of them wins.
+//
+// A team the board has no sprint for decides nothing; no teams at all gives
+// "", and the caller falls back to today.
+func RunningSprintStart(b Board, teams []string) string {
+	out := ""
+	for _, t := range teams {
+		cur := b.SprintStates[t].Current
+		if cur == "" {
+			continue
+		}
+		if out == "" || cur < out {
+			out = cur
+		}
+	}
+	return out
+}
+
 // PreviousSprint returns a team's previous sprint start from its sprint-state
 // card, or "" when the team has no prior sprint. team = "" is the no-team group.
 // It mirrors previousSprint in web/src/sprint.ts.

@@ -24,6 +24,7 @@ import type {
   Card,
   CardDayLog,
   CardEvent,
+  CardListing,
   CardLog,
   CardPatch,
   CarryReport,
@@ -255,10 +256,12 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
 }
 
 export const apiProvider: Provider = {
-  async loadBoard(): Promise<Board> {
+  async loadBoard(query: Record<string, string> = {}): Promise<Board> {
+    const q = new URLSearchParams(query).toString();
+    const suffix = q ? `?${q}` : "";
     const [info, sprints] = await Promise.all([
-      api<BoardResource>("GET", "/board"),
-      api<SprintListResource>("GET", "/sprints"),
+      api<BoardResource>("GET", `/board${suffix}`),
+      api<SprintListResource>("GET", `/sprints${suffix}`),
     ]);
     return {
       // Cards are loaded per view via listCards; the initial set arrives right
@@ -272,7 +275,7 @@ export const apiProvider: Provider = {
 
   async listCards(
     query: Record<string, string>,
-  ): Promise<Card[]> {
+  ): Promise<CardListing> {
     // Listings are board rows (the server-side default): card bodies live
     // behind getCard, and status.links stands in for the row's links icon.
     const qs = Object.keys(query)
@@ -280,8 +283,13 @@ export const apiProvider: Provider = {
       .join("&");
     // LIST responses are served in board order; the Ordering watch events keep
     // the local copy sorted between re-lists.
-    const cards = await api<CardListResource>("GET", `/cards?${qs}`);
-    return (cards.items ?? []).map(resourceToCard);
+    const list = await api<CardListResource>("GET", `/cards?${qs}`);
+    return {
+      cards: (list.items ?? []).map(resourceToCard),
+      // Set when the server answered with a past day's board rather than
+      // today's: the client freezes on that, and says which day it shows.
+      asOf: list.asOf,
+    };
   },
 
   async getCard(uid: string): Promise<Card> {

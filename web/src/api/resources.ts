@@ -148,6 +148,10 @@ export interface CardListResource {
   kind: string;
   items: CardResource[] | null;
   weekly?: { progress: number };
+  /** The moment a SNAPSHOT listing reflects — a past day answered as it
+   *  stood. Absent on a live listing, which is what a day inside the running
+   *  sprint still gets. */
+  asOf?: string;
 }
 
 export interface SprintListResource {

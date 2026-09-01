@@ -93,6 +93,19 @@ function readFilter(): string[] | null {
 const errMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
+// listingMoment is the moment a set of listings reflects: a snapshot's `asOf`
+// when the server answered with a past day's board, null when it answered
+// live. One answer decides for the view — the listings of a view are all of
+// the same moment because they carry the same day.
+function listingMoment(lists: { asOf?: string }[]): string | null {
+  for (const l of lists) {
+    if (l.asOf) {
+      return l.asOf;
+    }
+  }
+  return null;
+}
+
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [tokenWarningDismissed, setTokenWarningDismissed] = useState(false);
@@ -422,9 +435,20 @@ export function App() {
   // handler that did not think about the date cannot write today's board
   // from a view of the past, and the drag sensors are off for the same
   // reason.
-  const snapshot = snapshotDay(view, selectedDate);
+  const [asOf, setAsOf] = useState<string | null>(null);
+  // A day is frozen when the SERVER answered with a past day's board — it
+  // owns that judgement, because a day inside the running sprint is still
+  // live however far back the calendar has moved (the sprint lays itself out
+  // on its own day and the team works it from there). Asking is the client's
+  // part: snapshotDay decides which days are worth asking about.
+  const snapshot = asOf !== null && snapshotDay(view, selectedDate);
   // The watch handler is built once per socket; it reads the mode through a
   // ref rather than closing over it.
+  useEffect(() => {
+    if (!snapshotDay(view, selectedDate)) {
+      setAsOf(null);
+    }
+  }, [view, selectedDate]);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
   const provider = useMemo(() => {
@@ -487,6 +511,22 @@ export function App() {
     [view, selectedDate, teamFilter, roster, viewAs, hasPersonal],
   );
   const activeKey = activeQueries.map(queryString).join("|");
+  // The board (roster + sprint pointers) is fetched for the SAME moment as
+  // the cards: the view rules compare a card's sprint against the pointers,
+  // so a past day's cards under today's pointers are nearly all dropped —
+  // which looks exactly like the snapshot not working.
+  const boardQuery = useMemo<Record<string, string>>(() => {
+    if (!snapshotDay(view, selectedDate)) {
+      return {};
+    }
+    // The SAME selector the cards are asked with, minus what only a listing
+    // needs: where the past begins depends on whose sprints are in view, and
+    // the three reads of one board (cards, sprints, roster) must agree on it
+    // or the day's cards land under another moment's pointers.
+    const { reviews: _reviews, ...rest } = activeQueries[0] ?? {};
+    return { ...rest, snapshot: "1" };
+  }, [view, selectedDate, activeQueries]);
+  const boardKey = queryString(boardQuery);
   const watchKeys = useMemo(
     () =>
       watchQueries(
@@ -610,15 +650,16 @@ export function App() {
       // as one board: a reload() must never leave the board empty while the
       // cards are still in flight (loadBoard itself carries no cards).
       const [loaded, lists, processes] = await Promise.all([
-        provider.loadBoard(),
+        provider.loadBoard(boardQueryRef.current),
         Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q))),
         // The process structure rides with the board from the start; the
         // Board watch frame keeps it current afterwards.
         provider.listProcesses().catch(() => [] as ProcessInfo[]),
       ]);
+      setAsOf(listingMoment(lists));
       setBoard((cur) => ({
         ...loaded,
-        cards: mergeCardLists(lists, cur?.cards),
+        cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards),
         processes,
       }));
     } catch (err: unknown) {
@@ -627,10 +668,13 @@ export function App() {
       endLoad();
     }
   }, [provider, beginLoad, endLoad]);
+  const boardQueryRef = useRef(boardQuery);
+  boardQueryRef.current = boardQuery;
 
   // Load the active view's cards whenever the selection (view/day/teams) changes
   // or the board is (re)loaded. loadBoard brings only identity + sprints; the
   // cards for one view arrive here, so the UI holds just what it shows.
+  const loadedBoardKey = useRef("");
   const activeQueriesRef = useRef(activeQueries);
   activeQueriesRef.current = activeQueries;
   useEffect(() => {
@@ -639,16 +683,32 @@ export function App() {
     }
     let cancelled = false;
     beginLoad();
-    Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q)))
-      .then((lists) => {
+    const wantBoard = loadedBoardKey.current !== boardKey;
+    Promise.all([
+      Promise.all(activeQueriesRef.current.map((q) => provider.listCards(q))),
+      wantBoard ? provider.loadBoard(boardQuery) : Promise.resolve(null),
+    ])
+      .then(([lists, loaded]) => {
         if (cancelled) {
           return;
         }
+        if (loaded) {
+          loadedBoardKey.current = boardKey;
+        }
+        setAsOf(listingMoment(lists));
         // The listing is the row view; the notes, events and bodies already
         // fetched are kept, so switching views costs one request, not one
-        // per card all over again.
+        // per card all over again. A board fetched alongside (the day moved
+        // into or out of a snapshot) replaces the roster and the pointers,
+        // never the cards — those are the listing's.
         setBoard((cur) =>
-          cur ? { ...cur, cards: mergeCardLists(lists, cur.cards) } : cur,
+          cur
+            ? {
+                ...cur,
+                ...(loaded ? { ...loaded, cards: cur.cards, processes: cur.processes } : {}),
+                cards: mergeCardLists(lists.map((l) => l.cards), cur.cards),
+              }
+            : cur,
         );
       })
       .catch((err: unknown) => {
@@ -660,7 +720,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [boardLoaded, activeKey, provider, beginLoad, endLoad]);
+  }, [boardLoaded, activeKey, boardKey, boardQuery, provider, beginLoad, endLoad]);
 
   // The board loads once the session is known (and, in OAuth mode, signed in).
   // A visitor the server turns away gets the load error as the placeholder.
@@ -1258,6 +1318,7 @@ export function App() {
           <MeBoard
             board={board}
             selectedDate={selectedDate}
+            frozen={snapshot}
             onSelectDate={setSelectedDate}
             viewAs={viewAs}
             onViewAs={setViewAsPersisted}
@@ -1322,6 +1383,7 @@ export function App() {
           <TeamBoard
             board={board}
             selectedDate={selectedDate}
+            frozen={snapshot}
             onSelectDate={setSelectedDate}
             provider={provider}
             me={config?.login ?? ""}
