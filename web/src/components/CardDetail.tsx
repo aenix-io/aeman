@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -39,7 +39,26 @@ export function CardDetail({
   // here is editable, and the pane says so rather than pretending.
   const isRecord = !!card.asOf;
   const [title, setTitle] = useState(card.title);
+  // Esc closes it — the modal is a reader as often as an editor, and reaching
+  // for the mouse to leave a card you only opened to look at is a small tax
+  // paid over and over. The title editor answers Esc first (it cancels the
+  // rename), so a card being renamed is not closed out from under the typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !editingTitleRef.current) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const [editingTitle, setEditingTitle] = useState(false);
+  // Read by the Esc listener, which is installed once: the title editor
+  // answers Esc itself (it cancels the rename) and the modal must not close
+  // out from under it.
+  const editingTitleRef = useRef(editingTitle);
+  editingTitleRef.current = editingTitle;
   const [description, setDescription] = useState(card.description ?? "");
   // dirty marks the draft as the user's: once they typed, nothing arriving
   // from the board (a background re-list, the lazy body fetch, a watch frame)
@@ -265,51 +284,52 @@ export function CardDetail({
           </button>
         </div>
 
-        {/* Where this card comes from. A turn of a process and a slot of a
-            project look like ordinary cards on a day board, and the first
-            question about one is always "what is this part of?". */}
-        {(card.process || card.epic || card.project) && (
-          <div className="modal-origin">
-            {card.process && (
-              <span className="modal-origin-item" title="A turn of this process">
-                <span className="modal-origin-kind">process</span>
-                {card.process}
-              </span>
-            )}
-            {card.project && (
-              <span className="modal-origin-item" title="Part of this project">
-                <span className="modal-origin-kind">project</span>
-                {card.project}
-              </span>
-            )}
-            {card.epic && (
-              <span className="modal-origin-item" title="In this column of the plan">
-                <span className="modal-origin-kind">epic</span>
-                {card.epic}
-              </span>
-            )}
+        <div className="modal-toolbar">
+          <div className="modal-tabs" role="tablist" aria-label="Card sections">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "details"}
+              className={`modal-tab${tab === "details" ? " modal-tab-on" : ""}`}
+              onClick={() => setTab("details")}
+            >
+              Details
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "activity"}
+              className={`modal-tab${tab === "activity" ? " modal-tab-on" : ""}`}
+              onClick={() => setTab("activity")}
+            >
+              Activity
+            </button>
           </div>
-        )}
-
-        <div className="modal-tabs" role="tablist" aria-label="Card sections">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "details"}
-            className={`modal-tab${tab === "details" ? " modal-tab-on" : ""}`}
-            onClick={() => setTab("details")}
-          >
-            Details
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "activity"}
-            className={`modal-tab${tab === "activity" ? " modal-tab-on" : ""}`}
-            onClick={() => setTab("activity")}
-          >
-            Activity
-          </button>
+          {/* Where this card comes from. A turn of a process and a slot of a
+              project look like ordinary cards on a day board, and the first
+              question about one is always "what is this part of?". */}
+          {(card.process || card.epic || card.project) && (
+            <div className="modal-origin">
+              {card.process && (
+                <span className="modal-origin-item" title="A turn of this process">
+                  <span className="modal-origin-kind">process</span>
+                  {card.process}
+                </span>
+              )}
+              {card.project && (
+                <span className="modal-origin-item" title="Part of this project">
+                  <span className="modal-origin-kind">project</span>
+                  {card.project}
+                </span>
+              )}
+              {card.epic && (
+                <span className="modal-origin-item" title="In this column of the plan">
+                  <span className="modal-origin-kind">epic</span>
+                  {card.epic}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {tab === "details" && (

@@ -4117,14 +4117,27 @@ button.card-age {
   pointer-events: none;
 }
 
+/* One row under the title: the tabs on the left, what the card belongs to on
+   the right, so the badges read as context rather than as part of the title. */
+.modal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 16px 0;
+}
+
+.modal-toolbar .modal-tabs {
+  margin: 0;
+}
+
 /* Where a card comes from, in its detail and in its badge menu. */
 .modal-origin {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  /* Air above them: with no top padding the row sat on the header's rule and
-     read as part of the title rather than as what the card belongs to. */
-  padding: 10px 16px 8px;
+  margin-left: auto;
+  min-width: 0;
 }
 
 .modal-origin-item {
