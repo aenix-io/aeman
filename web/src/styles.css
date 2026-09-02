@@ -4971,26 +4971,12 @@ button.card-age {
   color: var(--danger);
 }
 
-/* The lanes are zone areas, each its own height; only the count sits in
-   the corner. The spine is taken OUT of the flow here: as a flex item its
-   vertical word sets the area's natural height, which on a day board is
-   what keeps a zone tall enough to drop into, but in a week column made an
-   empty lane a tall blank block. Absolutely placed it still reads bottom
-   to top, clipped when the lane is shorter than the word. */
+/* The lanes are zone areas, each its own height — never shorter than the
+   word that names it, which the spine sets as a flex item, exactly as on
+   the day boards. Only the count sits in the corner. */
 .backlog-col .zone-area {
-  position: relative;
   border-radius: 0;
   flex: none;
-  min-height: 26px;
-  padding-left: 15px;
-}
-
-.backlog-col .zone-spine {
-  position: absolute;
-  left: 2px;
-  top: 3px;
-  bottom: 3px;
-  overflow: hidden;
 }
 
 .backlog-lane-head {
@@ -5006,17 +4992,9 @@ button.card-age {
   font-weight: 400;
 }
 
-.backlog-lane-over {
-  box-shadow: inset 0 0 0 1px var(--danger);
-}
-
 .backlog-lane-over .backlog-lane-head {
   color: var(--danger);
   font-weight: 700;
-}
-
-.backlog-lane-starved {
-  box-shadow: inset 0 0 0 1px var(--amber);
 }
 
 .backlog-lane-starved .backlog-lane-head {
