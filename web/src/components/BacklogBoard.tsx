@@ -3,7 +3,7 @@
 // each column has three lanes by the source of the work, and a strip above
 // the columns holds what nobody placed yet. A card is placed by dragging it
 // into a lane of a week; the server decides what that does to it (Place).
-import { useCallback, useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import type { Board, Card as CardModel, Lane, Provider } from "../providers/types";
 import { addDays, mondayOf, todayIso } from "../date";
 import { BACKLOG_WEEKS } from "../viewquery";
@@ -16,10 +16,14 @@ type BacklogMeta =
   | { kind: "triage"; team: string }
   | { kind: "cell"; team: string; week: string; lane: Lane | "" };
 
-const LANES: { key: Lane; label: string }[] = [
-  { key: "client", label: "client" },
-  { key: "plan", label: "plan" },
-  { key: "internal", label: "internal" },
+// The lanes wear the day boards' zone colours, so the same colour means the
+// same thing across the app: inbound is what the day boards call unplanned,
+// the plan is planned, and internal is the work that is done when there is
+// time — which is the fate the lane's floor exists to prevent.
+const LANES: { key: Lane; spine: string; accent: string; background: string }[] = [
+  { key: "client", spine: "CLIENT", accent: "var(--zone-yellow-accent)", background: "var(--zone-yellow-bg)" },
+  { key: "plan", spine: "PLAN", accent: "var(--zone-gray-accent)", background: "var(--zone-gray-bg)" },
+  { key: "internal", spine: "INTERNAL", accent: "var(--zone-green-accent)", background: "var(--zone-green-bg)" },
 ];
 
 // The default lane shares, in percent of the week, for a team that set none
@@ -265,6 +269,7 @@ export function BacklogBoard({
       );
     }
     const cap = capacityOf(team);
+    const def = LANES.find((l) => l.key === lane) ?? LANES[0];
     const n = group.cards.length;
     const share = lane === "client" ? cap.client : lane === "internal" ? cap.internal : 0;
     const limit = cap.week > 0 && share > 0 ? Math.round((cap.week * share) / 100) : 0;
@@ -276,25 +281,36 @@ export function BacklogBoard({
       tone = " backlog-lane-starved";
     }
     return (
-      <div
+      <section
         key={group.key}
-        ref={dropRef as Ref<HTMLDivElement>}
-        className={`backlog-lane backlog-lane-${lane}${tone}${isOver ? " backlog-dragover" : ""}`}
+        ref={dropRef as Ref<HTMLElement>}
+        className={`zone-area backlog-lane${tone}${isOver ? " zone-area-dragover" : ""}`}
+        style={
+          {
+            background: def.background,
+            borderLeftColor: def.accent,
+            "--zone-accent": def.accent,
+          } as CSSProperties
+        }
       >
-        <div className="backlog-lane-head">
-          <span>{lane}</span>
-          <span className="backlog-count">
-            {n}
-            {limit > 0 && (
-              <span className="backlog-limit">
-                {lane === "internal" ? " ≥ " : " ≤ "}
-                {limit}
+        <span className="zone-spine">{def.spine}</span>
+        <div className="zone-cards">
+          {(n > 0 || limit > 0) && (
+            <div className="backlog-lane-head">
+              <span className="backlog-count">
+                {n}
+                {limit > 0 && (
+                  <span className="backlog-limit">
+                    {lane === "internal" ? " ≥ " : " ≤ "}
+                    {limit}
+                  </span>
+                )}
               </span>
-            )}
-          </span>
+            </div>
+          )}
+          {body}
         </div>
-        {body}
-      </div>
+      </section>
     );
   };
 
@@ -370,10 +386,10 @@ export function BacklogBoard({
                       !isDone(c),
                   ),
                 );
-                return (
+                return [
                   <div
                     key={week}
-                    className={`backlog-col${week === from ? " backlog-col-now" : ""}${over ? " backlog-col-over" : ""}${lines.length ? " backlog-col-deadline" : ""}${breached.length ? " backlog-col-breached" : ""}`}
+                    className={`backlog-col${week === from ? " backlog-col-now" : ""}${over ? " backlog-col-over" : ""}`}
                   >
                     <div className="backlog-col-head">
                       <span className="backlog-col-week">{week === from ? "this week" : weekLabel(week)}</span>
@@ -384,17 +400,22 @@ export function BacklogBoard({
                     </div>
                     {LANES.map((l) => nodes.get(cellKey(team, week, l.key)))}
                     {nodes.get(cellKey(team, week, ""))}
+                  </div>,
+                  // The gap after the column carries the deadlines that fall
+                  // in its week: the line stands between the weeks, where a
+                  // card on the far side of it is past it.
+                  <div key={`${week}:gap`} className={`backlog-gap${lines.length ? " backlog-gap-deadline" : ""}`}>
                     {lines.map((d) => (
                       <div
                         key={d.project}
                         className={`backlog-deadline${breached.includes(d) ? " backlog-deadline-breached" : ""}`}
-                        title={`Deadline of ${d.project} in this week`}
+                        title={`Deadline of ${d.project} — end of the week of ${weekLabel(d.week)}`}
                       >
-                        ⚑ {d.project}
+                        <span className="backlog-deadline-label">⚑ {d.project}</span>
                       </div>
                     ))}
-                  </div>
-                );
+                  </div>,
+                ];
               })}
             </div>
           </section>
