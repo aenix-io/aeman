@@ -5,8 +5,10 @@ import type { Board, Card, Provider } from "../providers/types";
 
 // Triage reads down a person's column: every card is a plain box of one week,
 // they stand one under the next at the full column width, and the week grows
-// to hold them. This is the one test that proves the tree comes out that way
-// — markup only, so what it pins is the shape, not the gestures.
+// to hold them. The first row is NOW, and it carries everything the team has
+// — this week's work and everything nobody has given a week. This is the one
+// test that proves the tree comes out that way: markup only, so what it pins
+// is the shape, not the gestures.
 
 // 2026-08-31 is a Monday, and the grid opens on the week holding today.
 const store = new Map<string, string>();
@@ -131,21 +133,35 @@ describe("the Triage board", () => {
     expect(html.match(/project-week[ "]/g)?.length).toBe(9);
   });
 
-  it("holds what nobody has given a week in the strip", () => {
-    const html = draw([card({ week: undefined, title: "Waiting for a week" })]);
-    expect(html).toContain("needs triage");
-    expect(html).toContain("Waiting for a week");
-    expect(html).toContain("triage-card");
+  it("stands what nobody has given a week in the first row, with this week's work", () => {
+    const html = draw([
+      card({ title: "Planned for this week" }),
+      card({ itemId: "c2", week: undefined, title: "Nobody has dated it" }),
+    ]);
+    // Both in row 2 — the grid's first row, which is now — one under the
+    // other, and drawn exactly alike: the row is what the team is carrying.
+    expect(html).toContain("grid-row:2;height:24px;margin-top:0px");
+    expect(html).toContain("grid-row:2;height:24px;margin-top:28px");
+    expect(html).toContain("Nobody has dated it");
+    // No pile beside the grid any more.
+    expect(html).not.toContain("triage-strip");
   });
 
-  it("says so when the strip is empty", () => {
-    expect(draw([card()])).toContain("nothing waiting for a week");
+  it("counts what is waiting, so the size of the pile is not a surprise", () => {
+    const html = draw([card({ week: undefined }), card({ itemId: "c2", week: undefined })]);
+    expect(html).toContain("2 untriaged");
   });
 
-  it("keeps a review out of the strip — it follows the card it reviews", () => {
+  it("stands a card of no week in its owner's column", () => {
+    const html = draw([card({ week: undefined, assignees: ["lexfrei"] })]);
+    // Column 3: the week labels, then Unassigned, then lexfrei.
+    expect(html).toContain("grid-column:3");
+  });
+
+  it("draws no review of its own — it follows the card it reviews", () => {
     const html = draw([card({ week: undefined, title: "Review of it", reviewOf: "c9" })]);
-    expect(html).toContain("nothing waiting for a week");
     expect(html).not.toContain("Review of it");
+    expect(html).toContain("0 untriaged");
   });
 
   it("keeps a review with a week on the board, where the work is", () => {
@@ -153,12 +169,12 @@ describe("the Triage board", () => {
     expect(html).toContain("Review of it");
   });
 
-  it("keeps a card sent to review out of the strip — it waits on a reviewer", () => {
+  it("draws no card sent to review — it waits on a reviewer, not on a week", () => {
     const html = draw([
       card({ week: undefined, title: "Sent to review", stage: "review", progress: 85 }),
     ]);
-    expect(html).toContain("nothing waiting for a week");
     expect(html).not.toContain("Sent to review");
+    expect(html).toContain("0 untriaged");
   });
 
   it("keeps a card sent to review on the board once it has a week", () => {
