@@ -2,10 +2,10 @@ package gitstore
 
 import (
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/utils/merkletrie"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
@@ -60,9 +60,15 @@ func LoadAsOf(r *Repo, at time.Time) (Snapshot, bool, error) {
 // A day is everything that stood on it. The × takes a card off the board and
 // the file goes, so a card worked and tidied away the same day is absent from
 // the tree the day ended with; reading only that tree loses exactly the work
-// the day is remembered for. Every card the day removed is read back from the
-// commit that removed it — its last state, done if that is how it went — and
-// a card removed and then made again is left to the tree, which has it.
+// the day is remembered for.
+//
+// What the day removed is read from what is already written down rather than
+// from comparing trees: every commit NAMES the cards it touched (the
+// Aeman-Cards trailer), and the two snapshots the day is bounded by say what
+// it began and ended with. Only the few cards that actually went are looked
+// up in a tree. The first version diffed every commit of the day against its
+// parent, which on a board of 2400 cards and three hundred commits a day cost
+// 75 seconds per request — the board hung on every past day.
 //
 // `from` is the previous day's last moment and `to` this one's. ok follows
 // LoadAsOf: false when the day is behind the clone's horizon.
@@ -75,107 +81,127 @@ func LoadAsOfDay(r *Repo, from, to time.Time) (Snapshot, bool, error) {
 	for _, c := range s.Cards {
 		held[c.ItemID] = true
 	}
-	gone, err := cardsRemovedBetween(r, from, to)
+	gone, err := cardsRemovedBetween(r, from, to, held)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	for _, c := range gone {
-		if held[c.ItemID] {
-			continue
-		}
-		held[c.ItemID] = true
-		s.Cards = append(s.Cards, c)
-	}
+	s.Cards = append(s.Cards, gone...)
 	return s, true, nil
 }
 
-// cardsRemovedBetween reads every card whose file a commit in (from, to]
-// deleted, in the state that commit's parent held — walking the day newest
-// first, so a card deleted more than once is read as it went the last time.
-func cardsRemovedBetween(r *Repo, from, to time.Time) ([]board.Card, error) {
-	var out []board.Card
-	seen := map[string]bool{}
+// cardsRemovedBetween reads every card that stood on the day and is not on
+// its last tree — the ones the day removed — in the state each was in when it
+// went. `held` is what the day ended with.
+func cardsRemovedBetween(r *Repo, from, to time.Time, held map[string]bool) ([]board.Card, error) {
+	day, touched, err := commitsOfDay(r, from, to)
+	if err != nil {
+		return nil, err
+	}
+	// What the day BEGAN with: a writer that leaves no trailers still shows
+	// up here, as a card present at the start and absent at the end.
+	began, ok, err := LoadAsOf(r, from)
+	if err != nil {
+		return nil, err
+	}
+	start := map[string]board.Card{}
+	if ok {
+		for _, c := range began.Cards {
+			start[c.ItemID] = c
+		}
+	}
+
+	ids := make([]string, 0, len(touched))
+	for id := range touched {
+		if !held[id] {
+			ids = append(ids, id)
+		}
+	}
+	for id := range start {
+		if _, named := touched[id]; !held[id] && !named {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids) // a stable answer; the caller sorts by rank anyway
+
+	out := make([]board.Card, 0, len(ids))
+	for _, id := range ids {
+		c, found, err := lastStateInDay(id, day, touched[id])
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			// Never written during the day: it went with the day's first
+			// commit, and the state it went in is the one the day began with.
+			if was, ok := start[id]; ok {
+				out = append(out, was)
+			}
+			continue
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// commitsOfDay is the day's commits, newest first, and the cards they name:
+// every commit says which cards it touched (the Aeman-Cards trailer), so the
+// ones that left are found without opening a single tree.
+func commitsOfDay(r *Repo, from, to time.Time) ([]*object.Commit, map[string]int, error) {
+	var day []*object.Commit
+	touched := map[string]int{}
 	h := r.Head()
 	for !h.IsZero() {
 		c, err := object.GetCommit(r.s, h)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !c.Committer.When.After(from) {
-			return out, nil // back at the day's start
-		}
-		if c.NumParents() == 0 {
-			return out, nil
-		}
-		parent, err := c.Parent(0)
-		if err != nil {
-			return nil, err
+			break // back at the day's start
 		}
 		if !c.Committer.When.After(to) {
-			removed, err := cardsRemovedBy(parent, c)
-			if err != nil {
-				return nil, err
-			}
-			for _, card := range removed {
-				if seen[card.ItemID] {
-					continue
+			for _, id := range ParseTrailers(c.Message).Cards {
+				if _, seen := touched[id]; !seen {
+					touched[id] = len(day)
 				}
-				seen[card.ItemID] = true
-				out = append(out, card)
 			}
+			day = append(day, c)
+		}
+		if c.NumParents() == 0 {
+			break
 		}
 		h = c.ParentHashes[0]
 	}
-	return out, nil
+	return day, touched, nil
 }
 
-// cardsRemovedBy is the cards a commit deleted, read from the tree it was
-// made on. Only card files count: a roster entry is not a card, and a
-// changed file is not a removed one.
-func cardsRemovedBy(parent, c *object.Commit) ([]board.Card, error) {
-	before, err := parent.Tree()
+// lastStateInDay reads a card's last state inside the day: the newest commit
+// of it whose tree still holds the file. The search starts at the commit that
+// last NAMED the card — which is the one that removed it, whose own tree no
+// longer has it and whose neighbour below does — so it opens a tree or two
+// rather than the day's worth.
+func lastStateInDay(id string, day []*object.Commit, at int) (board.Card, bool, error) {
+	p, err := CardPath(id)
 	if err != nil {
-		return nil, err
+		return board.Card{}, false, err
 	}
-	after, err := c.Tree()
-	if err != nil {
-		return nil, err
-	}
-	changes, err := object.DiffTree(before, after)
-	if err != nil {
-		return nil, err
-	}
-	var out []board.Card
-	for _, ch := range changes {
-		action, err := ch.Action()
+	for i := at; i < len(day); i++ {
+		f, err := day[i].File(p)
 		if err != nil {
-			return nil, err
-		}
-		if action != merkletrie.Delete {
-			continue
-		}
-		kind, parts := ParsePath(ch.From.Name)
-		if kind != PathCard {
-			continue
-		}
-		id := parts[0]
-		f, err := before.File(ch.From.Name)
-		if err != nil {
-			if errors.Is(err, object.ErrFileNotFound) {
+			if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
 				continue
 			}
-			return nil, err
+			return board.Card{}, false, err
 		}
 		data, err := f.Contents()
 		if err != nil {
-			return nil, err
+			return board.Card{}, false, err
 		}
 		card, err := DecodeCard(id, []byte(data))
 		if err != nil {
-			// A file the decoder cannot read is not a card anyone saw.
-			continue
+			// A file the decoder cannot read is not a card anyone saw; the
+			// day answers without it rather than failing over one bad file.
+			return board.Card{}, false, nil //nolint:nilerr // deliberate
 		}
-		out = append(out, card.Card)
+		return card.Card, true, nil
 	}
-	return out, nil
+	return board.Card{}, false, nil
 }

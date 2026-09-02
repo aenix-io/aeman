@@ -54,21 +54,24 @@ func TestADeletedCardStandsOnTheDayItWasWorked(t *testing.T) {
 		}
 		return when
 	}
-	commit := func(iso, summary string, writes ...gitstore.FileWrite) {
+	// Every commit names the cards it touched, as the server's own do: that
+	// is what a day reads to find what it removed.
+	commit := func(iso, summary string, ids []string, writes ...gitstore.FileWrite) {
 		t.Helper()
-		if _, err := r.Commit(gitstore.Action{Name: "write", Summary: summary, At: at(iso)}, writes); err != nil {
+		if _, err := r.Commit(gitstore.Action{Name: "write", Actor: "kvaps", Cards: ids,
+			Summary: summary, At: at(iso)}, writes); err != nil {
 			t.Fatal(err)
 		}
 	}
-	commit("2026-08-24T08:00:00Z", "the sprint opens",
+	commit("2026-08-24T08:00:00Z", "the sprint opens", []string{gone, kept},
 		gitstore.FileWrite{Path: gitstore.BoardPath, Data: []byte("schema: 1\ntitle: t\n")},
 		team(day, prev),
 		card(gone, 40), card(kept, 40))
-	commit("2026-08-24T15:00:00Z", "done", card(gone, 100))
+	commit("2026-08-24T15:00:00Z", "done", []string{gone}, card(gone, 100))
 	// The × takes it off the board: the file goes (a write with no data).
-	commit("2026-08-24T15:05:00Z", "the × takes it off", gitstore.FileWrite{Path: path(gone)})
-	commit("2026-08-24T18:00:00Z", "still going", card(kept, 60))
-	commit("2026-08-31T09:00:00Z", "a new sprint", team("2026-08-31", day))
+	commit("2026-08-24T15:05:00Z", "the × takes it off", []string{gone}, gitstore.FileWrite{Path: path(gone)})
+	commit("2026-08-24T18:00:00Z", "still going", []string{kept}, card(kept, 60))
+	commit("2026-08-31T09:00:00Z", "a new sprint", nil, team("2026-08-31", day))
 	if err := r.Push(context.Background(), remote); err != nil {
 		t.Fatal(err)
 	}
