@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -6,7 +6,7 @@ import type {
   Provider,
 } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
-import { addDays, mondayOf, todayIso } from "../date";
+import { addDays } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
@@ -36,14 +36,7 @@ import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
 import { ZoomControl } from "./ZoomControl";
-import {
-  MIN_COL_PX,
-  type Zoom,
-  anchoredScroll,
-  clampZoom,
-  columnFactor,
-  wheelZoom,
-} from "../projectZoom";
+import { MIN_COL_PX, columnFactor } from "../projectZoom";
 import {
   GUTTER_PX,
   HEADER_PX,
@@ -54,11 +47,9 @@ import {
   extentOf,
   isoWeekNo,
   packLanes,
-  rowPx,
-  sharedColumnPx,
   weekLabel,
-  weekWindow,
 } from "../weekgrid";
+import { useWeekGrid } from "./useWeekGrid";
 
 interface ProjectBoardProps {
   board: Board;
@@ -145,37 +136,6 @@ const LS_ZOOM = "aeman.projectZoom";
 const NUDGE_PX = 13;
 const NUDGE_DELAY_MS = 500;
 
-function readColFactors(): Record<string, number> {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(LS_COLF) ?? "null");
-    if (v && typeof v === "object") {
-      return Object.fromEntries(
-        Object.entries(v as Record<string, unknown>).filter(
-          ([, f]) => typeof f === "number" && f > 0 && f < 20,
-        ),
-      ) as Record<string, number>;
-    }
-  } catch {
-    // A corrupt entry is not worth a broken board.
-  }
-  return {};
-}
-
-function readZoom(): Zoom {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(LS_ZOOM) ?? "null");
-    if (v && typeof v === "object") {
-      const z = v as { x?: unknown; y?: unknown };
-      return {
-        x: clampZoom(typeof z.x === "number" ? z.x : 1),
-        y: clampZoom(typeof z.y === "number" ? z.y : 1),
-      };
-    }
-  } catch {
-    // ditto
-  }
-  return { x: 1, y: 1 };
-}
 
 
 /** The Project board: weeks as rows and one project's epics as columns, cards
@@ -197,8 +157,6 @@ export function ProjectBoard({
   onError,
   onOpen,
 }: ProjectBoardProps) {
-  const today = todayIso();
-  const thisMonday = mondayOf(today);
 
   // Which project(s) the chips select; null is every project. "" is the chip
   // for columns that belong to no project.
@@ -254,10 +212,19 @@ export function ProjectBoard({
     return board.cards.filter((c) => drawnOnProjectBoard(c, shown));
   }, [board.cards, epics]);
 
-  // The week window: two weeks of history before today (or the earliest
-  // card), through the latest card plus a quarter of runway to plan into.
-  // How far the window reaches beyond the default, in weeks, grown by the
-  // buttons at either end — planning is not confined to a fixed horizon.
+  // The grid itself: the week window, the zoom, the column widths, the
+  // measurements and the two hit tests. The selection it is given is which
+  // projects are on screen — the board opens on today once for each, and a
+  // reader who scrolled away from one is not yanked back on return.
+  const grid = useWeekGrid({
+    dated: cards,
+    columns: epics.length,
+    store: { zoom: LS_ZOOM, widths: LS_COLF },
+    selection: filter ? [...filter].sort().join("\u0000") : "*",
+  });
+  const { weeks, todayRow, today, rowH, sharedCol, colFactors, zoom } = grid;
+  const { scrollRef, gridRef, wrapRef, rowAt } = grid;
+
   // The card currently stepped aside to leave room for a new one beside it.
   const [nudged, setNudged] = useState<string | null>(null);
   const nudgeTimer = useRef<number | null>(null);
@@ -267,52 +234,15 @@ export function ProjectBoard({
       nudgeTimer.current = null;
     }
   };
-  const [padBack, setPadBack] = useState(0);
-  const [padFwd, setPadFwd] = useState(0);
-
   // Column width: null until dragged, when the columns just share the room —
   // the right default. One width governs every column of the selection,
   // because a plan reads as a grid and columns of assorted widths stop being
   // comparable; a different selection carries its own width.
-  // How much bigger the board draws its cells, and which columns keep a width
-  // of their own (a ratio to the shared width, so zoom scales it too).
-  const [zoom, setZoomState] = useState<Zoom>(readZoom);
-  const zoomRef = useRef(zoom);
-  const [colFactors, setColFactorsState] = useState<Record<string, number>>(readColFactors);
-  const factorsRef = useRef(colFactors);
   const [resizing, setResizing] = useState<{
     key: string;
     x: number;
     from: number;
   } | null>(null);
-
-  const setZoom = (z: Zoom) => {
-    zoomRef.current = z;
-    setZoomState(z);
-    localStorage.setItem(LS_ZOOM, JSON.stringify(z));
-  };
-  // The width a column has when it has no width of its own: what the columns
-  // would share at zoom 1, scaled by the zoom. Measured from the board rather
-  // than assumed, so zooming starts from what is actually on screen instead of
-  // jumping to a constant the first time it is touched.
-  const [boardW, setBoardW] = useState(0);
-  const sharedCol = useMemo(
-    () => sharedColumnPx(boardW, epics.length, zoom.x, MIN_COL_PX),
-    [boardW, epics.length, zoom.x],
-  );
-  const rowH = rowPx(zoom.y);
-
-  const setColFactor = (key: string, f: number | null) => {
-    const next = { ...factorsRef.current };
-    if (f === null) {
-      delete next[key];
-    } else {
-      next[key] = f;
-    }
-    factorsRef.current = next;
-    setColFactorsState(next);
-    localStorage.setItem(LS_COLF, JSON.stringify(next));
-  };
 
   // Dragging a column header sideways reorders the columns. A column can
   // always be moved among the columns of ITS OWN project — that order is what
@@ -408,7 +338,7 @@ export function ProjectBoard({
       return;
     }
     const width = Math.max(MIN_COL_PX, Math.round(resizing.from + (e.clientX - resizing.x)));
-    setColFactor(resizing.key, columnFactor(width, sharedCol));
+    grid.setColFactor(resizing.key, columnFactor(width, sharedCol));
   };
 
   const endResize = () => {
@@ -416,70 +346,6 @@ export function ProjectBoard({
       return;
     }
     setResizing(null);
-  };
-
-  // Where the scroller must land after the next zoom-driven re-layout, so the
-  // point under the cursor stays under it.
-  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    const want = pendingScroll.current;
-    if (!el || !want) {
-      return;
-    }
-    pendingScroll.current = null;
-    el.scrollLeft = want.left;
-    el.scrollTop = want.top;
-  }, [zoom]);
-
-  // Ctrl/Cmd + wheel zooms the board. Both axes move by the same step from
-  // wherever they are, so the two sliders keep their offset; the browser's
-  // own page zoom is what the modifier would otherwise do, hence preventing
-  // the default.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) {
-      return;
-    }
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) {
-        return;
-      }
-      e.preventDefault();
-      const was = zoomRef.current;
-      const next = wheelZoom(was, e.deltaY);
-      // Zoom around the cursor: work out where the board must be scrolled to
-      // leave the point under the pointer where it is, and apply it AFTER the
-      // grid has been re-laid — a scroll set against the old size is clamped
-      // to it, which is what makes a naive version drift.
-      const box = el.getBoundingClientRect();
-      pendingScroll.current = {
-        left: anchoredScroll(el.scrollLeft, e.clientX - box.left, WEEK_COL_PX, next.x / was.x),
-        top: anchoredScroll(el.scrollTop, e.clientY - box.top, HEADER_PX, next.y / was.y),
-      };
-      setZoom(next);
-    };
-    // Not passive: the whole point is to take the gesture from the browser.
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const weeks = useMemo(
-    () => weekWindow(cards, thisMonday, padBack, padFwd),
-    [cards, thisMonday, padBack, padFwd],
-  );
-
-  // Prepending rows would slide the grid under the reader, so the scroll
-  // position is moved by exactly the height added.
-  const showEarlier = () => {
-    const scroller = scrollRef.current;
-    setPadBack(padBack + WEEK_STEP);
-    if (scroller) {
-      requestAnimationFrame(() => {
-        scroller.scrollTop += WEEK_STEP * rowH;
-      });
-    }
   };
 
   // ---- drag-to-create (and resize): a pressed column stretch becomes a slot.
@@ -504,23 +370,6 @@ export function ProjectBoard({
     from: number;
     to: number;
   } | null>(null);
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  // The scrolling ancestor — .project-board, not the grid inside it.
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  // The deadline handles live in a layer ABOVE the board, not inside it: a
-  // scroll container clips at its own edge, so a handle that has to straddle
-  // that edge cannot be a child of it. The layer is placed over the board and
-  // scrolled by hand, which keeps the handles glued to their rows.
-  // The layer's containing block, measured against explicitly rather than via
-  // offsetParent — which is whatever happens to be positioned up the tree.
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const [boardBox, setBoardBox] = useState<{
-    left: number;
-    top: number;
-    height: number;
-    gridTop: number;
-  } | null>(null);
-
   const setDrag = (v: typeof drag) => {
     dragRef.current = v;
     setDragState(v);
@@ -551,33 +400,8 @@ export function ProjectBoard({
   } | null>(null);
 
   const epicAt = (clientX: number): EpicRef | null => {
-    const grid = gridRef.current;
-    if (!grid) {
-      return null;
-    }
-    const heads = grid.querySelectorAll(".project-epic-head:not(.project-epic-add)");
-    for (let i = 0; i < heads.length; i++) {
-      const r = heads[i].getBoundingClientRect();
-      if (clientX >= r.left && clientX < r.right) {
-        return epics[i] ?? null;
-      }
-    }
-    return null;
-  };
-
-  const rowAt = (clientY: number): number => {
-    const grid = gridRef.current;
-    if (!grid) {
-      return 0;
-    }
-    const rows = grid.querySelectorAll(".project-week");
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i].getBoundingClientRect();
-      if (clientY < r.bottom) {
-        return i;
-      }
-    }
-    return rows.length - 1;
+    const col = grid.columnAt(clientX);
+    return col === null ? null : (epics[col] ?? null);
   };
 
   const beginDrag = (
@@ -1025,39 +849,6 @@ export function ProjectBoard({
     void call.catch((err: unknown) => onError(errText(err)));
   };
 
-  // Measure the board (and where the grid starts inside it) whenever the
-  // layout can have moved. Cheap, and never during a scroll.
-  useLayoutEffect(() => {
-    const board = scrollRef.current;
-    const grid = gridRef.current;
-    const host = wrapRef.current;
-    if (!board || !grid || !host) {
-      setBoardBox(null);
-      return;
-    }
-    const measure = () => {
-      const b = board.getBoundingClientRect();
-      const h = host.getBoundingClientRect();
-      const g = grid.getBoundingClientRect();
-      setBoardBox({
-        left: b.left - h.left,
-        top: b.top - h.top,
-        height: b.height,
-        gridTop: g.top - b.top + board.scrollTop,
-      });
-      // The room the columns divide between them, for the zoom's base width.
-      setBoardW(b.width);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(board);
-    window.addEventListener("resize", measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [weeks.length, epics.length, sharedCol, padBack, padFwd]);
-
 
   const beginLineDrag = (
     project: string,
@@ -1407,34 +1198,6 @@ export function ProjectBoard({
       .map((p) => ({ project: p, ...progressOf(byProject.get(p) ?? []) }));
   }, [board.cards, board.projects, byId]);
 
-  const todayRow = weeks.indexOf(thisMonday);
-
-  // Open on today. A plan reaches months back, and the board opened at its
-  // very first week — someone arriving had to scroll past a spent quarter to
-  // find out where the team is. Once per project shown: after that the scroll
-  // is the reader's, and pressing "earlier weeks" must not yank it back.
-  // Which selection is on screen — the identity the open-on-today scroll
-  // remembers, so switching projects opens on today again.
-  const selectionKey = filter ? [...filter].sort().join("\u0000") : "*";
-  const scrolledFor = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    const scroller = scrollRef.current;
-    if (!scroller || !boardBox || todayRow < 0 || scrolledFor.current === selectionKey) {
-      return;
-    }
-    const top = Math.max(0, boardBox.gridTop + HEADER_PX + (todayRow - 2) * rowH);
-    // After the paint: switching project rebuilds the grid, and a scroll set
-    // before it has its new height is clamped to the old one. The mark is set
-    // in the callback, not here — this effect re-runs as the new board is
-    // measured, and a mark set up front would cancel the pending frame and
-    // then refuse to schedule another, which is why switching never moved.
-    const frame = requestAnimationFrame(() => {
-      scrolledFor.current = selectionKey;
-      scroller.scrollTop = top;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [boardBox, todayRow, selectionKey, weeks.length]);
-
   // The projects the week menu can act on: those in view, or the whole roster
   // when nothing is filtered. The no-project bucket is included in both cases
   // — deadlines belonging to no project exist and have to be manageable.
@@ -1482,7 +1245,7 @@ export function ProjectBoard({
           onManage={onManageProjects}
           noneChip={looseEpics ? "No project" : undefined}
         />
-        {!empty && <ZoomControl zoom={zoom} onChange={setZoom} />}
+        {!empty && <ZoomControl zoom={zoom} onChange={grid.setZoom} />}
       </div>
       {empty && (
         <div className="project-empty">
@@ -1533,7 +1296,7 @@ export function ProjectBoard({
       <button
         type="button"
         className="project-more"
-        onClick={showEarlier}
+        onClick={grid.showEarlier}
         title={`Show ${WEEK_STEP} more weeks before`}
       >
         ↑ earlier weeks
@@ -1565,15 +1328,7 @@ export function ProjectBoard({
               type="button"
               className="project-cols-reset"
               title="Give the columns on this board the same width again (columns not shown keep theirs)"
-              onClick={() => {
-                const next = { ...factorsRef.current };
-                for (const e of epics) {
-                  delete next[colKey(e.project, e.name)];
-                }
-                factorsRef.current = next;
-                setColFactorsState(next);
-                localStorage.setItem(LS_COLF, JSON.stringify(next));
-              }}
+              onClick={() => grid.resetColFactors(epics.map((e) => colKey(e.project, e.name)))}
             >
               ⇥⇤
             </button>
@@ -1671,7 +1426,7 @@ export function ProjectBoard({
                 onPointerCancel={() => setResizing(null)}
                 onDoubleClick={(ev) => {
                   ev.stopPropagation();
-                  setColFactor(k, null);
+                  grid.setColFactor(k, null);
                 }}
               />
             </div>
@@ -2172,7 +1927,7 @@ export function ProjectBoard({
         <button
           type="button"
           className="project-more"
-          onClick={() => setPadFwd(padFwd + WEEK_STEP)}
+          onClick={grid.showLater}
           title={`Show ${WEEK_STEP} more weeks after`}
         >
           ↓ later weeks
