@@ -63,6 +63,18 @@ type Repo struct {
 	snapMu   sync.Mutex
 	snapHead plumbing.Hash
 	snap     *Snapshot
+	// asOfMu guards the moments already resolved to a commit (asOfSeen),
+	// under the head they were resolved at. Finding "the newest commit at or
+	// before this evening" walks back from the head one commit at a time, so
+	// an old day costs the whole history — and a person stepping back through
+	// the days pays it again on every step. A moment already answered is the
+	// place the next walk STARTS from: the answer for a later moment is an
+	// ancestor of the head and no newer than the day being asked for, so the
+	// walk from it is the same walk, minus the part already done.
+	asOfMu      sync.Mutex
+	asOfHead    plumbing.Hash
+	asOfHorizon string
+	asOfSeen    []resolvedAt
 }
 
 // snapshotAt returns the memoized snapshot for a tip, if that is the tip it
@@ -156,6 +168,58 @@ func wrap(s storage.Storer, opts Options) *Repo {
 		opts.AuthorEmail = func(login string) string { return login + "@aeman" }
 	}
 	return &Repo{s: s, opts: opts, branch: opts.Branch}
+}
+
+// resolvedAt is a moment answered: the newest commit made at or before it,
+// and whether the history reaches back that far at all.
+type resolvedAt struct {
+	at   time.Time
+	hash plumbing.Hash
+	ok   bool
+}
+
+// asOfStart is where a walk for `at` should begin, and the answer itself when
+// it is already known. The head is the fallback.
+func (r *Repo) asOfStart(at time.Time, head plumbing.Hash, horizon string) (start plumbing.Hash, known *resolvedAt) {
+	r.asOfMu.Lock()
+	defer r.asOfMu.Unlock()
+	// The HORIZON is part of the answer as much as the head is: a deepen
+	// makes days readable that were refused a moment ago, and a memo that
+	// forgot it answered a day the clone did not hold with the day beside it.
+	if r.asOfHead != head || r.asOfHorizon != horizon {
+		r.asOfHead, r.asOfHorizon, r.asOfSeen = head, horizon, nil
+	}
+	start = head
+	var best *resolvedAt
+	for i := range r.asOfSeen {
+		e := &r.asOfSeen[i]
+		if e.at.Equal(at) {
+			return start, e
+		}
+		// The closest moment ABOVE the one asked for: its commit is at or
+		// before it, so nothing between it and here can be newer than `at`.
+		if e.ok && !e.at.Before(at) && (best == nil || e.at.Before(best.at)) {
+			best = e
+		}
+	}
+	if best != nil {
+		start = best.hash
+	}
+	return start, nil
+}
+
+// asOfResolved remembers a moment's answer, keeping the memo small.
+func (r *Repo) asOfResolved(at time.Time, head plumbing.Hash, horizon string, h plumbing.Hash, ok bool) {
+	r.asOfMu.Lock()
+	defer r.asOfMu.Unlock()
+	if r.asOfHead != head || r.asOfHorizon != horizon {
+		return // it moved under us: the answer is not ours to keep
+	}
+	const keep = 32
+	if len(r.asOfSeen) >= keep {
+		r.asOfSeen = r.asOfSeen[1:]
+	}
+	r.asOfSeen = append(r.asOfSeen, resolvedAt{at: at, hash: h, ok: ok})
 }
 
 // Storer exposes the underlying object store (for sync and tests).

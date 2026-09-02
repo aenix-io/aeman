@@ -642,11 +642,30 @@ func (b *storeBackend) loadPast(ctx context.Context, kind string, at time.Time,
 	}
 	// A date flip reads the same day three times (cards, sprints, roster),
 	// and each read is a commit walk plus a full parse of every tree. The
-	// answer is kept until a commit lands.
+	// answer is kept until a commit lands — and the three arrive together,
+	// so the first read is the one the other two wait on rather than repeat.
 	key := kind + "\x00" + b.git.asOfKey(at)
 	if bd, kept := b.git.asOf.get(key); kept {
 		return bd, true, nil
 	}
+	fl, mine := b.git.asOf.begin(key)
+	if !mine {
+		select {
+		case <-fl.done:
+			return fl.bd, fl.ok, fl.err
+		case <-ctx.Done():
+			return board.Board{}, false, ctx.Err()
+		}
+	}
+	bd, ok, err := b.readPast(ctx, key, at, load)
+	b.git.asOf.finish(key, fl, bd, ok, err)
+	return bd, ok, err
+}
+
+// readPast is loadPast's own work, once the flight is ours: the cache, the
+// deepen-once pacing and the second try.
+func (b *storeBackend) readPast(ctx context.Context, key string, at time.Time,
+	load func(context.Context) (board.Board, bool, error)) (board.Board, bool, error) {
 	bd, ok, err := load(ctx)
 	if err != nil {
 		return bd, ok, err
