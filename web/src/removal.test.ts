@@ -16,16 +16,20 @@ type Removable = RemovalHomes &
 const mk = (c: Removable): Removable => c;
 
 
+// One outcome now, whatever sprint the card is in: the × empties its last
+// home and the card goes. The demote it replaced is where the board's
+// invisible pile came from — cards alive in a sprint no live view reaches
+// (mirrors boardservice.Remove).
 describe("removalKind", () => {
-  it("demotes a card with sprint history behind it", () => {
-    expect(removalKind(card, ctx)).toBe("demote");
+  it("deletes a card of the current sprint", () => {
+    expect(removalKind(card, ctx)).toBe("delete");
   });
 
-  it("deletes a card created today — there is no history worth keeping", () => {
+  it("deletes a card created today", () => {
     expect(removalKind({ ...card, startDate: "2026-08-26" }, ctx)).toBe("delete");
   });
 
-  it("deletes when the team has no previous sprint to fall back to", () => {
+  it("deletes whether or not the team has a previous sprint", () => {
     expect(removalKind(card, { ...ctx, previous: undefined })).toBe("delete");
   });
 
@@ -33,31 +37,28 @@ describe("removalKind", () => {
     expect(removalKind({ ...card, sprintStart: "2026-08-20" }, ctx)).toBe("delete");
   });
 
-  // The choice: a demote silently takes the card (and its subtasks) off
-  // today's board, which reads as deletion. When there is work to lose, the
-  // person decides instead of the rule.
-  it("asks when the card would be demoted AND carries progress", () => {
+  // The one question left: the card carries work, and the × takes it off
+  // the board. The day it stood on keeps it, but today's board will not.
+  it("asks when the card carries progress", () => {
     expect(removalKind({ ...card, progress: 40 }, ctx)).toBe("ask");
+    // Created today or not — work is work.
+    expect(removalKind({ ...card, startDate: "2026-08-26", progress: 40 }, ctx)).toBe("ask");
   });
 
-  it("does not ask for an untouched card — nothing is lost either way", () => {
-    expect(removalKind({ ...card, progress: 0 }, ctx)).toBe("demote");
-  });
-
-  it("does not ask when the answer is a plain delete", () => {
-    expect(removalKind({ ...card, startDate: "2026-08-26", progress: 40 }, ctx)).toBe("delete");
+  it("does not ask for an untouched card — nothing is lost", () => {
+    expect(removalKind({ ...card, progress: 0 }, ctx)).toBe("delete");
   });
 });
 
 // The two rules meet here. A card filed under a Project-board column must
-// never be destroyed by the ×, so the choice dialog must not offer deletion
-// for one: with a column there is nothing to choose, and the server hands the
-// card back (demote, or release to the plan) either way.
+// never be destroyed by the ×, so the dialog must not stand in front of one:
+// with a column there is nothing to lose, and the server hands the card back
+// to it.
 describe("removalKind on a card that belongs to a column", () => {
   const worked = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 40 };
 
   it("never asks for a card with an epic", () => {
-    expect(removalKind({ ...worked, epic: "Cozystack Core" }, ctx)).toBe("demote");
+    expect(removalKind({ ...worked, epic: "Cozystack Core" }, ctx)).toBe("delete");
   });
 
   // A bare project name is not a column: the Project board renders columns
@@ -100,11 +101,10 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ ...inSprint, plan: "fri", progress: 40 }, ctx)).toBe("leave");
   });
 
-  // The Me board asked this question on its own and got "demote" for a
-  // subtask, which the server then applied to the child alone — splitting it
-  // from its parent, and, since a subtask left in an earlier sprint still
-  // renders under its parent, looking like the × had done nothing.
-  it("deletes a subtask, which has no history of its own", () => {
+  // The Me board asked this question on its own and answered it differently
+  // for a subtask, which the server then applied to the child alone —
+  // splitting it from its parent, and looking like the × had done nothing.
+  it("deletes a subtask, which has no home of its own", () => {
     expect(gridRemoval({ ...inSprint, parent: "p" }, ctx)).toBe("delete");
     expect(gridRemoval({ ...inSprint, parent: "p", plan: "fri" }, ctx)).toBe("delete");
     // A COLUMN is the exception: it is a home of its own, drawn and counted
@@ -113,9 +113,9 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ ...inSprint, parent: "p", epic: "Auth" }, ctx)).toBe("ungroup");
   });
 
-  it("demotes a card with sprint history", () => {
+  it("deletes a card of the current sprint, which is nowhere else", () => {
     expect(gridRemoval({ sprintStart: "2026-08-24", startDate: "2026-08-24" }, ctx)).toBe(
-      "demote",
+      "delete",
     );
   });
 
@@ -218,7 +218,7 @@ describe("who asks about a delete", () => {
   // how the × came to be read as deletion in the first place.
   it("stands down when the × does not delete at all", () => {
     expect(boardAsksAbout({ title: "x" }, "leave", null)).toBe(true);
-    expect(boardAsksAbout({ title: "x" }, "demote", null)).toBe(true);
+    expect(boardAsksAbout({ title: "x" }, "leave", null)).toBe(true);
   });
 
   it("leaves the plain delete to the card", () => {
@@ -280,16 +280,15 @@ describe("who asks about a subtask", () => {
     expect(boardAsksAbout(worked, planRemoval(mk(worked)), null)).toBe(true);
   });
 
-  // The one case where the × on a subtask DELETES a card that stands in a
-  // column: the column belongs to the parent's repository, so the pull-out
-  // cannot take it along, and with no sprint to fall back on the card has
-  // no home left. The board must know, or it patches the card as kept and
+  // The × on a subtask whose column belongs to the PARENT's repository: the
+  // pull-out cannot take the column along, so the card has no home left and
+  // is deleted. The board must know, or it patches the card as kept and
   // destroys work without asking (the server's
-  // TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard).
+  // TestAStrandedColumnDoesNotLeaveACardNowhere).
   it("scores a columned subtask whose column cannot follow it out", () => {
     const kid = { title: "child", parent: "p", epic: "Closed", progress: 60,
       sprintStart: "2026-08-24" };
-    expect(gridRemoval(mk(kid), { ...ctx, columnFollows: false })).toBe("demote");
+    expect(gridRemoval(mk(kid), { ...ctx, columnFollows: false })).toBe("delete");
     expect(gridRemoval(mk(kid), {
       today: "2026-08-24", current: "2026-08-24", columnFollows: false,
     })).toBe("delete");
@@ -304,9 +303,8 @@ describe("who asks about a subtask", () => {
 
 // Which gesture the day grid's × performs — the routing itself, lifted out
 // of the boards. A columned subtask is RELEASED (ungrouped into its
-// column), and a board that read "demote" for it sent the card through the
-// demote path, rewriting its Project-board dates to the previous sprint
-// and leaving it nested under its parent until a reload.
+// column); a card with no home left is DELETED, and asked about first when
+// it carries work.
 describe("gridGesture", () => {
   const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
 
@@ -319,15 +317,15 @@ describe("gridGesture", () => {
     expect(gridGesture(mk({ parent: "p", sprintStart: "2026-08-24" }), ctx)).toBe("delete");
   });
 
-  it("demotes a columned subtask whose column stays behind", () => {
+  it("deletes a columned subtask whose column stays behind", () => {
     const kid = { parent: "p", epic: "Closed", sprintStart: "2026-08-24" };
-    expect(gridGesture(mk(kid), { ...ctx, columnFollows: false })).toBe("demote");
+    expect(gridGesture(mk(kid), { ...ctx, columnFollows: false })).toBe("delete");
   });
 
-  // W5 applies to that demote like any other: it takes the card off
-  // today's board AND drops the column it stood in, which reads as
-  // deletion — and a subtask exempted from the question was the one card
-  // on the grid whose work could leave without one being asked.
+  // The question applies here like anywhere else: the × takes the card off
+  // the board AND drops the column it stood in — and a subtask exempted
+  // from the question was the one card on the grid whose work could leave
+  // without one being asked.
   it("asks about a worked subtask whose column stays behind", () => {
     const worked = { parent: "p", epic: "Closed", progress: 60, sprintStart: "2026-08-24" };
     expect(gridGesture(mk(worked), { ...ctx, columnFollows: false })).toBe("ask");
@@ -336,9 +334,7 @@ describe("gridGesture", () => {
     expect(gridGesture(mk(worked), ctx)).toBe("release");
   });
 
-  it("asks when the board opens its two-way choice", () => {
-    // A worked card in the current sprint with a previous one to fall back
-    // on is W5's question, not a gesture: the board must put it.
+  it("asks before an × that takes work off the board", () => {
     expect(
       gridGesture(
         mk({ sprintStart: "2026-08-24", startDate: "2026-08-20", progress: 40 }),
@@ -347,12 +343,10 @@ describe("gridGesture", () => {
     ).toBe("ask");
   });
 
-  it("still demotes an ordinary card with sprint history", () => {
-    // Not created today: a card whose start IS today has no history worth
-    // keeping and is deleted instead (removalKind).
+  it("deletes an untouched card with nowhere else to be, unasked", () => {
     expect(
       gridGesture(mk({ sprintStart: "2026-08-24", startDate: "2026-08-20" }), ctx),
-    ).toBe("demote");
+    ).toBe("delete");
   });
 });
 
@@ -365,10 +359,10 @@ describe("planRemoval on a subtask", () => {
   });
 });
 
-// The optimistic state the × leaves on a subtask — the server's own fields
-// and no others. Both boards patch from here: showing a released card's
-// state for a demoted one sent the row to Unassigned and left it on
-// today's grid, and it jumped back on the next reload.
+// The optimistic state the × leaves on a RELEASED subtask — the server's own
+// fields and no others. Both boards patch from here, so one gesture cannot
+// read two ways on two boards. A subtask the × deletes is not patched: the
+// board drops the row.
 describe("subtaskRemovalPatch", () => {
   const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
   const kid = {
@@ -388,17 +382,14 @@ describe("subtaskRemovalPatch", () => {
     });
   });
 
-  it("demotes when the column cannot follow: the column goes, the person stays", () => {
-    // boardservice removeFromGrid writes start, sprint and the end day —
-    // and never touches the assignee, which only a release clears.
-    expect(subtaskRemovalPatch(mk(kid), { ...ctx, columnFollows: false })).toEqual({
-      parent: undefined,
-      epic: undefined,
-      project: undefined,
-      startDate: "2026-08-17",
-      sprintStart: "2026-08-17",
-      day: "2026-08-17",
-    });
+  // A subtask whose column cannot follow it out is DELETED now (the board
+  // drops the row rather than patching it), so the release patch is the
+  // only one there is — and it must not depend on the context, or a board
+  // would patch a card it is about to remove.
+  it("is the same patch whether or not the column can follow", () => {
+    expect(subtaskRemovalPatch(mk(kid), { ...ctx, columnFollows: false })).toEqual(
+      subtaskRemovalPatch(mk(kid), ctx),
+    );
   });
 
   // The inverse has to cover the gesture: a board that rolls back fewer

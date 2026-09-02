@@ -1,5 +1,5 @@
-/** What the × on a grid card should do. */
-export type Removal = "delete" | "demote" | "ask";
+/** What the × on a grid card should do — once nothing else is keeping it. */
+export type Removal = "delete" | "ask";
 
 export interface RemovableCard {
   sprintStart?: string;
@@ -26,17 +26,16 @@ export interface RemovalContext {
   columnFollows?: boolean;
 }
 
-/** removalKind decides what the × means for a card, mirroring
- *  boardservice.Remove.
+/** removalKind decides whether a destructive × may go ahead unasked,
+ *  mirroring boardservice.Remove: the card's last home is being emptied, so
+ *  the card goes. It used to have a third answer — a card of the current
+ *  sprint was DEMOTED into the one before instead of deleted — and that is
+ *  where the board's invisible pile of open work came from: no live view
+ *  reaches a card in a sprint two behind, and no carry-over ever takes it.
+ *  The day the card stood on keeps it now (G60), so there is one outcome.
  *
- *  A card sitting in the team's CURRENT sprint, with a previous sprint to fall
- *  back to, and not created today, has history worth keeping: the × demotes it
- *  there instead of deleting it. Anything else is deleted outright.
- *
- *  "ask" is the one case where the rule must not decide alone. A demote takes
- *  the card — and every subtask riding it — off today's board silently, which
- *  reads exactly like deletion; when the card carries progress there is work
- *  to lose either way, so the person chooses.
+ *  "ask" is the case the rule must not decide alone: a card carrying work
+ *  takes that work off the board with it, and the person chooses.
  */
 /** personalRemovalKind is the × on a personal card, which has no sprint to
  *  demote into (mirrors boardservice.removePersonal): a card that has been
@@ -53,26 +52,16 @@ export function personalRemovalKind(
   return worked && startedEarlier ? "ask" : "delete";
 }
 
-export function removalKind(c: RemovableCard, ctx: RemovalContext): Removal {
-  const inCurrent = !!c.sprintStart && !!ctx.current && c.sprintStart === ctx.current;
-  const demotable =
-    inCurrent &&
-    !!ctx.previous &&
-    !!ctx.current &&
-    ctx.previous < ctx.current &&
-    c.startDate !== ctx.today;
-  if (!demotable) {
+export function removalKind(c: RemovableCard, _ctx: RemovalContext): Removal {
+  // A card in a Project-board column is never destroyed by the ×: the server
+  // hands it back to that column. With no destructive option there is
+  // nothing to ask. The column is the EPIC side of the (project, epic) pair
+  // — the board renders columns by epic, so a bare project name puts the
+  // card on no board and cannot spare it.
+  if (c.epic) {
     return "delete";
   }
-  // A card in a Project-board column is never destroyed by the ×: the
-  // server hands it back to that column. With no destructive option there
-  // is nothing to ask. The column is the EPIC side of the (project, epic)
-  // pair — the board renders columns by epic, so a bare project name puts
-  // the card on no board and cannot spare it.
-  if (c.epic) {
-    return "demote";
-  }
-  return (c.progress ?? 0) > 0 ? "ask" : "demote";
+  return (c.progress ?? 0) > 0 ? "ask" : "delete";
 }
 
 /** HomesOf is what the grid × needs to know about a card: where else it is,
@@ -162,10 +151,9 @@ export function hasColumn(c: RemovalHomes): boolean {
   return !!c.epic;
 }
 
-/** Outcome is what an × does to a card: send it back to the sprint before
- *  this one, leave it in a home it still has, or — its last home emptied —
- *  delete it. */
-export type Outcome = "demote" | "leave" | "delete" | "ungroup";
+/** Outcome is what an × does to a card: leave it in a home it still has,
+ *  take it out of its group, or — its last home emptied — delete it. */
+export type Outcome = "leave" | "delete" | "ungroup";
 
 /** looseOf is the card as the × leaves it when the column it carried
  *  cannot follow it out of the group: an ordinary, columnless card, which
@@ -175,10 +163,10 @@ function looseOf<T extends RemovalHomes>(c: T): T {
 }
 
 /** gridRemoval mirrors boardservice.Remove(from="grid"), in its order: a
- *  card in the weekly plan goes back to it; one with sprint history demotes;
- *  otherwise its column keeps it, or nothing does and it is deleted. One
- *  function so every board asks the same question — the Me board used to
- *  answer it differently and hard-deleted what the Team board kept. */
+ *  card in the weekly plan goes back to it; otherwise its column keeps it,
+ *  or nothing does and it is deleted. One function so every board asks the
+ *  same question — the Me board used to answer it differently and
+ *  hard-deleted what the Team board kept. */
 export function gridRemoval(
   c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
   ctx: RemovalContext,
@@ -198,19 +186,15 @@ export function gridRemoval(
     if (ctx.columnFollows === false) {
       // The column belongs to the repository the card is LEAVING, so the
       // pull-out cannot take it along: the server repairs it away and the
-      // card is answered like any other columnless one — demoted, or
-      // deleted when the working area was its only home. Reading it as an
-      // ungroup here made a board patch the card as kept and let a
-      // destructive × through with no question.
-      return removalKind(looseOf(c), ctx) === "delete" ? "delete" : "demote";
+      // card is answered like any other columnless one, which is deletion.
+      // Reading it as an ungroup here made a board patch the card as kept
+      // and let a destructive × through with no question.
+      return "delete";
     }
     return "ungroup";
   }
   if (c.plan) {
     return "leave";
-  }
-  if (removalKind(c, ctx) !== "delete") {
-    return "demote";
   }
   return hasColumn(c) ? "leave" : "delete";
 }
@@ -266,25 +250,13 @@ export interface SubtaskPatch {
  *
  *  RELEASED into its column: the person goes and the sprint with it
  *  (releaseToColumn → leaveWorkingArea), and the dates stay — they are the
- *  slot's row. DEMOTED, because the column could not follow it out of the
- *  group: the column goes, the card walks back a sprint — start, sprint,
- *  and the end day when it had one — and the PERSON STAYS, since only a
- *  release clears it (boardservice removeFromGrid). */
+ *  slot's row. A subtask the × DELETES is not patched at all: the board
+ *  drops the row. */
 export function subtaskRemovalPatch(
-  c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
-  ctx: RemovalContext,
+  _c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
+  _ctx: RemovalContext,
 ): SubtaskPatch {
-  if (gridRemoval(c, ctx) !== "demote") {
-    return { assignees: [], sprintStart: undefined, parent: undefined };
-  }
-  return {
-    parent: undefined,
-    epic: undefined,
-    project: undefined,
-    startDate: ctx.previous,
-    sprintStart: ctx.previous,
-    ...(c.day ? { day: ctx.previous } : {}),
-  };
+  return { assignees: [], sprintStart: undefined, parent: undefined };
 }
 
 /** subtaskRemovalUndo is the state to put back when the request fails: the
@@ -319,39 +291,27 @@ export function subtaskRemovalUndo(c: SubtaskUndo): SubtaskUndo {
  *  they came to disagree about the same card. "release" is the smart × on
  *  the server (POST actions/remove): the card leaves the working area for
  *  whatever home it has, and a subtask standing in a column leaves the
- *  GROUP with it (G57). "demote" walks it back a sprint, "delete" is the
- *  last home going, and "ask" is the two-way question W5 opens. */
-export type GridGesture = "ask" | "demote" | "release" | "delete";
+ *  GROUP with it (G57). "delete" is the last home going — the card, and the
+ *  subtasks that were pieces of it — and "ask" is the confirmation that
+ *  stands in front of it when there is work to lose. */
+export type GridGesture = "ask" | "release" | "delete";
 
-/** gridGesture routes one × press. A columned subtask is RELEASED however
- *  much sprint history is around: reading it as a demote sent the card
- *  through the demote path, which rewrites the Project-board dates it
- *  lives by and leaves it nested under its parent until a reload. */
+/** gridGesture routes one × press: a card with another home is RELEASED
+ *  into it, one with none is DELETED, and a delete that would take work
+ *  with it is ASKED about first. A columned subtask is released whatever
+ *  it carries — the server hands it to its column. */
 export function gridGesture(
   c: RemovalHomes &
     Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
   ctx: RemovalContext,
 ): GridGesture {
-  const outcome = gridRemoval(c, ctx);
-  if (c.parent) {
-    // "release" is the ordinary answer; a subtask whose column cannot
-    // follow it out is the one that ends up demoted or deleted, and the
-    // gesture has to say so — a delete dressed as a release is one the
-    // board never asks about.
-    if (outcome === "delete") {
-      return "delete";
-    }
-    if (outcome !== "demote") {
-      return "release";
-    }
-    // A demote is W5's question here too: it takes the card off today's
-    // board and its column with it, which reads as deletion — and a
-    // subtask exempted from the question was the only card on the grid
-    // whose work could leave silently.
-    return removalKind(looseOf(c), ctx) === "ask" ? "ask" : "demote";
+  if (gridRemoval(c, ctx) !== "delete") {
+    return "release";
   }
-  if (removalKind(c, ctx) === "ask") {
-    return "ask";
-  }
-  return outcome === "demote" ? "demote" : outcome === "delete" ? "delete" : "release";
+  // The card's last home is going. A subtask reaches this only with no
+  // column of its own (or one that cannot follow it out), and its work
+  // deserves the same question every other card's does — a subtask
+  // exempted from it was the one card on the grid whose work left in
+  // silence.
+  return removalKind(looseOf(c), ctx) === "ask" ? "ask" : "delete";
 }

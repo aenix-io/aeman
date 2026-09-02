@@ -52,7 +52,18 @@ type Report struct {
 	UnattributedNotes                                          int
 	Dangling                                                   []string
 	Dropped                                                    []string
-	IDMap                                                      map[string]string
+	// Stranded are the cards the source board carried that were PLACED on a
+	// day and then left where no view can reach them — the shape the old ×
+	// made when it demoted a worked card into the previous sprint
+	// (board.Unreachable, dated). The migration takes them off the board in
+	// a commit of its own; the history keeps them.
+	Stranded []string
+	// Placeless are cards no view shows because nobody ever put them
+	// anywhere: no sprint, no dates, no column, no week. They are not the
+	// ×'s leavings, so nothing is deleted — they are named, and the board's
+	// owner decides.
+	Placeless []string
+	IDMap     map[string]string
 }
 
 // String renders the report for a person.
@@ -75,6 +86,14 @@ func (r Report) String() string {
 	}
 	for _, d := range r.Dropped {
 		fmt.Fprintf(&b, "dropped: %s\n", d)
+	}
+	if len(r.Stranded) > 0 {
+		fmt.Fprintf(&b, "%d cards were on no board any view could open and were taken off (the history keeps them): %s\n",
+			len(r.Stranded), strings.Join(r.Stranded, ", "))
+	}
+	if len(r.Placeless) > 0 {
+		fmt.Fprintf(&b, "%d cards are on no board because nobody placed them — no dates, no sprint, no column; kept as they are: %s\n",
+			len(r.Placeless), strings.Join(r.Placeless, ", "))
 	}
 	fmt.Fprintf(&b, "%d ids mapped (old → new)\n", len(r.IDMap))
 	return b.String()
@@ -175,6 +194,17 @@ func Run(ctx context.Context, src Source, storer storage.Storer, remote gitstore
 		}
 	}
 	rep.Verified = true
+
+	// The board as it now stands, and what of it no view can show: a card
+	// the old × demoted into a sprint two behind is on no day grid, on no Me
+	// board and in no carry-over's way — open work nobody can reach. The
+	// migration does not carry that forward. The cards go in a commit of
+	// their own, so the tree before it — the verified snapshot — still holds
+	// them and a record of their day gives them back (G60).
+	if err := takeStrandedOff(repo, snapshot, &rep, laterThan(events, first).Add(time.Second)); err != nil {
+		return rep, err
+	}
+
 	if opts.DryRun {
 		return rep, nil
 	}
@@ -185,6 +215,95 @@ func Run(ctx context.Context, src Source, storer storage.Storer, remote gitstore
 		return rep, repo.PushForce(ctx, remote)
 	}
 	return rep, repo.Push(ctx, remote)
+}
+
+// takeStrandedOff removes the cards no view can reach — the shape the old ×
+// left behind — in a commit of its own, and names in the report both those and
+// the cards nobody ever placed anywhere (which are kept: they never stood on a
+// day for a × to take them off, and a board with other rules, Projects v2
+// among them, showed every item dated or not).
+func takeStrandedOff(repo *gitstore.Repo, snapshot map[string][]byte, rep *Report, at time.Time) error {
+	bd := boardOf(snapshot)
+	var writes []gitstore.FileWrite
+	for _, c := range board.Unreachable(bd, board.TodayIso()) {
+		if !placedSomewhere(bd, c) {
+			rep.Placeless = append(rep.Placeless, c.ItemID)
+			continue
+		}
+		p, err := gitstore.CardPath(c.ItemID)
+		if err != nil {
+			return err
+		}
+		writes = append(writes, gitstore.FileWrite{Path: p})
+		rep.Stranded = append(rep.Stranded, c.ItemID)
+	}
+	if len(writes) == 0 {
+		return nil
+	}
+	if _, err := repo.Commit(gitstore.Action{Name: "delete", Cards: rep.Stranded,
+		Summary: fmt.Sprintf("take off the board %d cards that were on no board", len(rep.Stranded)),
+		At:      at}, writes); err != nil {
+		return err
+	}
+	rep.Commits++
+	return nil
+}
+
+// placedSomewhere reports that a card was once put on a day: it carries a
+// sprint or dates of its own, or it rides a card that does. A card with none
+// of that was never anywhere for a × to take it off.
+func placedSomewhere(b board.Board, c board.Card) bool {
+	if c.SprintStart != "" || c.StartDate != "" || c.Day != "" {
+		return true
+	}
+	owner := c.Parent
+	if owner == "" {
+		owner = c.ReviewOf
+	}
+	if owner == "" {
+		return false
+	}
+	for _, p := range b.Cards {
+		if p.ItemID == owner {
+			return placedSomewhere(b, p)
+		}
+	}
+	return false
+}
+
+// boardOf reads a written snapshot back as a board — the same decode the
+// server does, so the migration judges the cards it has just written by the
+// board's own rules rather than by the mapper's private state.
+func boardOf(snapshot map[string][]byte) board.Board {
+	cards := make([]board.Card, 0, len(snapshot))
+	for p, data := range snapshot {
+		kind, parts := gitstore.ParsePath(p)
+		switch kind {
+		case gitstore.PathCard:
+			f, err := gitstore.DecodeCard(parts[0], data)
+			if err != nil {
+				continue
+			}
+			cards = append(cards, f.Card)
+		case gitstore.PathTeam:
+			f, err := gitstore.DecodeTeam(data)
+			if err != nil {
+				continue
+			}
+			cards = append(cards, board.Card{ItemID: parts[0], Title: board.SprintStateTitle,
+				Team: f.Name, SprintStart: f.Sprint.Current, StartDate: f.Sprint.Previous})
+		case gitstore.PathTask:
+			f, err := gitstore.DecodeCard(parts[1], data)
+			if err != nil {
+				continue
+			}
+			c := f.Card
+			c.ItemID = parts[1]
+			c.Title = board.ProcessTaskTitle
+			cards = append(cards, c)
+		}
+	}
+	return board.NewBoard(cards)
 }
 
 func laterThan(events []event, first time.Time) time.Time {

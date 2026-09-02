@@ -617,17 +617,37 @@ func (b *storeBackend) CardLogSince(ctx context.Context, bd board.Board, id stri
 // clone's horizon deepens once, the way a card's log does, and is answered
 // if that brings it in; --history-max still bounds how far back that goes.
 func (b *storeBackend) LoadBoardAsOf(ctx context.Context, boardID string, at time.Time) (board.Board, bool, error) {
+	return b.loadPast(ctx, "at", at, func(ctx context.Context) (board.Board, bool, error) {
+		return b.git.mb.LoadBoardAsOf(ctx, boardID, at)
+	})
+}
+
+// LoadBoardOfDay is the board of a whole day (boardservice.DayReader): the
+// same walk, cache and deepening over a reader that also gives back what the
+// day removed. `to` names the answer, `from` is the day's start.
+func (b *storeBackend) LoadBoardOfDay(ctx context.Context, boardID string, from, to time.Time) (board.Board, bool, error) {
+	return b.loadPast(ctx, "day", to, func(ctx context.Context) (board.Board, bool, error) {
+		return b.git.mb.LoadBoardOfDay(ctx, boardID, from, to)
+	})
+}
+
+// loadPast is the past-day read itself: the cache, the deepen-once pacing and
+// the second try. `kind` separates two readings of the same moment — the tree
+// that moment ended with, and the day around it, which also holds what it
+// removed — so one never answers for the other.
+func (b *storeBackend) loadPast(ctx context.Context, kind string, at time.Time,
+	load func(context.Context) (board.Board, bool, error)) (board.Board, bool, error) {
 	if b.git == nil {
 		return board.Board{}, false, boardservice.ErrNoHistory
 	}
 	// A date flip reads the same day three times (cards, sprints, roster),
 	// and each read is a commit walk plus a full parse of every tree. The
 	// answer is kept until a commit lands.
-	key := b.git.asOfKey(at)
+	key := kind + "\x00" + b.git.asOfKey(at)
 	if bd, kept := b.git.asOf.get(key); kept {
 		return bd, true, nil
 	}
-	bd, ok, err := b.git.mb.LoadBoardAsOf(ctx, boardID, at)
+	bd, ok, err := load(ctx)
 	if err != nil {
 		return bd, ok, err
 	}
@@ -658,9 +678,9 @@ func (b *storeBackend) LoadBoardAsOf(ctx context.Context, boardID string, at tim
 			b.git.log.Warn("history deepen for a past day failed", "domain", d.Name, "err", err)
 		}
 	}
-	bd, ok, err = b.git.mb.LoadBoardAsOf(ctx, boardID, at)
+	bd, ok, err = load(ctx)
 	if ok && err == nil {
-		b.git.asOf.put(b.git.asOfKey(at), bd)
+		b.git.asOf.put(key, bd)
 		b.git.asOf.reached(at.Format(time.RFC3339))
 	}
 	return bd, ok, err

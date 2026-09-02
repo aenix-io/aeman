@@ -1365,19 +1365,22 @@ func TestSetDatesEmptyClears(t *testing.T) {
 
 // --- Smart remove (matrix A1–A3): handleGridDelete/removeFromPlan semantics --
 
-func TestRemoveGridDemotesFromCurrentSprint(t *testing.T) {
+// The × on a card of the CURRENT sprint deletes it, like the × anywhere
+// else. It used to demote the card into the previous sprint instead, where
+// no live view reached it and no carry-over ever took it; the day it was
+// worked on is what keeps it now (G60).
+func TestRemoveGridDeletesFromCurrentSprint(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: "2026-01-10",
 		SprintStart: "2026-01-10", Day: "2026-01-12"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).Remove(ctx, "acme", "c1", ""); err != nil {
 		t.Fatal(err)
 	}
-	c := f.get("c1")
-	if c == nil || c.StartDate != "2026-01-03" || c.SprintStart != "2026-01-03" {
-		t.Fatalf("first x demotes to the previous sprint: %+v", c)
+	if c := f.get("c1"); c != nil {
+		t.Fatalf("the × empties the board, it does not move the card: %+v", c)
 	}
-	if !f.saw("SetDay c1 2026-01-03") {
-		t.Fatalf("the end date is pulled back too; log=%v", f.log)
+	if f.saw("SetSprintStart c1 2026-01-03") {
+		t.Fatalf("nothing is demoted any more; log=%v", f.log)
 	}
 }
 
@@ -3188,12 +3191,13 @@ func TestReopeningAReviewCardReturnsTheOriginal(t *testing.T) {
 	}
 }
 
-// The smart × DEMOTES a worked card instead of deleting it — and used to do
-// so silently: it wrote start, sprint and day but recorded no event, while
-// the subtasks it dragged along DID record theirs. The card left the board
-// with nothing in its log to say who moved it or why, which cost two
-// investigations before anyone noticed the write was unrecorded.
-func TestDemoteRecordsItsMove(t *testing.T) {
+// The smart × on a worked card DELETES it: what it carries is a reason to
+// confirm the gesture, not to move the card into a sprint nobody can see.
+// (This test once pinned the opposite — that the demote recorded its own
+// move — after two investigations into a card that left the board with
+// nothing in its log. There is no silent write left to record: the card's
+// departure is a commit of its own, named for it.)
+func TestTheSmartCrossDeletesAWorkedCard(t *testing.T) {
 	const today, prev = "2026-08-26", "2026-08-25"
 	fake := newFake([]board.Card{
 		{ItemID: "c1", Title: "worked", Team: "t", Progress: 40,
@@ -3205,22 +3209,13 @@ func TestDemoteRecordsItsMove(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
-	c, _ := findCard(b, "c1")
-	if c.SprintStart != prev {
-		t.Fatalf("sprint = %q, want the demote to %q", c.SprintStart, prev)
+	if _, ok := findCard(b, "c1"); ok {
+		t.Fatalf("the worked card is gone from the board, not moved into %q", prev)
 	}
-	var moved *board.Event
-	evs := fake.eventsOf("c1")
-	for i := range evs {
-		if evs[i].Kind == board.EventSprint {
-			moved = &evs[i]
-		}
-	}
-	if moved == nil {
-		t.Fatal("the demote left no event: the card leaves the board unexplained")
-	}
-	if moved.From != today || moved.To != prev {
-		t.Fatalf("event says %q -> %q, want %q -> %q", moved.From, moved.To, today, prev)
+	// And nothing was written to it on the way out: a demote's fields, on a
+	// card that is no longer there, is the state the strays were made of.
+	if fake.saw("SetSprintStart c1 " + prev) {
+		t.Fatalf("the × wrote a demote before deleting; log=%v", fake.log)
 	}
 }
 

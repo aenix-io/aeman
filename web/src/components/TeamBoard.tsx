@@ -1611,25 +1611,19 @@ export function TeamBoard({
     });
   };
 
-  const handleGridDelete = (card: CardModel, forced?: "demote") => {
+  const handleGridDelete = (card: CardModel, forced?: "confirmed") => {
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
       return;
     }
-    // A worked-on card that would be demoted leaves today's board silently,
-    // subtasks and all — that reads as deletion. Ask which one they mean.
-    // A SUBTASK reaches a demote only when the column it carried cannot
-    // follow it out of the group, and the question is the same one then:
-    // gridGesture answers for both, so the two boards ask alike.
-    if (!forced && !card.plan) {
-      const kind = card.parent
-        ? gridGesture(card, gridCtx(card))
-        : removalKind(card, gridCtx(card));
-      if (kind === "ask") {
-        setRemoveChoice(card);
-        return;
-      }
+    // An × that takes work off the board is confirmed first — the card and
+    // the subtasks that are pieces of it go, and the day they stood on is
+    // what keeps them. gridGesture answers for every card the grid draws,
+    // so the two boards ask alike.
+    if (!forced && !card.plan && gridGesture(card, gridCtx(card)) === "ask") {
+      setRemoveChoice(card);
+      return;
     }
     // A subtask with nowhere else to be has no sprint history of its own:
     // the × deletes it outright, gone from under its parent immediately.
@@ -1655,12 +1649,11 @@ export function TeamBoard({
       return;
     }
     if (card.parent) {
-      // Out of the group — into its column, or, when that column belongs to
-      // the parent's repository and cannot follow, back a sprint with the
-      // column dropped (the server's answer, gridRemoval). Either way the
-      // row must stop being drawn under its parent at once, or the × looks
-      // inert; and the demote must show the SAME optimistic state the Me
-      // board shows, or one gesture reads two ways on two boards.
+      // Out of the group and into its column (the server's answer,
+      // gridRemoval). The row must stop being drawn under its parent at
+      // once, or the × looks inert; and it must show the SAME optimistic
+      // state the Me board shows, or one gesture reads two ways on two
+      // boards.
       const prev = subtaskRemovalUndo(card) as Partial<CardModel>;
       patchCard(card.itemId, subtaskRemovalPatch(card, gridCtx(card)));
       void provider
@@ -1677,27 +1670,8 @@ export function TeamBoard({
     }
     let rollback: () => void;
     if (!card.plan) {
-      const cur = currentSprint(board, card.team ?? null);
-      const prevSprint = previousSprintFor(card);
-      const inCurrent = !!card.sprintStart && !!cur && card.sprintStart === cur;
-      // A card created today has no sprint history worth keeping: delete for
-      // real instead of demoting (mirrors boardservice.Remove).
-      if (inCurrent && cur && prevSprint && prevSprint < cur && card.startDate !== todayIso()) {
-        // Demote to the previous sprint, all dates pulled along (the end date
-        // too, or the [start…end] range would keep the card on its old day).
-        const prev: Partial<CardModel> = {
-          startDate: card.startDate,
-          sprintStart: card.sprintStart,
-          day: card.day,
-        };
-        patchCard(card.itemId, {
-          startDate: prevSprint,
-          sprintStart: prevSprint,
-          ...(card.day ? { day: prevSprint } : {}),
-        });
-        rollback = () => patchCard(card.itemId, prev);
-      } else {
-        // Nothing to demote into. A card has two homes — the working area and
+      {
+        // A card has two homes — the working area and
         // the weekly plan — and this × empties the first (mirrors
         // boardservice.Remove). With a plan band or a Project-board column to
         // fall back on it goes there, leaving the working area entirely,
@@ -1706,18 +1680,19 @@ export function TeamBoard({
         // to sit in two places at once. With nowhere else to be, the working
         // area was the only place it was, and removing it from there deletes
         // it — after a question when the card carries work or a review card,
-        // which the delete takes with it. Subtasks survive as standalone
-        // cards and are not asked about.
+        // which the delete takes with it. Its subtasks go with it: they are
+        // pieces of the same work, and the dialog says how many.
         if (gridRemoval(card, gridCtx(card)) === "delete") {
           const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
           const warning = deleteWarning(card, linkedReview?.title ?? null);
           if (warning && !window.confirm(warning)) {
             return;
           }
-          // The subtasks are freed, not lost: locally too, or they vanish
-          // until a refresh — the watch skips this tab's own changes.
-          for (const f of freeSubtasks(board.cards, card.itemId)) {
-            patchCard(f.itemId, f.patch);
+          // The subtasks are pieces of the same work and go with it —
+          // locally too, or they hang under a parent that is gone until a
+          // refresh (the watch skips this tab's own changes).
+          for (const sub of board.cards.filter((c) => c.parent === card.itemId)) {
+            removeCard(sub.itemId);
           }
           removeCard(card.itemId);
           if (linkedReview) {
@@ -2721,28 +2696,10 @@ export function TeamBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
-          previous={previousSprintFor(removeChoice) ?? ""}
+          keepOn={null}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}
-          onSubmit={(hardDelete) => {
-            const card = removeChoice;
-            if (hardDelete) {
-              for (const f of freeSubtasks(board.cards, card.itemId)) {
-                patchCard(f.itemId, f.patch);
-              }
-              removeCard(card.itemId);
-              void provider
-                .deleteCard(card.itemId)
-                .then(() => reload())
-                .catch((err: unknown) => {
-                  addCard(card);
-                  onError(errMessage(err));
-                  reload();
-                });
-              return;
-            }
-            handleGridDelete(card, "demote");
-          }}
+          onSubmit={() => handleGridDelete(removeChoice, "confirmed")}
         />
       )}
     </div>

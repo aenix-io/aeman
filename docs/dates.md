@@ -90,7 +90,7 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - **Whether a day is over is each TEAM's own answer**, not the calendar's. A sprint lays itself out on its own day — that is where the lead works it from, and where a card created today lands (its `sprintStart` may be days old) — so a team still inside that sprint keeps the live board, while a team whose sprint has moved past the day shows what it held that evening. One day, one screen, two moments: on a board of several teams the columns of the settled teams are records and the rest is today's work, and each card says which it is (`status.asOf`). A team whose sprint has stood since July therefore keeps every day since July live for itself alone — that sprint IS open, and Carry Over is what closes it.
 - Only a **past** day, and only the day boards (Me, Team). Today is still happening, tomorrow has not, and the Project and Process boards are not day boards.
 - A record is not a workspace, and it looks like one: flat and grey, with no control on it, and the detail pane opens it read-only. It does not drag; a write to it is refused in the browser AND by the server (409 on `X-Aeman-As-Of`), so a UI path that forgets fails loudly instead of writing today's board from a picture; today's traffic is not applied over it. The live cards beside it stay entirely workable.
-- **A day gives back what the × took off it.** The × on a done card demotes it into the previous sprint — dates and all — so nothing in the card says where it was worked any more; it now also records the DAY it was taken off (`leftAt`, the field the personal board already uses). Today's board is unchanged: taking the card off today is exactly what the × is for. The record of that day, though, shows it again, in the state it ended the day with — done. Only for crosses pressed since this shipped; an older demote left no such mark.
+- **A day gives back what the × took off it.** The × on a team card DELETES it — the file goes — and the day it stood on holds it all the same, in the state it went in: the record of a day is the tree that day ended with **plus every card the day itself removed**, read from the commit that removed it. Today's board is unchanged: taking the card off today is exactly what the × is for. (The × used to DEMOTE a worked card into the previous sprint instead, and the record then gave it back by `leftAt`, the day it was taken off. Cards demoted before this shipped are still where that left them — alive in an old sprint — and are still given back by that mark; nothing writes it on a team card any more.)
 - The record carries that day's **sprint pointers** with its cards — the view rules place a card by its team's pointer. The **roster** (projects, columns, processes, deadlines) stays today's: a column created since shows on the record of an older day.
 - The history has an edge. The server keeps a horizon (`--history`, two weeks by default) and deepens on demand up to `--history-max` (a year); a day behind that is refused (410) rather than answered with the oldest state at hand.
 
@@ -120,8 +120,9 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - Else: sets sprint-state to (current = today, previous = old current), and for
   every **unfinished** card of the **closing sprint** (`sprintStart == old
   current`), sets `sprintStart = today`. A card that is **not on today's
-  sprint** — demoted back, or simply older — stays where it is, so removing a
-  card from the current sprint is final and it never boomerangs back. Complete
+  sprint** — older, or demoted back by the × as it used to be — stays where it
+  is, so removing a card from the current sprint is final and it never
+  boomerangs back. Complete
   cards (done, or 100% with no stage) stay put too. Then the view jumps to
   today.
 - A carried card keeps its `startDate`, so it stays visible on the days of the
