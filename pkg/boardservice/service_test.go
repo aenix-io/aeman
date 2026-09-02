@@ -1259,9 +1259,30 @@ func TestDeferMovesStartFromToday(t *testing.T) {
 	if c.StartDate != want {
 		t.Fatalf("start = %s, want %s (defer counts from today, not the old start)", c.StartDate, want)
 	}
-	// An old card keeps its history: sprint and end date untouched.
-	if c.SprintStart != "2000-01-01" || c.Day != "2000-01-05" {
-		t.Fatalf("history must stay: %+v", c)
+	// An old card keeps its HISTORY — the sprint it was worked in — but not
+	// an end date left behind its own new start: that is a card due before it
+	// begins, which is overdue for ever and comes straight back to the week
+	// it was just sent out of.
+	if c.SprintStart != "2000-01-01" {
+		t.Fatalf("the sprint it was worked in must stay: %+v", c)
+	}
+	if c.Day != want {
+		t.Fatalf("end = %s, want %s: a card cannot be due before it starts", c.Day, want)
+	}
+}
+
+func TestDeferAnOldCardKeepsAnEndStillAhead(t *testing.T) {
+	today := board.TodayIso()
+	end := board.AddDays(today, 30)
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: "2000-01-05",
+		SprintStart: "2000-01-01", Day: end, CreatedAt: "2000-01-05T10:00:00Z"}}, nil)
+	if err := f2svc(f).Defer(ctx, "acme", "c1", 7); err != nil {
+		t.Fatal(err)
+	}
+	// The range is still a range: only an end that fell BEHIND the new start
+	// is pulled along, and this one is a month out.
+	if c := f.get("c1"); c.Day != end {
+		t.Fatalf("end = %s, want %s left alone", c.Day, end)
 	}
 }
 

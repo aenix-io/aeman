@@ -949,10 +949,14 @@ func (s *Service) CarryWeek(ctx context.Context, boardID string, team, week stri
 // --- Defer / dates / remove (the frontend's date logic, moved server-side) --
 
 // Defer pushes a card's scheduled day N days ahead of today — or ahead of its
-// already-deferred slot, so presses stack. An old card keeps its history (only
-// startDate moves); a card created today has none, so it relocates fully:
-// sprint and a stale end date move along. It mirrors moveStart in Card.tsx +
-// handleDefer in TeamBoard.tsx.
+// already-deferred slot, so presses stack. An old card keeps its HISTORY: the
+// sprint it was worked in stays, so its past sprint day still holds it. A card
+// created today has no history to keep and relocates fully.
+//
+// An end date is never left behind the new start, whatever the card's age. A
+// card due before it begins is overdue for ever: it came straight back to the
+// week it had just been sent out of, which is what "+1 week" is meant to get
+// it out of. It mirrors moveStart in Card.tsx + handleDefer in TeamBoard.tsx.
 func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days int) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
@@ -978,17 +982,15 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 	}
 	s.logEvent(ctx, b, c, board.EventDates,
 		board.DateRange(c.StartDate, c.Day), board.DateRange(target, c.Day))
-	if board.LocalDateIso(c.CreatedAt) == today {
-		// A personal card has no sprint to relocate; its end date follows
-		// all the same.
-		if !board.IsPersonalDomain(c.Domain) {
-			if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
-				return err
-			}
+	// A card created today has no history to keep: its sprint moves with it.
+	// A personal card has no sprint to relocate at all.
+	if board.LocalDateIso(c.CreatedAt) == today && !board.IsPersonalDomain(c.Domain) {
+		if err := s.backend.SetSprintStart(ctx, b, c, target); err != nil {
+			return err
 		}
-		if c.Day != "" && c.Day < target {
-			return s.backend.SetDay(ctx, b, c, target)
-		}
+	}
+	if c.Day != "" && c.Day < target {
+		return s.backend.SetDay(ctx, b, c, target)
 	}
 	return nil
 }

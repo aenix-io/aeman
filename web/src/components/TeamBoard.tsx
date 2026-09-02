@@ -2049,9 +2049,12 @@ export function TeamBoard({
     const base =
       card.startDate && card.startDate > today ? card.startDate : today;
     const newStart = addDays(base, days);
+    // Only a card created today relocates fully — an older one keeps the
+    // sprint it was worked in. But an end date is never left behind the new
+    // start, whatever the card's age: a card due before it begins is overdue
+    // for ever and comes straight back to the week it was just sent out of.
     const full = !!card.createdAt && localDateIso(card.createdAt) === today;
-    const newDay =
-      full && card.day && card.day < newStart ? newStart : card.day;
+    const newDay = card.day && card.day < newStart ? newStart : card.day;
     const prev = {
       startDate: card.startDate,
       sprintStart: card.sprintStart,
@@ -2059,7 +2062,8 @@ export function TeamBoard({
     };
     patchCard(card.itemId, {
       startDate: newStart,
-      ...(full ? { sprintStart: newStart, day: newDay } : {}),
+      day: newDay,
+      ...(full ? { sprintStart: newStart } : {}),
     });
     void provider
       .deferCard(card.itemId, days)
