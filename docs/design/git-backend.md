@@ -377,7 +377,7 @@ make revert hit things it should not.
 
 When an action touches **two domains** — Carry Over moves the team's
 sprint pointer (team file, team domain) and carries cards that may live
-in a project domain; `RenameEpic`, `DeleteTeam`, `CarryWeek` and the
+in a project domain; `RenameEpic`, `DeleteTeam` and the
 process sweep can do the same — it produces one commit **per domain**,
 all carrying the same `Aeman-Action-Id`. Two repositories cannot share
 a commit; the id is what makes them one action for the log, for revert

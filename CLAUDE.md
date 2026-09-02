@@ -29,7 +29,7 @@ The server holds an in-memory cache of the board (`internal/server/boardstore.go
 Layering, bottom-up:
 
 - `pkg/board` — the pure domain, no I/O: zones, stages and the **derived** states (Done and In Progress are computed, never stored), progress clamps, the day/sprint date model, the view filters (`MeView`, `TeamGrid`, `WeeklyPlan`), sprints and carry-over selection, rank keys (`rank.go`), the domain rule (`domain.go`: which repository a card lives in — linked cards first, then project, then team) and the per-visitor projection (`Visible`).
-- `pkg/boardservice` — the service every caller shares: the admission chain (clamps, review linkage, cancel/reactivate), the card actions (create, defer, remove, carry-over, carry-week, send-to-review, …). Events are not written anywhere: **the commits are the activity log** (`LogReader`).
+- `pkg/boardservice` — the service every caller shares: the admission chain (clamps, review linkage, cancel/reactivate), the card actions (create, defer, remove, carry-over, send-to-review, …). Events are not written anywhere: **the commits are the activity log** (`LogReader`).
 - `pkg/gitstore` — the storage: the repository layout (`cards/<a>/<b>/<ulid>.md`, roster YAML), file codecs that keep unknown keys, ULIDs (deterministic for process turns), commits with `Aeman-*` trailers built through go-git plumbing (no worktree), shallow clone / deepen-since / push / fetch / rebase, `MultiBackend` over several domains (roster fragments merged on read, cross-domain moves as create-then-delete), the card log walker.
 - `pkg/apiserver` — the Kubernetes-style resource types (`{kind, metadata, spec, status}`) served over LIST + WATCH.
 - `pkg/mcpserver` — the MCP tool set (same board service).

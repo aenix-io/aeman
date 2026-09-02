@@ -20,7 +20,7 @@ func ClampProgress(stage StageKey, value int) int {
 // or 100% readiness with no stage (done is derived) or on the recurrent stage
 // (a finished recurrent card stays behind; Carry Over reseeds a fresh copy). A
 // 100% card that is on review or locked is still unfinished, so it is NOT
-// complete. Carry Over and Carry Week use this so finished cards are not
+// complete. Carry Over uses this so finished cards are not
 // dragged forward.
 // Workable reports whether a card can be picked up and worked on right now: it
 // is neither finished nor parked awaiting someone else. It excludes done

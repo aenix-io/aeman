@@ -9,7 +9,7 @@ A typical embedder is a **local MCP server**: it clones the board's repository i
 | Package | What it is |
 | --- | --- |
 | `pkg/board` | The pure domain: card/board model, date and visibility rules, stage/progress/zone semantics, rank keys, the domain (repository) rule, the visibility projection, link extraction. No I/O. |
-| `pkg/boardservice` | The rules engine over a `Backend` interface: create/patch admission, defer, the smart remove, the review cycle, carry-over/carry-week, the activity log. This is the contract. |
+| `pkg/boardservice` | The rules engine over a `Backend` interface: create/patch admission, defer, the smart remove, the review cycle, carry-over, the activity log. This is the contract. |
 | `pkg/gitstore` | The git storage: the repository layout and file formats, one commit per action with trailers, shallow clone / deepen / push / rebase, the card log read from commits. `*gitstore.Backend` (one repository) and `*gitstore.MultiBackend` (a board of several domains) satisfy `boardservice.Backend`. |
 | `pkg/apiserver` | The resource layer: Card/Sprint/Note/Ordering shapes (`{kind, metadata, spec, status}`), semantic zones, view selectors. |
 | `pkg/mcpserver` | The full MCP tool set over a backend. |

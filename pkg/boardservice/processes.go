@@ -565,16 +565,16 @@ func findTask(b board.Board, id string) (board.Card, bool) {
 	return board.Card{}, false
 }
 
-// SpawnIterations files, into the weekly plan of `week`, one iteration for
-// every task whose cycle puts a due date inside that week. It is what
-// makes a process run without anyone pressing anything per template:
-// carry_week calls it for the week it carries into.
+// SpawnIterations files, into `week`, one iteration for every task whose
+// cycle puts a due date inside that week. It is what makes a process run
+// without anyone pressing anything per template: the server's sweep calls
+// it for the current week (SpawnDue).
 //
 // A task whose previous iteration is still open does NOT spawn — the open
 // card IS the process, and it simply goes overdue — unless the task
 // accumulates, in which case unpaid months pile up as separate cards. And a
 // week that already holds an iteration of a task never gets a second
-// (re-running carry_week must be idempotent).
+// (a re-run of the sweep must be idempotent).
 func (s *Service) SpawnIterations(ctx context.Context, b board.Board, team, week string, dryRun bool) (int, error) {
 	spawned := 0
 	for _, t := range b.Tasks {

@@ -305,7 +305,7 @@ export interface CardDayLog {
   events: CardEvent[];
 }
 
-/** CarryReport is what a carry-over / carry-week pass did — or would do on a
+/** CarryReport is what a carry-over pass did — or would do on a
  * dry run, which feeds the confirm-dialog counts. */
 export interface CarryReport {
   carried: number;

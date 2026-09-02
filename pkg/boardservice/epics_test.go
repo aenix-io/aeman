@@ -344,40 +344,6 @@ func TestRenameProject(t *testing.T) {
 	}
 }
 
-// A slot that slipped is a debt, and a debt is not moved: carry-week counts
-// it and leaves both its boundaries alone. The end date is the very thing
-// that says it slipped — stretching it to the target week, as carry-week
-// once did, made the board forget anything had.
-func TestCarryWeekLeavesASlippedSlotAlone(t *testing.T) {
-	thisWeek := board.MondayOf(board.TodayIso())
-	twoBack := board.AddDays(thisWeek, -14)
-	fake := newFake([]board.Card{
-		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
-		{ItemID: "slot", Title: "slipped", Epic: "E", Project: "P", Team: "alpha", Plan: board.PlanFri,
-			Week: twoBack, StartDate: twoBack, Day: board.AddDays(twoBack, 4)},
-	}, map[string]board.SprintState{"alpha": {Current: board.TodayIso(), ItemID: "s1"}})
-	svc := New(fake)
-	rep, err := svc.CarryWeek(context.Background(), "acme", "alpha", thisWeek, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep.Carried != 1 {
-		t.Fatalf("the debt is counted: carried = %d", rep.Carried)
-	}
-	got := fake.get("slot")
-	if got.Week != twoBack || got.StartDate != twoBack || got.Day != board.AddDays(twoBack, 4) {
-		t.Fatalf("the slot moved: week %s start %s end %s", got.Week, got.StartDate, got.Day)
-	}
-	// …and it shows on this week's panel as the debt it is: by WEDNESDAY,
-	// the nearest deadline of the week it is late into.
-	b, _ := svc.Board(context.Background(), "acme")
-	now := board.WeeklyPlan(b, "alpha", thisWeek)
-	if len(now.Wed) != 1 || now.Wed[0].ItemID != "slot" {
-		t.Fatalf("the slipped slot must show on the current week's panel; got %+v", now)
-	}
-}
-
 // A deadline belongs to a project: two projects can both have one on the same
 // week, and dragging a project's line onto its own other line merges them.
 func TestDeadlines(t *testing.T) {

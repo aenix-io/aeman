@@ -574,8 +574,6 @@ type CarryReport struct {
 	// showing on the target week's panel. They are not moved.
 	Carried  int `json:"carried"`
 	Reseeded int `json:"reseeded"`
-	// Spawned counts process iterations filed into the week (carry_week).
-	Spawned int `json:"spawned,omitempty"`
 }
 
 // ReorderTeams applies a shared team order by moving the hidden sprint-state
@@ -882,103 +880,6 @@ func (s *Service) setSprintStartRetry(ctx context.Context, b board.Board, c boar
 		}
 	}
 	return err
-}
-
-// CarryWeek pulls a team's unfinished plan cards from earlier weeks into the
-// target week (week = "" is the current week's Monday), returning the cards it
-// moved and reseeded. It mirrors handleCarryWeek in TeamBoard.tsx (nothing to
-// carry yields an empty report, not an error). team = "" is the no-team group.
-// With dryRun the would-be counts are reported and nothing is written.
-func (s *Service) CarryWeek(ctx context.Context, boardID string, team, week string, dryRun bool) (CarryReport, error) {
-	b, err := s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return CarryReport{}, err
-	}
-	if week == "" {
-		week = board.MondayOf(board.TodayIso())
-	}
-	// Titles already planned in the target week, for the recurrent reseed dedup:
-	// re-running carry-week must not create a second copy. A plan card with an
-	// EMPTY week is a torn reseed from an interrupted earlier run (create landed,
-	// the week write did not) — track those to finish them instead of duplicating.
-	inTarget := map[string]bool{}
-	torn := map[string]board.Card{}
-	for _, c := range b.Cards {
-		if c.Plan == board.PlanNone || c.Team != team {
-			continue
-		}
-		if c.Week == week {
-			inTarget[c.Title] = true
-		}
-		if c.Week == "" {
-			torn[c.Title] = c
-		}
-	}
-	var rep CarryReport
-	// Processes first: the iterations a week is owed, from their tasks.
-	spawned, err := s.SpawnIterations(ctx, b, team, week, dryRun)
-	if err != nil {
-		return rep, err
-	}
-	rep.Spawned = spawned
-	for _, c := range b.Cards {
-		if c.Plan == board.PlanNone || c.Week == "" || c.Week >= week || c.Team != team {
-			continue
-		}
-		// A turn of a process is recurrent, but its process owns the repeat:
-		// SpawnIterations above decides whether the target week is owed one,
-		// and on what cycle. The reseed below would copy it regardless —
-		// weekly, unlinked, and self-perpetuating from then on.
-		if c.Task != "" {
-			continue
-		}
-		// A finished recurrent plan card stays in its week and seeds the target
-		// week with a fresh copy (unless one with the same title is already there).
-		if c.Stage == board.StageRecurrent && c.Progress >= 100 {
-			if inTarget[c.Title] {
-				continue
-			}
-			rep.Reseeded++
-			if dryRun {
-				continue
-			}
-			// Finish a torn reseed instead of creating another copy.
-			if stray, ok := torn[c.Title]; ok {
-				if err := s.backend.SetWeek(ctx, b, stray, week); err != nil {
-					return rep, err
-				}
-				s.logEvent(ctx, b, stray, board.EventWeek, "", week)
-				delete(torn, c.Title)
-				inTarget[c.Title] = true
-				continue
-			}
-			if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
-				Title: c.Title,
-				Zone:  c.Zone,
-				Plan:  c.Plan,
-				Week:  week,
-				Team:  c.Team,
-			}); err != nil {
-				return rep, err
-			}
-			inTarget[c.Title] = true
-			continue
-		}
-		if board.Complete(c.Stage, c.Progress) {
-			continue
-		}
-		// An unfinished plan card is a DEBT, and a debt is not moved: it stays
-		// in the week it was owed in — that week is the record of what was
-		// missed — and shows on the current week's panel beside that week's
-		// own work, with the overdue mark (board.Overdue, planShowsInWeekAt).
-		// Carrying used to move the card and, for a slot, stretch its end to
-		// the target week — rewriting the very date that says it slipped, so
-		// the board forgot anything had. It counts the debts now and leaves
-		// them be; what carry-week still DOES is file the process turns the
-		// week is owed, above.
-		rep.Carried++
-	}
-	return rep, nil
 }
 
 // --- Defer / dates / remove (the frontend's date logic, moved server-side) --

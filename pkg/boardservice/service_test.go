@@ -1071,44 +1071,6 @@ func TestReleaseFromPlanDeletesPureCardWithNoPreviousWeek(t *testing.T) {
 	}
 }
 
-// An unfinished card from an earlier week is a debt: carry-week counts it and
-// leaves it in the week it was owed in. It reaches the current week's panel
-// through the overdue rule, not by moving.
-func TestCarryWeekCountsDebtsWithoutMovingThem(t *testing.T) {
-	week := "2026-06-22"
-	f := newFake([]board.Card{
-		{ItemID: "a1", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-15"},
-		{ItemID: "a2", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-15", Progress: 100},
-		{ItemID: "a3", Team: "alpha", Plan: board.PlanFri, Week: week},
-		{ItemID: "b1", Team: "beta", Plan: board.PlanWed, Week: "2026-06-15"},
-	}, map[string]board.SprintState{"alpha": {Current: week, ItemID: "s1"}})
-	svc := New(f)
-	rep, err := svc.CarryWeek(context.Background(), "acme", "alpha", week, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep.Carried != 1 {
-		t.Fatalf("one open debt for alpha: rep = %+v", rep)
-	}
-	if a1 := f.get("a1"); a1.Week != "2026-06-15" || a1.Plan != board.PlanWed {
-		t.Fatalf("the debt must not move or change band: %+v", a1)
-	}
-	if b1 := f.get("b1"); b1.Week != "2026-06-15" {
-		t.Fatalf("another team's card is untouched: %+v", b1)
-	}
-}
-
-func TestCarryWeekNothingToCarry(t *testing.T) {
-	f := newFake([]board.Card{{ItemID: "a1", Plan: board.PlanWed, Week: "2026-06-22", Team: "alpha"}}, nil)
-	rep, err := f2svc(f).CarryWeek(ctx, "acme", "alpha", "2026-06-22", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep.Carried != 0 || f.count("SetWeek") != 0 {
-		t.Fatalf("nothing to carry; rep=%+v log=%v", rep, f.log)
-	}
-}
-
 // --- Misc actions + views --------------------------------------------------
 
 func TestRenameAddNoteAndMove(t *testing.T) {
@@ -1207,41 +1169,6 @@ func TestCarryOverReseedsFinishedRecurrent(t *testing.T) {
 	}
 	if !f.saw("SetDescription new2 daily sync") {
 		t.Fatalf("reseed should copy the description; log=%v", f.log)
-	}
-}
-
-// A finished recurrent plan card seeds the target week with a fresh copy; an
-// unfinished one is a debt and stays where it is.
-func TestCarryWeekReseedsFinishedRecurrent(t *testing.T) {
-	week := board.MondayOf(board.TodayIso())
-	prev := board.AddDays(week, -7)
-	f := newFake([]board.Card{
-		{ItemID: "p1", Title: "standup", Team: "alpha", Plan: board.PlanWed, Week: prev,
-			Stage: board.StageRecurrent, Progress: 100},
-		{ItemID: "p2", Title: "feature", Team: "alpha", Plan: board.PlanFri, Week: prev, Progress: 20},
-	}, map[string]board.SprintState{"alpha": {Current: week, ItemID: "s1"}})
-	svc := New(f)
-	rep, err := svc.CarryWeek(context.Background(), "acme", "alpha", week, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep.Reseeded != 1 || rep.Carried != 1 {
-		t.Fatalf("rep = %+v", rep)
-	}
-	if p1 := f.get("p1"); p1.Week != prev || p1.Progress != 100 {
-		t.Fatalf("the finished recurrent stays as history: %+v", p1)
-	}
-	if p2 := f.get("p2"); p2.Week != prev {
-		t.Fatalf("the unfinished card is a debt and stays: %+v", p2)
-	}
-	var seeded *board.Card
-	for i := range f.b.Cards {
-		if f.b.Cards[i].Title == "standup" && f.b.Cards[i].ItemID != "p1" {
-			seeded = &f.b.Cards[i]
-		}
-	}
-	if seeded == nil || seeded.Week != week || seeded.Stage != board.StageRecurrent || seeded.Progress != 0 {
-		t.Fatalf("the reseeded copy lands in the target week, recurrent and fresh: %+v", seeded)
 	}
 }
 
@@ -1710,25 +1637,6 @@ func TestCarryOverDryRun(t *testing.T) {
 		t.Fatalf("report = %+v, want carried 1 (c1) reseeded 1 (r1)", rep)
 	}
 	if f.count("SetSprintState") != 0 || f.count("SetSprintStart") != 0 || f.count("CreateCard") != 0 {
-		t.Fatalf("dry run must not write; log=%v", f.log)
-	}
-}
-
-func TestCarryWeekDryRun(t *testing.T) {
-	week := board.MondayOf(board.TodayIso())
-	prev := board.AddDays(week, -7)
-	f := newFake([]board.Card{
-		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: prev, Progress: 20},
-		{ItemID: "p2", Team: "alpha", Plan: board.PlanFri, Week: prev, Stage: board.StageRecurrent, Progress: 100},
-	}, nil)
-	rep, err := f2svc(f).CarryWeek(ctx, "acme", "alpha", week, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep.Carried != 1 || rep.Reseeded != 1 {
-		t.Fatalf("report = %+v", rep)
-	}
-	if f.count("SetWeek") != 0 || f.count("CreateCard") != 0 {
 		t.Fatalf("dry run must not write; log=%v", f.log)
 	}
 }
@@ -2248,60 +2156,6 @@ func TestGridRemoveOnTakenPlanCard(t *testing.T) {
 	}
 }
 
-// A debt keeps its band: tightening a carried by-Friday card to by-Wednesday
-// made sense when the card moved into the target week; now it stays in its
-// own, and its band there is a fact about that week.
-func TestCarryWeekKeepsADebtsBand(t *testing.T) {
-	f := newFake([]board.Card{
-		{ItemID: "fri", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-29", Progress: 20},
-		{ItemID: "wed", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-29", Progress: 20},
-	}, map[string]board.SprintState{"alpha": {Current: "2026-07-06", ItemID: "s1"}})
-	svc := New(f)
-	if _, err := svc.CarryWeek(context.Background(), "acme", "alpha", "2026-07-06", false); err != nil {
-		t.Fatal(err)
-	}
-	if got := f.get("fri"); got.Plan != board.PlanFri || got.Week != "2026-06-29" {
-		t.Fatalf("the by-Friday debt keeps its band and week: %+v", got)
-	}
-	if got := f.get("wed"); got.Plan != board.PlanWed || got.Week != "2026-06-29" {
-		t.Fatalf("the by-Wednesday debt keeps its band and week: %+v", got)
-	}
-}
-
-// Carry-week's reseed is idempotent: a copy already in the target week blocks a
-// second one, and a torn reseed (plan band set, week empty — an interrupted
-// earlier run) is finished by setting its week instead of duplicating.
-func TestCarryWeekReseedDedupAndTornRepair(t *testing.T) {
-	week := "2026-07-06"
-	// Case 1: copy already in the target week -> nothing new.
-	f := newFake([]board.Card{
-		{ItemID: "src", Team: "alpha", Title: "Habit", Plan: board.PlanFri, Week: "2026-06-29",
-			Stage: board.StageRecurrent, Progress: 100},
-		{ItemID: "copy", Team: "alpha", Title: "Habit", Plan: board.PlanFri, Week: week},
-	}, nil)
-	if _, err := f2svc(f).CarryWeek(ctx, "acme", "alpha", week, false); err != nil {
-		t.Fatal(err)
-	}
-	if f.count("CreateCard") != 0 {
-		t.Fatal("an existing target-week copy must block the reseed")
-	}
-	// Case 2: torn reseed (week empty) -> repaired, not duplicated.
-	f = newFake([]board.Card{
-		{ItemID: "src", Team: "alpha", Title: "Habit", Plan: board.PlanFri, Week: "2026-06-29",
-			Stage: board.StageRecurrent, Progress: 100},
-		{ItemID: "stray", Team: "alpha", Title: "Habit", Plan: board.PlanWed, Week: ""},
-	}, nil)
-	if _, err := f2svc(f).CarryWeek(ctx, "acme", "alpha", week, false); err != nil {
-		t.Fatal(err)
-	}
-	if f.count("CreateCard") != 0 {
-		t.Fatal("a torn reseed must be repaired, not duplicated")
-	}
-	if c := f.get("stray"); c.Week != week {
-		t.Fatalf("the torn copy must be finished into the target week: %+v", c)
-	}
-}
-
 // Mutations record activity events with the acting user from the context; the
 // event log is best-effort and no-op changes are not recorded.
 func TestMutationsRecordEvents(t *testing.T) {
@@ -2507,16 +2361,14 @@ func TestSetPlanRecordsSemanticEvents(t *testing.T) {
 	}
 }
 
-// Carries are logged with the same kinds as manual moves: carry-over records a
-// sprint event on each carried card, carry-week a week event (plus the band
-// tighten), and a reseeded recurrent copy records created.
+// A carry is logged with the same kinds as the manual moves it stands in for:
+// a sprint event on each carried card, and created on a reseeded recurrent copy.
 func TestCarryRecordsEvents(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "c1", Team: "alpha", Progress: 40, SprintStart: "2026-07-01",
 			StartDate: "2026-07-01", CreatedAt: "2026-07-01T08:00:00Z"},
-		{ItemID: "p1", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-29", Progress: 20},
-		{ItemID: "habit", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-29",
-			Stage: board.StageRecurrent, Progress: 100},
+		{ItemID: "habit", Team: "alpha", SprintStart: "2026-07-01", StartDate: "2026-07-01",
+			CreatedAt: "2026-07-01T08:00:00Z", Stage: board.StageRecurrent, Progress: 100},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-07-01", ItemID: "s1"}})
 	svc := f2svc(f)
 	actx := WithActor(ctx, "kvaps")
@@ -2532,18 +2384,10 @@ func TestCarryRecordsEvents(t *testing.T) {
 	if !sprint {
 		t.Fatalf("c1 events = %+v, want a sprint event from the carry", f.eventsOf("c1"))
 	}
-	if _, err := svc.CarryWeek(actx, "acme", "alpha", "2026-07-06", false); err != nil {
-		t.Fatal(err)
-	}
-	// A debt is not moved, so nothing about it is logged: the card's own
-	// week and band are unchanged, and an event saying otherwise would lie.
-	if evs := f.eventsOf("p1"); len(evs) != 0 {
-		t.Fatalf("p1 events = %+v, want none — the debt did not move", evs)
-	}
 	// The reseeded recurrent copy records created.
 	var reseeded bool
 	for _, c := range f.b.Cards {
-		if c.ItemID != "habit" && c.Title == f.get("habit").Title && c.Week == "2026-07-06" {
+		if c.ItemID != "habit" && c.Title == f.get("habit").Title {
 			for _, e := range f.eventsOf(c.ItemID) {
 				if e.Kind == board.EventCreated {
 					reseeded = true

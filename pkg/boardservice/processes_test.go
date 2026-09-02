@@ -205,8 +205,8 @@ func TestMonthlyTemplateIsDueOnceAMonth(t *testing.T) {
 	}
 }
 
-// An open iteration is NOT carried into the next week: the week it was owed
-// is the record, and the task decides whether the next week gets its own.
+// An open iteration stays in the week it was owed: nothing carries it forward,
+// and the next week does not get its own while the last one is still open.
 func TestIterationsStayInTheirWeek(t *testing.T) {
 	fake := processBoard()
 	svc := New(fake)
@@ -217,14 +217,15 @@ func TestIterationsStayInTheirWeek(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := svc.CarryWeek(ctx, "acme", "alpha", board.AddDays(week, 7), false)
+	b, _ := svc.Board(ctx, "acme")
+	n, err := svc.SpawnIterations(ctx, b, "alpha", board.AddDays(week, 7), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Carried != 0 {
-		t.Fatalf("an open iteration must not be carried, got carried=%d", rep.Carried)
+	if n != 0 {
+		t.Fatalf("spawned %d for the next week; the open iteration IS the process", n)
 	}
-	b, _ := svc.Board(ctx, "acme")
+	b, _ = svc.Board(ctx, "acme")
 	for _, c := range b.Cards {
 		if c.Task != "" && c.Week != week {
 			t.Fatalf("the iteration moved to %s; it belongs to the week it was owed", c.Week)
