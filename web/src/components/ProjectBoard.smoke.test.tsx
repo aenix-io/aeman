@@ -108,6 +108,26 @@ describe("the Project board's grid", () => {
     expect(html).not.toContain("project-grid");
   });
 
+  it("slices the column between two cards of the same week", () => {
+    const html = draw(board({ cards: [card(), card({ itemId: "c2", title: "Beside it" })] }));
+    // Every row stays 28px tall; the two cards take half the column each.
+    expect(html).toContain("grid-template-rows:26px repeat(11, 28px)");
+    expect(html).toContain("width:calc(50% - 2px);margin-left:0%");
+    expect(html).toContain("width:calc(50% - 2px);margin-left:50%");
+  });
+
+  it("grows the row instead when the reader asked for rows that fit", () => {
+    store.set("aeman.projectRowFit", "true");
+    const html = draw(board({ cards: [card(), card({ itemId: "c2", title: "Under it" })] }));
+    store.delete("aeman.projectRowFit");
+    // The week both cards stand in is twice as tall as the rest, and they
+    // take the full width, one under the other.
+    expect(html).toContain("grid-template-rows:26px 28px 28px 56px 28px");
+    expect(html).toContain("height:calc(50% - 4px);margin-top:0%");
+    expect(html).toContain("height:calc(50% - 4px);margin-top:50%");
+    expect(html).not.toContain("margin-left:50%");
+  });
+
   it("draws a deadline as a line on its week", () => {
     const html = draw(board({ deadlines: [{ project: "cozy", week }] }));
     expect(html).toContain("project-deadline-head");

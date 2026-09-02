@@ -55,9 +55,9 @@ export interface WeekGridOptions {
   dated: readonly Dated[];
   /** How many columns stand on the board — they share the width. */
   columns: number;
-  /** Where the board's own zoom and column widths are kept, so two boards
-   *  never read each other's. */
-  store: { zoom: string; widths: string };
+  /** Where the board's own zoom, column widths and row-fit choice are kept,
+   *  so two boards never read each other's. */
+  store: { zoom: string; widths: string; rows: string };
   /** What the reader is looking at. The board scrolls to today once per
    *  selection: coming back to one they have scrolled away from should not
    *  yank them back, but choosing another view should open on today. */
@@ -87,6 +87,13 @@ export interface WeekGrid {
   columnResizer: (key: string) => ColumnResizer;
   zoom: Zoom;
   setZoom: (z: Zoom) => void;
+  /** Whether the rows may differ in height. Off, every row is `rowH` and
+   *  cards sharing a week split the column between them; on, a row grows to
+   *  hold them one under the other and `rowH` is only the smallest it may
+   *  be. The board works out the heights (rowHeights) and hands them to the
+   *  grid — only it knows what stands where. */
+  rowFit: boolean;
+  setRowFit: (fit: boolean) => void;
   /** Widening the window. Going back moves the scroll by exactly the height
    *  added, or the rows would slide out from under the reader. */
   showEarlier: () => void;
@@ -160,6 +167,17 @@ export function useWeekGrid({ dated, columns, store, selection, back }: WeekGrid
       localStorage.setItem(store.zoom, JSON.stringify(z));
     },
     [store.zoom],
+  );
+
+  const [rowFit, setRowFitState] = useState<boolean>(
+    () => localStorage.getItem(store.rows) === "true",
+  );
+  const setRowFit = useCallback(
+    (fit: boolean) => {
+      setRowFitState(fit);
+      localStorage.setItem(store.rows, String(fit));
+    },
+    [store.rows],
   );
 
   const writeFactors = useCallback(
@@ -422,6 +440,8 @@ export function useWeekGrid({ dated, columns, store, selection, back }: WeekGrid
     columnResizer,
     zoom,
     setZoom,
+    rowFit,
+    setRowFit,
     showEarlier,
     showLater,
     scrollRef,

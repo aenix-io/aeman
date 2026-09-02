@@ -211,6 +211,61 @@ export function packLanes<S extends Laned>(lists: Iterable<S[]>, pin?: Pin<S>): 
   }
 }
 
+/** How a slot is placed within the rows it covers.
+ *
+ *  Two boards' worth of cards have to share a cell, and there are only two
+ *  honest ways to give each one room: side by side, which is what a grid of
+ *  fixed rows can do, or one under the other, which needs the row to grow.
+ *  The lane the packer gave the slot is the same either way — what changes is
+ *  the axis it is spent on. */
+export interface LanePlacement {
+  width?: string;
+  marginLeft?: string;
+  height?: string;
+  marginTop?: string;
+}
+
+/** laneStyle turns a slot's lane into the room it takes.
+ *
+ *  `fit` is the reader's choice: false splits the column's WIDTH between the
+ *  cards sharing a week (every row stays the same height); true splits the
+ *  row's HEIGHT, so each card keeps the full width and the row grows to hold
+ *  them all. `trim` is what the caller wants taken off the width on top of
+ *  the margins — a card stepped aside to uncover the strip beside it. */
+export function laneStyle(s: Laned, fit: boolean, trim = 0): LanePlacement {
+  if (s.lanes <= 1) {
+    return {};
+  }
+  const share = (100 / s.lanes) * s.width;
+  const at = `${(100 / s.lanes) * s.lane}%`;
+  return fit
+    ? { height: `calc(${share}% - 4px)`, marginTop: at }
+    : { width: `calc(${share}% - ${2 + trim}px)`, marginLeft: at };
+}
+
+/** rowHeights is how tall each row has to be for every card in it to have a
+ *  band of its own — the busiest cluster crossing a row decides, and a row
+ *  nothing crosses stays the height one card needs.
+ *
+ *  Only a board whose rows may grow asks for this; the rows are handed back
+ *  as pixels, because a slot's band is a percentage of the rows it covers and
+ *  a percentage needs something definite to be a percentage of. */
+export function rowHeights(
+  columns: Iterable<readonly Laned[]>,
+  rows: number,
+  rowH: number,
+): number[] {
+  const lanes = new Array<number>(rows).fill(1);
+  for (const list of columns) {
+    for (const s of list) {
+      for (let r = s.row; r < s.row + s.span && r < rows; r++) {
+        lanes[r] = Math.max(lanes[r], s.lanes);
+      }
+    }
+  }
+  return lanes.map((n) => n * rowH);
+}
+
 /** extentOf places a card's dates in the window, or reports that they fall
  *  outside it. A card starts in the week of its start date (its week when it
  *  has none) and runs to the week of its end date; a card that ends before it

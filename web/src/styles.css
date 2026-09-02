@@ -4428,6 +4428,30 @@ button.card-age {
   background: var(--accent);
 }
 
+/* The row-height slider's companion: one height for every row, or rows that
+   grow to hold what is in them. */
+.zoom-fit {
+  width: 20px;
+  padding: 2px 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.zoom-fit:hover {
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.zoom-fit-on {
+  color: var(--accent);
+  border-color: var(--line-soft);
+}
+
 .zoom-reset {
   min-width: 40px;
   padding: 2px 4px;

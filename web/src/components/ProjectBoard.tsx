@@ -36,7 +36,16 @@ import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
 import { ZoomControl } from "./ZoomControl";
-import { type Laned, type Pin, extentOf, isoWeekNo, packLanes, weekLabel } from "../weekgrid";
+import {
+  type Laned,
+  type Pin,
+  extentOf,
+  isoWeekNo,
+  laneStyle,
+  packLanes,
+  rowHeights,
+  weekLabel,
+} from "../weekgrid";
 import { WeekGrid } from "./WeekGrid";
 import { useWeekGrid } from "./useWeekGrid";
 
@@ -117,6 +126,8 @@ const LS_PROGRESS = "aeman.projectProgressOpen";
 const LS_COLF = "aeman.projectColFactors";
 /** The board's own zoom, one entry per axis. */
 const LS_ZOOM = "aeman.projectZoom";
+/** Whether the board's rows may differ in height. */
+const LS_ROWS = "aeman.projectRowFit";
 
 /** The cell the board is drawn from before any zoom or per-column width. */
 /** How far a card steps aside to uncover the strip a new one starts from,
@@ -208,7 +219,7 @@ export function ProjectBoard({
   const grid = useWeekGrid({
     dated: cards,
     columns: epics.length,
-    store: { zoom: LS_ZOOM, widths: LS_COLF },
+    store: { zoom: LS_ZOOM, widths: LS_COLF, rows: LS_ROWS },
     selection: filter ? [...filter].sort().join("\u0000") : "*",
   });
   const { weeks, today, colFactors, zoom, wrapRef, rowAt } = grid;
@@ -1079,6 +1090,14 @@ export function ProjectBoard({
     return byCol;
   }, [cards, weeks, draft, move, drag]);
 
+  // When the rows may differ, each is as tall as the busiest week in it —
+  // worked out from the packing, because only it knows how many cards a week
+  // ended up holding.
+  const rows = useMemo(
+    () => (grid.rowFit ? rowHeights(slots.values(), weeks.length, grid.rowH) : undefined),
+    [grid.rowFit, slots, weeks.length, grid.rowH],
+  );
+
   // One index of the board, for the rules that need to look a parent up.
   const byId = useMemo(
     () => new Map(board.cards.map((c) => [c.itemId, c])),
@@ -1200,7 +1219,14 @@ export function ProjectBoard({
           onManage={onManageProjects}
           noneChip={looseEpics ? "No project" : undefined}
         />
-        {!empty && <ZoomControl zoom={zoom} onChange={grid.setZoom} />}
+        {!empty && (
+          <ZoomControl
+            zoom={zoom}
+            onChange={grid.setZoom}
+            fit={grid.rowFit}
+            onFit={grid.setRowFit}
+          />
+        )}
       </div>
       {empty && (
         <div className="project-empty">
@@ -1250,6 +1276,7 @@ export function ProjectBoard({
       <WeekGrid
         grid={grid}
         columns={gridColumns}
+        rowHeights={rows}
         corner={
           epics.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
             <button
@@ -1591,21 +1618,20 @@ export function ProjectBoard({
                 gridColumn: col + 2,
                 gridRow: `${row + 2} / span ${span}`,
                 borderLeftColor: card.team ? teamColor(card.team) : undefined,
-                // Cards sharing weeks in one column split its width instead
-                // of hiding each other. The width holds while the card is
-                // being dragged too: widening it on press made the first click
-                // of a double-click visibly inflate the card.
-                // Cards sharing a column carry an EXPLICIT width, and a
+                // Cards sharing weeks in one column split the room between
+                // them instead of hiding each other — the column's width, or
+                // the row's height when the reader let the rows grow. The
+                // share holds while the card is being dragged too: widening
+                // it on press made the first click of a double-click visibly
+                // inflate the card.
+                // A card with neighbours carries an EXPLICIT width, and a
                 // margin cannot shrink that — the step aside has to come out
-                // of the width itself, or a card with neighbours never moves.
-                ...(lanes > 1
-                  ? {
-                      width: `calc(${(100 / lanes) * laneWidth}% - 2px${
-                        nudged === card.itemId ? ` - ${NUDGE_PX}px` : ""
-                      })`,
-                      marginLeft: `${(100 / lanes) * lane}%`,
-                    }
-                  : {}),
+                // of the width itself, or such a card never moves.
+                ...laneStyle(
+                  { row, span, lane, lanes, width: laneWidth },
+                  grid.rowFit,
+                  nudged === card.itemId ? NUDGE_PX : 0,
+                ),
               }}
               onPointerDown={(ev) =>
                 beginMove(card, row, span, { project: e.project, epic: e.name }, ev)

@@ -5,7 +5,9 @@ import {
   type Laned,
   extentOf,
   isoWeekNo,
+  laneStyle,
   packLanes,
+  rowHeights,
   rowPx,
   sharedColumnPx,
   weekLabel,
@@ -337,5 +339,80 @@ describe("packLanes", () => {
       packLanes([list], pinnedTo("pinned", 0, 0, 2));
       expect(packed(list)).toEqual([["c", 0, 1, 1]]);
     });
+  });
+
+  describe("what a lane costs the card", () => {
+    const laned = (lane: number, lanes: number, width = 1): Laned => ({
+      row: 0,
+      span: 1,
+      lane,
+      lanes,
+      width,
+    });
+
+    it("costs a card nothing when it has the cell to itself", () => {
+      expect(laneStyle(laned(0, 1), false)).toEqual({});
+      expect(laneStyle(laned(0, 1), true)).toEqual({});
+    });
+
+    it("splits the column's width when the rows are all the same height", () => {
+      expect(laneStyle(laned(0, 2), false)).toEqual({
+        width: "calc(50% - 2px)",
+        marginLeft: "0%",
+      });
+      expect(laneStyle(laned(1, 2), false)).toEqual({
+        width: "calc(50% - 2px)",
+        marginLeft: "50%",
+      });
+    });
+
+    it("splits the row's height instead when the rows may grow", () => {
+      expect(laneStyle(laned(1, 2), true)).toEqual({
+        height: "calc(50% - 4px)",
+        marginTop: "50%",
+      });
+    });
+
+    it("gives a card that grew over free lanes the room of all of them", () => {
+      expect(laneStyle(laned(1, 3, 2), false)).toEqual({
+        width: "calc(66.66666666666667% - 2px)",
+        marginLeft: "33.333333333333336%",
+      });
+    });
+
+    it("takes what the caller asked off the width, and only off the width", () => {
+      expect(laneStyle(laned(0, 2), false, 13).width).toBe("calc(50% - 15px)");
+      expect(laneStyle(laned(0, 2), true, 13).height).toBe("calc(50% - 4px)");
+    });
+  });
+});
+
+describe("rowHeights", () => {
+  const laned = (row: number, span: number, lanes: number): Laned => ({
+    row,
+    span,
+    lane: 0,
+    lanes,
+    width: 1,
+  });
+
+  it("gives an empty grid one card's height per row", () => {
+    expect(rowHeights([], 3, 28)).toEqual([28, 28, 28]);
+  });
+
+  it("grows a row to hold every card that shares it", () => {
+    expect(rowHeights([[laned(1, 1, 3)]], 3, 28)).toEqual([28, 84, 28]);
+  });
+
+  it("grows every row a stretched cluster crosses", () => {
+    expect(rowHeights([[laned(0, 2, 2)]], 3, 28)).toEqual([56, 56, 28]);
+  });
+
+  it("takes the busiest column's answer, since a row is shared by them all", () => {
+    expect(rowHeights([[laned(0, 1, 2)], [laned(0, 1, 4)]], 2, 28)).toEqual([112, 28]);
+  });
+
+  it("does not run past the last row when a card reaches beyond the window", () => {
+    expect(rowHeights([[laned(1, 5, 3)]], 2, 28)).toEqual([28, 84]);
   });
 });
