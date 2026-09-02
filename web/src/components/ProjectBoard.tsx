@@ -36,7 +36,6 @@ import { ProjectPicker } from "./ProjectPicker";
 import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
 import { ZoomControl } from "./ZoomControl";
-import { MIN_COL_PX, columnFactor } from "../projectZoom";
 import { type Laned, type Pin, extentOf, isoWeekNo, packLanes, weekLabel } from "../weekgrid";
 import { WeekGrid } from "./WeekGrid";
 import { useWeekGrid } from "./useWeekGrid";
@@ -212,7 +211,7 @@ export function ProjectBoard({
     store: { zoom: LS_ZOOM, widths: LS_COLF },
     selection: filter ? [...filter].sort().join("\u0000") : "*",
   });
-  const { weeks, today, sharedCol, colFactors, zoom, wrapRef, rowAt } = grid;
+  const { weeks, today, colFactors, zoom, wrapRef, rowAt } = grid;
   // The grid's own view of the columns: a key, and the epic it stands for.
   const gridColumns = useMemo(
     () => epics.map((e) => ({ key: colKey(e.project, e.name), epic: e })),
@@ -228,15 +227,6 @@ export function ProjectBoard({
       nudgeTimer.current = null;
     }
   };
-  // Column width: null until dragged, when the columns just share the room —
-  // the right default. One width governs every column of the selection,
-  // because a plan reads as a grid and columns of assorted widths stop being
-  // comparable; a different selection carries its own width.
-  const [resizing, setResizing] = useState<{
-    key: string;
-    x: number;
-    from: number;
-  } | null>(null);
 
   // Dragging a column header sideways reorders the columns. A column can
   // always be moved among the columns of ITS OWN project — that order is what
@@ -311,35 +301,6 @@ export function ProjectBoard({
         setOrder(null); // put the board's own order back on screen
         onError(errText(err));
       });
-  };
-
-  // Dragging an edge resizes THAT column and nothing else: its width is
-  // remembered as a ratio to the width the others share, so it survives a
-  // zoom and a change of project selection. Dragged back to within a hair of
-  // the others it gives the ratio up and rejoins them — a column should not
-  // stay subtly different from a width nobody can see is different.
-  const beginResize = (key: string) => (e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const head = (e.currentTarget as HTMLElement).closest(".project-epic-head");
-    const from = head ? head.getBoundingClientRect().width : sharedCol;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setResizing({ key, x: e.clientX, from });
-  };
-
-  const moveResize = (e: React.PointerEvent) => {
-    if (!resizing) {
-      return;
-    }
-    const width = Math.max(MIN_COL_PX, Math.round(resizing.from + (e.clientX - resizing.x)));
-    grid.setColFactor(resizing.key, columnFactor(width, sharedCol));
-  };
-
-  const endResize = () => {
-    if (!resizing) {
-      return;
-    }
-    setResizing(null);
   };
 
   // ---- drag-to-create (and resize): a pressed column stretch becomes a slot.
@@ -1412,14 +1373,7 @@ export function ProjectBoard({
               <span
                 className="project-col-resize"
                 title="Drag to size this column · double-click to match the rest"
-                onPointerDown={beginResize(k)}
-                onPointerMove={moveResize}
-                onPointerUp={endResize}
-                onPointerCancel={() => setResizing(null)}
-                onDoubleClick={(ev) => {
-                  ev.stopPropagation();
-                  grid.setColFactor(k, null);
-                }}
+                {...grid.columnResizer(k)}
               />
             </div>
           );

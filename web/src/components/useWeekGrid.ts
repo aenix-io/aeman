@@ -12,7 +12,14 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { mondayOf, todayIso } from "../date";
-import { MIN_COL_PX, type Zoom, anchoredScroll, clampZoom, wheelZoom } from "../projectZoom";
+import {
+  MIN_COL_PX,
+  type Zoom,
+  anchoredScroll,
+  clampZoom,
+  columnFactor,
+  wheelZoom,
+} from "../projectZoom";
 import {
   type Dated,
   HEADER_PX,
@@ -32,6 +39,15 @@ export interface BoardBox {
   top: number;
   height: number;
   gridTop: number;
+}
+
+/** What a column's grip listens to. */
+export interface ColumnResizer {
+  onPointerDown: React.PointerEventHandler<HTMLElement>;
+  onPointerMove: React.PointerEventHandler<HTMLElement>;
+  onPointerUp: React.PointerEventHandler<HTMLElement>;
+  onPointerCancel: React.PointerEventHandler<HTMLElement>;
+  onDoubleClick: React.MouseEventHandler<HTMLElement>;
 }
 
 export interface WeekGridOptions {
@@ -65,6 +81,10 @@ export interface WeekGrid {
   colFactors: Record<string, number>;
   setColFactor: (key: string, factor: number | null) => void;
   resetColFactors: (keys: readonly string[]) => void;
+  /** The handlers for one column's grip — the board renders the element and
+   *  spreads these onto it. Dragging it widens that column alone; a
+   *  double-click gives the width back. */
+  columnResizer: (key: string) => ColumnResizer;
   zoom: Zoom;
   setZoom: (z: Zoom) => void;
   /** Widening the window. Going back moves the scroll by exactly the height
@@ -187,6 +207,44 @@ export function useWeekGrid({ dated, columns, store, selection, back }: WeekGrid
     [boardW, columns, zoom.x],
   );
   const rowH = rowPx(zoom.y);
+
+  // Dragging an edge resizes THAT column and nothing else: its width is
+  // remembered as a ratio to the width the others share, so it survives a
+  // zoom and a change of what is on screen. Dragged back to within a hair of
+  // the others it gives the ratio up and rejoins them — a column should not
+  // stay subtly different from a width nobody can see is different.
+  const resizing = useRef<{ key: string; x: number; from: number } | null>(null);
+  const columnResizer = useCallback(
+    (key: string): ColumnResizer => ({
+      onPointerDown: (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const head = (e.currentTarget as HTMLElement).closest(".project-epic-head");
+        const from = head ? head.getBoundingClientRect().width : sharedCol;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        resizing.current = { key, x: e.clientX, from };
+      },
+      onPointerMove: (e) => {
+        const r = resizing.current;
+        if (!r) {
+          return;
+        }
+        const width = Math.max(MIN_COL_PX, Math.round(r.from + (e.clientX - r.x)));
+        setColFactor(r.key, columnFactor(width, sharedCol));
+      },
+      onPointerUp: () => {
+        resizing.current = null;
+      },
+      onPointerCancel: () => {
+        resizing.current = null;
+      },
+      onDoubleClick: (e) => {
+        e.stopPropagation();
+        setColFactor(key, null);
+      },
+    }),
+    [sharedCol, setColFactor],
+  );
 
   const gridRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -361,6 +419,7 @@ export function useWeekGrid({ dated, columns, store, selection, back }: WeekGrid
     colFactors,
     setColFactor,
     resetColFactors,
+    columnResizer,
     zoom,
     setZoom,
     showEarlier,

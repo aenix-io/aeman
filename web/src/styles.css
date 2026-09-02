@@ -4857,7 +4857,8 @@ button.card-age {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 0 6px;
+  /* The room on the right is the grip's: a name must not run under it. */
+  padding: 0 10px 0 6px;
   overflow: hidden;
 }
 
