@@ -4797,6 +4797,16 @@ button.card-age {
   flex: none;
 }
 
+/* What the person is carrying altogether, at the far end of their column's
+   header — the name has the room it needs, the number takes the corner. */
+.triage-person-load {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
 .triage-person-none {
   font-size: 11px;
   color: var(--muted);

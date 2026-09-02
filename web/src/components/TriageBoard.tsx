@@ -113,6 +113,18 @@ export function TriageBoard({
 }: TriageBoardProps) {
   const today = todayIso();
   const thisWeek = mondayOf(today);
+  // What each person is carrying altogether, whatever team it is in: the
+  // board is read through a filter and a person is not, so somebody with
+  // four cards here may have eleven, and the column says which.
+  const carrying = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const m of board.members) {
+      if (m.carrying) {
+        out[m.login] = m.carrying;
+      }
+    }
+    return out;
+  }, [board.members]);
   const teams = useMemo(() => teamFilter ?? roster, [teamFilter, roster]);
 
   // A project card's weeks belong to the Project board, and this board holds
@@ -735,11 +747,7 @@ export function TriageBoard({
           className={`triage-lock${unlocked ? " triage-lock-open" : ""}`}
           aria-pressed={unlocked}
           onClick={() => setUnlocked(!unlocked)}
-          title={
-            unlocked
-              ? "A project card can be moved and stretched here, and its dates change on the Project board with it — click to hold them still again"
-              : "A project card's weeks are the Project board's and are held still here — click to move and stretch them from this board too"
-          }
+          title={unlocked ? "Project cards unlocked" : "Project cards locked"}
         >
           <Padlock open={unlocked} />
         </button>
@@ -783,6 +791,14 @@ export function TriageBoard({
                 <>
                   <Avatar login={p.key} avatars={avatars} names={names} />
                   <span className="project-epic-name">{displayName(p.key, names)}</span>
+                  {!!carrying[p.key] && (
+                    <span
+                      className="triage-person-load"
+                      title={`${carrying[p.key]} open cards altogether, in every team`}
+                    >
+                      {carrying[p.key]}
+                    </span>
+                  )}
                 </>
               )}
               {/* The border is THIS column's grip: dragging it widens this

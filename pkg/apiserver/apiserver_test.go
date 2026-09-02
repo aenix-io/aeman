@@ -326,7 +326,12 @@ func TestBoardResourceMembers(t *testing.T) {
 		}
 	}
 	with := BoardResourceWith(b, func(login string) string { return "https://cdn.example/" + login })
-	want := []Member{{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp"}, {Login: "octocat", AvatarURL: "https://cdn.example/octocat"}}
+	// The roster carries how much each person is holding right now, across
+	// every team: a board is read through a filter and a person is not.
+	want := []Member{
+		{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp", Carrying: 1},
+		{Login: "octocat", AvatarURL: "https://cdn.example/octocat", Carrying: 1},
+	}
 	if !reflect.DeepEqual(with.Metadata.Members, want) {
 		t.Fatalf("members with avatars = %+v", with.Metadata.Members)
 	}

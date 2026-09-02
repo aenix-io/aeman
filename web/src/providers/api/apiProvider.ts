@@ -74,6 +74,7 @@ export function boardMetadata(
       login: m.login,
       avatarUrl: m.avatarUrl || undefined,
       name: m.name || undefined,
+      carrying: m.carrying || undefined,
     })),
     // The repositories the board spans, primary first. An older server names
     // none; the UI then shows nothing of domains at all.

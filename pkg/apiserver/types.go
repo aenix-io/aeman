@@ -283,6 +283,11 @@ type Member struct {
 	Login     string `json:"login"`
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatarUrl,omitempty"`
+	// Carrying is how much open work is this person's right now, counted
+	// across EVERY team — a board is read through a filter and a person is
+	// not, so handing somebody a card without the whole number in front of
+	// you is a decision made in the dark (board.CarryingNow).
+	Carrying int `json:"carrying,omitempty"`
 }
 
 // DomainInfo is one readable domain of the visitor's board.
@@ -596,9 +601,10 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 		}
 	}
 	sortStrings(members)
+	carrying := board.CarryingNow(b, board.TodayIso())
 	people := make([]Member, 0, len(members))
 	for _, login := range members {
-		m := Member{Login: login}
+		m := Member{Login: login, Carrying: carrying[login]}
 		if person != nil {
 			p := person(login)
 			m.Name, m.AvatarURL = p.Name, p.AvatarURL

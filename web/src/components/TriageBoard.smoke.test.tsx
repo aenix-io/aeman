@@ -322,6 +322,38 @@ describe("the Triage board", () => {
     expect(html).not.toContain("triage-lock-open");
   });
 
+  it("says beside a name how much that person is carrying altogether", () => {
+    // The board is read through a team filter and a person is not: the
+    // number is theirs across every team, and the server counts it.
+    const html = renderToStaticMarkup(
+      <TriageBoard
+        board={
+          {
+            ...board([card()]),
+            members: [{ login: "lexfrei", carrying: 11 }],
+          } as unknown as Board
+        }
+        provider={{} as Provider}
+        roster={["core"]}
+        teamFilter={["core"]}
+        onSetFilter={vi.fn()}
+        avatars={{}}
+        names={{}}
+        patchCard={vi.fn()}
+        addCard={vi.fn()}
+        reorderCards={vi.fn()}
+        onOpen={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(html).toContain('class="triage-person-load"');
+    expect(html).toContain(">11<");
+  });
+
+  it("says nothing beside a name with nothing to say", () => {
+    expect(draw([card()])).not.toContain("triage-person-load");
+  });
+
   it("offers every column to be dragged into another place", () => {
     expect(draw([card()])).toContain("project-epic-head-movable");
   });
