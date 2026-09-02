@@ -3,8 +3,10 @@ package gitstore
 import (
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -22,33 +24,54 @@ import (
 // the board's first commit is not that case: the board existed and was
 // empty, and that is an answer.
 func LoadAsOf(r *Repo, at time.Time) (Snapshot, bool, error) {
+	h, ok, err := commitAsOf(r, at)
+	if err != nil || !ok {
+		return Snapshot{}, ok, err
+	}
+	if h.IsZero() {
+		// Before the board's first commit: it existed and was empty.
+		return Snapshot{}, true, nil
+	}
+	s, err := LoadAt(r, h)
+	return s, err == nil, err
+}
+
+// commitAsOf is the newest commit made at or before `at`. A zero hash with ok
+// means the board had not begun yet; ok is false when the answer is behind the
+// clone's horizon. The walk starts at the closest moment already resolved
+// (r.asOfStart), so stepping back through the days costs each day once rather
+// than the whole history every time.
+func commitAsOf(r *Repo, at time.Time) (plumbing.Hash, bool, error) {
 	head := r.Head()
 	if head.IsZero() {
-		return Snapshot{}, false, ErrEmptyRepository
+		return plumbing.ZeroHash, false, ErrEmptyRepository
 	}
 	shallow, err := r.shallows()
 	if err != nil {
-		return Snapshot{}, false, err
+		return plumbing.ZeroHash, false, err
 	}
-	h := head
+	horizon := horizonOf(shallow)
+	start, known := r.asOfStart(at, head, horizon)
+	if known != nil {
+		return known.hash, known.ok, nil
+	}
+	h := start
 	for {
 		c, err := object.GetCommit(r.s, h)
 		if err != nil {
-			return Snapshot{}, false, err
+			return plumbing.ZeroHash, false, err
 		}
 		if !c.Committer.When.After(at) {
-			s, err := LoadAt(r, h)
-			return s, err == nil, err
+			r.asOfResolved(at, head, horizon, h, true)
+			return h, true, nil
 		}
-		// Older than the boundary the clone was cut at: whatever came
-		// before is not here to read.
 		if shallow[h] {
-			return Snapshot{}, false, nil
+			r.asOfResolved(at, head, horizon, plumbing.ZeroHash, false)
+			return plumbing.ZeroHash, false, nil
 		}
 		if c.NumParents() == 0 {
-			// The board's own beginning: every commit is newer than the
-			// day asked for, so on that day the board was empty.
-			return Snapshot{}, true, nil
+			r.asOfResolved(at, head, horizon, plumbing.ZeroHash, true)
+			return plumbing.ZeroHash, true, nil
 		}
 		h = c.ParentHashes[0]
 	}
@@ -98,15 +121,19 @@ func cardsRemovedBetween(r *Repo, from, to time.Time, held map[string]bool) ([]b
 		return nil, err
 	}
 	// What the day BEGAN with: a writer that leaves no trailers still shows
-	// up here, as a card present at the start and absent at the end.
-	began, ok, err := LoadAsOf(r, from)
+	// up here, as a card present at the start and absent at the end. Only the
+	// IDS are wanted, and a card's id is in its path — so the day's first tree
+	// is listed, not parsed: reading 2400 card files to learn which ones exist
+	// cost more than the rest of the day put together.
+	began, ok, err := commitAsOf(r, from)
 	if err != nil {
 		return nil, err
 	}
-	start := map[string]board.Card{}
-	if ok {
-		for _, c := range began.Cards {
-			start[c.ItemID] = c
+	start := map[string]bool{}
+	if ok && !began.IsZero() {
+		start, err = cardIDsAt(r, began)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -132,14 +159,85 @@ func cardsRemovedBetween(r *Repo, from, to time.Time, held map[string]bool) ([]b
 		if !found {
 			// Never written during the day: it went with the day's first
 			// commit, and the state it went in is the one the day began with.
-			if was, ok := start[id]; ok {
-				out = append(out, was)
+			if start[id] {
+				was, ok, err := cardAt(r, began, id)
+				if err != nil {
+					return nil, err
+				}
+				if ok {
+					out = append(out, was)
+				}
 			}
 			continue
 		}
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// horizonOf names a clone's shallow boundary — what it can and cannot reach.
+func horizonOf(shallow map[plumbing.Hash]bool) string {
+	if len(shallow) == 0 {
+		return ""
+	}
+	hs := make([]string, 0, len(shallow))
+	for h := range shallow {
+		hs = append(hs, h.String())
+	}
+	sort.Strings(hs)
+	return strings.Join(hs, ",")
+}
+
+// cardIDsAt lists the cards a commit's tree holds, by their paths alone: a
+// card's id IS its file name, so nothing is read but the trees.
+func cardIDsAt(r *Repo, h plumbing.Hash) (map[string]bool, error) {
+	c, err := object.GetCommit(r.s, h)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := c.Tree()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	err = tree.Files().ForEach(func(f *object.File) error {
+		if kind, parts := ParsePath(f.Name); kind == PathCard {
+			out[parts[0]] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// cardAt reads one card from a commit's tree.
+func cardAt(r *Repo, h plumbing.Hash, id string) (board.Card, bool, error) {
+	p, err := CardPath(id)
+	if err != nil {
+		return board.Card{}, false, err
+	}
+	c, err := object.GetCommit(r.s, h)
+	if err != nil {
+		return board.Card{}, false, err
+	}
+	f, err := c.File(p)
+	if err != nil {
+		if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
+			return board.Card{}, false, nil
+		}
+		return board.Card{}, false, err
+	}
+	data, err := f.Contents()
+	if err != nil {
+		return board.Card{}, false, err
+	}
+	card, err := DecodeCard(id, []byte(data))
+	if err != nil {
+		return board.Card{}, false, nil //nolint:nilerr // not a card anyone saw
+	}
+	return card.Card, true, nil
 }
 
 // commitsOfDay is the day's commits, newest first, and the cards they name:

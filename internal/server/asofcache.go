@@ -34,10 +34,47 @@ type asOfCache struct {
 	// deepened is when the history was last pulled for a day it did not
 	// reach, by that day's boundary.
 	deepened map[string]time.Time
+	// flying are the reads under way, by key. Flipping to a day fires THREE
+	// requests at once — the cards, the roster and the sprint pointers — and
+	// each of them missed the cache the others had not filled yet, so a cold
+	// day was read three times over, in parallel, for one answer.
+	flying map[string]*flight
+}
+
+// flight is one read others wait on: the first caller does the work and the
+// rest take its answer.
+type flight struct {
+	done chan struct{}
+	bd   board.Board
+	ok   bool
+	err  error
 }
 
 func newAsOfCache() *asOfCache {
-	return &asOfCache{kept: map[string]board.Board{}, deepened: map[string]time.Time{}}
+	return &asOfCache{kept: map[string]board.Board{}, deepened: map[string]time.Time{},
+		flying: map[string]*flight{}}
+}
+
+// begin joins the read of `key`: it returns the flight to wait on when one is
+// already under way, or the one to DO (mine) otherwise.
+func (c *asOfCache) begin(key string) (f *flight, mine bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if f, ok := c.flying[key]; ok {
+		return f, false
+	}
+	f = &flight{done: make(chan struct{})}
+	c.flying[key] = f
+	return f, true
+}
+
+// finish hands the answer to everyone waiting on it.
+func (c *asOfCache) finish(key string, f *flight, bd board.Board, ok bool, err error) {
+	c.mu.Lock()
+	delete(c.flying, key)
+	c.mu.Unlock()
+	f.bd, f.ok, f.err = bd, ok, err
+	close(f.done)
 }
 
 // get returns a kept board for the key, if there is one.
