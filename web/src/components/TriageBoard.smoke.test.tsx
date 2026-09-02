@@ -223,10 +223,6 @@ describe("the Triage board", () => {
     expect(html).not.toContain("triage-strip");
   });
 
-  it("counts what is waiting, so the size of the pile is not a surprise", () => {
-    const html = draw([card({ week: undefined }), card({ itemId: "c2", week: undefined })]);
-    expect(html).toContain("2 untriaged");
-  });
 
   it("stands a card of no week in its owner's column", () => {
     const html = draw([card({ week: undefined, assignees: ["lexfrei"] })]);
@@ -237,7 +233,7 @@ describe("the Triage board", () => {
   it("draws no review of its own — it follows the card it reviews", () => {
     const html = draw([card({ week: undefined, title: "Review of it", reviewOf: "c9" })]);
     expect(html).not.toContain("Review of it");
-    expect(html).toContain("0 untriaged");
+    expect(html).not.toContain("project-slot triage-slot");
   });
 
   it("keeps a review with a week on the board, where the work is", () => {
@@ -250,7 +246,7 @@ describe("the Triage board", () => {
       card({ week: undefined, title: "Sent to review", stage: "review", progress: 85 }),
     ]);
     expect(html).not.toContain("Sent to review");
-    expect(html).toContain("0 untriaged");
+    expect(html).not.toContain("project-slot triage-slot");
   });
 
   it("keeps a card sent to review on the board once it has a week", () => {

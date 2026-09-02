@@ -4772,27 +4772,6 @@ button.card-age {
   flex: none;
 }
 
-.triage-load {
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.triage-capacity {
-  font: inherit;
-  font-size: 12px;
-  color: var(--fg);
-  background: var(--bg-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  padding: 1px 9px;
-  cursor: pointer;
-}
-
-.triage-capacity:hover {
-  border-color: var(--line);
-}
-
 /* The grid IS the board: nothing stands beside it. */
 .triage .project-board {
   flex: 1;
@@ -4830,21 +4809,11 @@ button.card-age {
   padding-left: 4px;
 }
 
-/* The week column carries what that week holds beside its date, and says so
-   in red when it is more than the teams on screen can close. */
+/* The week column carries what that week holds beside its date. */
 .triage-count {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-}
-
-.triage-limit {
-  opacity: 0.6;
-}
-
-.triage-week-over .triage-count {
-  color: var(--danger);
-  font-weight: 600;
 }
 
 /* A slot on this board carries a progress bar along its foot and the band

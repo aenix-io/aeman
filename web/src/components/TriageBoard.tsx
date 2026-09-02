@@ -17,7 +17,7 @@
 // What is overdue is shown as owed NOW: the grid opens on this week, and an
 // open card from a week gone by stands in the first row. That is the weekly
 // plan's own rule (planShowsInWeekAt), and this board must not disagree.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider } from "../providers/types";
 import { addDays, mondayOf, todayIso } from "../date";
 import { anchorFor, byPile, needsTriage, orderWith, placedIn } from "../triage";
@@ -36,11 +36,9 @@ import { useWeekGrid } from "./useWeekGrid";
 // value on a card, so the key is something no login can be.
 const NOBODY = " nobody";
 
-// The board's own zoom, column widths and — until a roster carries one — the
-// weekly limit a reader wants to try. All of them are this browser's.
+// The board's own zoom and column widths, both this browser's.
 const LS_ZOOM = "aeman.triage.zoom";
 const LS_WIDTHS = "aeman.triage.colWidths";
-const LS_CAPACITY = "aeman.triage.capacity";
 /** The order the reader dragged the columns into. People have no order on
  *  the board — nothing on the server says one person comes before another —
  *  so it is this browser's, beside the widths. */
@@ -99,15 +97,6 @@ function readPeopleOrder(): string[] | null {
   }
 }
 
-function readCapacityOverrides(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(LS_CAPACITY);
-    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
-  } catch {
-    return {};
-  }
-}
-
 export function TriageBoard({
   board,
   provider,
@@ -132,25 +121,6 @@ export function TriageBoard({
   // deliberately NOT remembered — a guard that stays open is not a guard, and
   // the next visit starts closed again.
   const [unlocked, setUnlocked] = useState(false);
-
-  const [overrides, setOverrides] = useState<Record<string, number>>(readCapacityOverrides);
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_CAPACITY, JSON.stringify(overrides));
-    } catch {
-      // A browser without storage keeps the override for the session.
-    }
-  }, [overrides]);
-
-  // A limit is a TEAM's, and a row here can hold several teams at once: what
-  // the board can do in a week is what its teams can do together.
-  const weekLimit = useMemo(() => {
-    let sum = 0;
-    for (const team of teams) {
-      sum += overrides[team] ?? board.sprintStates[team]?.capacity?.week ?? 0;
-    }
-    return sum;
-  }, [teams, overrides, board.sprintStates]);
 
   // The order the reader dragged the columns into, if they have.
   const [order, setOrder] = useState<string[] | null>(readPeopleOrder);
@@ -762,36 +732,6 @@ export function TriageBoard({
         />
         <button
           type="button"
-          className="triage-capacity"
-          title="How many cards the teams on screen close in a week. Click to try a number of your own; it stays in this browser."
-          onClick={() => {
-            const team = teams[0] ?? "";
-            const raw = window.prompt(
-              `Cards a week for ${team || "the no-team group"} (empty = the derived number)`,
-              String(overrides[team] ?? board.sprintStates[team]?.capacity?.week ?? ""),
-            );
-            if (raw === null) {
-              return;
-            }
-            setOverrides((cur) => {
-              const next = { ...cur };
-              const n = Number(raw);
-              if (raw.trim() === "" || !Number.isFinite(n) || n <= 0) {
-                delete next[team];
-              } else {
-                next[team] = Math.round(n);
-              }
-              return next;
-            });
-          }}
-        >
-          {weekLimit > 0 ? `${weekLimit} / week` : "no limit"}
-        </button>
-        <span className="triage-load" title="Cards of the teams on screen that nobody has given a week">
-          {waiting.length} untriaged
-        </span>
-        <button
-          type="button"
           className={`triage-lock${unlocked ? " triage-lock-open" : ""}`}
           aria-pressed={unlocked}
           onClick={() => setUnlocked(!unlocked)}
@@ -857,24 +797,15 @@ export function TriageBoard({
             </div>
           )}
           weekProps={(w) => {
-            // What the week carries, stretched cards included: a card over two
-            // weeks is a week of work in each of them.
+            // What the week carries, a card of several weeks counting in each
+            // of them.
             const n = load.get(w) ?? 0;
-            const over = weekLimit > 0 && n > weekLimit;
             return {
-              title: over
-                ? `${n} cards — more than the ${weekLimit} a week the teams on screen close`
-                : weekLimit > 0
-                  ? `${n} cards; the teams on screen close about ${weekLimit} a week`
-                  : `${n} cards`,
-              className: over ? "triage-week-over" : undefined,
+              title: `${n} cards`,
               label: (
                 <>
                   <span className="project-week-date">{w === thisWeek ? "now" : weekLabel(w)}</span>
-                  <span className="triage-count">
-                    {n}
-                    {weekLimit > 0 && <span className="triage-limit">/{weekLimit}</span>}
-                  </span>
+                  <span className="triage-count">{n}</span>
                 </>
               ),
             };
