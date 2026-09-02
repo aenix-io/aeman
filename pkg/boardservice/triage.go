@@ -108,6 +108,34 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string, band 
 			}
 		}
 		s.logEvent(ctx, b, card, board.EventDates, card.StartDate+"…"+card.Day, "")
+		return nil
+	}
+	// Brought back into the week the team is working, a card that stands on
+	// no day at all joins the sprint being worked — which is where a card of
+	// the current week with no day of its own belongs, and where carry-over
+	// puts one. Without this the round trip out to a week ahead and back left
+	// the card holding a week and standing on no board: not on the team's
+	// day, not on anyone's Me, findable by its id alone. A card that already
+	// has a day keeps it: placing it in the week it is already in says
+	// nothing new about when it is being done.
+	if card.StartDate == "" && card.Day == "" && card.SprintStart == "" &&
+		card.Epic == "" && !board.IsPersonalDomain(card.Domain) {
+		sprint := board.ActiveSprint(b, card.Team, today)
+		if sprint == "" {
+			sprint = board.CurrentSprint(b, card.Team)
+		}
+		if sprint == "" {
+			// A team with no sprint pointer at all: the week seeds it, the
+			// same fallback SetDates makes.
+			sprint = week
+		}
+		if err := s.backend.SetSprintStart(ctx, b, card, sprint); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventSprint, "", sprint)
+		if err := s.syncChildrenSprint(ctx, b, card.ItemID, sprint); err != nil {
+			return err
+		}
 	}
 	return nil
 }
