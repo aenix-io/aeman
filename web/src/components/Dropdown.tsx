@@ -64,7 +64,10 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
       left,
       right: "auto",
       visibility: "visible",
-      zIndex: 60,
+      // The same layer the hidden state starts on: this call writes the
+      // style afresh, so a lower one here puts the menu back under the card
+      // modal it was opened over.
+      zIndex: 200,
     });
   }, [anchorRef]);
 

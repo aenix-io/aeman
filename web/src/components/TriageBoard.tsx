@@ -895,7 +895,13 @@ export function TriageBoard({
           cellProps={(p, col, _w, row) => ({
             // Half a card of room under the last one, so there is always
             // somewhere to press.
-            style: { minHeight: `${((filled.get(`${p.key}/${row}`) ?? 0) + 0.5) * grid.rowH}px` },
+            style: {
+              minHeight: `${
+                ((filled.get(`${p.key}/${row}`) ?? 0) +
+                  (composing?.row === row && composing.col === col ? 1.5 : 0.5)) *
+                grid.rowH
+              }px`,
+            },
             // On the CLICK, not the press: the form saves itself when a
             // press lands outside it, and opening on the press meant it
             // heard the very one that opened it and closed again at once.

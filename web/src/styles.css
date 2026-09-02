@@ -4949,15 +4949,33 @@ button.card-age {
 }
 
 /* Somewhere to start a card, standing where the next one would: under the
-   last of its cell, at the full width of the column. */
+   last of its cell, at the full width of the column, and no taller than the
+   card it is about to become — the board is read down a column and a form
+   twice a card's height would push the week open every time it is touched. */
 .triage-compose {
   z-index: 3;
   align-self: start;
   padding: 0 3px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .triage-compose .add-card-form {
   width: 100%;
+  margin: 2px 0;
+  border-color: var(--line);
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.triage-compose .add-card-input {
+  padding: 1px 5px;
+  font-size: 11px;
+}
+
+.triage-compose .add-card-team-btn {
+  font-size: 10px;
+  padding: 0 4px;
 }
 
 /* A turn a process is going to file: drawn before it exists, so it is drawn
