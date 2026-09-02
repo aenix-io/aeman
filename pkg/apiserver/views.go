@@ -201,32 +201,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			}
 		}
 	case "backlog":
-		// The Backlog board: the teams' cards placed in the weeks asked for,
-		// the current sprint (the current week's column), the debts owed
-		// from earlier weeks (they stand in the current column too), and
-		// the cards nobody placed — the triage strip (B3, B5).
-		today := board.TodayIso()
-		until := board.AddDays(sel.From, 7*sel.Weeks)
-		for _, c := range b.Cards {
-			if c.Parent != "" || board.IsStateTitle(c.Title) || board.IsPersonalDomain(c.Domain) {
-				continue
-			}
-			if !teamInSet(c.Team, sel.Team) {
-				continue
-			}
-			if board.NeedsTriage(b, c, today) {
-				base = append(base, c)
-				continue
-			}
-			w := board.BacklogWeekOf(b, c, today)
-			if w == "" {
-				continue
-			}
-			open := !board.Complete(c.Stage, c.Progress)
-			if (w >= sel.From && w < until) || (open && w < board.MondayOf(today) && sel.From <= board.MondayOf(today)) {
-				base = append(base, c)
-			}
-		}
+		base = backlogCards(b, sel)
 	default:
 		base = b.Cards
 	}
@@ -510,6 +485,40 @@ func planProgress(cards []board.Card) int {
 		return 0
 	}
 	return (sum + n/2) / n
+}
+
+// backlogCards is the Backlog board's own selection: the teams' cards placed
+// in the weeks asked for, the current sprint (which is the current week's
+// column), the debts owed from earlier weeks — they stand in that column too
+// — and the cards nobody placed at all, which are the triage strip (B3, B5).
+func backlogCards(b board.Board, sel Selector) []board.Card {
+	today := board.TodayIso()
+	until := board.AddDays(sel.From, 7*sel.Weeks)
+	thisWeek := board.MondayOf(today)
+	var out []board.Card
+	for _, c := range b.Cards {
+		if c.Parent != "" || board.IsStateTitle(c.Title) || board.IsPersonalDomain(c.Domain) {
+			continue
+		}
+		if !teamInSet(c.Team, sel.Team) {
+			continue
+		}
+		if board.NeedsTriage(b, c, today) {
+			out = append(out, c)
+			continue
+		}
+		w := board.BacklogWeekOf(b, c, today)
+		if w == "" {
+			continue
+		}
+		// In the window, or a debt from before it: an open card owed in a
+		// week already gone stands in the current one.
+		debt := !board.Complete(c.Stage, c.Progress) && w < thisWeek && sel.From <= thisWeek
+		if (w >= sel.From && w < until) || debt {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // teamInSet reports whether a card's team is in a comma-separated selector
