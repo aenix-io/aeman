@@ -116,6 +116,96 @@ export interface Extent {
   span: number;
 }
 
+/** A slot standing in a column: the rows it covers, and — once packed — the
+ *  lane it was given, how many lanes its cluster was split into and how many
+ *  of them it is drawn across. */
+export interface Laned extends Extent {
+  lane: number;
+  lanes: number;
+  width: number;
+}
+
+/** A slot held in a lane it already has. While an edge is being pulled the
+ *  slot must not hop lanes under the pointer: it keeps `lane`, and the others
+ *  pack around the rows it previews. */
+export interface Pin<S> {
+  is: (slot: S) => boolean;
+  lane: number;
+  row: number;
+  span: number;
+}
+
+/** packLanes gives every slot in every column a lane.
+ *
+ * Lanes are worked out per CLUSTER of overlapping slots, not per column:
+ * splitting a whole column because two slots happen to share a fortnight
+ * would leave every unrelated card at half width for no reason. Within a
+ * cluster it is first fit, longest card first, and a slot then grows
+ * rightwards over the lanes that are free for all of its own rows — a card
+ * beside a quiet week has room the busy weeks do not.
+ *
+ * The lists are packed in place. */
+export function packLanes<S extends Laned>(lists: Iterable<S[]>, pin?: Pin<S>): void {
+  for (const list of lists) {
+    list.sort((a, b) => a.row - b.row || b.span - a.span);
+    let cluster: S[] = [];
+    let laneEnd: number[] = [];
+    const close = () => {
+      const lanes = laneEnd.length;
+      for (const s of cluster) {
+        s.lanes = lanes;
+        let width = 1;
+        while (s.lane + width < lanes) {
+          const nextLane = s.lane + width;
+          const taken = cluster.some(
+            (o) => o !== s && o.lane === nextLane && o.row < s.row + s.span && s.row < o.row + o.span,
+          );
+          if (taken) {
+            break;
+          }
+          width += 1;
+        }
+        s.width = width;
+      }
+      cluster = [];
+      laneEnd = [];
+    };
+    // Whether a slot's rows overlap the pinned slot's previewed extent.
+    const meetsPin = (s: S) => !!pin && s.row < pin.row + pin.span && pin.row < s.row + s.span;
+    for (const s of list) {
+      // A slot that begins after everything so far has ended starts a new
+      // cluster: it shares its weeks with nothing before it.
+      if (laneEnd.length && s.row >= Math.max(...laneEnd)) {
+        close();
+      }
+      let lane: number;
+      if (pin && pin.is(s)) {
+        lane = pin.lane;
+        while (laneEnd.length <= lane) {
+          laneEnd.push(0);
+        }
+      } else {
+        // First fit — but never into the pinned lane while sharing rows with
+        // the pinned slot, even before it is placed.
+        lane = laneEnd.findIndex(
+          (end, i) => end <= s.row && !(pin && i === pin.lane && meetsPin(s)),
+        );
+        if (lane === -1) {
+          lane = laneEnd.length;
+          if (pin && lane === pin.lane && meetsPin(s)) {
+            laneEnd.push(0);
+            lane += 1;
+          }
+        }
+      }
+      laneEnd[lane] = Math.max(laneEnd[lane] ?? 0, s.row + s.span);
+      s.lane = lane;
+      cluster.push(s);
+    }
+    close();
+  }
+}
+
 /** extentOf places a card's dates in the window, or reports that they fall
  *  outside it. A card starts in the week of its start date (its week when it
  *  has none) and runs to the week of its end date; a card that ends before it

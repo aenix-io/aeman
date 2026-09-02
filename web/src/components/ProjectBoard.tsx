@@ -47,10 +47,13 @@ import {
 import {
   GUTTER_PX,
   HEADER_PX,
+  type Laned,
+  type Pin,
   WEEK_COL_PX,
   WEEK_STEP,
   extentOf,
   isoWeekNo,
+  packLanes,
   rowPx,
   sharedColumnPx,
   weekLabel,
@@ -1221,18 +1224,13 @@ export function ProjectBoard({
   // lane each one sits in: cards sharing weeks split the column's width
   // between them instead of covering each other up.
   const slots = useMemo(() => {
-    type Slot = {
-      // null is the draft being pulled out right now: it takes a lane like
-      // any other slot, so a new card never lands on top of an existing one.
+    // The rows, the lane and the width are the grid's business (Laned); what
+    // stands in the slot is the board's. A null card is the draft being
+    // pulled out right now: it takes a lane like any other slot, so a new
+    // card never lands on top of an existing one.
+    interface Slot extends Laned {
       card: CardModel | null;
-      row: number;
-      span: number;
-      lane: number;
-      lanes: number;
-      // How many lanes wide the slot is drawn: it grows rightwards over the
-      // lanes that are free for every row it covers.
-      width: number;
-    };
+    }
     const byCol = new Map<string, Slot[]>();
     // A second, preview-less collection exists only while an edge is being
     // pulled: it tells the pin which lane the slot rests in.
@@ -1313,100 +1311,25 @@ export function ProjectBoard({
       });
       byCol.set(k, list);
     }
-    // Lanes are worked out per CLUSTER of overlapping slots, not per column:
-    // splitting the whole column because two slots happen to share a fortnight
-    // would leave every unrelated card at half width for no reason. A pin
-    // holds one card in a KNOWN lane: while an edge is being pulled, the slot
-    // must not hop lanes under the pointer — the neighbours pack around it.
-    const pack = (
-      lists: Map<string, Slot[]>,
-      pin?: { id: string; lane: number; row: number; span: number },
-    ) => {
-      for (const list of lists.values()) {
-        list.sort((a, b) => a.row - b.row || b.span - a.span);
-        let cluster: typeof list = [];
-        let laneEnd: number[] = [];
-        const close = () => {
-          const lanes = laneEnd.length;
-          for (const s of cluster) {
-            s.lanes = lanes;
-            // A cluster's lane count is what the busiest week in it needs, but
-            // a slot beside a quiet week has room the busy weeks do not: it
-            // grows rightwards over every lane that is free for ALL of its own
-            // rows. Without this a card sat at half width beside empty space,
-            // as if the space were spoken for.
-            let width = 1;
-            while (s.lane + width < lanes) {
-              const nextLane = s.lane + width;
-              const taken = cluster.some(
-                (o) =>
-                  o !== s &&
-                  o.lane === nextLane &&
-                  o.row < s.row + s.span &&
-                  s.row < o.row + o.span,
-              );
-              if (taken) {
-                break;
-              }
-              width += 1;
-            }
-            s.width = width;
-          }
-          cluster = [];
-          laneEnd = [];
-        };
-        // Whether a slot's rows overlap the pinned card's previewed extent.
-        const meetsPin = (s: Slot) =>
-          !!pin && s.row < pin.row + pin.span && pin.row < s.row + s.span;
-        for (const s of list) {
-          // A slot that begins after everything so far has ended starts a new
-          // cluster: it shares its weeks with nothing before it.
-          if (laneEnd.length && s.row >= Math.max(...laneEnd)) {
-            close();
-          }
-          let lane: number;
-          if (pin && s.card?.itemId === pin.id) {
-            lane = pin.lane;
-            while (laneEnd.length <= lane) {
-              laneEnd.push(0);
-            }
-          } else {
-            // First fit — but never into the pinned lane while sharing rows
-            // with the pinned card, even before it is placed.
-            lane = laneEnd.findIndex(
-              (end, i) => end <= s.row && !(pin && i === pin.lane && meetsPin(s)),
-            );
-            if (lane === -1) {
-              lane = laneEnd.length;
-              if (pin && lane === pin.lane && meetsPin(s)) {
-                laneEnd.push(0);
-                lane += 1;
-              }
-            }
-          }
-          laneEnd[lane] = Math.max(laneEnd[lane] ?? 0, s.row + s.span);
-          s.lane = lane;
-          cluster.push(s);
-        }
-        close();
-      }
-    };
-    let pin: { id: string; lane: number; row: number; span: number } | undefined;
+    // A pin holds one card in a KNOWN lane: while an edge is being pulled the
+    // slot must not hop lanes under the pointer, so its resting lane is found
+    // first and the neighbours pack around the extent it previews.
+    let pin: Pin<Slot> | undefined;
     if (rest && drag?.resize) {
-      pack(rest);
+      const held = drag.resize.itemId;
+      const is = (s: Slot) => s.card?.itemId === held;
+      packLanes(rest.values());
       for (const list of rest.values()) {
-        const own = list.find((s) => s.card?.itemId === drag.resize?.itemId);
+        const own = list.find(is);
         if (own) {
-          const preview = [...byCol.values()]
-            .flat()
-            .find((s) => s.card?.itemId === drag.resize?.itemId);
+          const preview = [...byCol.values()].flat().find(is);
           if (preview) {
-            pin = { id: drag.resize.itemId, lane: own.lane, row: preview.row, span: preview.span };
+            pin = { is, lane: own.lane, row: preview.row, span: preview.span };
           }
         }
       }
     }
-    pack(byCol, pin);
+    packLanes(byCol.values(), pin);
     return byCol;
   }, [cards, weeks, draft, move, drag]);
 
