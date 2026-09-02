@@ -6,7 +6,7 @@ import type {
   Provider,
 } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
-import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
+import { addDays, mondayOf, todayIso } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
@@ -44,6 +44,18 @@ import {
   columnFactor,
   wheelZoom,
 } from "../projectZoom";
+import {
+  GUTTER_PX,
+  HEADER_PX,
+  WEEK_COL_PX,
+  WEEK_STEP,
+  extentOf,
+  isoWeekNo,
+  rowPx,
+  sharedColumnPx,
+  weekLabel,
+  weekWindow,
+} from "../weekgrid";
 
 interface ProjectBoardProps {
   board: Board;
@@ -66,35 +78,8 @@ interface ProjectBoardProps {
   onOpen: (card: CardModel) => void;
 }
 
-/** isoWeekNo is the ISO-8601 week number of a Monday. */
-function isoWeekNo(monday: string): number {
-  const [y, m, d] = monday.split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  const jan4 = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
-  const week1Mon = new Date(jan4);
-  week1Mon.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7));
-  const diff = Math.round((date.getTime() - week1Mon.getTime()) / 86400000);
-  if (diff < 0) {
-    // The Monday belongs to the previous year's last ISO week.
-    const prevJan4 = new Date(Date.UTC(date.getUTCFullYear() - 1, 0, 4));
-    const prevW1 = new Date(prevJan4);
-    prevW1.setUTCDate(prevJan4.getUTCDate() - ((prevJan4.getUTCDay() + 6) % 7));
-    return Math.floor((date.getTime() - prevW1.getTime()) / (7 * 86400000)) + 1;
-  }
-  return Math.floor(diff / 7) + 1;
-}
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 /** How far the pointer must travel before a press on a card becomes a drag. */
 const DRAG_SLOP = 4;
-const HEADER_PX = 26;
-const WEEK_STEP = 8;
-
-function weekLabel(monday: string): string {
-  const [, m, d] = monday.split("-").map(Number);
-  return `${String(d).padStart(2, "0")} ${MONTHS[m - 1]}`;
-}
 
 /** complete reports whether a card is finished — the board's own rule. */
 function complete(card: CardModel): boolean {
@@ -156,8 +141,6 @@ const LS_ZOOM = "aeman.projectZoom";
  *  crossing the card on the way somewhere else never moves it. */
 const NUDGE_PX = 13;
 const NUDGE_DELAY_MS = 500;
-const BASE_COL = 140;
-const BASE_ROW = 28;
 
 function readColFactors(): Record<string, number> {
   try {
@@ -310,13 +293,11 @@ export function ProjectBoard({
   // than assumed, so zooming starts from what is actually on screen instead of
   // jumping to a constant the first time it is touched.
   const [boardW, setBoardW] = useState(0);
-  const sharedCol = useMemo(() => {
-    const room = Math.max(0, boardW - 54 - 34);
-    const fill = epics.length > 0 ? room / epics.length : BASE_COL;
-    return Math.max(MIN_COL_PX, Math.max(BASE_COL, fill) * zoom.x);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardW, epics.length, zoom.x]);
-  const rowH = Math.max(12, Math.round(BASE_ROW * zoom.y));
+  const sharedCol = useMemo(
+    () => sharedColumnPx(boardW, epics.length, zoom.x, MIN_COL_PX),
+    [boardW, epics.length, zoom.x],
+  );
+  const rowH = rowPx(zoom.y);
 
   const setColFactor = (key: string, f: number | null) => {
     const next = { ...factorsRef.current };
@@ -470,7 +451,7 @@ export function ProjectBoard({
       // to it, which is what makes a naive version drift.
       const box = el.getBoundingClientRect();
       pendingScroll.current = {
-        left: anchoredScroll(el.scrollLeft, e.clientX - box.left, 54, next.x / was.x),
+        left: anchoredScroll(el.scrollLeft, e.clientX - box.left, WEEK_COL_PX, next.x / was.x),
         top: anchoredScroll(el.scrollTop, e.clientY - box.top, HEADER_PX, next.y / was.y),
       };
       setZoom(next);
@@ -481,25 +462,10 @@ export function ProjectBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const weeks = useMemo(() => {
-    let first = addDays(thisMonday, -14 - 7 * padBack);
-    let last = addDays(thisMonday, 7 * (8 + padFwd));
-    for (const c of cards) {
-      const anchor = c.week ? mondayOf(c.week) : null;
-      if (anchor && anchor < first) {
-        first = anchor;
-      }
-      const end = c.day ? mondayOf(c.day) : anchor;
-      if (end && addDays(end, 7 * 2) > last) {
-        last = addDays(end, 7 * 2);
-      }
-    }
-    const out: string[] = [];
-    for (let w = first; w <= last; w = addDays(w, 7)) {
-      out.push(w);
-    }
-    return out;
-  }, [cards, thisMonday, padBack, padFwd]);
+  const weeks = useMemo(
+    () => weekWindow(cards, thisMonday, padBack, padFwd),
+    [cards, thisMonday, padBack, padFwd],
+  );
 
   // Prepending rows would slide the grid under the reader, so the scroll
   // position is moved by exactly the height added.
@@ -1275,19 +1241,16 @@ export function ProjectBoard({
       return byCol;
     }
     for (const c of cards) {
+      if (!c.epic) {
+        continue;
+      }
       // The row is the START date's week. A card's own stored week is only a
       // fallback for one that has no start at all.
-      const from = c.startDate || c.week;
-      if (!c.epic || !from) {
+      const at = extentOf(c, weeks);
+      if (!at) {
         continue;
       }
-      const anchor = mondayOf(from);
-      let row = weeksBetween(weeks[0], anchor);
-      if (row < 0 || row >= weeks.length) {
-        continue;
-      }
-      const endMon = c.day && c.day > anchor ? mondayOf(c.day) : anchor;
-      let span = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - row));
+      let { row, span } = at;
       let k = colKey(c.project ?? "", c.epic);
       // A card being dragged is packed WHERE IT WOULD LAND, not where it came
       // from: the lanes are what make room for it, so computing them from its
@@ -1327,17 +1290,13 @@ export function ProjectBoard({
         // Every placement, mirrors included: pulling an edge in a MIRROR
         // column must pin against that column's resting neighbours, not
         // find the map empty and let the slot hop lanes under the pointer.
-        const rr = weeksBetween(weeks[0], anchor);
-        if (rr >= 0 && rr < weeks.length) {
-          const rs = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - rr));
-          const cols = [colKey(c.project ?? "", c.epic)].concat(
-            (c.mirrors ?? []).map((mi) => colKey(mi.project, mi.epic)),
-          );
-          for (const rk of cols) {
-            const rl = rest.get(rk) ?? [];
-            rl.push({ card: c, row: rr, span: rs, lane: 0, lanes: 1, width: 1 });
-            rest.set(rk, rl);
-          }
+        const cols = [colKey(c.project ?? "", c.epic)].concat(
+          (c.mirrors ?? []).map((mi) => colKey(mi.project, mi.epic)),
+        );
+        for (const rk of cols) {
+          const rl = rest.get(rk) ?? [];
+          rl.push({ card: c, row: at.row, span: at.span, lane: 0, lanes: 1, width: 1 });
+          rest.set(rk, rl);
         }
       }
     }
@@ -1662,18 +1621,18 @@ export function ProjectBoard({
         style={{
           // Until the columns are dragged they share the room; once dragged
           // they all take the width that was chosen.
-          // 54px is what "17 Aug" needs and no more — the ISO number that
-          // used to share this column is gone.
+          // The week column is what "17 Aug" needs and no more — the ISO
+          // number that used to share it is gone.
           // Every column is sized explicitly: a column with a width of its
           // own takes its ratio of the shared width, the rest take the shared
           // width itself. Text is never scaled — only the room around it.
-          gridTemplateColumns: `54px ${epics
+          gridTemplateColumns: `${WEEK_COL_PX}px ${epics
             .map((e) => {
               const f = colFactors[colKey(e.project, e.name)];
               return `${Math.round(sharedCol * (f ?? 1))}px`;
             })
-            .join(" ")} 34px`,
-          gridTemplateRows: `26px repeat(${weeks.length}, ${rowH}px)`,
+            .join(" ")} ${GUTTER_PX}px`,
+          gridTemplateRows: `${HEADER_PX}px repeat(${weeks.length}, ${rowH}px)`,
         }}
       >
         {/* header row */}
