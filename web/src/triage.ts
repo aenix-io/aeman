@@ -63,6 +63,43 @@ export function placedIn(c: Pick<Card, "week">): string | null {
   return c.week || null;
 }
 
+/** pileRank is where a card stands in a week's pile — what a reader working
+ *  down a column should meet first.
+ *
+ *  A debt before anything else: it was due and is not done, and that is true
+ *  whatever kind of work it is. Then the project's own work, which is a
+ *  commitment made elsewhere and only passing through here. Then the zones,
+ *  in the order the Team board reads them: what must be done today, what
+ *  turned up unasked, what was planned, and what to start if there is time.
+ *
+ *  Cards of the same rank keep the order the board holds them in, so the
+ *  order somebody set by hand still means something among its peers. */
+export function pileRank(c: Pick<Card, "overdue" | "epic" | "zone">): number {
+  if (c.overdue) {
+    return 0;
+  }
+  if (c.epic) {
+    return 1;
+  }
+  switch (c.zone) {
+    case "red":
+      return 2;
+    case "yellow":
+      return 3;
+    case "gray":
+      return 4;
+    case "green":
+      return 5;
+    default:
+      return 6;
+  }
+}
+
+/** byPile sorts a cell's cards into that order, leaving equals as they were. */
+export function byPile<T>(of: (item: T) => Pick<Card, "overdue" | "epic" | "zone">) {
+  return (a: T, b: T) => pileRank(of(a)) - pileRank(of(b));
+}
+
 /** orderWith is a cell's order once `id` has been dropped at place `at`.
  *
  *  The card is taken OUT before it is put back in, so a card dragged down

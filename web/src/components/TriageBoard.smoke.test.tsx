@@ -113,6 +113,24 @@ describe("the Triage board", () => {
     expect(draw([card({ zone: "green" })])).toContain("triage-slot-zone-green");
   });
 
+  it("stacks a week in the order somebody triaging wants to meet it", () => {
+    // Debts first, then the project's own work, then the zones.
+    const html = draw([
+      card({ itemId: "a", title: "If time left", zone: "green" }),
+      card({ itemId: "b", title: "Planned", zone: "gray" }),
+      card({ itemId: "c", title: "A slot", epic: "Storage" }),
+      card({ itemId: "d", title: "Urgent", zone: "red" }),
+      card({ itemId: "e", title: "A debt", zone: "green", overdue: true }),
+    ]);
+    const order = ["A debt", "A slot", "Urgent", "Planned", "If time left"];
+    expect(order.map((t) => html.indexOf(t))).toEqual(
+      [...order.map((t) => html.indexOf(t))].sort((x, y) => x - y),
+    );
+    // …and they stand under one another, in that order.
+    expect(html).toContain("margin-top:0px");
+    expect(html).toContain("margin-top:112px");
+  });
+
   it("colours the progress bar by stage, as Team and Me do", () => {
     // A card locked or in review says so by its bar on the other boards; it
     // must not say something else here.

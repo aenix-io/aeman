@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./providers/types";
-import { anchorFor, needsTriage, orderWith, placedIn, reachOf, weeksCovered } from "./triage";
+import {
+  anchorFor,
+  byPile,
+  needsTriage,
+  orderWith,
+  pileRank,
+  placedIn,
+  reachOf,
+  weeksCovered,
+} from "./triage";
 
 const card = (over: Partial<Card> = {}): Card =>
   ({ itemId: "c1", title: "A card", assignees: [], ...over }) as Card;
@@ -52,6 +61,50 @@ describe("needsTriage", () => {
     // The day's planning put it there, not the week's: nobody has said how
     // long the work takes, which is the whole of the question.
     expect(needsTriage(card({ day: "2026-09-02" }))).toBe(true);
+  });
+});
+
+describe("pileRank", () => {
+  it("reads the zones the way the Team board does", () => {
+    expect(pileRank(card({ zone: "red" }))).toBeLessThan(pileRank(card({ zone: "yellow" })));
+    expect(pileRank(card({ zone: "yellow" }))).toBeLessThan(pileRank(card({ zone: "gray" })));
+    expect(pileRank(card({ zone: "gray" }))).toBeLessThan(pileRank(card({ zone: "green" })));
+  });
+
+  it("puts a debt before everything, whatever kind of work it is", () => {
+    // It was due and is not done; that outranks what sort of thing it is.
+    expect(pileRank(card({ overdue: true, zone: "green" }))).toBeLessThan(
+      pileRank(card({ zone: "red" })),
+    );
+  });
+
+  it("puts the project's own work after the debts and before the zones", () => {
+    const slot = card({ epic: "Storage" });
+    expect(pileRank(slot)).toBeGreaterThan(pileRank(card({ overdue: true })));
+    expect(pileRank(slot)).toBeLessThan(pileRank(card({ zone: "red" })));
+  });
+
+  it("leaves a card of no zone at the back", () => {
+    expect(pileRank(card())).toBeGreaterThan(pileRank(card({ zone: "green" })));
+  });
+
+  it("sorts a cell without disturbing what stands equal", () => {
+    // Two cards of one zone keep the order the board holds them in, so an
+    // order somebody set by hand still means something among its peers.
+    const pile = [
+      card({ itemId: "green", zone: "green" }),
+      card({ itemId: "planned-1", zone: "gray" }),
+      card({ itemId: "late", overdue: true, zone: "green" }),
+      card({ itemId: "planned-2", zone: "gray" }),
+      card({ itemId: "urgent", zone: "red" }),
+    ];
+    expect([...pile].sort(byPile((c) => c)).map((c) => c.itemId)).toEqual([
+      "late",
+      "urgent",
+      "planned-1",
+      "planned-2",
+      "green",
+    ]);
   });
 });
 
