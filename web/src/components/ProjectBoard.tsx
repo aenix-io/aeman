@@ -43,7 +43,6 @@ import {
   isoWeekNo,
   laneStyle,
   packLanes,
-  rowHeights,
   weekLabel,
 } from "../weekgrid";
 import { WeekGrid } from "./WeekGrid";
@@ -1027,7 +1026,7 @@ export function ProjectBoard({
         }
       }
       const list = byCol.get(k) ?? [];
-      list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
+      list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stackable: false });
       byCol.set(k, list);
       // A mirrored card stands in every one of its columns: the same entry,
       // the same shared dates, once per placement — except while THIS card
@@ -1036,7 +1035,7 @@ export function ProjectBoard({
         for (const mi of c.mirrors ?? []) {
           const mk = colKey(mi.project, mi.epic);
           const ml = byCol.get(mk) ?? [];
-          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
+          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stackable: false });
           byCol.set(mk, ml);
         }
       }
@@ -1050,7 +1049,15 @@ export function ProjectBoard({
         );
         for (const rk of cols) {
           const rl = rest.get(rk) ?? [];
-          rl.push({ card: c, row: at.row, span: at.span, lane: 0, lanes: 1, width: 1 });
+          rl.push({
+            card: c,
+            row: at.row,
+            span: at.span,
+            lane: 0,
+            lanes: 1,
+            width: 1,
+            stackable: false,
+          });
           rest.set(rk, rl);
         }
       }
@@ -1062,6 +1069,7 @@ export function ProjectBoard({
         card: null,
         row: draft.from,
         span: draft.to - draft.from + 1,
+        stackable: false,
         lane: 0,
         lanes: 1,
         width: 1,
@@ -1090,13 +1098,6 @@ export function ProjectBoard({
     return byCol;
   }, [cards, weeks, draft, move, drag]);
 
-  // When the rows may differ, each is as tall as the busiest week in it —
-  // worked out from the packing, because only it knows how many cards a week
-  // ended up holding.
-  const rows = useMemo(
-    () => (grid.rowFit ? rowHeights(slots.values(), weeks.length, grid.rowH) : undefined),
-    [grid.rowFit, slots, weeks.length, grid.rowH],
-  );
 
   // One index of the board, for the rules that need to look a parent up.
   const byId = useMemo(
@@ -1276,7 +1277,6 @@ export function ProjectBoard({
       <WeekGrid
         grid={grid}
         columns={gridColumns}
-        rowHeights={rows}
         corner={
           epics.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
             <button
@@ -1541,7 +1541,7 @@ export function ProjectBoard({
         {epics.map((e, col) =>
           (slots.get(colKey(e.project, e.name)) ?? [])
             .filter((s): s is typeof s & { card: CardModel } => s.card !== null)
-            .map(({ card, row, span, lane, lanes, width: laneWidth }) => (
+            .map(({ card, row, span, lane, lanes, width: laneWidth, stackable }) => (
             <div
               key={`${colKey(e.project, e.name)}\u0000${card.itemId}`}
               className={`project-slot ${slotTone(card, today)}${
@@ -1628,8 +1628,9 @@ export function ProjectBoard({
                 // margin cannot shrink that — the step aside has to come out
                 // of the width itself, or such a card never moves.
                 ...laneStyle(
-                  { row, span, lane, lanes, width: laneWidth },
+                  { row, span, lane, lanes, width: laneWidth, stackable },
                   grid.rowFit,
+                  grid.rowH,
                   nudged === card.itemId ? NUDGE_PX : 0,
                 ),
               }}

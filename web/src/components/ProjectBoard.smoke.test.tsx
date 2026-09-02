@@ -116,16 +116,30 @@ describe("the Project board's grid", () => {
     expect(html).toContain("width:calc(50% - 2px);margin-left:50%");
   });
 
-  it("grows the row instead when the reader asked for rows that fit", () => {
+  it("stands them one under the other instead when the rows may grow", () => {
     store.set("aeman.projectRowFit", "true");
     const html = draw(board({ cards: [card(), card({ itemId: "c2", title: "Under it" })] }));
     store.delete("aeman.projectRowFit");
-    // The week both cards stand in is twice as tall as the rest, and they
-    // take the full width, one under the other.
-    expect(html).toContain("grid-template-rows:26px 28px 28px 56px 28px");
-    expect(html).toContain("height:calc(50% - 4px);margin-top:0%");
-    expect(html).toContain("height:calc(50% - 4px);margin-top:50%");
-    expect(html).not.toContain("margin-left:50%");
+    // The rows are free to grow, and the two cards take the full width, one
+    // under the other — the second pushes its week to two cards tall.
+    expect(html).toContain("grid-template-rows:26px repeat(11, minmax(28px, auto))");
+    expect(html).toContain("height:24px;margin-top:0px");
+    expect(html).toContain("height:24px;margin-top:28px");
+    expect(html).not.toContain("margin-left");
+  });
+
+  it("goes back to side by side where a stretched card cannot be stacked around", () => {
+    // A card reaching into the next week is one tall rectangle; stacking the
+    // week's other card under it would draw one through the other, so that
+    // week's cards stand beside each other even in this mode.
+    store.set("aeman.projectRowFit", "true");
+    const html = draw(
+      board({ cards: [card({ day: "2026-09-11" }), card({ itemId: "c2", title: "Beside it" })] }),
+    );
+    store.delete("aeman.projectRowFit");
+    expect(html).toContain("width:calc(50% - 2px);margin-left:0%");
+    expect(html).toContain("width:calc(50% - 2px);margin-left:50%");
+    expect(html).not.toContain("margin-top");
   });
 
   it("draws a deadline as a line on its week", () => {

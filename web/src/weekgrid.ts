@@ -128,6 +128,11 @@ export interface Laned extends Extent {
   lane: number;
   lanes: number;
   width: number;
+  /** Whether every card sharing this one's cluster stands in a single week.
+   *  Then, and only then, the lanes can be spent DOWNWARDS — one card under
+   *  the next — because none of them has to reach into the row below. Set by
+   *  the packer; a board starts a slot with false. */
+  stackable: boolean;
 }
 
 /** A slot held in a lane it already has. While an edge is being pulled the
@@ -157,8 +162,14 @@ export function packLanes<S extends Laned>(lists: Iterable<S[]>, pin?: Pin<S>): 
     let laneEnd: number[] = [];
     const close = () => {
       const lanes = laneEnd.length;
+      // A cluster can be stacked only if nothing in it reaches into another
+      // week: a card that does is one tall rectangle, and the lane it would
+      // hold in this row and the one it would hold in the next are not
+      // adjacent — drawn as one box it would cross its neighbours.
+      const stackable = cluster.every((s) => s.span === 1);
       for (const s of cluster) {
         s.lanes = lanes;
+        s.stackable = stackable;
         let width = 1;
         while (s.lane + width < lanes) {
           const nextLane = s.lane + width;
@@ -211,13 +222,8 @@ export function packLanes<S extends Laned>(lists: Iterable<S[]>, pin?: Pin<S>): 
   }
 }
 
-/** How a slot is placed within the rows it covers.
- *
- *  Two boards' worth of cards have to share a cell, and there are only two
- *  honest ways to give each one room: side by side, which is what a grid of
- *  fixed rows can do, or one under the other, which needs the row to grow.
- *  The lane the packer gave the slot is the same either way — what changes is
- *  the axis it is spent on. */
+/** Where a slot sits in the room its cell has: a share of the column's width
+ *  beside its neighbours, or a band of the row's height under them. */
 export interface LanePlacement {
   width?: string;
   marginLeft?: string;
@@ -227,43 +233,32 @@ export interface LanePlacement {
 
 /** laneStyle turns a slot's lane into the room it takes.
  *
- *  `fit` is the reader's choice: false splits the column's WIDTH between the
- *  cards sharing a week (every row stays the same height); true splits the
- *  row's HEIGHT, so each card keeps the full width and the row grows to hold
- *  them all. `trim` is what the caller wants taken off the width on top of
- *  the margins — a card stepped aside to uncover the strip beside it. */
-export function laneStyle(s: Laned, fit: boolean, trim = 0): LanePlacement {
+ *  `fit` is the reader's choice: with it off, the lane is spent on the
+ *  column's WIDTH and every row keeps one height — cards sharing a week
+ *  stand beside each other. With it on, cards stand one UNDER the next at
+ *  the full width and the row grows to hold them.
+ *
+ *  Stacking is only possible where the packer said so. A card stretched over
+ *  several weeks is one tall rectangle, and its band in this row and its
+ *  band in the next are not adjacent — the other bands lie between — so a
+ *  cluster holding such a card goes back to standing side by side. That is
+ *  the only case where it does.
+ *
+ *  `trim` is what the caller wants taken off the width on top of the margins
+ *  — a card stepped aside to uncover the strip beside it. */
+export function laneStyle(s: Laned, fit: boolean, rowH: number, trim = 0): LanePlacement {
   if (s.lanes <= 1) {
     return {};
   }
-  const share = (100 / s.lanes) * s.width;
-  const at = `${(100 / s.lanes) * s.lane}%`;
-  return fit
-    ? { height: `calc(${share}% - 4px)`, marginTop: at }
-    : { width: `calc(${share}% - ${2 + trim}px)`, marginLeft: at };
-}
-
-/** rowHeights is how tall each row has to be for every card in it to have a
- *  band of its own — the busiest cluster crossing a row decides, and a row
- *  nothing crosses stays the height one card needs.
- *
- *  Only a board whose rows may grow asks for this; the rows are handed back
- *  as pixels, because a slot's band is a percentage of the rows it covers and
- *  a percentage needs something definite to be a percentage of. */
-export function rowHeights(
-  columns: Iterable<readonly Laned[]>,
-  rows: number,
-  rowH: number,
-): number[] {
-  const lanes = new Array<number>(rows).fill(1);
-  for (const list of columns) {
-    for (const s of list) {
-      for (let r = s.row; r < s.row + s.span && r < rows; r++) {
-        lanes[r] = Math.max(lanes[r], s.lanes);
-      }
-    }
+  if (fit && s.stackable) {
+    // The row's own height minus the margins, so a stacked card is exactly as
+    // tall as one row and the row grows by one for each card under the first.
+    return { height: `${Math.max(0, rowH - 4)}px`, marginTop: `${s.lane * rowH}px` };
   }
-  return lanes.map((n) => n * rowH);
+  return {
+    width: `calc(${(100 / s.lanes) * s.width}% - ${2 + trim}px)`,
+    marginLeft: `${(100 / s.lanes) * s.lane}%`,
+  };
 }
 
 /** extentOf places a card's dates in the window, or reports that they fall

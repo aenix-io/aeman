@@ -7,7 +7,6 @@ import {
   isoWeekNo,
   laneStyle,
   packLanes,
-  rowHeights,
   rowPx,
   sharedColumnPx,
   weekLabel,
@@ -229,6 +228,7 @@ describe("packLanes", () => {
     lane: 0,
     lanes: 1,
     width: 1,
+    stackable: false,
   });
   /** How the column reads once packed: who sits where, out of how many, and
    *  how wide. */
@@ -301,6 +301,25 @@ describe("packLanes", () => {
     expect(packed(right)).toEqual([["c", 0, 1, 1]]);
   });
 
+  it("says a cluster may be stacked when every card in it stands in one week", () => {
+    const list = [slot("a", 0, 1), slot("b", 0, 1), slot("late", 5, 1)];
+    packLanes([list]);
+    expect(list.map((s) => s.stackable)).toEqual([true, true, true]);
+  });
+
+  it("refuses to stack a cluster holding a card that reaches into another week", () => {
+    // "long" is one tall rectangle; its band here and its band in the next
+    // week are not adjacent, so the whole cluster stands side by side. The
+    // card five weeks later is a cluster of its own and keeps the choice.
+    const list = [slot("long", 0, 2), slot("beside", 0, 1), slot("late", 5, 1)];
+    packLanes([list]);
+    expect(list.map((s) => [s.id, s.stackable])).toEqual([
+      ["long", false],
+      ["beside", false],
+      ["late", true],
+    ]);
+  });
+
   it("has nothing to say about an empty column", () => {
     const list: Slot[] = [];
     expect(() => packLanes([list])).not.toThrow();
@@ -348,71 +367,59 @@ describe("packLanes", () => {
       lane,
       lanes,
       width,
+      stackable: false,
     });
 
     it("costs a card nothing when it has the cell to itself", () => {
-      expect(laneStyle(laned(0, 1), false)).toEqual({});
-      expect(laneStyle(laned(0, 1), true)).toEqual({});
+      expect(laneStyle(laned(0, 1), false, 28)).toEqual({});
+      expect(laneStyle(laned(0, 1), true, 28)).toEqual({});
     });
 
-    it("splits the column's width when the rows are all the same height", () => {
-      expect(laneStyle(laned(0, 2), false)).toEqual({
+    it("splits the column's width between the cards that share a week", () => {
+      expect(laneStyle(laned(0, 2), false, 28)).toEqual({
         width: "calc(50% - 2px)",
         marginLeft: "0%",
       });
-      expect(laneStyle(laned(1, 2), false)).toEqual({
+      expect(laneStyle(laned(1, 2), false, 28)).toEqual({
         width: "calc(50% - 2px)",
         marginLeft: "50%",
       });
     });
 
-    it("splits the row's height instead when the rows may grow", () => {
-      expect(laneStyle(laned(1, 2), true)).toEqual({
-        height: "calc(50% - 4px)",
-        marginTop: "50%",
+    it("stands them one under the other instead when the rows may grow", () => {
+      expect(laneStyle({ ...laned(0, 2), stackable: true }, true, 28)).toEqual({
+        height: "24px",
+        marginTop: "0px",
+      });
+      expect(laneStyle({ ...laned(1, 2), stackable: true }, true, 28)).toEqual({
+        height: "24px",
+        marginTop: "28px",
+      });
+    });
+
+    it("goes back to side by side where a stretched card makes stacking impossible", () => {
+      // The packer says so: a card reaching into the next week is one tall
+      // rectangle, and its band here and its band there are not adjacent.
+      expect(laneStyle({ ...laned(1, 2), stackable: false }, true, 28)).toEqual({
+        width: "calc(50% - 2px)",
+        marginLeft: "50%",
       });
     });
 
     it("gives a card that grew over free lanes the room of all of them", () => {
-      expect(laneStyle(laned(1, 3, 2), false)).toEqual({
+      expect(laneStyle(laned(1, 3, 2), false, 28)).toEqual({
         width: "calc(66.66666666666667% - 2px)",
         marginLeft: "33.333333333333336%",
       });
     });
 
     it("takes what the caller asked off the width, and only off the width", () => {
-      expect(laneStyle(laned(0, 2), false, 13).width).toBe("calc(50% - 15px)");
-      expect(laneStyle(laned(0, 2), true, 13).height).toBe("calc(50% - 4px)");
+      expect(laneStyle(laned(0, 2), false, 28, 13).width).toBe("calc(50% - 15px)");
+      expect(laneStyle({ ...laned(0, 2), stackable: true }, true, 28, 13).height).toBe("24px");
     });
-  });
-});
 
-describe("rowHeights", () => {
-  const laned = (row: number, span: number, lanes: number): Laned => ({
-    row,
-    span,
-    lane: 0,
-    lanes,
-    width: 1,
-  });
-
-  it("gives an empty grid one card's height per row", () => {
-    expect(rowHeights([], 3, 28)).toEqual([28, 28, 28]);
-  });
-
-  it("grows a row to hold every card that shares it", () => {
-    expect(rowHeights([[laned(1, 1, 3)]], 3, 28)).toEqual([28, 84, 28]);
-  });
-
-  it("grows every row a stretched cluster crosses", () => {
-    expect(rowHeights([[laned(0, 2, 2)]], 3, 28)).toEqual([56, 56, 28]);
-  });
-
-  it("takes the busiest column's answer, since a row is shared by them all", () => {
-    expect(rowHeights([[laned(0, 1, 2)], [laned(0, 1, 4)]], 2, 28)).toEqual([112, 28]);
-  });
-
-  it("does not run past the last row when a card reaches beyond the window", () => {
-    expect(rowHeights([[laned(1, 5, 3)]], 2, 28)).toEqual([28, 84]);
+    it("never gives a stacked card a negative height, however far it is zoomed out", () => {
+      expect(laneStyle({ ...laned(1, 2), stackable: true }, true, 3).height).toBe("0px");
+    });
   });
 });

@@ -33,9 +33,12 @@ export function ZoomControl({ zoom, onChange, fit, onFit }: ZoomControlProps) {
     <div className="zoom-control" title="Ctrl/Cmd + scroll over the board zooms around the cursor">
       {onFit && (
         // The row-height slider sets ONE height for every row. This says the
-        // rows may differ instead: a week several cards share grows to hold
-        // them side by side down the column, rather than slicing the column
-        // into slivers. The slider then sets the smallest a row may be.
+        // rows may differ instead: cards sharing a week stand one under the
+        // next at the full width and their week grows to hold them, rather
+        // than the column being sliced into slivers. The slider then sets the
+        // smallest a row may be. Where a card stretched over several weeks
+        // makes stacking impossible, that week's cards still stand side by
+        // side — there is no other way to draw them.
         <button
           type="button"
           className={`zoom-fit${fit ? " zoom-fit-on" : ""}`}
@@ -43,8 +46,8 @@ export function ZoomControl({ zoom, onChange, fit, onFit }: ZoomControlProps) {
           onClick={() => onFit(!fit)}
           title={
             fit
-              ? "Rows grow to hold what is in them — click for one height for every row"
-              : "Every row is the same height — click to let a busy week grow instead"
+              ? "Cards stand one under the other and their week grows — click for one height for every row"
+              : "Cards sharing a week split the column — click to stand them one under the other instead"
           }
         >
           {fit ? "⇕" : "≡"}

@@ -55,10 +55,6 @@ export interface WeekGridProps<C extends GridColumn> {
   gutter?: ReactNode;
   weekProps?: (week: string, row: number) => WeekProps;
   cellProps?: (column: C, col: number, week: string, row: number) => CellProps;
-  /** How tall each row is, in pixels, when they are not all the same — the
-   *  board works that out from what stands in them (weekgrid.rowHeights).
-   *  Left out, every row is the one height the zoom sets. */
-  rowHeights?: readonly number[];
   /** Slots, deadlines and drafts, placed into the grid by the board. */
   children?: ReactNode;
   /** Labels for the buttons at either end. A board whose first row is this
@@ -76,7 +72,6 @@ export function WeekGrid<C extends GridColumn>({
   gutter,
   weekProps,
   cellProps,
-  rowHeights,
   children,
   earlier = "↑ earlier weeks",
   later = "↓ later weeks",
@@ -107,11 +102,11 @@ export function WeekGrid<C extends GridColumn>({
           gridTemplateColumns: `${WEEK_COL_PX}px ${columns
             .map((c) => `${Math.round(sharedCol * (colFactors[c.key] ?? 1))}px`)
             .join(" ")} ${GUTTER_PX}px`,
-          // Every row is spelled out in pixels when they differ, because a
-          // slot's band is a percentage of the rows it covers and a
-          // percentage needs something definite to be a percentage of.
-          gridTemplateRows: rowHeights
-            ? `${HEADER_PX}px ${rowHeights.map((h) => `${h}px`).join(" ")}`
+          // Every row the same height, or every row as tall as what stands in
+          // it needs — then the zoom's row height is the smallest it may be
+          // and a week holding a card nobody can read in one line grows.
+          gridTemplateRows: grid.rowFit
+            ? `${HEADER_PX}px repeat(${weeks.length}, minmax(${rowH}px, auto))`
             : `${HEADER_PX}px repeat(${weeks.length}, ${rowH}px)`,
         }}
       >
