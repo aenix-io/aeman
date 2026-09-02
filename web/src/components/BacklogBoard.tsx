@@ -480,7 +480,7 @@ function BacklogCard({ card, avatars, names, onOpen }: BacklogCardProps) {
   const who = card.assignees[0];
   return (
     <div
-      className={`backlog-card${done ? " backlog-card-done" : ""}${card.overdue ? " backlog-card-late" : ""}${card.stage ? ` backlog-card-${card.stage}` : ""}`}
+      className={`backlog-card${done ? " backlog-card-done" : ""}${card.overdue ? " backlog-card-late" : ""}${card.stage ? ` backlog-card-${card.stage}` : ""}${card.plan ? ` backlog-card-plan-${card.plan}` : ""}`}
       onClick={() => onOpen(card)}
       title={card.title}
     >

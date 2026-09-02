@@ -5031,6 +5031,7 @@ button.card-age {
 
 /* The compact card: title, who, what it belongs to, how far it is. */
 .backlog-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -5049,16 +5050,47 @@ button.card-age {
   border-color: var(--line);
 }
 
+/* The band line the weekly panel draws, on the same card here: a card owed
+   by Wednesday is not a card owed by Friday, whatever week it stands in. */
+.backlog-card-plan-wed::before,
+.backlog-card-plan-fri::before,
+.backlog-card-review::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+}
+
+.backlog-card-plan-wed::before {
+  background: var(--band-wed);
+}
+
+.backlog-card-plan-fri::before {
+  background: var(--band-fri);
+}
+
+.backlog-card-review::before {
+  background: var(--stage-review);
+}
+
+/* A debt is late whatever its band said, and says so in the same line. */
+.backlog-card-late.backlog-card-plan-wed::before,
+.backlog-card-late.backlog-card-plan-fri::before {
+  background: var(--danger);
+}
+
+/* The card's own text clears the line. */
+.backlog-card-plan-wed,
+.backlog-card-plan-fri,
+.backlog-card-review {
+  padding-left: 8px;
+}
+
 .backlog-card-done {
   opacity: 0.55;
-}
-
-.backlog-card-late {
-  border-left: 3px solid var(--danger);
-}
-
-.backlog-card-review {
-  border-left: 3px solid var(--stage-review);
 }
 
 .backlog-card-locked {
