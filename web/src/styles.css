@@ -4897,3 +4897,19 @@ button.card-age {
 .triage-deadline {
   border-top-color: var(--danger);
 }
+
+/* A slot here carries no owner badge — the COLUMN is the owner — so the ×
+   has the right edge to itself and sits against it. */
+.triage-slot .project-slot-actions {
+  right: 4px;
+}
+
+/* The weeks one card takes: behind its boxes, above the cells, so the card
+   reads as one thing standing across several rows. */
+.triage-span {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 5px;
+  margin: 2px 3px;
+  pointer-events: none;
+  z-index: 1;
+}

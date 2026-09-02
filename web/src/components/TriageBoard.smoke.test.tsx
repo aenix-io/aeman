@@ -101,10 +101,28 @@ describe("the Triage board", () => {
     const html = draw([card({ title: "Two weeks of work", day: "2026-09-11" })]);
     expect(html).toContain("(1/2)");
     expect(html).toContain("(2/2)");
-    // One in this week's row and one in the next, each a box of one row.
+    // One in this week's row and one in the next, each a box of one row: no
+    // card on this board is ever a rectangle across several of them.
     expect(html).toContain("grid-row:2;height:24px;margin-top:0px");
     expect(html).toContain("grid-row:3;height:24px;margin-top:0px");
-    expect(html).not.toContain("span 2");
+    expect(html).not.toMatch(/class="project-slot[^"]*" style="[^"]*span/);
+  });
+
+  it("draws a band across the weeks a card of several parts takes", () => {
+    // The boxes are separate; the band behind them is what says they are one
+    // card — and it covers the space between them, not just their own rows.
+    const html = draw([card({ title: "Two weeks of work", day: "2026-09-11" })]);
+    expect(html).toContain('class="triage-span" style="grid-column:3;grid-row:2 / span 2"');
+  });
+
+  it("draws no band for a card that takes a single week", () => {
+    expect(draw([card()])).not.toContain("triage-span");
+  });
+
+  it("does not tint the cell behind a card — the card itself is the answer", () => {
+    // A card being carried is drawn where it would land, so a highlight
+    // under it says the same thing twice.
+    expect(draw([card()])).not.toContain("project-cell-drag");
   });
 
   it("counts a card of two weeks against both of them", () => {
