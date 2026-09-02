@@ -4793,226 +4793,154 @@ button.card-age {
   border-color: var(--line);
 }
 
+/* The strip and the grid stand side by side; only the grid scrolls
+   sideways, and the strip keeps its own column of cards. */
 .triage-body {
   flex: 1;
-  min-height: 0;
   display: flex;
-  align-items: stretch;
+  min-height: 0;
+  gap: 10px;
+  padding: 0 14px 14px 10px;
 }
 
-/* The strip: one column of cards, its own scroll, always in reach. */
-.triage-triage {
+.triage-strip {
   flex: none;
-  width: 260px;
+  width: 240px;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--line);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
   background: var(--bg-soft);
 }
 
-.triage-triage-head {
-  flex: none;
+.triage-strip-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 5px 8px;
   font-size: 11px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--muted);
   border-bottom: 1px solid var(--line-soft);
 }
 
-.triage-triage-cards {
+.triage-strip-cards {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
+  gap: 4px;
+  padding: 6px;
 }
 
 .triage-empty {
-  color: var(--faint);
+  padding: 8px 2px;
   font-size: 11px;
-  font-style: italic;
-  padding: 4px;
+  color: var(--muted);
 }
 
-.triage-scroll {
+/* The grid is the Project board's, and takes the room the strip leaves.
+   Its own margins would double the ones the body already sets. */
+.triage .project-board {
   flex: 1;
   min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 0 14px 40px;
+  margin: 0;
 }
 
-.triage-grid {
-  display: grid;
-  min-width: min-content;
-  position: relative;
-}
-
-/* The header row of people and the label column of weeks both stay put. */
-.triage-corner,
-.triage-person {
-  position: sticky;
-  top: 0;
-  z-index: 8;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-}
-
-.triage-corner {
-  left: 0;
-  z-index: 9;
-}
-
+/* A column is a person: the avatar and the name, in the header the grid
+   draws for every column. */
 .triage-person {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
+  gap: 5px;
+  padding: 0 6px;
+  overflow: hidden;
 }
 
-.triage-person-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.triage-person .avatar-img {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+  flex: none;
 }
 
 .triage-person-none {
-  color: var(--faint);
+  font-size: 11px;
+  color: var(--muted);
   font-style: italic;
 }
 
-.triage-week {
-  position: sticky;
-  left: 0;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  padding: 6px 8px;
-  font-size: 11px;
+.triage-corner-hint {
+  font-size: 10px;
   color: var(--muted);
-  background: var(--bg);
-  box-shadow: -40px 0 0 var(--bg);
-  border-bottom: 1px solid var(--line-soft);
-  font-variant-numeric: tabular-nums;
+  padding-left: 4px;
 }
 
-.triage-week-now {
-  color: var(--accent);
-  font-weight: 700;
+/* The week column carries what that week holds beside its date, and says so
+   in red when it is more than the teams on screen can close. */
+.triage-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.triage-limit {
+  opacity: 0.6;
 }
 
 .triage-week-over .triage-count {
   color: var(--danger);
-  font-weight: 700;
-}
-
-.triage-count {
-  font-variant-numeric: tabular-nums;
-}
-
-.triage-limit {
-  color: var(--faint);
-  font-weight: 400;
-}
-
-.triage-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 5px;
-  border-bottom: 1px solid var(--line-soft);
-  border-right: 1px solid var(--line-soft);
-}
-
-.triage-cell-now {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-
-.triage-dragover {
-  outline: 2px dashed var(--dragover-outline);
-  outline-offset: -2px;
-}
-
-/* A week a stretched card reaches into: the work is there, drawn once in the
-   week it starts in, and the tint says the rest of it is running here. */
-.triage-cell-reached {
-  background-image: repeating-linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent) 8%, transparent) 0 6px,
-    transparent 6px 12px
-  );
-}
-
-/* The grip: the card's bottom edge, pulled down to stretch it over more
-   weeks — the Project board's gesture, on a card that is not a slot. */
-.triage-card-grip {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: -3px;
-  height: 7px;
-  border-radius: 3px;
-  cursor: ns-resize;
-  touch-action: none;
-  opacity: 0;
-}
-
-.triage-card:hover .triage-card-grip {
-  opacity: 1;
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
-}
-
-.triage-card-reaching {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-
-/* How many weeks the card is stretched over. */
-.triage-card-span {
-  flex: none;
-  padding: 0 4px;
-  border-radius: 3px;
-  font-size: 10px;
   font-weight: 600;
-  color: var(--on-accent);
-  background: color-mix(in srgb, var(--accent) 75%, transparent);
 }
 
-/* A deadline lies along the bottom of the week it falls in, across every
-   person: what stands above it is what has to be done by then. */
-.triage-deadline {
-  position: relative;
-  align-self: end;
-  height: 0;
-  pointer-events: none;
-  border-bottom: 2px dashed var(--danger);
-  z-index: 6;
+/* A slot on this board carries a progress bar along its foot and the band
+   line of the weekly plan down its left, so a card reads the same here as it
+   does on the day board. */
+.triage-slot {
+  padding-bottom: 6px;
 }
 
-.triage-deadline-label {
+.triage-slot-bar {
   position: absolute;
-  left: 100px;
+  left: 4px;
+  right: 4px;
   bottom: 2px;
-  padding: 0 5px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--danger);
-  background: var(--bg);
-  border-radius: 3px;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--line-soft);
 }
 
-/* The card: title, what it belongs to, how far it is. */
+.triage-slot-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.triage-slot-plan-wed {
+  border-left-color: var(--band-wed);
+}
+
+.triage-slot-plan-fri {
+  border-left-color: var(--band-fri);
+}
+
+.triage-slot.project-slot-late {
+  border-left-color: var(--danger);
+}
+
+.triage-slot-resize {
+  cursor: ns-resize;
+}
+
+.triage-deadline {
+  border-top-color: var(--danger);
+}
+
 .triage-card {
   position: relative;
   display: flex;
@@ -5134,8 +5062,3 @@ button.card-age {
   background: var(--accent);
 }
 
-.dnd-overlay .triage-card {
-  width: 230px;
-  box-shadow: 0 8px 20px var(--elev-3);
-  cursor: grabbing;
-}

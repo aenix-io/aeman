@@ -46,6 +46,9 @@ export interface WeekGridOptions {
    *  selection: coming back to one they have scrolled away from should not
    *  yank them back, but choosing another view should open on today. */
   selection?: string;
+  /** How many weeks the window opens before today. A board that folds what is
+   *  overdue into this week has no past rows and passes 0. */
+  back?: number;
 }
 
 export interface WeekGrid {
@@ -113,7 +116,7 @@ function readZoom(key: string): Zoom {
   return { x: 1, y: 1 };
 }
 
-export function useWeekGrid({ dated, columns, store, selection }: WeekGridOptions): WeekGrid {
+export function useWeekGrid({ dated, columns, store, selection, back }: WeekGridOptions): WeekGrid {
   const today = todayIso();
   const thisMonday = mondayOf(today);
 
@@ -191,8 +194,8 @@ export function useWeekGrid({ dated, columns, store, selection }: WeekGridOption
   const [boardBox, setBoardBox] = useState<BoardBox | null>(null);
 
   const weeks = useMemo(
-    () => weekWindow(dated, thisMonday, padBack, padFwd),
-    [dated, thisMonday, padBack, padFwd],
+    () => weekWindow(dated, thisMonday, padBack, padFwd, back),
+    [dated, thisMonday, padBack, padFwd, back],
   );
   const todayRow = weeks.indexOf(thisMonday);
 

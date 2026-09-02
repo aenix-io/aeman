@@ -63,14 +63,19 @@ export interface Dated {
  * card: a card standing before the window pulls the first Monday back to it,
  * a card ending after it pushes the last Monday out — plus a runway, so the
  * board is never exactly as long as its longest card. `padBack`/`padFwd` are
- * the weeks the reader asked for on top, and only ever add. */
+ * the weeks the reader asked for on top, and only ever add.
+ *
+ * `back` is how far the window opens BEFORE today. A board that folds what is
+ * overdue into this week — the weekly plan's rule — passes 0 and has no past
+ * rows at all; then only a card dated in the past widens it. */
 export function weekWindow(
   dated: readonly Dated[],
   thisMonday: string,
   padBack: number,
   padFwd: number,
+  back = WEEKS_BACK,
 ): string[] {
-  let first = addDays(thisMonday, -7 * (WEEKS_BACK + padBack));
+  let first = addDays(thisMonday, -7 * (back + padBack));
   let last = addDays(thisMonday, 7 * (WEEKS_FWD + padFwd));
   for (const c of dated) {
     const anchor = c.week ? mondayOf(c.week) : null;

@@ -12,7 +12,7 @@
  * more; whether it names an epic or a person is a question this file must
  * never be able to ask.
  */
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { GUTTER_PX, HEADER_PX, WEEK_COL_PX, WEEK_STEP, weekLabel } from "../weekgrid";
 import type { WeekGrid as Grid } from "./useWeekGrid";
 
@@ -26,14 +26,20 @@ export interface GridColumn {
  *  highlight and the pointer handlers that start a gesture. */
 export interface CellProps {
   className?: string;
+  /** A board that drops onto its cells attaches its drop target here. */
+  ref?: Ref<HTMLDivElement>;
   onPointerDown?: React.PointerEventHandler<HTMLDivElement>;
   onPointerLeave?: React.PointerEventHandler<HTMLDivElement>;
   onPointerCancel?: React.PointerEventHandler<HTMLDivElement>;
 }
 
-/** What a week's label does when it is clicked, and what it says on hover. */
+/** What a week's cell says, and what it does when it is clicked. `label`
+ *  replaces the date the cell shows by default — a board that carries a count
+ *  or a limit beside the date puts the whole thing here. */
 export interface WeekProps {
   title?: string;
+  className?: string;
+  label?: ReactNode;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
 }
 
@@ -51,8 +57,10 @@ export interface WeekGridProps<C extends GridColumn> {
   cellProps?: (column: C, col: number, week: string, row: number) => CellProps;
   /** Slots, deadlines and drafts, placed into the grid by the board. */
   children?: ReactNode;
-  /** Labels for the buttons at either end, which say what the rows are. */
-  earlier?: string;
+  /** Labels for the buttons at either end. A board whose first row is this
+   *  week — because what is overdue is shown as owed now — passes false for
+   *  `earlier`: there is no past to widen into. */
+  earlier?: string | false;
   later?: string;
 }
 
@@ -71,14 +79,16 @@ export function WeekGrid<C extends GridColumn>({
   const { weeks, todayRow, rowH, sharedCol, colFactors } = grid;
   return (
     <div className="project-board" ref={grid.scrollRef}>
-      <button
-        type="button"
-        className="project-more"
-        onClick={grid.showEarlier}
-        title={`Show ${WEEK_STEP} more weeks before`}
-      >
-        {earlier}
-      </button>
+      {earlier !== false && (
+        <button
+          type="button"
+          className="project-more"
+          onClick={grid.showEarlier}
+          title={`Show ${WEEK_STEP} more weeks before`}
+        >
+          {earlier}
+        </button>
+      )}
       <div
         className="project-grid"
         ref={grid.gridRef}
@@ -101,24 +111,35 @@ export function WeekGrid<C extends GridColumn>({
         {gutter}
 
         {/* week label column + row stripes */}
-        {weeks.map((w, i) => (
-          <div
-            key={w}
-            className={`project-week${i === todayRow ? " project-week-today" : ""}`}
-            style={{ gridRow: i + 2, gridColumn: 1 }}
-            {...weekProps?.(w, i)}
-          >
-            <span className="project-week-date">{weekLabel(w)}</span>
-          </div>
-        ))}
+        {weeks.map((w, i) => {
+          const { className, label, ...rest } = weekProps?.(w, i) ?? {};
+          return (
+            <div
+              key={w}
+              className={`project-week${i === todayRow ? " project-week-today" : ""}${
+                className ? ` ${className}` : ""
+              }`}
+              style={{ gridRow: i + 2, gridColumn: 1 }}
+              {...rest}
+            >
+              {label ?? <span className="project-week-date">{weekLabel(w)}</span>}
+            </div>
+          );
+        })}
 
         {/* cells: one per column × week, the drag surface */}
         {columns.map((c, col) =>
           weeks.map((w, row) => {
-            const { className, ...rest } = cellProps?.(c, col, w, row) ?? {};
+            const { className, ref, ...rest } = cellProps?.(c, col, w, row) ?? {};
             return (
               <div
                 key={`${c.key}/${w}`}
+                ref={ref}
+                // Every cell says which week and which column it is: a
+                // gesture can then ask the DOM under the pointer instead of
+                // measuring tracks itself.
+                data-week={w}
+                data-col={c.key}
                 className={`project-cell${row === todayRow ? " project-cell-today" : ""}${
                   className ? ` ${className}` : ""
                 }`}
