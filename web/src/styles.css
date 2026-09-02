@@ -4847,10 +4847,13 @@ button.card-age {
   font-style: italic;
 }
 
-/* Columns and the gaps between them, in one row: [week][gap][week][gap]… */
+/* Columns and the gaps between them, in one row: [week][gap][week][gap]…
+   Each column is as tall as its own lanes, each lane as tall as its cards:
+   an empty week is a short column, a full one is long, and nothing is
+   stretched to match a neighbour. */
 .backlog-weeks {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
 }
 
 .backlog-col {
@@ -4858,7 +4861,6 @@ button.card-age {
   width: 250px;
   display: flex;
   flex-direction: column;
-  min-height: 220px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   background: var(--bg-raised);
@@ -4893,9 +4895,12 @@ button.card-age {
   font-weight: 400;
 }
 
-/* The gap: the deadline's home. Empty ones keep the columns evenly apart. */
+/* The gap: the deadline's home. Empty ones keep the columns evenly apart;
+   it alone stretches to the row's full height, so the line runs past the
+   tallest column. */
 .backlog-gap {
   flex: none;
+  align-self: stretch;
   width: 14px;
   position: relative;
 }
@@ -4944,10 +4949,11 @@ button.card-age {
   color: var(--danger);
 }
 
-/* The lanes are zone areas; only the count sits in the corner. */
+/* The lanes are zone areas, each its own height; only the count sits in
+   the corner. */
 .backlog-col .zone-area {
   border-radius: 0;
-  flex: 1 0 auto;
+  flex: none;
 }
 
 .backlog-lane-head {
