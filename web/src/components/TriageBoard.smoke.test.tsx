@@ -113,20 +113,21 @@ describe("the Triage board", () => {
     expect(draw([card({ zone: "green" })])).toContain("triage-slot-zone-green");
   });
 
-  it("says what a card belongs to — the column here is a person, not an epic", () => {
-    const html = draw([card({ epic: "Storage", project: "cozy" })]);
-    expect(html).toContain("triage-slot-chip");
-    expect(html).toContain(">Storage<");
-    expect(html).toContain('title="cozy · Storage"');
+  it("stripes a project card with the weekly plan's band, not a zone", () => {
+    // A slot is a commitment made on the Project board and only passing
+    // through this one, so it says here what it says on the panel.
+    const wed = draw([card({ epic: "Storage", day: "2026-09-02" })]);
+    expect(wed).toContain("triage-slot-band-wed");
+    const fri = draw([card({ epic: "Storage", day: "2026-09-04" })]);
+    expect(fri).toContain("triage-slot-band-fri");
   });
 
-  it("names the project when a card is on no column of it", () => {
-    expect(draw([card({ project: "cozy" })])).toContain(">cozy<");
-  });
-
-  it("says nothing of belonging for work the board holds alone", () => {
-    // The zone stripe and the week are its whole address.
-    expect(draw([card({ zone: "gray" })])).not.toContain("triage-slot-chip");
+  it("reads a stretched slot's band against the week each box stands in", () => {
+    // Owed by Friday in the week it passes through, by Wednesday in the one
+    // it ends in — the same answer the panel gives, week by week.
+    const html = draw([card({ epic: "Storage", day: "2026-09-09" })]);
+    expect(html).toContain("triage-slot-band-fri");
+    expect(html).toContain("triage-slot-band-wed");
   });
 
   it("stacks a week in the order somebody triaging wants to meet it", () => {
