@@ -74,29 +74,38 @@ export function placedIn(c: Pick<Card, "week">): string | null {
  *
  *  Cards of the same rank keep the order the board holds them in, so the
  *  order somebody set by hand still means something among its peers. */
-export function pileRank(c: Pick<Card, "overdue" | "epic" | "zone">): number {
+export function pileRank(
+  c: Pick<Card, "overdue" | "epic" | "zone"> & { projected?: boolean },
+): number {
   if (c.overdue) {
     return 0;
   }
   if (c.epic) {
     return 1;
   }
+  // A turn a process will file is a commitment made elsewhere too, and it
+  // will take the week's time whether or not anybody plans around it.
+  if (c.projected) {
+    return 2;
+  }
   switch (c.zone) {
     case "red":
-      return 2;
-    case "yellow":
       return 3;
-    case "gray":
+    case "yellow":
       return 4;
-    case "green":
+    case "gray":
       return 5;
-    default:
+    case "green":
       return 6;
+    default:
+      return 7;
   }
 }
 
 /** byPile sorts a cell's cards into that order, leaving equals as they were. */
-export function byPile<T>(of: (item: T) => Pick<Card, "overdue" | "epic" | "zone">) {
+export function byPile<T>(
+  of: (item: T) => Pick<Card, "overdue" | "epic" | "zone"> & { projected?: boolean },
+) {
   return (a: T, b: T) => pileRank(of(a)) - pileRank(of(b));
 }
 

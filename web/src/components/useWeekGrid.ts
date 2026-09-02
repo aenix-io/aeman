@@ -110,10 +110,12 @@ export interface WeekGrid {
    *  carry widths of their own. */
   rowAt: (clientY: number) => number;
   columnAt: (clientX: number) => number | null;
-  /** The same row, and how far INTO it the pointer is, counted in card
-   *  heights: where a card let go there would stand in that row's stack.
-   *  Only a board whose rows grow has a stack to aim at. */
-  rowSpotAt: (clientY: number) => { row: number; at: number };
+  /** The same row, and how far INTO it the pointer is, in card heights and
+   *  NOT rounded — where in the row's stack the pointer is standing. What
+   *  that means for a card being carried is the board's to say: it knows
+   *  where inside the card the reader took hold of it. Only a board whose
+   *  rows grow has a stack to point into. */
+  rowSpotAt: (clientY: number) => { row: number; into: number };
 }
 
 function readColFactors(key: string): Record<string, number> {
@@ -402,22 +404,20 @@ export function useWeekGrid({
   // once columns carry widths of their own, the elements are the only place
   // the truth is whole.
   const rowSpotAt = useCallback(
-    (clientY: number): { row: number; at: number } => {
+    (clientY: number): { row: number; into: number } => {
       const grid = gridRef.current;
       if (!grid) {
-        return { row: 0, at: 0 };
+        return { row: 0, into: 0 };
       }
       const rows = grid.querySelectorAll(".project-week");
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i].getBoundingClientRect();
         if (clientY < r.bottom) {
-          // Rounded, not floored: the place is BETWEEN two cards, so the
-          // half-way line is where the answer changes.
-          return { row: i, at: Math.max(0, Math.round((clientY - r.top) / rowH)) };
+          return { row: i, into: Math.max(0, (clientY - r.top) / rowH) };
         }
       }
       const last = rows.length - 1;
-      return { row: Math.max(0, last), at: 0 };
+      return { row: Math.max(0, last), into: 0 };
     },
     [rowH],
   );

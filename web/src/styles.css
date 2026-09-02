@@ -4902,6 +4902,19 @@ button.card-age {
   border-left-color: var(--zone-red-accent);
 }
 
+/* A turn a process is going to file: drawn before it exists, so it is drawn
+   as an outline. Nothing can be done to it — there is no card yet — and the
+   cursor says so. */
+.triage-slot-coming {
+  background: none;
+  border-style: dashed;
+  border-left-style: solid;
+  border-left-color: var(--muted);
+  box-shadow: none;
+  color: var(--muted);
+  cursor: default;
+}
+
 /* A project card is a commitment made on the Project board, passing through
    this one: it wears the weekly plan's own band — blue by Wednesday, purple
    by Friday — so the two boards say the same thing about it. */

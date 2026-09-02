@@ -258,6 +258,56 @@ describe("the Triage board", () => {
     expect(html).toContain("Sent to review");
   });
 
+  it("draws the turns a process is going to file in the weeks they fall in", () => {
+    // Not cards yet, but the weeks are already carrying them: a week spoken
+    // for by a process is not a week the team is free in.
+    const html = renderToStaticMarkup(
+      <TriageBoard
+        board={
+          {
+            ...board([card()]),
+            processes: [
+              {
+                name: "Duty",
+                project: "",
+                tasks: [
+                  {
+                    uid: "t1",
+                    title: "Rotate the keys",
+                    recurrence: "week",
+                    team: "core",
+                    assignee: "lexfrei",
+                    history: [],
+                    due: ["2026-09-07", "2026-09-14"],
+                  },
+                ],
+              },
+            ],
+          } as unknown as Board
+        }
+        provider={{} as Provider}
+        roster={["core"]}
+        teamFilter={["core"]}
+        onSetFilter={vi.fn()}
+        avatars={{}}
+        names={{}}
+        patchCard={vi.fn()}
+        addCard={vi.fn()}
+        reorderCards={vi.fn()}
+        onOpen={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    // One in each week it is due in, in the column of whoever holds the task,
+    // drawn as what it is — an outline, with nothing to press.
+    expect(html.match(/triage-slot-coming/g)?.length).toBe(2);
+    expect(html).toContain("Rotate the keys");
+    expect(html).toContain("grid-row:3");
+    expect(html).toContain("grid-row:4");
+    // …and both weeks count it: the load beside their dates says 1.
+    expect(html.match(/class="triage-count">1</g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("gives a project card no grip to stretch it by", () => {
     // Its span is its row on the Project board; that is where it is changed,
     // and a grip here would offer to change it somewhere it cannot be.

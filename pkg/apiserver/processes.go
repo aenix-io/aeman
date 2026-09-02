@@ -41,7 +41,17 @@ type Task struct {
 	Turns int `json:"turns"`
 	Done  int `json:"done"`
 	Late  int `json:"late"`
+	// Due is the weeks this task comes due in over the planning horizon and
+	// has no turn of its own yet — what the process is going to file. A board
+	// that plans weeks ahead has to show it: a week already spoken for by a
+	// process is not a week the team is free in. A paused process sends
+	// none, because it files none.
+	Due []string `json:"due,omitempty"`
 }
+
+// TurnsAhead is how far the projected turns reach: a quarter, which is as far
+// as anyone plans and further than any board window opens.
+const TurnsAhead = 13
 
 // HistoryShown bounds the turns carried per task.
 const HistoryShown = 12
@@ -78,6 +88,9 @@ func ProcessesResource(b board.Board, project string) ProcessList {
 			}
 			if len(t.Assignees) > 0 {
 				task.Assignee = t.Assignees[0]
+			}
+			if !p.Paused {
+				task.Due = board.UpcomingTurns(b, t, today, TurnsAhead)
 			}
 			for _, it := range board.Iterations(b, t.ItemID) {
 				turn := Iteration{UID: it.ItemID, Week: it.Week, State: iterationState(it, t, today)}

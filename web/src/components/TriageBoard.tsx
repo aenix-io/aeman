@@ -74,6 +74,11 @@ interface Slot extends Laned {
    *  is 0 of 1 and says nothing; a longer one says (1/2), (2/2). */
   part: number;
   parts: number;
+  /** A turn a process is going to file, drawn before it exists. There is no
+   *  card behind it yet, so nothing can be done to it — but the week it
+   *  falls in is already spoken for, and a board that plans weeks ahead has
+   *  to say so. */
+  projected?: boolean;
 }
 
 function isDone(c: CardModel): boolean {
@@ -142,6 +147,40 @@ export function TriageBoard({
 
   // The order the reader dragged the columns into, if they have.
   const [order, setOrder] = useState<string[] | null>(readPeopleOrder);
+  // The turns the processes are going to file: not cards yet, but work the
+  // weeks ahead are already carrying. A paused process sends none, and a
+  // week whose turn is already filed is a card and is drawn as one — the
+  // server leaves those out (board.UpcomingTurns), so nothing is counted
+  // twice.
+  const projected = useMemo(() => {
+    const out: { key: string; week: string; who: string; card: CardModel }[] = [];
+    for (const p of board.processes) {
+      for (const t of p.tasks) {
+        if (!teams.includes(t.team ?? "")) {
+          continue;
+        }
+        for (const week of t.due ?? []) {
+          out.push({
+            key: `${p.name}/${t.uid}/${week}`,
+            week,
+            who: t.assignee || NOBODY,
+            // A stand-in, so a projection draws like everything else here.
+            card: {
+              itemId: `~turn/${t.uid}/${week}`,
+              title: t.title,
+              assignees: t.assignee ? [t.assignee] : [],
+              team: t.team,
+              week,
+              task: t.uid,
+              process: p.name,
+            } as CardModel,
+          });
+        }
+      }
+    }
+    return out;
+  }, [board.processes, teams]);
+
   // The cards of the teams on screen: the ones with a week, and the ones
   // nobody has dated, which stand in the first row alongside them.
   const { placed, waiting, people } = useMemo(() => {
@@ -170,6 +209,9 @@ export function TriageBoard({
     // and the rest by name, until the reader drags them into an order of
     // their own. Somebody who appears afterwards joins the end rather than
     // disturbing what was arranged.
+    for (const t of projected) {
+      seen.add(t.who);
+    }
     const named = [...seen].filter((w) => w !== NOBODY).sort();
     const all = [NOBODY, ...named];
     const at = (k: string) => {
@@ -181,7 +223,8 @@ export function TriageBoard({
       waiting,
       people: (order ? [...all].sort((a, b) => at(a) - at(b)) : all).map((key) => ({ key })),
     };
-  }, [board.cards, teams, order]);
+  }, [board.cards, teams, order, projected]);
+
 
   // Where a card stands on THIS board, which is not where its dates put it on
   // any other. The row is the week triage gave it and nothing else: a card
@@ -235,6 +278,11 @@ export function TriageBoard({
     row: number;
     span: number;
     grab: number;
+    /** How far into the card, in card heights, the reader took hold of it.
+     *  A card is carried by that point, so where it LOOKS like it will land
+     *  is where it lands — without this it followed the cursor itself and
+     *  came to rest a card away from where it was let go. */
+    hold: number;
     pinned: boolean;
   } | null>(null);
   const moveRef = useRef<typeof move>(null);
@@ -469,12 +517,34 @@ export function TriageBoard({
       }
       slots.set(col, list);
     }
+    for (const t of projected) {
+      const row = weeks.indexOf(t.week);
+      if (row < 0) {
+        continue;
+      }
+      const list = slots.get(t.who) ?? [];
+      list.push({
+        card: t.card,
+        row,
+        span: 1,
+        part: 0,
+        parts: 1,
+        projected: true,
+        lane: 0,
+        lanes: 1,
+        width: 1,
+        stack: 0,
+        stacked: 1,
+      });
+      slots.set(t.who, list);
+      load.set(t.week, (load.get(t.week) ?? 0) + 1);
+    }
     // A week is read top down, so it is stacked in the order somebody
     // triaging wants to meet it: debts, the project's own work, then the
     // zones. Cards of one rank keep the board's order, which is the order a
     // reader set by hand.
     for (const list of slots.values()) {
-      list.sort(byPile((s) => s.card));
+      list.sort(byPile((s) => ({ ...s.card, projected: s.projected })));
     }
     // While a card is under the pointer it is drawn WHERE IT WOULD LAND —
     // including where among its new neighbours — so what the reader sees is
@@ -504,12 +574,14 @@ export function TriageBoard({
     }
     packLanes(slots.values(), undefined, grid.rowFit);
     return { slots, load };
-  }, [placed, waiting, rowDates, weeks, people, move, stretch, grid.rowFit]);
+  }, [placed, waiting, projected, rowDates, weeks, people, move, stretch, grid.rowFit]);
 
 
   const beginMove = useCallback(
     (card: CardModel, slot: Slot, col: number) => (e: React.PointerEvent) => {
-      if ((e.target as HTMLElement).closest("button, .triage-slot-resize")) {
+      // A projection is not a card: there is nothing to take hold of, and
+      // nothing a drop could be written to.
+      if (slot.projected || (e.target as HTMLElement).closest("button, .triage-slot-resize")) {
         return;
       }
       e.preventDefault();
@@ -524,6 +596,7 @@ export function TriageBoard({
         // Which week of the card was taken hold of, so a card grabbed by its
         // second week does not jump a week up under the pointer.
         grab: slot.part,
+        hold: Math.min(0.99, Math.max(0, rowSpotAt(e.clientY).into - slot.stack)),
       };
       const start = { x: e.clientX, y: e.clientY };
       const onMove = (ev: PointerEvent) => {
@@ -547,7 +620,10 @@ export function TriageBoard({
           row,
           span: p.span,
           col: columnAt(ev.clientX) ?? col,
-          at: spot.at,
+          // Where the card's own TOP edge is, not where the cursor is: the
+          // reader is placing the card they can see, and it lands between
+          // the two cards its edge lies between.
+          at: Math.max(0, Math.round(spot.into - p.hold)),
         };
         moveRef.current = next;
         setMove(next);
@@ -835,7 +911,7 @@ export function TriageBoard({
               return (
                 <div
                   key={`${p.key}/${card.itemId}/${part}`}
-                  className={`project-slot triage-slot${done ? " project-slot-done" : ""}${
+                  className={`project-slot triage-slot${slot.projected ? " triage-slot-coming" : ""}${done ? " project-slot-done" : ""}${
                     card.overdue ? " project-slot-late" : ""
                   }${
                     band
@@ -851,7 +927,13 @@ export function TriageBoard({
                     gridRow: row + 2,
                     ...laneStyle(slot, grid.rowFit, grid.rowH),
                   }}
-                  title={parts > 1 ? `${card.title} — week ${part + 1} of ${parts}` : card.title}
+                  title={
+                    slot.projected
+                      ? `${card.title} — ${card.process} files this turn that week`
+                      : parts > 1
+                        ? `${card.title} — week ${part + 1} of ${parts}`
+                        : card.title
+                  }
                   onPointerDown={beginMove(card, slot, col)}
                   onDoubleClick={() => onOpen(card)}
                 >
@@ -859,19 +941,21 @@ export function TriageBoard({
                     {card.title}
                     {parts > 1 && <span className="triage-slot-part"> ({part + 1}/{parts})</span>}
                   </span>
-                  <span className="project-slot-actions">
-                    <button
-                      type="button"
-                      className="card-action card-action-delete"
-                      title="Back to needs triage"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        untriage(card);
-                      }}
-                    >
-                      ×
-                    </button>
-                  </span>
+                  {!slot.projected && (
+                    <span className="project-slot-actions">
+                      <button
+                        type="button"
+                        className="card-action card-action-delete"
+                        title="Back to needs triage"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          untriage(card);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
                   <span className="triage-slot-bar" aria-label={`${progress}%`}>
                     {/* The stage's own colour, as on Team and Me: a card
                         locked or in review says so by its bar there, and
@@ -882,7 +966,7 @@ export function TriageBoard({
                       card's end, and the weeks between follow from it. A
                       project card has none — its span is its row on the
                       Project board, and that is where it is changed. */}
-                  {part === parts - 1 && !card.epic && (
+                  {part === parts - 1 && !card.epic && !slot.projected && (
                     <div
                       className="project-slot-resize triage-slot-resize"
                       title="Drag down to give the card more weeks"

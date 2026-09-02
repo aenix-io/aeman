@@ -165,6 +165,11 @@ export interface ProcessTask {
   assignee?: string;
   accumulate?: boolean;
   history: { uid: string; week: string; state: "done" | "open" | "late" }[];
+  /** The weeks this task comes due in over the planning horizon and has no
+   *  turn of its own yet — what the process is going to file. A board that
+   *  plans weeks ahead draws them: a week already spoken for by a process is
+   *  not a week the team is free in. A paused process sends none. */
+  due?: string[];
   /** Counts over ALL turns, including the ones history leaves out. */
   turns?: number;
   done?: number;
