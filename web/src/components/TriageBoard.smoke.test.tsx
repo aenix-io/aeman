@@ -108,6 +108,23 @@ describe("the Triage board", () => {
     expect(html).not.toMatch(/class="project-slot[^"]*" style="[^"]*span/);
   });
 
+  it("stripes a card down its left in the colour of the zone it stands in", () => {
+    expect(draw([card({ zone: "red" })])).toContain("triage-slot-zone-red");
+    expect(draw([card({ zone: "green" })])).toContain("triage-slot-zone-green");
+  });
+
+  it("leaves a card of no zone the plain edge", () => {
+    expect(draw([card()])).not.toContain("triage-slot-zone");
+  });
+
+  it("keeps the debt's own red over the zone's", () => {
+    // Urgent wears the lighter red and a debt the strong one; a card that is
+    // both must read as the debt, so the late class comes last in the sheet.
+    const html = draw([card({ zone: "red", overdue: true })]);
+    expect(html).toContain("project-slot-late");
+    expect(html).toContain("triage-slot-zone-red");
+  });
+
   it("fills in nothing while nothing is being carried", () => {
     // The gap between the boxes of one card is filled in only while the card
     // is in the reader's hand; a board at rest has nothing to say about it.

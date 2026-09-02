@@ -4878,14 +4878,31 @@ button.card-age {
   background: var(--accent);
 }
 
-.triage-slot-plan-wed {
-  border-left-color: var(--band-wed);
+/* The stripe down a card's left is the ZONE it stands in: what kind of work
+   it is, in the colours the Team board gives them. */
+.triage-slot-zone-gray {
+  border-left-color: var(--zone-gray-accent);
 }
 
-.triage-slot-plan-fri {
-  border-left-color: var(--band-fri);
+.triage-slot-zone-green {
+  border-left-color: var(--zone-green-accent);
 }
 
+.triage-slot-zone-yellow {
+  border-left-color: var(--zone-yellow-accent);
+}
+
+/* Urgent is the LIGHTER red, a debt the strong one: "must be done today" and
+   "was due and is not done" are different news and must not read as one. The
+   zone's own accent already is the lighter of the two in both themes
+   (#f85149 against #cf222e, #ff7b72 against #f85149), so it is taken as it
+   stands — a mix towards the background would wash out the colour-blind
+   palette, which repaints these accents and nothing else. */
+.triage-slot-zone-red {
+  border-left-color: var(--zone-red-accent);
+}
+
+/* A debt keeps the strong red, whatever zone it is in. */
 .triage-slot.project-slot-late {
   border-left-color: var(--danger);
 }
