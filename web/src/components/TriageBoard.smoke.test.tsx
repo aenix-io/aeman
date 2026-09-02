@@ -63,6 +63,7 @@ function draw(cards: Card[]) {
       names={{}}
       patchCard={vi.fn()}
       addCard={vi.fn()}
+      reorderCards={vi.fn()}
       onOpen={vi.fn()}
       onError={vi.fn()}
     />,

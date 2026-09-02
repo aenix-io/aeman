@@ -63,6 +63,35 @@ export function placedIn(c: Pick<Card, "week">): string | null {
   return c.week || null;
 }
 
+/** orderWith is a cell's order once `id` has been dropped at place `at`.
+ *
+ *  The card is taken OUT before it is put back in, so a card dragged down
+ *  past its own neighbours lands where the pointer is rather than one short
+ *  of it — the preview and the write have to agree about that, and both
+ *  count places in the list the reader is looking at. */
+export function orderWith(ids: readonly string[], id: string, at: number): string[] {
+  const rest = ids.filter((other) => other !== id);
+  const place = Math.max(0, Math.min(at, rest.length));
+  return [...rest.slice(0, place), id, ...rest.slice(place)];
+}
+
+/** How a card's place in a cell is written down. The board's order is global
+ *  and a cell is a slice of it, so the write names a NEIGHBOUR — the server
+ *  resolves the true anchor from it — and never a position.
+ *
+ *  A card at the top has nothing before it to sit after, so it is written as
+ *  standing before the card now second; a card alone in its cell has no
+ *  neighbour at all and nothing to say. */
+export type Anchor = { after: string } | { before: string } | null;
+
+export function anchorFor(ids: readonly string[], id: string): Anchor {
+  const place = ids.indexOf(id);
+  if (place < 0 || ids.length < 2) {
+    return null;
+  }
+  return place > 0 ? { after: ids[place - 1] } : { before: ids[1] };
+}
+
 /** weeksCovered is every week a card occupies: the week it was placed in,
  *  through the week its end date reaches. Stretching a card over three weeks
  *  says the work takes three weeks, and each of them counts it against what

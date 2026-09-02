@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "./providers/types";
-import { needsTriage, placedIn, reachOf, weeksCovered } from "./triage";
+import { anchorFor, needsTriage, orderWith, placedIn, reachOf, weeksCovered } from "./triage";
 
 const card = (over: Partial<Card> = {}): Card =>
   ({ itemId: "c1", title: "A card", assignees: [], ...over }) as Card;
@@ -52,6 +52,60 @@ describe("needsTriage", () => {
     // The day's planning put it there, not the week's: nobody has said how
     // long the work takes, which is the whole of the question.
     expect(needsTriage(card({ day: "2026-09-02" }))).toBe(true);
+  });
+});
+
+describe("orderWith", () => {
+  const cell = ["a", "b", "c"];
+
+  it("puts a newcomer where the pointer says", () => {
+    expect(orderWith(cell, "x", 0)).toEqual(["x", "a", "b", "c"]);
+    expect(orderWith(cell, "x", 2)).toEqual(["a", "b", "x", "c"]);
+  });
+
+  it("puts one dropped past the end at the end", () => {
+    expect(orderWith(cell, "x", 9)).toEqual(["a", "b", "c", "x"]);
+  });
+
+  it("takes a card out before putting it back, so dragging DOWN lands where the pointer is", () => {
+    // The off-by-one this exists for: "a" dragged to the third place must
+    // end up third, not second — the reader is aiming at a list that no
+    // longer holds the card they are carrying.
+    expect(orderWith(cell, "a", 2)).toEqual(["b", "c", "a"]);
+  });
+
+  it("and dragging UP lands there too", () => {
+    expect(orderWith(cell, "c", 0)).toEqual(["c", "a", "b"]);
+  });
+
+  it("leaves the order alone when the card is put back where it was", () => {
+    expect(orderWith(cell, "b", 1)).toEqual(cell);
+  });
+
+  it("makes a list of one out of an empty cell", () => {
+    expect(orderWith([], "x", 3)).toEqual(["x"]);
+  });
+});
+
+describe("anchorFor", () => {
+  const cell = ["a", "b", "c"];
+
+  it("names the card before it", () => {
+    expect(anchorFor(cell, "c")).toEqual({ after: "b" });
+  });
+
+  it("names the card now second when there is nothing before it", () => {
+    // Nothing to sit after at the top, so the write says what it sits
+    // before — the card that took the second place.
+    expect(anchorFor(cell, "a")).toEqual({ before: "b" });
+  });
+
+  it("has nothing to say about a card alone in its cell", () => {
+    expect(anchorFor(["a"], "a")).toBeNull();
+  });
+
+  it("has nothing to say about a card that is not there", () => {
+    expect(anchorFor(cell, "x")).toBeNull();
   });
 });
 

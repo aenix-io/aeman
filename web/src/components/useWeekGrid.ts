@@ -110,6 +110,10 @@ export interface WeekGrid {
    *  carry widths of their own. */
   rowAt: (clientY: number) => number;
   columnAt: (clientX: number) => number | null;
+  /** The same row, and how far INTO it the pointer is, counted in card
+   *  heights: where a card let go there would stand in that row's stack.
+   *  Only a board whose rows grow has a stack to aim at. */
+  rowSpotAt: (clientY: number) => { row: number; at: number };
 }
 
 function readColFactors(key: string): Record<string, number> {
@@ -397,20 +401,28 @@ export function useWeekGrid({
   // Both hit tests read the live DOM rather than compute from the tracks:
   // once columns carry widths of their own, the elements are the only place
   // the truth is whole.
-  const rowAt = useCallback((clientY: number): number => {
-    const grid = gridRef.current;
-    if (!grid) {
-      return 0;
-    }
-    const rows = grid.querySelectorAll(".project-week");
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i].getBoundingClientRect();
-      if (clientY < r.bottom) {
-        return i;
+  const rowSpotAt = useCallback(
+    (clientY: number): { row: number; at: number } => {
+      const grid = gridRef.current;
+      if (!grid) {
+        return { row: 0, at: 0 };
       }
-    }
-    return rows.length - 1;
-  }, []);
+      const rows = grid.querySelectorAll(".project-week");
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i].getBoundingClientRect();
+        if (clientY < r.bottom) {
+          // Rounded, not floored: the place is BETWEEN two cards, so the
+          // half-way line is where the answer changes.
+          return { row: i, at: Math.max(0, Math.round((clientY - r.top) / rowH)) };
+        }
+      }
+      const last = rows.length - 1;
+      return { row: Math.max(0, last), at: 0 };
+    },
+    [rowH],
+  );
+
+  const rowAt = useCallback((clientY: number): number => rowSpotAt(clientY).row, [rowSpotAt]);
 
   const columnAt = useCallback((clientX: number): number | null => {
     const grid = gridRef.current;
@@ -447,6 +459,7 @@ export function useWeekGrid({
     wrapRef,
     boardBox,
     rowAt,
+    rowSpotAt,
     columnAt,
   };
 }

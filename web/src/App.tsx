@@ -1495,6 +1495,7 @@ export function App() {
             names={names}
             patchCard={patchCard}
             addCard={addCard}
+            reorderCards={reorderCards}
             onOpen={(c) => setDetailCard(c)}
             onError={onError}
           />
