@@ -261,8 +261,14 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
   `day = end` — a genuine relocation (no history kept, unlike defer). The card
   then shows on **every day of the range** `[start, end]`.
 - `sprintStart` becomes the sprint that was **active on the start day**
-  (`activeSprint(team, start)`) — a start inside the current sprint joins it —
-  falling back to the start day itself when no tracked sprint covers it.
+  (`activeSprint(team, start)`) — a start inside the current or previous sprint
+  joins it. A start **older than the team can reach** keeps the team's
+  **current** sprint instead: the dates are the person's to choose, but a
+  sprint that closed is drawn by no board and moved by no carry-over, so a card
+  pinned to one left the board entirely (three did in one working day). Only a
+  team with no sprint pointer at all falls back to the start day itself, which
+  seeds its first. A **future** start parks the card sprint-less until the
+  carry-over that reaches its day adopts it.
 
 ## Resolved open questions
 

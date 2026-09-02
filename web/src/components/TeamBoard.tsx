@@ -25,7 +25,7 @@ import type {
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, addDays, localDateIso, mondayOf, weeksBetween } from "../date";
-import { activeSprint, currentSprint, previousSprint } from "../sprint";
+import { activeSprint, currentSprint, previousSprint, sprintForDate } from "../sprint";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -2010,13 +2010,12 @@ export function TeamBoard({
     start: string | null,
     end: string | null,
   ) => {
-    // A future day has no sprint yet: the card waits sprint-less and the
-    // carry-over reaching its day adopts it (mirrors boardservice.SetDates).
-    const sprint = !start
-      ? start
-      : start > todayIso()
-        ? null
-        : activeSprint(board, card.team ?? null, start) || start;
+    // Which sprint the dates put the card in — one rule, shared with the
+    // server (sprintForDate mirrors boardservice.SetDates): a future day
+    // parks it, a day the team can still reach takes that day's sprint, and
+    // a day older than that keeps the team's current one rather than a
+    // sprint that closed, which would take the card off every board.
+    const sprint = sprintForDate(board, card.team ?? null, start ?? "");
     const prev = {
       startDate: card.startDate,
       sprintStart: card.sprintStart,

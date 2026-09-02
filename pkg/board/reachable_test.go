@@ -58,6 +58,35 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 	}
 }
 
+// A day is opened FOR A TEAM. One team's sprint pointer left behind in June
+// does not make another team's card of that day reachable: nobody opens the
+// portal board on the day the sales pointer happens to name. Reading every
+// team's days as one set spared exactly the cards this rule exists to find —
+// «[P1] Ответить роману по ТС», sprint 2026-06-29, survived a cleanup because
+// sales still pointed at that day.
+func TestAStaleTeamsDayDoesNotSaveAnotherTeamsCard(t *testing.T) {
+	const today, cur, prev = "2026-09-02", "2026-09-01", "2026-08-31"
+	const june = "2026-06-29"
+	b := NewBoard([]Card{
+		{ItemID: "st-portal", Title: SprintStateTitle, Team: "portal", SprintStart: cur, StartDate: prev},
+		// A team nobody has carried over since June.
+		{ItemID: "st-sales", Title: SprintStateTitle, Team: "sales", SprintStart: "2026-07-06", StartDate: june},
+
+		// The portal card of that June day: on no board anyone opens.
+		{ItemID: "stray", Team: "portal", Progress: 90, SprintStart: june, StartDate: june, Day: june},
+		// The sales card of the same day IS reachable: that is its own team's
+		// previous sprint, and the sales board still shows it.
+		{ItemID: "theirs", Team: "sales", Progress: 20, SprintStart: june, StartDate: june, Day: june},
+	})
+	got := Reachable(b, today)
+	if got["stray"] {
+		t.Error("a portal card of a June day is on no portal board — another team's pointer is not a day anyone opens for it")
+	}
+	if !got["theirs"] {
+		t.Error("the sales card stands on its own team's previous sprint day")
+	}
+}
+
 // A personal card belongs to its owner's board, which has no sprint and no
 // team: judging it by the team rules would call every one of them stranded.
 func TestAPersonalCardIsAlwaysReachable(t *testing.T) {

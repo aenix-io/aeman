@@ -15,17 +15,19 @@ package board
 // thirty-two when the rule was found. The × deletes now (G60); this is what
 // names the ones already made, for the migration's report and its cleanup.
 func Reachable(b Board, today string) map[string]bool {
-	days := map[string]bool{today: true}
-	for _, st := range b.SprintStates {
+	out := make(map[string]bool, len(b.Cards))
+	// A day is opened FOR A TEAM, so each team answers for its OWN days:
+	// today, and the two its sprint pointer names. Read as one set across
+	// the board, a team left behind in June made every other team's cards of
+	// that June day look reachable — which is exactly the state this names.
+	for team, st := range b.SprintStates {
+		days := map[string]bool{today: true}
 		if st.Current != "" {
 			days[st.Current] = true
 		}
 		if st.Previous != "" {
 			days[st.Previous] = true
 		}
-	}
-	out := make(map[string]bool, len(b.Cards))
-	for team := range b.SprintStates {
 		for day := range days {
 			for _, c := range TeamGrid(b, team, day) {
 				out[c.ItemID] = true
