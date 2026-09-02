@@ -162,7 +162,7 @@ export function BacklogBoard({
     for (const team of teams) {
       out.push({ key: `triage::${team}`, meta: { kind: "triage", team }, cards: placed.strip.get(team) ?? [] });
       for (const week of weeks) {
-        for (const lane of [...LANES.map((l) => l.key), "" as const]) {
+        for (const lane of LANES.map((l) => l.key)) {
           out.push({
             key: cellKey(team, week, lane),
             meta: { kind: "cell", team, week, lane },
@@ -254,20 +254,7 @@ export function BacklogBoard({
     }
     const { team, week, lane } = group.meta;
     if (lane === "") {
-      // The shelf for cards of the current sprint that carry no lane: they
-      // are being worked, so they count, but they are not a place to drop.
-      if (group.cards.length === 0) {
-        return null;
-      }
-      return (
-        <div key={group.key} className="backlog-lane backlog-lane-none">
-          <div className="backlog-lane-head">
-            <span>no lane</span>
-            <span className="backlog-count">{group.cards.length}</span>
-          </div>
-          {body}
-        </div>
-      );
+      return null; // no area of its own — see the group build
     }
     const cap = capacityOf(team);
     const def = LANES.find((l) => l.key === lane) ?? LANES[0];
@@ -372,9 +359,14 @@ export function BacklogBoard({
             </div>
             <div className="backlog-weeks">
               {weeks.map((week) => {
-                const total = LANES.map((l) => l.key)
-                  .concat("" as never)
-                  .reduce((n, l) => n + (placed.cells.get(cellKey(team, week, l as Lane | ""))?.length ?? 0), 0);
+                const laned = LANES.reduce(
+                  (n, l) => n + (placed.cells.get(cellKey(team, week, l.key))?.length ?? 0),
+                  0,
+                );
+                // Counted, not drawn: a card of this week that nobody gave a
+                // lane still spends the week's capacity.
+                const noLane = placed.cells.get(cellKey(team, week, ""))?.length ?? 0;
+                const total = laned + noLane;
                 const over = cap.week > 0 && total > cap.week;
                 const lines = deadlines.filter((d) => d.week === week);
                 const breached = lines.filter((d) =>
@@ -396,11 +388,19 @@ export function BacklogBoard({
                       <span className="backlog-col-week">{week === from ? "this week" : weekLabel(week)}</span>
                       <span className="backlog-count">
                         {total}
+                        {noLane > 0 && (
+                          <span
+                            className="backlog-nolane"
+                            title={`${noLane} of them carry no lane and are not shown here — they are counted all the same`}
+                          >
+                            {" "}
+                            ({noLane} без полосы)
+                          </span>
+                        )}
                         {cap.week > 0 && <span className="backlog-limit"> / {cap.week}</span>}
                       </span>
                     </div>
                     {LANES.map((l) => nodes.get(cellKey(team, week, l.key)))}
-                    {nodes.get(cellKey(team, week, ""))}
                   </div>,
                   // The gap after the column carries the deadlines that fall
                   // in its week: the line stands between the weeks, where a

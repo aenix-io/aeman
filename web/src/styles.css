@@ -4979,9 +4979,9 @@ button.card-age {
   color: var(--faint);
 }
 
-.backlog-lane-none {
-  flex: none;
-  border-left-color: var(--line);
+.backlog-nolane {
+  color: var(--faint);
+  font-weight: 400;
 }
 
 .backlog-lane-over {
