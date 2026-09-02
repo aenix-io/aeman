@@ -12,6 +12,7 @@
 import type { Card } from "./providers/types";
 import { isSlot } from "./weekly";
 import { addDays, mondayOf } from "./date";
+import { isPersonalDomain } from "./domains";
 
 /** Area is where a card is drawn in a week's column. */
 export type Area = "plan" | "work";
@@ -25,6 +26,28 @@ export function areaOf(c: Pick<Card, "plan" | "epic" | "week" | "day" | "task">)
     return "plan";
   }
   return "work";
+}
+
+/** needsTriage reports whether nobody has said WHEN the card's work is due:
+ *  an open card of its own, with no week. The week is the whole of the
+ *  decision — a card on today's board was put there by the day's planning,
+ *  not by a week's — and that is the pile the strip exists to show.
+ *
+ *  What is NOT asked about: a subtask and a review, which follow the card
+ *  they belong to; a personal board's card, which is nobody else's to plan;
+ *  and work already finished. Mirrors board.NeedsTriage — the state cards it
+ *  also excludes never reach the browser, so there is nothing to check here.
+ */
+export function needsTriage(
+  c: Pick<Card, "parent" | "reviewOf" | "week" | "domain" | "stage" | "progress">,
+): boolean {
+  if (isPersonalDomain(c.domain ?? "")) {
+    return false;
+  }
+  if (c.parent || c.reviewOf || c.week) {
+    return false;
+  }
+  return c.stage !== "done" && (c.progress ?? 0) < 100;
 }
 
 /** placedIn is the Monday of the column a card stands in — its week, and

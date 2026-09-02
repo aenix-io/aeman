@@ -142,6 +142,17 @@ describe("the Triage board", () => {
     expect(draw([card()])).toContain("nothing waiting for a week");
   });
 
+  it("keeps a review out of the strip — it follows the card it reviews", () => {
+    const html = draw([card({ week: undefined, title: "Review of it", reviewOf: "c9" })]);
+    expect(html).toContain("nothing waiting for a week");
+    expect(html).not.toContain("Review of it");
+  });
+
+  it("keeps a review with a week on the board, where the work is", () => {
+    const html = draw([card({ title: "Review of it", reviewOf: "c9" })]);
+    expect(html).toContain("Review of it");
+  });
+
   it("gives a column to every person, with the unassigned first", () => {
     const html = draw([card(), card({ itemId: "c2", assignees: [] })]);
     expect(html).toContain("Unassigned");
