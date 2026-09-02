@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   BASE_COL,
   BASE_ROW,
+  type Laned,
   extentOf,
   isoWeekNo,
+  packLanes,
   rowPx,
   sharedColumnPx,
   weekLabel,
@@ -211,5 +213,129 @@ describe("extentOf", () => {
 
   it("takes the first day of the week a mid-week date falls in", () => {
     expect(extentOf({ startDate: "2026-09-02" }, weeks)).toEqual({ row: 2, span: 1 });
+  });
+});
+
+describe("packLanes", () => {
+  interface Slot extends Laned {
+    id: string;
+  }
+  const slot = (id: string, row: number, span: number): Slot => ({
+    id,
+    row,
+    span,
+    lane: 0,
+    lanes: 1,
+    width: 1,
+  });
+  /** How the column reads once packed: who sits where, out of how many, and
+   *  how wide. */
+  const packed = (list: Slot[]) =>
+    list.map((s) => [s.id, s.lane, s.lanes, s.width] as [string, number, number, number]);
+
+  it("gives the whole column to cards that never share a week", () => {
+    const list = [slot("a", 0, 1), slot("b", 2, 1), slot("c", 4, 1)];
+    packLanes([list]);
+    expect(packed(list)).toEqual([
+      ["a", 0, 1, 1],
+      ["b", 0, 1, 1],
+      ["c", 0, 1, 1],
+    ]);
+  });
+
+  it("splits the column between two cards that share a week", () => {
+    const list = [slot("a", 0, 2), slot("b", 1, 2)];
+    packLanes([list]);
+    expect(packed(list)).toEqual([
+      ["a", 0, 2, 1],
+      ["b", 1, 2, 1],
+    ]);
+  });
+
+  it("splits only the cluster that overlaps, not the whole column", () => {
+    // The pair at the top has to share; the card five weeks later does not
+    // pay for it.
+    const list = [slot("a", 0, 2), slot("b", 1, 1), slot("late", 5, 1)];
+    packLanes([list]);
+    expect(packed(list)).toEqual([
+      ["a", 0, 2, 1],
+      ["b", 1, 2, 1],
+      ["late", 0, 1, 1],
+    ]);
+  });
+
+  it("gives the first lane to the longer card when two start together", () => {
+    const list = [slot("short", 0, 1), slot("long", 0, 3)];
+    packLanes([list]);
+    // Sorted longest-first, so the list itself comes back reordered.
+    expect(packed(list)).toEqual([
+      ["long", 0, 2, 1],
+      ["short", 1, 2, 1],
+    ]);
+  });
+
+  it("grows a card over a lane that is free for every week it covers", () => {
+    // Three lanes are needed at the top; the card that starts in week 2 has
+    // the third lane to itself for both of its weeks, and takes it — sitting
+    // at a third of the width beside empty space is the bug this prevents.
+    const list = [slot("long", 0, 5), slot("a", 0, 1), slot("b", 0, 1), slot("later", 2, 2)];
+    packLanes([list]);
+    expect(packed(list)).toEqual([
+      ["long", 0, 3, 1],
+      ["a", 1, 3, 1],
+      ["b", 2, 3, 1],
+      ["later", 1, 3, 2],
+    ]);
+  });
+
+  it("packs each column on its own", () => {
+    const left = [slot("a", 0, 2), slot("b", 0, 2)];
+    const right = [slot("c", 0, 2)];
+    packLanes([left, right]);
+    expect(packed(left)).toEqual([
+      ["a", 0, 2, 1],
+      ["b", 1, 2, 1],
+    ]);
+    expect(packed(right)).toEqual([["c", 0, 1, 1]]);
+  });
+
+  it("has nothing to say about an empty column", () => {
+    const list: Slot[] = [];
+    expect(() => packLanes([list])).not.toThrow();
+    expect(list).toEqual([]);
+  });
+
+  describe("with a card pinned to its lane", () => {
+    const pinnedTo = (id: string, lane: number, row: number, span: number) => ({
+      is: (s: Slot) => s.id === id,
+      lane,
+      row,
+      span,
+    });
+
+    it("keeps the pinned card where it was, and packs the rest around it", () => {
+      // While an edge is being pulled the slot must not hop lanes under the
+      // pointer: "b" holds lane 0 even though "a" would have taken it.
+      const list = [slot("a", 0, 2), slot("b", 0, 2)];
+      packLanes([list], pinnedTo("b", 0, 0, 2));
+      expect(packed(list)).toEqual([
+        ["a", 1, 2, 1],
+        ["b", 0, 2, 1],
+      ]);
+    });
+
+    it("leaves the pinned lane empty for a card that shares its weeks", () => {
+      // The pinned card is not in this column's list at all — the lane is
+      // still held for it, or the neighbour would be drawn under it.
+      const list = [slot("c", 1, 1)];
+      packLanes([list], pinnedTo("pinned", 0, 0, 2));
+      expect(packed(list)).toEqual([["c", 1, 2, 1]]);
+    });
+
+    it("lets a card that shares none of its weeks use the pinned lane", () => {
+      const list = [slot("c", 4, 1)];
+      packLanes([list], pinnedTo("pinned", 0, 0, 2));
+      expect(packed(list)).toEqual([["c", 0, 1, 1]]);
+    });
   });
 });
