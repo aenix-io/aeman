@@ -37,20 +37,23 @@ func TestADayGivesBackWhatItRemoved(t *testing.T) {
 		}
 		return when
 	}
-	commit := func(iso string, writes ...FileWrite) {
+	// Every commit NAMES the cards it touched, as the server's do: that is
+	// what the day reads to find what it removed.
+	commit := func(iso string, ids []string, writes ...FileWrite) {
 		t.Helper()
-		if _, err := r.Commit(Action{Name: "write", Summary: "w", At: at(iso)}, writes); err != nil {
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: ids,
+			Summary: "w", At: at(iso)}, writes); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// The day before: both cards stand.
-	commit("2026-08-20T09:00:00Z", card(gone, 30), card(kept, 30))
+	commit("2026-08-20T09:00:00Z", []string{gone, kept}, card(gone, 30), card(kept, 30))
 	// The day itself: one is finished, then taken off; the other works on.
-	commit("2026-08-21T14:00:00Z", card(gone, 100))
-	commit("2026-08-21T14:05:00Z", FileWrite{Path: path(gone)}) // the ×
-	commit("2026-08-21T18:00:00Z", card(kept, 60))
+	commit("2026-08-21T14:00:00Z", []string{gone}, card(gone, 100))
+	commit("2026-08-21T14:05:00Z", []string{gone}, FileWrite{Path: path(gone)}) // the ×
+	commit("2026-08-21T18:00:00Z", []string{kept}, card(kept, 60))
 	// And a later day, so the 21st is a day gone by.
-	commit("2026-08-22T10:00:00Z", card(kept, 90))
+	commit("2026-08-22T10:00:00Z", []string{kept}, card(kept, 90))
 
 	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-20"), endOf(t, "2026-08-21"))
 	if err != nil {
@@ -85,7 +88,7 @@ func TestADayGivesBackWhatItRemoved(t *testing.T) {
 
 	// A card removed on a LATER day is simply there on this one — the tree
 	// of the day holds it and nothing needs giving back.
-	commit("2026-08-23T09:00:00Z", FileWrite{Path: path(kept)})
+	commit("2026-08-23T09:00:00Z", []string{kept}, FileWrite{Path: path(kept)})
 	s, ok, err = LoadAsOfDay(r, endOf(t, "2026-08-21"), endOf(t, "2026-08-22"))
 	if err != nil || !ok {
 		t.Fatalf("the 22nd: ok=%v err=%v", ok, err)
@@ -122,9 +125,10 @@ func TestADayGivesBackACardItBothMadeAndRemoved(t *testing.T) {
 		}
 		return when
 	}
-	write := func(iso string, w FileWrite) {
+	write := func(iso string, ids []string, w FileWrite) {
 		t.Helper()
-		if _, err := r.Commit(Action{Name: "write", Summary: "w", At: at(iso)}, []FileWrite{w}); err != nil {
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: ids,
+			Summary: "w", At: at(iso)}, []FileWrite{w}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -133,12 +137,12 @@ func TestADayGivesBackACardItBothMadeAndRemoved(t *testing.T) {
 			strconv.Itoa(progress) + "\nrank: a\ncreated: 2026-08-21T10:00:00Z\n---\n")
 	}
 	// The day before knows nothing of it.
-	write("2026-08-20T09:00:00Z", FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")})
+	write("2026-08-20T09:00:00Z", nil, FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")})
 	// Made, worked and taken off, all on the 21st.
-	write("2026-08-21T10:00:00Z", FileWrite{Path: p, Data: body(0)})
-	write("2026-08-21T16:00:00Z", FileWrite{Path: p, Data: body(100)})
-	write("2026-08-21T16:05:00Z", FileWrite{Path: p})
-	write("2026-08-22T09:00:00Z", FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t2\n")})
+	write("2026-08-21T10:00:00Z", []string{id}, FileWrite{Path: p, Data: body(0)})
+	write("2026-08-21T16:00:00Z", []string{id}, FileWrite{Path: p, Data: body(100)})
+	write("2026-08-21T16:05:00Z", []string{id}, FileWrite{Path: p})
+	write("2026-08-22T09:00:00Z", nil, FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t2\n")})
 
 	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-20"), endOf(t, "2026-08-21"))
 	if err != nil || !ok {
@@ -167,4 +171,53 @@ func TestADayGivesBackACardItBothMadeAndRemoved(t *testing.T) {
 			t.Fatal("the card did not exist yet on the 20th")
 		}
 	}
+}
+
+// A tool writing the repository directly may leave no trailers — the layout
+// is public and nothing forces them (docs/design/plugin-impact.md). A card it
+// removes is still given back when the day BEGAN with it: the day is bounded
+// by two snapshots, and a card in the first and not in the second went during
+// it. What such a writer can hide is only a card it both made and removed
+// inside one day, which stood on no board anyone opened for long.
+func TestADayGivesBackWhatAToolRemovedWithoutSayingSo(t *testing.T) {
+	r := newRepo(t)
+	const id = "01CARD00000000000000000004"
+	p, err := CardPath(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	// No Cards, no Actor: a bare commit, as another tool would make it.
+	bare := func(iso string, w FileWrite) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Summary: "by another tool", At: at(iso)},
+			[]FileWrite{w}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bare("2026-08-20T08:00:00Z", FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")})
+	bare("2026-08-20T09:00:00Z", FileWrite{Path: p, Data: []byte(
+		"---\ntitle: a card\nteam: portal\nstart: 2026-08-20\nday: 2026-08-20\nprogress: 70\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")})
+	bare("2026-08-21T11:00:00Z", FileWrite{Path: p})
+	bare("2026-08-22T09:00:00Z", FileWrite{Path: BoardPath, Data: []byte("schema: 1\ntitle: t\n")})
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-20"), endOf(t, "2026-08-21"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	for _, c := range s.Cards {
+		if c.ItemID == id {
+			if c.Progress != 70 {
+				t.Fatalf("the card stood at 70%% when it went, given back at %d%%", c.Progress)
+			}
+			return
+		}
+	}
+	t.Fatal("the day began with the card and ended without it: the day gives it back")
 }
