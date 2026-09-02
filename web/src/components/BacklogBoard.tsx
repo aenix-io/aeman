@@ -379,44 +379,49 @@ export function BacklogBoard({
                       !isDone(c),
                   ),
                 );
-                return [
-                  <div
-                    key={week}
-                    className={`backlog-col${week === from ? " backlog-col-now" : ""}${over ? " backlog-col-over" : ""}`}
-                  >
-                    <div className="backlog-col-head">
-                      <span className="backlog-col-week">{week === from ? "this week" : weekLabel(week)}</span>
-                      <span className="backlog-count">
-                        {total}
-                        {noLane > 0 && (
-                          <span
-                            className="backlog-nolane"
-                            title={`${noLane} of them carry no lane and are not shown here — they are counted all the same`}
-                          >
-                            {" "}
-                            ({noLane} no lane)
-                          </span>
-                        )}
-                        {cap.week > 0 && <span className="backlog-limit"> / {cap.week}</span>}
-                      </span>
-                    </div>
-                    {LANES.map((l) => nodes.get(cellKey(team, week, l.key)))}
-                  </div>,
-                  // The gap after the column carries the deadlines that fall
-                  // in its week: the line stands between the weeks, where a
-                  // card on the far side of it is past it.
-                  <div key={`${week}:gap`} className={`backlog-gap${lines.length ? " backlog-gap-deadline" : ""}`}>
-                    {lines.map((d) => (
-                      <div
-                        key={d.project}
-                        className={`backlog-deadline${breached.includes(d) ? " backlog-deadline-breached" : ""}`}
-                        title={`Deadline of ${d.project} — end of the week of ${weekLabel(d.week)}`}
-                      >
-                        <span className="backlog-deadline-label">⚑ {d.project}</span>
+                return (
+                  <div key={week} className="backlog-slot">
+                    <div
+                      className={`backlog-col${week === from ? " backlog-col-now" : ""}${over ? " backlog-col-over" : ""}`}
+                    >
+                      <div className="backlog-col-head">
+                        <span className="backlog-col-week">
+                          {week === from ? "this week" : weekLabel(week)}
+                        </span>
+                        <span className="backlog-count">
+                          {total}
+                          {noLane > 0 && (
+                            <span
+                              className="backlog-nolane"
+                              title={`${noLane} of them carry no lane and are not shown here — they are counted all the same`}
+                            >
+                              {" "}
+                              ({noLane} no lane)
+                            </span>
+                          )}
+                          {cap.week > 0 && <span className="backlog-limit"> / {cap.week}</span>}
+                        </span>
                       </div>
-                    ))}
-                  </div>,
-                ];
+                      {LANES.map((l) => nodes.get(cellKey(team, week, l.key)))}
+                    </div>
+                    {/* The gap after the column carries the deadlines that
+                        fall in its week: the line stands between the weeks,
+                        where a card on the far side of it is past it. It is
+                        as tall as the week it closes — the slot's height —
+                        and never longer. */}
+                    <div className={`backlog-gap${lines.length ? " backlog-gap-deadline" : ""}`}>
+                      {lines.map((d) => (
+                        <div
+                          key={d.project}
+                          className={`backlog-deadline${breached.includes(d) ? " backlog-deadline-breached" : ""}`}
+                          title={`Deadline of ${d.project} — end of the week of ${weekLabel(d.week)}`}
+                        >
+                          <span className="backlog-deadline-label">⚑ {d.project}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
               })}
             </div>
           </section>

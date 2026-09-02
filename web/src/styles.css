@@ -4910,14 +4910,21 @@ button.card-age {
   font-weight: 400;
 }
 
-/* The gap: the deadline's home. Empty ones keep the columns evenly apart;
-   it alone stretches to the row's full height, so the line runs past the
-   tallest column. */
+/* A week and the gap after it are one slot, so the deadline's line is as
+   tall as the column it closes and no taller — a line running past the
+   tallest week said nothing about the week it belongs to. */
+.backlog-slot {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+}
+
+/* The gap: the deadline's home. Empty ones keep the columns evenly apart. */
 .backlog-gap {
   flex: none;
-  align-self: stretch;
   width: 14px;
   position: relative;
+  overflow: hidden;
 }
 
 .backlog-gap-deadline {
@@ -4965,10 +4972,25 @@ button.card-age {
 }
 
 /* The lanes are zone areas, each its own height; only the count sits in
-   the corner. */
+   the corner. The spine is taken OUT of the flow here: as a flex item its
+   vertical word sets the area's natural height, which on a day board is
+   what keeps a zone tall enough to drop into, but in a week column made an
+   empty lane a tall blank block. Absolutely placed it still reads bottom
+   to top, clipped when the lane is shorter than the word. */
 .backlog-col .zone-area {
+  position: relative;
   border-radius: 0;
   flex: none;
+  min-height: 26px;
+  padding-left: 15px;
+}
+
+.backlog-col .zone-spine {
+  position: absolute;
+  left: 2px;
+  top: 3px;
+  bottom: 3px;
+  overflow: hidden;
 }
 
 .backlog-lane-head {
