@@ -27,11 +27,10 @@ describe("viewQueries", () => {
     ]);
   });
 
-  it("fetches the Team board as the day grid PLUS the weekly plan", () => {
+  it("fetches the Team board as the day grid of the shown teams", () => {
     const qs = viewQueries("team", TODAY, ["alpha", "beta"], undefined, false, TODAY);
     expect(qs).toEqual([
       { view: "team", team: "alpha,beta", day: TODAY, reviews: "true" },
-      { view: "weekly", team: "alpha,beta", week: "2026-06-29" },
     ]);
   });
 
@@ -67,13 +66,11 @@ describe("viewQueries", () => {
 describe("snapshot selectors", () => {
   const PAST = "2026-07-01";
 
-  it("asks for a past day as it was, on the grid and on its plan panel", () => {
+  it("asks for a past day as it was", () => {
     const qs = viewQueries("team", PAST, ["portal"], undefined, false, TODAY);
-    expect(qs[0]).toMatchObject({ view: "team", day: PAST, snapshot: "1" });
-    // The panel rides with the grid and must be of the same moment: a
-    // historical grid beside a live panel is the confusion the snapshot
-    // exists to remove. The week alone does not name a moment; the day does.
-    expect(qs[1]).toMatchObject({ view: "weekly", day: PAST, snapshot: "1" });
+    expect(qs).toEqual([
+      { view: "team", team: "portal", day: PAST, reviews: "true", snapshot: "1" },
+    ]);
   });
 
   it("asks for the Me board of a past day, personal column included", () => {

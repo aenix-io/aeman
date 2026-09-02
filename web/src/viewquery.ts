@@ -12,12 +12,11 @@ export const TRIAGE_WEEKS = 6;
 // viewQueries builds the LIST selectors for a board view — possibly several,
 // fetched together and merged. Me is the personal board: the server resolves
 // "who am I" unless the user is impersonating someone (viewAs), which is sent
-// as an explicit user. Team is the multi-team lead board: the day grid PLUS the
-// weekly-plan cards of the shown teams (the plan panel renders from the same
-// card set). Grid/me queries ask for reviews=true so each card's linked review
-// card rides along for the reviewer badge. With a personal board linked, Me
-// also loads it (view=personal) — the viewer's own, so not while impersonating
-// someone else.
+// as an explicit user. Team is the multi-team lead board's day grid. Grid/me
+// queries ask for reviews=true so each card's linked review card rides along
+// for the reviewer badge. With a personal board linked, Me also loads it
+// (view=personal) — the viewer's own, so not while impersonating someone
+// else.
 export function viewQueries(
   view: ViewMode,
   day: string,
@@ -57,19 +56,7 @@ export function viewQueries(
     // (docs/design/triage.md). Never a snapshot — it is not a day board.
     return [{ view: "triage", team, from: mondayOf(today), weeks: String(TRIAGE_WEEKS) }];
   }
-  return [
-    { view: "team", team, day, reviews: "true", ...snap },
-    // The plan panel rides with the grid, so it is of the same moment: a
-    // historical grid beside a live panel is the confusion the snapshot
-    // exists to remove. `day` is what names that moment (the week alone
-    // does not), and the weekly filter itself ignores it.
-    {
-      view: "weekly",
-      team,
-      week: mondayOf(day),
-      ...(snap.snapshot ? { day, snapshot: "1" } : {}),
-    },
-  ];
+  return [{ view: "team", team, day, reviews: "true", ...snap }];
 }
 
 // snapshotDay reports that a day is one the board can be shown AS IT WAS: a
@@ -81,8 +68,8 @@ export function snapshotDay(view: ViewMode, day: string, today = todayIso()): bo
 }
 
 // watchQuery is the scoped-watch selector for a view. The Team board watches
-// every card of the teams it shows (view=all&team=set, no day), so both grid
-// and weekly-plan changes stream; the Me board watches its own day selection.
+// every card of the teams it shows (view=all&team=set, no day), so a change
+// streams whatever day it lands on; the Me board watches its own day.
 export function watchQuery(
   view: ViewMode,
   day: string,

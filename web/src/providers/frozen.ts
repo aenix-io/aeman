@@ -47,8 +47,6 @@ const CARD_WRITES = new Set([
   "reopen",
   "sendToReview",
   "removeReviewer",
-  "takeIntoPlan",
-  "releaseFromPlan",
   "placeCard",
   "untriageCard",
   "mirrorCard",

@@ -544,7 +544,7 @@ export function App() {
   // What the active board loads and watches: Me is personal (the server fills in
   // "who am I" unless view-as impersonates someone), Team names the teams it
   // shows (the filter, or the whole roster) and loads the day grid PLUS the
-  // weekly plan. activeKey / watchKey are stable serialisations used to
+  // day being looked at. activeKey / watchKey are stable serialisations used to
   // re-fetch and re-subscribe only when the selection actually changes.
   // A linked personal board rides beside the Me view: fetched and watched
   // with it (its own selector, its own socket), never while impersonating.
@@ -1097,7 +1097,7 @@ export function App() {
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       // Scope the watch to the active view: Me watches its day selection (and
       // the personal board on a second socket), Team watches every card of the
-      // teams it shows (grid + weekly plan). A card entering the selection
+      // teams it shows, whatever day it lands on. A card entering the selection
       // arrives as ADDED, one leaving as DELETED. ?client= keeps our own
       // mutations from echoing back. Re-subscribes when watchKey changes (a
       // dep below).

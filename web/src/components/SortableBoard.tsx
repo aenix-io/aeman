@@ -43,19 +43,11 @@ export interface DropResult<Meta> {
    *  the placeholder previewed it (indent level, Todoist-style), or null for
    *  a standalone drop. */
   groupUnder: string | null;
-  /** True when groupUnder came purely from the slot position (inside a
-   *  block) with no held gesture — a band drop treats that as aiming at the
-   *  PLAN, not at the block. */
-  groupPositional: boolean;
 }
 
 interface SortableBoardProps<Meta> {
   /** Source-of-truth groups derived from board state. */
   groups: BoardGroup<Meta>[];
-  /** The dnd id for a card within a group. Defaults to the card's itemId; a group
-   *  can namespace it (e.g. "plan:<id>") so the same card may live in two groups
-   *  at once without an id clash. */
-  idForCard?: (card: CardModel, group: BoardGroup<Meta>) => string;
   /** Renders the container shell + an inner list region for a group.
    *  dropRef MUST be attached to the element that should accept drops (so empty
    *  groups still receive the card); isOver is true while the active card hovers. */
@@ -74,8 +66,6 @@ interface SortableBoardProps<Meta> {
   renderLayout?: (nodes: Map<string, ReactNode>, groups: BoardGroup<Meta>[]) => ReactNode;
   /** Commit a drop: persist zone/engineer/position optimistically. */
   onDrop: (result: DropResult<Meta>) => void;
-  /** Children rendered inside the DndContext (e.g. a weekly drop area). */
-  children?: ReactNode;
   /** Cards draggable from `extra`, keyed by their dnd id, for overlay + drop. */
   externalCards?: Map<string, CardModel>;
   /** Commit a drop of an external (extra) draggable onto an over id. */
@@ -223,13 +213,11 @@ function DroppableGroup<Meta>({
  */
 export function SortableBoard<Meta>({
   groups,
-  idForCard,
   renderGroup,
   renderCard,
   renderOverlay,
   renderLayout,
   onDrop,
-  children,
   externalCards,
   onExternalDrop,
   onGroupDrop,
@@ -244,8 +232,6 @@ export function SortableBoard<Meta>({
   );
 
   const isExternal = (id: string) => externalCards?.has(id) ?? false;
-  const idOf = (c: CardModel, g: BoardGroup<Meta>) =>
-    idForCard ? idForCard(c, g) : c.itemId;
 
   // While dragging: a local override of the grouped ids that the over-handler
   // mutates so cards visibly push apart. null when idle (groups are the truth).
@@ -305,7 +291,7 @@ export function SortableBoard<Meta>({
     return groups.map((g) => ({
       key: g.key,
       meta: g.meta,
-      ids: g.cards.map((c) => idOf(c, g)),
+      ids: g.cards.map((c) => c.itemId),
     }));
   }, [local, groups]);
 
@@ -320,7 +306,7 @@ export function SortableBoard<Meta>({
       }
       const fresh = groups.map((g) => ({
         key: g.key,
-        ids: g.cards.map((c) => idOf(c, g)),
+        ids: g.cards.map((c) => c.itemId),
       }));
       const freshAll = new Set(fresh.flatMap((g) => g.ids));
       const next = cur.map((g) => ({ ...g, ids: [...g.ids] }));
@@ -364,12 +350,7 @@ export function SortableBoard<Meta>({
     const m = new Map<string, CardModel>();
     for (const g of groups) {
       for (const c of g.cards) {
-        m.set(idOf(c, g), c);
-        // Parent references are plain itemIds; a card living only in a
-        // namespaced group (a weekly band) must still resolve by them.
-        if (!m.has(c.itemId)) {
-          m.set(c.itemId, c);
-        }
+        m.set(c.itemId, c);
       }
     }
     return m;
@@ -527,7 +508,7 @@ export function SortableBoard<Meta>({
       groups.map((g) => ({
         key: g.key,
         meta: g.meta,
-        ids: g.cards.map((c) => idOf(c, g)),
+        ids: g.cards.map((c) => c.itemId),
       })),
     );
   };
@@ -735,7 +716,7 @@ export function SortableBoard<Meta>({
 
     // Find the original group (from props) to report the source meta.
     const fromGroup = groups.find((g) =>
-      g.cards.some((c) => idOf(c, g) === activeKey),
+      g.cards.some((c) => c.itemId === activeKey),
     );
     const toEntry = next.find((g) => g.ids.includes(activeKey));
     if (!fromGroup || !toEntry) {
@@ -750,7 +731,6 @@ export function SortableBoard<Meta>({
       toMeta: toEntry.meta,
       groups: next.map((g) => ({ meta: g.meta, ids: g.ids })),
       groupUnder: nest?.id ?? null,
-      groupPositional: nest?.positional ?? false,
     });
     reset();
   };
@@ -810,9 +790,8 @@ export function SortableBoard<Meta>({
       ) : (
         groups.map((g) => nodes.get(g.key))
       )}
-      {children}
-      {/* No drop animation: a plan card stays in its band, so the default
-          "fly back to source" looks like the card returning after a drop. */}
+      {/* No drop animation: the card is already redrawn where it landed, so
+          the default "fly back to source" reads as the drop being undone. */}
       <DragOverlay dropAnimation={null}>
         {activeCard ? (
           <div className="dnd-overlay">{renderOverlay(activeCard)}</div>

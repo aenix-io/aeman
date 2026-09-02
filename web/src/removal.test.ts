@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, planRemoval, gridGesture, removalKind, subtaskRemovalPatch, subtaskRemovalUndo, type RemovableCard, type RemovalHomes } from "./removal";
+import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, gridGesture, removalKind, subtaskRemovalPatch, subtaskRemovalUndo, type RemovableCard, type RemovalHomes } from "./removal";
 
 const ctx = { current: "2026-08-26", previous: "2026-08-25", today: "2026-08-26" };
 const card = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 0 };
@@ -88,17 +88,19 @@ describe("personalRemovalKind", () => {
   });
 });
 
-// The grid × empties one of a card's two homes — the working area — and a
-// card that was nowhere else is deleted by it. What the card carries does
-// not change that; it decides whether the × asks first.
+// The grid × empties one of a card's homes — the working area — and a card
+// that was nowhere else is deleted by it. What the card carries does not
+// change that; it decides whether the × asks first.
 describe("what each × does, one answer for every board", () => {
   const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
   const inSprint = { sprintStart: "2026-08-24", startDate: "2026-08-29" };
 
-  it("sends a card back to the weekly plan it is in", () => {
-    expect(gridRemoval({ ...inSprint, plan: "fri" }, ctx)).toBe("leave");
-    // Even one carrying work: the plan is where it goes, not the bin.
-    expect(gridRemoval({ ...inSprint, plan: "fri", progress: 40 }, ctx)).toBe("leave");
+  it("sends a card back to the week it is scheduled for", () => {
+    expect(gridRemoval({ ...inSprint, week: "2026-08-24" }, ctx)).toBe("leave");
+    // Even one carrying work: the week is where it goes, not the bin.
+    expect(gridRemoval({ ...inSprint, week: "2026-08-24", progress: 40 }, ctx)).toBe(
+      "leave",
+    );
   });
 
   // The Me board asked this question on its own and answered it differently
@@ -106,7 +108,9 @@ describe("what each × does, one answer for every board", () => {
   // splitting it from its parent, and looking like the × had done nothing.
   it("deletes a subtask, which has no home of its own", () => {
     expect(gridRemoval({ ...inSprint, parent: "p" }, ctx)).toBe("delete");
-    expect(gridRemoval({ ...inSprint, parent: "p", plan: "fri" }, ctx)).toBe("delete");
+    expect(gridRemoval({ ...inSprint, parent: "p", week: "2026-08-24" }, ctx)).toBe(
+      "delete",
+    );
     // A COLUMN is the exception: it is a home of its own, drawn and counted
     // on the Project board (G57), and a card filed under one is never
     // deleted by either ×.
@@ -126,16 +130,6 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ ...inSprint, project: "core" }, ctx)).toBe("delete");
   });
 
-  it("keeps a plan card that is somewhere else, deletes one that is not", () => {
-    expect(planRemoval({ sprintStart: "2026-08-24" })).toBe("leave");
-    expect(planRemoval({ startDate: "2026-08-29" })).toBe("leave");
-    expect(planRemoval({ epic: "Auth" })).toBe("leave");
-    expect(planRemoval({})).toBe("delete");
-    // Being on a person or carrying work is not a place to be — the server
-    // deletes these, and a client that spares them shows a card that is
-    // already gone.
-    expect(planRemoval({ day: undefined })).toBe("delete");
-  });
 });
 
 
@@ -271,15 +265,6 @@ describe("who asks about a subtask", () => {
     expect(deleteWarning(worked, null)).toContain("60%");
   });
 
-  it("scores a weekly-panel subtask by the PLAN's rule, which is what runs there", () => {
-    // The panel's × is the plan's gesture for every card on it (G57: `from`
-    // picks which home is emptied). It used to dispatch subtasks to the
-    // grid handler — one × doing the other's work — and the score followed
-    // the dispatch rather than the rule.
-    expect(planRemoval(mk(worked))).toBe("leave");
-    expect(boardAsksAbout(worked, planRemoval(mk(worked)), null)).toBe(true);
-  });
-
   // The × on a subtask whose column belongs to the PARENT's repository: the
   // pull-out cannot take the column along, so the card has no home left and
   // is deleted. The board must know, or it patches the card as kept and
@@ -347,15 +332,6 @@ describe("gridGesture", () => {
     expect(
       gridGesture(mk({ sprintStart: "2026-08-24", startDate: "2026-08-20" }), ctx),
     ).toBe("delete");
-  });
-});
-
-// The plan's × never deletes a subtask: its home is its parent, so the
-// plan cannot be its last one (G57). Stated in this copy too, because a
-// rule kept on one side only is how the boards drifted before.
-describe("planRemoval on a subtask", () => {
-  it("leaves it, whatever else it carries", () => {
-    expect(planRemoval(mk({ parent: "p" }))).toBe("leave");
   });
 });
 

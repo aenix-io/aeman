@@ -66,7 +66,7 @@ export interface Dated {
  * the weeks the reader asked for on top, and only ever add.
  *
  * `back` is how far the window opens BEFORE today. A board that folds what is
- * overdue into this week — the weekly plan's rule — passes 0 and has no past
+ * overdue into this week passes 0 and has no past
  * rows at all; then only a card dated in the past widens it. */
 export function weekWindow(
   dated: readonly Dated[],

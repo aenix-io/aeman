@@ -24,7 +24,7 @@ import type {
   ZoneKey,
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
-import { todayIso, addDays, localDateIso, mondayOf, weeksBetween } from "../date";
+import { todayIso, addDays, localDateIso } from "../date";
 import { activeSprint, currentSprint, previousSprint, sprintForDate } from "../sprint";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
@@ -37,16 +37,14 @@ import { TeamsModal } from "./TeamsModal";
 import { SprintChoiceDialog } from "./SprintChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
-import { isSlot, owedIn, planRemoveOffered, slotBand, slotWeekPatch } from "../weekly";
+import { slotWeekPatch } from "../slots";
 import { subtaskShows } from "../subtasks";
 import {
   boardAsksAbout,
   deleteWarning,
-  freeSubtasks,
   gridGesture,
   gridRemoval,
   hasColumn,
-  planRemoval,
   removalKind,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
@@ -103,9 +101,7 @@ interface TeamBoardProps {
 }
 
 /** Per-group metadata for the Team board: the destination engineer + zone. */
-type TeamMeta =
-  | { kind: "cell"; engineer: string; zone: ZoneKey }
-  | { kind: "band"; band: "wed" | "fri" };
+type TeamMeta = { kind: "cell"; engineer: string; zone: ZoneKey };
 
 const UNASSIGNED = "";
 
@@ -183,44 +179,6 @@ export function TeamBoard({
   });
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [teamsModalOpen, setTeamsModalOpen] = useState(false);
-  const [planCollapsed, setPlanCollapsed] = useState<boolean>(
-    () => localStorage.getItem("aeman.planCollapsed") !== "false",
-  );
-  // Custom (drag-set) height of the expanded weekly plan; null = default.
-  const [planHeight, setPlanHeight] = useState<number | null>(() => {
-    const v = localStorage.getItem("aeman.planHeight");
-    return v ? Number(v) : null;
-  });
-
-  // Drag the top edge of the weekly plan to resize its height.
-  const startPlanResize = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const onMove = (ev: MouseEvent) => {
-      const h = window.innerHeight - ev.clientY;
-      setPlanHeight(Math.max(120, Math.min(window.innerHeight * 0.85, h)));
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.userSelect = "";
-    };
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  };
-
-  // Remember the weekly plan's expanded/collapsed state and height in the browser.
-  useEffect(() => {
-    localStorage.setItem("aeman.planCollapsed", String(planCollapsed));
-  }, [planCollapsed]);
-  useEffect(() => {
-    if (planHeight === null) {
-      localStorage.removeItem("aeman.planHeight");
-    } else {
-      localStorage.setItem("aeman.planHeight", String(planHeight));
-    }
-  }, [planHeight]);
-
   // Remember the hand-picked order of the people columns in the browser.
   useEffect(() => {
     localStorage.setItem("aeman.columnOrder", JSON.stringify(columnOrder));
@@ -271,8 +229,7 @@ export function TeamBoard({
         // A Project slot lives on the Project board until it joins a sprint —
         // its multi-week dates would otherwise put it in the day grid's
         // Unassigned column for every day it spans. The server's TeamGrid has
-        // said so all along; this mirror of it did not, and the weekly fetch
-        // brings the slots into the shared card pool where the mirror ran.
+        // said so all along, and this mirror of it did not.
         if (c.epic && !c.sprintStart) {
           return false;
         }
@@ -364,292 +321,6 @@ export function TeamBoard({
       : { target: cur, label: "Current sprint", dir: "back" };
   }, [board, teamFilter, selectedDate]);
 
-  const currentWeek = useMemo(() => mondayOf(selectedDate), [selectedDate]);
-
-  // Founders' weekly-plan cards for the filtered team and current week, split
-  // into the two bands (by Wednesday / by Friday).
-  const weekly = useMemo(() => {
-    const wed: CardModel[] = [];
-    const fri: CardModel[] = [];
-    // A card shows in its own week — and, mirroring the day grid's sprint
-    // history, in every past week it was actually worked in: taken into work
-    // (it has a start date) and carried forward past that week. Carrying the
-    // plan forward does not erase the weeks it was worked in.
-    const showsInWeek = (c: CardModel): boolean => {
-      if (c.week === currentWeek) {
-        return true;
-      }
-      // A debt follows you: a card from an earlier week, still open past the
-      // day it was owed by, belongs on the CURRENT week's panel beside that
-      // week's own work. The server decided it is overdue (board.Overdue)
-      // and served it; this mirror of the server's week rule used to drop
-      // it on the floor — which is what happens when a rule is copied.
-      if (
-        c.overdue &&
-        !!c.week &&
-        c.week < currentWeek &&
-        currentWeek === mondayOf(todayIso())
-      ) {
-        return true;
-      }
-      // A Project-board slot spans weeks by design: it belongs to every
-      // week between its two boundaries, not only the one it starts in.
-      if (
-        isSlot(c) &&
-        (c.week as string) <= currentWeek &&
-        currentWeek <= mondayOf(c.day as string)
-      ) {
-        return true;
-      }
-      // History only in weeks whose working days are over (past the week's
-      // Friday): while a week runs, a card pushed to a future week leaves its
-      // panel — it is not this week's work anymore.
-      if (todayIso() <= addDays(currentWeek, 4)) {
-        return false;
-      }
-      // The "began work" anchor is the earliest of the start date and the
-      // sprint join — take-into-plan sets the sprint, not always a start date.
-      let started = c.startDate ?? "";
-      if (c.sprintStart && (!started || c.sprintStart < started)) {
-        started = c.sprintStart;
-      }
-      return (
-        !!started &&
-        !!c.week &&
-        c.week > currentWeek &&
-        mondayOf(started) <= currentWeek
-      );
-    };
-    for (const c of board.cards) {
-      // A band-less Project-board slot is still the week's work — its span
-      // is its plan and its band derives from the end date. Any other
-      // band-less card stays off the panel.
-      if ((!c.plan && !isSlot(c)) || !showsInWeek(c) || !passesFilter(c)) {
-        continue;
-      }
-      // A SUBTASK rides its parent here and takes no row of its own: its
-      // slot went to the parent at grouping, and a columned one derives a
-      // week from its dates that put it in the band beside the parent it
-      // rides (mirrors pkg/board WeeklyPlanAt).
-      if (c.parent) {
-        continue;
-      }
-      // A DEBT — owed in a week already past, shown here beside this
-      // week's own work — stands in the by-Wednesday band: its own band
-      // belonged to the week it missed, and what it faces now is the
-      // nearest deadline of the week it is standing in.
-      const owed = owedIn(c);
-      if (owed !== "" && owed < currentWeek) {
-        wed.push(c);
-        continue;
-      }
-      if (!c.plan) {
-        (slotBand(currentWeek, c.day as string) === "wed" ? wed : fri).push(c);
-        continue;
-      }
-      // A week-history entry (the card has moved on to a later week) sits in
-      // the by-Friday band of the past week: it stayed open through that
-      // week's end; its current band describes the week it lives in now.
-      (c.plan === "fri" || c.week !== currentWeek ? fri : wed).push(c);
-    }
-    return { wed, fri };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board.cards, currentWeek, teamFilter]);
-
-  // Overall completion across all plan cards (a done card counts as 100%).
-  const planProgress = useMemo(() => {
-    // Recurrent plan cards are excluded: the bar describes the week's one-off
-    // work, while recurrent tasks restart every week and would skew it.
-    const all = [...weekly.wed, ...weekly.fri].filter(
-      (c) => c.stage !== "recurrent",
-    );
-    if (all.length === 0) {
-      return 0;
-    }
-    const sum = all.reduce(
-      (s, c) => s + (c.stage === "done" ? 100 : c.progress ?? 0),
-      0,
-    );
-    return Math.round(sum / all.length);
-  }, [weekly]);
-
-  const handleCreatePlan = (
-    plan: "wed" | "fri",
-    title: string,
-    team?: string | null,
-  ) => {
-    const tempId = `tmp-${new Date().toISOString()}`;
-    const optimistic: CardModel = {
-      itemId: tempId,
-      // A bare GitHub reference reads as its readable label at once; the
-      // server's background resolve renames it to the real title shortly.
-      title: optimisticTitle(title),
-      assignees: [],
-      plan,
-      week: currentWeek,
-      team: team ?? undefined,
-      createdAt: new Date().toISOString(),
-      description: "",
-      notes: [],
-    };
-    addCard(optimistic);
-    const creating = provider.createCard({
-      title,
-      plan,
-      week: currentWeek,
-      team: team ?? null,
-    });
-    registerPendingCard(
-      tempId,
-      creating.then((c) => c.itemId),
-    );
-    void creating
-      .then((card) => {
-        if (consumePendingCancel(tempId)) {
-          removeCard(tempId);
-          // Deleted while the create was in flight: drop the server twin.
-          void provider.deleteCard(card.itemId).catch(() => undefined);
-          return;
-        }
-        // Swap in place: append-on-ack would reshuffle a quick burst of adds.
-        replaceCard(tempId, card);
-        migrateCardId(tempId, card.itemId);
-      })
-      .catch((err: unknown) => {
-        consumePendingCancel(tempId);
-        removeCard(tempId);
-        onError(errMessage(err));
-      });
-  };
-
-  // Move a plan card between the two bands (changes its Wed/Fri deadline).
-  const handleSetPlan = (card: CardModel, plan: "wed" | "fri") => {
-    // A DEBT dropped into a band of the CURRENT week is a person saying
-    // "take this into this week, due then". Its own band belongs to the
-    // week it missed, and the panel draws it by the debt rule (always the
-    // by-Wednesday band) whatever that band says — so writing the band
-    // alone moved nothing anyone could see, and an overdue card could not
-    // be dragged anywhere at all. It comes into the week first, by its
-    // dates when it is a slot (whose week IS its start), then takes the
-    // band.
-    if (owedIn(card) !== "" && owedIn(card) < currentWeek) {
-      handleSetWeek(card, currentWeek);
-    }
-    const prev: Partial<CardModel> = { plan: card.plan, parent: card.parent, week: card.week };
-    // A band on a SUBTASK takes it out of the group (G58): the server pulls
-    // it out and plans it in the current week, so the row must stop being
-    // drawn under its parent at once — it is the gesture that frees a card
-    // dropped under the wrong one.
-    patchCard(card.itemId, {
-      plan,
-      ...(card.parent ? { parent: undefined } : {}),
-      ...(card.week ? {} : { week: mondayOf(todayIso()) }),
-    });
-    void provider
-      .patchCard(card.itemId, { plan: { band: plan } })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
-
-  // Move a single plan card to another plan week (+1/+2 weeks, or a picked one).
-  const handleSetWeek = (card: CardModel, week: string | null) => {
-    const prev = card.week ?? null;
-    // A SLOT has no week of its own — its row is the week of its start date —
-    // so moving one to another week means moving its dates there. Sending
-    // plan.week for it is refused (422), which turned this control into an
-    // error message for every slot that a team assignment put in the plan.
-    if (card.epic && week) {
-      // How many weeks the slot spans, so moving it keeps its length.
-      const span =
-        card.startDate && card.day
-          ? Math.max(0, weeksBetween(mondayOf(card.startDate), mondayOf(card.day)))
-          : 0;
-      const prevDates = { startDate: card.startDate, day: card.day };
-      const end = addDays(week, span * 7 + 4);
-      patchCard(card.itemId, { week, startDate: week, day: end });
-      void provider
-        .patchCard(card.itemId, { dates: { start: week, end } })
-        .then(addCard)
-        .catch((err: unknown) => {
-          patchCard(card.itemId, prevDates);
-          onError(errMessage(err));
-        });
-      return;
-    }
-    patchCard(card.itemId, { week: week ?? undefined });
-    void provider
-      .patchCard(card.itemId, { plan: { week: week ?? "" } })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, { week: prev ?? undefined });
-        onError(errMessage(err));
-      });
-  };
-
-  // Take a grid card into the weekly plan: mark it for the dropped band and the
-  // current week, while it stays assigned on the board (the same card). It then
-  // shows the weekly stripe in the grid and the "taken" tint in the plan.
-  const takeIntoPlan = (card: CardModel, band: "wed" | "fri") => {
-    const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
-    patchCard(card.itemId, { plan: band, week: currentWeek });
-    void provider
-      .patchCard(card.itemId, { plan: { band, week: currentWeek } })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
-
-  // Take a plan card into work: assign it to the column's person and add it to
-  // today's daily sprint, while it stays in the weekly plan (the same card).
-  // One server action; dropping on the Unassigned column has no engineer to
-  // send, so it falls back to a plain spec patch with the same outcome.
-  const takePlanCard = (card: CardModel, engineer: string, dropZone?: ZoneKey) => {
-    const login = engineer === UNASSIGNED ? null : engineer;
-    const zone = dropZone ?? card.zone ?? "gray";
-    // The optimistic sprint mirrors the server: the team's current sprint,
-    // falling back to the selected day when the team has none yet.
-    const sprintStart = currentSprint(board, card.team ?? null) ?? selectedDate;
-    const prev: Partial<CardModel> = {
-      assignees: card.assignees,
-      zone: card.zone,
-      sprintStart: card.sprintStart,
-      startDate: card.startDate,
-      day: card.day,
-    };
-    // A card scheduled for a later day is deferred, and the deferral outranks
-    // the sprint in the grid: taking it into work moves its near end onto the
-    // day it was taken, or the row would land nowhere and the drop would look
-    // like it did nothing. The server does the same (TakeIntoPlan).
-    const deferred = !!card.startDate && card.startDate > selectedDate;
-    patchCard(card.itemId, {
-      assignees: login ? [login] : [],
-      zone,
-      sprintStart,
-      ...(deferred
-        ? {
-            startDate: selectedDate,
-            ...(card.day && card.day < selectedDate ? { day: selectedDate } : {}),
-          }
-        : {}),
-    });
-    const request = login
-      ? provider.takeIntoPlan(card.itemId, login, zone, selectedDate)
-      : provider.patchCard(card.itemId, {
-          assignees: [],
-          zone,
-          dates: { sprint: sprintStart },
-        });
-    void request.then(addCard).catch((err: unknown) => {
-      patchCard(card.itemId, prev);
-      onError(errMessage(err));
-    });
-  };
-
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
   // first). Columns come from everyone with a card in the selected teams in ANY
   // sprint (past or future), so a person's column stays (empty) on days they
@@ -737,9 +408,9 @@ export function TeamBoard({
 
   // People to offer when reassigning a card: the BOARD's member roster plus
   // everyone seen on a card. Cards alone are not enough — in a team-filtered
-  // view they only name that team's people, and handing a weekly-plan card
-  // to someone outside the filter (the whole point of assigning) offered an
-  // empty seat. MeBoard already does it this way.
+  // view they only name that team's people, and handing a card to someone
+  // outside the filter (the whole point of assigning) offered an empty seat.
+  // MeBoard already does it this way.
   const people = useMemo(() => {
     const set = new Set<string>(board.members.map((m) => m.login));
     for (const card of board.cards) {
@@ -850,12 +521,8 @@ export function TeamBoard({
 
   const cellKey = (engineer: string, zone: ZoneKey) =>
     `${engineer || "__unassigned__"}::${zone}`;
-  const bandKey = (band: "wed" | "fri") => `band::${band}`;
-
-  // Sortable groups: one per grid cell, plus the two weekly-plan bands. The bands
-  // share the same dnd engine (namespaced "plan:" ids) so a plan card can reorder
-  // in its band, move between bands, and be dragged into the grid with a live
-  // preview — the same card just stays in the plan.
+  // Sortable groups: one per grid cell. A cell is a (person, zone) pair, and
+  // dragging between them is what moves a card across the day grid.
   const groups = useMemo<BoardGroup<TeamMeta>[]>(() => {
     const out: BoardGroup<TeamMeta>[] = [];
     for (const engineer of orderedEngineers) {
@@ -871,46 +538,9 @@ export function TeamBoard({
         });
       }
     }
-    for (const band of ["wed", "fri"] as const) {
-      out.push({
-        key: bandKey(band),
-        meta: { kind: "band", band },
-        // An expanded weekly parent shows its subtask rows nested under it
-        // (they are not plan cards — they just ride along visibly).
-        cards: weekly[band].flatMap((c) =>
-          subsOpen(c.itemId) ? [c, ...(childrenOf.get(c.itemId) ?? [])] : [c],
-        ),
-      });
-    }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredCards, orderedEngineers, weekly, childrenOf, expandedSubs]);
-
-  // Reorder a subset of cards (a band's plan cards) within the global card order
-  // and persist the dragged card's new position.
-  const reorderPlanCards = (card: CardModel, order: string[]) => {
-    const subset = new Set(order);
-    let i = 0;
-    const next = board.cards.map((c) =>
-      subset.has(c.itemId) ? order[i++] : c.itemId,
-    );
-    reorderCards(next);
-    // Persist anchored on a BAND neighbour, never on the local global order:
-    // the board list here is a merge of the grid and weekly fetches, so
-    // non-band neighbours don't reflect the true project order. After the
-    // new predecessor — or, for the top slot, before the card now second.
-    const idx = order.indexOf(card.itemId);
-    const persist =
-      idx > 0
-        ? provider.moveCard(card.itemId, order[idx - 1])
-        : order.length > 1
-          ? provider.moveCardBefore(card.itemId, order[1])
-          : null;
-    void persist?.catch((err: unknown) => {
-      onError(errMessage(err));
-      reload();
-    });
-  };
+  }, [filteredCards, orderedEngineers, childrenOf, expandedSubs]);
 
   const handleDrop = ({
     card,
@@ -918,114 +548,7 @@ export function TeamBoard({
     toMeta,
     groups: g,
     groupUnder,
-    groupPositional,
   }: DropResult<TeamMeta>) => {
-    // Drops that involve a weekly-plan band.
-    if (fromMeta.kind === "band" || toMeta.kind === "band") {
-      // A drop whose slot nests it under a weekly parent groups it — but
-      // ONLY as a held gesture (indent / middle-band dwell): a band drop
-      // that merely lands inside an expanded block aims at the PLAN, and
-      // silently grouping it was how "take into plan" seemed broken.
-      if (!card.parent && toMeta.kind === "band" && groupUnder && !groupPositional) {
-        handleGroup(card, groupUnder);
-        return;
-      }
-      if (card.parent && toMeta.kind === "band") {
-        if (groupUnder && groupUnder !== card.parent) {
-          handleGroup(card, groupUnder); // regroup under another weekly parent
-          return;
-        }
-        const entry = g.find((x) => x.ids.includes(`plan:${card.itemId}`));
-        const ids = (entry?.ids ?? []).map((id) => id.replace(/^plan:/, ""));
-        if (!groupUnder) {
-          // Pulled out INSIDE the weekly panel: the subtask becomes a plan
-          // card of the dropped band in its own right, keeping its slot. A
-          // GRID parent's subtask has no business here — it snaps back.
-          const parentCard = card.parent ? cardsById.get(card.parent) : undefined;
-          if (!parentCard?.plan) {
-            return;
-          }
-          // A slot's week derives from its start date: the pull-out must
-          // not write the PARENT's week onto it — that conflicting write is
-          // refused, and refusing the whole patch kept the subtask stuck.
-          const slot = isSlot(card);
-          const week = parentCard.week ?? currentWeek;
-          const prev: Partial<CardModel> = {
-            parent: card.parent,
-            plan: card.plan,
-            week: card.week,
-          };
-          patchCard(card.itemId, {
-            parent: undefined,
-            plan: toMeta.band,
-            ...(slot ? {} : { week }),
-          });
-          void provider
-            .patchCard(card.itemId, {
-              parent: "",
-              plan: slot ? { band: toMeta.band } : { band: toMeta.band, week },
-            })
-            .then((c) => {
-              addCard(c);
-              reorderPlanCards(c, ids);
-              reload();
-            })
-            .catch((err: unknown) => {
-              patchCard(card.itemId, prev);
-              onError(errMessage(err));
-            });
-          return;
-        }
-        // Reorder within the own block, anchored on the final sibling order.
-        const idx = ids.indexOf(card.itemId);
-        const above = idx > 0 ? cardsById.get(ids[idx - 1]) : undefined;
-        const below =
-          idx >= 0 && idx + 1 < ids.length
-            ? cardsById.get(ids[idx + 1])
-            : undefined;
-        const persist =
-          above && above.parent === card.parent
-            ? provider.moveCard(card.itemId, above.itemId)
-            : below && below.parent === card.parent
-              ? provider.moveCardBefore(card.itemId, below.itemId)
-              : null;
-        void persist
-          ?.then(reload)
-          .catch((err: unknown) => {
-            onError(errMessage(err));
-            reload();
-          });
-        return;
-      }
-      if (!card.parent && fromMeta.kind === "band" && toMeta.kind === "cell") {
-        // Take the plan card into work, in the dropped cell's zone.
-        takePlanCard(card, toMeta.engineer, toMeta.zone);
-        return;
-      } else if (fromMeta.kind === "band" && toMeta.kind === "band") {
-        if (toMeta.band !== fromMeta.band) {
-          handleSetPlan(card, toMeta.band);
-        }
-        const entry = g.find(
-          (x) => x.meta.kind === "band" && x.meta.band === toMeta.band,
-        );
-        if (entry) {
-          reorderPlanCards(
-            card,
-            entry.ids.map((id) => id.replace(/^plan:/, "")),
-          );
-        }
-      } else if (!card.parent && fromMeta.kind === "cell" && toMeta.kind === "band") {
-        // Take a grid card into the weekly plan; it stays on the board.
-        takeIntoPlan(card, toMeta.band);
-      }
-      // A subtask never leaves the weekly panel for the day grid by drag:
-      // dedent it within the band to make it a plan card first.
-      return;
-    }
-    if (toMeta.kind !== "cell") {
-      return; // narrows the type: everything below places into a grid cell
-    }
-
     // From here both ends are grid cells. The board committed exactly what
     // the placeholder previewed: groupUnder is the already-validated parent
     // to nest under (null = standalone).
@@ -1040,7 +563,6 @@ export function TeamBoard({
       optimistic.parent = parentTo ?? undefined;
       patch.parent = parentTo ?? "";
       if (parentTo) {
-        optimistic.plan = undefined;
         optimistic.week = undefined;
         autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
@@ -1157,19 +679,18 @@ export function TeamBoard({
     return () => document.removeEventListener("keydown", onKey);
   }, [selectedCardId, childrenOf]);
 
-  // Group a dropped card as a subtask; the server enforces depth and moves a
-  // weekly card's plan slot onto the parent (which replaces it in the plan).
+  // Group a dropped card as a subtask; the server enforces depth and hands a
+  // scheduled card's week to the parent, which stands for it from then on.
   const handleGroup = (card: CardModel, parentId: string) => {
     if (card.itemId === parentId || card.parent === parentId) {
       return;
     }
-    const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
-    // The band goes to the parent; a COLUMN card keeps its week — that is
-    // the row the Project board draws it in, not plan membership (mirrors
-    // boardservice.SetParent).
+    const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
+    // The week goes to the parent; a COLUMN card keeps its own — that is
+    // the row the Project board draws it in, not a week anyone set here
+    // (mirrors boardservice.SetParent).
     patchCard(card.itemId, {
       parent: parentId,
-      plan: undefined,
       ...(card.epic ? {} : { week: undefined }),
     });
     autoExpanded.current = null; // the drop keeps the target unfolded
@@ -1323,14 +844,7 @@ export function TeamBoard({
   // right under the parent while it has none visible yet.
   const withSubs = (card: CardModel, node: ReactNode): ReactNode => {
     if (card.parent) {
-      const par = cardsById.get(card.parent);
-      // Under a taken weekly parent the subtask rows dim with it.
-      const dim = !!par?.plan && (par?.assignees.length ?? 0) > 0;
-      const wrapped = (
-        <div className={`subtask-indent${dim ? " subtask-indent-taken" : ""}`}>
-          {node}
-        </div>
-      );
+      const wrapped = <div className="subtask-indent">{node}</div>;
       const subs = childrenOf.get(card.parent) ?? [];
       const parent = cardsById.get(card.parent);
       if (
@@ -1560,9 +1074,9 @@ export function TeamBoard({
   const previousSprintFor = (card: CardModel): string | null =>
     previousSprint(board, card.team ?? null);
 
-  // The grid ×: one remove intent — the server demotes a card still in the
-  // team's current sprint, releases a taken plan card back to plan-only, or
-  // deletes for real (cascading the linked review card). The optimistic patch
+  // The grid ×: one remove intent — the server hands the card back to a home
+  // it still has, or deletes it for real (cascading the linked review card,
+  // and the subtasks that are pieces of it). The optimistic patch
   // mirrors those rules locally; the re-list converges the server's outcome.
   // The × asks the same question on every board: gridCtx names the sprints
   // it is asked in, reviewOf the card a delete would take along.
@@ -1621,7 +1135,7 @@ export function TeamBoard({
     // the subtasks that are pieces of it go, and the day they stood on is
     // what keeps them. gridGesture answers for every card the grid draws,
     // so the two boards ask alike.
-    if (!forced && !card.plan && gridGesture(card, gridCtx(card)) === "ask") {
+    if (!forced && gridGesture(card, gridCtx(card)) === "ask") {
       setRemoveChoice(card);
       return;
     }
@@ -1669,149 +1183,59 @@ export function TeamBoard({
       return;
     }
     let rollback: () => void;
-    if (!card.plan) {
-      {
-        // A card has two homes — the working area and
-        // the weekly plan — and this × empties the first (mirrors
-        // boardservice.Remove). With a plan band or a Project-board column to
-        // fall back on it goes there, leaving the working area entirely,
-        // dates and all: a card whose start is the viewed day shows on the
-        // grid whatever its sprint says, which is how a handed-back card used
-        // to sit in two places at once. With nowhere else to be, the working
-        // area was the only place it was, and removing it from there deletes
-        // it — after a question when the card carries work or a review card,
-        // which the delete takes with it. Its subtasks go with it: they are
-        // pieces of the same work, and the dialog says how many.
-        if (gridRemoval(card, gridCtx(card)) === "delete") {
-          const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-          const warning = deleteWarning(card, linkedReview?.title ?? null);
-          if (warning && !window.confirm(warning)) {
-            return;
-          }
-          // The subtasks are pieces of the same work and go with it —
-          // locally too, or they hang under a parent that is gone until a
-          // refresh (the watch skips this tab's own changes).
-          for (const sub of board.cards.filter((c) => c.parent === card.itemId)) {
-            removeCard(sub.itemId);
-          }
-          removeCard(card.itemId);
-          if (linkedReview) {
-            removeCard(linkedReview.itemId);
-          }
-          void provider
-            .removeCard(card.itemId, "grid")
-            .then(() => reload())
-            .catch((err: unknown) => {
-              if (!isGone(err)) {
-                onError(errMessage(err));
-                reload();
-              }
-            });
-          return;
-        }
-        const prev: Partial<CardModel> = {
-          assignees: card.assignees,
-          sprintStart: card.sprintStart,
-          startDate: card.startDate,
-          day: card.day,
-        };
-        patchCard(card.itemId, {
-          assignees: [],
-          sprintStart: undefined,
-          // A slot keeps its dates: they are its row on the Project board.
-          // Only the epic side makes one — a bare project name is a label.
-          ...(hasColumn(card) ? {} : { startDate: undefined, day: undefined }),
-        });
-        rollback = () => patchCard(card.itemId, prev);
-      }
-    } else {
-      // The card is also in the weekly plan: this × takes it out of the
-      // working area and leaves it there, whatever it carries. (The grid ×
-      // used to do the opposite for a worked card — shed the band, stay on
-      // the grid — so one gesture meant two things depending on the bar.)
-      const prev: Partial<CardModel> = {
-        assignees: card.assignees,
-        sprintStart: card.sprintStart,
-        startDate: card.startDate,
-        day: card.day,
-      };
-      patchCard(card.itemId, {
-        assignees: [],
-        sprintStart: undefined,
-        ...(hasColumn(card) ? {} : { startDate: undefined, day: undefined }),
-      });
-      rollback = () => patchCard(card.itemId, prev);
-    }
-    void provider
-      .removeCard(card.itemId, "grid")
-      .then(() => reload())
-      .catch((err: unknown) => {
-        if (isGone(err)) {
-          return;
-        }
-        rollback();
-        onError(errMessage(err));
-      });
-  };
-
-  // The plan-band ×: it empties one of the card's homes. A card that is
-  // somewhere else — in a Project-board column, or in the working area by
-  // its sprint or its dates — only loses its band and week; with the plan
-  // its last home, it is deleted, whatever it carries. planRemoval is that
-  // rule; the optimistic patch mirrors it and the re-list converges.
-  const removeFromPlan = (card: CardModel) => {
-    if (card.itemId.startsWith("tmp-")) {
-      cancelPendingCard(card.itemId);
-      removeCard(card.itemId);
-      return;
-    }
-    let rollback: () => void;
-    if (planRemoval(card) === "delete") {
-      // The plan was this card's last home, so the × deletes it (a
-      // previous-week demote would boomerang back on the next carry-week);
-      // the server cascades to a linked review card and frees the subtasks.
-      // A card in a Project-board column is never deleted here — that column
-      // is where it goes home.
+    // This × empties the working area (mirrors boardservice.Remove). With a
+    // WEEK of its own or a Project-board column to fall back on the card
+    // goes there, leaving the working area entirely, dates and all: a card
+    // whose start is the viewed day shows on the grid whatever its sprint
+    // says, which is how a handed-back card used to sit in two places at
+    // once. With nowhere else to be, the working area was the only place it
+    // was, and removing it from there deletes it — after a question when the
+    // card carries work or a review card, which the delete takes with it.
+    // Its subtasks go with it: they are pieces of the same work, and the
+    // dialog says how many.
+    if (gridRemoval(card, gridCtx(card)) === "delete") {
       const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-      // The plan × deletes here, so the loss is named the way the grid ×
-      // names it — the anonymous "Delete?" said nothing about the progress
-      // it was taking.
       const warning = deleteWarning(card, linkedReview?.title ?? null);
       if (warning && !window.confirm(warning)) {
         return;
       }
-      for (const f of freeSubtasks(board.cards, card.itemId)) {
-        patchCard(f.itemId, f.patch);
+      // The subtasks are pieces of the same work and go with it —
+      // locally too, or they hang under a parent that is gone until a
+      // refresh (the watch skips this tab's own changes).
+      for (const sub of board.cards.filter((c) => c.parent === card.itemId)) {
+        removeCard(sub.itemId);
       }
       removeCard(card.itemId);
       if (linkedReview) {
         removeCard(linkedReview.itemId);
       }
-      rollback = () => {
-        addCard(card);
-        if (linkedReview) {
-          addCard(linkedReview);
-        }
-      };
-    } else {
-      const prev: Partial<CardModel> = { plan: card.plan, week: card.week };
-      // A slot's week is its row on the Project board: the server keeps it
-      // (clearPlanWeek is only reached for a card with no column), and
-      // clearing it here made the slot jump out of its row until the re-list
-      // put it back.
-      patchCard(card.itemId, {
-        plan: undefined,
-        // A SLOT keeps its week — it is the row the Project board draws it
-        // in, and the server keeps it too. A SUBTASK does not: the server's
-        // subtask arm clears the band AND the week unconditionally, and a
-        // slot with no start date is drawn by its week, so keeping it here
-        // put the card back in a row the next reload took away.
-        ...(card.epic && !card.parent ? {} : { week: undefined }),
-      });
-      rollback = () => patchCard(card.itemId, prev);
+      void provider
+        .removeCard(card.itemId, "grid")
+        .then(() => reload())
+        .catch((err: unknown) => {
+          if (!isGone(err)) {
+            onError(errMessage(err));
+            reload();
+          }
+        });
+      return;
     }
+    const prev: Partial<CardModel> = {
+      assignees: card.assignees,
+      sprintStart: card.sprintStart,
+      startDate: card.startDate,
+      day: card.day,
+    };
+    patchCard(card.itemId, {
+      assignees: [],
+      sprintStart: undefined,
+      // A slot keeps its dates: they are its row on the Project board.
+      // Only the epic side makes one — a bare project name is a label.
+      ...(hasColumn(card) ? {} : { startDate: undefined, day: undefined }),
+    });
+    rollback = () => patchCard(card.itemId, prev);
     void provider
-      .removeCard(card.itemId, "plan")
+      .removeCard(card.itemId, "grid")
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -2220,7 +1644,6 @@ export function TeamBoard({
       // started, mirroring CarryOver; older sprint-less strays stay put.
       const adopted =
         !c.sprintStart &&
-        !c.plan &&
         !!c.startDate &&
         !!old &&
         c.startDate > old &&
@@ -2406,81 +1829,12 @@ export function TeamBoard({
       <SortableBoard<TeamMeta>
         groups={groups}
         isRecord={(c) => !!c.asOf}
-        idForCard={(c, g) =>
-          g.meta.kind === "band" ? `plan:${c.itemId}` : c.itemId
-        }
         onDrop={handleDrop}
         onGroupDrop={handleGroup}
         onHoverCard={setGroupHover}
         onDragActiveCard={handleDragActive}
         canGroup={canGroup}
-        renderCard={(card, group) =>
-          withSubs(
-            card,
-            group.meta.kind === "band" ? (
-            <Card
-              card={card}
-              record={!!card.asOf}
-              selectedBy={selectedByFor(card)}
-              onLoadLinks={loadCardLinks}
-              selected={card.itemId === selectedCardId}
-              onSelect={(c) => setSelectedCardId(c.itemId)}
-              onProgress={handleProgress}
-              // The panel's × is the PLAN's gesture for every card on it,
-              // subtasks included: `from` picks which home is emptied
-              // (G57), and routing subtasks to the grid handler made one ×
-              // mean the other's — it ungrouped the card and emptied the
-              // working area in answer to a click on the plan. A subtask
-              // standing in a column is a slot like any other and gets no
-              // × at all: its plan membership is derived from its dates,
-              // so there is nothing here to empty.
-              // The panel's × is the PLAN's gesture for the cards the plan
-              // holds. A nested SUBTASK row is not one of them — it rides
-              // its parent visibly (it has no band and no week of its own),
-              // so the plan has nothing to empty for it and its × is the
-              // card's own: the one that removes the subtask.
-              onDelete={card.parent ? handleGridDelete : removeFromPlan}
-              placements={placementsFor(card)}
-              deletable={card.parent ? true : planRemoveOffered(card)}
-              boardAsks={boardAsksAbout(
-                card,
-                card.parent ? gridRemoval(card, gridCtx(card)) : planRemoval(card),
-                reviewOf(card),
-              )}
-              onStage={handleStage}
-              onInProgress={handleInProgress}
-              onOpen={onOpen}
-              teams={roster}
-              people={people}
-              reviewers={reviewerCandidates(people, board.domains, card.domain)}
-              avatars={avatars}
-              names={names}
-              domainBadge={cardDomainBadge(board.domains, card.domain)}
-              onSetTeam={handleSetTeam}
-              onSetAssignee={handleSetAssignee}
-              hasLinkedReview={reviewedItemIds.has(card.itemId)}
-              counterpartAssignees={counterpartAssigneesFor(card)}
-              onSetReviewAssignee={handleSetReviewAssignee}
-              asOf={selectedDate}
-              onSetDates={handleSetDates}
-              onDefer={handleDefer}
-              weekMode
-              onSetWeek={handleSetWeek}
-              dimAvatar
-              subCount={(childrenOf.get(card.itemId) ?? []).length}
-              expanded={subsOpen(card.itemId)}
-              onToggleExpand={(c) => toggleSubs(c.itemId)}
-              onAddSubtask={(c) => {
-                setExpandedSubs((cur) => new Set(cur).add(c.itemId));
-                setAddingSub(c.itemId);
-              }}
-              groupTarget={groupHover === card.itemId}
-            />
-            ) : (
-              renderGridCard(card)
-            ),
-          )
-        }
+        renderCard={(card) => withSubs(card, renderGridCard(card))}
           renderOverlay={(card) => (
             <Card
               card={card}
@@ -2497,29 +1851,6 @@ export function TeamBoard({
             />
           )}
           renderGroup={(group, body, { isOver, dropRef }) => {
-            if (group.meta.kind === "band") {
-              const band = group.meta.band;
-              return (
-                <div
-                  ref={dropRef as Ref<HTMLDivElement>}
-                  className={`team-weekly-band team-weekly-${band}${
-                    isOver ? " team-weekly-band-drop" : ""
-                  }`}
-                >
-                  {body}
-                  <AddCard
-                    hidden={holdsRecords}
-                    forcedTeam={forcedTeam}
-                    teams={pickerTeams}
-                    allowNoTeam={pickerNoTeam}
-                    placeholder="Plan task…"
-                    onCreate={(title, team) =>
-                      handleCreatePlan(band, title, team)
-                    }
-                  />
-                </div>
-              );
-            }
             const { engineer, zone } = group.meta;
             const def = ZONES[zone];
             return (
@@ -2551,118 +1882,62 @@ export function TeamBoard({
             );
           }}
           renderLayout={(nodes) => (
-            <>
-              <div className="team-grid">
-                {orderedEngineers.length === 0 ? (
-                  <p className="placeholder">No cards match the selected teams.</p>
-                ) : (
-                  orderedEngineers.map((engineer) => (
-                <section className="team-col" key={engineer || "__unassigned__"}>
-                  <header
-                    className="team-col-header"
-                    draggable={engineer !== UNASSIGNED}
-                    onDragStart={() => setDragCol(engineer)}
-                    onDragOver={(e) => {
-                      if (dragCol && dragCol !== engineer) {
-                        e.preventDefault();
-                      }
-                    }}
-                    onDrop={() => {
-                      if (dragCol) {
-                        moveColumn(dragCol, engineer);
-                      }
-                      setDragCol(null);
-                    }}
-                    onDragEnd={() => setDragCol(null)}
-                  >
-                    {engineer === UNASSIGNED ? (
-                      <span className="team-col-name team-col-unassigned">
-                        Unassigned
-                      </span>
-                    ) : (
-                      <>
-                        <Avatar
-                          login={engineer}
-                          avatars={avatars}
-                          names={names}
-                          className={`avatar-img${engineer === me ? " avatar-me" : ""}`}
-                          title={displayName(engineer, names)}
-                          draggable={false}
-                        />
-                        <span
-                          className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
-                        >
-                          {displayName(engineer, names)}
-                        </span>
-                      </>
-                    )}
-                  </header>
-                  <div className="team-col-zones">
-                    {ZONE_ORDER.map((zone) => (
-                      <Fragment key={zone}>
-                        {nodes.get(cellKey(engineer, zone))}
-                      </Fragment>
-                    ))}
-                  </div>
-                </section>
-                  ))
-                )}
-              </div>
-
-              <div
-                className={`team-weekly${planCollapsed ? " team-weekly-collapsed" : ""}`}
-                style={
-                  !planCollapsed && planHeight !== null
-                    ? { height: planHeight, maxHeight: "none" }
-                    : undefined
-                }
-              >
-                <div className="team-weekly-top">
-                  {!planCollapsed && (
-                    <div
-                      className="team-weekly-resize"
-                      onMouseDown={startPlanResize}
-                      title="Drag to resize"
-                    />
-                  )}
-                  <div
-                    className="team-weekly-progress"
-                    title={`${planProgress}% done across the plan`}
-                  >
-                    <div
-                      className="team-weekly-progress-fill"
-                      style={{ width: `${planProgress}%` }}
-                    />
-                  </div>
-                  <div className="team-weekly-head">
-                    <span className="team-weekly-title">
-                      Weekly plan · {currentWeek}
+            <div className="team-grid">
+              {orderedEngineers.length === 0 ? (
+                <p className="placeholder">No cards match the selected teams.</p>
+              ) : (
+                orderedEngineers.map((engineer) => (
+              <section className="team-col" key={engineer || "__unassigned__"}>
+                <header
+                  className="team-col-header"
+                  draggable={engineer !== UNASSIGNED}
+                  onDragStart={() => setDragCol(engineer)}
+                  onDragOver={(e) => {
+                    if (dragCol && dragCol !== engineer) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onDrop={() => {
+                    if (dragCol) {
+                      moveColumn(dragCol, engineer);
+                    }
+                    setDragCol(null);
+                  }}
+                  onDragEnd={() => setDragCol(null)}
+                >
+                  {engineer === UNASSIGNED ? (
+                    <span className="team-col-name team-col-unassigned">
+                      Unassigned
                     </span>
-                    <div className="team-weekly-actions">
-                      <button
-                        type="button"
-                        className="team-weekly-toggle"
-                        onClick={() => setPlanCollapsed((c) => !c)}
-                        aria-label={
-                          planCollapsed
-                            ? "Expand weekly plan"
-                            : "Collapse weekly plan"
-                        }
-                        title={planCollapsed ? "Expand" : "Collapse"}
+                  ) : (
+                    <>
+                      <Avatar
+                        login={engineer}
+                        avatars={avatars}
+                        names={names}
+                        className={`avatar-img${engineer === me ? " avatar-me" : ""}`}
+                        title={displayName(engineer, names)}
+                        draggable={false}
+                      />
+                      <span
+                        className={`team-col-name${engineer === me ? " team-col-me" : ""}`}
                       >
-                        {planCollapsed ? "▲" : "▼"}
-                      </button>
-                    </div>
-                  </div>
+                        {displayName(engineer, names)}
+                      </span>
+                    </>
+                  )}
+                </header>
+                <div className="team-col-zones">
+                  {ZONE_ORDER.map((zone) => (
+                    <Fragment key={zone}>
+                      {nodes.get(cellKey(engineer, zone))}
+                    </Fragment>
+                  ))}
                 </div>
-                {!planCollapsed && (
-                  <div className="team-weekly-bands">
-                    {nodes.get(bandKey("wed"))}
-                    {nodes.get(bandKey("fri"))}
-                  </div>
-                )}
-              </div>
-            </>
+              </section>
+                ))
+              )}
+            </div>
           )}
         />
       {teamsModalOpen && (

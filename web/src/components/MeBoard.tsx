@@ -31,7 +31,7 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
-import { slotWeekPatch } from "../weekly";
+import { slotWeekPatch } from "../slots";
 import {
   boardAsksAbout,
   deleteWarning,
@@ -208,7 +208,7 @@ export function MeBoard({
   // MCP / API connect dialog.
   const [connectOpen, setConnectOpen] = useState(false);
 
-  // Notes fold to a header bar on narrow screens (like the Team weekly plan)
+  // Notes fold to a header bar on narrow screens
   // and to a slim strip on wide ones. The collapsed choice persists per width
   // mode; crossing the breakpoint restores that mode's remembered (or default)
   // state. The breakpoint matches .me-panes.
@@ -345,7 +345,6 @@ export function MeBoard({
         // qualify: an old sprint-less stray stays on its own past days.
         if (
           !c.sprintStart &&
-          !c.plan &&
           c.startDate &&
           c.startDate <= selectedDate &&
           c.startDate >= as
@@ -394,7 +393,7 @@ export function MeBoard({
   }, [personalCards]);
 
   // Overall completion across the day's cards (a done card counts as 100%) — the
-  // thin bar under the zones, mirroring the weekly plan's progress strip.
+  // thin bar under the zones.
   const dayProgress = useMemo(() => {
     if (myCards.length === 0) {
       return 0;
@@ -840,14 +839,14 @@ export function MeBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCardId, childrenOf]);
 
-  // Group a dropped card as a subtask; the server enforces depth and moves a
-  // weekly card's plan slot onto the parent (which replaces it in the plan).
+  // Group a dropped card as a subtask; the server enforces depth and hands a
+  // scheduled card's week to the parent, which stands for it from then on.
   const handleGroup = (card: CardModel, parentId: string) => {
     if (card.itemId === parentId || card.parent === parentId) {
       return;
     }
-    const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
-    patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
+    patchCard(card.itemId, { parent: parentId, week: undefined });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
@@ -1121,7 +1120,7 @@ export function MeBoard({
   // it leaves today's board and is found by stepping back; the server records
   // the move and the re-list converges its outcome.
   // releaseCard hands the card to the server's smart × and takes what it
-  // decides: a card with a Project-board column or a weekly-plan band is
+  // decides: a card with a Project-board column or a week of its own is
   // released to it, never destroyed. The re-list brings back whatever the
   // rule did.
   const releaseCard = (card: CardModel) => {
@@ -1252,7 +1251,7 @@ export function MeBoard({
   // board gets, from the same place (gridRemoval, mirroring
   // boardservice.Remove). This board used to decide on its own and sent
   // everything that was not demotable to DELETE /cards/{uid}, destroying a
-  // card the other board would have left in its weekly plan: one gesture,
+  // card the other board would have left in its week: one gesture,
   // two boards, opposite outcomes.
   const outcomeOf = (card: CardModel): Outcome => gridRemoval(card, gridCtx(card));
 
@@ -1561,7 +1560,6 @@ export function MeBoard({
       optimistic.parent = parentTo ?? undefined;
       patch.parent = parentTo ?? "";
       if (parentTo) {
-        optimistic.plan = undefined;
         optimistic.week = undefined;
         autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
@@ -1672,7 +1670,7 @@ export function MeBoard({
   };
 
   // A personal card: filed in the viewer's own repository and assigned to
-  // them, with nothing of the day board (no team, dates or plan) — the server
+  // them, with nothing of the day board (no team or dates) — the server
   // takes `personal: true` and does the rest.
   const handleCreatePersonal = (zone: ZoneKey, title: string) => {
     const tempId = `tmp-${new Date().toISOString()}`;

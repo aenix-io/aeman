@@ -116,21 +116,20 @@ describe("the Triage board", () => {
     expect(draw([card({ zone: "green" })])).toContain("triage-slot-zone-green");
   });
 
-  it("stripes a project card with the weekly plan's band, not a zone", () => {
+  it("stripes a project card with the project mark, not a zone", () => {
     // A slot is a commitment made on the Project board and only passing
-    // through this one, so it says here what it says on the panel.
-    const wed = draw([card({ epic: "Storage", day: "2026-09-02" })]);
-    expect(wed).toContain("triage-slot-band-wed");
-    const fri = draw([card({ epic: "Storage", day: "2026-09-04" })]);
-    expect(fri).toContain("triage-slot-band-fri");
+    // through this one: its week is that board's to say, so a zone stripe
+    // would credit the decision to somebody who did not make it.
+    const html = draw([card({ epic: "Storage", day: "2026-09-04", zone: "red" })]);
+    expect(html).toContain("triage-slot-project");
+    expect(html).not.toContain("triage-slot-zone-red");
   });
 
-  it("reads a stretched slot's band against the week each box stands in", () => {
-    // Owed by Friday in the week it passes through, by Wednesday in the one
-    // it ends in — the same answer the panel gives, week by week.
+  it("marks every week a stretched slot passes through", () => {
+    // Split across its weeks, each box is the same commitment and wears the
+    // same mark — one part carrying a zone stripe would read as two cards.
     const html = draw([card({ epic: "Storage", day: "2026-09-09" })]);
-    expect(html).toContain("triage-slot-band-fri");
-    expect(html).toContain("triage-slot-band-wed");
+    expect(html.match(/triage-slot-project/g)).toHaveLength(2);
   });
 
   it("stacks a week in the order somebody triaging wants to meet it", () => {

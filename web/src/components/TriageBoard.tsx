@@ -24,7 +24,6 @@ import { addDays, mondayOf, todayIso } from "../date";
 import { anchorFor, byPile, needsTriage, orderWith, placedIn } from "../triage";
 import { freeSubtasks, gridRemoval } from "../removal";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
-import { effectiveBand } from "../weekly";
 import { isPersonalDomain } from "../domains";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
@@ -1016,20 +1015,18 @@ export function TriageBoard({
               const { card, row, part, parts } = slot;
               const done = isDone(card);
               const progress = done ? 100 : (card.progress ?? 0);
-              // The stripe: a PROJECT card wears the weekly plan's band, read
-              // against the week this box stands in — a slot spanning three
-              // weeks is owed by Friday in the earlier ones and by Wednesday
-              // in the last, exactly as the panel draws it. Every other card
-              // wears its zone.
-              const band = card.epic ? effectiveBand(card, weeks[row]) : undefined;
+              // The stripe: a PROJECT card wears the project mark, since what
+              // decides its week is the Project board and not a zone anyone
+              // set here. Every other card wears its zone.
+              const project = Boolean(card.epic);
               return (
                 <div
                   key={`${p.key}/${card.itemId}/${part}`}
                   className={`project-slot triage-slot${slot.projected ? " triage-slot-coming" : ""}${done ? " project-slot-done" : ""}${
                     card.overdue ? " project-slot-late" : ""
                   }${
-                    band
-                      ? ` triage-slot-band-${band}`
+                    project
+                      ? " triage-slot-project"
                       : card.zone
                         ? ` triage-slot-zone-${card.zone}`
                         : ""

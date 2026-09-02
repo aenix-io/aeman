@@ -206,7 +206,6 @@ export function resourceToCard(res: CardResource): Card {
   const m = res.metadata;
   const spec = res.spec;
   const dates = spec.dates ?? {};
-  const band = spec.plan?.band;
   return {
     itemId: m.uid,
     title: spec.title,
@@ -231,7 +230,6 @@ export function resourceToCard(res: CardResource): Card {
     day: dates.end || undefined,
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
-    plan: band === "wed" || band === "fri" ? band : undefined,
     week: spec.plan?.week || undefined,
     epic: spec.epic || undefined,
     project: spec.project || undefined,

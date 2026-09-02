@@ -140,15 +140,12 @@ export function mirrorTargets(
   return out;
 }
 
-/** attachSlotDates is the span a weekly-plan card takes when it is attached
- *  to a column: the slot of the week it was taken from — start on its
- *  Monday, end on its band's day. The same dates the server writes, so the
- *  optimistic card does not jump on the re-list. */
-export function attachSlotDates(
-  band: "wed" | "fri",
-  week: string,
-): { startDate: string; day: string } {
-  return { startDate: week, day: addDays(week, band === "wed" ? 2 : 4) };
+/** attachSlotDates is the span a week-scheduled card takes when it is
+ *  attached to a column: the slot of the week it was taken from — Monday to
+ *  Friday, the whole of the week it was owed in. The same dates the server
+ *  writes, so the optimistic card does not jump on the re-list. */
+export function attachSlotDates(week: string): { startDate: string; day: string } {
+  return { startDate: week, day: addDays(week, 4) };
 }
 
 /** Outcome of the Project board's × on one placement — what the server will
@@ -379,10 +376,10 @@ export function makeCardPlacements(
     ...targets,
     onAttachProject: (project, epic) => {
       const patch: Partial<Card> = { project, epic };
-      if (!card.startDate && card.plan && card.week) {
+      if (!card.startDate && card.week) {
         // The card takes the slot of the week it was taken from — the same
         // dates the server writes (attachSlotDates).
-        Object.assign(patch, attachSlotDates(card.plan, card.week));
+        Object.assign(patch, attachSlotDates(card.week));
       }
       deps.patchCard(card.itemId, patch);
       call(deps.provider.patchCard(card.itemId, { epic, project }));

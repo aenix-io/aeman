@@ -138,7 +138,7 @@ const NUDGE_DELAY_MS = 500;
 /** The Project board: weeks as rows and one project's epics as columns, cards
  *  as slots that may span several weeks (dates start..end). Dragging down an
  *  empty column stretch selects a slot and creates a card in it; assigning a
- *  card to a team (the badge menu) also hands it to that team's weekly plan —
+ *  card to a team (the badge menu) hands it to that team —
  *  which is how work planned here reaches the people who do it. */
 export function ProjectBoard({
   board,
@@ -706,8 +706,7 @@ export function ProjectBoard({
   // dialog is open.
   const [renaming, setRenaming] = useState<string | null>(null);
 
-  // The status line remembers whether it was left open, as the Team board's
-  // weekly plan does.
+  // The status line remembers whether it was left open.
   const [progressOpen, setProgressOpen] = useState(
     () => localStorage.getItem(LS_PROGRESS) === "true",
   );
@@ -785,14 +784,13 @@ export function ProjectBoard({
       .catch((err: unknown) => onError(errText(err)));
   };
 
-  // Assigning a team hands the card to that team's weekly plan: the band is
-  // what places it there, so an unbanded card gets the week-end band.
+  // Assigning a team hands the card to that team: the slot's own span says
+  // when it is due, so there is nothing else to place.
   const assignTeam = (card: CardModel, team: string | null) => {
     setTeamMenu(null);
-    const prev = { team: card.team, plan: card.plan };
-    patchCard(card.itemId, { team: team ?? undefined, plan: card.plan ?? (team ? "fri" : undefined) });
+    const prev = { team: card.team };
+    patchCard(card.itemId, { team: team ?? undefined });
     void provider
-      // Just the team: the server files the slot in that team's weekly plan.
       .patchCard(card.itemId, { team: team ?? "" })
       .then(addCard)
       .catch((err: unknown) => {
@@ -954,11 +952,10 @@ export function ProjectBoard({
         mirrors: (card.mirrors ?? []).slice(1),
       });
     } else {
-      // orphan: off the Project board and the weekly plan, kept by its work.
+      // orphan: off the Project board, kept by its work.
       patchCard(card.itemId, {
         project: undefined,
         epic: undefined,
-        plan: undefined,
         week: undefined,
       });
     }

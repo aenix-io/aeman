@@ -244,15 +244,8 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
     }
     body.dates = dates;
   }
-  if (patch.plan) {
-    const plan: Record<string, string> = {};
-    if (patch.plan.band !== undefined) {
-      plan.band = patch.plan.band;
-    }
-    if (patch.plan.week !== undefined) {
-      plan.week = patch.plan.week;
-    }
-    body.plan = plan;
+  if (patch.plan?.week !== undefined) {
+    body.plan = { week: patch.plan.week };
   }
   if (patch.epic !== undefined) {
     body.epic = patch.epic;
@@ -333,13 +326,13 @@ export const apiProvider: Provider = {
       // A parent may still be an optimistic tmp id: wait for the real uid.
       parent: input.parent ? await resolveCardId(input.parent) : "",
     };
-    // Plan cards carry no dates (they live in the weekly bands); day cards pass
-    // their start/end and the server joins (or records) the sprint itself.
+    // A card scheduled for a WEEK carries no dates; a day card passes its
+    // start/end and the server joins (or records) the sprint itself.
     if (input.start || input.day) {
       body.dates = { start: input.start ?? "", end: input.day ?? "" };
     }
-    if (input.plan) {
-      body.plan = { band: input.plan, week: input.week ?? "" };
+    if (input.week) {
+      body.plan = { week: input.week };
     }
     if (input.epic) {
       body.epic = input.epic;
@@ -372,10 +365,7 @@ export const apiProvider: Provider = {
     await api("DELETE", `/cards/${uid}`);
   },
 
-  async removeCard(
-    uid: string,
-    from: "grid" | "plan",
-  ): Promise<void> {
+  async removeCard(uid: string, from: "grid"): Promise<void> {
     uid = await resolveCardId(uid);
     await api("POST", `/cards/${uid}/actions/remove`, { from });
   },
@@ -432,36 +422,14 @@ export const apiProvider: Provider = {
     return cardFrom("POST", `/cards/${uid}/actions/remove-reviewer`, {});
   },
 
-  async takeIntoPlan(
-    uid: string,
-    engineer: string,
-    zone,
-    day?: string,
-  ): Promise<Card> {
+  async placeCard(uid: string, week: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/take-into-plan`, {
-      engineer,
-      zone: semanticZone(zone),
-      day: day ?? "",
-    });
-  },
-
-  async placeCard(uid: string, week: string, band?: "wed" | "fri"): Promise<Card> {
-    uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/place`, { week, band: band ?? "" });
+    return cardFrom("POST", `/cards/${uid}/actions/place`, { week });
   },
 
   async untriageCard(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom("POST", `/cards/${uid}/actions/untriage`, {});
-  },
-
-  async releaseFromPlan(uid: string): Promise<Card> {
-    uid = await resolveCardId(uid);
-    return cardFrom("POST",
-      `/cards/${uid}/actions/release-from-plan`,
-      {},
-    );
   },
 
   async carryOver(

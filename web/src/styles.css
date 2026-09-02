@@ -52,16 +52,12 @@
 
   /* Semantic surfaces that must flip for dark mode. */
   --card-border: #d6dbe1;
-  --card-taken-bg: #f4f4f4;
   --notes-bg: #fbfcfd;
   --bg-raised: #fff;
   --handle-bg: #fff;
   --avatar-fg: #24292f;
   --amber: #b8860b;
-  --band-wed: #3b82f6;
-  --band-fri: #8b5cf6;
-  --band-wed-bg: #eef4fb;
-  --band-fri-bg: #f3eefb;
+  --project-mark: #8b5cf6;
   --cal-range-bg: #dbeafe;
   --warn-bg: #fff8c5;
   --warn-line: #eac54f;
@@ -138,13 +134,9 @@
   --stage-done: #007a59;
   --bar-default: #009e73;
 
-  /* Weekly-plan deadline bands. The default blue/violet pair collapses on the
-     red-green axis (violet minus its red content reads as blue), so the Fri
-     band moves to Okabe-Ito reddish-purple, pairwise safe against the blue. */
-  --band-wed: #0072b2;
-  --band-fri: #cc79a7;
-  --band-wed-bg: #e8f1f8;
-  --band-fri-bg: #f9edf4;
+  /* The project mark. Violet collapses on the red-green axis (minus its red
+     content it reads as blue), so it moves to Okabe-Ito reddish-purple. */
+  --project-mark: #cc79a7;
 }
 
 /* ---- light + marine (blue-yellow-friendly) ----
@@ -167,13 +159,9 @@
   --stage-done: #16657f;
   --bar-default: #2596b5;
 
-  /* Weekly-plan deadline bands: under tritanopia violet drifts toward the
-     blues, so the Fri band moves to reddish-purple (red survives the missing
-     S-cone) while Wed stays blue. */
-  --band-wed: #0072b2;
-  --band-fri: #cc79a7;
-  --band-wed-bg: #e8f1f8;
-  --band-fri-bg: #f9edf4;
+  /* The project mark: under tritanopia violet drifts toward the blues, so it
+     moves to reddish-purple (red survives the missing S-cone). */
+  --project-mark: #cc79a7;
 }
 
 /* ---- dark base (dark + default) ----
@@ -197,16 +185,12 @@
 
   --on-accent: #fff;
   --card-border: #30363d;
-  --card-taken-bg: #1c222b;
   --notes-bg: #10151c;
   --bg-raised: #21262d;
   --handle-bg: #e6edf3;
   --avatar-fg: #e6edf3;
   --amber: #e3b341;
-  --band-wed: #4493f8;
-  --band-fri: #a371f7;
-  --band-wed-bg: #10233b;
-  --band-fri-bg: #241a3a;
+  --project-mark: #a371f7;
   --cal-range-bg: #163356;
   --warn-bg: #2d2a10;
   --warn-line: #7a6a1e;
@@ -266,11 +250,8 @@
   --stage-done: #0e8f77;
   --bar-default: #2ec4a6;
 
-  /* Weekly-plan bands, dark variants of the light-vivid pair. */
-  --band-wed: #58a9ff;
-  --band-fri: #e592c2;
-  --band-wed-bg: #10233b;
-  --band-fri-bg: #331b2b;
+  /* The project mark, dark variant of the light-vivid one. */
+  --project-mark: #e592c2;
 }
 
 /* ---- dark + marine (blue-yellow-friendly) ---- */
@@ -292,11 +273,8 @@
   --stage-done: #1d7f9c;
   --bar-default: #56b6c2;
 
-  /* Weekly-plan bands, dark variants of the light-marine pair. */
-  --band-wed: #58a9ff;
-  --band-fri: #e592c2;
-  --band-wed-bg: #10233b;
-  --band-fri-bg: #331b2b;
+  /* The project mark, dark variant of the light-marine one. */
+  --project-mark: #e592c2;
 }
 
 * {
@@ -737,8 +715,7 @@ select {
   flex: none;
 }
 
-/* Day status bar (under the progress strip): closed/total per zone, like the
-   weekly plan's head. */
+/* Day status bar (under the progress strip): closed/total per zone. */
 .me-day-stats {
   display: flex;
   align-items: center;
@@ -785,7 +762,7 @@ select {
   outline-offset: -2px;
 }
 
-/* A light dashed separator between stacked zones, like the weekly plan. */
+/* A light dashed separator between stacked zones. */
 .zone-area + .zone-area {
   border-top: 1px dashed var(--line);
 }
@@ -892,11 +869,9 @@ select {
   opacity: 0.85;
 }
 
-/* Nothing offers to drag it: .card:active and the weekly variant both set a
-   grabbing hand, and a record does not move. */
-.card.card-record:active,
-.card.card-record.plan-card,
-.card.card-record.plan-card:active {
+/* Nothing offers to drag it: .card:active sets a grabbing hand, and a record
+   does not move. */
+.card.card-record:active {
   cursor: default;
 }
 
@@ -958,10 +933,7 @@ select {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
-/* Plan-linked cards in working views get a coloured left stripe by band; review
-   cards (linked back to an original) get a yellow stripe the same way. */
-.card-plan-wed::before,
-.card-plan-fri::before,
+/* A review card (linked back to an original) gets a yellow left stripe. */
 .card-review::before {
   content: "";
   position: absolute;
@@ -972,21 +944,8 @@ select {
   border-radius: 5px 0 0 5px;
 }
 
-.card-plan-wed::before {
-  background: var(--band-wed);
-}
-
-.card-plan-fri::before {
-  background: var(--band-fri);
-}
-
 .card-review::before {
   background: var(--stage-review);
-}
-
-/* A plan card taken into work (assigned on the board) gets a light-blue tint. */
-.card-plan-taken {
-  background: var(--card-taken-bg);
 }
 
 /* Team avatars are dimmed to 50% by default; only cards of the currently
@@ -2306,58 +2265,7 @@ button.card-age {
   overflow: auto;
 }
 
-/* Founders' weekly plan: a full-width band below the grid, split in two. */
-.team-weekly {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  max-height: 50%;
-  overflow: hidden;
-  border-top: 2px solid var(--line);
-}
-
-/* Fixed header (resize handle + progress + title); the bands fill below it. */
-.team-weekly-top {
-  flex: none;
-  background: var(--bg);
-}
-
-/* Drag handle at the top edge of the expanded plan to resize its height. */
-.team-weekly-resize {
-  height: 6px;
-  margin-top: -2px;
-  cursor: ns-resize;
-  background: transparent;
-}
-
-.team-weekly-resize:hover {
-  background: var(--accent);
-}
-
-.team-weekly-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 8px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-}
-
-.team-weekly-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.team-weekly-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.project-footer-toggle,
-.team-weekly-toggle {
+.project-footer-toggle {
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--bg);
@@ -2369,15 +2277,6 @@ button.card-age {
   min-width: 36px;
 }
 
-.team-weekly-toggle:hover {
-  background: var(--line-soft);
-}
-
-.team-weekly-collapsed {
-  overflow: visible;
-}
-
-.team-weekly-progress,
 .me-day-progress,
 .project-progress,
 .project-footer-bar {
@@ -2386,7 +2285,6 @@ button.card-age {
   background: var(--line-soft);
 }
 
-.team-weekly-progress-fill,
 .me-day-progress-fill,
 .project-progress-fill,
 .project-footer-bar-fill {
@@ -2395,52 +2293,6 @@ button.card-age {
   transition: width 0.2s;
 }
 
-/* The two bands sit side by side and fill the plan's height (scroll if taller). */
-.team-weekly-bands {
-  display: flex;
-  align-items: stretch;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.team-weekly-band {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  overflow-y: auto;
-}
-
-.team-weekly-wed {
-  background: var(--band-wed-bg);
-}
-
-.team-weekly-fri {
-  background: var(--band-fri-bg);
-  border-left: 1px dashed var(--line);
-}
-
-.team-weekly-band-drop {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
-}
-
-.plan-card {
-  cursor: grab;
-}
-
-.plan-card:active {
-  cursor: grabbing;
-}
-
-/* The lifted card is shown in the shared DragOverlay; fade the original. */
-.plan-card-dragging {
-  opacity: 0.4;
-}
 
 .team-col-droptarget {
   outline: 2px dashed var(--accent);
@@ -3146,11 +2998,6 @@ button.card-age {
   border-left: none;
 }
 
-/* Subtask rows under a weekly-plan parent taken into work dim with it. */
-.subtask-indent-taken .card {
-  opacity: 0.7;
-}
-
 /* A drag hovering a card's vertical middle band retargets the drop to "group
    as a subtask": the target card highlights in place. */
 .card.card-group-target {
@@ -3384,8 +3231,8 @@ button.card-age {
   font-variant-numeric: tabular-nums;
 }
 
-/* The same strip the Team board's weekly plan wears — bar across the top of a
-   status row — so the two boards read alike. */
+/* A bar across the top of a status row, the same strip the day boards wear,
+   so they all read alike. */
 .project-footer {
   flex: none;
   border-top: 1px solid var(--line);
@@ -4292,19 +4139,12 @@ button.card-age {
   margin-left: auto;
 }
 
-/* A card from a plan — a slot, a process turn, a weekly-plan card — still open
-   past the day it was owed by. The line says "this is a debt" wherever the
-   card shows: on the day board, in the weekly plan, on the Project board. It
-   does not move the card; carry-over is still how work moves. */
+/* A card scheduled ahead — a slot, a process turn, a card given a week —
+   still open past the day it was owed by. The line says "this is a debt"
+   wherever the card shows: on the day board, on Triage, on the Project
+   board. It does not move the card; carry-over is still how work moves. */
 .card-overdue {
   box-shadow: inset 3px 0 0 var(--danger);
-}
-
-/* The same edge already carries the plan band's colour; a debt outranks the
-   band it was owed in, so the line takes the edge. */
-.card-overdue.card-plan-wed::before,
-.card-overdue.card-plan-fri::before {
-  background: var(--danger);
 }
 
 /* No line on a late slot: the Project board already tints it red all over,
@@ -4843,9 +4683,8 @@ button.card-age {
   color: var(--muted);
 }
 
-/* A slot on this board carries a progress bar along its foot and the band
-   line of the weekly plan down its left, so a card reads the same here as it
-   does on the day board. */
+/* A slot on this board carries a progress bar along its foot and a stripe
+   down its left, so a card reads the same here as it does on the day board. */
 .triage-slot {
   padding-bottom: 6px;
 }
@@ -5006,14 +4845,10 @@ button.card-age {
 }
 
 /* A project card is a commitment made on the Project board, passing through
-   this one: it wears the weekly plan's own band — blue by Wednesday, purple
-   by Friday — so the two boards say the same thing about it. */
-.triage-slot-band-wed {
-  border-left-color: var(--band-wed);
-}
-
-.triage-slot-band-fri {
-  border-left-color: var(--band-fri);
+   this one: its week is that board's to say, so it wears the project mark
+   rather than a zone nobody set here. */
+.triage-slot-project {
+  border-left-color: var(--project-mark);
 }
 
 /* A debt keeps the strong red, whatever zone it is in. */

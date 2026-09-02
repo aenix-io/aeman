@@ -72,9 +72,8 @@ export interface Card {
   /** ISO date (yyyy-mm-dd) the sprint this card belongs to was started.
    * This is what the boards orient by (day/startDate are just metadata). */
   sprintStart?: string;
-  /** Weekly-plan band ("wed"/"fri"); set = this is a founders' weekly-plan card. */
-  plan?: "wed" | "fri";
-  /** ISO date (yyyy-mm-dd) of the plan week this card belongs to (weekly cycle). */
+  /** ISO date (yyyy-mm-dd) of the WEEK this card is scheduled for — the row
+   *  it stands in on the Triage board. */
   week?: string;
   /** The column this card is filed under: epic + project TOGETHER, since epic
    *  names repeat across projects. Its week is the row. */
@@ -83,8 +82,8 @@ export interface Card {
   /** On a process turn: the process it belongs to, and the task it came from. */
   process?: string;
   task?: string;
-  /** A card from a plan — a slot, a turn, a weekly-plan card — still open past
-   *  the day it was owed by. Derived by the server from the card's dates. */
+  /** A card scheduled ahead — a slot, a turn, a card given a week — still
+   *  open past the day it was owed by. Derived by the server from its dates. */
   overdue?: boolean;
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
@@ -121,7 +120,6 @@ export interface NewCardInput {
   zone?: ZoneKey;
   day?: string | null;
   start?: string | null;
-  plan?: "wed" | "fri" | null;
   week?: string | null;
   epic?: string | null;
   project?: string | null;
@@ -137,7 +135,7 @@ export interface NewCardInput {
    * sprint" create); the next carry-over to reach its day adopts it. */
   noSprint?: boolean;
   /** Create on the visitor's personal board: their own repository, assigned
-   * to them, with no team, column or plan band. */
+   * to them, with no team and no column. */
   personal?: boolean;
 }
 
@@ -272,7 +270,8 @@ export interface CardPatch {
   /** "" clears the stage; "done" marks the card done (derived server-side). */
   stage?: StageKey | "";
   dates?: { start?: string; end?: string; sprint?: string };
-  plan?: { band?: "wed" | "fri" | ""; week?: string };
+  /** The week the card is scheduled for ("" clears it). */
+  plan?: { week?: string };
   /** Re-file under a column ("" clears). Naming only the epic keeps the card
    *  inside its project; crossing projects names both halves. */
   epic?: string;
@@ -343,13 +342,14 @@ export interface Provider {
   patchCard(uid: string, patch: CardPatch): Promise<Card>;
   /** Hard delete; the server cascades to the linked review card. */
   deleteCard(uid: string): Promise<void>;
-  /** The smart ×: the server demotes / releases / deletes by the board rules. */
-  removeCard(uid: string, from: "grid" | "plan"): Promise<void>;
+  /** The smart ×: the server hands the card back to a home it still has, or
+   *  deletes it when the working area was the last one. */
+  removeCard(uid: string, from: "grid"): Promise<void>;
   /** Reposition card after afterId in the project order (null = top). */
   moveCard(uid: string, afterId: string | null): Promise<void>;
   /** Reorder to sit right before another card: the server resolves the true
-   *  global anchor, so callers rendering a filtered slice (a weekly band)
-   *  don't need to know the full board order. */
+   *  global anchor, so callers rendering a filtered slice don't need to know
+   *  the full board order. */
   moveCardBefore(uid: string, beforeId: string): Promise<void>;
   /** Push the scheduled day N days ahead of max(today, current start). */
   deferCard(uid: string, days: number): Promise<Card>;
@@ -368,19 +368,9 @@ export interface Provider {
   ): Promise<Card>;
   /** Delete the linked review card; returns the original. */
   removeReviewer(uid: string): Promise<Card>;
-  /** Take a plan card into work: assign + zone + join the sprint. */
-  takeIntoPlan(
-    uid: string,
-    engineer: string,
-    zone: ZoneKey | undefined,
-    day?: string,
-  ): Promise<Card>;
-  /** Release a card from the weekly plan (the plan-band × semantics). */
-  releaseFromPlan(uid: string): Promise<Card>;
   /** Place a card in a week of the Triage board — which is what triaging it
-   *  means. The band belongs to the weekly plan and only its own drop sets
-   *  one (docs/design/triage.md). */
-  placeCard(uid: string, week: string, band?: "wed" | "fri"): Promise<Card>;
+   *  means (docs/design/triage.md). */
+  placeCard(uid: string, week: string): Promise<Card>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.

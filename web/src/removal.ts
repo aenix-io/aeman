@@ -69,7 +69,6 @@ export function removalKind(c: RemovableCard, _ctx: RemovalContext): Removal {
 export interface HomesOf {
   epic?: string;
   project?: string;
-  plan?: string;
   progress?: number;
   title: string;
 }
@@ -132,7 +131,8 @@ export interface RemovalHomes {
   /** Read by nothing here on purpose: a bare project name is a label, not a
    *  home. It is in the shape so a card can be passed whole. */
   project?: string;
-  plan?: string;
+  /** A week is a home: the Triage board draws every card that has one. */
+  week?: string;
   sprintStart?: string;
   startDate?: string;
   day?: string;
@@ -144,9 +144,8 @@ export function inWorkingArea(c: RemovalHomes): boolean {
 }
 
 /** hasColumn: the card sits in a Project-board column, which the board
- *  renders by its epic. (weekly.isSlot is a different question — whether a
- *  band-less slot occupies a week's panel — and the two must not be
- *  confused.) */
+ *  renders by its epic. (slots.isSlot is a different question — whether the
+ *  card has taken a ROW on that board — and the two must not be confused.) */
 export function hasColumn(c: RemovalHomes): boolean {
   return !!c.epic;
 }
@@ -163,10 +162,10 @@ function looseOf<T extends RemovalHomes>(c: T): T {
 }
 
 /** gridRemoval mirrors boardservice.Remove(from="grid"), in its order: a
- *  card in the weekly plan goes back to it; otherwise its column keeps it,
- *  or nothing does and it is deleted. One function so every board asks the
- *  same question — the Me board used to answer it differently and
- *  hard-deleted what the Team board kept. */
+ *  card scheduled for a WEEK goes back to that week on the Triage board;
+ *  otherwise its column keeps it, or nothing does and it is deleted. One
+ *  function so every board asks the same question — the Me board used to
+ *  answer it differently and hard-deleted what the Team board kept. */
 export function gridRemoval(
   c: RemovalHomes & Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
   ctx: RemovalContext,
@@ -193,24 +192,12 @@ export function gridRemoval(
     }
     return "ungroup";
   }
-  if (c.plan) {
+  // A card with a WEEK still has the Triage board to be on: taking it off
+  // the day grid puts it back in that week rather than destroying it.
+  if (c.week) {
     return "leave";
   }
   return hasColumn(c) ? "leave" : "delete";
-}
-
-/** planRemoval mirrors boardservice.Remove(from="plan"): the card leaves the
- *  band and stays wherever else it is — its column, or the working area.
- *  Being on a person or carrying progress is not a place to be. */
-export function planRemoval(c: RemovalHomes & Pick<RemovableCard, "parent">): Outcome {
-  // A SUBTASK is never deleted here: its home is its parent, so the plan
-  // cannot be its last one (G57). This arm IS the live path — the panel's ×
-  // is the plan's gesture for every card it draws, subtasks included, and
-  // `from` is what picks which home is emptied.
-  if (c.parent) {
-    return "leave";
-  }
-  return hasColumn(c) || inWorkingArea(c) ? "leave" : "delete";
 }
 
 /** boardAsksAbout reports that the card's own anonymous "Delete?" prompt

@@ -1,32 +1,11 @@
-// Which area of the Triage board a card belongs to, and which week's column
-// it stands in. The board has two areas per week and a strip above them, and
-// what separates them is where the work came from — not a field on the card.
-//
-// PLAN is what the weekly panel shows for that week: the founders' plan cards
-// (a band), the Project-board slots whose span covers it, and the process
-// turns filed into it. WORK is the rest of what is scheduled for the week —
-// the board's own cards, the ones somebody put on a week rather than into the
-// plan. The strip holds the cards nobody has put anywhere yet.
+// Which week's column a card stands in on the Triage board, and which cards
+// nobody has placed at all. The week is the whole of the decision here: a
+// card belongs to a week, or to the pile of work nobody has dated yet.
 //
 // Mirrors board.NeedsTriage / board.TriageWeekOf on the server.
 import type { Card } from "./providers/types";
-import { isSlot } from "./weekly";
 import { addDays, mondayOf } from "./date";
 import { isPersonalDomain } from "./domains";
-
-/** Area is where a card is drawn in a week's column. */
-export type Area = "plan" | "work";
-
-/** areaOf reports which area a card belongs to. A card is PLAN when the
- *  weekly panel would show it: it carries a plan band, it is a Project-board
- *  slot (its span IS its plan), or it is a process turn. Everything else the
- *  board schedules is WORK. */
-export function areaOf(c: Pick<Card, "plan" | "epic" | "week" | "day" | "task">): Area {
-  if (c.plan || c.task || isSlot(c)) {
-    return "plan";
-  }
-  return "work";
-}
 
 /** needsTriage reports whether nobody has said WHEN the card's work is due:
  *  an open card of its own, with no week. The week is the whole of the
