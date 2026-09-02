@@ -22,7 +22,7 @@ import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/t
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso } from "../date";
 import { anchorFor, byPile, needsTriage, orderWith, placedIn } from "../triage";
-import { boardAsksAbout, freeSubtasks, gridRemoval } from "../removal";
+import { freeSubtasks, gridRemoval } from "../removal";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { effectiveBand } from "../weekly";
 import { isPersonalDomain } from "../domains";
@@ -473,13 +473,15 @@ export function TriageBoard({
     [board.cards, removalOf, provider, patchCard, removeCard, onError, reload],
   );
 
-  // The question is the one every board asks — the same dialog, saying what
-  // is at stake and how many subtasks go along — and it is asked only where
-  // the × destroys work. Somewhere else it just happens.
+  // Asked wherever the × DESTROYS something, and nowhere else: a card the ×
+  // hands back to its column or takes out of a group is still on the board,
+  // and a "Delete?" in front of that is how an × comes to be read as
+  // deletion. The dialog is the one every board asks with — what is at
+  // stake, and how many subtasks go along.
   const [asking, setAsking] = useState<CardModel | null>(null);
   const remove = useCallback(
     (card: CardModel) => {
-      if (boardAsksAbout(card, removalOf(card), null)) {
+      if (removalOf(card) === "delete") {
         setAsking(card);
         return;
       }
