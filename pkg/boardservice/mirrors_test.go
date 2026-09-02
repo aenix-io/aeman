@@ -2205,13 +2205,13 @@ func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
 	}
 }
 
-// The × on a subtask whose column cannot come along leaves the card where
-// every other columnless card lands — never alive with nothing. Releasing
-// it "to its column" after the column had been repaired away cleared its
-// sprint and its dates too, and a card with no sprint, no dates, no band
-// and no column is on no board anyone can open: findable only by id, by
-// someone who already knows it exists.
-func TestAStrandedColumnLeavesTheCardOnABoard(t *testing.T) {
+// The × on a subtask whose column cannot come along answers like every
+// other columnless card: the working area was its last home, so the card
+// is deleted. It must never be left ALIVE with nothing — no sprint, no
+// dates, no band and no column — which is a card on no board anyone can
+// open, findable only by id by someone who already knows it exists. The
+// day it stood on keeps it (G60).
+func TestAStrandedColumnDoesNotLeaveACardNowhere(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
 		{ItemID: "p", Title: "parent in the closed repository", Team: "founders"},
@@ -2224,18 +2224,8 @@ func TestAStrandedColumnLeavesTheCardOnABoard(t *testing.T) {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
-	c, ok := findCard(b, "kid")
-	if !ok {
-		t.Fatal("the card is kept: platform has a previous sprint to demote into")
-	}
-	if hasColumn(c) || c.Plan != board.PlanNone {
-		t.Fatalf("the column could not come along, and it had no band: %+v", c)
-	}
-	if !inWorkingArea(c) {
-		t.Fatalf("so the working area is where it stays — demoted, not nowhere: %+v", c)
-	}
-	if c.SprintStart != board.AddDays(board.TodayIso(), -1) {
-		t.Fatalf("in the previous sprint, the way the × demotes any other card: %+v", c)
+	if c, ok := findCard(b, "kid"); ok {
+		t.Fatalf("nothing kept it: the column could not follow and the working area was its last home: %+v", c)
 	}
 }
 
@@ -2263,11 +2253,11 @@ func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
 }
 
 // The grid × on a subtask whose column belongs to its PARENT's repository
-// completes: ungrouping re-files the card by its own team, so the column
-// is stranded by the gesture itself, and refusing over it would name a
-// column the person did not touch in answer to a move they did. The
-// column is repaired — the same repair a deleted parent's release makes —
-// and the card lands out of the group.
+// completes: ungrouping re-files the card by its own team, so the column is
+// stranded by the gesture itself, and refusing over it would name a column
+// the person did not touch in answer to a move they did. The column is
+// repaired — the same repair a deleted parent's release makes — and the
+// card, now an ordinary columnless one, is deleted like any other.
 func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "ep-closed", Title: board.EpicStateTitle, Epic: "Closed", Domain: "founders"},
@@ -2281,14 +2271,12 @@ func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
-	c, ok := findCard(b, "kid")
-	if !ok {
-		t.Fatal("the card is kept")
+	if c, ok := findCard(b, "kid"); ok {
+		t.Fatalf("the gesture completes and the card is gone: %+v", c)
 	}
-	if c.Parent != "" {
-		t.Fatalf("out of the group: %+v", c)
-	}
-	if c.Epic != "" {
-		t.Fatalf("and out of a column its repository does not hold: %+v", c)
+	// The repair happened all the same: the refusal it exists to prevent
+	// never fired, and the × did not stop half way.
+	if f.count("SetEpic") == 0 {
+		t.Fatalf("the stranded column is repaired on the way out: %v", f.log)
 	}
 }

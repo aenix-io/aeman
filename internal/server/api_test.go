@@ -213,7 +213,10 @@ func TestAPIDeferAction(t *testing.T) {
 	}
 }
 
-func TestAPIRemoveActionDemotes(t *testing.T) {
+// The remove action on a card of the current sprint takes it off the board
+// for good: it used to demote the card one sprint back, where nothing live
+// showed it again.
+func TestAPIRemoveActionDeletes(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "c1", Team: "alpha", StartDate: "2026-06-20", SprintStart: "2026-06-20"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", Previous: "2026-06-13", ItemID: "s1"}})
@@ -223,8 +226,8 @@ func TestAPIRemoveActionDemotes(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	rec = do(t, srv, http.MethodGet, "/api/v1/cards/c1", "")
-	if c := decodeCard(t, rec); c.Spec.Dates.Sprint != "2026-06-13" {
-		t.Fatalf("first remove demotes: %+v", c.Spec.Dates)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("the card is gone: status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
 

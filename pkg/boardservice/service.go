@@ -1229,56 +1229,64 @@ func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Car
 		}
 		return s.leaveWorkingArea(ctx, b, c)
 	}
-	cur := board.CurrentSprint(b, c.Team)
-	prev := board.PreviousSprint(b, c.Team)
-	// A card created today (start = today) has no sprint history worth
-	// keeping: the x deletes it for real instead of demoting.
-	if c.SprintStart != "" && cur != "" && c.SprintStart == cur && prev != "" && prev < cur &&
-		c.StartDate != board.TodayIso() {
-		if err := s.backend.SetStart(ctx, b, c, prev); err != nil {
-			return err
-		}
-		if err := s.backend.SetSprintStart(ctx, b, c, prev); err != nil {
-			return err
-		}
-		if c.Day != "" && c.Day != prev {
-			if err := s.backend.SetDay(ctx, b, c, prev); err != nil {
-				return err
-			}
-		}
-		// The move is RECORDED. A demote takes the card off today's board,
-		// and writing it silently — while the subtasks dragged along did log
-		// theirs — left the card unexplained in its own history.
-		s.logEvent(ctx, b, c, board.EventSprint, c.SprintStart, prev)
-		// And the DAY it was taken off is recorded with it: the dates have
-		// just moved into the previous sprint, so nothing else remembers
-		// where the card was worked, and a record of that day would lose
-		// exactly the work it is remembered for (G60). Today's board is
-		// unaffected — taking the card off it is what the × is for.
-		if err := s.setLeftAt(ctx, b, c, board.TodayIso()); err != nil {
-			return err
-		}
-		// The demoted card keeps living in the previous sprint — its subtasks
-		// ride along, staying nested under it there.
-		return s.syncChildrenSprint(ctx, b, c.ItemID, prev)
-	}
-	// Nothing left to demote into. A card has two homes — the working area
-	// (a sprint and its days) and the weekly plan (a band and its week) —
-	// and this × empties the first one. With the plan or a Project-board
-	// column to fall back on, the card simply goes there; with neither, it
-	// was nowhere else, and removing it from the only place it was is
-	// deletion. That is what the Unassigned column's × is expected to do,
-	// and what the plan's own × already does to a card nobody took (A3).
+	// A card has two homes — the working area (a sprint and its days) and the
+	// weekly plan (a band and its week) — and this × empties the first one.
+	// With a Project-board column to fall back on the card simply goes there;
+	// with none, it was nowhere else, and removing it from the only place it
+	// was is deletion.
+	//
+	// It used to be a DEMOTE for a card of the current sprint: the dates and
+	// the sprint moved back one, and the card lived on in the sprint before
+	// this one, out of today's way but still there to be found by stepping
+	// back. That is not where it ended up. No live view reaches such a card —
+	// not the day grid (its sprint is neither the current one nor the
+	// previous), not the Me board (the sprint gate), and no carry-over ever
+	// takes it, since a carry-over moves the CLOSING sprint's own cards — so
+	// the board grew a pile of open work nobody could see: on the production
+	// board, three hundred cards, thirty-six of them with progress on them.
+	//
+	// The demote existed to keep the card's history. The history is git now:
+	// the day the card was worked on holds it whole, in the state it went in
+	// (G60, LoadAsOfDay), so there is nothing left for the demote to save.
 	//
 	// Nothing is spared here on account of what it carries: work and
 	// subtasks make a delete worth CONFIRMING, not worth turning into a
 	// move somewhere nobody asked for — the UI asks before sending this
-	// (deleteWarning in removal.ts), the way it asks about a demote that
-	// would carry work off the board (W5).
+	// (deleteWarning in removal.ts).
 	if !hasColumn(c) {
-		return s.deleteWithCascade(ctx, b, c)
+		return s.deleteGroup(ctx, b, c)
 	}
 	return s.releaseToColumn(ctx, b, c)
+}
+
+// deleteGroup is the grid ×'s delete: the card and the subtasks that were
+// only ever a part of it. A plain delete FREES a card's subtasks — they keep
+// their own lives where the parent stood, which is right when one card is
+// deleted out of a group — but the × is the gesture for a piece of work that
+// is over, and the pieces of that work go with it; the demote it replaces
+// carried them along too. A subtask standing in a COLUMN of its own is the
+// exception: it has a home the × does not empty, so it is freed into it
+// (G57), exactly as a top-level card in a column is.
+func (s *Service) deleteGroup(ctx context.Context, b board.Board, card board.Card) error {
+	for _, c := range board.Children(b, card.ItemID) {
+		if !hasColumn(c) {
+			if err := s.deleteWithCascade(ctx, b, c); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := s.backend.SetParent(ctx, b, c, ""); err != nil {
+			return err
+		}
+		c.Parent = ""
+		if err := s.dropAStrandedColumn(ctx, b, c); err != nil {
+			return err
+		}
+		if err := s.releaseToColumn(ctx, b, c); err != nil {
+			return err
+		}
+	}
+	return s.deleteWithCascade(ctx, b, card)
 }
 
 // A card is somewhere when a board shows it: the working area (a sprint or

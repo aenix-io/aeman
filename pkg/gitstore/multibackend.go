@@ -189,6 +189,18 @@ func (mb *MultiBackend) LoadBoardAsOf(_ context.Context, boardID string, at time
 	return bd, true, nil
 }
 
+// LoadBoardOfDay is LoadBoardAsOf for a DAY: the board every domain ended it
+// with, plus what the day itself removed (boardservice.DayReader).
+func (mb *MultiBackend) LoadBoardOfDay(_ context.Context, boardID string, from, to time.Time) (board.Board, bool, error) {
+	s, ok, err := LoadAllAsOfDay(mb.domainList(), from, to)
+	if err != nil || !ok {
+		return board.Board{}, ok, err
+	}
+	bd := boardFromSnapshotIn(mb.primary(), s)
+	bd.Board = boardID
+	return bd, true, nil
+}
+
 // LoadCards reads cards by id from whichever domain holds them.
 func (mb *MultiBackend) LoadCards(ctx context.Context, bd board.Board, ids []string) ([]board.Card, error) {
 	var out []board.Card

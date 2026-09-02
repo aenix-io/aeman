@@ -37,7 +37,7 @@ func (s *Service) BoardOfDay(ctx context.Context, boardID, day string) (bd board
 	if at, err = board.EndOfDay(day); err != nil {
 		return board.Board{}, nil, time.Time{}, err
 	}
-	then, err := s.BoardAsOf(ctx, boardID, at)
+	then, err := s.boardOfDayTree(ctx, boardID, day, at)
 	if err != nil {
 		return board.Board{}, nil, time.Time{}, err
 	}

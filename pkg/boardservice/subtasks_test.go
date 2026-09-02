@@ -301,7 +301,11 @@ func TestParentSprintChangeDragsSubtasks(t *testing.T) {
 	}
 }
 
-func TestSmartRemoveDemoteDragsSubtasks(t *testing.T) {
+// The × takes the whole group: a subtask is a piece of the card's work, not
+// a card of its own, and the demote this replaced dragged them along too.
+// An explicit DELETE of one card still frees its subtasks — two doors, two
+// meanings: "this work is off the board" and "this card is a mistake".
+func TestSmartRemoveTakesSubtasksWithIt(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "p", Team: "alpha", StartDate: "2026-01-10", SprintStart: "2026-01-10"},
 		{ItemID: "c", Team: "alpha", Parent: "p", SprintStart: "2026-01-10"},
@@ -311,14 +315,11 @@ func TestSmartRemoveDemoteDragsSubtasks(t *testing.T) {
 	if err := f2svc(f).Remove(ctx, "acme", "p", "grid"); err != nil {
 		t.Fatal(err)
 	}
-	if f.get("p") == nil || f.get("p").SprintStart != "2026-01-03" {
-		t.Fatalf("parent = %+v, want demoted to 2026-01-03", f.get("p"))
+	if f.get("p") != nil {
+		t.Fatalf("parent = %+v, want gone", f.get("p"))
 	}
-	if f.get("c") == nil || f.get("c").SprintStart != "2026-01-03" {
-		t.Fatalf("subtask = %+v, want dragged to 2026-01-03 with the parent", f.get("c"))
-	}
-	if f.get("c").Parent != "p" {
-		t.Fatalf("subtask parent = %q, want kept", f.get("c").Parent)
+	if f.get("c") != nil {
+		t.Fatalf("subtask = %+v, want gone with its parent", f.get("c"))
 	}
 }
 

@@ -84,7 +84,7 @@ ctx = board.WithActor(ctx, "octocat") // commits are authored by the actor
 // by its primary repository:
 b, _ := svc.Board(ctx, "aeman-db")           // load
 _ = svc.Defer(ctx, "aeman-db", uid, 1)       // the +1d rule, incl. same-day relocation
-_ = svc.Remove(ctx, "aeman-db", uid, "grid") // demote / release / delete by board rules
+_ = svc.Remove(ctx, "aeman-db", uid, "grid") // release / delete by board rules
 rep, _ := svc.CarryOver(ctx, "aeman-db", "team", false)
 _ = repo.Push(ctx, remote)                   // one push for what accumulated
 ```

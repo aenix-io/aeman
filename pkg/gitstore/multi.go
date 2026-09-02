@@ -84,6 +84,35 @@ func LoadAllAsOf(domains []Domain, at time.Time) (Snapshot, bool, error) {
 	return merge(parts), true, nil
 }
 
+// LoadAllAsOfDay is LoadAllAsOf for a DAY: every domain at the tree it had
+// when the day ended, plus the cards each of them removed during it (see
+// LoadAsOfDay). ok follows LoadAllAsOf — every domain must be able to
+// answer, or the day is not that board's day.
+func LoadAllAsOfDay(domains []Domain, from, to time.Time) (Snapshot, bool, error) {
+	if len(domains) == 0 {
+		return Snapshot{}, false, ErrNoDomains
+	}
+	var parts []Snapshot
+	for i, d := range domains {
+		s, ok, err := LoadAsOfDay(d.Repo, from, to)
+		if err != nil {
+			if i == 0 || !errors.Is(err, ErrEmptyRepository) {
+				return Snapshot{}, false, err
+			}
+			continue
+		}
+		if !ok {
+			return Snapshot{}, false, nil
+		}
+		stamp(&s, d.Name)
+		if i > 0 {
+			s.Board = BoardFile{}
+		}
+		parts = append(parts, s)
+	}
+	return merge(parts), true, nil
+}
+
 // stamp marks every entry of a snapshot with its domain.
 func stamp(s *Snapshot, domain string) {
 	for i := range s.Cards {

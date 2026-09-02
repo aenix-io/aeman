@@ -89,6 +89,27 @@ func (v *visibleBackend) LoadBoardAsOf(ctx context.Context, boardID string, at t
 	return board.Visible(bd, v.primary, rights.readable), true, nil
 }
 
+// LoadBoardOfDay projects a day's board exactly as LoadBoardAsOf projects a
+// moment's: what the visitor could not read that day is not theirs now.
+func (v *visibleBackend) LoadBoardOfDay(ctx context.Context, boardID string, from, to time.Time) (board.Board, bool, error) {
+	r, ok := v.Backend.(boardservice.DayReader)
+	if !ok {
+		return v.LoadBoardAsOf(ctx, boardID, to)
+	}
+	bd, held, err := r.LoadBoardOfDay(ctx, boardID, from, to)
+	if err != nil || !held {
+		return board.Board{}, held, err
+	}
+	rights := rightsFrom(ctx)
+	if rights == nil {
+		return bd, true, nil
+	}
+	if !rights.canRead(v.primary) {
+		return board.Board{}, false, boardservice.ErrForbidden
+	}
+	return board.Visible(bd, v.primary, rights.readable), true, nil
+}
+
 // LoadCards omits what the visitor cannot read.
 func (v *visibleBackend) LoadCards(ctx context.Context, bd board.Board, ids []string) ([]board.Card, error) {
 	cards, err := v.Backend.LoadCards(ctx, bd, ids)

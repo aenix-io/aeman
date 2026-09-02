@@ -1120,48 +1120,11 @@ export function MeBoard({
   // (mirrors handleGridDelete in TeamBoard.tsx): all dates pulled along, so
   // it leaves today's board and is found by stepping back; the server records
   // the move and the re-list converges its outcome.
-  const demoteCard = (card: CardModel, prevSprint: string) => {
-    // A subtask reaches this path when its column could not follow it out,
-    // and the patch below then writes more than three fields — the undo
-    // has to put back everything it can write, or the rollback leaves the
-    // card ungrouped and columnless while the server still holds it.
-    const prev: Partial<CardModel> = card.parent
-      ? (subtaskRemovalUndo(card) as Partial<CardModel>)
-      : {
-          startDate: card.startDate,
-          sprintStart: card.sprintStart,
-          day: card.day,
-        };
-    // A SUBTASK only reaches a demote when the column it carried could not
-    // follow it out of the group (columnFollows): the server pulls it out,
-    // drops that column and walks it back a sprint — one gesture, and one
-    // shape for both boards.
-    patchCard(
-      card.itemId,
-      card.parent
-        ? subtaskRemovalPatch(card, gridCtx(card))
-        : {
-            startDate: prevSprint,
-            sprintStart: prevSprint,
-            ...(card.day ? { day: prevSprint } : {}),
-          },
-    );
-    void provider
-      .removeCard(card.itemId, "grid")
-      .then(() => reload())
-      .catch((err: unknown) => {
-        if (isGone(err)) {
-          return;
-        }
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
-
-  // demoteOrRelease hands the card to the server's smart × and takes what
-  // it decides: a card with a Project-board column is released to it, never
-  // destroyed. The re-list brings back whatever the rule did.
-  const demoteOrRelease = (card: CardModel) => {
+  // releaseCard hands the card to the server's smart × and takes what it
+  // decides: a card with a Project-board column or a weekly-plan band is
+  // released to it, never destroyed. The re-list brings back whatever the
+  // rule did.
+  const releaseCard = (card: CardModel) => {
     // Show the outcome at once, as every other × on this board does: the
     // card leaves the working area (the server clears assignee, sprint and,
     // for anything but a slot, the dates) and stays in the home it has.
@@ -1302,12 +1265,12 @@ export function MeBoard({
       return;
     }
     const personal = isPersonalCard(card, board.personal);
-    const prevSprint = personal ? null : previousSprint(board, card.team ?? null);
+    // "keep" is the personal board's own answer: leave the card on
+    // yesterday. A team card has no such offer — the day it stood on keeps
+    // it — so the dialog never sends one.
     if (forced === "keep") {
       if (personal) {
         leaveBehind(card);
-      } else if (prevSprint) {
-        demoteCard(card, prevSprint);
       }
       return;
     }
@@ -1317,10 +1280,6 @@ export function MeBoard({
         setRemoveChoice(card);
         return;
       }
-      if (kind === "demote" && prevSprint) {
-        demoteCard(card, prevSprint);
-        return;
-      }
     }
     // A card filed under a project column is never destroyed by an × — that
     // column is a home it goes back to (A1/A3). The Me board used to send it
@@ -1328,7 +1287,7 @@ export function MeBoard({
     // removal kinds speak only of demote and delete. The smart × on the
     // server knows what to do with it.
     if (!personal && forced !== "delete" && outcomeOf(card) !== "delete") {
-      demoteOrRelease(card);
+      releaseCard(card);
       return;
     }
     // The server cascades the delete to a linked review card and names what
@@ -2358,10 +2317,8 @@ export function MeBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
-          previous={
-            isPersonalCard(removeChoice, board.personal)
-              ? addDays(todayIso(), -1)
-              : (previousSprint(board, removeChoice.team ?? null) ?? "")
+          keepOn={
+            isPersonalCard(removeChoice, board.personal) ? addDays(todayIso(), -1) : null
           }
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}

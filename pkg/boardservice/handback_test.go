@@ -169,8 +169,9 @@ func TestNeitherRemoveDeletesAProjectCard(t *testing.T) {
 // area was its only home, so the × empties it and the card is gone. Its
 // progress goes with it — a loss worth asking about before the request is
 // made (deleteWarning in removal.ts), not a reason for the board to move
-// the card somewhere nobody put it. Its subtasks are NOT lost: the delete
-// frees them into standalone cards, keeping the parent's person and place.
+// the card somewhere nobody put it. Its subtasks go with it too: they are
+// pieces of the same work (an explicit DELETE of one card frees them
+// instead — see TestDeleteParentReleasedChildInheritsAssignee).
 func TestWorkDoesNotTurnARemoveIntoAMove(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
@@ -187,15 +188,8 @@ func TestWorkDoesNotTurnARemoveIntoAMove(t *testing.T) {
 	if _, ok := findCard(b, "c1"); ok {
 		t.Fatal("the card was nowhere else: the × empties its last home")
 	}
-	sub, ok := findCard(b, "c2")
-	if !ok {
-		t.Fatal("its subtask must survive the parent, as a standalone card")
-	}
-	if sub.Parent != "" {
-		t.Fatalf("the freed subtask still points at a deleted parent: %+v", sub)
-	}
-	if len(sub.Assignees) != 1 || sub.Assignees[0] != "kvaps" {
-		t.Fatalf("it takes the parent's person so it lands in the same cell: %+v", sub)
+	if sub, ok := findCard(b, "c2"); ok {
+		t.Fatalf("the subtask is a piece of the same work and goes with it: %+v", sub)
 	}
 }
 

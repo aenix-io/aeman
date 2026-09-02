@@ -664,12 +664,13 @@ func TestAMirrorWrittenThroughTheStoreSurvivesTheNextLoad(t *testing.T) {
 }
 
 // The grid's × on a subtask standing in a column of its PARENT's
-// repository, against the real store: the pull-out moves the card's FILE
-// to the repository its own team names, the column cannot come with it and
-// is repaired away, and what is left is answered like any other columnless
-// card — demoted, not left alive in no column, no sprint and no plan. The
-// service tests prove the rule; this proves it survives the move, which is
-// the part a fake cannot show.
+// repository, against the real store: the pull-out moves the card's FILE to
+// the repository its own team names, the column cannot come with it and is
+// repaired away, and what is left is answered like any other columnless
+// card — deleted, the working area having been its last home. The service
+// tests prove the rule; this proves the whole gesture survives the move,
+// which is the part a fake cannot show: the file is left in NEITHER
+// repository, and no half-moved copy stays behind.
 func TestTheGridRemoveOnASubtaskAcrossRepositories(t *testing.T) {
 	shared := repoWith(t, map[string]string{
 		BoardPath:              "schema: 1\ntitle: b\n",
@@ -697,25 +698,18 @@ func TestTheGridRemoveOnASubtaskAcrossRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, _ := CardPath("01KID00001")
-	if _, err := shared.ReadFile(p); err != nil {
-		t.Fatalf("the file follows the card out of the group: %v", err)
+	if _, err := shared.ReadFile(p); err == nil {
+		t.Fatal("the × empties the card's last home: no file where it was moved to")
 	}
 	if _, err := closed.ReadFile(p); err == nil {
-		t.Fatal("and does not stay behind in the parent's repository")
+		t.Fatal("and none left behind in the parent's repository either")
 	}
 	b, err := mb.LoadBoard(ctx, "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	kid, ok := findByID(b, "01KID00001")
-	if !ok {
-		t.Fatal("the card is kept: portal has a previous sprint to demote into")
-	}
-	if kid.Parent != "" || kid.Epic != "" {
-		t.Fatalf("out of the group, and out of a column its repository does not hold: %+v", kid)
-	}
-	if kid.SprintStart != "2026-08-17" {
-		t.Fatalf("demoted like any other columnless card, not left nowhere: %+v", kid)
+	if kid, ok := findByID(b, "01KID00001"); ok {
+		t.Fatalf("the card is gone from the board: %+v", kid)
 	}
 }
 
