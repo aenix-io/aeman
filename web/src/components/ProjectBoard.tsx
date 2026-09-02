@@ -37,18 +37,8 @@ import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
 import { ZoomControl } from "./ZoomControl";
 import { MIN_COL_PX, columnFactor } from "../projectZoom";
-import {
-  GUTTER_PX,
-  HEADER_PX,
-  type Laned,
-  type Pin,
-  WEEK_COL_PX,
-  WEEK_STEP,
-  extentOf,
-  isoWeekNo,
-  packLanes,
-  weekLabel,
-} from "../weekgrid";
+import { type Laned, type Pin, extentOf, isoWeekNo, packLanes, weekLabel } from "../weekgrid";
+import { WeekGrid } from "./WeekGrid";
 import { useWeekGrid } from "./useWeekGrid";
 
 interface ProjectBoardProps {
@@ -222,8 +212,12 @@ export function ProjectBoard({
     store: { zoom: LS_ZOOM, widths: LS_COLF },
     selection: filter ? [...filter].sort().join("\u0000") : "*",
   });
-  const { weeks, todayRow, today, rowH, sharedCol, colFactors, zoom } = grid;
-  const { scrollRef, gridRef, wrapRef, rowAt } = grid;
+  const { weeks, today, sharedCol, colFactors, zoom, wrapRef, rowAt } = grid;
+  // The grid's own view of the columns: a key, and the epic it stands for.
+  const gridColumns = useMemo(
+    () => epics.map((e) => ({ key: colKey(e.project, e.name), epic: e })),
+    [epics],
+  );
 
   // The card currently stepped aside to leave room for a new one beside it.
   const [nudged, setNudged] = useState<string | null>(null);
@@ -1292,38 +1286,11 @@ export function ProjectBoard({
         </div>
       )}
       {!empty && (
-      <div className="project-board" ref={scrollRef}>
-      <button
-        type="button"
-        className="project-more"
-        onClick={grid.showEarlier}
-        title={`Show ${WEEK_STEP} more weeks before`}
-      >
-        ↑ earlier weeks
-      </button>
-      <div
-        className="project-grid"
-        ref={gridRef}
-        style={{
-          // Until the columns are dragged they share the room; once dragged
-          // they all take the width that was chosen.
-          // The week column is what "17 Aug" needs and no more — the ISO
-          // number that used to share it is gone.
-          // Every column is sized explicitly: a column with a width of its
-          // own takes its ratio of the shared width, the rest take the shared
-          // width itself. Text is never scaled — only the room around it.
-          gridTemplateColumns: `${WEEK_COL_PX}px ${epics
-            .map((e) => {
-              const f = colFactors[colKey(e.project, e.name)];
-              return `${Math.round(sharedCol * (f ?? 1))}px`;
-            })
-            .join(" ")} ${GUTTER_PX}px`,
-          gridTemplateRows: `${HEADER_PX}px repeat(${weeks.length}, ${rowH}px)`,
-        }}
-      >
-        {/* header row */}
-        <div className="project-corner">
-          {epics.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
+      <WeekGrid
+        grid={grid}
+        columns={gridColumns}
+        corner={
+          epics.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
             <button
               type="button"
               className="project-cols-reset"
@@ -1332,9 +1299,34 @@ export function ProjectBoard({
             >
               ⇥⇤
             </button>
-          )}
-        </div>
-        {epics.map((e) => {
+          )
+        }
+        weekProps={(w) => ({
+          title: `ISO week ${isoWeekNo(w)} · click for the deadline`,
+          onClick: (ev) => {
+            weekAnchor.current = ev.currentTarget;
+            setWeekMenu(weekMenu === w ? null : w);
+          },
+        })}
+        cellProps={(c, _col, _w, row) => ({
+          className:
+            drag &&
+            !drag.resize &&
+            colKey(drag.epic.project, drag.epic.name) === c.key &&
+            row >= Math.min(drag.from, drag.to) &&
+            row <= Math.max(drag.from, drag.to)
+              ? "project-cell-drag"
+              : undefined,
+          onPointerDown: (ev) => beginDrag(c.epic, row, ev),
+          onPointerLeave: () => {
+            if (!drag) {
+              cancelNudgeTimer();
+              setNudged(null);
+            }
+          },
+          onPointerCancel: () => setDrag(null),
+        })}
+        head={({ epic: e }) => {
           const k = colKey(e.project, e.name);
           if (renaming === k) {
             return (
@@ -1431,7 +1423,8 @@ export function ProjectBoard({
               />
             </div>
           );
-        })}
+        }}
+        gutter={
         <div className="project-epic-head project-epic-add">
           {addingEpic ? (
             <input
@@ -1466,50 +1459,8 @@ export function ProjectBoard({
             </button>
           )}
         </div>
-
-        {/* week label column + row stripes */}
-        {weeks.map((w, i) => (
-          <div
-            key={w}
-            className={`project-week${i === todayRow ? " project-week-today" : ""}`}
-            style={{ gridRow: i + 2, gridColumn: 1 }}
-            title={`ISO week ${isoWeekNo(w)} · click for the deadline`}
-            onClick={(ev) => {
-              weekAnchor.current = ev.currentTarget;
-              setWeekMenu(weekMenu === w ? null : w);
-            }}
-          >
-            <span className="project-week-date">{weekLabel(w)}</span>
-          </div>
-        ))}
-
-        {/* cells: one per epic × week, the drag surface */}
-        {epics.map((e, col) =>
-          weeks.map((w, row) => (
-            <div
-              key={`${colKey(e.project, e.name)}/${w}`}
-              className={`project-cell${row === todayRow ? " project-cell-today" : ""}${
-                drag &&
-                !drag.resize &&
-                colKey(drag.epic.project, drag.epic.name) === colKey(e.project, e.name) &&
-                row >= Math.min(drag.from, drag.to) &&
-                row <= Math.max(drag.from, drag.to)
-                  ? " project-cell-drag"
-                  : ""
-              }`}
-              style={{ gridRow: row + 2, gridColumn: col + 2 }}
-              onPointerDown={(ev) => beginDrag(e, row, ev)}
-              onPointerLeave={() => {
-                if (!drag) {
-                  cancelNudgeTimer();
-                  setNudged(null);
-                }
-              }}
-              onPointerCancel={() => setDrag(null)}
-            />
-          )),
-        )}
-
+        }
+      >
         {/* deadlines: one line per week, dragged by the dot on its left */}
         {board.deadlines
           .filter((d) => !filter || filter.includes(d.project))
@@ -1923,16 +1874,7 @@ export function ProjectBoard({
             </div>
           )),
         )}
-        </div>
-        <button
-          type="button"
-          className="project-more"
-          onClick={grid.showLater}
-          title={`Show ${WEEK_STEP} more weeks after`}
-        >
-          ↓ later weeks
-        </button>
-      </div>
+      </WeekGrid>
       )}
       <Dropdown
         open={weekMenu !== null}
