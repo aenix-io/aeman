@@ -1097,8 +1097,8 @@ func (s *Server) handleTakeIntoPlan(w http.ResponseWriter, r *http.Request) {
 	s.cardResponse(w, r, svc, boardID, uid)
 }
 
-// handlePlaceCard puts a card in a week of the Backlog board, which is what
-// triaging it means (docs/design/backlog.md). {week, band}: the band is the
+// handlePlaceCard puts a card in a week of the Triage board, which is what
+// triaging it means (docs/design/triage.md). {week, band}: the band is the
 // weekly plan's and only its own drop sets one.
 func (s *Server) handlePlaceCard(w http.ResponseWriter, r *http.Request) {
 	var in struct {

@@ -1,4 +1,4 @@
-// Which area of the Backlog board a card belongs to, and which week's column
+// Which area of the Triage board a card belongs to, and which week's column
 // it stands in. The board has two areas per week and a strip above them, and
 // what separates them is where the work came from — not a field on the card.
 //
@@ -8,7 +8,7 @@
 // the board's own cards, the ones somebody put on a week rather than into the
 // plan. The strip holds the cards nobody has put anywhere yet.
 //
-// Mirrors board.NeedsTriage / board.BacklogWeekOf on the server.
+// Mirrors board.NeedsTriage / board.TriageWeekOf on the server.
 import type { Card } from "./providers/types";
 import { isSlot } from "./weekly";
 import { addDays, mondayOf } from "./date";

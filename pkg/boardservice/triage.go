@@ -8,10 +8,10 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// ErrNotAMonday is a backlog week that is not a Monday.
-var ErrNotAMonday = errors.New("a backlog week is a Monday")
+// ErrNotAMonday is a triage week that is not a Monday.
+var ErrNotAMonday = errors.New("a week on the Triage board is a Monday")
 
-// Place puts a card in a week of the Backlog board — which is what TRIAGING
+// Place puts a card in a week of the Triage board — which is what TRIAGING
 // a card means: until then nobody has said when the work is due, and the
 // board holds it in the strip.
 //

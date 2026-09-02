@@ -29,7 +29,7 @@ func DueDate(c Card) string {
 		}
 		return AddDays(c.Week, 4)
 	case c.Week != "":
-		// A card the Backlog board scheduled: a week and no band of its own.
+		// A card the Triage board scheduled: a week and no band of its own.
 		// Being placed in a week IS the promise, so it is owed by the end of
 		// that week — the same Friday a by-Friday card is owed by. Without
 		// this a backlog debt read as work with all the time in the world.

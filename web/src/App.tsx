@@ -16,7 +16,7 @@ import {
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
-import { BacklogBoard } from "./components/BacklogBoard";
+import { TriageBoard } from "./components/TriageBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { ProcessBoard } from "./components/ProcessBoard";
 import { TeamsModal } from "./components/TeamsModal";
@@ -49,7 +49,7 @@ const waitingAfterMs = 300;
 const SNAPSHOT_FROZEN =
   "This is the board as it was that day — go back to today to change anything.";
 
-type ViewMode = "me" | "team" | "backlog" | "project" | "process";
+type ViewMode = "me" | "team" | "triage" | "project" | "process";
 
 const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
@@ -68,8 +68,8 @@ function readView(): ViewMode {
   if (raw === "process") {
     return "process";
   }
-  if (raw === "backlog") {
-    return "backlog";
+  if (raw === "triage") {
+    return "triage";
   }
   return "me";
 }
@@ -1386,11 +1386,11 @@ export function App() {
           <button
             type="button"
             role="tab"
-            aria-selected={view === "backlog"}
-            className={`segment${view === "backlog" ? " segment-active" : ""}`}
-            onClick={() => setView("backlog")}
+            aria-selected={view === "triage"}
+            className={`segment${view === "triage" ? " segment-active" : ""}`}
+            onClick={() => setView("triage")}
           >
-            Backlog
+            Triage
           </button>
           <button
             type="button"
@@ -1484,8 +1484,8 @@ export function App() {
             onError={onError}
           />
         )}
-        {board && view === "backlog" && (
-          <BacklogBoard
+        {board && view === "triage" && (
+          <TriageBoard
             board={board}
             provider={provider}
             roster={roster}

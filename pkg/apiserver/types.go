@@ -130,12 +130,13 @@ type CardStatus struct {
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
 	DoneAt string `json:"doneAt,omitempty"`
-	// Triage marks a card the Backlog board's strip holds: nobody placed
+	// Triage marks a card the Triage board's strip holds: nobody placed
 	// it in a week and it is not being worked (B3).
 	Triage bool `json:"triage,omitempty"`
-	// BacklogWeek is the Monday of the column the card stands in on the
-	// Backlog board, when it stands in one (B5).
-	BacklogWeek string `json:"backlogWeek,omitempty"`
+	// TriageWeek is the Monday of the column the card stands in on the
+	// Triage board — its week. Absent means it stands in none: the strip
+	// holds it until somebody says when the work is due (B5).
+	TriageWeek string `json:"triageWeek,omitempty"`
 	// LeftAt is the board day the × took the card off. On a personal card
 	// that is a live rule — the board shows it that day and before, not
 	// after; on a team card the × demotes into the previous sprint and this
@@ -177,7 +178,7 @@ type SprintSpec struct {
 	Current  string `json:"current,omitempty"`
 	Previous string `json:"previous,omitempty"`
 	// Capacity is the team's cards a week and the lanes' shares, for the
-	// Backlog board — the roster's number, or one derived from the cards
+	// Triage board — the roster's number, or one derived from the cards
 	// done in the last four weeks (Derived says which; B7).
 	Capacity *SprintCapacity `json:"capacity,omitempty"`
 }
@@ -462,7 +463,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		DoneAt:      c.DoneAt,
 		LeftAt:      c.LeftAt,
 		Triage:      board.NeedsTriage(b, c, board.TodayIso()),
-		BacklogWeek: board.BacklogWeekOf(b, c, board.TodayIso()),
+		TriageWeek:  board.TriageWeekOf(b, c, board.TodayIso()),
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a

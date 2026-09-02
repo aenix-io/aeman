@@ -94,7 +94,7 @@ const cell = {
   "dark marine": [":root", ':root[data-palette="marine"]', ':root[data-theme="dark"]', ':root[data-theme="dark"][data-palette="marine"]'],
 };
 const ZONE_BGS = ["--zone-red-bg", "--zone-yellow-bg", "--zone-gray-bg", "--zone-green-bg",
-  // The Backlog board's internal lane is a zone area too, cards and all.
+  // The Triage board's internal lane is a zone area too, cards and all.
   "--lane-internal-bg"];
 
 // AA is 4.5 for normal text, 3.0 for large/secondary. --fg is body text (held

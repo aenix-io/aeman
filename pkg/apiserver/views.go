@@ -26,7 +26,7 @@ type Selector struct {
 	// Week is the plan week (a Monday) for the weekly view (defaults to the
 	// current week).
 	Week string
-	// From and Weeks bound the backlog view: the columns from the Monday
+	// From and Weeks bound the triage view: the columns from the Monday
 	// From (defaults to the current week) for Weeks weeks (defaults to 6).
 	From  string
 	Weeks int
@@ -111,7 +111,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Weeks = n
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "personal", "weekly", "project", "backlog":
+	case "", "all", "team", "me", "personal", "weekly", "project", "triage":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -128,7 +128,7 @@ func (s Selector) normalized() Selector {
 	if s.View == "weekly" && s.Week == "" {
 		s.Week = board.MondayOf(board.TodayIso())
 	}
-	if s.View == "backlog" {
+	if s.View == "triage" {
 		if s.From == "" {
 			s.From = board.MondayOf(board.TodayIso())
 		}
@@ -200,8 +200,8 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 				}
 			}
 		}
-	case "backlog":
-		base = backlogCards(b, sel)
+	case "triage":
+		base = triageCards(b, sel)
 	default:
 		base = b.Cards
 	}
@@ -487,11 +487,11 @@ func planProgress(cards []board.Card) int {
 	return (sum + n/2) / n
 }
 
-// backlogCards is the Backlog board's own selection: the teams' cards placed
+// triageCards is the Triage board's own selection: the teams' cards placed
 // in the weeks asked for, the current sprint (which is the current week's
 // column), the debts owed from earlier weeks — they stand in that column too
 // — and the cards nobody placed at all, which are the triage strip (B3, B5).
-func backlogCards(b board.Board, sel Selector) []board.Card {
+func triageCards(b board.Board, sel Selector) []board.Card {
 	today := board.TodayIso()
 	until := board.AddDays(sel.From, 7*sel.Weeks)
 	thisWeek := board.MondayOf(today)
@@ -507,7 +507,7 @@ func backlogCards(b board.Board, sel Selector) []board.Card {
 			out = append(out, c)
 			continue
 		}
-		w := board.BacklogWeekOf(b, c, today)
+		w := board.TriageWeekOf(b, c, today)
 		if w == "" {
 			continue
 		}

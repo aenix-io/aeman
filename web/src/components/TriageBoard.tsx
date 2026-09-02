@@ -1,4 +1,4 @@
-// The Backlog board: who does what, and in which week.
+// The Triage board: who does what, and in which week.
 //
 // The strip on the left holds the cards nobody has given a week — the point
 // of the board, and on a board that has never been triaged, most of it. The
@@ -18,14 +18,14 @@
 import React, { useCallback, useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
 import type { Board, Card as CardModel, Provider } from "../providers/types";
 import { addDays, mondayOf, todayIso } from "../date";
-import { placedIn, reachOf, weeksCovered } from "../backlog";
-import { BACKLOG_WEEKS } from "../viewquery";
+import { placedIn, reachOf, weeksCovered } from "../triage";
+import { TRIAGE_WEEKS } from "../viewquery";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { TeamChips } from "./TeamChips";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 
-type BacklogMeta = { kind: "triage" } | { kind: "cell"; week: string; who: string };
+type TriageMeta = { kind: "triage" } | { kind: "cell"; week: string; who: string };
 
 // The column a card with no assignee stands in. An empty login is a real
 // value on a card, so the key is something no login can be.
@@ -33,9 +33,9 @@ const NOBODY = " nobody";
 
 // A local stand-in for the roster's capacity, so a limit can be tried on a
 // team before its file says one: kept per team in this browser only.
-const LS_CAPACITY = "aeman.backlog.capacity";
+const LS_CAPACITY = "aeman.triage.capacity";
 
-interface BacklogBoardProps {
+interface TriageBoardProps {
   board: Board;
   provider: Provider;
   roster: string[];
@@ -77,7 +77,7 @@ function readCapacityOverrides(): Record<string, number> {
   }
 }
 
-export function BacklogBoard({
+export function TriageBoard({
   board,
   provider,
   roster,
@@ -89,14 +89,14 @@ export function BacklogBoard({
   addCard,
   onOpen,
   onError,
-}: BacklogBoardProps) {
+}: TriageBoardProps) {
   const today = todayIso();
   const thisWeek = mondayOf(today);
   // The grid starts at this week: a week gone by is not a row of its own,
   // because what was owed in it and is still open is owed NOW — the same
   // rule the weekly panel draws a debt by (planShowsInWeekAt).
   const weeks = useMemo(
-    () => Array.from({ length: BACKLOG_WEEKS }, (_, i) => addDays(thisWeek, 7 * i)),
+    () => Array.from({ length: TRIAGE_WEEKS }, (_, i) => addDays(thisWeek, 7 * i)),
     [thisWeek],
   );
   const teams = useMemo(() => teamFilter ?? roster, [teamFilter, roster]);
@@ -167,8 +167,8 @@ export function BacklogBoard({
     return { cells, strip, people: [NOBODY, ...named], load, covered };
   }, [board.cards, teams, weeks, thisWeek]);
 
-  const groups = useMemo<BoardGroup<BacklogMeta>[]>(() => {
-    const out: BoardGroup<BacklogMeta>[] = [
+  const groups = useMemo<BoardGroup<TriageMeta>[]>(() => {
+    const out: BoardGroup<TriageMeta>[] = [
       { key: "triage", meta: { kind: "triage" }, cards: strip },
     ];
     for (const week of weeks) {
@@ -184,11 +184,11 @@ export function BacklogBoard({
   }, [weeks, people, cells, strip]);
 
   const handleDrop = useCallback(
-    ({ card, fromMeta, toMeta }: DropResult<BacklogMeta>) => {
+    ({ card, fromMeta, toMeta }: DropResult<TriageMeta>) => {
       const before = {
         week: card.week,
         assignees: card.assignees,
-        backlogWeek: card.backlogWeek,
+        triageWeek: card.triageWeek,
         triage: card.triage,
         startDate: card.startDate,
         day: card.day,
@@ -203,7 +203,7 @@ export function BacklogBoard({
         if (fromMeta.kind === "triage") {
           return;
         }
-        patchCard(card.itemId, { week: undefined, backlogWeek: undefined, triage: true });
+        patchCard(card.itemId, { week: undefined, triageWeek: undefined, triage: true });
         provider.untriageCard(card.itemId).then(addCard).catch(fail);
         return;
       }
@@ -218,7 +218,7 @@ export function BacklogBoard({
       const who = toMeta.who === NOBODY ? [] : [toMeta.who];
       patchCard(card.itemId, (c) => ({
         week: toMeta.week,
-        backlogWeek: toMeta.week,
+        triageWeek: toMeta.week,
         triage: false,
         assignees: who,
         // A card placed in a week ahead leaves the day board until that week
@@ -267,7 +267,7 @@ export function BacklogBoard({
   );
 
   const renderCard = (card: CardModel): ReactNode => (
-    <BacklogCard
+    <TriageCard
       card={card}
       avatars={avatars}
       names={names}
@@ -277,7 +277,7 @@ export function BacklogBoard({
   );
 
   const renderGroup = (
-    group: BoardGroup<BacklogMeta>,
+    group: BoardGroup<TriageMeta>,
     body: ReactNode,
     { isOver, dropRef }: { isOver: boolean; dropRef: Ref<HTMLElement> },
   ): ReactNode => {
@@ -286,11 +286,11 @@ export function BacklogBoard({
         <div
           key={group.key}
           ref={dropRef as Ref<HTMLDivElement>}
-          className={`backlog-triage-cards${isOver ? " backlog-dragover" : ""}`}
+          className={`triage-triage-cards${isOver ? " triage-dragover" : ""}`}
         >
           {body}
           {group.cards.length === 0 && (
-            <span className="backlog-empty">nothing waiting for a week</span>
+            <span className="triage-empty">nothing waiting for a week</span>
           )}
         </div>
       );
@@ -302,9 +302,9 @@ export function BacklogBoard({
         key={group.key}
         ref={dropRef as Ref<HTMLDivElement>}
         data-week={week}
-        className={`backlog-cell${week === thisWeek ? " backlog-cell-now" : ""}${
-          reached ? " backlog-cell-reached" : ""
-        }${isOver ? " backlog-dragover" : ""}`}
+        className={`triage-cell${week === thisWeek ? " triage-cell-now" : ""}${
+          reached ? " triage-cell-reached" : ""
+        }${isOver ? " triage-dragover" : ""}`}
         style={{ gridRow: weeks.indexOf(week) + 2, gridColumn: people.indexOf(who) + 2 }}
       >
         {body}
@@ -315,32 +315,32 @@ export function BacklogBoard({
   // The grid: a header row of people, a label column of weeks, and the cells
   // the groups render into.
   const renderLayout = (nodes: Map<string, ReactNode>): ReactNode => (
-    <div className="backlog-body">
-      <aside className="backlog-triage">
-        <div className="backlog-triage-head">
+    <div className="triage-body">
+      <aside className="triage-triage">
+        <div className="triage-triage-head">
           needs triage
-          <span className="backlog-count">{strip.length}</span>
+          <span className="triage-count">{strip.length}</span>
         </div>
         {nodes.get("triage")}
       </aside>
 
-      <div className="backlog-scroll">
+      <div className="triage-scroll">
         <div
-          className="backlog-grid"
+          className="triage-grid"
           style={{
             gridTemplateColumns: `96px repeat(${people.length}, minmax(210px, 1fr))`,
             gridTemplateRows: `auto repeat(${weeks.length}, minmax(90px, auto))`,
           }}
         >
-          <div className="backlog-corner" style={{ gridRow: 1, gridColumn: 1 }} />
+          <div className="triage-corner" style={{ gridRow: 1, gridColumn: 1 }} />
           {people.map((who, i) => (
-            <div key={who} className="backlog-person" style={{ gridRow: 1, gridColumn: i + 2 }}>
+            <div key={who} className="triage-person" style={{ gridRow: 1, gridColumn: i + 2 }}>
               {who === NOBODY ? (
-                <span className="backlog-person-none">Unassigned</span>
+                <span className="triage-person-none">Unassigned</span>
               ) : (
                 <>
                   <Avatar login={who} avatars={avatars} names={names} />
-                  <span className="backlog-person-name">{displayName(who, names)}</span>
+                  <span className="triage-person-name">{displayName(who, names)}</span>
                 </>
               )}
             </div>
@@ -354,8 +354,8 @@ export function BacklogBoard({
             return (
               <div
                 key={week}
-                className={`backlog-week${week === thisWeek ? " backlog-week-now" : ""}${
-                  over ? " backlog-week-over" : ""
+                className={`triage-week${week === thisWeek ? " triage-week-now" : ""}${
+                  over ? " triage-week-over" : ""
                 }`}
                 style={{ gridRow: i + 2, gridColumn: 1 }}
                 title={
@@ -364,12 +364,12 @@ export function BacklogBoard({
                     : `${n} cards`
                 }
               >
-                <span className="backlog-week-date">
+                <span className="triage-week-date">
                   {week === thisWeek ? "this week" : weekLabel(week)}
                 </span>
-                <span className="backlog-count">
+                <span className="triage-count">
                   {n}
-                  {weekLimit > 0 && <span className="backlog-limit"> / {weekLimit}</span>}
+                  {weekLimit > 0 && <span className="triage-limit"> / {weekLimit}</span>}
                 </span>
               </div>
             );
@@ -384,11 +384,11 @@ export function BacklogBoard({
             .map((d) => (
               <div
                 key={`${d.project}/${d.week}`}
-                className="backlog-deadline"
+                className="triage-deadline"
                 style={{ gridRow: weeks.indexOf(d.week) + 2, gridColumn: "1 / -1" }}
                 title={`Deadline of ${d.project}, end of ${weekLabel(d.week)}`}
               >
-                <span className="backlog-deadline-label">⚑ {d.project}</span>
+                <span className="triage-deadline-label">⚑ {d.project}</span>
               </div>
             ))}
         </div>
@@ -397,7 +397,7 @@ export function BacklogBoard({
   );
 
   return (
-    <div className="backlog">
+    <div className="triage">
       <div className="board-toolbar">
         <TeamChips
           label="Team"
@@ -412,7 +412,7 @@ export function BacklogBoard({
         />
         <button
           type="button"
-          className="backlog-capacity"
+          className="triage-capacity"
           title="How many cards the teams on screen close in a week. Click to try a number of your own; it stays in this browser."
           onClick={() => {
             const team = teams[0] ?? "";
@@ -437,14 +437,14 @@ export function BacklogBoard({
         >
           {weekLimit > 0 ? `${weekLimit} / week` : "no limit"}
         </button>
-        <span className="backlog-load">{strip.length} untriaged</span>
+        <span className="triage-load">{strip.length} untriaged</span>
       </div>
-      <SortableBoard<BacklogMeta>
+      <SortableBoard<TriageMeta>
         groups={groups}
         onDrop={handleDrop}
         renderCard={renderCard}
         renderOverlay={(card) => (
-          <BacklogCard card={card} avatars={avatars} names={names} onOpen={() => {}} />
+          <TriageCard card={card} avatars={avatars} names={names} onOpen={() => {}} />
         )}
         renderGroup={renderGroup}
         renderLayout={renderLayout}
@@ -457,7 +457,7 @@ function cellKey(week: string, who: string): string {
   return `cell::${week}::${who}`;
 }
 
-interface BacklogCardProps {
+interface TriageCardProps {
   card: CardModel;
   avatars: Avatars;
   names: Names;
@@ -470,7 +470,7 @@ interface BacklogCardProps {
 // A compact card: the title, what it belongs to, how far it is. The person is
 // the column it stands in, so the avatar is drawn only in the strip, where
 // there are no columns yet.
-function BacklogCard({ card, avatars, names, onOpen, onStretch }: BacklogCardProps) {
+function TriageCard({ card, avatars, names, onOpen, onStretch }: TriageCardProps) {
   const done = isDone(card);
   const progress = done ? 100 : (card.progress ?? 0);
   const who = card.assignees[0];
@@ -480,7 +480,7 @@ function BacklogCard({ card, avatars, names, onOpen, onStretch }: BacklogCardPro
   // gesture asks the board under the pointer rather than measuring rows.
   const [reaching, setReaching] = useState<string | null>(null);
   const weekUnder = (x: number, y: number): string | undefined =>
-    (document.elementFromPoint(x, y)?.closest(".backlog-cell") as HTMLElement | null)?.dataset
+    (document.elementFromPoint(x, y)?.closest(".triage-cell") as HTMLElement | null)?.dataset
       .week;
   const beginStretch = (e: React.PointerEvent) => {
     if (!onStretch) {
@@ -507,43 +507,43 @@ function BacklogCard({ card, avatars, names, onOpen, onStretch }: BacklogCardPro
     : span;
   return (
     <div
-      className={`backlog-card${done ? " backlog-card-done" : ""}${card.overdue ? " backlog-card-late" : ""}${card.stage ? ` backlog-card-${card.stage}` : ""}${card.plan ? ` backlog-card-plan-${card.plan}` : ""}${reaching ? " backlog-card-reaching" : ""}`}
+      className={`triage-card${done ? " triage-card-done" : ""}${card.overdue ? " triage-card-late" : ""}${card.stage ? ` triage-card-${card.stage}` : ""}${card.plan ? ` triage-card-plan-${card.plan}` : ""}${reaching ? " triage-card-reaching" : ""}`}
       onClick={() => onOpen(card)}
       title={reach && reachSpan > 1 ? `${card.title} — ${reachSpan} weeks` : card.title}
     >
-      <div className="backlog-card-row">
-        <span className="backlog-card-title">{card.title}</span>
+      <div className="triage-card-row">
+        <span className="triage-card-title">{card.title}</span>
         {!card.week && who && (
           <Avatar
             login={who}
             avatars={avatars}
             names={names}
-            className="avatar-img backlog-card-avatar"
+            className="avatar-img triage-card-avatar"
           />
         )}
       </div>
-      <div className="backlog-card-row backlog-card-meta">
+      <div className="triage-card-row triage-card-meta">
         {card.epic ? (
           <span
-            className="backlog-card-chip"
+            className="triage-card-chip"
             title={card.project ? `${card.project} · ${card.epic}` : card.epic}
           >
             {card.epic}
           </span>
         ) : card.project ? (
-          <span className="backlog-card-chip">{card.project}</span>
+          <span className="triage-card-chip">{card.project}</span>
         ) : card.task ? (
-          <span className="backlog-card-chip">process</span>
+          <span className="triage-card-chip">process</span>
         ) : null}
-        {card.reviewOf && <span className="backlog-card-chip">review</span>}
-        {reachSpan > 1 && <span className="backlog-card-span">{reachSpan} wk</span>}
-        <span className="backlog-card-bar" aria-label={`${progress}%`}>
+        {card.reviewOf && <span className="triage-card-chip">review</span>}
+        {reachSpan > 1 && <span className="triage-card-span">{reachSpan} wk</span>}
+        <span className="triage-card-bar" aria-label={`${progress}%`}>
           <i style={{ width: `${progress}%` }} />
         </span>
       </div>
       {onStretch && (
         <span
-          className="backlog-card-grip"
+          className="triage-card-grip"
           title="Drag down to stretch the card over more weeks"
           onPointerDown={beginStretch}
           onClick={(e) => e.stopPropagation()}

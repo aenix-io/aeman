@@ -3,11 +3,11 @@
 
 import { mondayOf, todayIso } from "./date";
 
-export type ViewMode = "me" | "team" | "backlog" | "project" | "process";
+export type ViewMode = "me" | "team" | "triage" | "project" | "process";
 
-// BACKLOG_WEEKS is how many weeks the Backlog board asks for, the current
+// TRIAGE_WEEKS is how many weeks the Triage board asks for, the current
 // one included.
-export const BACKLOG_WEEKS = 6;
+export const TRIAGE_WEEKS = 6;
 
 // viewQueries builds the LIST selectors for a board view — possibly several,
 // fetched together and merged. Me is the personal board: the server resolves
@@ -51,11 +51,11 @@ export function viewQueries(
     return [{ view: "project" }];
   }
   const team = teams.join(",");
-  if (view === "backlog") {
+  if (view === "triage") {
     // The weeks ahead of the shown teams, from the current one: the
     // placed cards, the current sprint, the debts and the triage strip
-    // (docs/design/backlog.md). Never a snapshot — it is not a day board.
-    return [{ view: "backlog", team, from: mondayOf(today), weeks: String(BACKLOG_WEEKS) }];
+    // (docs/design/triage.md). Never a snapshot — it is not a day board.
+    return [{ view: "triage", team, from: mondayOf(today), weeks: String(TRIAGE_WEEKS) }];
   }
   return [
     { view: "team", team, day, reviews: "true", ...snap },

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// A card on the Backlog board can be stretched over more than one week, the
+// A card on the Triage board can be stretched over more than one week, the
 // way a Project-board slot is: the week it was placed in is where it starts,
 // and its end date says where it reaches. It occupies every week between —
 // a card stretched over two weeks is two weeks of work, and each of those

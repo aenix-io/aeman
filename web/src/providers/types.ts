@@ -98,8 +98,8 @@ export interface Card {
   leftAt?: string;
   /** Nobody placed the card in a week and it is not being worked (B3). */
   triage?: boolean;
-  /** The Monday of the Backlog column the card stands in (B5). */
-  backlogWeek?: string;
+  /** The Monday of the Triage column the card stands in (B5). */
+  triageWeek?: string;
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -146,9 +146,9 @@ export interface NewCardInput {
 export interface SprintState {
   current: string | null;
   previous: string | null;
-  /** The team's cards a week and the lanes' shares, for the Backlog board;
+  /** The team's cards a week and the lanes' shares, for the Triage board;
    *  derived from the last four weeks' done cards when the roster has no
-   *  number (docs/design/backlog.md). */
+   *  number (docs/design/triage.md). */
   capacity?: { week: number; client: number; internal: number; derived: boolean };
 }
 
@@ -372,9 +372,9 @@ export interface Provider {
   ): Promise<Card>;
   /** Release a card from the weekly plan (the plan-band × semantics). */
   releaseFromPlan(uid: string): Promise<Card>;
-  /** Place a card in a week of the Backlog board — which is what triaging it
+  /** Place a card in a week of the Triage board — which is what triaging it
    *  means. The band belongs to the weekly plan and only its own drop sets
-   *  one (docs/design/backlog.md). */
+   *  one (docs/design/triage.md). */
   placeCard(uid: string, week: string, band?: "wed" | "fri"): Promise<Card>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;

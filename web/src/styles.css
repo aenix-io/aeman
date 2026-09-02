@@ -103,7 +103,7 @@
   --zone-gray-bg: #f3f4f6;
   --zone-green-accent: #3fb950;
   --zone-green-bg: #eafaef;
-  /* The Backlog board's internal lane (docs/design/backlog.md): work
+  /* The Triage board's internal lane (docs/design/triage.md): work
      nobody outside asked for. No day-board zone means the same thing, so
      it carries its own blue rather than borrowing a zone's colour. */
   --lane-internal-accent: #1f6feb;
@@ -4757,28 +4757,28 @@ button.card-age {
   color: var(--danger);
 }
 
-/* ---- Backlog ---- */
-/* Who does what, and in which week (docs/design/backlog.md). The strip on
+/* ---- Triage ---- */
+/* Who does what, and in which week (docs/design/triage.md). The strip on
    the left holds what nobody has given a week; the grid on the right is the
    Project board's shape with people across and weeks down. */
-.backlog {
+.triage {
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
 }
 
-.backlog .board-toolbar {
+.triage .board-toolbar {
   flex: none;
 }
 
-.backlog-load {
+.triage-load {
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-.backlog-capacity {
+.triage-capacity {
   font: inherit;
   font-size: 12px;
   color: var(--fg);
@@ -4789,11 +4789,11 @@ button.card-age {
   cursor: pointer;
 }
 
-.backlog-capacity:hover {
+.triage-capacity:hover {
   border-color: var(--line);
 }
 
-.backlog-body {
+.triage-body {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -4801,7 +4801,7 @@ button.card-age {
 }
 
 /* The strip: one column of cards, its own scroll, always in reach. */
-.backlog-triage {
+.triage-triage {
   flex: none;
   width: 260px;
   display: flex;
@@ -4811,7 +4811,7 @@ button.card-age {
   background: var(--bg-soft);
 }
 
-.backlog-triage-head {
+.triage-triage-head {
   flex: none;
   display: flex;
   justify-content: space-between;
@@ -4823,7 +4823,7 @@ button.card-age {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.backlog-triage-cards {
+.triage-triage-cards {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -4833,14 +4833,14 @@ button.card-age {
   padding: 8px;
 }
 
-.backlog-empty {
+.triage-empty {
   color: var(--faint);
   font-size: 11px;
   font-style: italic;
   padding: 4px;
 }
 
-.backlog-scroll {
+.triage-scroll {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -4848,15 +4848,15 @@ button.card-age {
   padding: 0 14px 40px;
 }
 
-.backlog-grid {
+.triage-grid {
   display: grid;
   min-width: min-content;
   position: relative;
 }
 
 /* The header row of people and the label column of weeks both stay put. */
-.backlog-corner,
-.backlog-person {
+.triage-corner,
+.triage-person {
   position: sticky;
   top: 0;
   z-index: 8;
@@ -4864,12 +4864,12 @@ button.card-age {
   border-bottom: 1px solid var(--line);
 }
 
-.backlog-corner {
+.triage-corner {
   left: 0;
   z-index: 9;
 }
 
-.backlog-person {
+.triage-person {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -4879,17 +4879,17 @@ button.card-age {
   white-space: nowrap;
 }
 
-.backlog-person-name {
+.triage-person-name {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.backlog-person-none {
+.triage-person-none {
   color: var(--faint);
   font-style: italic;
 }
 
-.backlog-week {
+.triage-week {
   position: sticky;
   left: 0;
   z-index: 5;
@@ -4906,26 +4906,26 @@ button.card-age {
   font-variant-numeric: tabular-nums;
 }
 
-.backlog-week-now {
+.triage-week-now {
   color: var(--accent);
   font-weight: 700;
 }
 
-.backlog-week-over .backlog-count {
+.triage-week-over .triage-count {
   color: var(--danger);
   font-weight: 700;
 }
 
-.backlog-count {
+.triage-count {
   font-variant-numeric: tabular-nums;
 }
 
-.backlog-limit {
+.triage-limit {
   color: var(--faint);
   font-weight: 400;
 }
 
-.backlog-cell {
+.triage-cell {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -4934,18 +4934,18 @@ button.card-age {
   border-right: 1px solid var(--line-soft);
 }
 
-.backlog-cell-now {
+.triage-cell-now {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
-.backlog-dragover {
+.triage-dragover {
   outline: 2px dashed var(--dragover-outline);
   outline-offset: -2px;
 }
 
 /* A week a stretched card reaches into: the work is there, drawn once in the
    week it starts in, and the tint says the rest of it is running here. */
-.backlog-cell-reached {
+.triage-cell-reached {
   background-image: repeating-linear-gradient(
     135deg,
     color-mix(in srgb, var(--accent) 8%, transparent) 0 6px,
@@ -4955,7 +4955,7 @@ button.card-age {
 
 /* The grip: the card's bottom edge, pulled down to stretch it over more
    weeks — the Project board's gesture, on a card that is not a slot. */
-.backlog-card-grip {
+.triage-card-grip {
   position: absolute;
   left: 8px;
   right: 8px;
@@ -4967,18 +4967,18 @@ button.card-age {
   opacity: 0;
 }
 
-.backlog-card:hover .backlog-card-grip {
+.triage-card:hover .triage-card-grip {
   opacity: 1;
   background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-.backlog-card-reaching {
+.triage-card-reaching {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
 
 /* How many weeks the card is stretched over. */
-.backlog-card-span {
+.triage-card-span {
   flex: none;
   padding: 0 4px;
   border-radius: 3px;
@@ -4990,7 +4990,7 @@ button.card-age {
 
 /* A deadline lies along the bottom of the week it falls in, across every
    person: what stands above it is what has to be done by then. */
-.backlog-deadline {
+.triage-deadline {
   position: relative;
   align-self: end;
   height: 0;
@@ -4999,7 +4999,7 @@ button.card-age {
   z-index: 6;
 }
 
-.backlog-deadline-label {
+.triage-deadline-label {
   position: absolute;
   left: 100px;
   bottom: 2px;
@@ -5013,7 +5013,7 @@ button.card-age {
 }
 
 /* The card: title, what it belongs to, how far it is. */
-.backlog-card {
+.triage-card {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -5029,15 +5029,15 @@ button.card-age {
   cursor: grab;
 }
 
-.backlog-card:hover {
+.triage-card:hover {
   border-color: var(--line);
 }
 
 /* The band line the weekly panel draws, on the same card here: a card owed
    by Wednesday is not a card owed by Friday, whatever week it stands in. */
-.backlog-card-plan-wed::before,
-.backlog-card-plan-fri::before,
-.backlog-card-review::before {
+.triage-card-plan-wed::before,
+.triage-card-plan-fri::before,
+.triage-card-review::before {
   content: "";
   position: absolute;
   left: 0;
@@ -5047,48 +5047,48 @@ button.card-age {
   border-radius: 3px 0 0 3px;
 }
 
-.backlog-card-plan-wed::before {
+.triage-card-plan-wed::before {
   background: var(--band-wed);
 }
 
-.backlog-card-plan-fri::before {
+.triage-card-plan-fri::before {
   background: var(--band-fri);
 }
 
-.backlog-card-review::before {
+.triage-card-review::before {
   background: var(--stage-review);
 }
 
-.backlog-card-late.backlog-card-plan-wed::before,
-.backlog-card-late.backlog-card-plan-fri::before {
+.triage-card-late.triage-card-plan-wed::before,
+.triage-card-late.triage-card-plan-fri::before {
   background: var(--danger);
 }
 
-.backlog-card-plan-wed,
-.backlog-card-plan-fri,
-.backlog-card-review {
+.triage-card-plan-wed,
+.triage-card-plan-fri,
+.triage-card-review {
   padding-left: 8px;
 }
 
-.backlog-card-done {
+.triage-card-done {
   opacity: 0.55;
 }
 
-.backlog-card-late {
+.triage-card-late {
   border-left: 3px solid var(--danger);
 }
 
-.backlog-card-locked {
+.triage-card-locked {
   border-left: 3px solid var(--stage-locked);
 }
 
-.backlog-card-row {
+.triage-card-row {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.backlog-card-title {
+.triage-card-title {
   flex: 1;
   overflow: hidden;
   display: -webkit-box;
@@ -5096,18 +5096,18 @@ button.card-age {
   -webkit-box-orient: vertical;
 }
 
-.backlog-card-avatar {
+.triage-card-avatar {
   width: 16px;
   height: 16px;
   font-size: 8px;
   flex: none;
 }
 
-.backlog-card-meta {
+.triage-card-meta {
   min-height: 14px;
 }
 
-.backlog-card-chip {
+.triage-card-chip {
   flex: none;
   max-width: 130px;
   overflow: hidden;
@@ -5120,7 +5120,7 @@ button.card-age {
   background: var(--bg-soft);
 }
 
-.backlog-card-bar {
+.triage-card-bar {
   flex: 1;
   height: 3px;
   border-radius: 2px;
@@ -5128,13 +5128,13 @@ button.card-age {
   background: var(--line-soft);
 }
 
-.backlog-card-bar i {
+.triage-card-bar i {
   display: block;
   height: 100%;
   background: var(--accent);
 }
 
-.dnd-overlay .backlog-card {
+.dnd-overlay .triage-card {
   width: 230px;
   box-shadow: 0 8px 20px var(--elev-3);
   cursor: grabbing;

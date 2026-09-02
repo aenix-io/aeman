@@ -84,8 +84,8 @@ export interface CardResource {
     leftAt?: string;
     /** Nobody placed the card in a week and it is not being worked. */
     triage?: boolean;
-    /** The Monday of the Backlog column the card stands in. */
-    backlogWeek?: string;
+    /** The Monday of the Triage column the card stands in. */
+    triageWeek?: string;
     links?: {
       kind: string;
       url: string;
@@ -226,7 +226,7 @@ export function resourceToCard(res: CardResource): Card {
     doneAt: res.status?.doneAt || undefined,
     leftAt: res.status?.leftAt || undefined,
     triage: res.status?.triage || undefined,
-    backlogWeek: res.status?.backlogWeek || undefined,
+    triageWeek: res.status?.triageWeek || undefined,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,

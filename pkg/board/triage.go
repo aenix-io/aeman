@@ -1,7 +1,7 @@
 package board
 
-// The Backlog board: the weekly plan seen several weeks ahead, with a limit
-// on each week (docs/design/backlog.md). A card in the backlog is a
+// The Triage board: the weekly plan seen several weeks ahead, with a limit
+// on each week (docs/design/triage.md). A card in the backlog is a
 // weekly-plan card placed in a week ahead; nothing here is stored beyond the
 // card's own week and lane and the team's capacity.
 
@@ -28,12 +28,12 @@ func NeedsTriage(_ Board, c Card, _ string) bool {
 	return !Complete(c.Stage, c.Progress)
 }
 
-// BacklogWeekOf is the Monday of the column a card stands in on the Backlog
+// TriageWeekOf is the Monday of the column a card stands in on the Triage
 // board — its week, and nothing else. A card with no week stands in no
 // column: it is in the strip, waiting for someone to say when.
-func BacklogWeekOf(_ Board, c Card, _ string) string { return c.Week }
+func TriageWeekOf(_ Board, c Card, _ string) string { return c.Week }
 
-// WeeksCovered is every week a card occupies on the Backlog board: the week
+// WeeksCovered is every week a card occupies on the Triage board: the week
 // it was placed in, through the week its end date reaches. Stretching a card
 // over three weeks says the work takes three weeks, and each of them counts
 // it against what the team can do — a stretched card is not one week of work
