@@ -258,6 +258,29 @@ describe("the Triage board", () => {
     expect(html).toContain("Sent to review");
   });
 
+  it("offers every column to be dragged into another place", () => {
+    expect(draw([card()])).toContain("project-epic-head-movable");
+  });
+
+  it("puts the columns in the order the reader dragged them into", () => {
+    store.set("aeman.triage.people", JSON.stringify(["lexfrei", " nobody"]));
+    const html = draw([card(), card({ itemId: "c2", assignees: [] })]);
+    store.delete("aeman.triage.people");
+    expect(html.indexOf("lexfrei")).toBeLessThan(html.indexOf("Unassigned"));
+  });
+
+  it("joins somebody the reader has never seen to the end, disturbing nothing", () => {
+    store.set("aeman.triage.people", JSON.stringify(["lexfrei", " nobody"]));
+    const html = draw([
+      card(),
+      card({ itemId: "c2", assignees: [] }),
+      card({ itemId: "c3", assignees: ["newcomer"] }),
+    ]);
+    store.delete("aeman.triage.people");
+    expect(html.indexOf("lexfrei")).toBeLessThan(html.indexOf("Unassigned"));
+    expect(html.indexOf("Unassigned")).toBeLessThan(html.indexOf("newcomer"));
+  });
+
   it("gives a column to every person, with the unassigned first", () => {
     const html = draw([card(), card({ itemId: "c2", assignees: [] })]);
     expect(html).toContain("Unassigned");
