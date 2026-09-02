@@ -16,6 +16,7 @@ import {
 import type { Board, Card as CardModel } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
+import { BacklogBoard } from "./components/BacklogBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { ProcessBoard } from "./components/ProcessBoard";
 import { TeamsModal } from "./components/TeamsModal";
@@ -48,7 +49,7 @@ const waitingAfterMs = 300;
 const SNAPSHOT_FROZEN =
   "This is the board as it was that day — go back to today to change anything.";
 
-type ViewMode = "me" | "team" | "project" | "process";
+type ViewMode = "me" | "team" | "backlog" | "project" | "process";
 
 const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
@@ -66,6 +67,9 @@ function readView(): ViewMode {
   }
   if (raw === "process") {
     return "process";
+  }
+  if (raw === "backlog") {
+    return "backlog";
   }
   return "me";
 }
@@ -1382,6 +1386,15 @@ export function App() {
           <button
             type="button"
             role="tab"
+            aria-selected={view === "backlog"}
+            className={`segment${view === "backlog" ? " segment-active" : ""}`}
+            onClick={() => setView("backlog")}
+          >
+            Backlog
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={view === "project"}
             className={`segment${view === "project" ? " segment-active" : ""}`}
             onClick={() => setView("project")}
@@ -1468,6 +1481,21 @@ export function App() {
             onManageProjects={() => setManagingProjects(true)}
             avatars={avatars}
             names={names}
+            onError={onError}
+          />
+        )}
+        {board && view === "backlog" && (
+          <BacklogBoard
+            board={board}
+            provider={provider}
+            roster={roster}
+            teamFilter={teamFilter}
+            onSetFilter={setTeamFilter}
+            avatars={avatars}
+            names={names}
+            patchCard={patchCard}
+            addCard={addCard}
+            onOpen={(c) => setDetailCard(c)}
             onError={onError}
           />
         )}

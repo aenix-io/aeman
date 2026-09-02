@@ -6,6 +6,7 @@
 
 import type {
   Card,
+  Lane,
   Note,
   SprintState,
   StageKey,
@@ -82,6 +83,12 @@ export interface CardResource {
     /** The board day the card reached done (yyyy-mm-dd); cleared on reopen. */
     doneAt?: string;
     leftAt?: string;
+    /** Where the card's work came from — derived or stored (backlog.md). */
+    lane?: string;
+    /** Nobody placed the card in a week and it is not being worked. */
+    triage?: boolean;
+    /** The Monday of the Backlog column the card stands in. */
+    backlogWeek?: string;
     links?: {
       kind: string;
       url: string;
@@ -95,7 +102,11 @@ export interface CardResource {
 export interface SprintResource {
   kind: string;
   metadata: { team: string };
-  spec: { current?: string; previous?: string };
+  spec: {
+    current?: string;
+    previous?: string;
+    capacity?: { week: number; client: number; internal: number; derived: boolean };
+  };
 }
 
 export interface NoteResource {
@@ -191,6 +202,10 @@ const STAGE_KEYS: Record<string, StageKey> = {
   done: "done",
 };
 
+function laneFrom(v: string | undefined): Lane | undefined {
+  return v === "client" || v === "plan" || v === "internal" ? v : undefined;
+}
+
 /** resourceToCard flattens a Card resource onto the internal Card model.
  * Notes are not part of the resource — they load from the notes subresource
  * and are preserved separately by the board's upsert. */
@@ -217,6 +232,9 @@ export function resourceToCard(res: CardResource): Card {
     asOf: res.status?.asOf,
     doneAt: res.status?.doneAt || undefined,
     leftAt: res.status?.leftAt || undefined,
+    lane: laneFrom(res.status?.lane),
+    triage: res.status?.triage || undefined,
+    backlogWeek: res.status?.backlogWeek || undefined,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,
@@ -259,6 +277,7 @@ export function sprintStateFrom(res: SprintResource): SprintState {
   return {
     current: res.spec.current || null,
     previous: res.spec.previous || null,
+    capacity: res.spec.capacity,
   };
 }
 

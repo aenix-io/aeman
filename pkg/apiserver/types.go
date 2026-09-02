@@ -130,6 +130,15 @@ type CardStatus struct {
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
 	DoneAt string `json:"doneAt,omitempty"`
+	// Lane is where the card's work came from — derived from its links or
+	// read off the card (board.LaneOf); empty is a card nobody placed.
+	Lane string `json:"lane,omitempty"`
+	// Triage marks a card the Backlog board's strip holds: nobody placed
+	// it in a week and it is not being worked (B3).
+	Triage bool `json:"triage,omitempty"`
+	// BacklogWeek is the Monday of the column the card stands in on the
+	// Backlog board, when it stands in one (B5).
+	BacklogWeek string `json:"backlogWeek,omitempty"`
 	// LeftAt is the board day the × took the card off. On a personal card
 	// that is a live rule — the board shows it that day and before, not
 	// after; on a team card the × demotes into the previous sprint and this
@@ -170,6 +179,18 @@ type SprintMetadata struct {
 type SprintSpec struct {
 	Current  string `json:"current,omitempty"`
 	Previous string `json:"previous,omitempty"`
+	// Capacity is the team's cards a week and the lanes' shares, for the
+	// Backlog board — the roster's number, or one derived from the cards
+	// done in the last four weeks (Derived says which; B7).
+	Capacity *SprintCapacity `json:"capacity,omitempty"`
+}
+
+// SprintCapacity is a team's capacity as the API states it.
+type SprintCapacity struct {
+	Week     int  `json:"week"`
+	Client   int  `json:"client"`
+	Internal int  `json:"internal"`
+	Derived  bool `json:"derived"`
 }
 
 // Note is a work note as an API resource, a subresource of a card.
@@ -443,6 +464,9 @@ func CardResource(b board.Board, c board.Card) Card {
 		Domain:      c.Domain,
 		DoneAt:      c.DoneAt,
 		LeftAt:      c.LeftAt,
+		Lane:        string(board.LaneOf(b, c)),
+		Triage:      board.NeedsTriage(b, c, board.TodayIso()),
+		BacklogWeek: board.BacklogWeekOf(b, c, board.TodayIso()),
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a
@@ -485,10 +509,12 @@ func SprintResources(b board.Board) []Sprint {
 	out := make([]Sprint, 0, len(teams))
 	for _, t := range teams {
 		st := b.SprintStates[t]
+		cap, derived := board.CapacityOf(b, t, board.TodayIso())
 		out = append(out, Sprint{
 			Kind:     "Sprint",
 			Metadata: SprintMetadata{Team: t},
-			Spec:     SprintSpec{Current: st.Current, Previous: st.Previous},
+			Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
+				Capacity: &SprintCapacity{Week: cap.Week, Client: cap.Client, Internal: cap.Internal, Derived: derived}},
 		})
 	}
 	return out

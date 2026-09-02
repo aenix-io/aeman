@@ -21,6 +21,11 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
+		// A card placed in a week ahead is in the backlog, not on any day,
+		// until its Monday (B1).
+		if PlacedAhead(c, today) {
+			continue
+		}
 		// An epic card lives on the Project board until it joins a sprint (see
 		// MeView) — its multi-week span must not smear across the day grid.
 		// The COLUMN is what keeps it there, and a column needs the epic
@@ -106,6 +111,10 @@ func MeView(b Board, user, day string) []Card {
 			continue
 		}
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {
+			continue
+		}
+		// A card placed in a week ahead waits in the backlog (B1).
+		if PlacedAhead(c, today) {
 			continue
 		}
 		// A deferred / future-scheduled card (startDate past today) is hidden

@@ -125,9 +125,9 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User, Week: in.Week,
 		Project: in.Project, Assignee: in.Assignee, Focus: in.Focus}
 	switch sel.View {
-	case "", "all", "team", "me", "personal", "weekly", "project":
+	case "", "all", "team", "me", "personal", "weekly", "project", "backlog":
 	default:
-		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use all, team, me, personal, weekly or project)", sel.View)
+		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use all, team, me, personal, weekly, project or backlog)", sel.View)
 	}
 	// An unspecified view defaults to the caller's personal Me board (their own
 	// cards); Team is the lead view and view=all is the whole board. "Who am I"

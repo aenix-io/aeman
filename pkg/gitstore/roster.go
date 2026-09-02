@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // The roster — teams, projects, epics, deadlines, processes and the board
@@ -131,11 +133,12 @@ type SprintPointer struct {
 
 // TeamFile is teams/<id>.yaml.
 type TeamFile struct {
-	Name    string
-	Rank    string
-	Created string
-	Sprint  SprintPointer
-	Extra   []ExtraField
+	Name     string
+	Rank     string
+	Created  string
+	Sprint   SprintPointer
+	Capacity board.Capacity
+	Extra    []ExtraField
 }
 
 // ProjectFile is projects/<id>/project.yaml.
@@ -223,6 +226,17 @@ func EncodeTeam(f TeamFile) ([]byte, error) {
 		}
 		if f.Sprint.Previous != "" {
 			w.b.WriteString("  previous: " + scalar(f.Sprint.Previous) + "\n")
+		}
+	}
+	if f.Capacity != (board.Capacity{}) {
+		w.b.WriteString("capacity:\n")
+		for _, kv := range []struct {
+			k string
+			v int
+		}{{"week", f.Capacity.Week}, {"client", f.Capacity.Client}, {"internal", f.Capacity.Internal}} {
+			if kv.v != 0 {
+				w.b.WriteString("  " + kv.k + ": " + strconv.Itoa(kv.v) + "\n")
+			}
 		}
 	}
 	return w.finish(f.Extra)
@@ -352,6 +366,18 @@ func DecodeTeam(data []byte) (TeamFile, error) {
 					f.Sprint.Current = val.Content[i+1].Value
 				case "previous":
 					f.Sprint.Previous = val.Content[i+1].Value
+				}
+			}
+		case "capacity":
+			for i := 0; i+1 < len(val.Content); i += 2 {
+				n, _ := strconv.Atoi(val.Content[i+1].Value)
+				switch val.Content[i].Value {
+				case "week":
+					f.Capacity.Week = n
+				case "client":
+					f.Capacity.Client = n
+				case "internal":
+					f.Capacity.Internal = n
 				}
 			}
 		default:

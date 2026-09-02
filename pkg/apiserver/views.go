@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -25,6 +26,10 @@ type Selector struct {
 	// Week is the plan week (a Monday) for the weekly view (defaults to the
 	// current week).
 	Week string
+	// From and Weeks bound the backlog view: the columns from the Monday
+	// From (defaults to the current week) for Weeks weeks (defaults to 6).
+	From  string
+	Weeks int
 	// Project filters the project view to one project's epic columns. Empty
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
@@ -75,6 +80,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Day:            q.Get("day"),
 		User:           q.Get("user"),
 		Week:           q.Get("week"),
+		From:           q.Get("from"),
 		Assignee:       q.Get("assignee"),
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
 		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
@@ -97,8 +103,15 @@ func ParseSelector(q url.Values) (Selector, error) {
 		v := q.Get("zone")
 		sel.Zone = &v
 	}
+	if w := q.Get("weeks"); w != "" {
+		n, err := strconv.Atoi(w)
+		if err != nil || n < 1 || n > 26 {
+			return Selector{}, fmt.Errorf("weeks %q: want 1..26", w)
+		}
+		sel.Weeks = n
+	}
 	switch sel.View {
-	case "", "all", "team", "me", "personal", "weekly", "project":
+	case "", "all", "team", "me", "personal", "weekly", "project", "backlog":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -114,6 +127,14 @@ func (s Selector) normalized() Selector {
 	}
 	if s.View == "weekly" && s.Week == "" {
 		s.Week = board.MondayOf(board.TodayIso())
+	}
+	if s.View == "backlog" {
+		if s.From == "" {
+			s.From = board.MondayOf(board.TodayIso())
+		}
+		if s.Weeks == 0 {
+			s.Weeks = 6
+		}
 	}
 	return s
 }
@@ -177,6 +198,33 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 					seen[c.ItemID] = true
 					base = append(base, c)
 				}
+			}
+		}
+	case "backlog":
+		// The Backlog board: the teams' cards placed in the weeks asked for,
+		// the current sprint (the current week's column), the debts owed
+		// from earlier weeks (they stand in the current column too), and
+		// the cards nobody placed — the triage strip (B3, B5).
+		today := board.TodayIso()
+		until := board.AddDays(sel.From, 7*sel.Weeks)
+		for _, c := range b.Cards {
+			if c.Parent != "" || board.IsStateTitle(c.Title) || board.IsPersonalDomain(c.Domain) {
+				continue
+			}
+			if !teamInSet(c.Team, sel.Team) {
+				continue
+			}
+			if board.NeedsTriage(b, c, today) {
+				base = append(base, c)
+				continue
+			}
+			w := board.BacklogWeekOf(b, c, today)
+			if w == "" {
+				continue
+			}
+			open := !board.Complete(c.Stage, c.Progress)
+			if (w >= sel.From && w < until) || (open && w < board.MondayOf(today) && sel.From <= board.MondayOf(today)) {
+				base = append(base, c)
 			}
 		}
 	default:

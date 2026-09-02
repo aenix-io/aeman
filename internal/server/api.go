@@ -69,6 +69,8 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-reviewer", s.handleRemoveReviewer)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/take-into-plan", s.handleTakeIntoPlan)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/release-from-plan", s.handleReleaseFromPlan)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/place", s.handlePlaceCard)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/untriage", s.handleUntriageCard)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/links", s.handleListLinks)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/log", s.handleCardLog)
 	mux.HandleFunc("GET /api/v1/logs", s.handleDayLogs)
@@ -1095,6 +1097,56 @@ func (s *Server) handleTakeIntoPlan(w http.ResponseWriter, r *http.Request) {
 	s.cardResponse(w, r, svc, boardID, uid)
 }
 
+// handlePlaceCard puts a card in a week of the Backlog board, and in a lane
+// (docs/design/backlog.md). {week, lane, band}: an empty week changes the
+// lane alone.
+func (s *Server) handlePlaceCard(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Week string `json:"week"`
+		Lane string `json:"lane"`
+		Band string `json:"band"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	switch board.Lane(in.Lane) {
+	case board.LaneNone, board.LaneClient, board.LanePlan, board.LaneInternal:
+	default:
+		writeJSONError(w, http.StatusUnprocessableEntity, "lane: want client, plan or internal")
+		return
+	}
+	switch board.PlanBand(in.Band) {
+	case board.PlanNone, board.PlanWed, board.PlanFri:
+	default:
+		writeJSONError(w, http.StatusUnprocessableEntity, "band: want wed or fri")
+		return
+	}
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	uid := r.PathValue("uid")
+	if err := svc.Place(r.Context(), boardID, uid, in.Week, board.Lane(in.Lane), board.PlanBand(in.Band)); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	s.cardResponse(w, r, svc, boardID, uid)
+}
+
+// handleUntriageCard takes a card out of every week — back to the strip.
+func (s *Server) handleUntriageCard(w http.ResponseWriter, r *http.Request) {
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	uid := r.PathValue("uid")
+	if err := svc.Untriage(r.Context(), boardID, uid); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	s.cardResponse(w, r, svc, boardID, uid)
+}
+
 func (s *Server) handleReleaseFromPlan(w http.ResponseWriter, r *http.Request) {
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
@@ -2009,6 +2061,8 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProjectExists),
 		errors.Is(err, boardservice.ErrProjectNotFound),
 		errors.Is(err, boardservice.ErrWeekDerived),
+		errors.Is(err, boardservice.ErrLaneDerived),
+		errors.Is(err, boardservice.ErrNotAMonday),
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrTurnProcess),

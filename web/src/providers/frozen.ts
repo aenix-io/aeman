@@ -49,6 +49,8 @@ const CARD_WRITES = new Set([
   "removeReviewer",
   "takeIntoPlan",
   "releaseFromPlan",
+  "placeCard",
+  "untriageCard",
   "mirrorCard",
   "unmirrorCard",
   "removeFromProject",

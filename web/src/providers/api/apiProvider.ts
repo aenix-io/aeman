@@ -28,6 +28,7 @@ import type {
   CardLog,
   CardPatch,
   CarryReport,
+  Lane,
   NewCardInput,
   Note,
   ProcessInfo,
@@ -443,6 +444,20 @@ export const apiProvider: Provider = {
       zone: semanticZone(zone),
       day: day ?? "",
     });
+  },
+
+  async placeCard(uid: string, week: string, lane?: Lane, band?: "wed" | "fri"): Promise<Card> {
+    uid = await resolveCardId(uid);
+    return cardFrom("POST", `/cards/${uid}/actions/place`, {
+      week,
+      lane: lane ?? "",
+      band: band ?? "",
+    });
+  },
+
+  async untriageCard(uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
+    return cardFrom("POST", `/cards/${uid}/actions/untriage`, {});
   },
 
   async releaseFromPlan(uid: string): Promise<Card> {

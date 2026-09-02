@@ -838,6 +838,15 @@ func (mb *MultiBackend) SetPlan(ctx context.Context, bd board.Board, card board.
 	return be.SetPlan(ctx, bd, card, plan)
 }
 
+// SetLane writes in the card's domain.
+func (mb *MultiBackend) SetLane(ctx context.Context, bd board.Board, card board.Card, lane board.Lane) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetLane(ctx, bd, card, lane)
+}
+
 // SetWeek writes in the card's (or deadline's) domain.
 func (mb *MultiBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
 	be, err := mb.route(ctx, card)

@@ -328,6 +328,14 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	}
 	cards = append(cards, s.Cards...)
 	bd := board.NewBoardIn(primary, cards)
+	// The team's capacity rides its state, not a state card: the card only
+	// carries the sprint, and the number belongs beside it.
+	for _, t := range s.Teams {
+		if st, ok := bd.SprintStates[t.Name]; ok && t.Capacity != (board.Capacity{}) {
+			st.Capacity = t.Capacity
+			bd.SprintStates[t.Name] = st
+		}
+	}
 	bd.Title = s.Board.Title
 	return bd
 }
@@ -1079,6 +1087,11 @@ func (b *Backend) SetSprintStart(ctx context.Context, _ board.Board, card board.
 // SetPlan sets or clears the weekly-plan band.
 func (b *Backend) SetPlan(ctx context.Context, _ board.Board, card board.Card, plan board.PlanBand) error {
 	return b.editCard(ctx, "plan", card, func(f *CardFile) { f.Card.Plan = plan })
+}
+
+// SetLane sets or clears the stored lane.
+func (b *Backend) SetLane(ctx context.Context, _ board.Board, card board.Card, lane board.Lane) error {
+	return b.editCard(ctx, "lane", card, func(f *CardFile) { f.Card.Lane = lane })
 }
 
 // SetWeek sets the week — of a card, or of a deadline stub.

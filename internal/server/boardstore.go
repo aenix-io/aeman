@@ -1705,6 +1705,15 @@ func (b *storeBackend) SetPlan(ctx context.Context, bd board.Board, card board.C
 	return nil
 }
 
+func (b *storeBackend) SetLane(ctx context.Context, bd board.Board, card board.Card, lane board.Lane) error {
+	b.mutateCard(ctx, bd, card.ItemID, "lane", "set the lane on "+cardRef(card), func(c *board.Card) {
+		c.Lane = lane
+	}, func(ctx context.Context) error {
+		return b.inner.SetLane(ctx, bd, card, lane)
+	})
+	return nil
+}
+
 func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
 	if card.Title == board.DeadlineStateTitle {
 		// Dragging the line: its card is not in the cached card list, so the

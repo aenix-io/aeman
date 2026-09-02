@@ -366,6 +366,13 @@ func (v *visibleBackend) SetPlan(ctx context.Context, bd board.Board, card board
 	return v.Backend.SetPlan(ctx, bd, card, plan)
 }
 
+func (v *visibleBackend) SetLane(ctx context.Context, bd board.Board, card board.Card, lane board.Lane) error {
+	if err := v.write(ctx, bd, card); err != nil {
+		return err
+	}
+	return v.Backend.SetLane(ctx, bd, card, lane)
+}
+
 func (v *visibleBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
 	if err := v.write(ctx, bd, card); err != nil {
 		return err
