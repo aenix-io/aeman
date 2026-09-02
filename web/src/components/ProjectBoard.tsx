@@ -1026,7 +1026,7 @@ export function ProjectBoard({
         }
       }
       const list = byCol.get(k) ?? [];
-      list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stackable: false });
+      list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 });
       byCol.set(k, list);
       // A mirrored card stands in every one of its columns: the same entry,
       // the same shared dates, once per placement — except while THIS card
@@ -1035,7 +1035,7 @@ export function ProjectBoard({
         for (const mi of c.mirrors ?? []) {
           const mk = colKey(mi.project, mi.epic);
           const ml = byCol.get(mk) ?? [];
-          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stackable: false });
+          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 });
           byCol.set(mk, ml);
         }
       }
@@ -1056,7 +1056,8 @@ export function ProjectBoard({
             lane: 0,
             lanes: 1,
             width: 1,
-            stackable: false,
+            stack: 0,
+            stacked: 1,
           });
           rest.set(rk, rl);
         }
@@ -1069,7 +1070,8 @@ export function ProjectBoard({
         card: null,
         row: draft.from,
         span: draft.to - draft.from + 1,
-        stackable: false,
+        stack: 0,
+            stacked: 1,
         lane: 0,
         lanes: 1,
         width: 1,
@@ -1083,7 +1085,7 @@ export function ProjectBoard({
     if (rest && drag?.resize) {
       const held = drag.resize.itemId;
       const is = (s: Slot) => s.card?.itemId === held;
-      packLanes(rest.values());
+      packLanes(rest.values(), undefined, grid.rowFit);
       for (const list of rest.values()) {
         const own = list.find(is);
         if (own) {
@@ -1094,9 +1096,9 @@ export function ProjectBoard({
         }
       }
     }
-    packLanes(byCol.values(), pin);
+    packLanes(byCol.values(), pin, grid.rowFit);
     return byCol;
-  }, [cards, weeks, draft, move, drag]);
+  }, [cards, weeks, draft, move, drag, grid.rowFit]);
 
 
   // One index of the board, for the rules that need to look a parent up.
@@ -1541,7 +1543,7 @@ export function ProjectBoard({
         {epics.map((e, col) =>
           (slots.get(colKey(e.project, e.name)) ?? [])
             .filter((s): s is typeof s & { card: CardModel } => s.card !== null)
-            .map(({ card, row, span, lane, lanes, width: laneWidth, stackable }) => (
+            .map(({ card, row, span, lane, lanes, width: laneWidth, stack, stacked }) => (
             <div
               key={`${colKey(e.project, e.name)}\u0000${card.itemId}`}
               className={`project-slot ${slotTone(card, today)}${
@@ -1628,7 +1630,7 @@ export function ProjectBoard({
                 // margin cannot shrink that — the step aside has to come out
                 // of the width itself, or such a card never moves.
                 ...laneStyle(
-                  { row, span, lane, lanes, width: laneWidth, stackable },
+                  { row, span, lane, lanes, width: laneWidth, stack, stacked },
                   grid.rowFit,
                   grid.rowH,
                   nudged === card.itemId ? NUDGE_PX : 0,

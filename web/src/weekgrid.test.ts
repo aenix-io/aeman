@@ -228,7 +228,8 @@ describe("packLanes", () => {
     lane: 0,
     lanes: 1,
     width: 1,
-    stackable: false,
+    stack: 0,
+            stacked: 1,
   });
   /** How the column reads once packed: who sits where, out of how many, and
    *  how wide. */
@@ -301,25 +302,6 @@ describe("packLanes", () => {
     expect(packed(right)).toEqual([["c", 0, 1, 1]]);
   });
 
-  it("says a cluster may be stacked when every card in it stands in one week", () => {
-    const list = [slot("a", 0, 1), slot("b", 0, 1), slot("late", 5, 1)];
-    packLanes([list]);
-    expect(list.map((s) => s.stackable)).toEqual([true, true, true]);
-  });
-
-  it("refuses to stack a cluster holding a card that reaches into another week", () => {
-    // "long" is one tall rectangle; its band here and its band in the next
-    // week are not adjacent, so the whole cluster stands side by side. The
-    // card five weeks later is a cluster of its own and keeps the choice.
-    const list = [slot("long", 0, 2), slot("beside", 0, 1), slot("late", 5, 1)];
-    packLanes([list]);
-    expect(list.map((s) => [s.id, s.stackable])).toEqual([
-      ["long", false],
-      ["beside", false],
-      ["late", true],
-    ]);
-  });
-
   it("has nothing to say about an empty column", () => {
     const list: Slot[] = [];
     expect(() => packLanes([list])).not.toThrow();
@@ -360,6 +342,73 @@ describe("packLanes", () => {
     });
   });
 
+  describe("when the rows may grow, and cards may be stacked", () => {
+    /** Who sits where: the lane, out of how many, and the place in that
+     *  lane's stack, out of how many. */
+    const placed = (list: Slot[]) =>
+      list.map((s) => [s.id, s.lane, s.lanes, s.stack, s.stacked]);
+
+    it("puts a week's cards in one lane, one under the next", () => {
+      const list = [slot("a", 0, 1), slot("b", 0, 1), slot("c", 0, 1)];
+      packLanes([list], undefined, true);
+      // One lane for all three — the column is not sliced at all — and the
+      // week grows to three cards tall.
+      expect(placed(list)).toEqual([
+        ["a", 0, 1, 0, 3],
+        ["b", 0, 1, 1, 3],
+        ["c", 0, 1, 2, 3],
+      ]);
+    });
+
+    it("keeps each week's stack to itself", () => {
+      const list = [slot("a", 0, 1), slot("b", 3, 1), slot("c", 3, 1)];
+      packLanes([list], undefined, true);
+      expect(placed(list)).toEqual([
+        ["a", 0, 1, 0, 1],
+        ["b", 0, 1, 0, 2],
+        ["c", 0, 1, 1, 2],
+      ]);
+    });
+
+    it("gives a stretched card a lane of its own and stacks the rest beside it", () => {
+      // This is the case the two axes exist for: "long" reaches into the next
+      // week, so it cannot be stacked around and takes half the column; the
+      // three that stand in one week share the other half, one under the next.
+      const list = [
+        slot("long", 0, 2),
+        slot("a", 0, 1),
+        slot("b", 0, 1),
+        slot("c", 0, 1),
+      ];
+      packLanes([list], undefined, true);
+      expect(placed(list)).toEqual([
+        ["long", 0, 2, 0, 1],
+        ["a", 1, 2, 0, 3],
+        ["b", 1, 2, 1, 3],
+        ["c", 1, 2, 2, 3],
+      ]);
+    });
+
+    it("still splits the column between two cards that both reach on", () => {
+      const list = [slot("one", 0, 2), slot("two", 1, 2)];
+      packLanes([list], undefined, true);
+      expect(placed(list)).toEqual([
+        ["one", 0, 2, 0, 1],
+        ["two", 1, 2, 0, 1],
+      ]);
+    });
+
+    it("leaves the lanes alone when it is not asked to stack", () => {
+      const list = [slot("a", 0, 1), slot("b", 0, 1), slot("c", 0, 1)];
+      packLanes([list]);
+      expect(placed(list)).toEqual([
+        ["a", 0, 3, 0, 1],
+        ["b", 1, 3, 0, 1],
+        ["c", 2, 3, 0, 1],
+      ]);
+    });
+  });
+
   describe("what a lane costs the card", () => {
     const laned = (lane: number, lanes: number, width = 1): Laned => ({
       row: 0,
@@ -367,7 +416,14 @@ describe("packLanes", () => {
       lane,
       lanes,
       width,
-      stackable: false,
+      stack: 0,
+      stacked: 1,
+    });
+    /** The same card, but standing at place `at` of a stack of `of`. */
+    const stacked = (lane: number, lanes: number, at: number, of: number): Laned => ({
+      ...laned(lane, lanes),
+      stack: at,
+      stacked: of,
     });
 
     it("costs a card nothing when it has the cell to itself", () => {
@@ -386,24 +442,39 @@ describe("packLanes", () => {
       });
     });
 
-    it("stands them one under the other instead when the rows may grow", () => {
-      expect(laneStyle({ ...laned(0, 2), stackable: true }, true, 28)).toEqual({
+    it("stands a stack one card under the next, at the full lane width", () => {
+      expect(laneStyle(stacked(0, 1, 0, 3), true, 28)).toEqual({
         height: "24px",
         marginTop: "0px",
       });
-      expect(laneStyle({ ...laned(1, 2), stackable: true }, true, 28)).toEqual({
+      expect(laneStyle(stacked(0, 1, 2, 3), true, 28)).toEqual({
         height: "24px",
-        marginTop: "28px",
+        marginTop: "56px",
       });
     });
 
-    it("goes back to side by side where a stretched card makes stacking impossible", () => {
-      // The packer says so: a card reaching into the next week is one tall
-      // rectangle, and its band here and its band there are not adjacent.
-      expect(laneStyle({ ...laned(1, 2), stackable: false }, true, 28)).toEqual({
+    it("spends both when a stretched card shares the week with a stack", () => {
+      // Half the column, because the stretched card next to it cannot be
+      // stacked around; and within that half, the third of three.
+      expect(laneStyle(stacked(1, 2, 2, 3), true, 28)).toEqual({
+        width: "calc(50% - 2px)",
+        marginLeft: "50%",
+        height: "24px",
+        marginTop: "56px",
+      });
+    });
+
+    it("leaves a card that shares its lane with nobody at its row's full height", () => {
+      expect(laneStyle(laned(1, 2), true, 28)).toEqual({
         width: "calc(50% - 2px)",
         marginLeft: "50%",
       });
+    });
+
+    it("never stacks when the reader did not ask the rows to grow", () => {
+      const flat = laneStyle(stacked(0, 1, 2, 3), false, 28);
+      expect(flat).not.toHaveProperty("height");
+      expect(flat).not.toHaveProperty("marginTop");
     });
 
     it("gives a card that grew over free lanes the room of all of them", () => {
@@ -415,11 +486,11 @@ describe("packLanes", () => {
 
     it("takes what the caller asked off the width, and only off the width", () => {
       expect(laneStyle(laned(0, 2), false, 28, 13).width).toBe("calc(50% - 15px)");
-      expect(laneStyle({ ...laned(0, 2), stackable: true }, true, 28, 13).height).toBe("24px");
+      expect(laneStyle(stacked(0, 2, 1, 2), true, 28, 13).height).toBe("24px");
     });
 
     it("never gives a stacked card a negative height, however far it is zoomed out", () => {
-      expect(laneStyle({ ...laned(1, 2), stackable: true }, true, 3).height).toBe("0px");
+      expect(laneStyle(stacked(0, 1, 1, 2), true, 3).height).toBe("0px");
     });
   });
 });

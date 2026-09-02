@@ -128,11 +128,11 @@ export interface Laned extends Extent {
   lane: number;
   lanes: number;
   width: number;
-  /** Whether every card sharing this one's cluster stands in a single week.
-   *  Then, and only then, the lanes can be spent DOWNWARDS — one card under
-   *  the next — because none of them has to reach into the row below. Set by
-   *  the packer; a board starts a slot with false. */
-  stackable: boolean;
+  /** Where the card sits in its lane's stack, and how many share that stack.
+   *  A card standing alone in its lane is 0 of 1. Only a board whose rows may
+   *  grow ever stacks; a board starts a slot with 0 of 1. */
+  stack: number;
+  stacked: number;
 }
 
 /** A slot held in a lane it already has. While an edge is being pulled the
@@ -155,21 +155,69 @@ export interface Pin<S> {
  * beside a quiet week has room the busy weeks do not.
  *
  * The lists are packed in place. */
-export function packLanes<S extends Laned>(lists: Iterable<S[]>, pin?: Pin<S>): void {
+export function packLanes<S extends Laned>(
+  lists: Iterable<S[]>,
+  pin?: Pin<S>,
+  stack = false,
+): void {
   for (const list of lists) {
+    for (const s of list) {
+      s.stack = 0;
+      s.stacked = 1;
+    }
+    if (!stack) {
+      packOne(list, pin);
+      continue;
+    }
+    // The rows may grow, so cards that stand in a SINGLE week need no lane of
+    // their own: they share one, one under the next. Each week's cards go in
+    // as a single stand-in, and only what cannot be stacked — a card reaching
+    // into another week, which is one tall rectangle — is packed beside them.
+    const bundles = new Map<number, S[]>();
+    const packing: Laned[] = [];
+    for (const s of list) {
+      if (s.span > 1) {
+        packing.push(s);
+        continue;
+      }
+      const week = bundles.get(s.row) ?? [];
+      week.push(s);
+      bundles.set(s.row, week);
+    }
+    const standIn = new Map<number, Laned>();
+    for (const row of bundles.keys()) {
+      const one: Laned = { row, span: 1, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 };
+      standIn.set(row, one);
+      packing.push(one);
+    }
+    packOne(packing, pin as Pin<Laned> | undefined);
+    for (const [row, week] of bundles) {
+      const one = standIn.get(row);
+      if (!one) {
+        continue;
+      }
+      week.forEach((s, i) => {
+        s.lane = one.lane;
+        s.lanes = one.lanes;
+        s.width = one.width;
+        s.stack = i;
+        s.stacked = week.length;
+      });
+    }
+  }
+}
+
+/** packOne is the lane assignment for one column, taking every slot handed to
+ *  it as needing a lane of its own. */
+function packOne<S extends Laned>(list: S[], pin?: Pin<S>): void {
+  {
     list.sort((a, b) => a.row - b.row || b.span - a.span);
     let cluster: S[] = [];
     let laneEnd: number[] = [];
     const close = () => {
       const lanes = laneEnd.length;
-      // A cluster can be stacked only if nothing in it reaches into another
-      // week: a card that does is one tall rectangle, and the lane it would
-      // hold in this row and the one it would hold in the next are not
-      // adjacent — drawn as one box it would cross its neighbours.
-      const stackable = cluster.every((s) => s.span === 1);
       for (const s of cluster) {
         s.lanes = lanes;
-        s.stackable = stackable;
         let width = 1;
         while (s.lane + width < lanes) {
           const nextLane = s.lane + width;
@@ -231,34 +279,36 @@ export interface LanePlacement {
   marginTop?: string;
 }
 
-/** laneStyle turns a slot's lane into the room it takes.
+/** laneStyle turns a slot's lane and its place in that lane's stack into the
+ *  room it takes.
  *
- *  `fit` is the reader's choice: with it off, the lane is spent on the
- *  column's WIDTH and every row keeps one height — cards sharing a week
- *  stand beside each other. With it on, cards stand one UNDER the next at
- *  the full width and the row grows to hold them.
+ *  A lane is a share of the column's WIDTH, and it is what keeps apart cards
+ *  the grid cannot stack: one reaching into another week is a single tall
+ *  rectangle, and its band in this row and its band in the next are not
+ *  adjacent, so it stands beside its neighbours rather than among them.
  *
- *  Stacking is only possible where the packer said so. A card stretched over
- *  several weeks is one tall rectangle, and its band in this row and its
- *  band in the next are not adjacent — the other bands lie between — so a
- *  cluster holding such a card goes back to standing side by side. That is
- *  the only case where it does.
+ *  A stack is a share of the row's HEIGHT, and it is where cards that all
+ *  stand in one week go — full lane width, one under the next, their week
+ *  growing to hold them. Only a board whose rows may grow (`fit`) stacks.
+ *
+ *  The two compose: a week holding one stretched card and three ordinary
+ *  ones is two lanes wide, and the three share the second lane in a stack.
  *
  *  `trim` is what the caller wants taken off the width on top of the margins
  *  — a card stepped aside to uncover the strip beside it. */
 export function laneStyle(s: Laned, fit: boolean, rowH: number, trim = 0): LanePlacement {
-  if (s.lanes <= 1) {
-    return {};
+  const placed: LanePlacement = {};
+  if (s.lanes > 1) {
+    placed.width = `calc(${(100 / s.lanes) * s.width}% - ${2 + trim}px)`;
+    placed.marginLeft = `${(100 / s.lanes) * s.lane}%`;
   }
-  if (fit && s.stackable) {
-    // The row's own height minus the margins, so a stacked card is exactly as
-    // tall as one row and the row grows by one for each card under the first.
-    return { height: `${Math.max(0, rowH - 4)}px`, marginTop: `${s.lane * rowH}px` };
+  if (fit && s.stacked > 1) {
+    // One row tall, less the margins — so the week grows by exactly one row
+    // for every card standing under the first.
+    placed.height = `${Math.max(0, rowH - 4)}px`;
+    placed.marginTop = `${s.stack * rowH}px`;
   }
-  return {
-    width: `calc(${(100 / s.lanes) * s.width}% - ${2 + trim}px)`,
-    marginLeft: `${(100 / s.lanes) * s.lane}%`,
-  };
+  return placed;
 }
 
 /** extentOf places a card's dates in the window, or reports that they fall

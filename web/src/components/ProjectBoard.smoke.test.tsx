@@ -128,18 +128,27 @@ describe("the Project board's grid", () => {
     expect(html).not.toContain("margin-left");
   });
 
-  it("goes back to side by side where a stretched card cannot be stacked around", () => {
-    // A card reaching into the next week is one tall rectangle; stacking the
-    // week's other card under it would draw one through the other, so that
-    // week's cards stand beside each other even in this mode.
+  it("gives a stretched card a lane of its own and stacks the rest beside it", () => {
+    // A card reaching into the next week is one tall rectangle — stacking
+    // anything under it would draw one through the other — so it takes half
+    // the column. The three that stand in this week alone share the other
+    // half, one under the next, and their week grows to three cards tall.
     store.set("aeman.projectRowFit", "true");
     const html = draw(
-      board({ cards: [card({ day: "2026-09-11" }), card({ itemId: "c2", title: "Beside it" })] }),
+      board({
+        cards: [
+          card({ itemId: "long", title: "Two weeks", day: "2026-09-11" }),
+          card({ itemId: "a", title: "First" }),
+          card({ itemId: "b", title: "Second" }),
+          card({ itemId: "c", title: "Third" }),
+        ],
+      }),
     );
     store.delete("aeman.projectRowFit");
-    expect(html).toContain("width:calc(50% - 2px);margin-left:0%");
-    expect(html).toContain("width:calc(50% - 2px);margin-left:50%");
-    expect(html).not.toContain("margin-top");
+    expect(html).toContain("grid-row:4 / span 2;width:calc(50% - 2px);margin-left:0%");
+    expect(html).toContain("width:calc(50% - 2px);margin-left:50%;height:24px;margin-top:0px");
+    expect(html).toContain("width:calc(50% - 2px);margin-left:50%;height:24px;margin-top:28px");
+    expect(html).toContain("width:calc(50% - 2px);margin-left:50%;height:24px;margin-top:56px");
   });
 
   it("draws a deadline as a line on its week", () => {
