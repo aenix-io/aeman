@@ -4854,6 +4854,23 @@ button.card-age {
   padding-bottom: 6px;
 }
 
+/* What the card belongs to, at the end of its line. The room on its right is
+   the ×'s, which appears there on hover — the chip is never covered by it. */
+.triage-slot-chip {
+  flex: none;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 16px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--bg-soft);
+}
+
 /* Which week of a longer card this box is — (1/2), (2/2). Quiet: the title
    is what the reader is looking for. */
 .triage-slot-part {

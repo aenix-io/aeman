@@ -113,6 +113,22 @@ describe("the Triage board", () => {
     expect(draw([card({ zone: "green" })])).toContain("triage-slot-zone-green");
   });
 
+  it("says what a card belongs to — the column here is a person, not an epic", () => {
+    const html = draw([card({ epic: "Storage", project: "cozy" })]);
+    expect(html).toContain("triage-slot-chip");
+    expect(html).toContain(">Storage<");
+    expect(html).toContain('title="cozy · Storage"');
+  });
+
+  it("names the project when a card is on no column of it", () => {
+    expect(draw([card({ project: "cozy" })])).toContain(">cozy<");
+  });
+
+  it("says nothing of belonging for work the board holds alone", () => {
+    // The zone stripe and the week are its whole address.
+    expect(draw([card({ zone: "gray" })])).not.toContain("triage-slot-chip");
+  });
+
   it("stacks a week in the order somebody triaging wants to meet it", () => {
     // Debts first, then the project's own work, then the zones.
     const html = draw([
