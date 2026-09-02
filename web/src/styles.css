@@ -4875,7 +4875,7 @@ button.card-age {
 .triage-slot-bar i {
   display: block;
   height: 100%;
-  background: var(--accent);
+  /* The colour is the board's: the stage decides it (stages.barColor). */
 }
 
 /* The stripe down a card's left is the ZONE it stands in: what kind of work

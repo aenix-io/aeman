@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
-import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
+import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, barColor, isInProgress } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
 import { hasOriginToShow, type CardPlacements } from "../placements";
@@ -114,11 +114,6 @@ interface CardProps {
 }
 
 const SEGMENTS = 10;
-
-/** barColor is the fill colour for the progress segments, driven by stage. */
-function barColor(stage?: StageKey): string {
-  return stage ? STAGES[stage].color : DEFAULT_BAR_COLOR;
-}
 
 /** Card is a compact single-row item shared by the Me and Team boards. */
 export function Card({

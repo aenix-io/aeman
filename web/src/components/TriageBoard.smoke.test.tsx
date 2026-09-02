@@ -113,6 +113,18 @@ describe("the Triage board", () => {
     expect(draw([card({ zone: "green" })])).toContain("triage-slot-zone-green");
   });
 
+  it("colours the progress bar by stage, as Team and Me do", () => {
+    // A card locked or in review says so by its bar on the other boards; it
+    // must not say something else here.
+    expect(draw([card({ stage: "locked", progress: 30 })])).toContain(
+      "background:var(--stage-locked)",
+    );
+    expect(draw([card({ stage: "review", progress: 85 })])).toContain(
+      "background:var(--stage-review)",
+    );
+    expect(draw([card({ progress: 40 })])).toContain("background:var(--bar-default)");
+  });
+
   it("leaves a card of no zone the plain edge", () => {
     expect(draw([card()])).not.toContain("triage-slot-zone");
   });

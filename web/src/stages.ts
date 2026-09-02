@@ -27,6 +27,14 @@ export const STAGE_ORDER: StageKey[] = ["locked", "review", "recurrent", "done"]
 /** Progress bar colour for a stage; the default (no stage) bar is green. */
 export const DEFAULT_BAR_COLOR = "var(--bar-default)";
 
+/** barColor is the fill colour of a card's progress bar: the stage's own
+ *  colour — locked, in review, recurrent, done — and the default green for
+ *  a card that is simply being worked on. Every board that draws a bar
+ *  asks this, so a card reads the same wherever it is met. */
+export function barColor(stage?: StageKey): string {
+  return stage ? STAGES[stage].color : DEFAULT_BAR_COLOR;
+}
+
 /** isComplete mirrors board.Complete: a card is finished when it has an explicit
  *  done stage, or is 100% with no stage, or is a recurrent card at 100%. */
 export function isComplete(card: { stage?: StageKey; progress?: number }): boolean {
