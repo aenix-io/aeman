@@ -16,14 +16,15 @@ type BacklogMeta =
   | { kind: "triage"; team: string }
   | { kind: "cell"; team: string; week: string; lane: Lane | "" };
 
-// The lanes wear the day boards' zone colours, so the same colour means the
-// same thing across the app: inbound is what the day boards call unplanned,
-// the plan is planned, and internal is the work that is done when there is
-// time — which is the fate the lane's floor exists to prevent.
+// The lanes are drawn as the day boards' zone areas, and two of them borrow a
+// zone's colour because they mean the same thing there: inbound is what a day
+// board calls unplanned, the plan is planned. Internal has no counterpart —
+// green would read as "when there is time", the very fate its floor exists to
+// prevent — so it carries a blue of its own.
 const LANES: { key: Lane; spine: string; accent: string; background: string }[] = [
   { key: "client", spine: "CLIENT", accent: "var(--zone-yellow-accent)", background: "var(--zone-yellow-bg)" },
   { key: "plan", spine: "PLAN", accent: "var(--zone-gray-accent)", background: "var(--zone-gray-bg)" },
-  { key: "internal", spine: "INTERNAL", accent: "var(--zone-green-accent)", background: "var(--zone-green-bg)" },
+  { key: "internal", spine: "INTERNAL", accent: "var(--lane-internal-accent)", background: "var(--lane-internal-bg)" },
 ];
 
 // The default lane shares, in percent of the week, for a team that set none

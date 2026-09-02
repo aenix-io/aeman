@@ -103,6 +103,11 @@
   --zone-gray-bg: #f3f4f6;
   --zone-green-accent: #3fb950;
   --zone-green-bg: #eafaef;
+  /* The Backlog board's internal lane (docs/design/backlog.md): work
+     nobody outside asked for. No day-board zone means the same thing, so
+     it carries its own blue rather than borrowing a zone's colour. */
+  --lane-internal-accent: #1f6feb;
+  --lane-internal-bg: #e7f1fd;
 
   /* Progress-bar / stage palette, consumed from JS via stages.ts. */
   --stage-locked: #cf222e;
@@ -124,6 +129,8 @@
   --zone-gray-bg: #edeff3;
   --zone-green-accent: #009e73; /* teal-green — nice to have */
   --zone-green-bg: #63d3d8;
+  --lane-internal-accent: #0072b2; /* CVD-safe blue */
+  --lane-internal-bg: #7fc7ee;
 
   --stage-locked: #d55e00;
   --stage-review: #e69f00;
@@ -151,6 +158,8 @@
   --zone-gray-bg: #e3e6ea;
   --zone-green-accent: #2596b5; /* cyan */
   --zone-green-bg: #6fcbe0;
+  --lane-internal-accent: #1f6feb;
+  --lane-internal-bg: #9ecdf5;
 
   --stage-locked: #cf222e;
   --stage-review: #b07d1a;
@@ -226,6 +235,8 @@
   --zone-gray-bg: #2b3138;
   --zone-green-accent: #3fb950;
   --zone-green-bg: #1a3d2a;
+  --lane-internal-accent: #58a6ff;
+  --lane-internal-bg: #16324f;
 
   --stage-locked: #ff7b72;
   --stage-review: #e3b341;
@@ -246,6 +257,8 @@
   --zone-gray-bg: #242a30;
   --zone-green-accent: #2ec4a6;
   --zone-green-bg: #106f66;
+  --lane-internal-accent: #58a6ff;
+  --lane-internal-bg: #123c63;
 
   --stage-locked: #ff8a50;
   --stage-review: #f0b429;
@@ -270,6 +283,8 @@
   --zone-gray-bg: #242a30;
   --zone-green-accent: #56b6c2;
   --zone-green-bg: #0e665c;
+  --lane-internal-accent: #79c0ff;
+  --lane-internal-bg: #103a5e;
 
   --stage-locked: #ff7b72;
   --stage-review: #e3b341;
