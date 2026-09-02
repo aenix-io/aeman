@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { teamColor } from "../avatar";
 import { Dropdown } from "./Dropdown";
 
-/** One option of the aside picker: what it is called and the dot that stands
- *  for it. */
+/** One option of the aside picker: the dot that stands for it, what it is
+ *  called in the list, and — where a name is not enough — what it means. */
 export interface AddCardOption {
   key: string;
   label: string;
   color?: string;
+  hint?: string;
 }
 
 interface AddCardProps {
@@ -160,12 +161,14 @@ export function AddCard({
             type="button"
             className="add-card-team-btn"
             onClick={() => setMenuOpen((o) => !o)}
-            title={picker.title}
+            title={chosen ? `${picker.title}: ${chosen.label}` : picker.title}
           >
+            {/* The colour is the answer — the list is where it is spelled
+                out. A word here would be the widest thing in a form that
+                stands inside a card's width. */}
             {chosen?.color && (
               <span className="team-dot" style={{ background: chosen.color }} />
             )}
-            <span className="add-card-team-label">{chosen?.label ?? picker.title}</span>
             <span className="add-card-team-caret">▾</span>
           </button>
           <Dropdown
@@ -179,6 +182,7 @@ export function AddCard({
                 key={o.key}
                 type="button"
                 className="add-card-team-item"
+                title={o.hint}
                 onClick={() => {
                   setPicked(o.key);
                   setMenuOpen(false);

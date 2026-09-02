@@ -1055,17 +1055,14 @@ export function TriageBoard({
                 >
                   <AddCard
                     autoOpen
-                    placeholder={
-                      composing.row === 0
-                        ? "A card for now…"
-                        : `A card for ${weekLabel(weeks[composing.row])}…`
-                    }
+                    placeholder="Add card"
                     picker={{
                       title: "Zone",
                       options: ZONE_ORDER.map((z) => ({
                         key: z,
-                        label: ZONES[z].spine.toLowerCase(),
+                        label: ZONES[z].title,
                         color: ZONES[z].accent,
+                        hint: ZONES[z].description,
                       })),
                       initial: "gray",
                     }}
