@@ -153,6 +153,19 @@ describe("the Triage board", () => {
     expect(html).toContain("Review of it");
   });
 
+  it("keeps a card sent to review out of the strip — it waits on a reviewer", () => {
+    const html = draw([
+      card({ week: undefined, title: "Sent to review", stage: "review", progress: 85 }),
+    ]);
+    expect(html).toContain("nothing waiting for a week");
+    expect(html).not.toContain("Sent to review");
+  });
+
+  it("keeps a card sent to review on the board once it has a week", () => {
+    const html = draw([card({ title: "Sent to review", stage: "review", progress: 85 })]);
+    expect(html).toContain("Sent to review");
+  });
+
   it("gives a column to every person, with the unassigned first", () => {
     const html = draw([card(), card({ itemId: "c2", assignees: [] })]);
     expect(html).toContain("Unassigned");

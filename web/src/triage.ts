@@ -33,10 +33,12 @@ export function areaOf(c: Pick<Card, "plan" | "epic" | "week" | "day" | "task">)
  *  decision — a card on today's board was put there by the day's planning,
  *  not by a week's — and that is the pile the strip exists to show.
  *
- *  What is NOT asked about: a subtask and a review, which follow the card
- *  they belong to; a personal board's card, which is nobody else's to plan;
- *  and work already finished. Mirrors board.NeedsTriage — the state cards it
- *  also excludes never reach the browser, so there is nothing to check here.
+ *  What is NOT asked about: a subtask and a review card, which follow the
+ *  card they belong to; a card SENT to review, whose work is done and which
+ *  waits on a reviewer rather than on a week; a personal board's card, which
+ *  is nobody else's to plan; and work already finished. Mirrors
+ *  board.NeedsTriage — the state cards it also excludes never reach the
+ *  browser, so there is nothing to check here.
  */
 export function needsTriage(
   c: Pick<Card, "parent" | "reviewOf" | "week" | "domain" | "stage" | "progress">,
@@ -45,6 +47,9 @@ export function needsTriage(
     return false;
   }
   if (c.parent || c.reviewOf || c.week) {
+    return false;
+  }
+  if (c.stage === "review") {
     return false;
   }
   return c.stage !== "done" && (c.progress ?? 0) < 100;

@@ -29,6 +29,16 @@ describe("needsTriage", () => {
     expect(needsTriage(card({ domain: "~kvaps" }))).toBe(false);
   });
 
+  it("asks nothing of a card sent to review — it waits on a reviewer", () => {
+    // Its work is done; a week is not what it is missing, and asking for one
+    // asks the reader to decide something nobody is waiting on them for.
+    expect(needsTriage(card({ stage: "review", progress: 85 }))).toBe(false);
+  });
+
+  it("still asks about a locked card — that is neither done nor in review", () => {
+    expect(needsTriage(card({ stage: "locked" }))).toBe(true);
+  });
+
   it("asks nothing of work already finished", () => {
     expect(needsTriage(card({ stage: "done" }))).toBe(false);
     expect(needsTriage(card({ progress: 100 }))).toBe(false);

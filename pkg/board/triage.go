@@ -18,11 +18,18 @@ func PlacedAhead(c Card, today string) bool {
 // day's planning, not by a week's, and until someone gives it a week it is
 // work of unknown time. That is the pile the strip exists to show, however
 // large it is at first.
+//
+// A card SENT TO REVIEW is not in that pile either. Its work is done and it
+// is waiting on a reviewer, not on a week: asking the strip's reader for one
+// asks them to decide something nobody is waiting on them to decide.
 func NeedsTriage(_ Board, c Card, _ string) bool {
 	if IsStateTitle(c.Title) || IsPersonalDomain(c.Domain) {
 		return false
 	}
 	if c.Parent != "" || c.ReviewOf != "" || c.Week != "" {
+		return false
+	}
+	if c.Stage == StageReview {
 		return false
 	}
 	return !Complete(c.Stage, c.Progress)
