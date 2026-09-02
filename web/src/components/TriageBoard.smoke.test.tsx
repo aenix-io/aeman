@@ -258,6 +258,15 @@ describe("the Triage board", () => {
     expect(html).toContain("Sent to review");
   });
 
+  it("gives a project card no grip to stretch it by", () => {
+    // Its span is its row on the Project board; that is where it is changed,
+    // and a grip here would offer to change it somewhere it cannot be.
+    const slot = draw([card({ epic: "Storage", day: "2026-09-04" })]);
+    expect(slot).not.toContain("triage-slot-resize");
+    // A card of the board's own still has one.
+    expect(draw([card()])).toContain("triage-slot-resize");
+  });
+
   it("offers every column to be dragged into another place", () => {
     expect(draw([card()])).toContain("project-epic-head-movable");
   });

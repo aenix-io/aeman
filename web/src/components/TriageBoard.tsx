@@ -230,7 +230,13 @@ export function TriageBoard({
     at: number;
   } | null>(null);
   const [stretch, setStretch] = useState<{ card: CardModel; to: number } | null>(null);
-  const press = useRef<{ card: CardModel; row: number; span: number; grab: number } | null>(null);
+  const press = useRef<{
+    card: CardModel;
+    row: number;
+    span: number;
+    grab: number;
+    pinned: boolean;
+  } | null>(null);
   const moveRef = useRef<typeof move>(null);
   const stretchRef = useRef<typeof stretch>(null);
 
@@ -343,6 +349,23 @@ export function TriageBoard({
       });
     },
     [board.cards, cellOrder, reorderCards, provider, onError],
+  );
+
+  // Handing a card to somebody and saying nothing about when. A project
+  // card's week is its row on the Project board — its dates ARE its week —
+  // so this board must not move it in time; who does the work is still this
+  // board's to say.
+  const assignTo = useCallback(
+    (card: CardModel, who: string) => {
+      const to = who === NOBODY ? [] : [who];
+      const before = { assignees: card.assignees };
+      patchCard(card.itemId, { assignees: to });
+      void provider
+        .patchCard(card.itemId, { assignees: to })
+        .then(addCard)
+        .catch(fail(card, before));
+    },
+    [provider, patchCard, addCard, fail],
   );
 
   const untriage = useCallback(
@@ -495,6 +518,9 @@ export function TriageBoard({
         card,
         row: slot.row - slot.part,
         span: slot.parts,
+        // A project card is carried across the columns only: its weeks are
+        // the Project board's to change.
+        pinned: !!card.epic,
         // Which week of the card was taken hold of, so a card grabbed by its
         // second week does not jump a week up under the pointer.
         grab: slot.part,
@@ -513,7 +539,9 @@ export function TriageBoard({
           return;
         }
         const spot = rowSpotAt(ev.clientY);
-        const row = Math.max(0, Math.min(spot.row - p.grab, weeks.length - p.span));
+        const row = p.pinned
+          ? p.row
+          : Math.max(0, Math.min(spot.row - p.grab, weeks.length - p.span));
         const next = {
           card: p.card,
           row,
@@ -535,14 +563,19 @@ export function TriageBoard({
         const who = people[m.col]?.key ?? NOBODY;
         // Where it came from, so a card merely put back among its own
         // neighbours is a reorder and nothing more.
-        const stayed = m.row === slot.row - slot.part && who === whoOf(card);
-        if (!stayed) {
+        const moved = m.row !== slot.row - slot.part || who !== whoOf(card);
+        if (moved && card.epic) {
+          // Its row is the Project board's; only the hand it is in changed.
+          if (who !== whoOf(card)) {
+            assignTo(m.card, who);
+          }
+        } else if (moved) {
           place(m.card, weeks[m.row], who);
         }
         reorder(m.card, m.row, who, m.at);
       });
     },
-    [arm, rowSpotAt, columnAt, weeks, people, place, reorder],
+    [arm, rowSpotAt, columnAt, weeks, people, place, assignTo, reorder],
   );
 
   // Dragging a column header sideways puts the people in the order the
@@ -846,8 +879,10 @@ export function TriageBoard({
                     <i style={{ width: `${progress}%`, background: barColor(card.stage) }} />
                   </span>
                   {/* Only the LAST week carries the grip: what it drags is the
-                      card's end, and the weeks between follow from it. */}
-                  {part === parts - 1 && (
+                      card's end, and the weeks between follow from it. A
+                      project card has none — its span is its row on the
+                      Project board, and that is where it is changed. */}
+                  {part === parts - 1 && !card.epic && (
                     <div
                       className="project-slot-resize triage-slot-resize"
                       title="Drag down to give the card more weeks"
