@@ -426,9 +426,14 @@ describe("packLanes", () => {
       stacked: of,
     });
 
-    it("costs a card nothing when it has the cell to itself", () => {
+    it("costs a card nothing when it has the cell to itself and the rows are fixed", () => {
       expect(laneStyle(laned(0, 1), false, 28)).toEqual({});
-      expect(laneStyle(laned(0, 1), true, 28)).toEqual({});
+    });
+
+    it("gives every card the one height when the rows may grow", () => {
+      // Uniform, however busy the week: a card alone in its week reads the
+      // same as one of five standing under each other.
+      expect(laneStyle(laned(0, 1), true, 28)).toEqual({ height: "24px", marginTop: "0px" });
     });
 
     it("splits the column's width between the cards that share a week", () => {
@@ -464,10 +469,12 @@ describe("packLanes", () => {
       });
     });
 
-    it("leaves a card that shares its lane with nobody at its row's full height", () => {
+    it("keeps a card in a lane of its own to the one height too", () => {
       expect(laneStyle(laned(1, 2), true, 28)).toEqual({
         width: "calc(50% - 2px)",
         marginLeft: "50%",
+        height: "24px",
+        marginTop: "0px",
       });
     });
 

@@ -125,8 +125,6 @@ const LS_PROGRESS = "aeman.projectProgressOpen";
 const LS_COLF = "aeman.projectColFactors";
 /** The board's own zoom, one entry per axis. */
 const LS_ZOOM = "aeman.projectZoom";
-/** Whether the board's rows may differ in height. */
-const LS_ROWS = "aeman.projectRowFit";
 
 /** The cell the board is drawn from before any zoom or per-column width. */
 /** How far a card steps aside to uncover the strip a new one starts from,
@@ -218,7 +216,7 @@ export function ProjectBoard({
   const grid = useWeekGrid({
     dated: cards,
     columns: epics.length,
-    store: { zoom: LS_ZOOM, widths: LS_COLF, rows: LS_ROWS },
+    store: { zoom: LS_ZOOM, widths: LS_COLF },
     selection: filter ? [...filter].sort().join("\u0000") : "*",
   });
   const { weeks, today, colFactors, zoom, wrapRef, rowAt } = grid;
@@ -1223,12 +1221,7 @@ export function ProjectBoard({
           noneChip={looseEpics ? "No project" : undefined}
         />
         {!empty && (
-          <ZoomControl
-            zoom={zoom}
-            onChange={grid.setZoom}
-            fit={grid.rowFit}
-            onFit={grid.setRowFit}
-          />
+          <ZoomControl zoom={zoom} onChange={grid.setZoom} />
         )}
       </div>
       {empty && (

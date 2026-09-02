@@ -4428,30 +4428,6 @@ button.card-age {
   background: var(--accent);
 }
 
-/* The row-height slider's companion: one height for every row, or rows that
-   grow to hold what is in them. */
-.zoom-fit {
-  width: 20px;
-  padding: 2px 0;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--muted);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.zoom-fit:hover {
-  color: var(--ink);
-  border-color: var(--line);
-}
-
-.zoom-fit-on {
-  color: var(--accent);
-  border-color: var(--line-soft);
-}
-
 .zoom-reset {
   min-width: 40px;
   padding: 2px 4px;
@@ -4927,6 +4903,13 @@ button.card-age {
    does on the day board. */
 .triage-slot {
   padding-bottom: 6px;
+}
+
+/* Which week of a longer card this box is — (1/2), (2/2). Quiet: the title
+   is what the reader is looking for. */
+.triage-slot-part {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .triage-slot-bar {

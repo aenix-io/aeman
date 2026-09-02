@@ -302,9 +302,10 @@ export function laneStyle(s: Laned, fit: boolean, rowH: number, trim = 0): LaneP
     placed.width = `calc(${(100 / s.lanes) * s.width}% - ${2 + trim}px)`;
     placed.marginLeft = `${(100 / s.lanes) * s.lane}%`;
   }
-  if (fit && s.stacked > 1) {
-    // One row tall, less the margins — so the week grows by exactly one row
-    // for every card standing under the first.
+  if (fit) {
+    // Every card exactly one row tall, less the margins — so they all read
+    // the same however busy their week is, and the week grows by one row for
+    // each card standing under the first.
     placed.height = `${Math.max(0, rowH - 4)}px`;
     placed.marginTop = `${s.stack * rowH}px`;
   }

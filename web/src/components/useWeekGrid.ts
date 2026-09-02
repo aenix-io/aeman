@@ -55,9 +55,14 @@ export interface WeekGridOptions {
   dated: readonly Dated[];
   /** How many columns stand on the board — they share the width. */
   columns: number;
-  /** Where the board's own zoom, column widths and row-fit choice are kept,
-   *  so two boards never read each other's. */
-  store: { zoom: string; widths: string; rows: string };
+  /** Where the board's own zoom and column widths are kept, so two boards
+   *  never read each other's. */
+  store: { zoom: string; widths: string };
+  /** How the rows are sized. "fixed" gives every row the one height the zoom
+   *  sets, and cards sharing a week split the column between them. "grow"
+   *  makes the zoom's height a minimum: cards stand one under the next and
+   *  their week grows to hold them. A board picks one and keeps it. */
+  rows?: "fixed" | "grow";
   /** What the reader is looking at. The board scrolls to today once per
    *  selection: coming back to one they have scrolled away from should not
    *  yank them back, but choosing another view should open on today. */
@@ -87,13 +92,9 @@ export interface WeekGrid {
   columnResizer: (key: string) => ColumnResizer;
   zoom: Zoom;
   setZoom: (z: Zoom) => void;
-  /** Whether the rows may differ in height. Off, every row is `rowH` and
-   *  cards sharing a week split the column between them; on, a row grows to
-   *  hold them one under the other and `rowH` is only the smallest it may
-   *  be. The board works out the heights (rowHeights) and hands them to the
-   *  grid — only it knows what stands where. */
+  /** Whether the rows may grow — the board's `rows` choice, for the grid and
+   *  for the packing that has to agree with it. */
   rowFit: boolean;
-  setRowFit: (fit: boolean) => void;
   /** Widening the window. Going back moves the scroll by exactly the height
    *  added, or the rows would slide out from under the reader. */
   showEarlier: () => void;
@@ -143,7 +144,14 @@ function readZoom(key: string): Zoom {
   return { x: 1, y: 1 };
 }
 
-export function useWeekGrid({ dated, columns, store, selection, back }: WeekGridOptions): WeekGrid {
+export function useWeekGrid({
+  dated,
+  columns,
+  store,
+  selection,
+  back,
+  rows = "fixed",
+}: WeekGridOptions): WeekGrid {
   const today = todayIso();
   const thisMonday = mondayOf(today);
 
@@ -169,16 +177,7 @@ export function useWeekGrid({ dated, columns, store, selection, back }: WeekGrid
     [store.zoom],
   );
 
-  const [rowFit, setRowFitState] = useState<boolean>(
-    () => localStorage.getItem(store.rows) === "true",
-  );
-  const setRowFit = useCallback(
-    (fit: boolean) => {
-      setRowFitState(fit);
-      localStorage.setItem(store.rows, String(fit));
-    },
-    [store.rows],
-  );
+  const rowFit = rows === "grow";
 
   const writeFactors = useCallback(
     (next: Record<string, number>) => {
@@ -441,7 +440,6 @@ export function useWeekGrid({ dated, columns, store, selection, back }: WeekGrid
     zoom,
     setZoom,
     rowFit,
-    setRowFit,
     showEarlier,
     showLater,
     scrollRef,
