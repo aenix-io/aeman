@@ -114,6 +114,23 @@ describe("the Triage board", () => {
     expect(draw([card()])).not.toContain("triage-slot-part");
   });
 
+  it("draws a card just placed, whatever start date it carried in", () => {
+    // A card waiting in the strip usually carries dates from the day board.
+    // The row here is the week TRIAGE gave it and nothing else: letting an
+    // old start date win drew the card nowhere at all, which is what a card
+    // dragged out of the strip looked like.
+    const html = draw([card({ startDate: "2026-06-01", day: "2026-06-05" })]);
+    expect(html).toContain("A card of one week");
+    expect(html).toContain("grid-row:2;height:24px;margin-top:0px");
+  });
+
+  it("does not drag the window back to a start date nobody is looking at", () => {
+    const html = draw([card({ startDate: "2026-06-01" })]);
+    // Still this week first, and the nine rows this board always opens with.
+    expect(html).toContain(">now<");
+    expect(html.match(/project-week[ "]/g)?.length).toBe(9);
+  });
+
   it("holds what nobody has given a week in the strip", () => {
     const html = draw([card({ week: undefined, title: "Waiting for a week" })]);
     expect(html).toContain("needs triage");
