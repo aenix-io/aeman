@@ -18,14 +18,17 @@
 // open card from a week gone by stands in the first row. That is the weekly
 // plan's own rule (planShowsInWeekAt), and this board must not disagree.
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { Board, Card as CardModel, Provider } from "../providers/types";
+import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/types";
+import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso } from "../date";
 import { anchorFor, byPile, needsTriage, orderWith, placedIn } from "../triage";
 import { effectiveBand } from "../weekly";
 import { isPersonalDomain } from "../domains";
 import { displayName, type Avatars, type Names } from "../users";
+import { ZONES, ZONE_ORDER } from "../zones";
 import { type Laned, extentOf, laneStyle, packLanes, weekLabel } from "../weekgrid";
 import { barColor } from "../stages";
+import { AddCard } from "./AddCard";
 import { Avatar } from "./Avatar";
 import { TeamChips } from "./TeamChips";
 import { WeekGrid } from "./WeekGrid";
@@ -60,6 +63,8 @@ interface TriageBoardProps {
     patch: Partial<CardModel> | ((c: CardModel) => Partial<CardModel>),
   ) => void;
   addCard: (card: CardModel) => void;
+  replaceCard: (tempId: string, card: CardModel) => void;
+  removeCard: (uid: string) => void;
   /** The board's own order, for a card dropped between two others. */
   reorderCards: (orderedItemIds: string[]) => void;
   onOpen: (card: CardModel) => void;
@@ -107,6 +112,8 @@ export function TriageBoard({
   names,
   patchCard,
   addCard,
+  replaceCard,
+  removeCard,
   reorderCards,
   onOpen,
   onError,
@@ -214,6 +221,22 @@ export function TriageBoard({
     };
   }, [board.cards, teams, order, projected]);
 
+
+  // What the reader can see of each person here, against what that person is
+  // holding altogether: the board is one team's slice and the count beside a
+  // name says how much of the whole it is.
+  const shown = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const c of [...placed, ...waiting]) {
+      out[whoOf(c)] = (out[whoOf(c)] ?? 0) + 1;
+    }
+    return out;
+  }, [placed, waiting]);
+
+  // Somewhere to start a card: a press on the empty part of a cell opens the
+  // form there, and what it creates lands in that week, in that person's
+  // hands. The zone is the one thing the cell cannot say for itself.
+  const [composing, setComposing] = useState<{ row: number; col: number } | null>(null);
 
   // Where a card stands on THIS board, which is not where its dates put it on
   // any other. The row is the week triage gave it and nothing else: a card
@@ -723,6 +746,64 @@ export function TriageBoard({
   // another week, or stretched over more of them.
   const held = move?.card.itemId ?? stretch?.card.itemId;
 
+  // How many boxes each cell holds: where the composer stands in it, and how
+  // much room the cell keeps free below them.
+  const filled = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const [who, list] of slots) {
+      for (const s of list) {
+        const key = `${who}/${s.row}`;
+        out.set(key, (out.get(key) ?? 0) + 1);
+      }
+    }
+    return out;
+  }, [slots]);
+
+  // Starting a card here says three things at once: the week it is for, whose
+  // it is, and what kind of work. The team comes from the filter when it says
+  // one thing; a card of no team is still the board's to show.
+  const create = useCallback(
+    (row: number, who: string, title: string, zone: ZoneKey) => {
+      const week = weeks[row];
+      const team = teams.length === 1 ? teams[0] : null;
+      const now = row === 0;
+      const tempId = `tmp-${new Date().toISOString()}`;
+      addCard({
+        itemId: tempId,
+        title,
+        assignees: who === NOBODY ? [] : [who],
+        zone,
+        week,
+        team: team ?? undefined,
+        // A card started in the row that IS now belongs to today as well; one
+        // started in a week ahead waits for its Monday (B1).
+        ...(now ? { startDate: today, day: today } : {}),
+        createdAt: new Date().toISOString(),
+        description: "",
+        notes: [],
+      } as CardModel);
+      const creating = provider.createCard({
+        title,
+        zone,
+        week,
+        team,
+        assigneeLogin: who === NOBODY ? null : who,
+        ...(now ? { start: today, day: today } : {}),
+      });
+      registerPendingCard(
+        tempId,
+        creating.then((c) => c.itemId),
+      );
+      void creating
+        .then((card) => replaceCard(tempId, card))
+        .catch((err: Error) => {
+          removeCard(tempId);
+          onError(err.message);
+        });
+    },
+    [weeks, teams, today, provider, addCard, replaceCard, removeCard, onError],
+  );
+
   const deadlines = useMemo(
     () => board.deadlines.filter((d) => weeks.includes(d.week)),
     [board.deadlines, weeks],
@@ -794,9 +875,10 @@ export function TriageBoard({
                   {!!carrying[p.key] && (
                     <span
                       className="triage-person-load"
-                      title={`${carrying[p.key]} open cards altogether, in every team`}
+                      title={`${shown[p.key] ?? 0} on this board, ${carrying[p.key]} altogether in every team`}
                     >
-                      {carrying[p.key]}
+                      {shown[p.key] ?? 0}
+                      <span className="triage-person-all">/{carrying[p.key]}</span>
                     </span>
                   )}
                 </>
@@ -812,6 +894,12 @@ export function TriageBoard({
               />
             </div>
           )}
+          cellProps={(p, col, _w, row) => ({
+            // Half a card of room under the last one, so there is always
+            // somewhere to press.
+            style: { minHeight: `${((filled.get(`${p.key}/${row}`) ?? 0) + 0.5) * grid.rowH}px` },
+            onPointerDown: () => setComposing({ row, col }),
+          })}
           weekProps={(w) => {
             // What the week carries, a card of several weeks counting in each
             // of them.
@@ -944,6 +1032,44 @@ export function TriageBoard({
               );
             }),
           )}
+
+          {composing &&
+            (() => {
+              const who = people[composing.col]?.key ?? NOBODY;
+              const under = filled.get(`${who}/${composing.row}`) ?? 0;
+              return (
+                <div
+                  className="triage-compose"
+                  style={{
+                    gridColumn: composing.col + 2,
+                    gridRow: composing.row + 2,
+                    marginTop: `${under * grid.rowH}px`,
+                  }}
+                >
+                  <AddCard
+                    autoOpen
+                    placeholder={
+                      composing.row === 0
+                        ? "A card for now…"
+                        : `A card for ${weekLabel(weeks[composing.row])}…`
+                    }
+                    picker={{
+                      title: "Zone",
+                      options: ZONE_ORDER.map((z) => ({
+                        key: z,
+                        label: ZONES[z].spine.toLowerCase(),
+                        color: ZONES[z].accent,
+                      })),
+                      initial: "gray",
+                    }}
+                    onCreate={(title, _team, zone) => {
+                      create(composing.row, who, title, (zone || "gray") as ZoneKey);
+                    }}
+                    onClosed={() => setComposing(null)}
+                  />
+                </div>
+              );
+            })()}
 
           {/* Deadlines: a line at the end of the week they fall in, as on the
               Project board — what stands above it is due by then. */}

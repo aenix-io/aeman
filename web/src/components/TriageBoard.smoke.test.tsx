@@ -63,6 +63,8 @@ function draw(cards: Card[]) {
       names={{}}
       patchCard={vi.fn()}
       addCard={vi.fn()}
+      replaceCard={vi.fn()}
+      removeCard={vi.fn()}
       reorderCards={vi.fn()}
       onOpen={vi.fn()}
       onError={vi.fn()}
@@ -289,6 +291,8 @@ describe("the Triage board", () => {
         names={{}}
         patchCard={vi.fn()}
         addCard={vi.fn()}
+        replaceCard={vi.fn()}
+        removeCard={vi.fn()}
         reorderCards={vi.fn()}
         onOpen={vi.fn()}
         onError={vi.fn()}
@@ -341,13 +345,24 @@ describe("the Triage board", () => {
         names={{}}
         patchCard={vi.fn()}
         addCard={vi.fn()}
+        replaceCard={vi.fn()}
+        removeCard={vi.fn()}
         reorderCards={vi.fn()}
         onOpen={vi.fn()}
         onError={vi.fn()}
       />,
     );
+    // How much of the whole the reader is looking at: one card here, eleven
+    // in the person's hands altogether.
     expect(html).toContain('class="triage-person-load"');
-    expect(html).toContain(">11<");
+    expect(html).toContain('1<span class="triage-person-all">/11</span>');
+  });
+
+  it("keeps half a card of room under the last one, to press on", () => {
+    // There is always somewhere to start a card, however full the week.
+    const html = draw([card()]);
+    expect(html).toContain("grid-row:2;grid-column:3;min-height:42px");
+    expect(html).toContain("grid-row:3;grid-column:3;min-height:14px");
   });
 
   it("says nothing beside a name with nothing to say", () => {

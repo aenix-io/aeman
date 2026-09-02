@@ -4927,6 +4927,45 @@ button.card-age {
   margin-left: 0;
 }
 
+/* The one thing in the origin row that can be changed: what kind of work
+   the card is. It reads as the rest of the row until it is reached for. */
+.modal-zone {
+  position: relative;
+}
+
+.modal-zone-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 3px;
+  cursor: pointer;
+}
+
+.modal-zone-btn:hover:not(:disabled) {
+  border-color: var(--line);
+}
+
+.modal-zone-btn:disabled {
+  cursor: default;
+}
+
+/* Somewhere to start a card, standing where the next one would: under the
+   last of its cell, at the full width of the column. */
+.triage-compose {
+  z-index: 3;
+  align-self: start;
+  padding: 0 3px;
+}
+
+.triage-compose .add-card-form {
+  width: 100%;
+}
+
 /* A turn a process is going to file: drawn before it exists, so it is drawn
    as an outline. Nothing can be done to it — there is no card yet — and the
    cursor says so. */

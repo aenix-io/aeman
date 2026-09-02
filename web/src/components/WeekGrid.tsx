@@ -26,6 +26,9 @@ export interface GridColumn {
  *  highlight and the pointer handlers that start a gesture. */
 export interface CellProps {
   className?: string;
+  /** Room the cell needs of its own — a board whose rows grow asks for it
+   *  here, since only the board knows what stands in the cell. */
+  style?: React.CSSProperties;
   /** A board that drops onto its cells attaches its drop target here. */
   ref?: Ref<HTMLDivElement>;
   onPointerDown?: React.PointerEventHandler<HTMLDivElement>;
@@ -135,7 +138,7 @@ export function WeekGrid<C extends GridColumn>({
         {/* cells: one per column × week, the drag surface */}
         {columns.map((c, col) =>
           weeks.map((w, row) => {
-            const { className, ref, ...rest } = cellProps?.(c, col, w, row) ?? {};
+            const { className, ref, style, ...rest } = cellProps?.(c, col, w, row) ?? {};
             return (
               <div
                 key={`${c.key}/${w}`}
@@ -148,7 +151,7 @@ export function WeekGrid<C extends GridColumn>({
                 className={`project-cell${row === todayRow ? " project-cell-today" : ""}${
                   className ? ` ${className}` : ""
                 }`}
-                style={{ gridRow: row + 2, gridColumn: col + 2 }}
+                style={{ gridRow: row + 2, gridColumn: col + 2, ...style }}
                 {...rest}
               />
             );

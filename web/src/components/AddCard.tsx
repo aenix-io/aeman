@@ -2,11 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import { teamColor } from "../avatar";
 import { Dropdown } from "./Dropdown";
 
+/** One option of the aside picker: what it is called and the dot that stands
+ *  for it. */
+export interface AddCardOption {
+  key: string;
+  label: string;
+  color?: string;
+}
+
 interface AddCardProps {
   /** Nothing can be added here: the board is showing a day that ended,
    *  and a card created on it would land on TODAY's board instead. */
   hidden?: boolean;
-  onCreate: (title: string, team?: string | null) => void;
+  onCreate: (title: string, team?: string | null, picked?: string) => void;
   placeholder?: string;
   /** Roster of known teams to offer in the picker. */
   teams?: string[];
@@ -19,6 +27,11 @@ interface AddCardProps {
   autoOpen?: boolean;
   /** The form closed; created reports whether a card was submitted. */
   onClosed?: (created: boolean) => void;
+  /** An aside picker of something OTHER than a team, for a board where the
+   *  team is not the question: the Triage board picks a zone, because a
+   *  column there is a person and the team comes with them. Its answer
+   *  arrives as the third argument of onCreate. */
+  picker?: { title: string; options: AddCardOption[]; initial: string };
 }
 
 /** AddCard expands into a title input with an integrated team picker. */
@@ -31,6 +44,7 @@ export function AddCard({
   allowNoTeam = true,
   autoOpen,
   onClosed,
+  picker,
 }: AddCardProps) {
   // With "no team" disabled the picker starts on the first team, so a filtered
   // create lands on a real team by default instead of "no team".
@@ -40,17 +54,20 @@ export function AddCard({
   const [value, setValue] = useState("");
   const [team, setTeam] = useState<string | null>(defaultTeam);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [picked, setPicked] = useState(picker?.initial ?? "");
   const formRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const teamRef = useRef<HTMLDivElement | null>(null);
 
-  // The team picker is shown only when a roster is supplied and no team is forced.
-  const showPicker = forcedTeam === undefined && teams !== undefined;
+  // The team picker is shown only when a roster is supplied and no team is
+  // forced — and never when the board asked for a picker of its own.
+  const showPicker = !picker && forcedTeam === undefined && teams !== undefined;
 
   const close = (created: boolean) => {
     setOpen(false);
     setValue("");
     setTeam(defaultTeam);
+    setPicked(picker?.initial ?? "");
     setMenuOpen(false);
     onClosed?.(created);
   };
@@ -58,7 +75,7 @@ export function AddCard({
   const submit = () => {
     const title = value.trim();
     if (title) {
-      onCreate(title, forcedTeam !== undefined ? forcedTeam : team);
+      onCreate(title, forcedTeam !== undefined ? forcedTeam : team, picked);
     }
     close(Boolean(title));
   };
@@ -87,6 +104,8 @@ export function AddCard({
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
   }, [open]);
+
+  const chosen = picker?.options.find((o) => o.key === picked);
 
   // Picking a team keeps focus in the title input so Enter still submits.
   const pickTeam = (t: string | null) => {
@@ -135,6 +154,44 @@ export function AddCard({
           }
         }}
       />
+      {picker && (
+        <div className="add-card-team" ref={teamRef}>
+          <button
+            type="button"
+            className="add-card-team-btn"
+            onClick={() => setMenuOpen((o) => !o)}
+            title={picker.title}
+          >
+            {chosen?.color && (
+              <span className="team-dot" style={{ background: chosen.color }} />
+            )}
+            <span className="add-card-team-label">{chosen?.label ?? picker.title}</span>
+            <span className="add-card-team-caret">▾</span>
+          </button>
+          <Dropdown
+            open={menuOpen}
+            anchorRef={teamRef}
+            onClose={() => setMenuOpen(false)}
+            className="add-card-team-menu"
+          >
+            {picker.options.map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                className="add-card-team-item"
+                onClick={() => {
+                  setPicked(o.key);
+                  setMenuOpen(false);
+                  inputRef.current?.focus();
+                }}
+              >
+                {o.color && <span className="team-dot" style={{ background: o.color }} />}
+                {o.label}
+              </button>
+            ))}
+          </Dropdown>
+        </div>
+      )}
       {showPicker && (
         <div className="add-card-team" ref={teamRef}>
           <button
