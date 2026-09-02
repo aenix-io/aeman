@@ -4904,12 +4904,13 @@ button.card-age {
   right: 4px;
 }
 
-/* The weeks one card takes: behind its boxes, above the cells, so the card
-   reads as one thing standing across several rows. */
+/* The gap between the boxes of one card while it is carried or stretched:
+   behind them, above the cells, in the colour a cell wore when the cells
+   were the ones being lit. The top and the height are the board's — it knows
+   where in the week's stack the boxes stand. */
 .triage-span {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
-  border-radius: 5px;
-  margin: 2px 3px;
+  margin: 0 3px;
   pointer-events: none;
   z-index: 1;
 }
