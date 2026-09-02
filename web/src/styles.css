@@ -4758,11 +4758,9 @@ button.card-age {
 }
 
 /* ---- Backlog ---- */
-/* The weekly plan seen several weeks ahead (docs/design/backlog.md): rows
-   are teams, columns are weeks, each column holds three lanes by the source
-   of the work — drawn as the day boards' zone areas, spine and all — and a
-   strip above the columns holds what nobody placed. Deadlines stand in the
-   gaps between the columns. */
+/* Who does what, and in which week (docs/design/backlog.md). The strip on
+   the left holds what nobody has given a week; the grid on the right is the
+   Project board's shape with people across and weeks down. */
 .backlog {
   display: flex;
   flex-direction: column;
@@ -4770,35 +4768,14 @@ button.card-age {
   height: 100%;
 }
 
-.backlog-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+.backlog .board-toolbar {
+  flex: none;
 }
 
-.backlog-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  padding: 10px 14px 48px;
-}
-
-.backlog-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.backlog-row-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.backlog-team {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+.backlog-load {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .backlog-capacity {
@@ -4816,89 +4793,127 @@ button.card-age {
   border-color: var(--line);
 }
 
-.backlog-note {
-  color: var(--faint);
+.backlog-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
 }
 
-.backlog-load {
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.backlog-strip {
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  padding: 6px 8px 8px;
+/* The strip: one column of cards, its own scroll, always in reach. */
+.backlog-triage {
+  flex: none;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
   background: var(--bg-soft);
 }
 
-.backlog-strip-head {
+.backlog-triage-head {
+  flex: none;
   display: flex;
-  gap: 8px;
+  justify-content: space-between;
+  padding: 8px 10px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
-  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line-soft);
 }
 
-.backlog-strip-cards {
+.backlog-triage-cards {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
-  min-height: 36px;
-  border-radius: 4px;
-}
-
-.backlog-strip-cards .sortable-card {
-  width: 230px;
+  padding: 8px;
 }
 
 .backlog-empty {
-  align-self: center;
   color: var(--faint);
   font-size: 11px;
   font-style: italic;
+  padding: 4px;
 }
 
-/* Columns and the gaps between them, in one row: [week][gap][week][gap]…
-   Each column is as tall as its own lanes, each lane as tall as its cards:
-   an empty week is a short column, a full one is long, and nothing is
-   stretched to match a neighbour. */
-.backlog-weeks {
+.backlog-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 14px 40px;
+}
+
+.backlog-grid {
+  display: grid;
+  min-width: min-content;
+  position: relative;
+}
+
+/* The header row of people and the label column of weeks both stay put. */
+.backlog-corner,
+.backlog-person {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.backlog-corner {
+  left: 0;
+  z-index: 9;
+}
+
+.backlog-person {
   display: flex;
-  align-items: flex-start;
-}
-
-.backlog-col {
-  flex: none;
-  width: 250px;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  overflow: hidden;
-}
-
-.backlog-col-now {
-  border-color: var(--accent);
-}
-
-.backlog-col-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 5px 8px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
   font-size: 12px;
   font-weight: 600;
-  border-bottom: 1px solid var(--line-soft);
-  background: var(--bg-soft);
+  white-space: nowrap;
 }
 
-.backlog-col-over .backlog-col-head {
+.backlog-person-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.backlog-person-none {
+  color: var(--faint);
+  font-style: italic;
+}
+
+.backlog-week {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  box-shadow: -40px 0 0 var(--bg);
+  border-bottom: 1px solid var(--line-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.backlog-week-now {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.backlog-week-over .backlog-count {
   color: var(--danger);
+  font-weight: 700;
 }
 
 .backlog-count {
@@ -4910,96 +4925,17 @@ button.card-age {
   font-weight: 400;
 }
 
-/* A week and the gap after it are one slot, so the deadline's line is as
-   tall as the column it closes and no taller — a line running past the
-   tallest week said nothing about the week it belongs to. */
-.backlog-slot {
-  flex: none;
+.backlog-cell {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  border-bottom: 1px solid var(--line-soft);
+  border-right: 1px solid var(--line-soft);
 }
 
-/* The gap: the deadline's home. Empty ones keep the columns evenly apart. */
-.backlog-gap {
-  flex: none;
-  width: 14px;
-  position: relative;
-  overflow: hidden;
-}
-
-.backlog-gap-deadline {
-  width: 22px;
-}
-
-.backlog-deadline {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  justify-content: center;
-}
-
-.backlog-deadline::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  border-left: 2px dashed var(--muted);
-}
-
-.backlog-deadline-label {
-  position: relative;
-  align-self: flex-start;
-  margin-top: 6px;
-  padding: 2px 3px;
-  writing-mode: vertical-rl;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  color: var(--muted);
-  background: var(--bg);
-  border-radius: 3px;
-}
-
-.backlog-deadline-breached::before {
-  border-left-color: var(--danger);
-  border-left-style: solid;
-}
-
-.backlog-deadline-breached .backlog-deadline-label {
-  color: var(--danger);
-}
-
-/* The lanes are zone areas, each its own height — never shorter than the
-   word that names it, which the spine sets as a flex item, exactly as on
-   the day boards. Only the count sits in the corner. */
-.backlog-col .zone-area {
-  border-radius: 0;
-  flex: none;
-}
-
-.backlog-lane-head {
-  display: flex;
-  justify-content: flex-end;
-  font-size: 10.5px;
-  line-height: 1;
-  color: var(--faint);
-}
-
-.backlog-nolane {
-  color: var(--faint);
-  font-weight: 400;
-}
-
-.backlog-lane-over .backlog-lane-head {
-  color: var(--danger);
-  font-weight: 700;
-}
-
-.backlog-lane-starved .backlog-lane-head {
-  color: var(--amber);
-  font-weight: 700;
+.backlog-cell-now {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .backlog-dragover {
@@ -5007,7 +4943,76 @@ button.card-age {
   outline-offset: -2px;
 }
 
-/* The compact card: title, who, what it belongs to, how far it is. */
+/* A week a stretched card reaches into: the work is there, drawn once in the
+   week it starts in, and the tint says the rest of it is running here. */
+.backlog-cell-reached {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 8%, transparent) 0 6px,
+    transparent 6px 12px
+  );
+}
+
+/* The grip: the card's bottom edge, pulled down to stretch it over more
+   weeks — the Project board's gesture, on a card that is not a slot. */
+.backlog-card-grip {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -3px;
+  height: 7px;
+  border-radius: 3px;
+  cursor: ns-resize;
+  touch-action: none;
+  opacity: 0;
+}
+
+.backlog-card:hover .backlog-card-grip {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.backlog-card-reaching {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* How many weeks the card is stretched over. */
+.backlog-card-span {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: color-mix(in srgb, var(--accent) 75%, transparent);
+}
+
+/* A deadline lies along the bottom of the week it falls in, across every
+   person: what stands above it is what has to be done by then. */
+.backlog-deadline {
+  position: relative;
+  align-self: end;
+  height: 0;
+  pointer-events: none;
+  border-bottom: 2px dashed var(--danger);
+  z-index: 6;
+}
+
+.backlog-deadline-label {
+  position: absolute;
+  left: 100px;
+  bottom: 2px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--danger);
+  background: var(--bg);
+  border-radius: 3px;
+}
+
+/* The card: title, what it belongs to, how far it is. */
 .backlog-card {
   position: relative;
   display: flex;
@@ -5054,13 +5059,11 @@ button.card-age {
   background: var(--stage-review);
 }
 
-/* A debt is late whatever its band said, and says so in the same line. */
 .backlog-card-late.backlog-card-plan-wed::before,
 .backlog-card-late.backlog-card-plan-fri::before {
   background: var(--danger);
 }
 
-/* The card's own text clears the line. */
 .backlog-card-plan-wed,
 .backlog-card-plan-fri,
 .backlog-card-review {
@@ -5069,6 +5072,10 @@ button.card-age {
 
 .backlog-card-done {
   opacity: 0.55;
+}
+
+.backlog-card-late {
+  border-left: 3px solid var(--danger);
 }
 
 .backlog-card-locked {

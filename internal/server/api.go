@@ -1097,22 +1097,15 @@ func (s *Server) handleTakeIntoPlan(w http.ResponseWriter, r *http.Request) {
 	s.cardResponse(w, r, svc, boardID, uid)
 }
 
-// handlePlaceCard puts a card in a week of the Backlog board, and in a lane
-// (docs/design/backlog.md). {week, lane, band}: an empty week changes the
-// lane alone.
+// handlePlaceCard puts a card in a week of the Backlog board, which is what
+// triaging it means (docs/design/backlog.md). {week, band}: the band is the
+// weekly plan's and only its own drop sets one.
 func (s *Server) handlePlaceCard(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Week string `json:"week"`
-		Lane string `json:"lane"`
 		Band string `json:"band"`
 	}
 	if !decodeJSON(w, r, &in) {
-		return
-	}
-	switch board.Lane(in.Lane) {
-	case board.LaneNone, board.LaneClient, board.LanePlan, board.LaneInternal:
-	default:
-		writeJSONError(w, http.StatusUnprocessableEntity, "lane: want client, plan or internal")
 		return
 	}
 	switch board.PlanBand(in.Band) {
@@ -1126,7 +1119,7 @@ func (s *Server) handlePlaceCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.Place(r.Context(), boardID, uid, in.Week, board.Lane(in.Lane), board.PlanBand(in.Band)); err != nil {
+	if err := svc.Place(r.Context(), boardID, uid, in.Week, board.PlanBand(in.Band)); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -2061,7 +2054,6 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProjectExists),
 		errors.Is(err, boardservice.ErrProjectNotFound),
 		errors.Is(err, boardservice.ErrWeekDerived),
-		errors.Is(err, boardservice.ErrLaneDerived),
 		errors.Is(err, boardservice.ErrNotAMonday),
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),

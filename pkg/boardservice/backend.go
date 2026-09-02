@@ -68,8 +68,6 @@ type Backend interface {
 	SetSprintStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetPlan(ctx context.Context, b board.Board, card board.Card, plan board.PlanBand) error
 	SetWeek(ctx context.Context, b board.Board, card board.Card, week string) error
-	// SetLane sets or clears the stored lane (docs/design/backlog.md).
-	SetLane(ctx context.Context, b board.Board, card board.Card, lane board.Lane) error
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	// SetEpic files the card under a Project-board column ("" clears).
 	SetEpic(ctx context.Context, b board.Board, card board.Card, epic string) error

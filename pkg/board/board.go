@@ -73,21 +73,6 @@ const (
 	PlanFri  PlanBand = "fri"
 )
 
-// Lane is where a card's work came from — what the Backlog board limits by.
-// It is DERIVED where the card's links already say it (a column slot and a
-// process turn are the plan; a subtask and a review card belong to their
-// card) and stored on every other card; LaneOf is the one reader. Empty on a
-// stored card means nobody placed it: it needs triage.
-type Lane string
-
-// The lanes. LaneNone ("") is a card without one.
-const (
-	LaneNone     Lane = ""
-	LaneClient   Lane = "client"
-	LanePlan     Lane = "plan"
-	LaneInternal Lane = "internal"
-)
-
 // Capacity is a team's throughput in cards a week, and the shares of it the
 // lanes may take: Client is a ceiling, Internal a floor, both in percent.
 // Week 0 means "derive it" (see CapacityOf).
@@ -135,9 +120,6 @@ type Card struct {
 	// no day board until that Monday (B1).
 	Plan PlanBand `json:"plan,omitempty"`
 	Week string   `json:"week,omitempty"`
-	// Lane is the stored lane; read it through LaneOf, which derives it for
-	// the cards whose links decide it.
-	Lane Lane `json:"lane,omitempty"`
 	// Epic names the Project-board column this card belongs to ("" = none). An
 	// epic card's row is its Week; StartDate..Day span the weeks its slot
 	// covers when it stretches over more than one.

@@ -130,9 +130,6 @@ type CardStatus struct {
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
 	DoneAt string `json:"doneAt,omitempty"`
-	// Lane is where the card's work came from — derived from its links or
-	// read off the card (board.LaneOf); empty is a card nobody placed.
-	Lane string `json:"lane,omitempty"`
 	// Triage marks a card the Backlog board's strip holds: nobody placed
 	// it in a week and it is not being worked (B3).
 	Triage bool `json:"triage,omitempty"`
@@ -464,7 +461,6 @@ func CardResource(b board.Board, c board.Card) Card {
 		Domain:      c.Domain,
 		DoneAt:      c.DoneAt,
 		LeftAt:      c.LeftAt,
-		Lane:        string(board.LaneOf(b, c)),
 		Triage:      board.NeedsTriage(b, c, board.TodayIso()),
 		BacklogWeek: board.BacklogWeekOf(b, c, board.TodayIso()),
 	}

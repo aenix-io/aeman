@@ -1089,11 +1089,6 @@ func (b *Backend) SetPlan(ctx context.Context, _ board.Board, card board.Card, p
 	return b.editCard(ctx, "plan", card, func(f *CardFile) { f.Card.Plan = plan })
 }
 
-// SetLane sets or clears the stored lane.
-func (b *Backend) SetLane(ctx context.Context, _ board.Board, card board.Card, lane board.Lane) error {
-	return b.editCard(ctx, "lane", card, func(f *CardFile) { f.Card.Lane = lane })
-}
-
 // SetWeek sets the week — of a card, or of a deadline stub.
 func (b *Backend) SetWeek(ctx context.Context, _ board.Board, card board.Card, week string) error {
 	if card.Title == board.DeadlineStateTitle {

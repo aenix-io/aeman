@@ -12,77 +12,45 @@ func PlacedAhead(c Card, today string) bool {
 	return c.Week != "" && c.Week > MondayOf(today)
 }
 
-// LaneOf is the one reader of a card's lane. It derives the lane where the
-// card's links already say it — a column slot and a process turn are the
-// plan, a subtask and a review card belong to their card — and reads the
-// stored value on every other card (B2).
-func LaneOf(b Board, c Card) Lane {
-	return laneOf(b, c, 0)
-}
-
-func laneOf(b Board, c Card, depth int) Lane {
-	if c.Epic != "" || c.Task != "" {
-		return LanePlan
-	}
-	if depth < 2 {
-		owner := c.Parent
-		if owner == "" {
-			owner = c.ReviewOf
-		}
-		if owner != "" {
-			for i := range b.Cards {
-				if b.Cards[i].ItemID == owner {
-					return laneOf(b, b.Cards[i], depth+1)
-				}
-			}
-		}
-	}
-	return c.Lane
-}
-
-// LaneDerives reports whether the card's lane is decided by its links, so a
-// stored lane on it would be ignored — a write of one is refused.
-func LaneDerives(c Card) bool {
-	return c.Epic != "" || c.Task != "" || c.Parent != "" || c.ReviewOf != ""
-}
-
-// NeedsTriage reports whether the card is one nobody placed: an open team
-// card of its own (no parent, no original) with no week, not on the team's
-// current sprint and not scheduled to a day ahead (B3). Cards on the day
-// board are being worked; cards with a week are in the backlog already.
-func NeedsTriage(b Board, c Card, today string) bool {
+// NeedsTriage reports whether nobody has said WHEN the card's work is due: an
+// open card of its own (no parent, no original) with no week (B3). The week
+// is the whole of the decision — a card on today's board was put there by the
+// day's planning, not by a week's, and until someone gives it a week it is
+// work of unknown time. That is the pile the strip exists to show, however
+// large it is at first.
+func NeedsTriage(_ Board, c Card, _ string) bool {
 	if IsStateTitle(c.Title) || IsPersonalDomain(c.Domain) {
 		return false
 	}
 	if c.Parent != "" || c.ReviewOf != "" || c.Week != "" {
 		return false
 	}
-	if Complete(c.Stage, c.Progress) {
-		return false
-	}
-	if c.SprintStart != "" && c.SprintStart == CurrentSprint(b, c.Team) {
-		return false
-	}
-	if c.StartDate != "" && c.StartDate > today {
-		return false
-	}
-	return true
+	return !Complete(c.Stage, c.Progress)
 }
 
 // BacklogWeekOf is the Monday of the column a card stands in on the Backlog
-// board: its week when it has one; the week of the day it is scheduled to
-// when that day is ahead; the current week for a card of the current
-// sprint; "" for a card that is in no column (needs triage).
-func BacklogWeekOf(b Board, c Card, today string) string {
-	switch {
-	case c.Week != "":
-		return c.Week
-	case c.StartDate != "" && c.StartDate > today:
-		return MondayOf(c.StartDate)
-	case c.SprintStart != "" && c.SprintStart == CurrentSprint(b, c.Team):
-		return MondayOf(today)
+// board — its week, and nothing else. A card with no week stands in no
+// column: it is in the strip, waiting for someone to say when.
+func BacklogWeekOf(_ Board, c Card, _ string) string { return c.Week }
+
+// WeeksCovered is every week a card occupies on the Backlog board: the week
+// it was placed in, through the week its end date reaches. Stretching a card
+// over three weeks says the work takes three weeks, and each of them counts
+// it against what the team can do — a stretched card is not one week of work
+// filed early.
+//
+// A card with no week covers none: it is in the strip, waiting for someone to
+// say when. An end date inside (or before) its own week reaches nowhere.
+func WeeksCovered(c Card) []string {
+	if c.Week == "" {
+		return nil
 	}
-	return ""
+	out := []string{c.Week}
+	last := MondayOf(c.Day)
+	for w := AddDays(c.Week, 7); last != "" && w <= last; w = AddDays(w, 7) {
+		out = append(out, w)
+	}
+	return out
 }
 
 // Default lane shares, in percent of the week, for a team that set none.

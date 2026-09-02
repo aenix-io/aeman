@@ -92,7 +92,6 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("sprint", c.SprintStart)
 	w("plan", string(c.Plan))
 	w("week", c.Week)
-	w("lane", string(c.Lane))
 	w("project", c.Project)
 	w("epic", c.Epic)
 	if len(c.Mirrors) > 0 {
@@ -317,8 +316,6 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 		c.Stage = board.StageKey(val.Value)
 	case "plan":
 		c.Plan = board.PlanBand(val.Value)
-	case "lane":
-		c.Lane = board.Lane(val.Value)
 	case "progress":
 		c.Progress = num()
 	case "doneFrom":

@@ -8,35 +8,27 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// ErrLaneDerived is a lane written on a card whose links decide it — a
-// column slot, a process turn, a subtask, a review card (B2).
-var ErrLaneDerived = errors.New("the card's lane follows its links")
-
 // ErrNotAMonday is a backlog week that is not a Monday.
 var ErrNotAMonday = errors.New("a backlog week is a Monday")
 
-// Place puts a card in a week of the Backlog board, and in a lane when one
-// is given (docs/design/backlog.md, B4, B9, B10). A slot moves its dates
-// and its week follows, as on the Project board; every other card takes
-// the week and keeps its band — by Friday when it has none — and, placed
-// in a week AHEAD, leaves the day board: its dates and sprint are cleared,
-// since a card in a week to come is on no day (B1). An empty week changes
-// the lane alone.
-func (s *Service) Place(ctx context.Context, boardID, itemID, week string, lane board.Lane, band board.PlanBand) error {
+// Place puts a card in a week of the Backlog board — which is what TRIAGING
+// a card means: until then nobody has said when the work is due, and the
+// board holds it in the strip.
+//
+// What the week does depends on what the card already is. A Project-board
+// SLOT moves its dates and its week follows them, as on the Project board. A
+// weekly-plan card keeps its band — the plan is a commitment to a day of the
+// week, and moving the card between weeks does not undo it. Every other card
+// takes the week ALONE: it is work of the board scheduled for that week, not
+// a promise on the weekly panel, and giving it a band would put it there.
+//
+// A card placed in a week AHEAD leaves the day board: its dates and sprint go,
+// since a card in a week to come is on no day (B1). Placed in the CURRENT
+// week it keeps them — that is the week the board is working.
+func (s *Service) Place(ctx context.Context, boardID, itemID, week string, band board.PlanBand) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
-	}
-	if lane != board.LaneNone {
-		if board.LaneDerives(card) {
-			return fmt.Errorf("%w: %s", ErrLaneDerived, itemID)
-		}
-		if lane != card.Lane {
-			if err := s.backend.SetLane(ctx, b, card, lane); err != nil {
-				return err
-			}
-			card.Lane = lane
-		}
 	}
 	if week == "" {
 		return nil
@@ -45,9 +37,8 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string, lane 
 		return fmt.Errorf("%w: %q", ErrNotAMonday, week)
 	}
 	today := board.TodayIso()
-	slot := card.Epic != "" && card.Week != "" && card.Day != ""
-	if slot {
-		// The slot's week is its start's week: move the dates, the week
+	if card.Epic != "" && card.Week != "" && card.Day != "" {
+		// A slot's week is its start's week: move the dates, the week
 		// follows (syncSlotWeek).
 		from := board.MondayOf(card.StartDate)
 		if from == "" {
@@ -65,11 +56,11 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string, lane 
 		}
 		card.Parent = ""
 	}
+	// The band is the WEEKLY PLAN's: a card that has one keeps it, a card
+	// that has none is not given one by being scheduled. Only an explicit
+	// band (the plan's own drop) sets it.
 	if band == board.PlanNone {
 		band = card.Plan
-	}
-	if band == board.PlanNone {
-		band = board.PlanFri
 	}
 	// A card owed by Wednesday, moved into a week whose Wednesday has
 	// passed, is owed by Friday: the earlier deadline is gone (B10).
@@ -121,8 +112,9 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string, lane 
 	return nil
 }
 
-// Untriage takes a card out of every week: it is back in the triage strip,
-// its lane kept (B4). A slot is refused — its week is its row.
+// Untriage takes a card out of its week: it is back in the strip, waiting for
+// someone to say when the work is due. A slot is refused — its week is its
+// row on the Project board.
 func (s *Service) Untriage(ctx context.Context, boardID, itemID string) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {

@@ -96,8 +96,6 @@ export interface Card {
   /** The board day a personal card was left behind on by the × — on the
    *  column that day and before, off it from the next; cleared by re-dating. */
   leftAt?: string;
-  /** Where the card's work came from, as the server derives or reads it. */
-  lane?: Lane;
   /** Nobody placed the card in a week and it is not being worked (B3). */
   triage?: boolean;
   /** The Monday of the Backlog column the card stands in (B5). */
@@ -154,8 +152,6 @@ export interface SprintState {
   capacity?: { week: number; client: number; internal: number; derived: boolean };
 }
 
-/** Lane is where a card's work came from — what the Backlog board limits by. */
-export type Lane = "client" | "plan" | "internal";
 
 /** ProcessTask is what a process iterates on, plus how the last few
  *  iterations went. */
@@ -376,9 +372,10 @@ export interface Provider {
   ): Promise<Card>;
   /** Release a card from the weekly plan (the plan-band × semantics). */
   releaseFromPlan(uid: string): Promise<Card>;
-  /** Place a card in a week of the Backlog board, and in a lane; an empty
-   *  week changes the lane alone (docs/design/backlog.md). */
-  placeCard(uid: string, week: string, lane?: Lane, band?: "wed" | "fri"): Promise<Card>;
+  /** Place a card in a week of the Backlog board — which is what triaging it
+   *  means. The band belongs to the weekly plan and only its own drop sets
+   *  one (docs/design/backlog.md). */
+  placeCard(uid: string, week: string, band?: "wed" | "fri"): Promise<Card>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.

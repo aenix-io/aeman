@@ -19,6 +19,14 @@ func TestOverdue(t *testing.T) {
 		{"by-Friday, on Thursday", Card{Plan: PlanFri, Week: "2026-08-24"}, false},
 		{"by-Friday of last week", Card{Plan: PlanFri, Week: "2026-08-17"}, true},
 		{"a plan card with no week", Card{Plan: PlanFri}, false},
+		// A card the Backlog board scheduled: a week and no band. It is owed
+		// by the end of the week it was placed in — being scheduled for a
+		// week IS the promise, and without this a debt from the backlog read
+		// as work with all the time in the world.
+		{"a card scheduled for last week", Card{Week: "2026-08-17"}, true},
+		{"a card scheduled for this week", Card{Week: "2026-08-24"}, false},
+		{"a card scheduled for next week", Card{Week: "2026-08-31"}, false},
+		{"one finished after its week is not a debt", Card{Week: "2026-08-17", Progress: 100}, false},
 		{"an ordinary day card is not this rule's business", Card{StartDate: "2026-08-01", Day: "2026-08-01"}, false},
 	}
 	for _, c := range cases {

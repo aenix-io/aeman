@@ -510,16 +510,6 @@ func (f *Backend) SetPlan(_ context.Context, _ board.Board, card board.Card, pla
 }
 
 // SetWeek sets a card's plan week.
-func (f *Backend) SetLane(_ context.Context, _ board.Board, card board.Card, lane board.Lane) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetLane %s %s", card.ItemID, lane)
-	if c := f.card(card.ItemID); c != nil {
-		c.Lane = lane
-	}
-	return nil
-}
-
 func (f *Backend) SetWeek(_ context.Context, _ board.Board, card board.Card, week string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

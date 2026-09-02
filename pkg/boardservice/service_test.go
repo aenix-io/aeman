@@ -396,16 +396,6 @@ func (f *fakeBackend) SetPlan(_ context.Context, _ board.Board, card board.Card,
 	return nil
 }
 
-func (f *fakeBackend) SetLane(_ context.Context, _ board.Board, card board.Card, lane board.Lane) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetLane %s %s", card.ItemID, lane)
-	if c := f.get(card.ItemID); c != nil {
-		c.Lane = lane
-	}
-	return nil
-}
-
 func (f *fakeBackend) SetWeek(_ context.Context, _ board.Board, card board.Card, week string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
