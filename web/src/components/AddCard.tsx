@@ -33,6 +33,10 @@ interface AddCardProps {
    *  column there is a person and the team comes with them. Its answer
    *  arrives as the third argument of onCreate. */
   picker?: { title: string; options: AddCardOption[]; initial: string };
+  /** Draw the pickers as their colour and nothing else. A form that stands
+   *  inside a card's width has no room for a word, and the menus name what
+   *  the dots mean. */
+  compact?: boolean;
 }
 
 /** AddCard expands into a title input with an integrated team picker. */
@@ -46,6 +50,7 @@ export function AddCard({
   autoOpen,
   onClosed,
   picker,
+  compact,
 }: AddCardProps) {
   // With "no team" disabled the picker starts on the first team, so a filtered
   // create lands on a real team by default instead of "no team".
@@ -55,14 +60,17 @@ export function AddCard({
   const [value, setValue] = useState("");
   const [team, setTeam] = useState<string | null>(defaultTeam);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pickOpen, setPickOpen] = useState(false);
   const [picked, setPicked] = useState(picker?.initial ?? "");
   const formRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const teamRef = useRef<HTMLDivElement | null>(null);
+  const pickRef = useRef<HTMLDivElement | null>(null);
 
-  // The team picker is shown only when a roster is supplied and no team is
-  // forced — and never when the board asked for a picker of its own.
-  const showPicker = !picker && forcedTeam === undefined && teams !== undefined;
+  // The team picker is shown when a roster is supplied and no team is
+  // forced. A board may ask for one of its own beside it: the Triage board
+  // picks a zone, and picks a team too when it is showing more than one.
+  const showPicker = forcedTeam === undefined && teams !== undefined;
 
   const close = (created: boolean) => {
     setOpen(false);
@@ -70,6 +78,7 @@ export function AddCard({
     setTeam(defaultTeam);
     setPicked(picker?.initial ?? "");
     setMenuOpen(false);
+    setPickOpen(false);
     onClosed?.(created);
   };
 
@@ -156,11 +165,11 @@ export function AddCard({
         }}
       />
       {picker && (
-        <div className="add-card-team" ref={teamRef}>
+        <div className="add-card-team" ref={pickRef}>
           <button
             type="button"
             className="add-card-team-btn"
-            onClick={() => setMenuOpen((o) => !o)}
+            onClick={() => setPickOpen((o) => !o)}
             title={chosen ? `${picker.title}: ${chosen.label}` : picker.title}
           >
             {/* The colour is the answer — the list is where it is spelled
@@ -172,9 +181,9 @@ export function AddCard({
             <span className="add-card-team-caret">▾</span>
           </button>
           <Dropdown
-            open={menuOpen}
-            anchorRef={teamRef}
-            onClose={() => setMenuOpen(false)}
+            open={pickOpen}
+            anchorRef={pickRef}
+            onClose={() => setPickOpen(false)}
             className="add-card-team-menu"
           >
             {picker.options.map((o) => (
@@ -185,7 +194,7 @@ export function AddCard({
                 title={o.hint}
                 onClick={() => {
                   setPicked(o.key);
-                  setMenuOpen(false);
+                  setPickOpen(false);
                   inputRef.current?.focus();
                 }}
               >
@@ -202,12 +211,12 @@ export function AddCard({
             type="button"
             className="add-card-team-btn"
             onClick={() => setMenuOpen((o) => !o)}
-            title="Team"
+            title={team ? `Team: ${team}` : "Team"}
           >
             {team && (
               <span className="team-dot" style={{ background: teamColor(team) }} />
             )}
-            <span className="add-card-team-label">{team ?? "no team"}</span>
+            {!compact && <span className="add-card-team-label">{team ?? "no team"}</span>}
             <span className="add-card-team-caret">▾</span>
           </button>
           <Dropdown

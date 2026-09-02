@@ -1498,6 +1498,7 @@ export function App() {
             replaceCard={replaceCard}
             removeCard={removeCard}
             reorderCards={reorderCards}
+            reload={reload}
             onOpen={(c) => setDetailCard(c)}
             onError={onError}
           />

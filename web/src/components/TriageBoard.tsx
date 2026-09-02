@@ -22,6 +22,7 @@ import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/t
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso } from "../date";
 import { anchorFor, byPile, needsTriage, orderWith, placedIn } from "../triage";
+import { deleteWarning, freeSubtasks, gridRemoval, removalKind } from "../removal";
 import { effectiveBand } from "../weekly";
 import { isPersonalDomain } from "../domains";
 import { displayName, type Avatars, type Names } from "../users";
@@ -67,6 +68,9 @@ interface TriageBoardProps {
   removeCard: (uid: string) => void;
   /** The board's own order, for a card dropped between two others. */
   reorderCards: (orderedItemIds: string[]) => void;
+  /** Fetch the board again — the answer to a write the board cannot undo
+   *  locally. */
+  reload: () => void;
   onOpen: (card: CardModel) => void;
   onError: (message: string) => void;
 }
@@ -115,6 +119,7 @@ export function TriageBoard({
   replaceCard,
   removeCard,
   reorderCards,
+  reload,
   onOpen,
   onError,
 }: TriageBoardProps) {
@@ -428,13 +433,45 @@ export function TriageBoard({
     [provider, patchCard, addCard, fail],
   );
 
-  const untriage = useCallback(
+
+  // The × is the SAME × as everywhere else: the shared rule says what it
+  // means for this card — the card goes back to its column, out of its
+  // group, or off the board — and the person is asked only where the answer
+  // destroys work (removal.ts, mirroring boardservice.Remove). A board that
+  // answered this on its own is how one of them came to hard-delete what
+  // another kept.
+  const remove = useCallback(
     (card: CardModel) => {
-      const before = { week: card.week, triage: card.triage };
-      patchCard(card.itemId, { week: undefined, triage: true });
-      provider.untriageCard(card.itemId).then(addCard).catch(fail(card, before));
+      const ctx = {
+        today,
+        current: board.sprintStates[card.team ?? ""]?.current ?? undefined,
+        previous: board.sprintStates[card.team ?? ""]?.previous ?? undefined,
+      };
+      const outcome = gridRemoval(card, ctx);
+      if (outcome === "delete" && removalKind(card, ctx) === "ask") {
+        const warn =
+          deleteWarning(card, null) ?? `Delete «${card.title}»? Nothing else keeps it.`;
+        if (!window.confirm(warn)) {
+          return;
+        }
+      }
+      // What the server does, done here at once: a card nothing else keeps
+      // is gone, and its subtasks are loose rather than pointing at a parent
+      // that no longer exists.
+      if (outcome === "delete") {
+        for (const freed of freeSubtasks(board.cards, card.itemId)) {
+          patchCard(freed.itemId, freed.patch);
+        }
+        removeCard(card.itemId);
+      } else if (outcome === "ungroup") {
+        patchCard(card.itemId, { parent: undefined });
+      }
+      void provider.removeCard(card.itemId, "grid").catch((err: Error) => {
+        onError(err.message);
+        reload();
+      });
     },
-    [provider, patchCard, addCard, fail],
+    [board.cards, board.sprintStates, today, provider, patchCard, removeCard, onError, reload],
   );
 
   // Stretching: the card's end date moves to the Friday of the week the
@@ -763,9 +800,8 @@ export function TriageBoard({
   // it is, and what kind of work. The team comes from the filter when it says
   // one thing; a card of no team is still the board's to show.
   const create = useCallback(
-    (row: number, who: string, title: string, zone: ZoneKey) => {
+    (row: number, who: string, title: string, zone: ZoneKey, team: string | null) => {
       const week = weeks[row];
-      const team = teams.length === 1 ? teams[0] : null;
       const now = row === 0;
       const tempId = `tmp-${new Date().toISOString()}`;
       addCard({
@@ -801,7 +837,7 @@ export function TriageBoard({
           onError(err.message);
         });
     },
-    [weeks, teams, today, provider, addCard, replaceCard, removeCard, onError],
+    [weeks, today, provider, addCard, replaceCard, removeCard, onError],
   );
 
   const deadlines = useMemo(
@@ -1003,15 +1039,15 @@ export function TriageBoard({
                     {card.title}
                     {parts > 1 && <span className="triage-slot-part"> ({part + 1}/{parts})</span>}
                   </span>
-                  {!slot.projected && (
+                  {!slot.projected && (!card.epic || unlocked) && (
                     <span className="project-slot-actions">
                       <button
                         type="button"
                         className="card-action card-action-delete"
-                        title="Back to needs triage"
+                        title={card.epic ? "Take off this board" : "Remove"}
                         onClick={(e) => {
                           e.stopPropagation();
-                          untriage(card);
+                          remove(card);
                         }}
                       >
                         ×
@@ -1024,11 +1060,13 @@ export function TriageBoard({
                         must not say something else here. */}
                     <i style={{ width: `${progress}%`, background: barColor(card.stage) }} />
                   </span>
-                  {/* Only the LAST week carries the grip: what it drags is the
-                      card's end, and the weeks between follow from it. A
-                      project card has none — its span is its row on the
-                      Project board, and that is where it is changed. */}
-                  {part === parts - 1 && (!card.epic || unlocked) && !slot.projected && (
+                  {/* Only a PROJECT card has a span to pull: the weeks it
+                      takes are its row on the Project board. Every other card
+                      here is one week's work, and stretching one said
+                      something about it that nothing else on the board would
+                      have said. And only with the catch lifted, since what
+                      the grip changes is the Project board's own dates. */}
+                  {part === parts - 1 && card.epic && unlocked && !slot.projected && (
                     <div
                       className="project-slot-resize triage-slot-resize"
                       title="Drag down to give the card more weeks"
@@ -1055,7 +1093,13 @@ export function TriageBoard({
                 >
                   <AddCard
                     autoOpen
+                    compact
                     placeholder="Add card"
+                    // One team on screen answers the question by itself; with
+                    // several the form asks, starting on the first.
+                    teams={teams.length > 1 ? teams : undefined}
+                    forcedTeam={teams.length > 1 ? undefined : (teams[0] ?? null)}
+                    allowNoTeam={false}
                     picker={{
                       title: "Zone",
                       options: ZONE_ORDER.map((z) => ({
@@ -1066,8 +1110,8 @@ export function TriageBoard({
                       })),
                       initial: "gray",
                     }}
-                    onCreate={(title, _team, zone) => {
-                      create(composing.row, who, title, (zone || "gray") as ZoneKey);
+                    onCreate={(title, team, zone) => {
+                      create(composing.row, who, title, (zone || "gray") as ZoneKey, team ?? null);
                     }}
                     onClosed={() => setComposing(null)}
                   />

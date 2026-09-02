@@ -328,6 +328,10 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		}
 		return card, err
 	}
+	// A card given a WEEK and no day is scheduled for that week alone.
+	if args.Week != "" && args.Start == "" && args.Day == "" && args.SprintStart == "" {
+		return s.createWeekCard(ctx, b, args, linkDescription, pendingRef)
+	}
 	// Start and Day (the end/due date) default to each other so a create with
 	// only one of them yields a one-day range — a backdated create must NOT get
 	// day = today, or the [start…day] range would stretch it onto today's board.
@@ -388,10 +392,14 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// a stray top-level card.
 	// Start is the scheduled day; SprintStart is the sprint the card belongs to.
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
-		Title:       args.Title,
-		Zone:        args.Zone,
-		Day:         day,
-		Start:       start,
+		Title: args.Title,
+		Zone:  args.Zone,
+		Day:   day,
+		Start: start,
+		// The week the caller asked for, when they asked for one: a card
+		// started in the week being worked belongs to that week AND to
+		// today, and the two are not in conflict.
+		Week:        args.Week,
 		SprintStart: sprint,
 		Assignee:    args.Assignee,
 		Team:        args.Team,
@@ -465,6 +473,33 @@ func (s *Service) resolveTitleAsync(ctx context.Context, b board.Board, card boa
 // column — the (project, epic) pair — anchored to its week row and optionally
 // spanning several weeks. No sprint, no plan band: a team picking it up later
 // is what schedules it.
+// createWeekCard files a card scheduled for a WEEK and nothing else — the
+// Triage board's own create, where the week IS the decision. It takes no band
+// (that is a promise on the weekly panel, and nobody makes one by scheduling
+// work) and no dates: defaulting a start to today would put the card on
+// today's board, which is what choosing a week ahead was for (B1). Place says
+// the same thing from the other side.
+func (s *Service) createWeekCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
+	if err := s.declareTeam(ctx, b, args.Team); err != nil {
+		return board.Card{}, err
+	}
+	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
+		Title:    args.Title,
+		Zone:     args.Zone,
+		Week:     args.Week,
+		Assignee: args.Assignee,
+		Team:     args.Team,
+		ReviewOf: args.ReviewOf,
+		Parent:   args.Parent,
+	})
+	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
+	if err == nil {
+		s.resolveTitleAsync(ctx, b, card, pendingRef)
+		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+	}
+	return card, err
+}
+
 func (s *Service) createEpicCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
 	if _, ok := board.FindEpic(b, args.Project, args.Epic); !ok {
 		return board.Card{}, fmt.Errorf("%w %q in project %q — add it first (add_epic / POST /epics)",

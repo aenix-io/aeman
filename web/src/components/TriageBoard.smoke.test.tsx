@@ -66,6 +66,7 @@ function draw(cards: Card[]) {
       replaceCard={vi.fn()}
       removeCard={vi.fn()}
       reorderCards={vi.fn()}
+      reload={vi.fn()}
       onOpen={vi.fn()}
       onError={vi.fn()}
     />,
@@ -294,6 +295,7 @@ describe("the Triage board", () => {
         replaceCard={vi.fn()}
         removeCard={vi.fn()}
         reorderCards={vi.fn()}
+        reload={vi.fn()}
         onOpen={vi.fn()}
         onError={vi.fn()}
       />,
@@ -308,13 +310,23 @@ describe("the Triage board", () => {
     expect(html.match(/class="triage-count">1</g)?.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("gives a project card no grip to stretch it by", () => {
-    // Its span is its row on the Project board; that is where it is changed,
-    // and a grip here would offer to change it somewhere it cannot be.
-    const slot = draw([card({ epic: "Storage", day: "2026-09-04" })]);
-    expect(slot).not.toContain("triage-slot-resize");
-    // A card of the board's own still has one.
-    expect(draw([card()])).toContain("triage-slot-resize");
+  it("offers no grip to stretch anything by, with the catch closed", () => {
+    // Only a PROJECT card has a span to pull — the weeks it takes are its row
+    // on the Project board — and only with the catch lifted, since the grip
+    // changes that board's own dates. Everything else here is one week's
+    // work, and a grip would say something about it nothing else would.
+    expect(draw([card({ epic: "Storage", day: "2026-09-04" })])).not.toContain(
+      "triage-slot-resize",
+    );
+    expect(draw([card()])).not.toContain("triage-slot-resize");
+  });
+
+  it("keeps the × off a project card while the catch is closed", () => {
+    // What the × does to one is the Project board's business too.
+    expect(draw([card({ epic: "Storage", day: "2026-09-04" })])).not.toContain(
+      "card-action-delete",
+    );
+    expect(draw([card()])).toContain("card-action-delete");
   });
 
   it("offers a catch to lift, and starts with it closed", () => {
@@ -348,6 +360,7 @@ describe("the Triage board", () => {
         replaceCard={vi.fn()}
         removeCard={vi.fn()}
         reorderCards={vi.fn()}
+        reload={vi.fn()}
         onOpen={vi.fn()}
         onError={vi.fn()}
       />,
