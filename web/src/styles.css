@@ -1365,6 +1365,20 @@ button.team-avatar {
   flex: none;
 }
 
+/* Where the dot is the whole answer, it says which team it stands for: two
+   colours are hard to tell apart at nine pixels, a letter is not. */
+.team-dot-lettered {
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+}
+
 /* Portalled to <body> via Dropdown (which positions it), so overflow/scroll
    ancestors of the zone can never clip the roster. */
 .add-card-team-menu {

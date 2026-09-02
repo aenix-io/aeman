@@ -22,7 +22,8 @@ import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/t
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso } from "../date";
 import { anchorFor, byPile, needsTriage, orderWith, placedIn } from "../triage";
-import { deleteWarning, freeSubtasks, gridRemoval, removalKind } from "../removal";
+import { boardAsksAbout, freeSubtasks, gridRemoval } from "../removal";
+import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { effectiveBand } from "../weekly";
 import { isPersonalDomain } from "../domains";
 import { displayName, type Avatars, type Names } from "../users";
@@ -440,24 +441,22 @@ export function TriageBoard({
   // destroys work (removal.ts, mirroring boardservice.Remove). A board that
   // answered this on its own is how one of them came to hard-delete what
   // another kept.
-  const remove = useCallback(
-    (card: CardModel) => {
-      const ctx = {
+  const removalOf = useCallback(
+    (card: CardModel) =>
+      gridRemoval(card, {
         today,
         current: board.sprintStates[card.team ?? ""]?.current ?? undefined,
         previous: board.sprintStates[card.team ?? ""]?.previous ?? undefined,
-      };
-      const outcome = gridRemoval(card, ctx);
-      if (outcome === "delete" && removalKind(card, ctx) === "ask") {
-        const warn =
-          deleteWarning(card, null) ?? `Delete «${card.title}»? Nothing else keeps it.`;
-        if (!window.confirm(warn)) {
-          return;
-        }
-      }
-      // What the server does, done here at once: a card nothing else keeps
-      // is gone, and its subtasks are loose rather than pointing at a parent
-      // that no longer exists.
+      }),
+    [board.sprintStates, today],
+  );
+
+  // What the server does, done here at once: a card nothing else keeps is
+  // gone, and its subtasks are loose rather than left pointing at a parent
+  // that no longer exists.
+  const doRemove = useCallback(
+    (card: CardModel) => {
+      const outcome = removalOf(card);
       if (outcome === "delete") {
         for (const freed of freeSubtasks(board.cards, card.itemId)) {
           patchCard(freed.itemId, freed.patch);
@@ -471,7 +470,22 @@ export function TriageBoard({
         reload();
       });
     },
-    [board.cards, board.sprintStates, today, provider, patchCard, removeCard, onError, reload],
+    [board.cards, removalOf, provider, patchCard, removeCard, onError, reload],
+  );
+
+  // The question is the one every board asks — the same dialog, saying what
+  // is at stake and how many subtasks go along — and it is asked only where
+  // the × destroys work. Somewhere else it just happens.
+  const [asking, setAsking] = useState<CardModel | null>(null);
+  const remove = useCallback(
+    (card: CardModel) => {
+      if (boardAsksAbout(card, removalOf(card), null)) {
+        setAsking(card);
+        return;
+      }
+      doRemove(card);
+    },
+    [removalOf, doRemove],
   );
 
   // Stretching: the card's end date moves to the Friday of the week the
@@ -1130,6 +1144,16 @@ export function TriageBoard({
             />
           ))}
       </WeekGrid>
+      {asking && (
+        <RemoveChoiceDialog
+          title={asking.title}
+          progress={asking.progress ?? 0}
+          keepOn={null}
+          subtasks={board.cards.filter((c) => c.parent === asking.itemId).length}
+          onClose={() => setAsking(null)}
+          onSubmit={() => doRemove(asking)}
+        />
+      )}
     </div>
   );
 }

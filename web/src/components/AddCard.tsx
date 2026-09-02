@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { teamColor } from "../avatar";
+import { teamColor, teamInitial } from "../avatar";
 import { Dropdown } from "./Dropdown";
 
 /** One option of the aside picker: the dot that stands for it, what it is
@@ -214,7 +214,15 @@ export function AddCard({
             title={team ? `Team: ${team}` : "Team"}
           >
             {team && (
-              <span className="team-dot" style={{ background: teamColor(team) }} />
+              // Compact, the dot is the whole answer — so it carries the
+              // team's letter, which is what tells two colours apart at nine
+              // pixels.
+              <span
+                className={`team-dot${compact ? " team-dot-lettered" : ""}`}
+                style={{ background: teamColor(team) }}
+              >
+                {compact ? teamInitial(team) : null}
+              </span>
             )}
             {!compact && <span className="add-card-team-label">{team ?? "no team"}</span>}
             <span className="add-card-team-caret">▾</span>
