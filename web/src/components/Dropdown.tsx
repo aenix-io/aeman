@@ -31,6 +31,10 @@ export function Dropdown({ open, anchorRef, onClose, className, children }: Drop
     top: 0,
     left: 0,
     right: "auto",
+    // Above everything it can be opened over — the card modal's backdrop
+    // included, which is 100. A menu portalled to <body> with no layer of
+    // its own stacks in document order and opened out of sight behind it.
+    zIndex: 200,
     visibility: "hidden",
   });
 

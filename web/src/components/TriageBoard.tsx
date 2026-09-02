@@ -850,9 +850,7 @@ export function TriageBoard({
               >
                 ⇥⇤
               </button>
-            ) : (
-              <span className="triage-corner-hint">wk</span>
-            )
+            ) : null
           }
           head={(p) => (
             <div
@@ -898,7 +896,10 @@ export function TriageBoard({
             // Half a card of room under the last one, so there is always
             // somewhere to press.
             style: { minHeight: `${((filled.get(`${p.key}/${row}`) ?? 0) + 0.5) * grid.rowH}px` },
-            onPointerDown: () => setComposing({ row, col }),
+            // On the CLICK, not the press: the form saves itself when a
+            // press lands outside it, and opening on the press meant it
+            // heard the very one that opened it and closed again at once.
+            onClick: () => setComposing({ row, col }),
           })}
           weekProps={(w) => {
             // What the week carries, a card of several weeks counting in each

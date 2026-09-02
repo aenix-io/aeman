@@ -4813,12 +4813,6 @@ button.card-age {
   font-style: italic;
 }
 
-.triage-corner-hint {
-  font-size: 10px;
-  color: var(--muted);
-  padding-left: 4px;
-}
-
 /* The week column carries what that week holds UNDER its date, not beside
    it: the column is as wide as "17 Aug" needs and no wider, so a date and a
    three-figure count set on one line run into each other. */

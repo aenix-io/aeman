@@ -31,6 +31,7 @@ export interface CellProps {
   style?: React.CSSProperties;
   /** A board that drops onto its cells attaches its drop target here. */
   ref?: Ref<HTMLDivElement>;
+  onClick?: React.MouseEventHandler<HTMLDivElement>;
   onPointerDown?: React.PointerEventHandler<HTMLDivElement>;
   onPointerLeave?: React.PointerEventHandler<HTMLDivElement>;
   onPointerCancel?: React.PointerEventHandler<HTMLDivElement>;
