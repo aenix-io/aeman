@@ -787,6 +787,9 @@ export function TriageBoard({
         >
           {weekLimit > 0 ? `${weekLimit} / week` : "no limit"}
         </button>
+        <span className="triage-load" title="Cards of the teams on screen that nobody has given a week">
+          {waiting.length} untriaged
+        </span>
         <button
           type="button"
           className={`triage-lock${unlocked ? " triage-lock-open" : ""}`}
@@ -798,11 +801,8 @@ export function TriageBoard({
               : "A project card's weeks are the Project board's and are held still here — click to move and stretch them from this board too"
           }
         >
-          {unlocked ? "🔓" : "🔒"}
+          <Padlock open={unlocked} />
         </button>
-        <span className="triage-load" title="Cards of the teams on screen that nobody has given a week">
-          {waiting.length} untriaged
-        </span>
         <ZoomControl zoom={grid.zoom} onChange={grid.setZoom} />
       </div>
 
@@ -1013,3 +1013,23 @@ export function TriageBoard({
   );
 }
 
+/** Padlock is the catch's own glyph — drawn rather than an emoji, so it takes
+ *  the colour of the text around it and reads the same in either theme. */
+function Padlock({ open }: { open: boolean }) {
+  return (
+    <svg
+      className="triage-lock-glyph"
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <rect x="2.75" y="7.25" width="8.5" height="6" rx="1.5" />
+      {open ? <path d="M9 7.25V5a2 2 0 0 1 4 0" /> : <path d="M5 7.25V5a2 2 0 0 1 4 0v2.25" />}
+    </svg>
+  );
+}
