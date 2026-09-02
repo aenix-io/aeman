@@ -1,3 +1,4 @@
+import { todayIso } from "./date";
 import type { Board } from "./providers/types";
 
 /** currentSprint returns a team's current sprint start from its sprint pointer
@@ -34,4 +35,29 @@ export function activeSprint(
     return prev;
   }
   return "";
+}
+
+/** sprintForDate is the sprint a card joins when its dates are set to `day`,
+ *  mirroring boardservice.SetDates.
+ *
+ *  A FUTURE day parks the card: no sprint covers it yet, and the carry-over
+ *  that reaches its day adopts it. A day the team can still reach takes that
+ *  day's sprint. A day OLDER than the team's reach used to make a sprint of
+ *  its own, starting there — a sprint that closed, which no board draws and
+ *  no carry-over ever moves, so the card left the board entirely. The dates
+ *  are the person's to choose; the card stays in the sprint the team is
+ *  working now. */
+export function sprintForDate(
+  board: Board,
+  team: string | null,
+  day: string,
+  today = todayIso(),
+): string | null {
+  if (!day) {
+    return null;
+  }
+  if (day > today) {
+    return null;
+  }
+  return activeSprint(board, team, day) || currentSprint(board, team) || day;
 }

@@ -1013,6 +1013,19 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 		} else {
 			sprint = board.ActiveSprint(b, c.Team, start)
 			if sprint == "" {
+				// The day is older than the team can reach: its sprints have
+				// moved past it. Pinning the card to a sprint STARTING there
+				// pins it to one that closed — the day grid draws the current
+				// and the previous, the Me board gates on them, and a
+				// carry-over moves only the closing sprint's own cards — so
+				// the card was on no board at all, findable by id alone.
+				// Three went that way in one working day on the production
+				// board. The dates are the person's to choose; the sprint is
+				// where the work stands, which is the team's current one.
+				sprint = board.CurrentSprint(b, c.Team)
+			}
+			if sprint == "" {
+				// A team with no sprint pointer at all: the day seeds it.
 				sprint = start
 			}
 		}

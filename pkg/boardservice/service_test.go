@@ -1337,14 +1337,22 @@ func TestSetDatesInsideCurrentSprintJoinsIt(t *testing.T) {
 	}
 }
 
-func TestSetDatesBeforeTrackedSprintsStandsAlone(t *testing.T) {
+// A start before the team's tracked sprints used to become a sprint of its
+// own, starting that day — which is a sprint that closed, and a card in one is
+// on no board (TestADateIntoThePastKeepsTheCardOnTheBoard). The dates go back
+// as asked; the card stays in the sprint the team is working now.
+func TestSetDatesBeforeTrackedSprintsKeepsTheTeamsCurrentOne(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
 	if err := f2svc(f).SetDates(ctx, "acme", "c1", "2026-01-01", "2026-01-02"); err != nil {
 		t.Fatal(err)
 	}
-	if c := f.get("c1"); c.SprintStart != "2026-01-01" {
-		t.Fatalf("start before tracked sprints becomes its own day: %+v", c)
+	c := f.get("c1")
+	if c.StartDate != "2026-01-01" || c.Day != "2026-01-02" {
+		t.Fatalf("the dates are the person's: %+v", c)
+	}
+	if c.SprintStart != "2026-01-10" {
+		t.Fatalf("sprint = %q, want the team's current one", c.SprintStart)
 	}
 }
 
