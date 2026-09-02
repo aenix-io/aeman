@@ -394,7 +394,7 @@ export function BacklogBoard({
                             title={`${noLane} of them carry no lane and are not shown here — they are counted all the same`}
                           >
                             {" "}
-                            ({noLane} без полосы)
+                            ({noLane} no lane)
                           </span>
                         )}
                         {cap.week > 0 && <span className="backlog-limit"> / {cap.week}</span>}
