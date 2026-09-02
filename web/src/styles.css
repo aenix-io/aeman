@@ -4902,6 +4902,30 @@ button.card-age {
   border-left-color: var(--zone-red-accent);
 }
 
+/* The catch on a project card's weeks. Closed by default and never
+   remembered: the next visit starts closed again. */
+.triage-lock {
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 5px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.triage-lock:hover {
+  opacity: 1;
+  border-color: var(--line);
+}
+
+.triage-lock-open {
+  opacity: 1;
+  border-color: var(--line-soft);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
 /* A turn a process is going to file: drawn before it exists, so it is drawn
    as an outline. Nothing can be done to it — there is no card yet — and the
    cursor says so. */

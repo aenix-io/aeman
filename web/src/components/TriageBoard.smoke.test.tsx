@@ -317,6 +317,15 @@ describe("the Triage board", () => {
     expect(draw([card()])).toContain("triage-slot-resize");
   });
 
+  it("offers a catch to lift, and starts with it closed", () => {
+    // Never remembered: a guard that stays open is not a guard, so every
+    // visit begins with a project card's weeks held still.
+    const html = draw([card({ epic: "Storage", day: "2026-09-04" })]);
+    expect(html).toContain('class="triage-lock"');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).not.toContain("triage-lock-open");
+  });
+
   it("offers every column to be dragged into another place", () => {
     expect(draw([card()])).toContain("project-epic-head-movable");
   });

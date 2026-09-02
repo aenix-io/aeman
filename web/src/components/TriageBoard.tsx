@@ -126,6 +126,13 @@ export function TriageBoard({
   const thisWeek = mondayOf(today);
   const teams = useMemo(() => teamFilter ?? roster, [teamFilter, roster]);
 
+  // A project card's weeks belong to the Project board, and this board holds
+  // them still so that nobody re-dates another board's commitment by brushing
+  // past it. The catch lifts that, for as long as the reader means to: it is
+  // deliberately NOT remembered — a guard that stays open is not a guard, and
+  // the next visit starts closed again.
+  const [unlocked, setUnlocked] = useState(false);
+
   const [overrides, setOverrides] = useState<Record<string, number>>(readCapacityOverrides);
   useEffect(() => {
     try {
@@ -590,9 +597,9 @@ export function TriageBoard({
         card,
         row: slot.row - slot.part,
         span: slot.parts,
-        // A project card is carried across the columns only: its weeks are
-        // the Project board's to change.
-        pinned: !!card.epic,
+        // A project card is carried across the columns only, unless the
+        // reader has lifted the catch: its weeks are the Project board's.
+        pinned: !!card.epic && !unlocked,
         // Which week of the card was taken hold of, so a card grabbed by its
         // second week does not jump a week up under the pointer.
         grab: slot.part,
@@ -640,7 +647,7 @@ export function TriageBoard({
         // Where it came from, so a card merely put back among its own
         // neighbours is a reorder and nothing more.
         const moved = m.row !== slot.row - slot.part || who !== whoOf(card);
-        if (moved && card.epic) {
+        if (moved && card.epic && !unlocked) {
           // Its row is the Project board's; only the hand it is in changed.
           if (who !== whoOf(card)) {
             assignTo(m.card, who);
@@ -651,7 +658,7 @@ export function TriageBoard({
         reorder(m.card, m.row, who, m.at);
       });
     },
-    [arm, rowSpotAt, columnAt, weeks, people, place, assignTo, reorder],
+    [arm, rowSpotAt, columnAt, weeks, people, place, assignTo, reorder, unlocked],
   );
 
   // Dragging a column header sideways puts the people in the order the
@@ -779,6 +786,19 @@ export function TriageBoard({
           }}
         >
           {weekLimit > 0 ? `${weekLimit} / week` : "no limit"}
+        </button>
+        <button
+          type="button"
+          className={`triage-lock${unlocked ? " triage-lock-open" : ""}`}
+          aria-pressed={unlocked}
+          onClick={() => setUnlocked(!unlocked)}
+          title={
+            unlocked
+              ? "A project card can be moved and stretched here, and its dates change on the Project board with it — click to hold them still again"
+              : "A project card's weeks are the Project board's and are held still here — click to move and stretch them from this board too"
+          }
+        >
+          {unlocked ? "🔓" : "🔒"}
         </button>
         <span className="triage-load" title="Cards of the teams on screen that nobody has given a week">
           {waiting.length} untriaged
@@ -966,7 +986,7 @@ export function TriageBoard({
                       card's end, and the weeks between follow from it. A
                       project card has none — its span is its row on the
                       Project board, and that is where it is changed. */}
-                  {part === parts - 1 && !card.epic && !slot.projected && (
+                  {part === parts - 1 && (!card.epic || unlocked) && !slot.projected && (
                     <div
                       className="project-slot-resize triage-slot-resize"
                       title="Drag down to give the card more weeks"
