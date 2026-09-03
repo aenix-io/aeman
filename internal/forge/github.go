@@ -31,6 +31,10 @@ func NewGitHubAt(api string) Forge { return &github{api: strings.TrimRight(api, 
 
 func (g *github) Kind() Kind    { return GitHub }
 func (g *github) Label() string { return "GitHub" }
+
+// Host is github.com whatever REST base a test points this at: the
+// credential belongs to the forge, not to the endpoint it is read through.
+func (g *github) Host() string { return "github.com" }
 func (g *github) AuthorizeURL() string {
 	return "https://github.com/login/oauth/authorize"
 }

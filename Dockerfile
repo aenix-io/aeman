@@ -10,7 +10,7 @@ RUN npm run build
 
 # 2. Build the self-contained Go binary (embeds web/dist via go:embed). Built on
 #    the host arch and cross-compiled to the target arch (fast, no emulation).
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG VERSION=docker
 ARG TARGETOS
 ARG TARGETARCH

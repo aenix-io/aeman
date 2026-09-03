@@ -8,11 +8,11 @@ The API is Kubernetes-style: a small set of **resources** (`Board`, `Card`, `Spr
 
 The server holds **a credential of its own** — `AEMAN_GIT_TOKEN`, or `AEMAN_GIT_TOKEN_<NAME>` per repository — for fetching and pushing the board's repositories, for the membership checks behind the assignee pickers, and for resolving issue/PR titles named in card descriptions. A board spanning two organisations gives each repository its own token: one narrow enough for either cannot reach both. Visitors never push; the server commits on their behalf, authored with their login.
 
-The board lives on one **forge** — GitHub or GitLab (gitlab.com or self-hosted) — picked by `--forge`/`AEMAN_FORGE` or, unset, by the primary repository's host (see [Configuration](#configuration)). A visitor is identified by their forge login: from the session in the self-hosted OAuth mode (one client id/secret pair — `AEMAN_GITHUB_CLIENT_ID`/`_SECRET` or `AEMAN_GITLAB_CLIENT_ID`/`_SECRET`), or from the forge's CLI signed in on the machine in the default local mode (`gh` on GitHub, `glab` on GitLab). Access follows the visitor's **own rights on each repository** (see Domains below), asked of the forge with the visitor's token. GitHub: the repository's `permissions` block — `pull` reads, `push`/`maintain`/`admin` write. GitLab: the project's access level — Reporter (20) reads, Developer (30) and above write; a Guest sees the project but not its board; a public or internal project reads for anyone signed in. Read access to a repository shows its part of the board, write access allows changes to it. The decision is made per request from the forge and cached briefly. A visitor who cannot read the primary repository has no board at all (403); a mutation on a card whose repository the visitor cannot write is refused (403). Linking a personal board checks the same way that the visitor can push to their repository (GitHub `push`, GitLab Developer or above).
+The board lives on one **forge** — GitHub or GitLab (gitlab.com or self-hosted) — picked by `--forge`/`AEMAN_FORGE` or, unset, by the primary repository's host (see [Configuration](#configuration)). A visitor is identified by their forge login: from the session in the self-hosted OAuth mode (one client id/secret pair — `AEMAN_GITHUB_CLIENT_ID`/`_SECRET` or `AEMAN_GITLAB_CLIENT_ID`/`_SECRET`), or, in the default local mode, from whoever the credential the server resolved belongs to — the forge's token variables, the OS keychain (`aeman login`), then the forge's CLI signed in on the machine (`gh`, `glab`); see [aeman login](#aeman-login). Access follows the visitor's **own rights on each repository** (see Domains below), asked of the forge with the visitor's token. GitHub: the repository's `permissions` block — `pull` reads, `push`/`maintain`/`admin` write. GitLab: the project's access level — Reporter (20) reads, Developer (30) and above write; a Guest sees the project but not its board; a public or internal project reads for anyone signed in. Read access to a repository shows its part of the board, write access allows changes to it. The decision is made per request from the forge and cached briefly. A visitor who cannot read the primary repository has no board at all (403); a mutation on a card whose repository the visitor cannot write is refused (403). Linking a personal board checks the same way that the visitor can push to their repository (GitHub `push`, GitLab Developer or above).
 
 Board members — the people the assignee and reviewer pickers offer — are those who can read the repository, resolved with the server's token: GitHub asks each login's collaborator permission; GitLab reads the project's member list, inherited group members included, which also supplies display names and avatars. On GitHub an avatar is built from the login (the avatars CDN) and there are no display names; on GitLab both come from the forge's user directory, so `metadata.members[].name` is filled on GitLab boards.
 
-The stdio MCP server (`aeman mcp`) is a local, single-user process on its own clone: it identifies the actor through the forge CLI's login (`gh api user` / `glab api user`) and pushes with `AEMAN_GIT_TOKEN`, falling back to `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab) and then to the CLI's own token (`gh auth token` / `glab config get token --host <host>`). In the self-hosted mode the same tool set is mounted over HTTP at `/mcp`, authenticated with per-user OAuth tokens, and the rights above apply to every tool call.
+The stdio MCP server (`aeman mcp`) is a local, single-user process on its own clone. It pushes with `AEMAN_GIT_TOKEN` when that is set; otherwise the credential comes from `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), then the OS keychain written by [`aeman login`](#aeman-login), then the forge CLI's own token (`gh auth token` / `glab config get token --host <host>`). The actor is whoever that credential belongs to, asked of the forge for a token from the environment or the keychain and read from the tool itself for a CLI one (`gh api user` / `glab api user`): a stored bot token is attributed to the bot, not to whoever the machine's `gh` is signed in as. A push-only credential belongs in `AEMAN_GIT_TOKEN` for that reason. A token whose `/user` the forge refuses — a GitHub App installation token, say — used to leave the identity to `gh api user`; it now supplies the credential and no name, so the work loses its author. `AEMAN_GIT_TOKEN` is the exception, and deliberately so — it names the server's own push credential and never named a person, so with it set the push and the actor can be two different accounts. In the self-hosted mode the same tool set is mounted over HTTP at `/mcp`, authenticated with per-user OAuth tokens, and the rights above apply to every tool call.
 
 ## The board
 
@@ -329,7 +329,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards' \
 | `--repo name=url` | `AEMAN_REPOS` (comma-separated) | — (required) | A domain of the board; repeatable, the primary first. The name is the domain's name on the API and the board's name for the primary. |
 | `--forge` | `AEMAN_FORGE` | from the primary repository's host: `github.com` → `github`, a host containing `gitlab` → `gitlab`, else `github` unless `AEMAN_GITLAB_URL` is set | The forge that signs visitors in and answers who may read which repository: `github` or `gitlab`. |
 | `--gitlab-url` | `AEMAN_GITLAB_URL` | `https://<host of the primary repository>` | Base URL of a self-hosted GitLab. |
-| — | `AEMAN_GIT_TOKEN` | GitHub: `GITHUB_TOKEN`, `GH_TOKEN`, then `gh auth token`; GitLab: `GITLAB_TOKEN`, then `glab config get token --host <host>` | The server's own credential: fetch, push, membership checks, and resolving issue titles. Required in the OAuth mode. |
+| — | `AEMAN_GIT_TOKEN` | GitHub: `GITHUB_TOKEN`, `GH_TOKEN`, then the OS keychain (`aeman login`), then `gh auth token`; GitLab: `GITLAB_TOKEN`, then the OS keychain (`aeman login`), then `glab config get token --host <host>` | The server's own credential: fetch, push, membership checks, and resolving issue titles. Required in the OAuth mode. |
 | — | `AEMAN_GIT_TOKEN_<NAME>` | `AEMAN_GIT_TOKEN` | One repository's own credential, named after its domain in `AEMAN_REPOS` — upper-cased, anything but a letter or a digit an underscore (`founders` → `AEMAN_GIT_TOKEN_FOUNDERS`). A board across two organisations holds one token per organisation; issue titles are resolved with the primary's. |
 | `--data` | `AEMAN_DATA` | `/data` if it exists, else the user cache dir | Where the clones live (`<data>/repos/<name>`) and the session file. |
 | `--history` | `AEMAN_HISTORY` | `2w` | How far back the history is loaded in the background after start-up. The cold start is a depth-1 clone; the log fills in behind it. |
@@ -342,6 +342,25 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards' \
 `aeman serve` adds `--addr` (default `127.0.0.1:8765`), `--open` and `--verbose`; `AEMAN_TZ` is the board's day time zone. The self-hosted OAuth mode is enabled by one client id/secret pair — `AEMAN_GITHUB_CLIENT_ID`/`AEMAN_GITHUB_CLIENT_SECRET` or `AEMAN_GITLAB_CLIENT_ID`/`AEMAN_GITLAB_CLIENT_SECRET`, never both — together with `AEMAN_BASE_URL` (required; the redirect URL registered at the forge is `<AEMAN_BASE_URL>/auth/callback`), `AEMAN_SCOPES` (default `repo` on GitHub, `read_user read_api write_repository` on GitLab), `AEMAN_SESSION_FILE` and `AEMAN_SESSION_KEY`; the server credential in this mode is `AEMAN_GIT_TOKEN` — or, on GitHub, an App that mints it: `AEMAN_GITHUB_APP_ID` with `AEMAN_GITHUB_APP_KEY`/`AEMAN_GITHUB_APP_KEY_FILE`. Registering the application at either forge is walked through in [deploy.md](deploy.md).
 
 Bootstrapping: `aeman init --repo <url> [--title …]` writes an empty board (one commit) into an unborn repository on either forge — the URL is the HTTPS clone URL, e.g. `https://gitlab.com/<group>/<project>.git`; `serve` refuses an unborn remote and names that command. A repository written by a newer aeman (a higher `schema` in `board.yaml`) is refused at start-up; an older one is migrated in one commit.
+
+### aeman login
+
+`aeman login` puts the forge token in the operating system's secret store, so a local `aeman mcp` or `aeman serve` needs no credential in its environment or in an MCP client's configuration file. `aeman logout` takes it back out. Both take the same `--repo` / `--forge` / `--gitlab-url` flags every other command does, because those are what name the forge instance the token is for.
+
+The token is never taken as an argument: `aeman login <token>` is refused rather than ignored, because by then the token is in the shell's history and in every `ps` listing. It is read hidden from a terminal, or as the first line of standard input when there is no terminal — `gh auth token | aeman login` works, and so does anything else that prints a token. It is verified with the forge before it is stored, and a rejected one is not written at all: an item holding a typo is worse than no item, because every later command finds it, stops looking, and fails on a credential nobody can see. What is printed on success is the login the forge gave back, which is the name the commits from that machine will carry.
+
+The item is keyed by the forge's host — `github.com`, `gitlab.com`, `gitlab.example.org` — so one machine holds one token per forge instance and signing in to a self-hosted GitLab does not overwrite the github.com one. The forge is asked before anything is stored, so the command needs to reach it: on a machine whose VPN or proxy is not up, seed the credential through `GITHUB_TOKEN`/`GH_TOKEN` (or `GITLAB_TOKEN`) instead and run the login later. Any failure to store fails the command and names `GITHUB_TOKEN`/`GH_TOKEN` (or `GITLAB_TOKEN`), which cover the credential and the identity the way the keychain would, with whatever the store itself said kept after the advice; there is no plaintext-file fallback. The advice is the same for every failure on purpose, because the store cannot tell them apart: on macOS everything but a missing item arrives as the text `/usr/bin/security` printed, so a keychain locked over SSH and one that refuses a particular item look alike from here.
+
+Two things to know on macOS. The item is written through `/usr/bin/security`, which puts it in the stable `apple-tool` access partition: that is what lets a rebuilt aeman still read what it stored, and the trade is that any process running as the same user can read it without a prompt. And the item lives in the login keychain, which is unlocked by logging in, so a service that reads it must run as a LaunchAgent in the user's session rather than as a LaunchDaemon.
+
+The token does not travel on a command line. `security` is driven through its interactive mode and the write arrives on the tool's standard input, so the secret is not in the process list and not in what an agent recording process arguments would capture; it is base64-wrapped there so that arbitrary bytes survive, not to hide anything. The library falls back to a command-line argument where that line cannot carry the value: past what the tool reads per command, or for a service or account holding a newline or a NUL. Neither happens here, where the service is a fixed name and the account a forge host.
+
+Coming from an older wrapper script that kept the token under its own service name:
+
+```sh
+security find-generic-password -s aeman-mcp -w | aeman login
+security delete-generic-password -s aeman-mcp
+```
 
 ## MCP server
 
@@ -375,11 +394,17 @@ The tools act on the configured board; a `board` argument, if a client passes on
 
 ### Flags and environment
 
-`aeman mcp` takes the storage flags of the configuration table above (including `--forge` and `--gitlab-url`) plus `--verbose`. The actor is the forge CLI's login — `gh` on GitHub, `glab` on GitLab; the push credential is `AEMAN_GIT_TOKEN`, else `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), else the CLI's own token (`gh auth token` / `glab config get token --host <host>`).
+`aeman mcp` takes the storage flags of the configuration table above (including `--forge` and `--gitlab-url`) plus `--verbose`. The push credential is `AEMAN_GIT_TOKEN`, else `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), else the OS keychain written by [`aeman login`](#aeman-login), else the forge CLI's own token (`gh auth token` / `glab config get token --host <host>`). The actor is the person that credential belongs to, `AEMAN_GIT_TOKEN` excepted: that one names a push credential only.
 
 Logs go to stderr, never stdout, so they never corrupt the JSON-RPC stream.
 
 ### Configuring it in an MCP client
+
+Run [`aeman login`](#aeman-login) once first, so the configuration holds no credential:
+
+```sh
+aeman login --repo https://github.com/acme/aeman-db.git
+```
 
 Claude Code / Claude Desktop style config:
 
@@ -388,8 +413,7 @@ Claude Code / Claude Desktop style config:
   "mcpServers": {
     "aeman": {
       "command": "aeman",
-      "args": ["mcp", "--repo", "aeman-db=https://github.com/acme/aeman-db.git"],
-      "env": { "AEMAN_GIT_TOKEN": "ghp_..." }
+      "args": ["mcp", "--repo", "aeman-db=https://github.com/acme/aeman-db.git"]
     }
   }
 }
@@ -398,21 +422,20 @@ Claude Code / Claude Desktop style config:
 Or add it from the command line:
 
 ```sh
-claude mcp add aeman --env AEMAN_GIT_TOKEN=ghp_... -- aeman mcp --repo aeman-db=https://github.com/acme/aeman-db.git
+claude mcp add aeman -- aeman mcp --repo aeman-db=https://github.com/acme/aeman-db.git
 ```
 
-The same for a board on GitLab — the forge follows the repository URL's host, so only the URL and the token change; a self-hosted GitLab whose host does not contain `gitlab` also needs `AEMAN_GITLAB_URL` (or `--forge gitlab`):
+The same for a board on GitLab — the forge follows the repository URL's host, so only the URL changes; a self-hosted GitLab whose host does not contain `gitlab` also needs `AEMAN_GITLAB_URL` (or `--forge gitlab`), on the login as well as on the server:
 
 ```json
 {
   "mcpServers": {
     "aeman": {
       "command": "aeman",
-      "args": ["mcp", "--repo", "aeman-db=https://gitlab.com/acme/aeman-db.git"],
-      "env": { "AEMAN_GIT_TOKEN": "glpat-..." }
+      "args": ["mcp", "--repo", "aeman-db=https://gitlab.com/acme/aeman-db.git"]
     }
   }
 }
 ```
 
-If you omit the token, the server falls back to the forge CLI's token (`gh auth token` / `glab config get token --host <host>`), so an authenticated `gh` or `glab` is enough for local use.
+Without a stored token the server falls back to the forge CLI's own (`gh auth token` / `glab config get token --host <host>`), so an authenticated `gh` or `glab` is enough for local use; `AEMAN_GIT_TOKEN` in the `env` block still overrides both.

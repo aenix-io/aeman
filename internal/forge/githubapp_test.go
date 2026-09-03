@@ -127,7 +127,7 @@ func fakeAppAPI(t *testing.T, mints *atomic.Int32, expiry time.Duration) *httpte
 func TestAppMintsInstallationTokensPerRepository(t *testing.T) {
 	var mints atomic.Int32
 	srv := fakeAppAPI(t, &mints, time.Hour)
-	app, err := NewGitHubAppAt(srv.URL, srv.Client(), "12345", testAppPEM())
+	app, err := NewGitHubAppAt(srv.URL, guardedClient(srv), "12345", testAppPEM())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestAppMintsInstallationTokensPerRepository(t *testing.T) {
 func TestAppRefreshesAnExpiringToken(t *testing.T) {
 	var mints atomic.Int32
 	srv := fakeAppAPI(t, &mints, time.Hour)
-	app, err := NewGitHubAppAt(srv.URL, srv.Client(), "12345", testAppPEM())
+	app, err := NewGitHubAppAt(srv.URL, guardedClient(srv), "12345", testAppPEM())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestAppRefusesABrokenKey(t *testing.T) {
 func TestAppGitAuthStampsAFreshTokenPerRequest(t *testing.T) {
 	var mints atomic.Int32
 	srv := fakeAppAPI(t, &mints, time.Hour)
-	app, err := NewGitHubAppAt(srv.URL, srv.Client(), "12345", testAppPEM())
+	app, err := NewGitHubAppAt(srv.URL, guardedClient(srv), "12345", testAppPEM())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestAUserToServerTokenIsToldApartByItsPrefix(t *testing.T) {
 func TestInstallURLNamesTheAppsPage(t *testing.T) {
 	var mints atomic.Int32
 	srv := fakeAppAPI(t, &mints, time.Hour)
-	app, err := NewGitHubAppAt(srv.URL, srv.Client(), "12345", testAppPEM())
+	app, err := NewGitHubAppAt(srv.URL, guardedClient(srv), "12345", testAppPEM())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,17 +313,17 @@ func TestCanPushGitAsksTheReceivePackAdvertisement(t *testing.T) {
 	t.Cleanup(srv.Close)
 	gh := NewGitHub()
 	repo := srv.URL + "/kvaps/personal.git"
-	if ok, err := CanPushGit(context.Background(), srv.Client(), gh, "ghu_can", repo); err != nil || !ok {
+	if ok, err := CanPushGit(context.Background(), guardedClient(srv), gh, "ghu_can", repo); err != nil || !ok {
 		t.Fatalf("a token the transport accepts: %v, %v", ok, err)
 	}
 	// With or without the .git suffix, and with a trailing slash.
-	if ok, err := CanPushGit(context.Background(), srv.Client(), gh, "ghu_can", srv.URL+"/kvaps/personal/"); err != nil || !ok {
+	if ok, err := CanPushGit(context.Background(), guardedClient(srv), gh, "ghu_can", srv.URL+"/kvaps/personal/"); err != nil || !ok {
 		t.Fatalf("url without .git: %v, %v", ok, err)
 	}
-	if ok, err := CanPushGit(context.Background(), srv.Client(), gh, "ghu_cannot", repo); err != nil || ok {
+	if ok, err := CanPushGit(context.Background(), guardedClient(srv), gh, "ghu_cannot", repo); err != nil || ok {
 		t.Fatalf("a token refused by the transport: %v, %v", ok, err)
 	}
-	if ok, err := CanPushGit(context.Background(), srv.Client(), gh, "ghu_unknown", repo); err != nil || ok {
+	if ok, err := CanPushGit(context.Background(), guardedClient(srv), gh, "ghu_unknown", repo); err != nil || ok {
 		t.Fatalf("an unknown token: %v, %v", ok, err)
 	}
 }

@@ -1,7 +1,10 @@
-// Command aeman is a backend-less project management UI. It serves an embedded
-// single-page application and uses GitHub Projects v2 as its data backend,
-// authenticating through the local gh CLI or a GitHub OAuth web flow. It also
-// exposes a native JSON API and an MCP server.
+// Command aeman is a short-term planning system whose storage is a git
+// repository. It serves an embedded single-page application over a native
+// JSON API and an MCP server, committing every change to the board's
+// repositories on GitHub or GitLab. A single-user run takes its identity
+// and credential from the environment, the OS keychain (`aeman login`) or
+// the forge's own tool; a self-hosted one signs each visitor in over
+// OAuth. `aeman migrate` copies a GitHub Projects v2 board in, once.
 package main
 
 import (
@@ -23,10 +26,11 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aenix-io/aeman/internal/ghcli"
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/migrate"
 	"github.com/aenix-io/aeman/internal/migrate/ghsource"
 	"github.com/aenix-io/aeman/internal/server"
+	"github.com/aenix-io/aeman/internal/tokenstore"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/boardservice"
 	"github.com/aenix-io/aeman/pkg/gitstore"
@@ -76,6 +80,10 @@ func run(args []string) error {
 		return runInit(args[1:])
 	case "migrate":
 		return runMigrate(args[1:])
+	case "login":
+		return runLogin(args[1:])
+	case "logout":
+		return runLogout(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println("aeman", version)
 		return nil
@@ -95,6 +103,8 @@ Usage:
   aeman mcp [flags]     Start the MCP server on stdio
   aeman init --repo URL Bootstrap an empty repository as a board
   aeman migrate [flags] Copy a GitHub Projects v2 board into a repository
+  aeman login [flags]   Store the forge token in the OS keychain
+  aeman logout [flags]  Remove the stored token for the forge
   aeman version         Print the version
   aeman help            Show this help
 
@@ -122,9 +132,12 @@ func runServe(args []string) error {
 	if gitCfg == nil {
 		return fmt.Errorf("aeman serve needs the board's repository: --repo name=url (or AEMAN_REPOS)")
 	}
-	fillGitToken(context.Background(), gitCfg)
-
 	logger := newLogger(*verbose)
+
+	// One chain for the whole run: the source that supplies the push
+	// credential is the source the identity is read from.
+	cli := cliFor(gitCfg.Forge, openStore(logger), osEnv, logger)
+	fillGitToken(context.Background(), gitCfg, cli)
 
 	// Multi-user OAuth mode is enabled when one forge's client credentials
 	// are set in the environment (kept out of flags so secrets stay out of
@@ -160,7 +173,7 @@ func runServe(args []string) error {
 		Auth:    auth,
 		Git:     gitCfg,
 		Forge:   gitCfg.Forge,
-		CLI:     cliFor(gitCfg.Forge, gitCfg.Repos[0].URL),
+		CLI:     cli,
 	})
 	if err != nil {
 		return err
@@ -194,17 +207,18 @@ func runMCP(args []string) error {
 	logger := newLogger(*verbose)
 
 	// This process owns its own clone, cache and push; the board is the
-	// configured repository, whatever board name a tool passes.
-	fillGitToken(context.Background(), gitCfg)
+	// configured repository, whatever board name a tool passes. The local
+	// person is whoever the token belongs to — the one in the keychain
+	// (`aeman login`), else the one gh or glab is signed in with.
+	cli := cliFor(gitCfg.Forge, openStore(logger), osEnv, logger)
+	fillGitToken(context.Background(), gitCfg, cli)
 	gb, err := server.OpenGitBackend(gitCfg, logger)
 	if err != nil {
 		return err
 	}
-	// The local person is whoever the forge's CLI is signed in as (gh, glab).
-	cli := cliFor(gitCfg.Forge, gitCfg.Repos[0].URL)
 	// The local person's personal board, if the primary links one: attached
 	// with the same credential the pushes use.
-	if login, err := cli.Login(context.Background()); err == nil {
+	if login, err := boundedLogin(context.Background(), cli); err == nil {
 		if err := gb.AttachPersonal(context.Background(), login, gitCfg.Token); err != nil {
 			logger.Warn("personal board", "login", login, "err", err)
 		}
@@ -214,14 +228,18 @@ func runMCP(args []string) error {
 		Lock:    true,
 		Version: version,
 		// Scope the default (unspecified-view) list to the local user's own Me
-		// board; best-effort via the forge's CLI, else the list stays sprint-scoped.
+		// board; best-effort via the credential chain, else the list stays
+		// sprint-scoped.
 		ResolveLogin: cli.Login,
 		Backend:      gb.Backend(),
 	}
 	drain := gb.Drain
 	srv := mcpserver.New(cfg)
 
-	// Attribute activity events to the local CLI identity (cached per process).
+	// Attribute activity events to whoever the elected source's token
+	// belongs to. Cached per TOKEN rather than per process: a token
+	// replaced by `aeman login` in another terminal is re-read within
+	// the window and its owner asked again.
 	srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if login, err := cli.Login(ctx); err == nil {
@@ -246,23 +264,12 @@ func runMCP(args []string) error {
 	return err
 }
 
-// resolveGitHubToken returns a token from GITHUB_TOKEN/GH_TOKEN, falling back to
-// the local gh CLI (mirroring aeman's local run mode).
-func resolveGitHubToken(ctx context.Context) (string, error) {
-	for _, env := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
-		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
-			return v, nil
-		}
-	}
-	out, err := ghcli.Run(ctx, "auth", "token")
-	if err != nil {
-		return "", err
-	}
-	tok := strings.TrimSpace(out)
-	if tok == "" {
-		return "", fmt.Errorf("no GitHub token; set GITHUB_TOKEN or run `gh auth login`")
-	}
-	return tok, nil
+// resolveGitHubToken is the credential for reading a Projects v2 board:
+// GITHUB_TOKEN/GH_TOKEN, then the keychain, then gh — aeman's local run
+// mode, with the account pinned to github.com whatever forge the
+// destination repository lives on. The board being copied is on GitHub.
+func resolveGitHubToken(ctx context.Context, gh forge.Forge, store tokenstore.Store, log *slog.Logger) (string, error) {
+	return resolveForgeToken(ctx, gh, cliFor(gh, store, osEnv, log))
 }
 
 // runInit bootstraps an empty repository as a board: board.yaml and the
@@ -282,7 +289,8 @@ func runInit(args []string) error {
 	if cfg == nil {
 		return fmt.Errorf("init needs --repo URL (or AEMAN_REPOS)")
 	}
-	fillGitToken(context.Background(), cfg)
+	log := newLogger(false)
+	fillGitToken(context.Background(), cfg, cliFor(cfg.Forge, openStore(log), osEnv, log))
 	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
 	if cfg.Token != "" {
 		remote.Auth = cfg.Forge.GitAuth(cfg.Token)
@@ -321,11 +329,13 @@ func runMigrate(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	tok, err := resolveGitHubToken(ctx)
+	log := newLogger(false)
+	store := openStore(log)
+	tok, err := resolveGitHubToken(ctx, forge.NewGitHub(), store, log)
 	if err != nil {
 		return err
 	}
-	fillGitToken(ctx, cfg)
+	fillGitToken(ctx, cfg, cliFor(cfg.Forge, store, osEnv, log))
 	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
 	if cfg.Token != "" {
 		remote.Auth = cfg.Forge.GitAuth(cfg.Token)

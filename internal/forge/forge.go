@@ -13,9 +13,23 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
+
+// UnansweredTTL is how long a source remembers that the forge could not
+// say who a token belongs to — a 403 for a token with no user behind it,
+// a 5xx, a timeout, a DNS failure. Without it the question is asked again
+// on every request, under the lock the source holds while it asks, so one
+// unreachable forge serialises every caller behind a full timeout each.
+//
+// It matches the ceiling those sources put on the call, so a window holds
+// at most one attempt that runs to the end; and half a minute is short
+// enough that a forge coming back — a VPN reconnecting, a rate limit
+// lifting — names the person again without a restart. A refusal is NOT
+// this: a 401 is an answer, and it is remembered until the token changes.
+const UnansweredTTL = 30 * time.Second
 
 // Kind names a forge.
 type Kind string
@@ -76,6 +90,11 @@ type Forge interface {
 	// Kind names the forge; Label is its display name for UI copy.
 	Kind() Kind
 	Label() string
+	// Host is the instance this forge is: github.com, or the host of a
+	// GitLab's base URL. It is what a credential belongs to, so a caller
+	// keeping one token per forge keys it by this rather than parsing a
+	// repository URL of its own.
+	Host() string
 
 	// AuthorizeURL and TokenURL are the OAuth endpoints the sign-in flow
 	// uses; DefaultScopes the scope string a board needs when the operator

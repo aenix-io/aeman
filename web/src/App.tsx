@@ -1335,10 +1335,10 @@ export function App() {
 
       {showTokenWarning && (
         <div className="banner banner-warning" role="alert">
-          {/* forge.noTokenHint, with the command set in <code>. */}
+          {/* forge.noTokenHint, with the commands set in <code>. */}
           <span>
-            No {forge.label} token — run <code>{forge.cli} auth login</code> in the
-            terminal where aeman runs.
+            No {forge.label} token — run <code>aeman login</code>, or{" "}
+            <code>{forge.cli} auth login</code>, in the terminal where aeman runs.
           </span>
           <button
             type="button"

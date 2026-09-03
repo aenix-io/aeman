@@ -136,27 +136,64 @@ func (g *gitFlags) pick(flagVal, envKey, def string) string {
 	return def
 }
 
-// config builds the GitConfig, or nil when no repository is configured.
-func (g *gitFlags) config() (*server.GitConfig, error) {
-	repos := g.repos
-	if !g.reposSet {
-		repos = nil
-		for _, part := range strings.Split(g.env("AEMAN_REPOS"), ",") {
-			if part = strings.TrimSpace(part); part != "" {
-				if err := repos.Set(part); err != nil {
-					return nil, fmt.Errorf("AEMAN_REPOS: %w", err)
-				}
+// resolvedRepos is the board's repositories: the --repo flags, else
+// AEMAN_REPOS as a comma-separated list of the same shape. Empty is a
+// legitimate answer — `aeman login` runs before there is a board.
+func (g *gitFlags) resolvedRepos() (repoList, error) {
+	if g.reposSet {
+		return g.repos, nil
+	}
+	var repos repoList
+	for _, part := range strings.Split(g.env("AEMAN_REPOS"), ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			if err := repos.Set(part); err != nil {
+				return nil, fmt.Errorf("AEMAN_REPOS: %w", err)
 			}
 		}
+	}
+	return repos, nil
+}
+
+// forgeTarget is the forge a login is for and the keychain account it goes
+// under. The account is the forge's own host, so `aeman login` writes the
+// item `aeman serve` and `aeman mcp` read: every command asks the same
+// forge value Detect built from the same flags. With no repository
+// configured it is GitHub at github.com — but a GitLab asked for by name
+// still needs a host, which Detect refuses to guess.
+func (g *gitFlags) forgeTarget() (forge.Forge, string, error) {
+	repos, err := g.resolvedRepos()
+	if err != nil {
+		return nil, "", err
+	}
+	var primary string
+	if len(repos) > 0 {
+		primary = repos[0].URL
+	}
+	f, err := forge.Detect(primary, forge.Kind(g.pick(g.forge, "AEMAN_FORGE", "")), g.pick(g.gitlabURL, "AEMAN_GITLAB_URL", ""))
+	if err != nil {
+		return nil, "", fmt.Errorf("--forge: %w", err)
+	}
+	return f, f.Host(), nil
+}
+
+// config builds the GitConfig, or nil when no repository is configured.
+func (g *gitFlags) config() (*server.GitConfig, error) {
+	repos, err := g.resolvedRepos()
+	if err != nil {
+		return nil, err
 	}
 	if len(repos) == 0 {
 		return nil, nil //nolint:nilnil // no git mode configured is not an error
 	}
-	cfg := &server.GitConfig{Repos: repos, Token: g.env("AEMAN_GIT_TOKEN")}
+	// Trimmed like every other token source: a trailing newline off a
+	// `.env` file or a heredoc would otherwise count as "set", skip the
+	// chain, and go into the git credential as whitespace — a 401 on
+	// push with nothing on screen pointing at the cause.
+	cfg := &server.GitConfig{Repos: repos, Token: strings.TrimSpace(g.env("AEMAN_GIT_TOKEN"))}
 	// A board may span two organisations, and one token narrow enough for
 	// either cannot reach both: every domain may name its own credential,
 	// falling back to the shared one. A domain still without one here is
-	// filled by fillGitToken from the forge's CLI.
+	// filled by fillGitToken from the credential chain.
 	for i := range cfg.Repos {
 		if tok := strings.TrimSpace(g.env(tokenEnvFor(cfg.Repos[i].Name))); tok != "" {
 			cfg.Repos[i].Token = tok
@@ -164,7 +201,6 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 		}
 		cfg.Repos[i].Token = cfg.Token
 	}
-	var err error
 	if cfg.Forge, err = forge.Detect(repos[0].URL, forge.Kind(g.pick(g.forge, "AEMAN_FORGE", "")), g.pick(g.gitlabURL, "AEMAN_GITLAB_URL", "")); err != nil {
 		return nil, fmt.Errorf("--forge: %w", err)
 	}
@@ -225,19 +261,40 @@ func (g *gitFlags) githubApp(f forge.Forge) (*forge.GitHubApp, error) {
 	return forge.NewGitHubApp(id, []byte(raw))
 }
 
+// tokenLookupTimeout bounds the start-up credential lookup. A variable so
+// a test need not wait it out.
+var tokenLookupTimeout = 5 * time.Second
+
+// boundedLogin asks who the elected credential belongs to under that same
+// bound. Every start-up caller wants the name and can start without it, so
+// none of them may wait on the forge for the source's own ceiling.
+func boundedLogin(ctx context.Context, cli forge.CLI) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, tokenLookupTimeout)
+	defer cancel()
+	return cli.Login(ctx)
+}
+
 // fillGitToken supplies the push/fetch credential when AEMAN_GIT_TOKEN is
-// unset: the forge's token variables, then its CLI's token — the same
-// source a single-user server reads the identity from. Best-effort — a
+// unset: the forge's token variables, then cli — the OS keychain and the
+// forge's own tool, the same value the identity is read from, so the push
+// and the name on the commits come from one credential. Best-effort — a
 // remote that needs no credential (a file path, a public repository) works
 // without it.
-func fillGitToken(ctx context.Context, cfg *server.GitConfig) {
+func fillGitToken(ctx context.Context, cfg *server.GitConfig, cli forge.CLI) {
 	if cfg == nil {
 		return
 	}
-	// With a GitHub App the server credential is minted, not found: the
-	// forge CLI's token is not asked for.
+	// With a GitHub App the server credential is minted, not found: nothing
+	// below the environment is asked for it.
 	if cfg.Token == "" && cfg.App == nil && !allDomainsHaveTokens(cfg) {
-		if tok, err := resolveForgeToken(ctx, cfg.Forge, cliFor(cfg.Forge, cfg.Repos[0].URL), osEnv); err == nil {
+		// Bounded separately from the caller's context: the chain asks the
+		// forge whose token this is, and the answer is not needed here —
+		// the credential is. A dropped-packet network (a VPN down, a
+		// captive portal) would otherwise hold the server before it
+		// listens for as long as the forge client allows.
+		lookup, cancel := context.WithTimeout(ctx, tokenLookupTimeout)
+		defer cancel()
+		if tok, err := resolveForgeToken(lookup, cfg.Forge, cli); err == nil {
 			cfg.Token = tok
 		}
 	}
@@ -251,7 +308,7 @@ func fillGitToken(ctx context.Context, cfg *server.GitConfig) {
 }
 
 // allDomainsHaveTokens reports whether every repository already names its
-// own credential — then the shared one is not needed and the forge's CLI is
+// own credential — then the shared one is not needed and the chain is
 // not asked for it.
 func allDomainsHaveTokens(cfg *server.GitConfig) bool {
 	for _, r := range cfg.Repos {

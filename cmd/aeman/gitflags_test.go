@@ -8,12 +8,17 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"flag"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/server"
+	"github.com/aenix-io/aeman/internal/tokenstore"
+	"github.com/aenix-io/aeman/internal/tokenstore/tokenstoretest"
 )
 
 // The git-mode flags: repeatable --repo name=url, spans with weeks, a
@@ -245,9 +250,101 @@ func TestFillGitTokenFillsOnlyTheDomainsWithoutOne(t *testing.T) {
 		},
 		Token: "default-token",
 	}
-	fillGitToken(context.Background(), cfg)
+	fillGitToken(context.Background(), cfg, &fakeCLI{token: "cli-token"})
 	if cfg.Repos[0].Token != "own-token" || cfg.Repos[1].Token != "default-token" {
 		t.Fatalf("tokens = %q / %q", cfg.Repos[0].Token, cfg.Repos[1].Token)
+	}
+}
+
+// The push credential keeps the order the identity has: AEMAN_GIT_TOKEN
+// first, then the keychain, then gh. A deployment that names a token in its
+// environment is never quietly overridden by whatever a laptop stored
+// months ago — with one set, neither later source is asked at all. And
+// whichever source wins the token wins the login with it, which is the
+// assertion that says the two orders are really one.
+func TestFillGitTokenTakesTheKeychainBeforeTheCLIAndNeitherBeforeAEMANGitToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	ctx := context.Background()
+	gh, client := fakeForge(t, map[string]string{"ghp_stored": "alice"})
+	log, _ := testLog()
+	repos := func() []server.RepoSpec {
+		return []server.RepoSpec{{Name: "board", URL: "https://github.com/acme/board.git"}}
+	}
+
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_stored")
+	cli := &fakeCLI{token: "cli-token", login: "machine-user"}
+	cfg := &server.GitConfig{Forge: gh, Repos: repos()}
+	c := &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, gh, client), cli}}
+	fillGitToken(ctx, cfg, c)
+	if cfg.Token != "ghp_stored" || cfg.Repos[0].Token != "ghp_stored" {
+		t.Fatalf("tokens = %q / %q, want the stored one", cfg.Token, cfg.Repos[0].Token)
+	}
+	if login, err := c.Login(ctx); err != nil || login != "alice" {
+		t.Fatalf("Login = %q, %v; want the owner of the token that was used", login, err)
+	}
+	if cli.calls != 0 {
+		t.Fatalf("gh was asked %d times while the keychain had a token, want 0", cli.calls)
+	}
+
+	store = tokenstoretest.NewFake().Put("github.com", "ghp_stored")
+	cli = &fakeCLI{token: "cli-token"}
+	cfg = &server.GitConfig{Forge: gh, Repos: repos(), Token: "env-token"}
+	fillGitToken(ctx, cfg, &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, gh, client), cli}})
+	if cfg.Token != "env-token" || cfg.Repos[0].Token != "env-token" {
+		t.Fatalf("tokens = %q / %q, want AEMAN_GIT_TOKEN's", cfg.Token, cfg.Repos[0].Token)
+	}
+	if store.Gets() != 0 || cli.calls != 0 {
+		t.Fatalf("the keychain was read %d times and gh asked %d, want 0 and 0", store.Gets(), cli.calls)
+	}
+}
+
+// The forge's token variables decide the identity as well as the push
+// credential, and the two must name one person. gh hands GH_TOKEN straight
+// back, so before the keychain existed they agreed by accident; the
+// environment is a source of the chain so they agree on purpose. Without
+// that, a machine with GH_TOKEN exported and a token in its keychain
+// pushes as one account and signs the commits with another's name.
+func TestTheEnvironmentTokenAndItsOwnerAreOneAnswer(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "ghp_env_bot")
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_env_bot": "release-bot", "ghp_stored": "alice"})
+	log, _ := testLog()
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_stored")
+	cli := &fakeCLI{token: "cli-token", login: "machine-user"}
+
+	c := &chain{log: log, sources: []forge.CLI{
+		newEnvCLI(f, osEnv, client),
+		tokenstore.NewCLI(store, f, client),
+		cli,
+	}}
+	cfg := &server.GitConfig{Forge: f, Repos: []server.RepoSpec{{Name: "board", URL: "https://github.com/acme/board.git"}}}
+	fillGitToken(ctx, cfg, c)
+
+	if cfg.Token != "ghp_env_bot" {
+		t.Fatalf("push credential = %q, want the environment's", cfg.Token)
+	}
+	if login, err := c.Login(ctx); err != nil || login != "release-bot" {
+		t.Fatalf("Login = %q, %v; want the environment token's owner", login, err)
+	}
+	if store.Gets() != 0 || cli.calls != 0 {
+		t.Fatalf("the keychain was read %d times and gh asked %d, want 0 and 0", store.Gets(), cli.calls)
+	}
+
+	// With nothing in the environment the chain carries on to the keychain,
+	// and the identity follows it there.
+	t.Setenv("GH_TOKEN", "")
+	empty := &chain{log: log, sources: []forge.CLI{
+		newEnvCLI(f, osEnv, client),
+		tokenstore.NewCLI(tokenstoretest.NewFake().Put("github.com", "ghp_stored"), f, client),
+		&fakeCLI{token: "cli-token", login: "machine-user"},
+	}}
+	if tok, err := empty.Token(ctx); err != nil || tok != "ghp_stored" {
+		t.Fatalf("Token = %q, %v; want the stored one", tok, err)
+	}
+	if login, err := empty.Login(ctx); err != nil || login != "alice" {
+		t.Fatalf("Login = %q, %v; want the stored token's owner", login, err)
 	}
 }
 
@@ -330,4 +427,160 @@ func testAppKeyPEM(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+}
+
+// AEMAN_GIT_TOKEN is trimmed like every other source. A value off a `.env`
+// file or a heredoc carries a newline, and an untrimmed one counts as set:
+// the chain is skipped and the whitespace reaches the git credential,
+// which the forge answers with a 401 that names nothing. A value that is
+// only whitespace is not a token at all, so the chain runs.
+func TestTheSharedTokenIsTrimmed(t *testing.T) {
+	cfgFor := func(tok string) *server.GitConfig {
+		t.Helper()
+		fs := flag.NewFlagSet("test", flag.ContinueOnError)
+		gf := addGitFlags(fs, func(k string) string {
+			if k == "AEMAN_GIT_TOKEN" {
+				return tok
+			}
+			return ""
+		})
+		if err := fs.Parse([]string{"--repo", "board=https://github.com/acme/board.git"}); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := gf.config()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+
+	if got := cfgFor("ghp_token\n"); got.Token != "ghp_token" || got.Repos[0].Token != "ghp_token" {
+		t.Fatalf("tokens = %q / %q, want them trimmed", got.Token, got.Repos[0].Token)
+	}
+	if got := cfgFor("  ghp_token \t"); got.Token != "ghp_token" {
+		t.Fatalf("token = %q, want it trimmed", got.Token)
+	}
+	if got := cfgFor(" \n\t "); got.Token != "" {
+		t.Fatalf("token = %q; whitespace is not a credential, so the chain must run", got.Token)
+	}
+}
+
+// The push credential goes through the same election-and-refusal path the
+// identity does, so a stored token the forge has since revoked does not
+// become the credential every push uses for the life of the process. That
+// was the sharpest shape of the split: the board reads, the page names the
+// right person, and every push 401s with nothing on screen to explain it,
+// because fillGitToken had resolved the revoked one at start-up.
+func TestFillGitTokenFallsThroughARevokedStoredToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"cli-token": "machine-user"})
+	log, _ := testLog()
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_revoked")
+	cli := &fakeCLI{token: "cli-token", login: "machine-user"}
+
+	c := &chain{log: log, forge: f, sources: []forge.CLI{
+		tokenstore.NewCLI(store, f, client), cli,
+	}}
+	cfg := &server.GitConfig{Forge: f, Repos: []server.RepoSpec{{Name: "board", URL: "https://github.com/acme/board.git"}}}
+	fillGitToken(ctx, cfg, c)
+
+	if cfg.Token != "cli-token" || cfg.Repos[0].Token != "cli-token" {
+		t.Fatalf("push credential = %q / %q; want the source below the revoked one", cfg.Token, cfg.Repos[0].Token)
+	}
+	// And the identity agrees with it, which is the whole point.
+	if login, err := c.Login(ctx); err != nil || login != "machine-user" {
+		t.Fatalf("Login = %q, %v; the push credential and the name must be one account", login, err)
+	}
+}
+
+// The push credential must not wait on the identity lookup. Resolving it
+// used to read a variable and make no request at all; asking the chain
+// instead means the forge is contacted here, and on a black-holed network
+// — a VPN down, a captive portal, where packets are dropped rather than
+// refused — that is the client's full timeout before the server listens.
+// The credential does not depend on the answer, so the lookup gets a
+// deadline of its own and the token arrives without it.
+func TestFillGitTokenDoesNotWaitOnTheForgeForThePushCredential(t *testing.T) {
+	hang := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-hang:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(hang); srv.Close() })
+
+	defer func(d time.Duration) { tokenLookupTimeout = d }(tokenLookupTimeout)
+	tokenLookupTimeout = 50 * time.Millisecond
+
+	f := forge.NewGitHubAt(srv.URL)
+	log, _ := testLog()
+	cli := &chain{log: log, forge: f, sources: []forge.CLI{
+		newEnvCLI(f, func(k string) string {
+			if k == "GITHUB_TOKEN" {
+				return "env-token"
+			}
+			return ""
+		}, guardedClient(srv)),
+	}}
+	cfg := &server.GitConfig{Forge: f, Repos: []server.RepoSpec{{Name: "board"}}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fillGitToken(context.Background(), cfg, cli)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fillGitToken is still waiting on the forge")
+	}
+	if cfg.Token != "env-token" || cfg.Repos[0].Token != "env-token" {
+		t.Fatalf("token = %q / %q, want the environment's despite the forge never answering", cfg.Token, cfg.Repos[0].Token)
+	}
+}
+
+// Asking who the credential belongs to is bounded wherever it happens at
+// start-up, not only where the credential itself is resolved. `aeman mcp`
+// attaches the personal board before it serves stdio, and an MCP client
+// gives up on a silent start: an unbounded lookup there puts the source's
+// own 30-second ceiling on top of the credential lookup's, on exactly the
+// network that made the first bound necessary.
+func TestTheStartUpLoginIsBounded(t *testing.T) {
+	hang := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-hang:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(hang); srv.Close() })
+
+	defer func(d time.Duration) { tokenLookupTimeout = d }(tokenLookupTimeout)
+	tokenLookupTimeout = 50 * time.Millisecond
+
+	f := forge.NewGitHubAt(srv.URL)
+	log, _ := testLog()
+	cli := &chain{log: log, forge: f, sources: []forge.CLI{
+		newEnvCLI(f, func(string) string { return "env-token" }, guardedClient(srv)),
+	}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// An unreachable forge is not a missing credential: the chain
+		// answers with no name and no error, and attaching a personal
+		// board is a no-op on an empty login. What must not happen is
+		// waiting for it.
+		if login, _ := boundedLogin(context.Background(), cli); login != "" {
+			t.Errorf("login = %q, want none from a forge that never answered", login)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the start-up login is still waiting on the forge")
+	}
 }

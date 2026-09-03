@@ -6,9 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/aenix-io/aeman/internal/nonet"
 )
 
 // The forge is named by the primary repository's host unless the operator
@@ -126,6 +129,19 @@ func TestTokenFormsFollowEachForgesDialect(t *testing.T) {
 
 // fakeGitLab is enough of a GitLab REST API for the tests: one project with
 // per-visitor access, its members, and a user directory.
+
+// guardedClient is the client a test hands to the code under test. An
+// httptest client carries its own Transport and so never consults the
+// default one nonet.Block replaces: the constructors for the real hosts
+// live in this package, so without this a case that builds one and asks
+// it anything reaches the real forge through the client the test itself
+// supplied.
+func guardedClient(srv *httptest.Server) *http.Client {
+	c := srv.Client()
+	c.Transport = nonet.Guard(c.Transport)
+	return c
+}
+
 func fakeGitLab(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -195,11 +211,11 @@ func fakeGitLab(t *testing.T) *httptest.Server {
 func TestGitLabUserIsTheTokensOwnerWithNameAndAvatar(t *testing.T) {
 	srv := fakeGitLab(t)
 	gl := NewGitLab(srv.URL)
-	u, err := gl.User(context.Background(), srv.Client(), "alice-token")
+	u, err := gl.User(context.Background(), guardedClient(srv), "alice-token")
 	if err != nil || u.Login != "alice" || u.Name != "Alice Liddell" || u.AvatarURL != "https://gitlab.example/uploads/alice.png" {
 		t.Fatalf("User = %+v, %v", u, err)
 	}
-	if _, err := gl.User(context.Background(), srv.Client(), "expired-token"); !errors.Is(err, ErrBadToken) {
+	if _, err := gl.User(context.Background(), guardedClient(srv), "expired-token"); !errors.Is(err, ErrBadToken) {
 		t.Fatalf("a rejected token = %v, want ErrBadToken", err)
 	}
 }
@@ -223,15 +239,15 @@ func TestGitLabAccessReadsTheAccessLevel(t *testing.T) {
 		"stranger": {"stranger-token", false, false},
 		"no token": {"", false, false},
 	} {
-		read, write, err := gl.Access(ctx, srv.Client(), tc.token, repo)
+		read, write, err := gl.Access(ctx, guardedClient(srv), tc.token, repo)
 		if err != nil || read != tc.read || write != tc.write {
 			t.Errorf("%s: Access = %v %v %v; want %v %v", name, read, write, err, tc.read, tc.write)
 		}
 	}
-	if _, _, err := gl.Access(ctx, srv.Client(), "expired-token", repo); !errors.Is(err, ErrBadToken) {
+	if _, _, err := gl.Access(ctx, guardedClient(srv), "expired-token", repo); !errors.Is(err, ErrBadToken) {
 		t.Fatalf("expired token: %v, want ErrBadToken", err)
 	}
-	if read, write, err := gl.Access(ctx, srv.Client(), "alice-token", "https://gitlab.com/kvaps/public-notes.git"); err != nil || !read || write {
+	if read, write, err := gl.Access(ctx, guardedClient(srv), "alice-token", "https://gitlab.com/kvaps/public-notes.git"); err != nil || !read || write {
 		t.Fatalf("public project: %v %v %v; want read only", read, write, err)
 	}
 }
@@ -243,7 +259,7 @@ func TestGitLabAccessReadsTheAccessLevel(t *testing.T) {
 func TestGitLabReadersComeFromTheMemberListWithNamesAndAvatars(t *testing.T) {
 	srv := fakeGitLab(t)
 	gl := NewGitLab(srv.URL)
-	got, err := gl.Readers(context.Background(), srv.Client(), "server-token", "https://gitlab.com/kvaps/aeman-db.git",
+	got, err := gl.Readers(context.Background(), guardedClient(srv), "server-token", "https://gitlab.com/kvaps/aeman-db.git",
 		[]string{"alice", "bob", "guest", "nobody"})
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +267,7 @@ func TestGitLabReadersComeFromTheMemberListWithNamesAndAvatars(t *testing.T) {
 	if len(got) != 2 || got["alice"].Name != "Alice Liddell" || got["bob"].AvatarURL != "https://gitlab.example/uploads/bob.png" {
 		t.Fatalf("readers = %+v; want alice and bob with their names and avatars", got)
 	}
-	if _, err := gl.Readers(context.Background(), srv.Client(), "", "https://gitlab.com/kvaps/aeman-db.git", []string{"alice"}); err == nil {
+	if _, err := gl.Readers(context.Background(), guardedClient(srv), "", "https://gitlab.com/kvaps/aeman-db.git", []string{"alice"}); err == nil {
 		t.Fatal("without a server token there is nobody to ask the forge as")
 	}
 }
@@ -262,11 +278,11 @@ func TestGitLabReadersComeFromTheMemberListWithNamesAndAvatars(t *testing.T) {
 func TestLookupFindsAPersonByLogin(t *testing.T) {
 	srv := fakeGitLab(t)
 	gl := NewGitLab(srv.URL)
-	p, err := gl.Lookup(context.Background(), srv.Client(), "", "carol")
+	p, err := gl.Lookup(context.Background(), guardedClient(srv), "", "carol")
 	if err != nil || p.Login != "carol" || p.Name != "Carol" || p.AvatarURL != "https://gitlab.example/uploads/carol.png" {
 		t.Fatalf("gitlab Lookup(carol) = %+v, %v", p, err)
 	}
-	if _, err := gl.Lookup(context.Background(), srv.Client(), "", "nobody"); !errors.Is(err, ErrNotFound) {
+	if _, err := gl.Lookup(context.Background(), guardedClient(srv), "", "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("gitlab Lookup(nobody) = %v, want ErrNotFound", err)
 	}
 	p, err = NewGitHub().Lookup(context.Background(), nil, "", "octocat")
@@ -303,7 +319,7 @@ func TestBeingThrottledIsNotTheSameAsHavingNoAccess(t *testing.T) {
 		}))
 		for _, f := range []Forge{NewGitHubAt(srv.URL), NewGitLab(srv.URL)} {
 			repo := "https://host/acme/repo.git"
-			read, write, err := f.Access(context.Background(), srv.Client(), "tok", repo)
+			read, write, err := f.Access(context.Background(), guardedClient(srv), "tok", repo)
 			switch {
 			case tc.limited && !errors.Is(err, ErrRateLimited):
 				t.Errorf("%s/%s: Access err = %v, want ErrRateLimited", f.Kind(), tc.name, err)
@@ -315,7 +331,7 @@ func TestBeingThrottledIsNotTheSameAsHavingNoAccess(t *testing.T) {
 			// Readers is asked with the server's credential and must not
 			// swallow the throttling either: an empty roster would quietly
 			// empty every picker on the board.
-			if _, err := f.Readers(context.Background(), srv.Client(), "srv", repo, []string{"alice"}); tc.limited && !errors.Is(err, ErrRateLimited) {
+			if _, err := f.Readers(context.Background(), guardedClient(srv), "srv", repo, []string{"alice"}); tc.limited && !errors.Is(err, ErrRateLimited) {
 				t.Errorf("%s/%s: Readers err = %v, want ErrRateLimited", f.Kind(), tc.name, err)
 			}
 		}
@@ -358,7 +374,7 @@ func TestATokenWithoutTheRepoScopeIsAStaleAuthorization(t *testing.T) {
 			}
 			w.WriteHeader(tc.status)
 		}))
-		read, write, err := NewGitHubAt(srv.URL).Access(context.Background(), srv.Client(), tc.token, "https://github.com/acme/repo.git")
+		read, write, err := NewGitHubAt(srv.URL).Access(context.Background(), guardedClient(srv), tc.token, "https://github.com/acme/repo.git")
 		switch {
 		case tc.wantBad && !errors.Is(err, ErrBadToken):
 			t.Errorf("%s: err = %v, want ErrBadToken", tc.name, err)
@@ -423,24 +439,24 @@ func TestGitHubKeepsThePermissionsBlockRules(t *testing.T) {
 	srv := fakeGitHub(t)
 	gh := NewGitHubAt(srv.URL)
 	ctx := context.Background()
-	u, err := gh.User(ctx, srv.Client(), "alice-token")
+	u, err := gh.User(ctx, guardedClient(srv), "alice-token")
 	if err != nil || u.Login != "alice" || u.Name != "Alice Liddell" || !strings.HasPrefix(u.AvatarURL, "https://avatars.githubusercontent.com/u/1") {
 		t.Fatalf("User = %+v, %v", u, err)
 	}
 	repo := "https://github.com/acme/aeman-db.git"
-	if read, write, err := gh.Access(ctx, srv.Client(), "alice-token", repo); err != nil || !read || !write {
+	if read, write, err := gh.Access(ctx, guardedClient(srv), "alice-token", repo); err != nil || !read || !write {
 		t.Fatalf("admin: %v %v %v", read, write, err)
 	}
-	if read, write, err := gh.Access(ctx, srv.Client(), "bob-token", repo); err != nil || !read || write {
+	if read, write, err := gh.Access(ctx, guardedClient(srv), "bob-token", repo); err != nil || !read || write {
 		t.Fatalf("pull only: %v %v %v", read, write, err)
 	}
-	if read, write, err := gh.Access(ctx, srv.Client(), "stranger-token", repo); err != nil || read || write {
+	if read, write, err := gh.Access(ctx, guardedClient(srv), "stranger-token", repo); err != nil || read || write {
 		t.Fatalf("stranger: %v %v %v", read, write, err)
 	}
-	if _, _, err := gh.Access(ctx, srv.Client(), "expired-token", repo); !errors.Is(err, ErrBadToken) {
+	if _, _, err := gh.Access(ctx, guardedClient(srv), "expired-token", repo); !errors.Is(err, ErrBadToken) {
 		t.Fatalf("expired: %v", err)
 	}
-	got, err := gh.Readers(ctx, srv.Client(), "server-token", repo, []string{"alice", "bob", "nobody", "stranger"})
+	got, err := gh.Readers(ctx, guardedClient(srv), "server-token", repo, []string{"alice", "bob", "nobody", "stranger"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +528,7 @@ func TestGitHubReadersAreOneListingNotAQuestionPerPerson(t *testing.T) {
 	var listing, perLogin atomic.Int32
 	srv := fakeGitHubListing(t, &listing, &perLogin, false)
 	gh := NewGitHubAt(srv.URL)
-	got, err := gh.Readers(context.Background(), srv.Client(), "server-token",
+	got, err := gh.Readers(context.Background(), guardedClient(srv), "server-token",
 		"https://github.com/acme/aeman-db.git", []string{"alice", "bob", "nobody", "stranger"})
 	if err != nil {
 		t.Fatal(err)
@@ -540,7 +556,7 @@ func TestGitHubReadersFallBackToOneQuestionPerPersonWhenTheListingIsRefused(t *t
 	var listing, perLogin atomic.Int32
 	srv := fakeGitHubListing(t, &listing, &perLogin, true)
 	gh := NewGitHubAt(srv.URL)
-	got, err := gh.Readers(context.Background(), srv.Client(), "server-token",
+	got, err := gh.Readers(context.Background(), guardedClient(srv), "server-token",
 		"https://github.com/acme/aeman-db.git", []string{"alice", "bob", "nobody", "stranger"})
 	if err != nil {
 		t.Fatal(err)
@@ -583,7 +599,7 @@ func TestReadersAskOneByOneAboutWhoTheListingCannotSee(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	gh := NewGitHubAt(srv.URL)
-	got, err := gh.Readers(context.Background(), srv.Client(), "server-token",
+	got, err := gh.Readers(context.Background(), guardedClient(srv), "server-token",
 		"https://github.com/acme/aeman-db.git", []string{"direct", "orgadmin", "stranger"})
 	if err != nil {
 		t.Fatal(err)
@@ -596,5 +612,89 @@ func TestReadersAskOneByOneAboutWhoTheListingCannotSee(t *testing.T) {
 	}
 	if n := perLogin.Load(); n != 2 {
 		t.Fatalf("%d per-login questions, want 2 — only for the logins the listing did not name", n)
+	}
+}
+
+// Host is the forge instance a credential belongs to, and it is the forge
+// itself that knows: github.com for GitHub, the base URL's host for a
+// GitLab wherever it lives. A caller that stores a token per forge needs
+// one answer, not its own parse of whichever URL it happens to hold.
+func TestHostIsTheForgeInstance(t *testing.T) {
+	cases := []struct {
+		name string
+		f    Forge
+		want string
+	}{
+		{"github", NewGitHub(), "github.com"},
+		{"github at another api base", NewGitHubAt("https://api.example.org"), "github.com"},
+		{"gitlab.com", NewGitLab("https://gitlab.com"), "gitlab.com"},
+		{"self-hosted", NewGitLab("https://gitlab.example.org/"), "gitlab.example.org"},
+		{"with a port", NewGitLab("https://gitlab.example.org:8443"), "gitlab.example.org:8443"},
+		{"no scheme", NewGitLab("gitlab.example.org"), "gitlab.example.org"},
+		// A base URL is typed by a person; a repository URL arrives folded.
+		// The same instance named either way is ONE account.
+		{"mixed case", NewGitLab("https://GitLab.Example.org"), "gitlab.example.org"},
+		{"mixed case, no scheme", NewGitLab("GitLab.Example.org"), "gitlab.example.org"},
+		// url.Parse reads this as a scheme, leaving an empty Host, so it
+		// is the fallback that answers — the only input where that path
+		// carries anything.
+		{"no scheme, with a port", NewGitLab("gitlab.example.org:8443"), "gitlab.example.org:8443"},
+	}
+	for _, tc := range cases {
+		if got := tc.f.Host(); got != tc.want {
+			t.Errorf("%s: Host() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	// And the forge Detect builds carries the host the board's URL or
+	// --gitlab-url named, which is what makes one definition of the account
+	// possible at all.
+	for _, tc := range []struct{ repoURL, gitlabBase, want string }{
+		{"https://github.com/acme/board.git", "", "github.com"},
+		{"https://gitlab.example.org/a/b.git", "", "gitlab.example.org"},
+		{"git@host.example:a/b.git", "", "github.com"},
+		{"", "https://gitlab.example.org", "gitlab.example.org"},
+		{"", "https://GitLab.Example.org", "gitlab.example.org"},
+		{"https://GitLab.Example.org/a/b.git", "", "gitlab.example.org"},
+		{"", "", "github.com"},
+	} {
+		f, err := Detect(tc.repoURL, "", tc.gitlabBase)
+		if err != nil {
+			t.Fatalf("Detect(%q, %q): %v", tc.repoURL, tc.gitlabBase, err)
+		}
+		if got := f.Host(); got != tc.want {
+			t.Errorf("Detect(%q, %q).Host() = %q, want %q", tc.repoURL, tc.gitlabBase, got, tc.want)
+		}
+	}
+}
+
+// The real-host constructors live in this package, so its tests are the
+// ones that reach a forge by accident: NewGitHub() is one call away from
+// every case here. The network is shut off for the binary, and the
+// clients the fakes hand out are guarded too, since a forge is asked
+// through a client the caller supplies and an httptest one carries its
+// own transport. A case that builds a real forge and asks it anything
+// fails on the request instead of answering out of the machine's own
+// credentials.
+func TestMain(m *testing.M) {
+	restore := nonet.Block()
+	code := m.Run()
+	restore()
+	os.Exit(code)
+}
+
+// The guard is on the client the fakes hand out, not only on the default
+// transport. Pointed at a documentation address rather than a real forge:
+// the refusal must come from the guard, and a regression here should not
+// be a request to somebody's server.
+func TestTheFakeForgesClientRefusesANonLoopbackHost(t *testing.T) {
+	srv := fakeGitHub(t)
+	client := guardedClient(srv)
+
+	f := NewGitHubAt("http://192.0.2.1")
+	if _, err := f.User(context.Background(), client, "not-a-token"); err == nil {
+		t.Fatal("the helper's client left the machine")
+	} else if !strings.Contains(err.Error(), "tried to reach") {
+		t.Fatalf("error = %v; want the guard's refusal", err)
 	}
 }
