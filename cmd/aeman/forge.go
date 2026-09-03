@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/ghcli"
@@ -15,6 +16,11 @@ import (
 	"github.com/aenix-io/aeman/internal/server"
 	"github.com/aenix-io/aeman/internal/tokenstore"
 )
+
+// forgeTimeout bounds a call to the forge. `aeman login` has a person
+// waiting at a prompt, so an unreachable forge must fail rather than hang
+// until they interrupt it.
+const forgeTimeout = 30 * time.Second
 
 // cliFor is where a single-user run reads its credential and identity: the
 // OS keychain that `aeman login` writes, then the forge's own command-line

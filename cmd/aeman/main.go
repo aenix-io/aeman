@@ -77,6 +77,10 @@ func run(args []string) error {
 		return runInit(args[1:])
 	case "migrate":
 		return runMigrate(args[1:])
+	case "login":
+		return runLogin(args[1:])
+	case "logout":
+		return runLogout(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println("aeman", version)
 		return nil
@@ -96,6 +100,8 @@ Usage:
   aeman mcp [flags]     Start the MCP server on stdio
   aeman init --repo URL Bootstrap an empty repository as a board
   aeman migrate [flags] Copy a GitHub Projects v2 board into a repository
+  aeman login [flags]   Store the forge token in the OS keychain
+  aeman logout [flags]  Remove the stored token for the forge
   aeman version         Print the version
   aeman help            Show this help
 
@@ -127,7 +133,7 @@ func runServe(args []string) error {
 
 	// One chain for the whole run: the source that supplies the push
 	// credential is the source the identity is read from.
-	cli := cliFor(gitCfg.Forge, gitCfg.Repos[0].URL, tokenstore.Open(logger), logger)
+	cli := cliFor(gitCfg.Forge, gitCfg.Repos[0].URL, openStore(logger), logger)
 	fillGitToken(context.Background(), gitCfg, cli)
 
 	// Multi-user OAuth mode is enabled when one forge's client credentials
@@ -201,7 +207,7 @@ func runMCP(args []string) error {
 	// configured repository, whatever board name a tool passes. The local
 	// person is whoever the token belongs to — the one in the keychain
 	// (`aeman login`), else the one gh or glab is signed in with.
-	cli := cliFor(gitCfg.Forge, gitCfg.Repos[0].URL, tokenstore.Open(logger), logger)
+	cli := cliFor(gitCfg.Forge, gitCfg.Repos[0].URL, openStore(logger), logger)
 	fillGitToken(context.Background(), gitCfg, cli)
 	gb, err := server.OpenGitBackend(gitCfg, logger)
 	if err != nil {
@@ -278,7 +284,7 @@ func runInit(args []string) error {
 		return fmt.Errorf("init needs --repo URL (or AEMAN_REPOS)")
 	}
 	log := newLogger(false)
-	fillGitToken(context.Background(), cfg, cliFor(cfg.Forge, cfg.Repos[0].URL, tokenstore.Open(log), log))
+	fillGitToken(context.Background(), cfg, cliFor(cfg.Forge, cfg.Repos[0].URL, openStore(log), log))
 	remote := gitstore.Remote{URL: cfg.Repos[0].URL}
 	if cfg.Token != "" {
 		remote.Auth = cfg.Forge.GitAuth(cfg.Token)
@@ -318,7 +324,7 @@ func runMigrate(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	log := newLogger(false)
-	store := tokenstore.Open(log)
+	store := openStore(log)
 	tok, err := resolveGitHubToken(ctx, store, log)
 	if err != nil {
 		return err

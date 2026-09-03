@@ -136,18 +136,50 @@ func (g *gitFlags) pick(flagVal, envKey, def string) string {
 	return def
 }
 
-// config builds the GitConfig, or nil when no repository is configured.
-func (g *gitFlags) config() (*server.GitConfig, error) {
-	repos := g.repos
-	if !g.reposSet {
-		repos = nil
-		for _, part := range strings.Split(g.env("AEMAN_REPOS"), ",") {
-			if part = strings.TrimSpace(part); part != "" {
-				if err := repos.Set(part); err != nil {
-					return nil, fmt.Errorf("AEMAN_REPOS: %w", err)
-				}
+// resolvedRepos is the board's repositories: the --repo flags, else
+// AEMAN_REPOS as a comma-separated list of the same shape. Empty is a
+// legitimate answer — `aeman login` runs before there is a board.
+func (g *gitFlags) resolvedRepos() (repoList, error) {
+	if g.reposSet {
+		return g.repos, nil
+	}
+	var repos repoList
+	for _, part := range strings.Split(g.env("AEMAN_REPOS"), ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			if err := repos.Set(part); err != nil {
+				return nil, fmt.Errorf("AEMAN_REPOS: %w", err)
 			}
 		}
+	}
+	return repos, nil
+}
+
+// forgeTarget is the forge a login is for and the keychain account it goes
+// under. With no repository configured it is GitHub at github.com — but a
+// GitLab asked for by name still needs a host, which Detect refuses to
+// guess.
+func (g *gitFlags) forgeTarget() (forge.Forge, string, error) {
+	repos, err := g.resolvedRepos()
+	if err != nil {
+		return nil, "", err
+	}
+	var primary string
+	if len(repos) > 0 {
+		primary = repos[0].URL
+	}
+	gitlabURL := g.pick(g.gitlabURL, "AEMAN_GITLAB_URL", "")
+	f, err := forge.Detect(primary, forge.Kind(g.pick(g.forge, "AEMAN_FORGE", "")), gitlabURL)
+	if err != nil {
+		return nil, "", fmt.Errorf("--forge: %w", err)
+	}
+	return f, forgeHost(primary, gitlabURL), nil
+}
+
+// config builds the GitConfig, or nil when no repository is configured.
+func (g *gitFlags) config() (*server.GitConfig, error) {
+	repos, err := g.resolvedRepos()
+	if err != nil {
+		return nil, err
 	}
 	if len(repos) == 0 {
 		return nil, nil //nolint:nilnil // no git mode configured is not an error
@@ -164,7 +196,6 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 		}
 		cfg.Repos[i].Token = cfg.Token
 	}
-	var err error
 	if cfg.Forge, err = forge.Detect(repos[0].URL, forge.Kind(g.pick(g.forge, "AEMAN_FORGE", "")), g.pick(g.gitlabURL, "AEMAN_GITLAB_URL", "")); err != nil {
 		return nil, fmt.Errorf("--forge: %w", err)
 	}
