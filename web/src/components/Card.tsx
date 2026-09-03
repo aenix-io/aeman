@@ -12,7 +12,7 @@ import {
 } from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
-import { hasOriginToShow, type CardPlacements } from "../placements";
+import { hasOriginToShow, markOf, type CardPlacements } from "../placements";
 import { PlacementMenu } from "./PlacementMenu";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -588,13 +588,7 @@ export function Card({
         // Project-board commitment, a week its process owes, or somebody
         // else's work waiting on this person. A review card is the innermost
         // of the three — it IS the waiting — so it wins where they meet.
-        card.reviewOf
-          ? " card-review"
-          : card.epic
-            ? " card-project"
-            : card.task
-              ? " card-process"
-              : ""
+        markOf(card) ? ` card-${markOf(card)}` : ""
       }${dimAvatar ? " card-dim-avatar" : ""}${
         groupTarget ? " card-group-target" : ""
       }${record ? " card-record" : ""}`}

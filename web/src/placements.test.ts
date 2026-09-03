@@ -6,6 +6,7 @@ import {
   canCreateInColumn,
   columnFollows,
   columnsOf,
+  markOf,
   countedAmong,
   countedForProgress,
   drawnAsSlot,
@@ -1165,5 +1166,23 @@ describe("attach targets for a card a LINK holds", () => {
       "engineering",
       "strategy",
     ]);
+  });
+});
+
+// The left stripe says where a card came FROM, and every board that draws one
+// asks this — the day boards down the card's edge, Triage on its slot. Two
+// boards deciding it apart is how one of them came to draw nothing at all
+// after the weekly plan, whose band the stripe used to be, was taken out.
+describe("markOf", () => {
+  it("marks a project's work, a process's turn, and neither", () => {
+    expect(markOf({ epic: "Auth" })).toBe("project");
+    expect(markOf({ task: "t1" })).toBe("process");
+    expect(markOf({})).toBe("");
+  });
+
+  // A review card of a project card is BOTH; the waiting is the innermost
+  // thing about it, so that is what the stripe says.
+  it("says review where a card is both", () => {
+    expect(markOf({ reviewOf: "c1", epic: "Auth" })).toBe("review");
   });
 });

@@ -733,3 +733,32 @@ export function projectsWithColumns(
   }
   return out;
 }
+
+/** CardMark is what a card's left stripe says about where the work came FROM:
+ *  a REVIEW waiting on this person, a PROJECT board's commitment, a PROCESS's
+ *  turn — or nothing, for the day board's own work. The stripe is worth a
+ *  glance precisely because it marks what arrived from elsewhere. */
+export type CardMark = "review" | "project" | "process" | "";
+
+/** markOf answers it once, for every board that draws the mark: the day
+ *  boards down a card's left edge (Card.tsx: .card-review / -project /
+ *  -process) and the Triage board on its own slot (.triage-slot-project /
+ *  -process). Two boards deciding this separately is how one of them came to
+ *  draw no mark at all after the weekly plan — whose band the stripe used to
+ *  be — was taken out.
+ *
+ *  A review card of a project card is BOTH; the waiting is the innermost
+ *  thing about it, so that is what the stripe says. Triage never meets a
+ *  review card (a review follows the card it reviews and is not scheduled),
+ *  so the two boards agree wherever they both draw. */
+export function markOf(
+  c: Pick<Card, "reviewOf" | "epic" | "task">,
+): CardMark {
+  if (c.reviewOf) {
+    return "review";
+  }
+  if (c.epic) {
+    return "project";
+  }
+  return c.task ? "process" : "";
+}

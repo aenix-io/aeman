@@ -33,6 +33,7 @@ import {
 import { asksFirst, freeSubtasks, removeChoices, type RemoveChoice } from "../removal";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { isPersonalDomain } from "../domains";
+import { markOf } from "../placements";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { type Laned, extentOf, laneStyle, packLanes, weekLabel } from "../weekgrid";
@@ -1098,12 +1099,12 @@ export function TriageBoard({
               const { card, row, part, parts } = slot;
               const done = isDone(card);
               const progress = done ? 100 : (card.progress ?? 0);
-              // The stripe says where the card came FROM, and says the same
-              // here as on the day boards (Card.tsx): a PROJECT card wears
-              // the project mark and a PROCESS TURN its process's, since what
-              // decides their week is another board and not a zone anyone set
-              // here. Every other card wears its zone.
-              const mark = card.epic ? "project" : card.task ? "process" : "";
+              // The stripe says where the card came FROM, and it is the same
+              // answer the day boards draw (placements.markOf): a PROJECT card
+              // wears the project mark and a PROCESS TURN its process's, since
+              // what decides their week is another board and not a zone anyone
+              // set here. Every other card wears its zone.
+              const mark = markOf(card);
               return (
                 <div
                   key={`${p.key}/${card.itemId}/${part}`}
