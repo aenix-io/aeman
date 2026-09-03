@@ -160,7 +160,7 @@ func runServe(args []string) error {
 		Auth:    auth,
 		Git:     gitCfg,
 		Forge:   gitCfg.Forge,
-		CLI:     cliFor(gitCfg.Forge, gitCfg.Repos[0].URL),
+		CLI:     cliFor(gitCfg.Forge, gitCfg.Repos[0].URL, nil, logger),
 	})
 	if err != nil {
 		return err
@@ -201,7 +201,7 @@ func runMCP(args []string) error {
 		return err
 	}
 	// The local person is whoever the forge's CLI is signed in as (gh, glab).
-	cli := cliFor(gitCfg.Forge, gitCfg.Repos[0].URL)
+	cli := cliFor(gitCfg.Forge, gitCfg.Repos[0].URL, nil, logger)
 	// The local person's personal board, if the primary links one: attached
 	// with the same credential the pushes use.
 	if login, err := cli.Login(context.Background()); err == nil {

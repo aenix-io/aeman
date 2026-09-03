@@ -1,14 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/server"
+	"github.com/aenix-io/aeman/internal/tokenstore"
 )
 
 // The board's forge is read off the primary repository's host, and the flag
@@ -139,7 +145,191 @@ func TestOAuthPairMustMatchTheForge(t *testing.T) {
 	if id, _, err := oauthPair(gh, env(nil)); err != nil || id != "" {
 		t.Fatalf("no pair is local mode, not an error: %q %v", id, err)
 	}
-	if cliFor(gl, "https://gitlab.example.org/t/b.git") == nil || cliFor(gh, "https://github.com/a/b.git") == nil {
+	if cliFor(gl, "https://gitlab.example.org/t/b.git", nil, nil) == nil || cliFor(gh, "https://github.com/a/b.git", nil, nil) == nil {
 		t.Fatal("every forge has a CLI")
+	}
+}
+
+// fakeForge answers /user with the login a token belongs to and 401 for a
+// token it does not know, so a chain's Login can be checked without a real
+// GitHub.
+func fakeForge(t *testing.T, logins map[string]string) (forge.Forge, *http.Client) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		login, ok := logins[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+		if r.URL.Path != "/user" || !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = io.WriteString(w, `{"login":"`+login+`"}`)
+	}))
+	t.Cleanup(srv.Close)
+	return forge.NewGitHubAt(srv.URL), srv.Client()
+}
+
+// testLog is a debug-level logger over a buffer, so a test can assert on
+// what the chain said about a source it skipped.
+func testLog() (*slog.Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	return slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})), &buf
+}
+
+// The keychain comes before the forge's CLI: a machine that ran `aeman
+// login` never shells out to gh at all, which is the point — an MCP client
+// starts the process with no environment and no terminal.
+func TestChainPrefersKeychainOverCLI(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_stored": "alice"})
+	store := tokenstore.NewFake().Put("github.com", "ghp_stored")
+	cli := &fakeCLI{token: "cli-token"}
+	log, _ := testLog()
+
+	c := &chain{sources: []forge.CLI{tokenstore.NewCLI(store, f, "github.com", client), cli}, log: log}
+	if tok, err := c.Token(ctx); err != nil || tok != "ghp_stored" {
+		t.Fatalf("Token = %q, %v; want the stored one", tok, err)
+	}
+	if cli.calls != 0 {
+		t.Fatalf("gh was asked %d times while the keychain had a token, want 0", cli.calls)
+	}
+
+	// And cliFor is what puts it there: the same store, reached through the
+	// chain the commands actually build.
+	if tok, err := cliFor(forge.NewGitHub(), "https://github.com/acme/board.git", store, log).Token(ctx); err != nil || tok != "ghp_stored" {
+		t.Fatalf("cliFor(...).Token = %q, %v; want the stored token", tok, err)
+	}
+}
+
+// A store with nothing in it, and a store that failed for any other
+// reason, are the same answer to the chain: nothing here, ask gh. None of
+// them warns — they are the normal state of a machine that never ran
+// `aeman login`, and on macOS the store cannot tell them apart anyway,
+// since everything but a missing item arrives as whatever
+// /usr/bin/security printed.
+func TestChainFallsThroughWhenTheStoreHasNothingToGive(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, nil)
+	for _, storeErr := range []error{
+		tokenstore.ErrNotFound,
+		errors.New("keychain: darwin cli: security find-generic-password: exit status 36"),
+	} {
+		store := tokenstore.NewFake()
+		store.Err = storeErr
+		cli := &fakeCLI{token: "cli-token"}
+		log, buf := testLog()
+
+		c := &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, f, "github.com", client), cli}}
+		if tok, err := c.Token(ctx); err != nil || tok != "cli-token" {
+			t.Fatalf("%v: Token = %q, %v; want gh's", storeErr, tok, err)
+		}
+		if strings.Contains(buf.String(), "level=WARN") {
+			t.Errorf("%v: a store with nothing to give must not warn: %s", storeErr, buf.String())
+		}
+	}
+}
+
+// The login comes from whoever supplied the token. A stored bot token and a
+// gh signed in as a person are two different people, and the one the
+// commits are attributed to must be the one the push is made with.
+func TestChainLoginFollowsTheTokenSource(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_bot": "aeman-bot"})
+	log, _ := testLog()
+
+	stored := &chain{log: log, sources: []forge.CLI{
+		tokenstore.NewCLI(tokenstore.NewFake().Put("github.com", "ghp_bot"), f, "github.com", client),
+		&fakeCLI{token: "cli-token", login: "machine-user"},
+	}}
+	if _, err := stored.Token(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if login, err := stored.Login(ctx); err != nil || login != "aeman-bot" {
+		t.Fatalf("Login = %q, %v; want the stored token's owner", login, err)
+	}
+
+	empty := &chain{log: log, sources: []forge.CLI{
+		tokenstore.NewCLI(tokenstore.NewFake(), f, "github.com", client),
+		&fakeCLI{token: "cli-token", login: "machine-user"},
+	}}
+	if _, err := empty.Token(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if login, err := empty.Login(ctx); err != nil || login != "machine-user" {
+		t.Fatalf("Login = %q, %v; want gh's", login, err)
+	}
+}
+
+// `aeman mcp` asks for the login before anything asks for a token, so the
+// election cannot wait for the first Token call: Login runs it itself, and
+// the source it elects is the one that answers every later Token.
+func TestChainLoginElectsTheSourceWhenTokenWasNotAskedFirst(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_bot": "aeman-bot"})
+	cli := &fakeCLI{token: "cli-token", login: "machine-user"}
+	log, _ := testLog()
+
+	c := &chain{log: log, sources: []forge.CLI{
+		tokenstore.NewCLI(tokenstore.NewFake().Put("github.com", "ghp_bot"), f, "github.com", client), cli,
+	}}
+	if login, err := c.Login(ctx); err != nil || login != "aeman-bot" {
+		t.Fatalf("Login = %q, %v; want the stored token's owner", login, err)
+	}
+	if tok, err := c.Token(ctx); err != nil || tok != "ghp_bot" {
+		t.Fatalf("Token after Login = %q, %v; want the elected source's", tok, err)
+	}
+	if cli.calls != 0 {
+		t.Fatalf("gh was asked %d times, want 0", cli.calls)
+	}
+}
+
+// With no token in any source the person needs to be told how to get one,
+// not handed the keychain's internal "item not found": an absent store says
+// nothing, so the message is still the one that names the login command. A
+// source that fails for any other reason does surface its own error.
+func TestChainWithoutATokenAnywhereNamesTheLoginCommand(t *testing.T) {
+	ctx := context.Background()
+	gh := forge.NewGitHub()
+	f, client := fakeForge(t, nil)
+	log, _ := testLog()
+	env := func(string) string { return "" }
+
+	silent := &chain{log: log, sources: []forge.CLI{
+		tokenstore.NewCLI(tokenstore.NewFake(), f, "github.com", client), &fakeCLI{token: "  "},
+	}}
+	_, err := resolveForgeToken(ctx, gh, silent, env)
+	if err == nil || !strings.Contains(err.Error(), "gh auth login") || !strings.Contains(err.Error(), "GITHUB_TOKEN") {
+		t.Fatalf("error = %v; want the one naming the login command", err)
+	}
+
+	// A gh that is not signed in says so with an error, and that error
+	// must not displace this message either: it names the commands, and
+	// exec's "file not found" does not.
+	broken := &chain{log: log, sources: []forge.CLI{
+		tokenstore.NewCLI(tokenstore.NewFake(), f, "github.com", client),
+		&fakeCLI{err: errors.New("gh returned an empty token; run `gh auth login`")},
+	}}
+	if _, err := resolveForgeToken(ctx, gh, broken, env); err == nil || !strings.Contains(err.Error(), "GITHUB_TOKEN") {
+		t.Fatalf("error = %v; want the one naming the login command", err)
+	}
+}
+
+// The keychain account is the forge instance the board lives on, so one
+// machine holds a token per forge and `aeman login` writes the item the
+// other commands read. It is the repository's host, else a self-hosted
+// GitLab named on its own, else github.com.
+func TestKeychainAccountIsTheForgeHost(t *testing.T) {
+	cases := []struct {
+		repoURL, gitlabURL, want string
+	}{
+		{"https://github.com/acme/board.git", "", "github.com"},
+		{"https://gitlab.example.org/a/b.git", "", "gitlab.example.org"},
+		{"git@host.example:a/b.git", "", "host.example"},
+		{"acme/board", "", "github.com"},
+		{"", "https://gitlab.example.org", "gitlab.example.org"},
+		{"", "", "github.com"},
+	}
+	for _, tc := range cases {
+		if got := forgeHost(tc.repoURL, tc.gitlabURL); got != tc.want {
+			t.Errorf("forgeHost(%q, %q) = %q, want %q", tc.repoURL, tc.gitlabURL, got, tc.want)
+		}
 	}
 }

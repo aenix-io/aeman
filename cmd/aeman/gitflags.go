@@ -237,7 +237,7 @@ func fillGitToken(ctx context.Context, cfg *server.GitConfig) {
 	// With a GitHub App the server credential is minted, not found: the
 	// forge CLI's token is not asked for.
 	if cfg.Token == "" && cfg.App == nil && !allDomainsHaveTokens(cfg) {
-		if tok, err := resolveForgeToken(ctx, cfg.Forge, cliFor(cfg.Forge, cfg.Repos[0].URL), osEnv); err == nil {
+		if tok, err := resolveForgeToken(ctx, cfg.Forge, cliFor(cfg.Forge, cfg.Repos[0].URL, nil, nil), osEnv); err == nil {
 			cfg.Token = tok
 		}
 	}
