@@ -2,6 +2,7 @@ package tokenstore
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -38,9 +39,18 @@ type CLI struct {
 	token  string
 	expiry time.Time
 	login  string
+	// refused is the token value the forge last rejected. A stored PAT
+	// expiring is the ordinary end of a stored credential, and asking
+	// again on every request would put a forge round trip under mu for as
+	// long as it sits there. Keyed by VALUE, so replacing the token is a
+	// new question with nothing to expire first.
+	refused string
 }
 
-var _ forge.CLI = (*CLI)(nil)
+var (
+	_ forge.CLI        = (*CLI)(nil)
+	_ forge.Credential = (*CLI)(nil)
+)
 
 // NewCLI returns the store's forge.CLI for the token held under the
 // forge's own host — the account is not a separate argument, so it cannot
@@ -60,8 +70,11 @@ func NewCLI(store Store, f forge.Forge, client *http.Client) *CLI {
 // It is cached for tokenTTL because the server asks for it on every request
 // in the local mode, and reading it runs the platform's secret tool — tens
 // of milliseconds, behind a process-wide lock. A read that found nothing is
-// not cached, so a token stored while the process runs is picked up at once
-// rather than after the window.
+// not cached, so a token appearing under this source while the process runs
+// is picked up at once rather than after the window. That is about THIS
+// source only: a chain that has already elected a lower-priority one stays
+// with it until it empties, so `aeman login` on a machine where gh answers
+// takes effect at the next start.
 func (c *CLI) Token(context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -108,13 +121,49 @@ func (c *CLI) Login(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return c.loginLocked(ctx, tok)
+}
+
+// loginLocked is the owner lookup with c.mu already held.
+func (c *CLI) loginLocked(ctx context.Context, tok string) (string, error) {
 	if c.login != "" {
 		return c.login, nil
 	}
+	if tok == c.refused {
+		return "", forge.ErrBadToken
+	}
 	user, err := c.forge.User(ctx, c.client, tok)
 	if err != nil {
+		if errors.Is(err, forge.ErrBadToken) {
+			c.refused = tok
+		}
 		return "", err
 	}
 	c.login = user.Login
 	return c.login, nil
+}
+
+// TokenAndLogin answers both from ONE read of the store, so a caller
+// needing the pair cannot catch this source between two tokens of its
+// own — the window Token-then-Login leaves when the cache lapses in
+// between and the item has changed since.
+func (c *CLI) TokenAndLogin(ctx context.Context) (string, string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	tok, err := c.tokenLocked()
+	if err != nil {
+		return "", "", err
+	}
+	login, err := c.loginLocked(ctx, tok)
+	switch {
+	case errors.Is(err, forge.ErrBadToken):
+		// A refused token is a dead credential and says so; the chain
+		// ends this source's reign on it.
+		return "", "", err
+	case err != nil:
+		// An unreachable forge is not a missing credential — the same
+		// rule the chain applies, kept here so both levels agree.
+		return tok, "", nil //nolint:nilerr // the token is the answer
+	}
+	return tok, login, nil
 }

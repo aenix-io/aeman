@@ -218,7 +218,7 @@ func runMCP(args []string) error {
 	}
 	// The local person's personal board, if the primary links one: attached
 	// with the same credential the pushes use.
-	if login, err := cli.Login(context.Background()); err == nil {
+	if login, err := boundedLogin(context.Background(), cli); err == nil {
 		if err := gb.AttachPersonal(context.Background(), login, gitCfg.Token); err != nil {
 			logger.Warn("personal board", "login", login, "err", err)
 		}
@@ -268,9 +268,8 @@ func runMCP(args []string) error {
 // GITHUB_TOKEN/GH_TOKEN, then the keychain, then gh — aeman's local run
 // mode, with the account pinned to github.com whatever forge the
 // destination repository lives on. The board being copied is on GitHub.
-func resolveGitHubToken(ctx context.Context, store tokenstore.Store, log *slog.Logger) (string, error) {
-	gh := forge.NewGitHub()
-	return resolveForgeToken(ctx, gh, cliFor(gh, store, osEnv, log), osEnv)
+func resolveGitHubToken(ctx context.Context, gh forge.Forge, store tokenstore.Store, log *slog.Logger) (string, error) {
+	return resolveForgeToken(ctx, gh, cliFor(gh, store, osEnv, log))
 }
 
 // runInit bootstraps an empty repository as a board: board.yaml and the
@@ -332,7 +331,7 @@ func runMigrate(args []string) error {
 	defer stop()
 	log := newLogger(false)
 	store := openStore(log)
-	tok, err := resolveGitHubToken(ctx, store, log)
+	tok, err := resolveGitHubToken(ctx, forge.NewGitHub(), store, log)
 	if err != nil {
 		return err
 	}

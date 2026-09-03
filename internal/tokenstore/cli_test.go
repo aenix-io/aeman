@@ -209,8 +209,41 @@ func TestKeychainCLIRejectedTokenIsBadToken(t *testing.T) {
 	if _, err := cli.Login(context.Background()); !errors.Is(err, forge.ErrBadToken) {
 		t.Fatalf("a failed login must not be cached as an identity: %v", err)
 	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times, want 1: a refusal is remembered for that token", n)
+	}
+}
+
+// The refusal is remembered against the token VALUE, not the process. A
+// stored PAT expiring is the ordinary end of a stored credential, and
+// asking the forge again on every request would put a round trip under
+// this source's lock for as long as the bad token sits there. Replacing
+// it — `aeman login` with a fresh one — is a different value, so the
+// forge is asked again without anything to expire first.
+func TestKeychainCLIRemembersARefusalPerTokenValue(t *testing.T) {
+	ctx := context.Background()
+	var calls atomic.Int32
+	f, client := fakeGitHub(t, map[string]string{"ghp_fresh": "alice"}, &calls)
+	store := newFake().Put("github.com", "ghp_revoked")
+	cli := NewCLI(store, f, client)
+
+	for range 5 {
+		if _, err := cli.Login(ctx); !errors.Is(err, forge.ErrBadToken) {
+			t.Fatalf("Login = %v, want forge.ErrBadToken", err)
+		}
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times for one refused token, want 1", n)
+	}
+
+	// A new token is a new question.
+	store.Put("github.com", "ghp_fresh")
+	cli.now = func() time.Time { return time.Now().Add(2 * tokenTTL) }
+	if login, err := cli.Login(ctx); err != nil || login != "alice" {
+		t.Fatalf("Login after the token was replaced = %q, %v; want the new token's owner", login, err)
+	}
 	if n := calls.Load(); n != 2 {
-		t.Fatalf("the forge was asked %d times, want 2 (failures are not cached)", n)
+		t.Fatalf("the forge was asked %d times, want 2: the new token was asked about", n)
 	}
 }
 

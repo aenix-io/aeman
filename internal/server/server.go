@@ -1,8 +1,9 @@
 // Package server implements the aeman HTTP server: the embedded single-page
 // application, the /api/v1 resource API and watch stream, the MCP transport,
 // and the board store over the board's git repositories. The browser never
-// holds a credential: identity is resolved server-side (the local gh login,
-// or per-user OAuth sessions) and the push credential is the server's.
+// holds a credential: identity is resolved server-side (the owner of the
+// credential a local run resolved, or per-user OAuth sessions) and the
+// push credential is the server's.
 package server
 
 import (
@@ -450,6 +451,16 @@ func (s *Server) tokenForRequest(r *http.Request) (token, login string, err erro
 		}
 		return sess.token, sess.login, nil
 	}
+	// One question when the CLI can answer both: a CLI standing for several
+	// sources re-decides between two separate calls, and this would then
+	// pair one source's token with the next one's login.
+	if pair, ok := s.cli.(forge.Credential); ok {
+		tok, login, err := pair.TokenAndLogin(r.Context())
+		if err != nil {
+			return "", "", err
+		}
+		return tok, login, nil
+	}
 	tok, err := s.cli.Token(r.Context())
 	if err != nil {
 		return "", "", err
@@ -561,7 +572,16 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		resp.Mode = "local-proxy"
-		if _, err := s.cli.Token(r.Context()); err == nil {
+		// One question, like tokenForRequest: the answer names a person on
+		// the page, and asking twice lets a CLI of several sources report
+		// the login of a source other than the one that has the token.
+		if pair, ok := s.cli.(forge.Credential); ok {
+			if _, login, err := pair.TokenAndLogin(r.Context()); err == nil {
+				resp.Authenticated = true
+				resp.TokenAvailable = true
+				resp.Login = login
+			}
+		} else if _, err := s.cli.Token(r.Context()); err == nil {
 			resp.Authenticated = true
 			resp.TokenAvailable = true
 			if login, err := s.cli.Login(r.Context()); err == nil {

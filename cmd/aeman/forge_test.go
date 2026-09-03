@@ -10,7 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/server"
@@ -65,10 +68,15 @@ func TestGitConfigNamesTheForge(t *testing.T) {
 type fakeCLI struct {
 	token, login string
 	err          error
-	calls        int
+	calls        int32
 }
 
-func (f *fakeCLI) Token(context.Context) (string, error) { f.calls++; return f.token, f.err }
+// The counter is atomic because this stands in a chain that a concurrent
+// test drives from several goroutines; every reader of it is sequential.
+func (f *fakeCLI) Token(context.Context) (string, error) {
+	atomic.AddInt32(&f.calls, 1)
+	return f.token, f.err
+}
 func (f *fakeCLI) Login(context.Context) (string, error) { return f.login, f.err }
 
 // The token order per forge: the forge's own environment variables first
@@ -76,27 +84,48 @@ func (f *fakeCLI) Login(context.Context) (string, error) { return f.login, f.err
 // names the login command of that forge's tool.
 func TestResolveForgeTokenPrefersTheEnvironmentThenTheCLI(t *testing.T) {
 	ctx := context.Background()
-	gl := forge.NewGitLab("https://gitlab.com")
-	gh := forge.NewGitHub()
-	cli := &fakeCLI{token: "cli-token"}
+	// Both forges answer /user for any token, because what is under test
+	// is which SOURCE the credential comes from, not whether a forge
+	// accepts it. Pointed at the real hosts, the environment's token is
+	// refused there and its source retired, and the test would pass or
+	// fail on whether the machine can reach gitlab.com.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/user") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = io.WriteString(w, `{"login":"alice","username":"alice"}`)
+	}))
+	t.Cleanup(srv.Close)
+	gl := forge.NewGitLab(srv.URL)
+	gh := forge.NewGitHubAt(srv.URL)
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	// The order under test now lives in the chain, and the chain is what
+	// production passes, so the test builds one rather than a bare fake:
+	// asking a plain forge.CLI here would prove the order of a call site
+	// that no longer exists.
+	with := func(f forge.Forge, cli forge.CLI, e func(string) string) forge.CLI {
+		log, _ := testLog()
+		return &chain{log: log, forge: f, sources: []forge.CLI{newEnvCLI(f, e, srv.Client()), cli}}
+	}
 
-	if tok, err := resolveForgeToken(ctx, gl, cli, env(map[string]string{"GITLAB_TOKEN": " env-token "})); err != nil || tok != "env-token" || cli.calls != 0 {
+	cli := &fakeCLI{token: "cli-token"}
+	if tok, err := resolveForgeToken(ctx, gl, with(gl, cli, env(map[string]string{"GITLAB_TOKEN": " env-token "}))); err != nil || tok != "env-token" || cli.calls != 0 {
 		t.Fatalf("gitlab env: %q %v calls=%d", tok, err, cli.calls)
 	}
-	if tok, err := resolveForgeToken(ctx, gl, cli, env(map[string]string{"GITHUB_TOKEN": "wrong-forge"})); err != nil || tok != "cli-token" || cli.calls != 1 {
+	if tok, err := resolveForgeToken(ctx, gl, with(gl, cli, env(map[string]string{"GITHUB_TOKEN": "wrong-forge"}))); err != nil || tok != "cli-token" || cli.calls != 1 {
 		t.Fatalf("gitlab ignores GITHUB_TOKEN and asks glab: %q %v calls=%d", tok, err, cli.calls)
 	}
-	if tok, err := resolveForgeToken(ctx, gh, cli, env(map[string]string{"GH_TOKEN": "gh-env"})); err != nil || tok != "gh-env" {
+	if tok, err := resolveForgeToken(ctx, gh, with(gh, cli, env(map[string]string{"GH_TOKEN": "gh-env"}))); err != nil || tok != "gh-env" {
 		t.Fatalf("github env: %q %v", tok, err)
 	}
 	empty := &fakeCLI{token: "  "}
-	if _, err := resolveForgeToken(ctx, gl, empty, env(nil)); err == nil || !strings.Contains(err.Error(), "glab auth login") || !strings.Contains(err.Error(), "GITLAB_TOKEN") {
+	if _, err := resolveForgeToken(ctx, gl, with(gl, empty, env(nil))); err == nil || !strings.Contains(err.Error(), "glab auth login") || !strings.Contains(err.Error(), "GITLAB_TOKEN") {
 		t.Fatalf("empty glab token: %v", err)
 	}
 	broken := &fakeCLI{err: errors.New("glab: not logged in")}
-	if _, err := resolveForgeToken(ctx, gl, broken, env(nil)); !errors.Is(err, broken.err) {
-		t.Fatalf("cli error must surface: %v", err)
+	if _, err := resolveForgeToken(ctx, gl, with(gl, broken, env(nil))); err == nil || !strings.Contains(err.Error(), "glab auth login") {
+		t.Fatalf("a tool with nothing to give must still name the login commands: %v", err)
 	}
 }
 
@@ -195,7 +224,7 @@ func TestChainPrefersKeychainOverCLI(t *testing.T) {
 
 	// And cliFor is what puts it there: the same store, reached through the
 	// chain the commands actually build.
-	if tok, err := cliFor(forge.NewGitHub(), store, func(string) string { return "" }, log).Token(ctx); err != nil || tok != "ghp_stored" {
+	if tok, err := cliFor(f, store, func(string) string { return "" }, log).Token(ctx); err != nil || tok != "ghp_stored" {
 		t.Fatalf("cliFor(...).Token = %q, %v; want the stored token", tok, err)
 	}
 }
@@ -293,7 +322,6 @@ func TestChainWithoutATokenAnywhereNamesTheLoginCommand(t *testing.T) {
 	ctx := context.Background()
 	gh := forge.NewGitHub()
 	f, client := fakeForge(t, nil)
-	env := func(string) string { return "" }
 
 	for _, cli := range []*fakeCLI{
 		{err: errors.New(`read token from gh: exec: "gh": executable file not found in $PATH`)},
@@ -301,10 +329,10 @@ func TestChainWithoutATokenAnywhereNamesTheLoginCommand(t *testing.T) {
 		{token: "  "},
 	} {
 		log, buf := testLog()
-		c := &chain{log: log, sources: []forge.CLI{
+		c := &chain{log: log, forge: gh, sources: []forge.CLI{
 			tokenstore.NewCLI(tokenstoretest.NewFake(), f, client), cli,
 		}}
-		_, err := resolveForgeToken(ctx, gh, c, env)
+		_, err := resolveForgeToken(ctx, gh, c)
 		if err == nil || !strings.Contains(err.Error(), "aeman login") || !strings.Contains(err.Error(), "GITHUB_TOKEN") {
 			t.Fatalf("%v: error = %v; want the one naming the login commands", cli.err, err)
 		}
@@ -434,13 +462,415 @@ func TestMigrateResolvesItsTokenFromTheGithubComAccount(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	log, _ := testLog()
+	// A fake forge: asking for a token now asks who it belongs to, and a
+	// test must not reach api.github.com or the machine's own gh for that.
+	f, _ := fakeForge(t, map[string]string{"ghp_for_migrate": "alice"})
 	store := tokenstoretest.NewFake().Put("github.com", "ghp_for_migrate")
 
-	tok, err := resolveGitHubToken(context.Background(), store, log)
+	tok, err := resolveGitHubToken(context.Background(), f, store, log)
 	if err != nil || tok != "ghp_for_migrate" {
 		t.Fatalf("resolveGitHubToken = %q, %v; want the github.com item", tok, err)
 	}
 	if store.Gets() != 1 {
 		t.Fatalf("the store was read %d times, want 1 — a miss here would fall through to gh", store.Gets())
+	}
+}
+
+// The environment's source answers for its token the way the keychain's
+// does: a forge that rejects it says so, and an environment holding
+// nothing names no one rather than naming the wrong person.
+func TestEnvCLIAnswersForItsOwnToken(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_good": "alice"})
+
+	good := newEnvCLI(f, func(string) string { return "ghp_good" }, client)
+	if login, err := good.Login(ctx); err != nil || login != "alice" {
+		t.Fatalf("Login = %q, %v; want the token's owner", login, err)
+	}
+
+	revoked := newEnvCLI(f, func(string) string { return "ghp_revoked" }, client)
+	if _, err := revoked.Login(ctx); !errors.Is(err, forge.ErrBadToken) {
+		t.Fatalf("Login with a rejected token = %v, want forge.ErrBadToken", err)
+	}
+	if _, err := revoked.Login(ctx); !errors.Is(err, forge.ErrBadToken) {
+		t.Fatalf("a failed login must not be cached: %v", err)
+	}
+
+	empty := newEnvCLI(f, func(string) string { return "" }, client)
+	if tok, err := empty.Token(ctx); err != nil || tok != "" {
+		t.Fatalf("Token = %q, %v; an empty environment is nothing to report, not a failure", tok, err)
+	}
+	if _, err := empty.Login(ctx); err == nil {
+		t.Fatal("an empty environment must name no one rather than answer")
+	}
+}
+
+// A forge that cannot be reached is not a missing credential. The pair's
+// promise is that the token and the name come from ONE source, not that
+// both succeed: when the elected source holds a token and the forge
+// cannot say whose it is, the token is handed over with no name. Failing
+// the pair instead would take every read down on a transient outage and
+// tell the person to run `aeman login` for a token they already have.
+func TestTheChainKeepsTheTokenWhenTheForgeCannotBeAsked(t *testing.T) {
+	ctx := context.Background()
+	// A forge whose /user never answers: nothing is listening on the port.
+	dead := forge.NewGitHubAt("http://127.0.0.1:1")
+	log, _ := testLog()
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_stored")
+
+	c := &chain{log: log, forge: dead, sources: []forge.CLI{
+		tokenstore.NewCLI(store, dead, &http.Client{Timeout: time.Second}),
+	}}
+	tok, login, err := c.TokenAndLogin(ctx)
+	if err != nil {
+		t.Fatalf("TokenAndLogin = %q, %q, %v; the token is there, only its owner is unknown", tok, login, err)
+	}
+	if tok != "ghp_stored" {
+		t.Fatalf("token = %q, want the stored one", tok)
+	}
+	if login != "" {
+		t.Fatalf("login = %q, want empty — nobody answered for it", login)
+	}
+}
+
+// A source that answers the pair with neither a token nor a refusal has
+// nothing to give, and the chain must say so with an error rather than
+// hand back an empty token and nil — the shape the server reads as signed
+// in, banner suppressed, board blank.
+type emptyPair struct{}
+
+func (emptyPair) Token(context.Context) (string, error) { return "tok", nil }
+func (emptyPair) Login(context.Context) (string, error) { return "", errors.New("forge unreachable") }
+func (emptyPair) TokenAndLogin(context.Context) (string, string, error) {
+	return "", "", errors.New("forge unreachable")
+}
+
+// silentPair wins the election with a token and then hands the pair back
+// a login with no credential under it, saying nothing about why. That is
+// a source emptying between the two calls — `aeman logout` in another
+// terminal — and it is the only way the shape reaches pairOnce at all,
+// since electExcept refuses to elect a source whose Token is empty.
+type silentPair struct{}
+
+func (silentPair) Token(context.Context) (string, error) { return "tok", nil }
+func (silentPair) Login(context.Context) (string, error) { return "someone", nil }
+func (silentPair) TokenAndLogin(context.Context) (string, string, error) {
+	return "", "someone", nil
+}
+
+func TestAnEmptyPairIsAnErrorNotASilentSuccess(t *testing.T) {
+	// Both halves: a source that reports why it has nothing, and one that
+	// reports nothing at all. The second is the dangerous one — ("", nil)
+	// is the shape Token forbids, and the server reads it as signed in,
+	// so the banner that would name the missing credential never shows
+	// and the board 401s instead.
+	for _, src := range []forge.CLI{emptyPair{}, silentPair{}} {
+		log, _ := testLog()
+		c := &chain{log: log, forge: forge.NewGitHub(), sources: []forge.CLI{src}}
+		tok, login, err := c.TokenAndLogin(context.Background())
+		if err == nil {
+			t.Fatalf("%T: TokenAndLogin = %q, %q, nil; an empty token with no error is the one shape forbidden", src, tok, login)
+		}
+		if tok != "" {
+			t.Fatalf("%T: token = %q, want empty alongside the error", src, tok)
+		}
+	}
+}
+
+// A source whose token the forge REFUSES has nothing left to give, which
+// ends its reign like an empty answer does — and the chain asks the next
+// one. Without this, a stale GITHUB_TOKEN in front of a working keychain
+// or gh hides both: `serve` reports itself unauthenticated, the board
+// never loads, and the banner names the two sources that are below the
+// one that already won.
+func TestARefusedTokenEndsTheReignAndTheNextSourceAnswers(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_good": "alice"})
+	log, _ := testLog()
+
+	c := &chain{log: log, forge: f, sources: []forge.CLI{
+		// A stale variable the forge no longer accepts.
+		newEnvCLI(f, func(string) string { return "ghp_stale" }, client),
+		tokenstore.NewCLI(tokenstoretest.NewFake().Put("github.com", "ghp_good"), f, client),
+	}}
+	tok, login, err := c.TokenAndLogin(ctx)
+	if err != nil {
+		t.Fatalf("TokenAndLogin = %q, %q, %v; the keychain below holds a good token", tok, login, err)
+	}
+	if tok != "ghp_good" || login != "alice" {
+		t.Fatalf("token = %q, login = %q; want the next source's pair", tok, login)
+	}
+}
+
+// With nothing left below it, the refusal is what the person is told —
+// not "no token anywhere", which would send them to add one they have.
+func TestARefusedTokenWithNothingBelowItSurfaces(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_good": "alice"})
+	log, _ := testLog()
+
+	c := &chain{log: log, forge: f, sources: []forge.CLI{
+		tokenstore.NewCLI(tokenstoretest.NewFake().Put("github.com", "ghp_revoked"), f, client),
+	}}
+	if _, _, err := c.TokenAndLogin(ctx); !errors.Is(err, forge.ErrBadToken) {
+		t.Fatalf("TokenAndLogin = %v, want forge.ErrBadToken", err)
+	}
+}
+
+// A forge that REFUSES the token is the opposite case and must not be
+// softened into it. The credential is dead, and answering "here it is,
+// nobody knows whose" leaves the board reporting itself signed in, no
+// banner, and a 401 on every read with nothing on the page saying why.
+func TestTheChainSurfacesARejectedToken(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_good": "alice"})
+	log, _ := testLog()
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_revoked")
+
+	c := &chain{log: log, forge: f, sources: []forge.CLI{tokenstore.NewCLI(store, f, client)}}
+	tok, login, err := c.TokenAndLogin(ctx)
+	if !errors.Is(err, forge.ErrBadToken) {
+		t.Fatalf("TokenAndLogin = %q, %q, %v; want forge.ErrBadToken", tok, login, err)
+	}
+}
+
+// switchableCLI is a source whose token can be taken away from another
+// goroutine, with no cache in the way — which the keychain source has, so
+// using that one here would never reach the fall-through this is about.
+type switchableCLI struct {
+	mu         sync.Mutex
+	token      string
+	login      string
+	asked      int
+	emptyAfter int
+}
+
+// Token empties the source once it has been asked emptyAfter times, so
+// the fall-through happens at a fixed point in the run rather than after
+// a sleep — a wall-clock trigger races the goroutines and made this pass
+// only under the race detector, which slows them down enough.
+func (c *switchableCLI) Token(context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.asked++
+	if c.emptyAfter > 0 && c.asked > c.emptyAfter {
+		c.token, c.login = "", ""
+	}
+	return c.token, nil
+}
+
+func (c *switchableCLI) Login(context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.token == "" {
+		return "", errors.New("nothing to name")
+	}
+	return c.login, nil
+}
+
+// The pairing is what the chain exists for, and the server asks for it on
+// every request — so it is asked concurrently, and a re-election racing a
+// read is exactly the window that would hand back one source's token with
+// another's name. Every answer must be a matching pair, whichever source
+// won by the time it was taken, and the fall-through must really happen:
+// the first source is emptied under the readers the way `aeman logout`
+// empties one under a running server.
+func TestTheTokenAndTheLoginStayTogetherUnderConcurrency(t *testing.T) {
+	ctx := context.Background()
+	log, _ := testLog()
+	first := &switchableCLI{token: "first-token", login: "first-user", emptyAfter: 30}
+	second := &fakeCLI{token: "second-token", login: "second-user"}
+	c := &chain{log: log, forge: forge.NewGitHub(), sources: []forge.CLI{first, second}}
+	owners := map[string]string{"first-token": "first-user", "second-token": "second-user"}
+
+	var wg sync.WaitGroup
+	var pairs atomic.Int32
+	for range 24 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				tok, login, err := c.TokenAndLogin(ctx)
+				if err != nil {
+					continue // a moment with no source is allowed; a mismatched pair is not
+				}
+				want, known := owners[tok]
+				if !known {
+					t.Errorf("token %q came from nowhere", tok)
+					return
+				}
+				// An empty login is the documented answer for "the owner
+				// could not be established" — a source emptied between the
+				// two reads, the same shape as an unreachable forge. What
+				// must never happen is a login that belongs to a DIFFERENT
+				// token than the one handed back.
+				if login != "" && login != want {
+					t.Errorf("token %q came back with login %q, want %q — the pair is from two sources", tok, login, want)
+					return
+				}
+				if login != "" {
+					pairs.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	if pairs.Load() == 0 {
+		t.Fatal("no pair was taken at all; the test proved nothing")
+	}
+	// The fall-through really happened, or this only tested one source.
+	if atomic.LoadInt32(&second.calls) == 0 {
+		t.Fatal("the second source was never reached: the re-election this is about did not occur")
+	}
+}
+
+// `aeman mcp` only ever asks for a login — its personal-board attach, its
+// ResolveLogin and its middleware all call Login and never Token. So the
+// refusal fall-through has to live there too, or a stored token that has
+// expired leaves that process with no identity for its whole life: no
+// personal board, the default list not scoped to the person, and every
+// commit unattributed, with a working gh sitting right underneath.
+func TestLoginAloneAlsoFallsThroughARefusedToken(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"cli-token": "machine-user"})
+	log, _ := testLog()
+
+	c := &chain{log: log, forge: f, sources: []forge.CLI{
+		tokenstore.NewCLI(tokenstoretest.NewFake().Put("github.com", "ghp_revoked"), f, client),
+		&fakeCLI{token: "cli-token", login: "machine-user"},
+	}}
+	for i := range 3 {
+		login, err := c.Login(ctx)
+		if err != nil || login != "machine-user" {
+			t.Fatalf("Login call %d = %q, %v; want the source below the revoked one", i+1, login, err)
+		}
+	}
+}
+
+// The owner of the environment's token is asked for ONCE, through either
+// entry point. The chain prefers the pair, so a guard living only in
+// Login is a guard production never reaches: every request would then put
+// a /user call on the wire, under this source's lock, where the keychain's
+// peer makes one for the life of the token. Counting the calls is the
+// only assertion that catches it — asserting the login's value passes
+// either way, which is why it went unnoticed.
+func TestEnvCLIAsksTheForgeOncePerToken(t *testing.T) {
+	ctx := context.Background()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		calls.Add(1)
+		_, _ = io.WriteString(w, `{"login":"alice"}`)
+	}))
+	t.Cleanup(srv.Close)
+	f := forge.NewGitHubAt(srv.URL)
+
+	c := newEnvCLI(f, func(string) string { return "ghp_env" }, srv.Client())
+	for range 5 {
+		if _, login, err := c.TokenAndLogin(ctx); err != nil || login != "alice" {
+			t.Fatalf("TokenAndLogin = %q, %v", login, err)
+		}
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times for five pairs, want 1", n)
+	}
+
+	// And the other entry point shares the same answer.
+	if login, err := c.Login(ctx); err != nil || login != "alice" {
+		t.Fatalf("Login = %q, %v", login, err)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times, want 1: both entry points share one guard", n)
+	}
+}
+
+// The push credential and the name on the commits come from ONE source,
+// including when the first source's token is dead. A revoked GITHUB_TOKEN
+// in front of a good keychain item used to push with the revoked one —
+// resolveForgeToken read the variables itself, ahead of the chain, so the
+// forge never got asked whether that token was still any good — while the
+// identity came from the keychain below it. The commits then carried a
+// name the push did not belong to.
+func TestARevokedEnvironmentTokenDoesNotBecomeThePushCredential(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"good-keychain": "alice"})
+	store := tokenstoretest.NewFake()
+	if err := store.Set("github.com", "good-keychain"); err != nil {
+		t.Fatal(err)
+	}
+	log, _ := testLog()
+	c := &chain{log: log, forge: f, sources: []forge.CLI{
+		newEnvCLI(f, func(k string) string {
+			if k == "GITHUB_TOKEN" {
+				return "revoked"
+			}
+			return ""
+		}, client),
+		tokenstore.NewCLI(store, f, client),
+	}}
+
+	tok, err := resolveForgeToken(ctx, f, c)
+	if err != nil || tok != "good-keychain" {
+		t.Fatalf("resolveForgeToken = %q, %v; want the keychain's token once the forge refuses the environment's", tok, err)
+	}
+	login, err := c.Login(ctx)
+	if err != nil || login != "alice" {
+		t.Fatalf("Login = %q, %v; want the owner of the token that will do the pushing", login, err)
+	}
+}
+
+// A source that empties between the election and the pair call hands off
+// to the next one rather than taking the whole request down. The window
+// is real: the keychain source re-reads its token every five minutes, so
+// a `aeman logout` in another terminal lands between the two reads, and
+// the request in that gap would otherwise be told to set a credential the
+// machine already has one of, banner and all.
+func TestAnEmptiedWinnerHandsOffInsteadOfEndingTheChain(t *testing.T) {
+	log, _ := testLog()
+	c := &chain{log: log, forge: forge.NewGitHub(), sources: []forge.CLI{
+		silentPair{}, &fakeCLI{token: "below", login: "bob"},
+	}}
+	tok, login, err := c.TokenAndLogin(context.Background())
+	if err != nil || tok != "below" || login != "bob" {
+		t.Fatalf("TokenAndLogin = %q, %q, %v; want the source below the emptied one", tok, login, err)
+	}
+}
+
+// emptyingPair wins the election and then answers the pair with neither a
+// token nor a refusal — a store that stopped answering between the two
+// reads.
+type emptyingPair struct{ err error }
+
+func (emptyingPair) Token(context.Context) (string, error) { return "tok", nil }
+func (p emptyingPair) Login(context.Context) (string, error) {
+	return "", p.err
+}
+func (p emptyingPair) TokenAndLogin(context.Context) (string, string, error) {
+	return "", "", p.err
+}
+
+// Only a REFUSED token is worth reporting in place of the error that names
+// the login commands. A source that merely stopped answering has said
+// nothing the person can act on — handing them the store's own complaint
+// instead tells them what broke and not what to do about it, and the
+// commands are the whole point of that error.
+func TestAnEmptiedWinnerDoesNotReplaceTheNoTokenError(t *testing.T) {
+	log, buf := testLog()
+	boom := errors.New("keychain: darwin cli: security find-generic-password: exit status 36")
+	c := &chain{log: log, forge: forge.NewGitHub(), sources: []forge.CLI{emptyingPair{err: boom}}}
+
+	_, _, err := c.TokenAndLogin(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "aeman login") {
+		t.Fatalf("error = %v; want the one naming the login commands", err)
+	}
+	// The reason still has to be findable, or a store that quietly stops
+	// answering leaves nothing behind to debug with — not even at debug
+	// level, which is where the election records the same class.
+	if !strings.Contains(buf.String(), "exit status 36") {
+		t.Fatalf("the store's own complaint went nowhere: %s", buf.String())
 	}
 }

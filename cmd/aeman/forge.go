@@ -63,11 +63,15 @@ type envCLI struct {
 	env    func(string) string
 	client *http.Client
 
-	mu    sync.Mutex
-	login string
+	mu      sync.Mutex
+	login   string
+	refused string
 }
 
-var _ forge.CLI = (*envCLI)(nil)
+var (
+	_ forge.CLI        = (*envCLI)(nil)
+	_ forge.Credential = (*envCLI)(nil)
+)
 
 func newEnvCLI(f forge.Forge, env func(string) string, client *http.Client) *envCLI {
 	if env == nil {
@@ -98,9 +102,50 @@ func (c *envCLI) token() (string, error) {
 
 // Login is who the forge says the environment's token belongs to, asked
 // once — the same question the keychain's source asks of its own token.
+//
+// Unlike that one it does not re-derive the name when the token changes,
+// and does not need to: a process's environment does not change under it,
+// so the variable read here is the one read at start-up. The keychain's
+// can be replaced by `aeman login` in another terminal, which is why the
+// two are asymmetric.
 func (c *envCLI) Login(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.loginLocked(ctx)
+}
+
+// TokenAndLogin answers both under one lock, so the pair cannot span two
+// reads of the environment.
+func (c *envCLI) TokenAndLogin(ctx context.Context) (string, string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	tok, err := c.token()
+	if err != nil {
+		return "", "", err
+	}
+	login, err := c.loginLocked(ctx)
+	switch {
+	case errors.Is(err, forge.ErrBadToken):
+		// A refused token is a dead credential and says so; the chain
+		// ends this source's reign on it.
+		return "", "", err
+	case err != nil:
+		// An unreachable forge is not a missing credential — the same
+		// rule the chain applies, kept here so both levels agree.
+		return tok, "", nil //nolint:nilerr // the token is the answer
+	}
+	return tok, login, nil
+}
+
+// loginLocked is the owner lookup with c.mu already held, and holds the
+// answer both entry points share. The cache belongs here and not in
+// Login: the chain asks a source that implements forge.Credential through
+// TokenAndLogin, so a guard in Login alone is one production never
+// reaches, and every request would put a /user call on the wire while
+// this lock is held. A refusal is remembered against the token value, so
+// a stale exported variable costs one call to the forge rather than one
+// per request.
+func (c *envCLI) loginLocked(ctx context.Context) (string, error) {
 	if c.login != "" {
 		return c.login, nil
 	}
@@ -111,8 +156,14 @@ func (c *envCLI) Login(ctx context.Context) (string, error) {
 	if tok == "" {
 		return "", errors.New("no token in the environment to name a person")
 	}
+	if tok == c.refused {
+		return "", forge.ErrBadToken
+	}
 	user, err := c.forge.User(ctx, c.client, tok)
 	if err != nil {
+		if errors.Is(err, forge.ErrBadToken) {
+			c.refused = tok
+		}
 		return "", err
 	}
 	c.login = user.Login
@@ -133,38 +184,31 @@ type chain struct {
 	log     *slog.Logger
 }
 
-// Token is the first non-empty answer.
+var _ forge.Credential = (*chain)(nil)
+
+// Token is the elected source's credential, decided by the same path
+// that answers for its owner — so a token the forge refuses ends that
+// source's reign here as well as everywhere else. All three entry points
+// share ONE election, or the push credential comes from a source the
+// identity has already moved on from: the board then reads, the page
+// names the right person, and every push fails with nothing saying why.
 //
-// A source that cannot produce one is skipped at debug level, whatever it
-// says about why, and its error is not returned. No keychain item, no
-// secret store, no gh on the PATH, a gh that is not signed in — on a
-// machine that uses one source these are the ordinary state of the
-// others, not faults, and each tool words its own refusal differently. A
-// machine without gh would otherwise get exec's "file not found" where
-// the caller has a message naming the commands that would fix it.
-//
-// There is deliberately no louder case. Telling "the store has your token
-// and will not give it to me" apart from "the store has no token" needs a
-// classification the store cannot make: on macOS every operation runs
-// /usr/bin/security, whose one classified outcome is a missing item.
-//
-// Nothing anywhere is an ERROR, never an empty string with no error: the
-// server asks this directly to decide whether it has a credential at all
-// (`/api/config`), and a silent empty answer reads there as "signed in",
-// suppressing the very banner that would say what is missing.
+// The owner lookup that decides it is cached per token value, so this
+// costs one call to the forge and not one per ask.
 func (c *chain) Token(ctx context.Context) (string, error) {
-	tok, _, err := c.elect(ctx)
+	tok, _, err := c.TokenAndLogin(ctx)
 	return tok, err
 }
 
-// elect is Token, also handing back the source that answered, so a caller
-// that needs both cannot read the winner out of the field afterwards and
-// find a different one there — a re-election between the two reads would
-// otherwise pair one source's token with another's login.
-func (c *chain) elect(ctx context.Context) (string, forge.CLI, error) {
+// electExcept is elect, passing over the sources a caller has already
+// found wanting in this attempt.
+func (c *chain) electExcept(ctx context.Context, skip map[forge.CLI]bool) (string, forge.CLI, error) {
 	c.mu.Lock()
 	sources, won := c.sources, c.won
 	c.mu.Unlock()
+	if won != nil && skip[won] {
+		won = nil
+	}
 	if won != nil {
 		// The winner answers as long as it has something to answer with.
 		// When it stops — `aeman logout` emptied the store it read, gh was
@@ -176,11 +220,14 @@ func (c *chain) elect(ctx context.Context) (string, forge.CLI, error) {
 		if tok, err := won.Token(ctx); err == nil && strings.TrimSpace(tok) != "" {
 			return tok, won, nil
 		}
-		c.mu.Lock()
-		c.won = nil
-		c.mu.Unlock()
+		// Compare-and-clear, not a bare clear: the lock was released to
+		// ask, and another goroutine may have elected since.
+		c.retire(won)
 	}
 	for _, src := range sources {
+		if skip[src] {
+			continue
+		}
 		tok, err := src.Token(ctx)
 		if err != nil {
 			c.log.Debug("no token from this source", "err", err)
@@ -197,20 +244,119 @@ func (c *chain) elect(ctx context.Context) (string, forge.CLI, error) {
 	return "", nil, noTokenError(c.forge)
 }
 
-// Login is the elected source's. `aeman mcp` asks for it before anything
-// asks for a token, so the election runs here too when it has not happened
-// yet.
-func (c *chain) Login(ctx context.Context) (string, error) {
-	// The token is asked for first every time, not only when nothing has
-	// won yet: it is what elects a source, and what re-elects one whose
-	// token has gone. Asking the old winner for a login after that would
-	// name the account the push is no longer made with. The sources cache
-	// their own tokens, so this costs a map lookup or nothing at all.
-	_, won, err := c.elect(ctx)
-	if err != nil {
-		return "", err
+// TokenAndLogin is the elected source's token and its owner, decided in
+// ONE election. The server asks for both on every request in the local
+// mode, and asking twice let a re-election between the calls hand back a
+// token from one source and a name from the next.
+func (c *chain) TokenAndLogin(ctx context.Context) (string, string, error) {
+	// A refusal ends a reign, so the loop runs at most once per source.
+	var refused error
+	skip := map[forge.CLI]bool{}
+	c.mu.Lock()
+	attempts := len(c.sources)
+	c.mu.Unlock()
+	for range attempts {
+		tok, login, err, retry := c.pairOnce(ctx, skip)
+		if !retry {
+			if err != nil && refused != nil {
+				// Nothing below answered either: the person needs to hear
+				// that a token was REFUSED, not that there is none — the
+				// second sends them to add one they already have.
+				return "", "", refused
+			}
+			return tok, login, err
+		}
+		if errors.Is(err, forge.ErrBadToken) {
+			// A source that went quiet says nothing the person can act
+			// on; one whose token was REFUSED does, and it must survive
+			// to the end — otherwise they are told to add a credential
+			// they already have.
+			refused = err
+		}
 	}
-	return won.Login(ctx)
+	if refused != nil {
+		return "", "", refused
+	}
+	return "", "", noTokenError(c.forge)
+}
+
+// pairOnce elects a source outside skip and asks it both questions. retry
+// says the source was refused by the forge and the next one should be
+// tried: a token the forge will not accept is a source with nothing left
+// to give, which is the same thing an empty answer means to the election.
+func (c *chain) pairOnce(ctx context.Context, skip map[forge.CLI]bool) (tok, login string, err error, retry bool) {
+	tok, won, err := c.electExcept(ctx, skip)
+	if err != nil {
+		return "", "", err, false
+	}
+	if pair, ok := won.(forge.Credential); ok {
+		// One read inside the source, so its own two answers cannot come
+		// from two different tokens.
+		tok, login, err = pair.TokenAndLogin(ctx)
+	} else {
+		login, err = won.Login(ctx)
+	}
+	if errors.Is(err, forge.ErrBadToken) {
+		skip[won] = true
+		c.retire(won)
+		return "", "", err, true
+	}
+
+	// A source that answers the pair with no token has nothing to give,
+	// whatever it says about the owner or about why. Returning it would
+	// be the one shape Token forbids — an empty answer with no error —
+	// which the server reads as signed in, hiding the banner that would
+	// name the missing credential. The source emptied between the
+	// election and this call: electExcept will not elect an empty one, so
+	// `aeman logout` in another terminal is how it happens.
+	if strings.TrimSpace(tok) == "" {
+		// Its reign ends here and the next source is asked, exactly as
+		// when the forge refuses a token: a winner that emptied under us
+		// must not take the request down while a source below it holds a
+		// good credential.
+		skip[won] = true
+		c.retire(won)
+		if err != nil {
+			// The reason is not the answer — the person is told which
+			// commands would give them a token — but it is the only
+			// account of why the source went quiet, and dropping it
+			// leaves `--verbose` with nothing to show. Logged where the
+			// election logs the same class.
+			c.log.Debug("the winner stopped answering", "err", err)
+		}
+		return "", "", err, true
+	}
+	if err != nil {
+		// An unreachable forge is not a missing credential. The promise
+		// here is that the two answers come from ONE source, not that
+		// both arrive: the token is good, only the question of whose it
+		// is went unanswered. Failing would take every read down on a
+		// transient outage and tell the person to run `aeman login` for a
+		// token they already have. Callers guard on an empty login, as
+		// they did before the pair existed.
+		c.log.Debug("the forge could not say who the token belongs to", "err", err)
+		return tok, "", nil, false //nolint:nilerr // the token is the answer; an unreachable forge must not read as no credential
+	}
+	return tok, login, nil, false
+}
+
+// retire drops a source's reign so the next election reconsiders.
+func (c *chain) retire(src forge.CLI) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.won == src {
+		c.won = nil
+	}
+}
+
+// Login is the elected source's, taken through the same path the pair
+// uses — so a token the forge refuses ends that source's reign here as
+// well. `aeman mcp` asks for a login and never for a token, so a rule
+// that lived only on the pair would leave that process with no identity
+// at all while a working source sat underneath the refused one.
+func (c *chain) Login(ctx context.Context) (string, error) {
+	_, login, err := c.TokenAndLogin(ctx)
+	return login, err
 }
 
 // tokenEnv is the environment variables a forge's token is taken from, in
@@ -222,20 +368,16 @@ func tokenEnv(f forge.Forge) []string {
 	return []string{"GITHUB_TOKEN", "GH_TOKEN"}
 }
 
-// resolveForgeToken is the credential for the board's forge: the forge's
-// token variables first, then the CLI's stored token. The error names the
-// login command that would fix it.
+// resolveForgeToken is the credential for the board's forge, asked of the
+// chain and of nothing else. The error names the login command that would
+// fix it.
 //
-// The variables are read here and again by the chain's own first source,
-// which is redundant only when cli is that chain: any other forge.CLI —
-// the tests use plain ones — still needs the environment consulted before
-// it.
-func resolveForgeToken(ctx context.Context, f forge.Forge, cli forge.CLI, env func(string) string) (string, error) {
-	for _, key := range tokenEnv(f) {
-		if v := strings.TrimSpace(env(key)); v != "" {
-			return v, nil
-		}
-	}
+// It reads no variables of its own. Doing that ahead of the chain gave
+// the environment two turns in the order, and the second one was not the
+// chain's: a revoked GITHUB_TOKEN in front of a good keychain item became
+// the push credential while the identity came from the keychain, so the
+// commits carried a name the push did not belong to.
+func resolveForgeToken(ctx context.Context, f forge.Forge, cli forge.CLI) (string, error) {
 	tok, err := cli.Token(ctx)
 	if err != nil {
 		return "", err

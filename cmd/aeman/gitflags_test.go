@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"flag"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -460,5 +462,125 @@ func TestTheSharedTokenIsTrimmed(t *testing.T) {
 	}
 	if got := cfgFor(" \n\t "); got.Token != "" {
 		t.Fatalf("token = %q; whitespace is not a credential, so the chain must run", got.Token)
+	}
+}
+
+// The push credential goes through the same election-and-refusal path the
+// identity does, so a stored token the forge has since revoked does not
+// become the credential every push uses for the life of the process. That
+// was the sharpest shape of the split: the board reads, the page names the
+// right person, and every push 401s with nothing on screen to explain it,
+// because fillGitToken had resolved the revoked one at start-up.
+func TestFillGitTokenFallsThroughARevokedStoredToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"cli-token": "machine-user"})
+	log, _ := testLog()
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_revoked")
+	cli := &fakeCLI{token: "cli-token", login: "machine-user"}
+
+	c := &chain{log: log, forge: f, sources: []forge.CLI{
+		tokenstore.NewCLI(store, f, client), cli,
+	}}
+	cfg := &server.GitConfig{Forge: f, Repos: []server.RepoSpec{{Name: "board", URL: "https://github.com/acme/board.git"}}}
+	fillGitToken(ctx, cfg, c)
+
+	if cfg.Token != "cli-token" || cfg.Repos[0].Token != "cli-token" {
+		t.Fatalf("push credential = %q / %q; want the source below the revoked one", cfg.Token, cfg.Repos[0].Token)
+	}
+	// And the identity agrees with it, which is the whole point.
+	if login, err := c.Login(ctx); err != nil || login != "machine-user" {
+		t.Fatalf("Login = %q, %v; the push credential and the name must be one account", login, err)
+	}
+}
+
+// The push credential must not wait on the identity lookup. Resolving it
+// used to read a variable and make no request at all; asking the chain
+// instead means the forge is contacted here, and on a black-holed network
+// — a VPN down, a captive portal, where packets are dropped rather than
+// refused — that is the client's full timeout before the server listens.
+// The credential does not depend on the answer, so the lookup gets a
+// deadline of its own and the token arrives without it.
+func TestFillGitTokenDoesNotWaitOnTheForgeForThePushCredential(t *testing.T) {
+	hang := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-hang:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(hang); srv.Close() })
+
+	defer func(d time.Duration) { tokenLookupTimeout = d }(tokenLookupTimeout)
+	tokenLookupTimeout = 50 * time.Millisecond
+
+	f := forge.NewGitHubAt(srv.URL)
+	log, _ := testLog()
+	cli := &chain{log: log, forge: f, sources: []forge.CLI{
+		newEnvCLI(f, func(k string) string {
+			if k == "GITHUB_TOKEN" {
+				return "env-token"
+			}
+			return ""
+		}, srv.Client()),
+	}}
+	cfg := &server.GitConfig{Forge: f, Repos: []server.RepoSpec{{Name: "board"}}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fillGitToken(context.Background(), cfg, cli)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fillGitToken is still waiting on the forge")
+	}
+	if cfg.Token != "env-token" || cfg.Repos[0].Token != "env-token" {
+		t.Fatalf("token = %q / %q, want the environment's despite the forge never answering", cfg.Token, cfg.Repos[0].Token)
+	}
+}
+
+// Asking who the credential belongs to is bounded wherever it happens at
+// start-up, not only where the credential itself is resolved. `aeman mcp`
+// attaches the personal board before it serves stdio, and an MCP client
+// gives up on a silent start: an unbounded lookup there puts the source's
+// own 30-second ceiling on top of the credential lookup's, on exactly the
+// network that made the first bound necessary.
+func TestTheStartUpLoginIsBounded(t *testing.T) {
+	hang := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-hang:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(hang); srv.Close() })
+
+	defer func(d time.Duration) { tokenLookupTimeout = d }(tokenLookupTimeout)
+	tokenLookupTimeout = 50 * time.Millisecond
+
+	f := forge.NewGitHubAt(srv.URL)
+	log, _ := testLog()
+	cli := &chain{log: log, forge: f, sources: []forge.CLI{
+		newEnvCLI(f, func(string) string { return "env-token" }, srv.Client()),
+	}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// An unreachable forge is not a missing credential: the chain
+		// answers with no name and no error, and attaching a personal
+		// board is a no-op on an empty login. What must not happen is
+		// waiting for it.
+		if login, _ := boundedLogin(context.Background(), cli); login != "" {
+			t.Errorf("login = %q, want none from a forge that never answered", login)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the start-up login is still waiting on the forge")
 	}
 }

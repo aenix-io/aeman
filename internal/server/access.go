@@ -28,7 +28,7 @@ const accessTTL = 60 * time.Second
 
 // domainRights is one visitor's answer: what they may read and write, and
 // which domain is the primary (what "" names). A nil *domainRights means no
-// restriction — a single-identity server (the local gh mode) or a non-git
+// restriction — a single-identity server (the local single-user mode) or a non-git
 // backend.
 type domainRights struct {
 	primary string

@@ -261,6 +261,19 @@ func (g *gitFlags) githubApp(f forge.Forge) (*forge.GitHubApp, error) {
 	return forge.NewGitHubApp(id, []byte(raw))
 }
 
+// tokenLookupTimeout bounds the start-up credential lookup. A variable so
+// a test need not wait it out.
+var tokenLookupTimeout = 5 * time.Second
+
+// boundedLogin asks who the elected credential belongs to under that same
+// bound. Every start-up caller wants the name and can start without it, so
+// none of them may wait on the forge for the source's own ceiling.
+func boundedLogin(ctx context.Context, cli forge.CLI) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, tokenLookupTimeout)
+	defer cancel()
+	return cli.Login(ctx)
+}
+
 // fillGitToken supplies the push/fetch credential when AEMAN_GIT_TOKEN is
 // unset: the forge's token variables, then cli — the OS keychain and the
 // forge's own tool, the same value the identity is read from, so the push
@@ -274,7 +287,14 @@ func fillGitToken(ctx context.Context, cfg *server.GitConfig, cli forge.CLI) {
 	// With a GitHub App the server credential is minted, not found: nothing
 	// below the environment is asked for it.
 	if cfg.Token == "" && cfg.App == nil && !allDomainsHaveTokens(cfg) {
-		if tok, err := resolveForgeToken(ctx, cfg.Forge, cli, osEnv); err == nil {
+		// Bounded separately from the caller's context: the chain asks the
+		// forge whose token this is, and the answer is not needed here —
+		// the credential is. A dropped-packet network (a VPN down, a
+		// captive portal) would otherwise hold the server before it
+		// listens for as long as the forge client allows.
+		lookup, cancel := context.WithTimeout(ctx, tokenLookupTimeout)
+		defer cancel()
+		if tok, err := resolveForgeToken(lookup, cfg.Forge, cli); err == nil {
 			cfg.Token = tok
 		}
 	}
