@@ -44,7 +44,7 @@ func fakeGitHub(t *testing.T, logins map[string]string, calls *atomic.Int32) (fo
 func TestKeychainCLILoginIsTheTokensOwnerNotTheCLIs(t *testing.T) {
 	var calls atomic.Int32
 	f, client := fakeGitHub(t, map[string]string{"ghp_bot": "aeman-bot"}, &calls)
-	cli := NewCLI(NewFake().Put("github.com", "ghp_bot"), f, "github.com", client)
+	cli := NewCLI(newFake().Put("github.com", "ghp_bot"), f, client)
 
 	if tok, err := cli.Token(context.Background()); err != nil || tok != "ghp_bot" {
 		t.Fatalf("Token = %q, %v", tok, err)
@@ -62,8 +62,8 @@ func TestKeychainCLILoginIsTheTokensOwnerNotTheCLIs(t *testing.T) {
 func TestKeychainCLILoginIsAskedOncePerToken(t *testing.T) {
 	var calls atomic.Int32
 	f, client := fakeGitHub(t, map[string]string{"ghp_alice": "alice"}, &calls)
-	store := NewFake().Put("github.com", "ghp_alice")
-	cli := NewCLI(store, f, "github.com", client)
+	store := newFake().Put("github.com", "ghp_alice")
+	cli := NewCLI(store, f, client)
 
 	for i := range 3 {
 		if login, err := cli.Login(context.Background()); err != nil || login != "alice" {
@@ -86,8 +86,8 @@ func TestKeychainCLILoginIsAskedOncePerToken(t *testing.T) {
 func TestKeychainCLITokenIsReadOnceWithinTheTTL(t *testing.T) {
 	ctx := context.Background()
 	f, client := fakeGitHub(t, map[string]string{"ghp_alice": "alice"}, new(atomic.Int32))
-	store := NewFake().Put("github.com", "ghp_alice")
-	cli := NewCLI(store, f, "github.com", client)
+	store := newFake().Put("github.com", "ghp_alice")
+	cli := NewCLI(store, f, client)
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	cli.now = func() time.Time { return now }
 
@@ -125,8 +125,8 @@ func TestKeychainCLITokenIsReadOnceWithinTheTTL(t *testing.T) {
 func TestKeychainCLIForgetsTheLoginWhenTheTokenChanges(t *testing.T) {
 	ctx := context.Background()
 	f, client := fakeGitHub(t, map[string]string{"ghp_alice": "alice", "ghp_bot": "aeman-bot"}, new(atomic.Int32))
-	store := NewFake().Put("github.com", "ghp_alice")
-	cli := NewCLI(store, f, "github.com", client)
+	store := newFake().Put("github.com", "ghp_alice")
+	cli := NewCLI(store, f, client)
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	cli.now = func() time.Time { return now }
 
@@ -154,8 +154,8 @@ func TestKeychainCLIForgetsTheLoginWhenTheTokenChanges(t *testing.T) {
 func TestKeychainCLIForgetsTheLoginWhenOnlyLoginIsEverAsked(t *testing.T) {
 	ctx := context.Background()
 	f, client := fakeGitHub(t, map[string]string{"ghp_alice": "alice", "ghp_bot": "aeman-bot"}, new(atomic.Int32))
-	store := NewFake().Put("github.com", "ghp_alice")
-	cli := NewCLI(store, f, "github.com", client)
+	store := newFake().Put("github.com", "ghp_alice")
+	cli := NewCLI(store, f, client)
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	cli.now = func() time.Time { return now }
 
@@ -177,8 +177,8 @@ func TestKeychainCLIForgetsTheLoginWhenOnlyLoginIsEverAsked(t *testing.T) {
 func TestKeychainCLIDoesNotCacheAMiss(t *testing.T) {
 	ctx := context.Background()
 	f, client := fakeGitHub(t, map[string]string{"ghp_alice": "alice"}, new(atomic.Int32))
-	store := NewFake()
-	cli := NewCLI(store, f, "github.com", client)
+	store := newFake()
+	cli := NewCLI(store, f, client)
 
 	for range 2 {
 		if _, err := cli.Token(ctx); !errors.Is(err, ErrNotFound) {
@@ -201,7 +201,7 @@ func TestKeychainCLIDoesNotCacheAMiss(t *testing.T) {
 func TestKeychainCLIRejectedTokenIsBadToken(t *testing.T) {
 	var calls atomic.Int32
 	f, client := fakeGitHub(t, map[string]string{"ghp_good": "alice"}, &calls)
-	cli := NewCLI(NewFake().Put("github.com", "ghp_revoked"), f, "github.com", client)
+	cli := NewCLI(newFake().Put("github.com", "ghp_revoked"), f, client)
 
 	if _, err := cli.Login(context.Background()); !errors.Is(err, forge.ErrBadToken) {
 		t.Fatalf("Login with a revoked token = %v, want forge.ErrBadToken", err)
@@ -219,7 +219,7 @@ func TestKeychainCLIRejectedTokenIsBadToken(t *testing.T) {
 func TestKeychainCLIWithoutAnItemIsNotFound(t *testing.T) {
 	var calls atomic.Int32
 	f, client := fakeGitHub(t, map[string]string{"ghp_alice": "alice"}, &calls)
-	cli := NewCLI(NewFake(), f, "github.com", client)
+	cli := NewCLI(newFake(), f, client)
 
 	_, err := cli.Token(context.Background())
 	if !errors.Is(err, ErrNotFound) {
@@ -238,11 +238,63 @@ func TestKeychainCLIWithoutAnItemIsNotFound(t *testing.T) {
 // answers would otherwise hold every later token read behind it — and
 // http.DefaultClient waits forever by design.
 func TestKeychainCLIWithoutAClientBoundsTheForgeCall(t *testing.T) {
-	cli := NewCLI(NewFake(), forge.NewGitHub(), "github.com", nil)
+	cli := NewCLI(newFake(), forge.NewGitHub(), nil)
 	if cli.client == http.DefaultClient {
 		t.Fatal("http.DefaultClient has no timeout; a wedged forge would pin the lock")
 	}
 	if cli.client.Timeout <= 0 {
 		t.Fatalf("client timeout = %v, want a bound", cli.client.Timeout)
 	}
+}
+
+// fake is this package's own in-memory Store. The exported one lives in
+// tokenstoretest, for the packages that consume this one; a package cannot
+// import its own test helper without a cycle, and these tests reach into
+// unexported fields anyway.
+type fake struct {
+	items   map[string]string
+	Err     error
+	Gets    int
+	Deletes int
+}
+
+func newFake() *fake { return &fake{items: map[string]string{}} }
+
+func (f *fake) Put(host, token string) *fake { f.items[host] = token; return f }
+
+func (f *fake) Get(host string) (string, error) {
+	f.Gets++
+	if f.Err != nil {
+		return "", f.Err
+	}
+	tok, ok := f.items[host]
+	if !ok {
+		return "", ErrNotFound
+	}
+	// The rules osStore.Get puts on a raw item, so a case here cannot
+	// pass against a shape the real store never hands back. This double
+	// exists only because these tests drive the CLI's clock seam, which
+	// is unexported; tokenstoretest.Fake is the one every other package
+	// uses.
+	if tok = strings.TrimSpace(tok); tok == "" {
+		return "", ErrNotFound
+	}
+	return tok, nil
+}
+
+func (f *fake) Set(host, token string) error {
+	if f.Err != nil {
+		return f.Err
+	}
+	f.items[host] = token
+	return nil
+}
+
+func (f *fake) Delete(host string) error {
+	f.Deletes++
+	if f.Err != nil {
+		return f.Err
+	}
+	delete(f.items, host)
+	return nil
 }

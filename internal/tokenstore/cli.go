@@ -42,13 +42,15 @@ type CLI struct {
 
 var _ forge.CLI = (*CLI)(nil)
 
-// NewCLI returns the store's forge.CLI for the token held under host. A nil
-// client is one bounded by forgeTimeout.
-func NewCLI(store Store, f forge.Forge, host string, client *http.Client) *CLI {
+// NewCLI returns the store's forge.CLI for the token held under the
+// forge's own host — the account is not a separate argument, so it cannot
+// be given one that disagrees with the forge asked about the token's
+// owner. A nil client is one bounded by forgeTimeout.
+func NewCLI(store Store, f forge.Forge, client *http.Client) *CLI {
 	if client == nil {
 		client = &http.Client{Timeout: forgeTimeout}
 	}
-	return &CLI{store: store, forge: f, host: host, client: client, now: time.Now}
+	return &CLI{store: store, forge: f, host: f.Host(), client: client, now: time.Now}
 }
 
 // Token is the stored token, with the store's own error untouched — the

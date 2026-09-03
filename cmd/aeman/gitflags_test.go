@@ -16,6 +16,7 @@ import (
 	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/server"
 	"github.com/aenix-io/aeman/internal/tokenstore"
+	"github.com/aenix-io/aeman/internal/tokenstore/tokenstoretest"
 )
 
 // The git-mode flags: repeatable --repo name=url, spans with weeks, a
@@ -256,37 +257,92 @@ func TestFillGitTokenFillsOnlyTheDomainsWithoutOne(t *testing.T) {
 // The push credential keeps the order the identity has: AEMAN_GIT_TOKEN
 // first, then the keychain, then gh. A deployment that names a token in its
 // environment is never quietly overridden by whatever a laptop stored
-// months ago — with one set, neither later source is asked at all.
+// months ago — with one set, neither later source is asked at all. And
+// whichever source wins the token wins the login with it, which is the
+// assertion that says the two orders are really one.
 func TestFillGitTokenTakesTheKeychainBeforeTheCLIAndNeitherBeforeAEMANGitToken(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	ctx := context.Background()
-	gh := forge.NewGitHub()
+	gh, client := fakeForge(t, map[string]string{"ghp_stored": "alice"})
 	log, _ := testLog()
 	repos := func() []server.RepoSpec {
 		return []server.RepoSpec{{Name: "board", URL: "https://github.com/acme/board.git"}}
 	}
 
-	store := tokenstore.NewFake().Put("github.com", "ghp_stored")
-	cli := &fakeCLI{token: "cli-token"}
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_stored")
+	cli := &fakeCLI{token: "cli-token", login: "machine-user"}
 	cfg := &server.GitConfig{Forge: gh, Repos: repos()}
-	fillGitToken(ctx, cfg, &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, gh, "github.com", nil), cli}})
+	c := &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, gh, client), cli}}
+	fillGitToken(ctx, cfg, c)
 	if cfg.Token != "ghp_stored" || cfg.Repos[0].Token != "ghp_stored" {
 		t.Fatalf("tokens = %q / %q, want the stored one", cfg.Token, cfg.Repos[0].Token)
+	}
+	if login, err := c.Login(ctx); err != nil || login != "alice" {
+		t.Fatalf("Login = %q, %v; want the owner of the token that was used", login, err)
 	}
 	if cli.calls != 0 {
 		t.Fatalf("gh was asked %d times while the keychain had a token, want 0", cli.calls)
 	}
 
-	store = tokenstore.NewFake().Put("github.com", "ghp_stored")
+	store = tokenstoretest.NewFake().Put("github.com", "ghp_stored")
 	cli = &fakeCLI{token: "cli-token"}
 	cfg = &server.GitConfig{Forge: gh, Repos: repos(), Token: "env-token"}
-	fillGitToken(ctx, cfg, &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, gh, "github.com", nil), cli}})
+	fillGitToken(ctx, cfg, &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, gh, client), cli}})
 	if cfg.Token != "env-token" || cfg.Repos[0].Token != "env-token" {
 		t.Fatalf("tokens = %q / %q, want AEMAN_GIT_TOKEN's", cfg.Token, cfg.Repos[0].Token)
 	}
-	if store.Gets != 0 || cli.calls != 0 {
-		t.Fatalf("the keychain was read %d times and gh asked %d, want 0 and 0", store.Gets, cli.calls)
+	if store.Gets() != 0 || cli.calls != 0 {
+		t.Fatalf("the keychain was read %d times and gh asked %d, want 0 and 0", store.Gets(), cli.calls)
+	}
+}
+
+// The forge's token variables decide the identity as well as the push
+// credential, and the two must name one person. gh hands GH_TOKEN straight
+// back, so before the keychain existed they agreed by accident; the
+// environment is a source of the chain so they agree on purpose. Without
+// that, a machine with GH_TOKEN exported and a token in its keychain
+// pushes as one account and signs the commits with another's name.
+func TestTheEnvironmentTokenAndItsOwnerAreOneAnswer(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "ghp_env_bot")
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{"ghp_env_bot": "release-bot", "ghp_stored": "alice"})
+	log, _ := testLog()
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_stored")
+	cli := &fakeCLI{token: "cli-token", login: "machine-user"}
+
+	c := &chain{log: log, sources: []forge.CLI{
+		newEnvCLI(f, osEnv, client),
+		tokenstore.NewCLI(store, f, client),
+		cli,
+	}}
+	cfg := &server.GitConfig{Forge: f, Repos: []server.RepoSpec{{Name: "board", URL: "https://github.com/acme/board.git"}}}
+	fillGitToken(ctx, cfg, c)
+
+	if cfg.Token != "ghp_env_bot" {
+		t.Fatalf("push credential = %q, want the environment's", cfg.Token)
+	}
+	if login, err := c.Login(ctx); err != nil || login != "release-bot" {
+		t.Fatalf("Login = %q, %v; want the environment token's owner", login, err)
+	}
+	if store.Gets() != 0 || cli.calls != 0 {
+		t.Fatalf("the keychain was read %d times and gh asked %d, want 0 and 0", store.Gets(), cli.calls)
+	}
+
+	// With nothing in the environment the chain carries on to the keychain,
+	// and the identity follows it there.
+	t.Setenv("GH_TOKEN", "")
+	empty := &chain{log: log, sources: []forge.CLI{
+		newEnvCLI(f, osEnv, client),
+		tokenstore.NewCLI(tokenstoretest.NewFake().Put("github.com", "ghp_stored"), f, client),
+		&fakeCLI{token: "cli-token", login: "machine-user"},
+	}}
+	if tok, err := empty.Token(ctx); err != nil || tok != "ghp_stored" {
+		t.Fatalf("Token = %q, %v; want the stored one", tok, err)
+	}
+	if login, err := empty.Login(ctx); err != nil || login != "alice" {
+		t.Fatalf("Login = %q, %v; want the stored token's owner", login, err)
 	}
 }
 
@@ -369,4 +425,40 @@ func testAppKeyPEM(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+}
+
+// AEMAN_GIT_TOKEN is trimmed like every other source. A value off a `.env`
+// file or a heredoc carries a newline, and an untrimmed one counts as set:
+// the chain is skipped and the whitespace reaches the git credential,
+// which the forge answers with a 401 that names nothing. A value that is
+// only whitespace is not a token at all, so the chain runs.
+func TestTheSharedTokenIsTrimmed(t *testing.T) {
+	cfgFor := func(tok string) *server.GitConfig {
+		t.Helper()
+		fs := flag.NewFlagSet("test", flag.ContinueOnError)
+		gf := addGitFlags(fs, func(k string) string {
+			if k == "AEMAN_GIT_TOKEN" {
+				return tok
+			}
+			return ""
+		})
+		if err := fs.Parse([]string{"--repo", "board=https://github.com/acme/board.git"}); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := gf.config()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+
+	if got := cfgFor("ghp_token\n"); got.Token != "ghp_token" || got.Repos[0].Token != "ghp_token" {
+		t.Fatalf("tokens = %q / %q, want them trimmed", got.Token, got.Repos[0].Token)
+	}
+	if got := cfgFor("  ghp_token \t"); got.Token != "ghp_token" {
+		t.Fatalf("token = %q, want it trimmed", got.Token)
+	}
+	if got := cfgFor(" \n\t "); got.Token != "" {
+		t.Fatalf("token = %q; whitespace is not a credential, so the chain must run", got.Token)
+	}
 }

@@ -93,3 +93,51 @@ func TestGetTrimsTheStoredTokenAndRefusesABlankItem(t *testing.T) {
 		t.Fatalf("a blank item = %v, want ErrNotFound", err)
 	}
 }
+
+// The two rules Get puts on top of the raw lookup, exercised without a
+// secret store: a token comes back without the whitespace a pipe or an
+// editor left on it, and an item holding nothing else reads as absent so
+// the chain falls through instead of offering the forge an empty
+// credential. Both decide control flow above this package, and the test
+// that runs them against a real keychain is opt-in — so CI sees them here
+// or nowhere.
+func TestGetTrimsAndTreatsABlankItemAsAbsent(t *testing.T) {
+	for _, tc := range []struct {
+		name, stored, want string
+		wantErr            error
+	}{
+		{name: "plain", stored: "ghp_token", want: "ghp_token"},
+		{name: "trailing newline", stored: "ghp_token\n", want: "ghp_token"},
+		{name: "padded", stored: "  ghp_token\t\n", want: "ghp_token"},
+		{name: "empty", stored: "", wantErr: ErrNotFound},
+		{name: "whitespace only", stored: " \n\t ", wantErr: ErrNotFound},
+	} {
+		var askedService, askedAccount string
+		s := &osStore{service: "aeman", read: func(service, account string) ([]byte, error) {
+			askedService, askedAccount = service, account
+			return []byte(tc.stored), nil
+		}}
+
+		got, err := s.Get("github.com")
+		if tc.wantErr != nil {
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("%s: err = %v, want %v", tc.name, err, tc.wantErr)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("%s: Get = %q, %v; want %q", tc.name, got, err, tc.want)
+		}
+		if askedService != "aeman" || askedAccount != "github.com" {
+			t.Errorf("%s: looked up %q/%q, want aeman/github.com", tc.name, askedService, askedAccount)
+		}
+	}
+
+	// A failure from the store is handed back as it came: this package
+	// classifies nothing beyond "no item".
+	boom := errors.New("keychain: darwin cli: security find-generic-password: exit status 36")
+	s := &osStore{service: "aeman", read: func(string, string) ([]byte, error) { return nil, boom }}
+	if _, err := s.Get("github.com"); !errors.Is(err, boom) {
+		t.Fatalf("Get = %v, want the store's own error", err)
+	}
+}

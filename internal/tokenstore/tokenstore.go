@@ -46,16 +46,27 @@ func Open(log *slog.Logger) Store { return open(Service, log) }
 // macOS goes through /usr/bin/security: an item written through the native
 // API is bound to the creating binary's code identity, and aeman's own
 // builds are unsigned, so a rebuilt binary could no longer read what it
-// stored. The trade is that the item lives in the stable "apple-tool"
-// partition, readable without a prompt by any process of the same user.
-// WithLabel and WithAccessMode do nothing in this mode and are not passed.
+// stored. That route has two prices, both spelled out under "aeman login"
+// in docs/api.md: the item lives in the stable "apple-tool" partition and
+// is readable without a prompt by any process of the same user, and the
+// secret is passed to the tool as a command-line argument, so an
+// endpoint-security agent recording argv records it. WithLabel and
+// WithAccessMode do nothing in this mode and are not passed.
 func open(service string, log *slog.Logger) Store {
-	return &osStore{service: service, kc: keychain.New(keychain.WithSecurityCLI(), keychain.WithLogger(log))}
+	kc := keychain.New(keychain.WithSecurityCLI(), keychain.WithLogger(log))
+	return &osStore{service: service, kc: kc, read: kc.Get}
 }
 
 type osStore struct {
 	service string
 	kc      *keychain.Keychain
+
+	// read is the raw lookup, so the rules Get puts on top of it — the
+	// trim, and a blank item counting as absent — can be exercised without
+	// a secret store to write to. Those rules decide whether the chain
+	// falls through to the next source, and the test that runs them
+	// against the real store is opt-in, so CI would otherwise see neither.
+	read func(service, account string) ([]byte, error)
 }
 
 // Get returns the stored token without the whitespace a pipe or an editor
@@ -63,7 +74,7 @@ type osStore struct {
 // absent so the caller falls through, rather than offering the forge an
 // empty credential it would reject.
 func (s *osStore) Get(host string) (string, error) {
-	secret, err := s.kc.Get(s.service, host)
+	secret, err := s.read(s.service, host)
 	if err != nil {
 		return "", err
 	}

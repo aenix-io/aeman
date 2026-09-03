@@ -12,6 +12,7 @@ import (
 
 	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/tokenstore"
+	"github.com/aenix-io/aeman/internal/tokenstore/tokenstoretest"
 )
 
 // piped is stdin as a command gets it when a token is piped in: no
@@ -23,7 +24,7 @@ func piped(s string) tokenInput { return tokenInput{r: strings.NewReader(s)} }
 // login on screen is the one the commits will carry.
 func TestLoginStoresTheTokenUnderTheForgeHost(t *testing.T) {
 	f, client := fakeForge(t, map[string]string{"ghp_typed": "alice"})
-	store := tokenstore.NewFake()
+	store := tokenstoretest.NewFake()
 	var out strings.Builder
 
 	if err := login(context.Background(), f, client, store, "github.com", piped("ghp_typed\n"), &out); err != nil {
@@ -42,15 +43,15 @@ func TestLoginStoresTheTokenUnderTheForgeHost(t *testing.T) {
 // fails on a credential nobody can see.
 func TestLoginRejectsBadTokenWithoutStoring(t *testing.T) {
 	f, client := fakeForge(t, map[string]string{"ghp_good": "alice"})
-	store := tokenstore.NewFake()
+	store := tokenstoretest.NewFake()
 	var out strings.Builder
 
 	err := login(context.Background(), f, client, store, "github.com", piped("ghp_typo\n"), &out)
 	if err == nil || !strings.Contains(err.Error(), "GitHub") {
 		t.Fatalf("error = %v; want one naming the forge", err)
 	}
-	if store.Sets != 0 {
-		t.Fatalf("the store was written %d times after a refusal, want 0", store.Sets)
+	if store.Sets() != 0 {
+		t.Fatalf("the store was written %d times after a refusal, want 0", store.Sets())
 	}
 	if out.String() != "" {
 		t.Fatalf("output = %q; want nothing said on a refusal", out.String())
@@ -63,7 +64,7 @@ func TestLoginRejectsBadTokenWithoutStoring(t *testing.T) {
 // nothing is prompted for.
 func TestLoginReadsOneLineFromPipedStdin(t *testing.T) {
 	f, client := fakeForge(t, map[string]string{"ghp_x": "alice"})
-	store := tokenstore.NewFake()
+	store := tokenstoretest.NewFake()
 	var out strings.Builder
 
 	if err := login(context.Background(), f, client, store, "github.com", piped("ghp_x\nrubbish\n"), &out); err != nil {
@@ -81,7 +82,7 @@ func TestLoginReadsOneLineFromPipedStdin(t *testing.T) {
 // reaches the screen — not in the prompt, not in the confirmation.
 func TestLoginPromptsHiddenOnATerminal(t *testing.T) {
 	f, client := fakeForge(t, map[string]string{"ghp_typed": "alice"})
-	store := tokenstore.NewFake()
+	store := tokenstoretest.NewFake()
 	var out strings.Builder
 	reads := 0
 	var prompt strings.Builder
@@ -112,14 +113,14 @@ func TestLoginPromptsHiddenOnATerminal(t *testing.T) {
 func TestLoginRefusesAnEmptyToken(t *testing.T) {
 	f, client := fakeForge(t, map[string]string{"ghp_good": "alice"})
 	for _, in := range []tokenInput{piped("\n"), piped(""), {tty: true, readPass: func() (string, error) { return "   ", nil }}} {
-		store := tokenstore.NewFake()
+		store := tokenstoretest.NewFake()
 		var out strings.Builder
 		err := login(context.Background(), f, client, store, "github.com", in, &out)
 		if err == nil || !strings.Contains(err.Error(), "aeman login") {
 			t.Fatalf("error = %v; want one naming both ways of giving a token", err)
 		}
-		if store.Sets != 0 {
-			t.Fatalf("the store was written %d times for an empty token, want 0", store.Sets)
+		if store.Sets() != 0 {
+			t.Fatalf("the store was written %d times for an empty token, want 0", store.Sets())
 		}
 	}
 }
@@ -168,10 +169,10 @@ func TestLoginFailsWhenTheKeychainIsUnavailable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	f, client := fakeForge(t, map[string]string{"ghp_typed": "alice"})
-	store := tokenstore.NewFake()
+	store := tokenstoretest.NewFake()
 	// What a locked login keychain actually produces, not a sentinel this
 	// package invented: security(1) classifies nothing but a missing item.
-	store.Err = errors.New("keychain: darwin cli: security add-generic-password: exit status 51")
+	store.Fail(errors.New("keychain: darwin cli: security add-generic-password: exit status 51"))
 	var out strings.Builder
 
 	err := login(context.Background(), f, client, store, "github.com", piped("ghp_typed\n"), &out)
@@ -197,7 +198,7 @@ func TestLoginFailsWhenTheKeychainIsUnavailable(t *testing.T) {
 // Logging out of a host that was never logged in to is the state asked for,
 // not a failure — and nothing is deleted to reach it.
 func TestLogoutOfNothing(t *testing.T) {
-	store := tokenstore.NewFake()
+	store := tokenstoretest.NewFake()
 	var out strings.Builder
 
 	if err := logout(store, "github.com", &out); err != nil {
@@ -206,8 +207,8 @@ func TestLogoutOfNothing(t *testing.T) {
 	// The removal runs even here. A blank item also reads as absent, and
 	// skipping the delete on that answer would leave one in the store that
 	// no command could remove.
-	if store.Deletes != 1 {
-		t.Fatalf("%d deletes, want 1: the removal is not conditional on the read", store.Deletes)
+	if store.Deletes() != 1 {
+		t.Fatalf("%d deletes, want 1: the removal is not conditional on the read", store.Deletes())
 	}
 	if !strings.Contains(out.String(), "No usable token was stored for github.com") {
 		t.Fatalf("output = %q", out.String())
@@ -217,7 +218,7 @@ func TestLogoutOfNothing(t *testing.T) {
 // deniedReads is a store that holds items but will not hand a value over
 // — a keychain that answers the read with the tool's own failure rather
 // than with a value or a missing-item code.
-type deniedReads struct{ *tokenstore.Fake }
+type deniedReads struct{ *tokenstoretest.Fake }
 
 func (deniedReads) Get(string) (string, error) {
 	return "", errors.New("keychain: darwin cli: security find-generic-password: exit status 36")
@@ -228,22 +229,22 @@ func (deniedReads) Get(string) (string, error) {
 // not say the item is absent — and if the removal fails too, that error is
 // what comes back rather than a claim that the token is gone.
 func TestLogoutTriesTheRemovalWhenTheStoreRefusesToRead(t *testing.T) {
-	store := deniedReads{tokenstore.NewFake().Put("github.com", "ghp_x")}
+	store := deniedReads{tokenstoretest.NewFake().Put("github.com", "ghp_x")}
 	var out strings.Builder
 
 	if err := logout(store, "github.com", &out); err != nil {
 		t.Fatalf("logout = %v, want the delete to have been attempted", err)
 	}
-	if store.Deletes != 1 {
-		t.Fatalf("%d deletes, want 1", store.Deletes)
+	if store.Deletes() != 1 {
+		t.Fatalf("%d deletes, want 1", store.Deletes())
 	}
 	if _, ok := store.Fake.Get("github.com"); ok == nil {
 		t.Fatal("the item is still there")
 	}
 
-	failing := deniedReads{tokenstore.NewFake()}
+	failing := deniedReads{tokenstoretest.NewFake()}
 	refused := errors.New("keychain: darwin cli: security delete-generic-password: exit status 36")
-	failing.Err = refused
+	failing.Fail(refused)
 	if err := logout(failing, "github.com", &strings.Builder{}); !errors.Is(err, refused) {
 		t.Fatalf("error = %v; a failing delete must surface, not be reported as success", err)
 	}
@@ -252,7 +253,7 @@ func TestLogoutTriesTheRemovalWhenTheStoreRefusesToRead(t *testing.T) {
 // Logging out takes the one host's item and says where it was, so the
 // person can check the store themselves; the other hosts keep theirs.
 func TestLogoutRemovesTheItem(t *testing.T) {
-	store := tokenstore.NewFake().Put("github.com", "ghp_x").Put("gitlab.example.org", "glpat_y")
+	store := tokenstoretest.NewFake().Put("github.com", "ghp_x").Put("gitlab.example.org", "glpat_y")
 	var out strings.Builder
 
 	if err := logout(store, "github.com", &out); err != nil {
@@ -334,15 +335,15 @@ func TestTerminalRestoreDoesNothingWithoutATerminal(t *testing.T) {
 func TestLoginStoresNothingWhenTheForgeCannotBeReached(t *testing.T) {
 	// Nothing is listening there, so User fails without an HTTP answer.
 	f := forge.NewGitHubAt("http://127.0.0.1:1")
-	store := tokenstore.NewFake()
+	store := tokenstoretest.NewFake()
 	var out strings.Builder
 
 	err := login(context.Background(), f, &http.Client{Timeout: time.Second}, store, "github.com", piped("ghp_typed\n"), &out)
 	if err == nil {
 		t.Fatal("an unreachable forge must fail the login")
 	}
-	if store.Sets != 0 {
-		t.Fatalf("the store was written %d times; nothing may be stored before the forge has answered", store.Sets)
+	if store.Sets() != 0 {
+		t.Fatalf("the store was written %d times; nothing may be stored before the forge has answered", store.Sets())
 	}
 	if out.String() != "" {
 		t.Fatalf("output = %q; want nothing said", out.String())

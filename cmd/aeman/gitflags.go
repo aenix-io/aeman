@@ -155,9 +155,11 @@ func (g *gitFlags) resolvedRepos() (repoList, error) {
 }
 
 // forgeTarget is the forge a login is for and the keychain account it goes
-// under. With no repository configured it is GitHub at github.com — but a
-// GitLab asked for by name still needs a host, which Detect refuses to
-// guess.
+// under. The account is the forge's own host, so `aeman login` writes the
+// item `aeman serve` and `aeman mcp` read: every command asks the same
+// forge value Detect built from the same flags. With no repository
+// configured it is GitHub at github.com — but a GitLab asked for by name
+// still needs a host, which Detect refuses to guess.
 func (g *gitFlags) forgeTarget() (forge.Forge, string, error) {
 	repos, err := g.resolvedRepos()
 	if err != nil {
@@ -167,12 +169,11 @@ func (g *gitFlags) forgeTarget() (forge.Forge, string, error) {
 	if len(repos) > 0 {
 		primary = repos[0].URL
 	}
-	gitlabURL := g.pick(g.gitlabURL, "AEMAN_GITLAB_URL", "")
-	f, err := forge.Detect(primary, forge.Kind(g.pick(g.forge, "AEMAN_FORGE", "")), gitlabURL)
+	f, err := forge.Detect(primary, forge.Kind(g.pick(g.forge, "AEMAN_FORGE", "")), g.pick(g.gitlabURL, "AEMAN_GITLAB_URL", ""))
 	if err != nil {
 		return nil, "", fmt.Errorf("--forge: %w", err)
 	}
-	return f, forgeHost(primary, gitlabURL), nil
+	return f, f.Host(), nil
 }
 
 // config builds the GitConfig, or nil when no repository is configured.
@@ -184,11 +185,15 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 	if len(repos) == 0 {
 		return nil, nil //nolint:nilnil // no git mode configured is not an error
 	}
-	cfg := &server.GitConfig{Repos: repos, Token: g.env("AEMAN_GIT_TOKEN")}
+	// Trimmed like every other token source: a trailing newline off a
+	// `.env` file or a heredoc would otherwise count as "set", skip the
+	// chain, and go into the git credential as whitespace — a 401 on
+	// push with nothing on screen pointing at the cause.
+	cfg := &server.GitConfig{Repos: repos, Token: strings.TrimSpace(g.env("AEMAN_GIT_TOKEN"))}
 	// A board may span two organisations, and one token narrow enough for
 	// either cannot reach both: every domain may name its own credential,
 	// falling back to the shared one. A domain still without one here is
-	// filled by fillGitToken from the forge's CLI.
+	// filled by fillGitToken from the credential chain.
 	for i := range cfg.Repos {
 		if tok := strings.TrimSpace(g.env(tokenEnvFor(cfg.Repos[i].Name))); tok != "" {
 			cfg.Repos[i].Token = tok
@@ -283,7 +288,7 @@ func fillGitToken(ctx context.Context, cfg *server.GitConfig, cli forge.CLI) {
 }
 
 // allDomainsHaveTokens reports whether every repository already names its
-// own credential — then the shared one is not needed and the forge's CLI is
+// own credential — then the shared one is not needed and the chain is
 // not asked for it.
 func allDomainsHaveTokens(cfg *server.GitConfig) bool {
 	for _, r := range cfg.Repos {
