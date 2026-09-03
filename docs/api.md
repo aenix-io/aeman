@@ -12,7 +12,7 @@ The board lives on one **forge** — GitHub or GitLab (gitlab.com or self-hosted
 
 Board members — the people the assignee and reviewer pickers offer — are those who can read the repository, resolved with the server's token: GitHub asks each login's collaborator permission; GitLab reads the project's member list, inherited group members included, which also supplies display names and avatars. On GitHub an avatar is built from the login (the avatars CDN) and there are no display names; on GitLab both come from the forge's user directory, so `metadata.members[].name` is filled on GitLab boards.
 
-The stdio MCP server (`aeman mcp`) is a local, single-user process on its own clone. It pushes with `AEMAN_GIT_TOKEN` when that is set; otherwise the credential comes from `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), then the OS keychain written by [`aeman login`](#aeman-login), then the forge CLI's own token (`gh auth token` / `glab config get token --host <host>`). The actor is whoever that credential belongs to, asked of the forge for a token from the environment or the keychain and read from the tool itself for a CLI one (`gh api user` / `glab api user`): a stored bot token is attributed to the bot, not to whoever the machine's `gh` is signed in as. A push-only credential belongs in `AEMAN_GIT_TOKEN` for that reason. A token whose `/user` the forge refuses — a GitHub App installation token, say — used to leave the identity to `gh api user`; it now supplies the credential and no name, so the work loses its author. `AEMAN_GIT_TOKEN` is the exception, and deliberately so — it names the server's own push credential and never named a person, so with it set the push and the actor can be two different accounts. In the self-hosted mode the same tool set is mounted over HTTP at `/mcp`, authenticated with per-user OAuth tokens, and the rights above apply to every tool call.
+The local MCP server (`aeman mcp`) runs on stdio, or as a loopback HTTP daemon shared by every client on the machine (`--listen`); either way it is one process on its own clone. It pushes with `AEMAN_GIT_TOKEN` when that is set; otherwise the credential comes from `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), then the OS keychain written by [`aeman login`](#aeman-login), then the forge CLI's own token (`gh auth token` / `glab config get token --host <host>`). The actor is whoever that credential belongs to, asked of the forge for a token from the environment or the keychain and read from the tool itself for a CLI one (`gh api user` / `glab api user`): a stored bot token is attributed to the bot, not to whoever the machine's `gh` is signed in as. A push-only credential belongs in `AEMAN_GIT_TOKEN` for that reason. A token whose `/user` the forge refuses — a GitHub App installation token, say — used to leave the identity to `gh api user`; it now supplies the credential and no name, so the work loses its author. `AEMAN_GIT_TOKEN` is the exception, and deliberately so — it names the server's own push credential and never named a person, so with it set the push and the actor can be two different accounts. In the self-hosted mode the same tool set is mounted over HTTP at `/mcp`, authenticated with per-user OAuth tokens, and the rights above apply to every tool call.
 
 ## The board
 
@@ -322,7 +322,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards' \
 
 ## Configuration
 
-`aeman serve` and `aeman mcp` share the storage flags; every flag has an environment variable, the flag wins.
+`aeman serve` and `aeman mcp` share the storage flags; each has an environment variable unless its row says otherwise, and the flag wins. The `--listen` and `--listen-insecure` rows belong to `aeman mcp` and to `aeman service`, which takes the storage flags too and bakes what they resolve to into the unit it writes.
 
 | Flag | Environment | Default | Meaning |
 | --- | --- | --- | --- |
@@ -331,13 +331,15 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/cards' \
 | `--gitlab-url` | `AEMAN_GITLAB_URL` | `https://<host of the primary repository>` | Base URL of a self-hosted GitLab. |
 | — | `AEMAN_GIT_TOKEN` | GitHub: `GITHUB_TOKEN`, `GH_TOKEN`, then the OS keychain (`aeman login`), then `gh auth token`; GitLab: `GITLAB_TOKEN`, then the OS keychain (`aeman login`), then `glab config get token --host <host>` | The server's own credential: fetch, push, membership checks, and resolving issue titles. Required in the OAuth mode. |
 | — | `AEMAN_GIT_TOKEN_<NAME>` | `AEMAN_GIT_TOKEN` | One repository's own credential, named after its domain in `AEMAN_REPOS` — upper-cased, anything but a letter or a digit an underscore (`founders` → `AEMAN_GIT_TOKEN_FOUNDERS`). A board across two organisations holds one token per organisation; issue titles are resolved with the primary's. |
-| `--data` | `AEMAN_DATA` | `/data` if it exists, else the user cache dir | Where the clones live (`<data>/repos/<name>`) and the session file. |
+| `--data` | `AEMAN_DATA` | `/data` if it exists, else the user cache dir | Where the clones live (`<data>/repos/<name>`) and the session file. One process at a time: the PROCESS holds an exclusive lock on `<data>/lock` for as long as it runs — taken before the board is opened, and kept even by a start that could not open it and stays up (the app-not-installed setup page) — so a second `serve` or `mcp` on the same directory is refused at start. That needs a file system implementing locks, which a bind mount into a VM (9p) and some network mounts do not — those refuse the start naming the directory, so keep `--data` local. |
 | `--history` | `AEMAN_HISTORY` | `2w` | How far back the history is loaded in the background after start-up. The cold start is a depth-1 clone; the log fills in behind it. |
 | `--history-max` | `AEMAN_HISTORY_MAX` | `1y` | Cap for on-demand deepening when a card's log is cut by the horizon. |
 | `--sync-interval` | `AEMAN_SYNC_INTERVAL` | `15s` | How often other replicas' and direct commits are fetched (and the week's process turns filed). |
 | `--unpushed-warn` | `AEMAN_UNPUSHED_WARN` | `5m` | Age of the oldest unpushed commit that turns `/api/healthz` degraded. |
 | `--committer` | `AEMAN_COMMITTER` | `aeman <aeman@localhost>` | The committer identity; also the author of the server's own actions (the sweep that files process turns, a schema migration). |
 | `--author-email` | `AEMAN_AUTHOR_EMAIL` | `{login}@aeman` | How a visitor's login becomes the commit author's email. |
+| `--listen` | `AEMAN_MCP_LISTEN` | `aeman mcp`: none, meaning stdio. `aeman service`: `127.0.0.1:8766` | The loopback address the daemon serves on. For `aeman mcp` it replaces stdio; for `aeman service install` it is the address baked into the unit, and for `aeman service status` the one to ask (the unit's own is read back when neither the flag nor the variable is set). |
+| `--listen-insecure` | — | `false` | `aeman mcp` and `aeman service install` only: let `--listen` bind a non-loopback address. Nothing authenticates the endpoint, so this has to be typed; there is no environment variable for it. |
 
 `aeman serve` adds `--addr` (default `127.0.0.1:8765`), `--open` and `--verbose`; `AEMAN_TZ` is the board's day time zone. The self-hosted OAuth mode is enabled by one client id/secret pair — `AEMAN_GITHUB_CLIENT_ID`/`AEMAN_GITHUB_CLIENT_SECRET` or `AEMAN_GITLAB_CLIENT_ID`/`AEMAN_GITLAB_CLIENT_SECRET`, never both — together with `AEMAN_BASE_URL` (required; the redirect URL registered at the forge is `<AEMAN_BASE_URL>/auth/callback`), `AEMAN_SCOPES` (default `repo` on GitHub, `read_user read_api write_repository` on GitLab), `AEMAN_SESSION_FILE` and `AEMAN_SESSION_KEY`; the server credential in this mode is `AEMAN_GIT_TOKEN` — or, on GitHub, an App that mints it: `AEMAN_GITHUB_APP_ID` with `AEMAN_GITHUB_APP_KEY`/`AEMAN_GITHUB_APP_KEY_FILE`. Registering the application at either forge is walked through in [deploy.md](deploy.md).
 
@@ -364,7 +366,7 @@ security delete-generic-password -s aeman-mcp
 
 ## MCP server
 
-`aeman mcp --repo name=url` starts a Model Context Protocol server on **stdio** (the right transport for a local, single-user MCP), on its own clone of the board. In the self-hosted mode the same tool set is served over HTTP at `/mcp`. The tools are a one-to-one projection of the HTTP API — same resources, same actions, same semantic zone names, item ids called `uid`:
+`aeman mcp --repo name=url` starts a Model Context Protocol server on **stdio, or on a loopback HTTP daemon shared by every client on the machine** (`--listen 127.0.0.1:8766`), on its own clone of the board. In the self-hosted mode the same tool set is served over HTTP at `/mcp`. The tools are a one-to-one projection of the HTTP API — same resources, same actions, same semantic zone names, item ids called `uid`:
 
 | Tool | Purpose |
 | --- | --- |
@@ -394,7 +396,7 @@ The tools act on the configured board; a `board` argument, if a client passes on
 
 ### Flags and environment
 
-`aeman mcp` takes the storage flags of the configuration table above (including `--forge` and `--gitlab-url`) plus `--verbose`. The push credential is `AEMAN_GIT_TOKEN`, else `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), else the OS keychain written by [`aeman login`](#aeman-login), else the forge CLI's own token (`gh auth token` / `glab config get token --host <host>`). The actor is the person that credential belongs to, `AEMAN_GIT_TOKEN` excepted: that one names a push credential only.
+`aeman mcp` takes the storage flags of the configuration table above (including `--forge` and `--gitlab-url`) plus `--verbose`, `--listen` and `--listen-insecure`. With `--listen host:port` (or `AEMAN_MCP_LISTEN`) the process serves Streamable HTTP at `/mcp` instead of speaking stdio — one daemon every client shares. `GET /healthz` answers `{"status", "unpushedAgeSeconds"}`, turning `degraded` past `--unpushed-warn` the way `aeman serve`'s `/api/healthz` does: nobody watches a daemon, so a push that stopped landing has to be visible somewhere. It is the stuck write that shows, not the credential: with nothing unpushed the age is zero and the status is `ok`, however broken the credential is. The push credential is `AEMAN_GIT_TOKEN`, else `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), else the OS keychain written by [`aeman login`](#aeman-login), else the forge CLI's own token (`gh auth token` / `glab config get token --host <host>`). The actor is the person that credential belongs to, `AEMAN_GIT_TOKEN` excepted: that one names a push credential only.
 
 Logs go to stderr, never stdout, so they never corrupt the JSON-RPC stream.
 
@@ -439,3 +441,26 @@ The same for a board on GitLab — the forge follows the repository URL's host, 
 ```
 
 Without a stored token the server falls back to the forge CLI's own (`gh auth token` / `glab config get token --host <host>`), so an authenticated `gh` or `glab` is enough for local use; `AEMAN_GIT_TOKEN` in the `env` block still overrides both.
+
+#### Shared daemon
+
+Each client starting its own `aeman mcp` child means a clone per client, and a data directory takes one process — so with more than one client the second is refused. Run one daemon instead and point every client at it:
+
+```sh
+aeman service install --repo aeman-db=https://github.com/acme/aeman-db.git --listen 127.0.0.1:8766
+claude mcp add --transport http aeman http://127.0.0.1:8766/mcp --scope user
+```
+
+The unit carries no credential — it is a plain file — so the daemon finds one the way `aeman mcp` does, and the simplest answer is to run [`aeman login`](#aeman-login) before installing: the daemon reads the same OS keychain, once, at start. Logging in afterwards reaches nothing until the daemon is restarted (`aeman service uninstall && aeman service install`), which is also what a rotated token needs; a GitHub App is the exception, since its installation token is minted per request. An environment variable set in the installing shell cannot travel with it, and `aeman service install` names what it had to leave behind: `AEMAN_GIT_TOKEN`, a per-repository `AEMAN_GIT_TOKEN_<NAME>`, a GitHub App (`AEMAN_GITHUB_APP_ID`), or a credential embedded in a `--repo` URL. Two ways to keep one: give the daemon a credential it can find for itself — the keychain, or the forge CLI — that reaches every repository, or skip the unit and run `aeman mcp --listen 127.0.0.1:8766` from a shell that has the variables. Starting `aeman mcp` per client is not one of them: the second client is refused.
+
+The unit's label is fixed, so one machine runs one aeman daemon: a second `aeman service install` for another board is refused, and that board wants its own `--data` and a hand-run `aeman mcp --listen` on another port.
+
+`aeman service install` writes a LaunchAgent (macOS) or a systemd user unit (Linux) that starts the daemon at login and restarts it if it dies; `aeman service status` says whether the unit is installed, whether the manager is running it, and whether it answers; `aeman service uninstall` stops it and removes the unit. `aeman service` is not supported on Windows — run `aeman mcp --listen 127.0.0.1:8766` yourself.
+
+The stdio form still works and is still the right one for a single client, restarts included: a start gives a predecessor a few seconds to finish its exit drain, so closing and reopening a client does not meet its own outgoing process. What does not work is both at once on one `--data`: whichever starts second is refused with the message that names this daemon. The same applies to running the board UI and MCP together on one machine — `aeman serve` mounts `/mcp` in the self-hosted OAuth mode only, so there is no single local process that serves both. Give them separate `--data` directories, which means two clones of the board and two pushes, or run whichever of the two you actually need.
+
+Nothing authenticates `/mcp`, so it binds loopback only; `--listen-insecure` is the deliberate exception.
+
+The loopback boundary covers the browser, for `/mcp`. A page the person opens can post to `127.0.0.1`, so a cross-origin request there is refused before a session exists, and `/mcp` refuses a request whose `Host` is not loopback (the SDK's rebinding check). `/healthz` is a plain GET that passes the origin check and answers the same two fields to any origin — it carries no secret and performs no action.
+
+It does not cover the neighbours. Loopback is shared by every account on the host, and anything that can open a socket to the port performs any board action under the daemon's identity — the origin check does not apply to a caller that sends no `Origin`, which is every non-browser client. Before the daemon nothing listened, and another local user had no route to your credential; with it running, they have one. **The daemon is for a machine whose accounts you trust.** On a shared host stay with `aeman mcp` over stdio, which only the process that started it can reach; where one account wants several clients that means one at a time, or a `--data` each.

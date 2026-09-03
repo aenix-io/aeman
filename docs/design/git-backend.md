@@ -698,14 +698,9 @@ documented in `docs/api.md` under configuration.
 
 ### `aeman mcp`
 
-The stdio MCP server takes the same `--repo`/`--data`/`--history`
-flags and **owns its own store**: its own clone under `--data`, cache,
-commit and push workers. It pushes with `AEMAN_GIT_TOKEN`, else with
-`gh auth token` (GitHub only, the local mode of today). On exit it
-drains like the server does (`waitDrained`), so a client that closes the
-pipe right after a mutation does not lose it; a kill leaves the commits
-on disk for the next start to push. The `/mcp` endpoint inside `aeman
-serve` shares the server's store, as it does now.
+The MCP server takes the same `--repo`/`--data`/`--history` flags and **owns its own store**: its own clone under `--data`, cache, commit and push workers. It pushes with `AEMAN_GIT_TOKEN` — or a repository's own `AEMAN_GIT_TOKEN_<NAME>` — else with a GitHub App if one is configured, else with the first answer from the credential chain: the forge's own variables (`GITHUB_TOKEN`/`GH_TOKEN`, `GITLAB_TOKEN`), then the OS keychain written by `aeman login`, then the forge CLI's stored token (`gh auth token` / `glab config get token --host <host>`). The actor is whoever that credential belongs to, `AEMAN_GIT_TOKEN` excepted: it names a push credential and never named a person. On exit it drains like the server does (`waitDrained`), so a client that closes the pipe right after a mutation does not lose it; a kill leaves the commits on disk for the next start to push. The `/mcp` endpoint inside `aeman serve` shares the server's store, as it does now.
+
+The PROCESS claims the data directory, not the store: `aeman serve` and `aeman mcp` each take an exclusive lock on `<data>/lock` before they open anything and hold it until they exit, and a second one over the same directory is refused at start rather than left to race the first on the same clone. A start waits a few seconds first, because the process holding it may be leaving: `aeman mcp` keeps the claim until its exit drain has pushed what the client wrote, so a client restarting its server lands inside that window. The distinction is load-bearing — a start whose board cannot be opened because the GitHub App is not installed yet stays up serving a setup page, having already made the clone directories, so the claim has to outlive the failed open. A file system that does not implement locks at all refuses the start too, naming itself, so the data directory has to be a local one. Several clients on one board therefore share one process: `--listen host:port` serves the same tool set over Streamable HTTP on loopback (`/mcp`, plus `GET /healthz`) instead of stdio, and `aeman service install` runs that daemon under launchd or systemd. The stop is the server's: the write queue drains with the port still open, then the connections are given a few seconds.
 
 ## Migration
 
