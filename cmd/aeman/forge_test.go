@@ -226,8 +226,12 @@ func TestChainPrefersKeychainOverCLI(t *testing.T) {
 
 	// And cliFor is what puts it there: the same store, reached through the
 	// chain the commands actually build.
+	// The value is compared, never printed. The last source of the chain
+	// cliFor builds execs the developer's own gh, so the token reaching
+	// this line is a real one whenever the rule under test is broken —
+	// which is exactly when the message would be written to the log.
 	if tok, err := cliFor(f, store, func(string) string { return "" }, log).Token(ctx); err != nil || tok != "ghp_stored" {
-		t.Fatalf("cliFor(...).Token = %q, %v; want the stored token", tok, err)
+		t.Fatalf("cliFor(...).Token did not come from the store: err=%v, matched=%t", err, tok == "ghp_stored")
 	}
 }
 
@@ -471,7 +475,8 @@ func TestMigrateResolvesItsTokenFromTheGithubComAccount(t *testing.T) {
 
 	tok, err := resolveGitHubToken(context.Background(), f, store, log)
 	if err != nil || tok != "ghp_for_migrate" {
-		t.Fatalf("resolveGitHubToken = %q, %v; want the github.com item", tok, err)
+		t.Fatalf("resolveGitHubToken did not come from the github.com item: err=%v, matched=%t",
+			err, tok == "ghp_for_migrate")
 	}
 	if store.Gets() != 1 {
 		t.Fatalf("the store was read %d times, want 1 — a miss here would fall through to gh", store.Gets())

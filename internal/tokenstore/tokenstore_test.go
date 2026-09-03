@@ -47,11 +47,15 @@ func TestStoreKeyIsTheServiceAndTheForgeHost(t *testing.T) {
 	if err := s.Set("gitlab.example.org", "glpat_two"); err != nil {
 		t.Fatal(err)
 	}
+	// Compared, not printed. This test reads the machine's real store, so
+	// a read that went to the wrong item would put that item's value in
+	// the log. Values that come back from the store are compared here
+	// rather than formatted, for that reason.
 	if tok, err := s.Get("github.com"); err != nil || tok != "ghp_one" {
-		t.Fatalf("github.com = %q, %v", tok, err)
+		t.Fatalf("github.com: err=%v, matched=%t", err, tok == "ghp_one")
 	}
 	if tok, err := s.Get("gitlab.example.org"); err != nil || tok != "glpat_two" {
-		t.Fatalf("gitlab.example.org = %q, %v", tok, err)
+		t.Fatalf("gitlab.example.org: err=%v, matched=%t", err, tok == "glpat_two")
 	}
 	if _, err := s.Get("git.example.test"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a host with no item = %v, want ErrNotFound", err)
@@ -64,7 +68,7 @@ func TestStoreKeyIsTheServiceAndTheForgeHost(t *testing.T) {
 		t.Fatalf("after delete github.com = %v, want ErrNotFound", err)
 	}
 	if tok, err := s.Get("gitlab.example.org"); err != nil || tok != "glpat_two" {
-		t.Fatalf("the other host after a delete = %q, %v", tok, err)
+		t.Fatalf("the other host after a delete: err=%v, matched=%t", err, tok == "glpat_two")
 	}
 }
 
@@ -84,7 +88,7 @@ func TestGetTrimsTheStoredTokenAndRefusesABlankItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	if tok, err := s.Get("github.com"); err != nil || tok != "ghp_padded" {
-		t.Fatalf("padded token = %q, %v; want it trimmed", tok, err)
+		t.Fatalf("padded token not trimmed: err=%v, matched=%t", err, tok == "ghp_padded")
 	}
 	if err := s.Set("gitlab.example.org", " \n\t "); err != nil {
 		t.Fatal(err)
