@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/internal/server"
+	"github.com/aenix-io/aeman/internal/tokenstore"
 )
 
 // The git-mode flags: repeatable --repo name=url, spans with weeks, a
@@ -245,9 +247,46 @@ func TestFillGitTokenFillsOnlyTheDomainsWithoutOne(t *testing.T) {
 		},
 		Token: "default-token",
 	}
-	fillGitToken(context.Background(), cfg)
+	fillGitToken(context.Background(), cfg, &fakeCLI{token: "cli-token"})
 	if cfg.Repos[0].Token != "own-token" || cfg.Repos[1].Token != "default-token" {
 		t.Fatalf("tokens = %q / %q", cfg.Repos[0].Token, cfg.Repos[1].Token)
+	}
+}
+
+// The push credential keeps the order the identity has: AEMAN_GIT_TOKEN
+// first, then the keychain, then gh. A deployment that names a token in its
+// environment is never quietly overridden by whatever a laptop stored
+// months ago — with one set, neither later source is asked at all.
+func TestFillGitTokenTakesTheKeychainBeforeTheCLIAndNeitherBeforeAEMANGitToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	ctx := context.Background()
+	gh := forge.NewGitHub()
+	log, _ := testLog()
+	repos := func() []server.RepoSpec {
+		return []server.RepoSpec{{Name: "board", URL: "https://github.com/acme/board.git"}}
+	}
+
+	store := tokenstore.NewFake().Put("github.com", "ghp_stored")
+	cli := &fakeCLI{token: "cli-token"}
+	cfg := &server.GitConfig{Forge: gh, Repos: repos()}
+	fillGitToken(ctx, cfg, &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, gh, "github.com", nil), cli}})
+	if cfg.Token != "ghp_stored" || cfg.Repos[0].Token != "ghp_stored" {
+		t.Fatalf("tokens = %q / %q, want the stored one", cfg.Token, cfg.Repos[0].Token)
+	}
+	if cli.calls != 0 {
+		t.Fatalf("gh was asked %d times while the keychain had a token, want 0", cli.calls)
+	}
+
+	store = tokenstore.NewFake().Put("github.com", "ghp_stored")
+	cli = &fakeCLI{token: "cli-token"}
+	cfg = &server.GitConfig{Forge: gh, Repos: repos(), Token: "env-token"}
+	fillGitToken(ctx, cfg, &chain{log: log, sources: []forge.CLI{tokenstore.NewCLI(store, gh, "github.com", nil), cli}})
+	if cfg.Token != "env-token" || cfg.Repos[0].Token != "env-token" {
+		t.Fatalf("tokens = %q / %q, want AEMAN_GIT_TOKEN's", cfg.Token, cfg.Repos[0].Token)
+	}
+	if store.Gets != 0 || cli.calls != 0 {
+		t.Fatalf("the keychain was read %d times and gh asked %d, want 0 and 0", store.Gets, cli.calls)
 	}
 }
 

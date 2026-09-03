@@ -226,18 +226,19 @@ func (g *gitFlags) githubApp(f forge.Forge) (*forge.GitHubApp, error) {
 }
 
 // fillGitToken supplies the push/fetch credential when AEMAN_GIT_TOKEN is
-// unset: the forge's token variables, then its CLI's token — the same
-// source a single-user server reads the identity from. Best-effort — a
+// unset: the forge's token variables, then cli — the OS keychain and the
+// forge's own tool, the same value the identity is read from, so the push
+// and the name on the commits come from one credential. Best-effort — a
 // remote that needs no credential (a file path, a public repository) works
 // without it.
-func fillGitToken(ctx context.Context, cfg *server.GitConfig) {
+func fillGitToken(ctx context.Context, cfg *server.GitConfig, cli forge.CLI) {
 	if cfg == nil {
 		return
 	}
-	// With a GitHub App the server credential is minted, not found: the
-	// forge CLI's token is not asked for.
+	// With a GitHub App the server credential is minted, not found: nothing
+	// below the environment is asked for it.
 	if cfg.Token == "" && cfg.App == nil && !allDomainsHaveTokens(cfg) {
-		if tok, err := resolveForgeToken(ctx, cfg.Forge, cliFor(cfg.Forge, cfg.Repos[0].URL, nil, nil), osEnv); err == nil {
+		if tok, err := resolveForgeToken(ctx, cfg.Forge, cli, osEnv); err == nil {
 			cfg.Token = tok
 		}
 	}
