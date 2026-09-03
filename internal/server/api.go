@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -801,7 +802,12 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Intent string `json:"intent"`
 	}
-	if r.ContentLength > 0 && !decodeJSON(w, r, &in) {
+	// The body is read whenever there is one to read. Asking ContentLength
+	// instead skipped a CHUNKED body, which has no length to declare (-1), so
+	// an explicit "unassign" silently became the intentless gesture — and the
+	// gesture deletes where unassign refuses to. An empty body is the
+	// intentless call, which is the same as sending none.
+	if r.Body != nil && r.ContentLength != 0 && !decodeJSONAllowingEmpty(w, r, &in) {
 		return
 	}
 	intent := boardservice.RemoveIntent(in.Intent)
@@ -1915,6 +1921,21 @@ func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(dst); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// decodeJSONAllowingEmpty reads a body that the caller may legitimately have
+// left empty — an action whose every field is optional. A body that is there
+// is still parsed, and still refused when it is malformed; only "nothing at
+// all" is let through, leaving dst as it was.
+func decodeJSONAllowingEmpty(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true
+		}
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return false
 	}

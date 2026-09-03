@@ -33,9 +33,17 @@ func UpcomingRecurrences(b Board, c Card, from string, weeks int) []string {
 	}
 	taken := map[string]bool{c.Week: true}
 	for _, o := range b.Cards {
-		if o.ItemID != c.ItemID && o.Title == c.Title && o.Team == c.Team &&
-			o.Stage == StageRecurrent && o.Week != "" {
-			taken[o.Week] = true
+		if o.ItemID == c.ItemID || o.Title != c.Title || o.Team != c.Team ||
+			o.Stage != StageRecurrent {
+			continue
+		}
+		// A copy holds its week however it came to stand in one. Reseeding
+		// gives its copy a START and a day and no week at all (CarryOver), so
+		// asking only for a stored week matched none of the copies the board
+		// actually makes: the projection drew a ghost in the very week the
+		// real card was already standing in.
+		if week := weekOf(o); week != "" {
+			taken[week] = true
 		}
 	}
 	out := []string{}
@@ -49,4 +57,18 @@ func UpcomingRecurrences(b Board, c Card, from string, weeks int) []string {
 		return nil
 	}
 	return out
+}
+
+// weekOf is the week a card stands in: the one it was placed in, or — for a
+// card that was never placed but has dates — the week of its start. A copy
+// made by a sprint turn-over is of the second kind, so a rule that reads only
+// the stored field does not see it at all.
+func weekOf(c Card) string {
+	if c.Week != "" {
+		return c.Week
+	}
+	if c.StartDate != "" {
+		return MondayOf(c.StartDate)
+	}
+	return ""
 }

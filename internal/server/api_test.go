@@ -710,3 +710,41 @@ func TestAPIRenameTeam(t *testing.T) {
 		t.Fatalf("rename into a taken name: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// The intent survives a body the client streams.
+//
+// The handler asked ContentLength before reading, and a streamed body declares
+// none (-1), so the body went unread and an explicit "off-board" degraded into
+// the intentless gesture — which hands the card back to its week instead of
+// taking it off the board. A client that streams its request bodies (some HTTP
+// libraries do by default) got the opposite of what it asked for, silently.
+func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
+	today := board.TodayIso()
+	// A card in the working area AND scheduled for a week: the two intents
+	// part company on exactly this card. The intentless gesture hands it back
+	// to its week and leaves it standing; off-board takes it away. A card
+	// without the working area would be deleted either way, and the test
+	// would pass while proving nothing.
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", Assignees: []string{"kvaps"},
+			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/cards/c1/actions/remove",
+		strings.NewReader(`{"intent":"off-board"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.ContentLength = -1 // what a streamed body looks like to the handler
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, r)
+
+	if rec.Code >= http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	// off-board was asked for and off-board is what happened: the card is
+	// gone. Had the body gone unread, the intentless gesture would have handed
+	// it back to its week and left it standing.
+	if got := fake.Card("c1"); got != nil {
+		t.Fatalf("the streamed intent was dropped; card = %+v", got)
+	}
+}

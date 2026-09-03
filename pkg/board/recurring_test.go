@@ -97,3 +97,33 @@ func TestOnlyACalendarRecurrenceIsProjected(t *testing.T) {
 		})
 	}
 }
+
+// The copy a sprint turn-over makes is the one that matters, and it has no
+// week.
+//
+// Reseeding builds its copy from a title, a team, a zone and the day the
+// sprint turned — a start and a day, never a week (Service.CarryOver). The
+// dedup looked only at cards with a stored week, so it never matched the
+// copies the board actually produces: the projection went on drawing a ghost
+// in a week where the real reseeded card was already standing, which is the
+// very double-counting the process projection was written to avoid.
+func TestARecurrentCardSkipsTheWeekASeededCopyStandsIn(t *testing.T) {
+	t.Parallel()
+	card := Card{
+		ItemID: "c1", Title: "Weekly report", Team: "portal",
+		Stage: StageRecurrent, Recurrence: RecurrenceWeek,
+		StartDate: "2026-09-02", Week: "2026-08-31",
+	}
+	seeded := Card{
+		ItemID: "c2", Title: "Weekly report", Team: "portal",
+		Stage: StageRecurrent, Recurrence: RecurrenceWeek,
+		StartDate: "2026-09-07", Day: "2026-09-07", SprintStart: "2026-09-07",
+	}
+	b := Board{Cards: []Card{card, seeded}}
+
+	got := UpcomingRecurrences(b, card, "2026-08-31", 4)
+	want := []string{"2026-09-14", "2026-09-21"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("UpcomingRecurrences = %v, want %v", got, want)
+	}
+}
