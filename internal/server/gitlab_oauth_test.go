@@ -135,6 +135,7 @@ func TestARefusedSessionTokenIsRenewedBeforeTheSessionIsDropped(t *testing.T) {
 		if err != nil {
 			t.Fatalf("New: %v", err)
 		}
+		t.Cleanup(func() { _ = srv.Close() })
 		srv.gitBE.git.pushDelay = 0
 		// The forge refuses the first token and trusts the renewed one.
 		srv.access = tokenAccess{good: map[string]bool{"gl-token-2": true}, grant: rightsOn([]string{"shared"}, []string{"shared"})}

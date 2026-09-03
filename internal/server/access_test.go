@@ -82,6 +82,7 @@ func gitModeServerOver(t *testing.T, access fakeAccess, remotes ...gitstore.Remo
 	}
 	srv.access = access
 	srv.gitBE.git.pushDelay = 0 // tests push by hand; a timer firing after the test races TempDir's cleanup
+	releaseDataDir(t, srv)
 	return srv
 }
 

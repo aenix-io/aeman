@@ -90,11 +90,13 @@ The board lives on one **forge** — GitHub or GitLab (gitlab.com or self-hosted
 
 ## API and MCP server
 
-The same binary drives the board three ways: the embedded UI, a JSON HTTP API under `/api/v1`, and an MCP server for AI agents (`aeman mcp` on stdio, or mounted at `/mcp` in the self-hosted OAuth mode). All of them call the same board service, so a change made by an agent shows up on every open board live. `GET /api/v1` returns a machine-readable catalog of every endpoint; see [docs/api.md](docs/api.md) for the endpoints, the card model, the watch protocol, the MCP tool set and client configuration. The board logic itself is importable: the packages under `pkg/` (domain rules, board service, git storage, MCP tool set) let external tools — e.g. a local, privacy-preserving MCP server over its own clone — run the exact same board contract; see [docs/embedding.md](docs/embedding.md).
+The same binary drives the board three ways: the embedded UI, a JSON HTTP API under `/api/v1`, and an MCP server for AI agents (`aeman mcp` on stdio, `aeman mcp --listen` as a shared loopback daemon, or mounted at `/mcp` in the self-hosted OAuth mode). All of them call the same board service, so a change made by an agent shows up on every open board live. `GET /api/v1` returns a machine-readable catalog of every endpoint; see [docs/api.md](docs/api.md) for the endpoints, the card model, the watch protocol, the MCP tool set and client configuration. The board logic itself is importable: the packages under `pkg/` (domain rules, board service, git storage, MCP tool set) let external tools — e.g. a local, privacy-preserving MCP server over its own clone — run the exact same board contract; see [docs/embedding.md](docs/embedding.md).
 
 ```sh
 aeman mcp --repo board=https://github.com/acme/planning.git   # the MCP server on stdio, over its own clone
 ```
+
+A data directory takes one process, so when several MCP clients share a board, run one daemon for all of them — `aeman service install --repo … --listen 127.0.0.1:8766`, then `claude mcp add --transport http aeman http://127.0.0.1:8766/mcp --scope user`. Nothing authenticates that endpoint and loopback is shared by every account on the host, so the daemon is for a machine whose accounts you trust; on a shared host stay with `aeman mcp` over stdio.
 
 ## Self-hosted deploy (multi-user)
 
