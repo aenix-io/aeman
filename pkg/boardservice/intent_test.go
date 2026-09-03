@@ -106,3 +106,46 @@ func TestUnassignNeedsSomewhereToLeaveTheCard(t *testing.T) {
 		t.Fatal("and nothing is written")
 	}
 }
+
+// UNASSIGN destroys nothing — including a card whose ONLY home is its week,
+// which is what the Triage board makes every time somebody drags a card into
+// a week ahead: a person and a week, no sprint and no dates.
+//
+// The guard admitted such a card (it has a week to be left in) and the arm
+// that hands a card back to its week refused it (it is not in the working
+// area to be taken out of), so it fell through to the delete at the end. Two
+// clicks from the board — drag to next week, ×, "Move it to Unassigned", the
+// safe-looking option that promises the card "stands in the week it is
+// scheduled for" — and a card with work on it was gone. The fixture below
+// hid it: every card in intentBoard() has a sprint and dates, so the test
+// above only ever exercised the safe branch.
+func TestUnassignNeverDeletes(t *testing.T) {
+	today := board.TodayIso()
+	for _, c := range []board.Card{
+		// Dragged to a week ahead: Place clears the dates and the sprint.
+		{ItemID: "ahead", Team: "alpha", Assignees: []string{"bob"},
+			Week: board.MondayOf(today), Progress: 60},
+		// The same card with nobody on it: still a week to stand in.
+		{ItemID: "nobody", Team: "alpha", Week: board.MondayOf(today), Progress: 60},
+		// A subtask with no column of its own, reachable through the API.
+		{ItemID: "kid", Team: "alpha", Parent: "ahead", Week: board.MondayOf(today)},
+	} {
+		f := newFake([]board.Card{
+			{ItemID: "ahead", Team: "alpha", Week: board.MondayOf(today)},
+			c,
+		}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+		if err := New(f).Remove(ctx, "acme", c.ItemID, Unassign); err != nil {
+			t.Fatalf("%s: unassign = %v", c.ItemID, err)
+		}
+		got := f.get(c.ItemID)
+		if got == nil {
+			t.Fatalf("%s: unassign deleted the card; it destroys nothing", c.ItemID)
+		}
+		if got.Week == "" {
+			t.Fatalf("%s: it keeps the week it stands in: %+v", c.ItemID, got)
+		}
+		if len(got.Assignees) != 0 {
+			t.Fatalf("%s: and it comes off the person: %+v", c.ItemID, got)
+		}
+	}
+}

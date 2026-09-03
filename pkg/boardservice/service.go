@@ -1046,6 +1046,33 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string, int
 	if intent == Unassign && c.Parent == "" && !hasColumn(c) && c.Week == "" {
 		return fmt.Errorf("%w: %q", ErrNowhereToLeaveIt, c.Title)
 	}
+	// UNASSIGN destroys nothing, and it says so on the button. It is answered
+	// here rather than left to the gesture below, which asks a different
+	// question: the gesture hands a card back to its week only while the card
+	// is IN the working area, because a card that is nothing but its week has
+	// no second home for the × to hand it to — and so, having nowhere to be
+	// put, it is deleted. That is the right answer to "×" and the wrong one
+	// to "leave it in its week": a card dragged into a week ahead IS nothing
+	// but its week (Place clears the dates and the sprint), so the safe
+	// option deleted the very cards the Triage board makes.
+	if intent == Unassign && c.Week != "" && !hasColumn(c) {
+		if len(c.Assignees) > 0 {
+			if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
+				return err
+			}
+			s.logEvent(ctx, b, c, board.EventAssignee, c.Assignees[0], "")
+		}
+		// A subtask is pulled out of its group first: standing under a parent
+		// is a home of its own, and leaving it there would make the × look
+		// like it had done nothing.
+		if c.Parent != "" {
+			if err := s.ungroupWith(ctx, b, c, false, false); err != nil {
+				return err
+			}
+			c.Parent = ""
+		}
+		return s.leaveWorkingArea(ctx, b, c)
+	}
 	// A subtask has no sprint history of its own: it rides its parent, so
 	// demoting it alone would split the family across two sprints — the very
 	// thing syncChildrenSprint prevents everywhere else — and a subtask left
