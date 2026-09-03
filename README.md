@@ -67,7 +67,7 @@ Ids are ULIDs; files keep unknown keys, so hand edits and other tools survive. `
 
 - A git repository aeman can push to over HTTPS, on GitHub or GitLab (gitlab.com or self-hosted) — `AEMAN_GIT_TOKEN`, or `aeman login` to keep the token in the OS keychain instead — or a local path for a single-user setup.
 - Optionally the forge's CLI, signed in, as another place the local identity and token can come from — depending on where the board repositories live: [GitHub CLI (`gh`)](https://cli.github.com/) (`gh auth login`) or [GitLab CLI (`glab`)](https://gitlab.com/gitlab-org/cli) (`glab auth login`). `aeman login` covers the same ground without either.
-- Go 1.26.4+ and Node.js 20+ to build from source.
+- Go 1.27.1+ and Node.js 20+ to build from source.
 
 ## Build & run
 

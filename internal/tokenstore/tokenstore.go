@@ -46,12 +46,15 @@ func Open(log *slog.Logger) Store { return open(Service, log) }
 // macOS goes through /usr/bin/security: an item written through the native
 // API is bound to the creating binary's code identity, and aeman's own
 // builds are unsigned, so a rebuilt binary could no longer read what it
-// stored. That route has two prices, both spelled out under "aeman login"
-// in docs/api.md: the item lives in the stable "apple-tool" partition and
-// is readable without a prompt by any process of the same user, and the
-// secret is passed to the tool as a command-line argument, so an
-// endpoint-security agent recording argv records it. WithLabel and
-// WithAccessMode do nothing in this mode and are not passed.
+// stored. The price is spelled out under "aeman login" in docs/api.md —
+// the item lives in the stable "apple-tool" partition and is readable
+// without a prompt by any process of the same user. The token itself
+// reaches the tool on its standard input, not in argv, so it is not in
+// the process list; the library falls back to argv only for a command
+// line past what the tool reads per command, or a key holding a newline
+// or a NUL, and aeman's keys are a constant service and a forge host.
+// WithLabel and WithAccessMode do nothing in this mode and are not
+// passed.
 func open(service string, log *slog.Logger) Store {
 	kc := keychain.New(keychain.WithSecurityCLI(), keychain.WithLogger(log))
 	return &osStore{service: service, kc: kc, read: kc.Get}

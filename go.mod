@@ -1,12 +1,12 @@
 module github.com/aenix-io/aeman
 
-go 1.26.4
+go 1.27.1
 
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/go-git/go-billy/v5 v5.9.0
 	github.com/go-git/go-git/v5 v5.19.2
-	github.com/lexfrei/keychain v1.1.1
+	github.com/lexfrei/keychain v1.2.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -18,7 +18,7 @@ require (
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
-	github.com/ebitengine/purego v0.10.1 // indirect
+	github.com/ebitengine/purego v0.11.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
