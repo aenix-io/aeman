@@ -801,6 +801,22 @@ func TestEnvCLIAsksTheForgeOncePerToken(t *testing.T) {
 // flags ten harmless uses — a real forge is how a test says "GitHub's
 // variable names" — while missing the one shape that matters, a fake-
 // looking forge whose base is real.
+// refusingTool stands in for the source that execs the machine's own gh
+// or glab. Constructing it has to keep working, because cliFor builds the
+// whole chain before anything is asked; being ASKED is what no test may
+// do, since the answer would be the credential of whoever runs the suite
+// and the caller would then compare or print it. A test that wants a tool
+// source installs its own.
+type refusingTool struct{}
+
+func (refusingTool) Token(context.Context) (string, error) {
+	panic("a test asked the machine's real gh or glab: install a stand-in for forgeToolCLI")
+}
+
+func (refusingTool) Login(context.Context) (string, error) {
+	panic("a test asked the machine's real gh or glab: install a stand-in for forgeToolCLI")
+}
+
 func TestMain(m *testing.M) {
 	restore := nonet.Block()
 	// The commands build the real keychain, and logout deletes from it
@@ -811,6 +827,7 @@ func TestMain(m *testing.M) {
 	openStore = func(*slog.Logger) tokenstore.Store {
 		panic("a test reached the real OS keychain: pass a tokenstoretest.Fake instead of calling a command entry point")
 	}
+	forgeToolCLI = func(forge.Forge) forge.CLI { return refusingTool{} }
 	code := m.Run()
 	restore()
 	os.Exit(code)
@@ -947,6 +964,64 @@ func TestEnvCLIRemembersAForgeThatCouldNotAnswer(t *testing.T) {
 	if n := calls.Load(); n != 3 {
 		t.Fatalf("the forge was asked %d times, want 3: another token is another question", n)
 	}
+}
+
+// The order of the chain cliFor builds — the forge's variables, then the
+// keychain, then the forge's own tool — is G61's headline rule, and until
+// this test nothing CI runs held it: the substantive test of cliFor gave
+// it an empty environment and the chain tests assemble &chain{} by hand,
+// so moving the keychain in front of the environment, or the tool in
+// front of both, stayed green. All three sources answer here, each with a
+// token that says which one it is.
+func TestCliForAsksTheEnvironmentThenTheKeychainThenTheTool(t *testing.T) {
+	ctx := context.Background()
+	f, client := fakeForge(t, map[string]string{
+		"from-env": "envperson", "from-store": "storeperson", "from-tool": "toolperson",
+	})
+	defer func(prev func(forge.Forge) forge.CLI) { forgeToolCLI = prev }(forgeToolCLI)
+	forgeToolCLI = func(forge.Forge) forge.CLI {
+		return &fakeCLI{token: "from-tool", login: "toolperson"}
+	}
+	store := tokenstoretest.NewFake().Put(f.Host(), "from-store")
+	env := func(k string) string {
+		if k == "GITHUB_TOKEN" {
+			return "from-env"
+		}
+		return ""
+	}
+	log, _ := testLog()
+
+	// All three present: the environment answers.
+	if tok, err := cliFor(f, store, env, log).Token(ctx); err != nil || tok != "from-env" {
+		t.Fatalf("with all three sources: err=%v, source=%s", err, whichSource(tok))
+	}
+	// Environment empty: the keychain answers, not the tool.
+	empty := func(string) string { return "" }
+	if tok, err := cliFor(f, store, empty, log).Token(ctx); err != nil || tok != "from-store" {
+		t.Fatalf("with no environment token: err=%v, source=%s", err, whichSource(tok))
+	}
+	// Neither: the tool answers last.
+	if tok, err := cliFor(f, tokenstoretest.NewFake(), empty, log).Token(ctx); err != nil || tok != "from-tool" {
+		t.Fatalf("with only the tool: err=%v, source=%s", err, whichSource(tok))
+	}
+	_ = client
+}
+
+// whichSource names the source a token came from without printing the
+// token, so a failure here says what went wrong and carries nothing that
+// could be a credential if the chain ever reached a real source.
+func whichSource(tok string) string {
+	switch tok {
+	case "from-env":
+		return "environment"
+	case "from-store":
+		return "keychain"
+	case "from-tool":
+		return "forge tool"
+	case "":
+		return "none"
+	}
+	return "unrecognised"
 }
 
 // The environment's source keeps the same rule: a caller that gave up

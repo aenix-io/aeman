@@ -24,6 +24,17 @@ import (
 // ask under a lock, and http.DefaultClient never gives up.
 const forgeTimeout = 30 * time.Second
 
+// forgeToolCLI is the forge's own command-line tool as the last source. A
+// variable because it is the one source a test cannot supply: it execs
+// whatever gh or glab the machine has, so the order of the chain cannot
+// be asserted end to end without standing in for it.
+var forgeToolCLI = func(f forge.Forge) forge.CLI {
+	if f != nil && f.Kind() == forge.GitLab {
+		return glabcli.New(f.Host())
+	}
+	return ghcli.NewTokenSource()
+}
+
 // cliFor is where a single-user run reads its credential and identity: the
 // forge's token variables, the OS keychain that `aeman login` writes, then
 // the forge's own command-line tool — gh for GitHub, glab for GitLab, the
@@ -43,11 +54,7 @@ func cliFor(f forge.Forge, store tokenstore.Store, env func(string) string, log 
 			sources = append(sources, tokenstore.NewCLI(store, f, nil))
 		}
 	}
-	if f != nil && f.Kind() == forge.GitLab {
-		sources = append(sources, glabcli.New(f.Host()))
-	} else {
-		sources = append(sources, ghcli.NewTokenSource())
-	}
+	sources = append(sources, forgeToolCLI(f))
 	return &chain{sources: sources, forge: f, log: log}
 }
 
