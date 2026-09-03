@@ -1465,6 +1465,14 @@ func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, s
 	if err != nil {
 		return err
 	}
+	// A stage the board has no such thing as is refused before anything is
+	// written. Nothing checked the NAME, so a caller could file a card under a
+	// stage that exists nowhere: it comes back wearing something the frontend
+	// drops on the way in, and reads as ordinary work in progress — a green
+	// bar, no clamp, and none of the rules the real stage carries.
+	if _, known := board.Stages[stage]; !known && stage != board.StageNone {
+		return fmt.Errorf("%w: no such stage %q", ErrInvalidStage, stage)
+	}
 	// A review card is auxiliary and one-off: it cannot be made recurrent.
 	if stage == board.StageRecurrent && card.ReviewOf != "" {
 		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)

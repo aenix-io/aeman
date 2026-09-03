@@ -77,3 +77,38 @@ func TestAnyoneCanAnswerARefusal(t *testing.T) {
 		t.Fatalf("stage = %q, want locked", got.Stage)
 	}
 }
+
+// A stage the board has no such thing as is refused, and nothing is written.
+//
+// Nothing validated the NAME: SetStage took whatever StageKey it was handed
+// and stored it, so a caller could file a card under a stage that exists
+// nowhere — in the domain, in the UI, or in the reader that draws the bar.
+// Such a card comes back from the repository wearing a stage the frontend
+// drops on the way in (STAGE_KEYS in web/src/api/resources.ts), which makes it
+// look like ordinary work in progress: a green bar, no clamp, and none of the
+// rules the real stage carries. The MCP schema handed callers the trap ready
+// made, naming the refuse stage "refused" — one letter, and the card lands in
+// a stage that does not exist rather than being told the name is wrong.
+func TestAStageTheBoardDoesNotHaveIsRefused(t *testing.T) {
+	for _, name := range []string{"refused", "REFUSE", "blocked", "in-progress"} {
+		f := newFake([]board.Card{{ItemID: "c1", Assignees: []string{"kvaps"}, Progress: 40}}, nil)
+		err := New(f).SetStage(board.WithActor(ctx, "kvaps"), "acme", "c1", board.StageKey(name))
+		if !errors.Is(err, ErrInvalidStage) {
+			t.Fatalf("SetStage(%q) = %v, want ErrInvalidStage", name, err)
+		}
+		if got := f.get("c1"); got.Stage != board.StageNone || got.Progress != 40 {
+			t.Fatalf("SetStage(%q) wrote %+v; a refused name changes nothing", name, got)
+		}
+	}
+}
+
+// The names the board DOES have still pass, the empty one included: it is how
+// a stage is cleared, and the guard must not close that door.
+func TestEveryStageTheBoardHasIsAccepted(t *testing.T) {
+	for _, stage := range append([]board.StageKey{board.StageNone}, board.StageOrder...) {
+		f := newFake([]board.Card{{ItemID: "c1", Assignees: []string{"kvaps"}, Progress: 40}}, nil)
+		if err := New(f).SetStage(board.WithActor(ctx, "kvaps"), "acme", "c1", stage); err != nil {
+			t.Fatalf("SetStage(%q) = %v", stage, err)
+		}
+	}
+}

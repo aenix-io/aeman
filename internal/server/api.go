@@ -1907,7 +1907,7 @@ func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
 		return board.StageKey(name), true
 	}
 	writeJSONError(w, http.StatusBadRequest,
-		"unknown stage (locked, review, recurrent, refused, done or empty)")
+		"unknown stage (locked, review, recurrent, refuse, done or empty)")
 	return "", false
 }
 
