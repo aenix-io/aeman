@@ -9,7 +9,7 @@ A typical embedder is a **local MCP server**: it clones the board's repository i
 | Package | What it is |
 | --- | --- |
 | `pkg/board` | The pure domain: card/board model, date and visibility rules, stage/progress/zone semantics, rank keys, the domain (repository) rule, the visibility projection, link extraction. No I/O. |
-| `pkg/boardservice` | The rules engine over a `Backend` interface: create/patch admission, defer, the smart remove, the review cycle, carry-over/carry-week, the activity log. This is the contract. |
+| `pkg/boardservice` | The rules engine over a `Backend` interface: create/patch admission, defer, the smart remove, the review cycle, carry-over, the activity log. This is the contract. |
 | `pkg/gitstore` | The git storage: the repository layout and file formats, one commit per action with trailers, shallow clone / deepen / push / rebase, the card log read from commits. `*gitstore.Backend` (one repository) and `*gitstore.MultiBackend` (a board of several domains) satisfy `boardservice.Backend`. |
 | `pkg/apiserver` | The resource layer: Card/Sprint/Note/Ordering shapes (`{kind, metadata, spec, status}`), semantic zones, view selectors. |
 | `pkg/mcpserver` | The full MCP tool set over a backend. |
@@ -84,7 +84,7 @@ ctx = board.WithActor(ctx, "octocat") // commits are authored by the actor
 // by its primary repository:
 b, _ := svc.Board(ctx, "aeman-db")           // load
 _ = svc.Defer(ctx, "aeman-db", uid, 1)       // the +1d rule, incl. same-day relocation
-_ = svc.Remove(ctx, "aeman-db", uid, "grid") // release / delete by board rules
+_ = svc.Remove(ctx, "aeman-db", uid, boardservice.Unassign) // or OffBoard, or "" to let the gesture decide
 rep, _ := svc.CarryOver(ctx, "aeman-db", "team", false)
 _ = repo.Push(ctx, remote)                   // one push for what accumulated
 ```
@@ -99,9 +99,23 @@ A tool that edits the repository directly (a plugin driving `git` itself) must r
 
 ## Contract changes in this line
 
+**`Service.Remove` takes a `RemoveIntent`.** The × asks which of two things is
+meant and the request carries the answer: `boardservice.Unassign` empties the
+working area and leaves the card in the week or column that still holds it,
+`boardservice.OffBoard` takes it away with the subtask pieces that went with
+it, and `RemoveAuto` (the empty value) lets the gesture decide as it always
+did — so a call that passes `""` reads exactly as before. Each is taken at its
+word: `OffBoard` on a Project-board slot or a process turn is refused
+(`ErrNotYoursToDestroy`), and `Unassign` with nowhere to leave the card is
+refused (`ErrNowhereToLeaveIt`) rather than stranding it. Beware the shape of
+the break: `RemoveIntent` is a string type, so an old call passing an untyped
+string constant — `"grid"`, say — still COMPILES, matches no intent, and
+silently degrades to `RemoveAuto`. Pass one of the three named values.
+
+
 `pkg/board` lost `MirrorAllowed` and gained `ColumnDomain` and `Followers`. The removal is the point of the change, not collateral: `MirrorAllowed` compared two PROJECTS' repositories, and a project name may be declared in two repositories with its columns merged under one entry, so it answered for the wrong thing — and answered "no" for every column of no project. `ColumnDomain(b, project, epic)` asks the column itself, which is what the server asks wherever a placement is judged. `Followers(b, id)` lists the cards whose file moves with one — its subtasks and its review card, transitively — for a caller that needs to know what a re-file drags along.
 
-Added in the same line: `board.Board.Primary` (the repository a board's own entries belong to), `board.NewBoardIn` (the assembly, told that name — its own rules ask "the same repository?" while it runs), `board.HomeDomain` (which repository holds a card, in that one namespace), `board.FileDomain` (where a card's FILE is, in the same namespace — the question a rule about the references written IN the file asks), `board.ColumnDomain`, `board.Followers`, `board.InProject` (a card stands in a project through its home pair OR any mirror — what the `?view=project&project=` listing answers by), `boardservice.ErrPlanSubtask`, `apiserver.EpicRef.Domain` and `boardservicetest.Backend.InRepository`.
+Added in the same line: `board.Board.Primary` (the repository a board's own entries belong to), `board.NewBoardIn` (the assembly, told that name — its own rules ask "the same repository?" while it runs), `board.HomeDomain` (which repository holds a card, in that one namespace), `board.FileDomain` (where a card's FILE is, in the same namespace — the question a rule about the references written IN the file asks), `board.ColumnDomain`, `board.Followers`, `board.InProject` (a card stands in a project through its home pair OR any mirror — what the `?view=project&project=` listing answers by), `boardservice.ErrSubtaskWeek`, `apiserver.EpicRef.Domain` and `boardservicetest.Backend.InRepository`.
 
 **Reading a past day is opt-in for a backend.** `boardservice.AsOfReader` — one method, `LoadBoardAsOf(ctx, boardID, at) (board.Board, bool, error)` — is what `Service.BoardAsOf` looks for; storage that keeps history implements it (both gitstore backends do, by reading the tree at the last commit before that moment), and storage that holds only the present simply does not. `ok=false` means the moment is behind what the storage still holds, which the service reports as `ErrHistoryTruncated`; a backend that does not implement the interface at all yields `ErrNoHistory`. Neither is an error your writes have to handle: a board with no history just has no past days (G60).
 

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { addDays, todayIso } from "./date";
+import { WEEKS_FWD } from "./weekgrid";
 import {
   queryString,
   snapshotDay,
+  TRIAGE_WEEKS,
   viewQueries,
   watchQueries,
   watchQuery,
@@ -27,11 +29,10 @@ describe("viewQueries", () => {
     ]);
   });
 
-  it("fetches the Team board as the day grid PLUS the weekly plan", () => {
+  it("fetches the Team board as the day grid of the shown teams", () => {
     const qs = viewQueries("team", TODAY, ["alpha", "beta"], undefined, false, TODAY);
     expect(qs).toEqual([
       { view: "team", team: "alpha,beta", day: TODAY, reviews: "true" },
-      { view: "weekly", team: "alpha,beta", week: "2026-06-29" },
     ]);
   });
 
@@ -67,13 +68,11 @@ describe("viewQueries", () => {
 describe("snapshot selectors", () => {
   const PAST = "2026-07-01";
 
-  it("asks for a past day as it was, on the grid and on its plan panel", () => {
+  it("asks for a past day as it was", () => {
     const qs = viewQueries("team", PAST, ["portal"], undefined, false, TODAY);
-    expect(qs[0]).toMatchObject({ view: "team", day: PAST, snapshot: "1" });
-    // The panel rides with the grid and must be of the same moment: a
-    // historical grid beside a live panel is the confusion the snapshot
-    // exists to remove. The week alone does not name a moment; the day does.
-    expect(qs[1]).toMatchObject({ view: "weekly", day: PAST, snapshot: "1" });
+    expect(qs).toEqual([
+      { view: "team", team: "portal", day: PAST, reviews: "true", snapshot: "1" },
+    ]);
   });
 
   it("asks for the Me board of a past day, personal column included", () => {
@@ -175,5 +174,25 @@ describe("queryString", () => {
     const a = queryString(watchQuery("me", TODAY, []));
     const b = queryString(watchQuery("me", TODAY, ["ignored-for-me"]));
     expect(a).toBe(b);
+  });
+});
+
+// The Triage board asks for exactly the weeks it draws.
+//
+// They were two separate numbers — six fetched, nine drawn — and the rows past
+// the window were a trap: a card dropped in one carried a week the listing
+// does not return, so after the next reload it stood on no board at all. Not
+// Triage (outside the window), not the day boards (a week ahead is on none),
+// not Project (no column). A live card openable only by its uid.
+describe("the Triage window", () => {
+  it("covers every row the grid draws", () => {
+    // The grid runs from this Monday through WEEKS_FWD after it, inclusive.
+    expect(TRIAGE_WEEKS).toBe(WEEKS_FWD + 1);
+  });
+
+  it("asks the server for that window, starting at this Monday", () => {
+    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, false, TODAY);
+    expect(q.view).toBe("triage");
+    expect(q.weeks).toBe(String(TRIAGE_WEEKS));
   });
 });

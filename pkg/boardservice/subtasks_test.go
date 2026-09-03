@@ -48,19 +48,19 @@ func TestSetParentOneLevelOnly(t *testing.T) {
 	}
 }
 
-func TestSetParentWeeklyCardHandsSlotToParent(t *testing.T) {
+func TestSetParentHandsTheWeekToTheParent(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "p", Team: "alpha"},
-		{ItemID: "w", Team: "alpha", Plan: board.PlanWed, Week: "2026-01-05"},
+		{ItemID: "w", Team: "alpha", Week: "2026-01-05"},
 	}, nil)
 	if err := f2svc(f).SetParent(ctx, "acme", "w", "p"); err != nil {
 		t.Fatal(err)
 	}
-	if f.get("p").Plan != board.PlanWed || f.get("p").Week != "2026-01-05" {
-		t.Fatalf("parent did not take the weekly slot: %+v", f.get("p"))
+	if f.get("p").Week != "2026-01-05" {
+		t.Fatalf("the parent did not take the week: %+v", f.get("p"))
 	}
-	if f.get("w").Plan != board.PlanNone || f.get("w").Week != "" {
-		t.Fatalf("subtask kept its plan: %+v", f.get("w"))
+	if f.get("w").Week != "" {
+		t.Fatalf("the subtask kept a week of its own: %+v", f.get("w"))
 	}
 }
 
@@ -312,7 +312,7 @@ func TestSmartRemoveTakesSubtasksWithIt(t *testing.T) {
 	}, map[string]board.SprintState{
 		"alpha": {Current: "2026-01-10", Previous: "2026-01-03"},
 	})
-	if err := f2svc(f).Remove(ctx, "acme", "p", "grid"); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "p", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("p") != nil {
@@ -341,28 +341,28 @@ func TestDeleteParentReleasedChildInheritsAssignee(t *testing.T) {
 }
 
 // A card created today has no earlier sprint to demote into, and with no
-// band and no column it is nowhere else either: the × empties its only home
-// and the subtasks ride along into the delete. In a band, the same parent is
-// handed back to it instead — which is what this checks, so the cascade is
-// not mistaken for the rule.
-func TestSmartRemoveCreatedTodayHandsBackAParentThatHasABand(t *testing.T) {
+// week and no column it is nowhere else either: the × empties its only home
+// and the subtasks ride along into the delete. Scheduled for a WEEK, the
+// same parent is handed back to it instead — which is what this checks, so
+// the cascade is not mistaken for the rule.
+func TestSmartRemoveCreatedTodayHandsBackAParentThatHasAWeek(t *testing.T) {
 	today := board.TodayIso()
 	f := newFake([]board.Card{
 		{ItemID: "p", Team: "alpha", StartDate: today, SprintStart: today, Assignees: []string{"bob"},
-			Plan: board.PlanFri, Week: board.MondayOf(today)},
+			Week: board.MondayOf(today)},
 		{ItemID: "c", Team: "alpha", Parent: "p", StartDate: today, SprintStart: today},
 	}, map[string]board.SprintState{
 		"alpha": {Current: today, Previous: "2026-01-03"},
 	})
-	if err := f2svc(f).Remove(ctx, "acme", "p", "grid"); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "p", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	p := f.get("p")
 	if p == nil {
 		t.Fatalf("a created-today card is handed back, not deleted; log=%v", f.log)
 	}
-	if len(p.Assignees) != 0 || p.SprintStart != "" || p.Plan == board.PlanNone {
-		t.Fatalf("it leaves the person and the sprint for the weekly plan: %+v", p)
+	if len(p.Assignees) != 0 || p.SprintStart != "" || p.Week == "" {
+		t.Fatalf("it leaves the person and the sprint for the week it is owed in: %+v", p)
 	}
 	// Nothing was destroyed, so the subtask stays nested under its parent
 	// instead of being orphaned into a standalone card.
@@ -388,17 +388,16 @@ func TestDoneOnRecurrentKeepsRecurrence(t *testing.T) {
 	}
 }
 
-// Grouping a weekly-plan card under a Project-board SLOT: the plan hand-off
-// must not write the subtask's week onto the parent — a slot's week derives
-// from its start date, the conflicting write is refused, and the refusal
-// killed the whole grouping. A slot is on the Weekly panel by its span
-// already; the subtask's plan simply clears.
-func TestGroupPlanCardUnderASlot(t *testing.T) {
+// Grouping a card scheduled for a WEEK under a Project-board SLOT: the
+// hand-off must not write the subtask's week onto the parent — a slot's week
+// derives from its start date, the conflicting write is refused, and the
+// refusal killed the whole grouping. A slot has a row of its own already;
+// the subtask's week simply clears.
+func TestGroupACardOfAWeekUnderASlot(t *testing.T) {
 	fake := newFake([]board.Card{
 		{ItemID: "slot", Title: "the slot", Epic: "E", Project: "P", Team: "t",
 			StartDate: "2026-08-25", Week: "2026-08-24", Day: "2026-09-11"},
-		{ItemID: "c1", Title: "plan card", Team: "t",
-			Plan: board.PlanFri, Week: "2026-08-31"},
+		{ItemID: "c1", Title: "a card of a week", Team: "t", Week: "2026-08-31"},
 	}, nil)
 	svc := New(fake)
 	ctx := t.Context()
@@ -418,11 +417,11 @@ func TestGroupPlanCardUnderASlot(t *testing.T) {
 	if child.Parent != "slot" {
 		t.Fatalf("child parent = %q, want slot", child.Parent)
 	}
-	if child.Plan != board.PlanNone {
-		t.Fatalf("the subtask kept its plan band %q", child.Plan)
+	if child.Week != "" {
+		t.Fatalf("the subtask kept a week of its own: %q", child.Week)
 	}
-	if parent.Plan != board.PlanNone || parent.Week != "2026-08-24" {
-		t.Fatalf("the slot was rewritten: band %q week %q", parent.Plan, parent.Week)
+	if parent.Week != "2026-08-24" {
+		t.Fatalf("the slot's row was rewritten: week %q", parent.Week)
 	}
 }
 

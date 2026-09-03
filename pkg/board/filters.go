@@ -21,12 +21,35 @@ func TeamGrid(b Board, team, day string) []Card {
 		if c.Team != team {
 			continue
 		}
+		// A card placed in a week ahead is in the backlog, not on any day,
+		// until its Monday (B1).
+		if PlacedAhead(c, today) {
+			continue
+		}
+		// The WEEK's own work stands on the grid all week — in its person's
+		// column, or in Unassigned when nobody has taken it. This is the set
+		// the Triage board shows for that week: what the weekly panel used
+		// to hold beside the grid, now in the grid itself, so a card placed
+		// in a week is not invisible until somebody gives it a day. A slot
+		// covering the week is part of that set, which is why this stands
+		// above the epic gate rather than below it.
+		//
+		// A DEFERRED card is not, though. Deferring is the act of taking a
+		// card off the board until a later day, and its week says when the
+		// work is due, not that it should still be drawn today: a card pushed
+		// a month out went on standing in this week's grid, on a board the
+		// person had just cleared it from. The rule below says the same thing
+		// about the days; this says it about the week.
+		if !deferred(c, today) && InWeek(c, MondayOf(day), today) {
+			out = append(out, c)
+			continue
+		}
 		// An epic card lives on the Project board until it joins a sprint (see
 		// MeView) — its multi-week span must not smear across the day grid.
 		// The COLUMN is what keeps it there, and a column needs the epic
 		// side: a card carrying only a project name is on no Project board
-		// (ProjectBoard.tsx renders columns, WeeklyPlanAt derives slots — both
-		// by the epic), so hiding it here would leave it nowhere at all.
+		// (ProjectBoard.tsx renders columns by the epic), so hiding it here
+		// would leave it nowhere at all.
 		if c.Epic != "" && c.SprintStart == "" {
 			continue
 		}
@@ -40,7 +63,7 @@ func TeamGrid(b Board, team, day string) []Card {
 		// sprint is never history: deferring a card is precisely the act of
 		// taking it out of the sprint in progress, so it must leave that day at
 		// once — even when the sprint opened days ago (no carry-over since).
-		if c.StartDate != "" && c.StartDate > today {
+		if deferred(c, today) {
 			pastSprintDay := c.SprintStart != "" && day == c.SprintStart &&
 				c.SprintStart < today && c.SprintStart != CurrentSprint(b, c.Team)
 			if day == c.StartDate || inRange || pastSprintDay {
@@ -108,6 +131,10 @@ func MeView(b Board, user, day string) []Card {
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {
 			continue
 		}
+		// A card placed in a week ahead waits in the backlog (B1).
+		if PlacedAhead(c, today) {
+			continue
+		}
 		// A deferred / future-scheduled card (startDate past today) is hidden
 		// until that day, then shows from it on (Carry Over re-syncs its sprint).
 		if c.StartDate != "" && c.StartDate > today {
@@ -130,7 +157,7 @@ func MeView(b Board, user, day string) []Card {
 		// cards scheduled into the sprint active on the viewed day (or later)
 		// qualify: an old sprint-less stray stays on its own past days instead
 		// of resurfacing on today's board.
-		if c.SprintStart == "" && c.Plan == PlanNone && c.StartDate != "" &&
+		if c.SprintStart == "" && c.StartDate != "" &&
 			c.StartDate <= day && c.StartDate >= as {
 			out = append(out, c)
 			continue
@@ -145,129 +172,6 @@ func MeView(b Board, user, day string) []Card {
 	return out
 }
 
-// WeeklyBands holds a week's plan cards split into the two deadline bands. It
-// mirrors the { wed, fri } shape of the `weekly` memo in TeamBoard.tsx.
-type WeeklyBands struct {
-	Wed []Card `json:"wed"`
-	Fri []Card `json:"fri"`
-}
-
-// WeeklyPlan returns a single team's weekly-plan cards for a given week (a Monday
-// from MondayOf), split into the Wed/Fri bands. A card qualifies when it has a
-// plan band, its week equals `week`, and it matches the team ("" = the no-team
-// group). Only the Fri band collects cards explicitly marked PlanFri; every other
-// plan card falls into Wed. It mirrors the `weekly` memo in TeamBoard.tsx.
-func WeeklyPlan(b Board, team, week string) WeeklyBands {
-	return WeeklyPlanAt(b, team, week, TodayIso())
-}
-
-// WeeklyPlanAt is WeeklyPlan against an explicit "today" (testable).
-func WeeklyPlanAt(b Board, team, week, today string) WeeklyBands {
-	bands := WeeklyBands{Wed: []Card{}, Fri: []Card{}}
-	for _, c := range b.Cards {
-		// A Project-board slot needs no stored band to be the week's work:
-		// its span IS its plan, and the band derives from the end date. A
-		// band-less card that is not a slot still stays off the panel.
-		slot := c.Epic != "" && c.Week != "" && c.Day != ""
-		if (c.Plan == PlanNone && !slot) || c.Team != team || !planShowsInWeekAt(c, week, today) {
-			continue
-		}
-		// A SUBTASK has no plan membership of its own: grouping hands its
-		// slot to the parent, and the panel draws it as a RIDER under that
-		// parent (the board's own comment: "they are not plan cards — they
-		// just ride along visibly"). One that carries a COLUMN derives a
-		// week from its dates all the same, and that put it in the band as
-		// a row of its own — beside the very parent it rides, so the card
-		// appeared twice and the group looked like it had strays floating
-		// next to it.
-		if c.Parent != "" {
-			continue
-		}
-		switch {
-		// A DEBT — owed in a week already past, shown here beside this
-		// week's own work — goes in the by-Wednesday band. Its own band
-		// belonged to the week it missed, and the deadline it faces now is
-		// the nearest one of the week it is standing in; under "by Friday"
-		// a card that is already late read as one with time left.
-		case owedIn(c) != "" && owedIn(c) < week:
-			bands.Wed = append(bands.Wed, c)
-		// The derived band. Only the week the slot ENDS in can be a
-		// by-Wednesday week; every earlier covered week holds the slot open
-		// through its Friday. A stored band never reaches this arm — hand
-		// placement outranks derivation, so deriving cannot move a card.
-		case c.Plan == PlanNone:
-			if MondayOf(c.Day) == week && c.Day <= AddDays(week, 2) {
-				bands.Wed = append(bands.Wed, c)
-			} else {
-				bands.Fri = append(bands.Fri, c)
-			}
-		// A week-history entry (the card has moved on to a later week) sits in
-		// the by-Friday band of the past week: it stayed open through that
-		// week's end, and its current band describes the week it lives in now.
-		case c.Plan == PlanFri || c.Week != week:
-			bands.Fri = append(bands.Fri, c)
-		default:
-			bands.Wed = append(bands.Wed, c)
-		}
-	}
-	return bands
-}
-
-// owedIn is the week a card was owed in: the one it belongs to, or — for a
-// Project-board slot, whose span IS its plan — the week its span ENDS in,
-// which is the only week of that span with a deadline in it. "" for a card
-// that names neither. Mirrored in web/src/weekly.ts (owedIn).
-func owedIn(c Card) string {
-	if c.Plan == PlanNone && c.Epic != "" && c.Day != "" {
-		return MondayOf(c.Day)
-	}
-	return c.Week
-}
-
-// planShowsInWeekAt reports whether a plan card belongs on week W's panel: its
-// own week, or — mirroring the day grid's sprint history — any FINISHED week
-// it was actually worked in. A card taken into work that was moved forward
-// keeps showing in the weeks it was worked once those weeks are over (their
-// Friday has passed); while a week is still running, a card deliberately
-// pushed to a future week leaves its panel — it is not this week's work
-// anymore. A pure (never-started) plan card moves with its week and leaves no
-// history.
-func planShowsInWeekAt(c Card, week, today string) bool {
-	if c.Week == week {
-		return true
-	}
-	// A debt follows you: a plan card still open past the day it was owed by
-	// shows on the CURRENT week's panel too, beside that week's own work,
-	// without leaving the week it was owed in. It used to take a carry to
-	// bring it forward, and the carry moved it — so the week that was missed
-	// forgot it had been. Only the current week: the panel of some other
-	// future week is not where anyone settles debts.
-	if week == MondayOf(today) && c.Week < week && Overdue(c, today) {
-		return true
-	}
-	// A Project-board slot spans weeks by design: it belongs to every week
-	// between its two boundaries, not only to the one it starts in. Otherwise
-	// a slot carried over (which moves its END) would vanish from the panel of
-	// the very week it was carried into.
-	if c.Epic != "" && c.Week != "" && c.Day != "" &&
-		c.Week <= week && week <= MondayOf(c.Day) {
-		return true
-	}
-	// History only in weeks whose working days are over: past the week's
-	// Friday (the plan's bands are wed/fri deadlines; the weekend belongs to
-	// wrap-up, not new placement).
-	if today <= AddDays(week, 4) {
-		return false
-	}
-	// The "began work" anchor is the earliest of the start date and the sprint
-	// join — take-into-plan sets the sprint but not necessarily a start date.
-	started := c.StartDate
-	if c.SprintStart != "" && (started == "" || c.SprintStart < started) {
-		started = c.SprintStart
-	}
-	return started != "" && c.Week > week && MondayOf(started) <= week
-}
-
 // childAssigned reports whether any subtask of a card is assigned to user —
 // the personal board shows the parent when the person owns only a subtask.
 func childAssigned(b Board, itemID, user string) bool {
@@ -277,4 +181,13 @@ func childAssigned(b Board, itemID, user string) bool {
 		}
 	}
 	return false
+}
+
+// deferred reports that a card has been scheduled AWAY from today: its start
+// date is still to come. Such a card lives on that day (and through its range)
+// and is hidden everywhere else until the day arrives — on the day grid, and
+// equally in the week it is due in, which is where it went on being drawn
+// after somebody had deliberately taken it off today's board.
+func deferred(c Card, today string) bool {
+	return c.StartDate != "" && c.StartDate > today
 }

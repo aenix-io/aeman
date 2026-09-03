@@ -170,7 +170,7 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 	// Process boards lay every week out at once — a day means nothing there —
 	// so the flag is ignored and the live board answers, which is what
 	// docs/api.md, docs/dates.md and G60 all say.
-	for _, view := range []string{"project", "all", "weekly"} {
+	for _, view := range []string{"project", "all", "triage"} {
 		items, asOf, _ := read("view=" + view + "&day=2026-08-21&snapshot=1")
 		if asOf != "" {
 			t.Fatalf("view=%s claimed a moment (%s); only Me and Team have days", view, asOf)

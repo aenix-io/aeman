@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Board,
   Card as CardModel,
@@ -6,7 +6,7 @@ import type {
   Provider,
 } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
-import { addDays, mondayOf, todayIso, weeksBetween } from "../date";
+import { addDays } from "../date";
 import { teamColor, teamInitial } from "../avatar";
 import { cardDomainBadge, offerableTeams } from "../domains";
 import {
@@ -37,13 +37,16 @@ import { STAGES } from "../stages";
 import { TeamChips } from "./TeamChips";
 import { ZoomControl } from "./ZoomControl";
 import {
-  MIN_COL_PX,
-  type Zoom,
-  anchoredScroll,
-  clampZoom,
-  columnFactor,
-  wheelZoom,
-} from "../projectZoom";
+  type Laned,
+  type Pin,
+  extentOf,
+  isoWeekNo,
+  laneStyle,
+  packLanes,
+  weekLabel,
+} from "../weekgrid";
+import { WeekGrid } from "./WeekGrid";
+import { useWeekGrid } from "./useWeekGrid";
 
 interface ProjectBoardProps {
   board: Board;
@@ -66,35 +69,8 @@ interface ProjectBoardProps {
   onOpen: (card: CardModel) => void;
 }
 
-/** isoWeekNo is the ISO-8601 week number of a Monday. */
-function isoWeekNo(monday: string): number {
-  const [y, m, d] = monday.split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  const jan4 = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
-  const week1Mon = new Date(jan4);
-  week1Mon.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7));
-  const diff = Math.round((date.getTime() - week1Mon.getTime()) / 86400000);
-  if (diff < 0) {
-    // The Monday belongs to the previous year's last ISO week.
-    const prevJan4 = new Date(Date.UTC(date.getUTCFullYear() - 1, 0, 4));
-    const prevW1 = new Date(prevJan4);
-    prevW1.setUTCDate(prevJan4.getUTCDate() - ((prevJan4.getUTCDay() + 6) % 7));
-    return Math.floor((date.getTime() - prevW1.getTime()) / (7 * 86400000)) + 1;
-  }
-  return Math.floor(diff / 7) + 1;
-}
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 /** How far the pointer must travel before a press on a card becomes a drag. */
 const DRAG_SLOP = 4;
-const HEADER_PX = 26;
-const WEEK_STEP = 8;
-
-function weekLabel(monday: string): string {
-  const [, m, d] = monday.split("-").map(Number);
-  return `${String(d).padStart(2, "0")} ${MONTHS[m - 1]}`;
-}
 
 /** complete reports whether a card is finished — the board's own rule. */
 function complete(card: CardModel): boolean {
@@ -156,46 +132,13 @@ const LS_ZOOM = "aeman.projectZoom";
  *  crossing the card on the way somewhere else never moves it. */
 const NUDGE_PX = 13;
 const NUDGE_DELAY_MS = 500;
-const BASE_COL = 140;
-const BASE_ROW = 28;
 
-function readColFactors(): Record<string, number> {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(LS_COLF) ?? "null");
-    if (v && typeof v === "object") {
-      return Object.fromEntries(
-        Object.entries(v as Record<string, unknown>).filter(
-          ([, f]) => typeof f === "number" && f > 0 && f < 20,
-        ),
-      ) as Record<string, number>;
-    }
-  } catch {
-    // A corrupt entry is not worth a broken board.
-  }
-  return {};
-}
-
-function readZoom(): Zoom {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(LS_ZOOM) ?? "null");
-    if (v && typeof v === "object") {
-      const z = v as { x?: unknown; y?: unknown };
-      return {
-        x: clampZoom(typeof z.x === "number" ? z.x : 1),
-        y: clampZoom(typeof z.y === "number" ? z.y : 1),
-      };
-    }
-  } catch {
-    // ditto
-  }
-  return { x: 1, y: 1 };
-}
 
 
 /** The Project board: weeks as rows and one project's epics as columns, cards
  *  as slots that may span several weeks (dates start..end). Dragging down an
  *  empty column stretch selects a slot and creates a card in it; assigning a
- *  card to a team (the badge menu) also hands it to that team's weekly plan —
+ *  card to a team (the badge menu) hands it to that team —
  *  which is how work planned here reaches the people who do it. */
 export function ProjectBoard({
   board,
@@ -211,8 +154,6 @@ export function ProjectBoard({
   onError,
   onOpen,
 }: ProjectBoardProps) {
-  const today = todayIso();
-  const thisMonday = mondayOf(today);
 
   // Which project(s) the chips select; null is every project. "" is the chip
   // for columns that belong to no project.
@@ -268,10 +209,23 @@ export function ProjectBoard({
     return board.cards.filter((c) => drawnOnProjectBoard(c, shown));
   }, [board.cards, epics]);
 
-  // The week window: two weeks of history before today (or the earliest
-  // card), through the latest card plus a quarter of runway to plan into.
-  // How far the window reaches beyond the default, in weeks, grown by the
-  // buttons at either end — planning is not confined to a fixed horizon.
+  // The grid itself: the week window, the zoom, the column widths, the
+  // measurements and the two hit tests. The selection it is given is which
+  // projects are on screen — the board opens on today once for each, and a
+  // reader who scrolled away from one is not yanked back on return.
+  const grid = useWeekGrid({
+    dated: cards,
+    columns: epics.length,
+    store: { zoom: LS_ZOOM, widths: LS_COLF },
+    selection: filter ? [...filter].sort().join("\u0000") : "*",
+  });
+  const { weeks, today, colFactors, zoom, wrapRef, rowAt } = grid;
+  // The grid's own view of the columns: a key, and the epic it stands for.
+  const gridColumns = useMemo(
+    () => epics.map((e) => ({ key: colKey(e.project, e.name), epic: e })),
+    [epics],
+  );
+
   // The card currently stepped aside to leave room for a new one beside it.
   const [nudged, setNudged] = useState<string | null>(null);
   const nudgeTimer = useRef<number | null>(null);
@@ -280,54 +234,6 @@ export function ProjectBoard({
       window.clearTimeout(nudgeTimer.current);
       nudgeTimer.current = null;
     }
-  };
-  const [padBack, setPadBack] = useState(0);
-  const [padFwd, setPadFwd] = useState(0);
-
-  // Column width: null until dragged, when the columns just share the room —
-  // the right default. One width governs every column of the selection,
-  // because a plan reads as a grid and columns of assorted widths stop being
-  // comparable; a different selection carries its own width.
-  // How much bigger the board draws its cells, and which columns keep a width
-  // of their own (a ratio to the shared width, so zoom scales it too).
-  const [zoom, setZoomState] = useState<Zoom>(readZoom);
-  const zoomRef = useRef(zoom);
-  const [colFactors, setColFactorsState] = useState<Record<string, number>>(readColFactors);
-  const factorsRef = useRef(colFactors);
-  const [resizing, setResizing] = useState<{
-    key: string;
-    x: number;
-    from: number;
-  } | null>(null);
-
-  const setZoom = (z: Zoom) => {
-    zoomRef.current = z;
-    setZoomState(z);
-    localStorage.setItem(LS_ZOOM, JSON.stringify(z));
-  };
-  // The width a column has when it has no width of its own: what the columns
-  // would share at zoom 1, scaled by the zoom. Measured from the board rather
-  // than assumed, so zooming starts from what is actually on screen instead of
-  // jumping to a constant the first time it is touched.
-  const [boardW, setBoardW] = useState(0);
-  const sharedCol = useMemo(() => {
-    const room = Math.max(0, boardW - 54 - 34);
-    const fill = epics.length > 0 ? room / epics.length : BASE_COL;
-    return Math.max(MIN_COL_PX, Math.max(BASE_COL, fill) * zoom.x);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardW, epics.length, zoom.x]);
-  const rowH = Math.max(12, Math.round(BASE_ROW * zoom.y));
-
-  const setColFactor = (key: string, f: number | null) => {
-    const next = { ...factorsRef.current };
-    if (f === null) {
-      delete next[key];
-    } else {
-      next[key] = f;
-    }
-    factorsRef.current = next;
-    setColFactorsState(next);
-    localStorage.setItem(LS_COLF, JSON.stringify(next));
   };
 
   // Dragging a column header sideways reorders the columns. A column can
@@ -405,114 +311,6 @@ export function ProjectBoard({
       });
   };
 
-  // Dragging an edge resizes THAT column and nothing else: its width is
-  // remembered as a ratio to the width the others share, so it survives a
-  // zoom and a change of project selection. Dragged back to within a hair of
-  // the others it gives the ratio up and rejoins them — a column should not
-  // stay subtly different from a width nobody can see is different.
-  const beginResize = (key: string) => (e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const head = (e.currentTarget as HTMLElement).closest(".project-epic-head");
-    const from = head ? head.getBoundingClientRect().width : sharedCol;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setResizing({ key, x: e.clientX, from });
-  };
-
-  const moveResize = (e: React.PointerEvent) => {
-    if (!resizing) {
-      return;
-    }
-    const width = Math.max(MIN_COL_PX, Math.round(resizing.from + (e.clientX - resizing.x)));
-    setColFactor(resizing.key, columnFactor(width, sharedCol));
-  };
-
-  const endResize = () => {
-    if (!resizing) {
-      return;
-    }
-    setResizing(null);
-  };
-
-  // Where the scroller must land after the next zoom-driven re-layout, so the
-  // point under the cursor stays under it.
-  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    const want = pendingScroll.current;
-    if (!el || !want) {
-      return;
-    }
-    pendingScroll.current = null;
-    el.scrollLeft = want.left;
-    el.scrollTop = want.top;
-  }, [zoom]);
-
-  // Ctrl/Cmd + wheel zooms the board. Both axes move by the same step from
-  // wherever they are, so the two sliders keep their offset; the browser's
-  // own page zoom is what the modifier would otherwise do, hence preventing
-  // the default.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) {
-      return;
-    }
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) {
-        return;
-      }
-      e.preventDefault();
-      const was = zoomRef.current;
-      const next = wheelZoom(was, e.deltaY);
-      // Zoom around the cursor: work out where the board must be scrolled to
-      // leave the point under the pointer where it is, and apply it AFTER the
-      // grid has been re-laid — a scroll set against the old size is clamped
-      // to it, which is what makes a naive version drift.
-      const box = el.getBoundingClientRect();
-      pendingScroll.current = {
-        left: anchoredScroll(el.scrollLeft, e.clientX - box.left, 54, next.x / was.x),
-        top: anchoredScroll(el.scrollTop, e.clientY - box.top, HEADER_PX, next.y / was.y),
-      };
-      setZoom(next);
-    };
-    // Not passive: the whole point is to take the gesture from the browser.
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const weeks = useMemo(() => {
-    let first = addDays(thisMonday, -14 - 7 * padBack);
-    let last = addDays(thisMonday, 7 * (8 + padFwd));
-    for (const c of cards) {
-      const anchor = c.week ? mondayOf(c.week) : null;
-      if (anchor && anchor < first) {
-        first = anchor;
-      }
-      const end = c.day ? mondayOf(c.day) : anchor;
-      if (end && addDays(end, 7 * 2) > last) {
-        last = addDays(end, 7 * 2);
-      }
-    }
-    const out: string[] = [];
-    for (let w = first; w <= last; w = addDays(w, 7)) {
-      out.push(w);
-    }
-    return out;
-  }, [cards, thisMonday, padBack, padFwd]);
-
-  // Prepending rows would slide the grid under the reader, so the scroll
-  // position is moved by exactly the height added.
-  const showEarlier = () => {
-    const scroller = scrollRef.current;
-    setPadBack(padBack + WEEK_STEP);
-    if (scroller) {
-      requestAnimationFrame(() => {
-        scroller.scrollTop += WEEK_STEP * rowH;
-      });
-    }
-  };
-
   // ---- drag-to-create (and resize): a pressed column stretch becomes a slot.
   // The gestures listen on the WINDOW for their whole life: the live
   // preview re-lanes and remounts slots, and a removed element takes its
@@ -535,23 +333,6 @@ export function ProjectBoard({
     from: number;
     to: number;
   } | null>(null);
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  // The scrolling ancestor — .project-board, not the grid inside it.
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  // The deadline handles live in a layer ABOVE the board, not inside it: a
-  // scroll container clips at its own edge, so a handle that has to straddle
-  // that edge cannot be a child of it. The layer is placed over the board and
-  // scrolled by hand, which keeps the handles glued to their rows.
-  // The layer's containing block, measured against explicitly rather than via
-  // offsetParent — which is whatever happens to be positioned up the tree.
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const [boardBox, setBoardBox] = useState<{
-    left: number;
-    top: number;
-    height: number;
-    gridTop: number;
-  } | null>(null);
-
   const setDrag = (v: typeof drag) => {
     dragRef.current = v;
     setDragState(v);
@@ -582,33 +363,8 @@ export function ProjectBoard({
   } | null>(null);
 
   const epicAt = (clientX: number): EpicRef | null => {
-    const grid = gridRef.current;
-    if (!grid) {
-      return null;
-    }
-    const heads = grid.querySelectorAll(".project-epic-head:not(.project-epic-add)");
-    for (let i = 0; i < heads.length; i++) {
-      const r = heads[i].getBoundingClientRect();
-      if (clientX >= r.left && clientX < r.right) {
-        return epics[i] ?? null;
-      }
-    }
-    return null;
-  };
-
-  const rowAt = (clientY: number): number => {
-    const grid = gridRef.current;
-    if (!grid) {
-      return 0;
-    }
-    const rows = grid.querySelectorAll(".project-week");
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i].getBoundingClientRect();
-      if (clientY < r.bottom) {
-        return i;
-      }
-    }
-    return rows.length - 1;
+    const col = grid.columnAt(clientX);
+    return col === null ? null : (epics[col] ?? null);
   };
 
   const beginDrag = (
@@ -950,8 +706,7 @@ export function ProjectBoard({
   // dialog is open.
   const [renaming, setRenaming] = useState<string | null>(null);
 
-  // The status line remembers whether it was left open, as the Team board's
-  // weekly plan does.
+  // The status line remembers whether it was left open.
   const [progressOpen, setProgressOpen] = useState(
     () => localStorage.getItem(LS_PROGRESS) === "true",
   );
@@ -1029,14 +784,13 @@ export function ProjectBoard({
       .catch((err: unknown) => onError(errText(err)));
   };
 
-  // Assigning a team hands the card to that team's weekly plan: the band is
-  // what places it there, so an unbanded card gets the week-end band.
+  // Assigning a team hands the card to that team: the slot's own span says
+  // when it is due, so there is nothing else to place.
   const assignTeam = (card: CardModel, team: string | null) => {
     setTeamMenu(null);
-    const prev = { team: card.team, plan: card.plan };
-    patchCard(card.itemId, { team: team ?? undefined, plan: card.plan ?? (team ? "fri" : undefined) });
+    const prev = { team: card.team };
+    patchCard(card.itemId, { team: team ?? undefined });
     void provider
-      // Just the team: the server files the slot in that team's weekly plan.
       .patchCard(card.itemId, { team: team ?? "" })
       .then(addCard)
       .catch((err: unknown) => {
@@ -1055,39 +809,6 @@ export function ProjectBoard({
       : provider.deleteDeadline(week, projectName);
     void call.catch((err: unknown) => onError(errText(err)));
   };
-
-  // Measure the board (and where the grid starts inside it) whenever the
-  // layout can have moved. Cheap, and never during a scroll.
-  useLayoutEffect(() => {
-    const board = scrollRef.current;
-    const grid = gridRef.current;
-    const host = wrapRef.current;
-    if (!board || !grid || !host) {
-      setBoardBox(null);
-      return;
-    }
-    const measure = () => {
-      const b = board.getBoundingClientRect();
-      const h = host.getBoundingClientRect();
-      const g = grid.getBoundingClientRect();
-      setBoardBox({
-        left: b.left - h.left,
-        top: b.top - h.top,
-        height: b.height,
-        gridTop: g.top - b.top + board.scrollTop,
-      });
-      // The room the columns divide between them, for the zoom's base width.
-      setBoardW(b.width);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(board);
-    window.addEventListener("resize", measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [weeks.length, epics.length, sharedCol, padBack, padFwd]);
 
 
   const beginLineDrag = (
@@ -1231,11 +952,10 @@ export function ProjectBoard({
         mirrors: (card.mirrors ?? []).slice(1),
       });
     } else {
-      // orphan: off the Project board and the weekly plan, kept by its work.
+      // orphan: off the Project board, kept by its work.
       patchCard(card.itemId, {
         project: undefined,
         epic: undefined,
-        plan: undefined,
         week: undefined,
       });
     }
@@ -1255,18 +975,13 @@ export function ProjectBoard({
   // lane each one sits in: cards sharing weeks split the column's width
   // between them instead of covering each other up.
   const slots = useMemo(() => {
-    type Slot = {
-      // null is the draft being pulled out right now: it takes a lane like
-      // any other slot, so a new card never lands on top of an existing one.
+    // The rows, the lane and the width are the grid's business (Laned); what
+    // stands in the slot is the board's. A null card is the draft being
+    // pulled out right now: it takes a lane like any other slot, so a new
+    // card never lands on top of an existing one.
+    interface Slot extends Laned {
       card: CardModel | null;
-      row: number;
-      span: number;
-      lane: number;
-      lanes: number;
-      // How many lanes wide the slot is drawn: it grows rightwards over the
-      // lanes that are free for every row it covers.
-      width: number;
-    };
+    }
     const byCol = new Map<string, Slot[]>();
     // A second, preview-less collection exists only while an edge is being
     // pulled: it tells the pin which lane the slot rests in.
@@ -1275,19 +990,16 @@ export function ProjectBoard({
       return byCol;
     }
     for (const c of cards) {
+      if (!c.epic) {
+        continue;
+      }
       // The row is the START date's week. A card's own stored week is only a
       // fallback for one that has no start at all.
-      const from = c.startDate || c.week;
-      if (!c.epic || !from) {
+      const at = extentOf(c, weeks);
+      if (!at) {
         continue;
       }
-      const anchor = mondayOf(from);
-      let row = weeksBetween(weeks[0], anchor);
-      if (row < 0 || row >= weeks.length) {
-        continue;
-      }
-      const endMon = c.day && c.day > anchor ? mondayOf(c.day) : anchor;
-      let span = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - row));
+      let { row, span } = at;
       let k = colKey(c.project ?? "", c.epic);
       // A card being dragged is packed WHERE IT WOULD LAND, not where it came
       // from: the lanes are what make room for it, so computing them from its
@@ -1309,7 +1021,7 @@ export function ProjectBoard({
         }
       }
       const list = byCol.get(k) ?? [];
-      list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
+      list.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 });
       byCol.set(k, list);
       // A mirrored card stands in every one of its columns: the same entry,
       // the same shared dates, once per placement — except while THIS card
@@ -1318,7 +1030,7 @@ export function ProjectBoard({
         for (const mi of c.mirrors ?? []) {
           const mk = colKey(mi.project, mi.epic);
           const ml = byCol.get(mk) ?? [];
-          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1 });
+          ml.push({ card: c, row, span, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 });
           byCol.set(mk, ml);
         }
       }
@@ -1327,17 +1039,22 @@ export function ProjectBoard({
         // Every placement, mirrors included: pulling an edge in a MIRROR
         // column must pin against that column's resting neighbours, not
         // find the map empty and let the slot hop lanes under the pointer.
-        const rr = weeksBetween(weeks[0], anchor);
-        if (rr >= 0 && rr < weeks.length) {
-          const rs = Math.max(1, Math.min(weeksBetween(anchor, endMon) + 1, weeks.length - rr));
-          const cols = [colKey(c.project ?? "", c.epic)].concat(
-            (c.mirrors ?? []).map((mi) => colKey(mi.project, mi.epic)),
-          );
-          for (const rk of cols) {
-            const rl = rest.get(rk) ?? [];
-            rl.push({ card: c, row: rr, span: rs, lane: 0, lanes: 1, width: 1 });
-            rest.set(rk, rl);
-          }
+        const cols = [colKey(c.project ?? "", c.epic)].concat(
+          (c.mirrors ?? []).map((mi) => colKey(mi.project, mi.epic)),
+        );
+        for (const rk of cols) {
+          const rl = rest.get(rk) ?? [];
+          rl.push({
+            card: c,
+            row: at.row,
+            span: at.span,
+            lane: 0,
+            lanes: 1,
+            width: 1,
+            stack: 0,
+            stacked: 1,
+          });
+          rest.set(rk, rl);
         }
       }
     }
@@ -1348,108 +1065,36 @@ export function ProjectBoard({
         card: null,
         row: draft.from,
         span: draft.to - draft.from + 1,
+        stack: 0,
+            stacked: 1,
         lane: 0,
         lanes: 1,
         width: 1,
       });
       byCol.set(k, list);
     }
-    // Lanes are worked out per CLUSTER of overlapping slots, not per column:
-    // splitting the whole column because two slots happen to share a fortnight
-    // would leave every unrelated card at half width for no reason. A pin
-    // holds one card in a KNOWN lane: while an edge is being pulled, the slot
-    // must not hop lanes under the pointer — the neighbours pack around it.
-    const pack = (
-      lists: Map<string, Slot[]>,
-      pin?: { id: string; lane: number; row: number; span: number },
-    ) => {
-      for (const list of lists.values()) {
-        list.sort((a, b) => a.row - b.row || b.span - a.span);
-        let cluster: typeof list = [];
-        let laneEnd: number[] = [];
-        const close = () => {
-          const lanes = laneEnd.length;
-          for (const s of cluster) {
-            s.lanes = lanes;
-            // A cluster's lane count is what the busiest week in it needs, but
-            // a slot beside a quiet week has room the busy weeks do not: it
-            // grows rightwards over every lane that is free for ALL of its own
-            // rows. Without this a card sat at half width beside empty space,
-            // as if the space were spoken for.
-            let width = 1;
-            while (s.lane + width < lanes) {
-              const nextLane = s.lane + width;
-              const taken = cluster.some(
-                (o) =>
-                  o !== s &&
-                  o.lane === nextLane &&
-                  o.row < s.row + s.span &&
-                  s.row < o.row + o.span,
-              );
-              if (taken) {
-                break;
-              }
-              width += 1;
-            }
-            s.width = width;
-          }
-          cluster = [];
-          laneEnd = [];
-        };
-        // Whether a slot's rows overlap the pinned card's previewed extent.
-        const meetsPin = (s: Slot) =>
-          !!pin && s.row < pin.row + pin.span && pin.row < s.row + s.span;
-        for (const s of list) {
-          // A slot that begins after everything so far has ended starts a new
-          // cluster: it shares its weeks with nothing before it.
-          if (laneEnd.length && s.row >= Math.max(...laneEnd)) {
-            close();
-          }
-          let lane: number;
-          if (pin && s.card?.itemId === pin.id) {
-            lane = pin.lane;
-            while (laneEnd.length <= lane) {
-              laneEnd.push(0);
-            }
-          } else {
-            // First fit — but never into the pinned lane while sharing rows
-            // with the pinned card, even before it is placed.
-            lane = laneEnd.findIndex(
-              (end, i) => end <= s.row && !(pin && i === pin.lane && meetsPin(s)),
-            );
-            if (lane === -1) {
-              lane = laneEnd.length;
-              if (pin && lane === pin.lane && meetsPin(s)) {
-                laneEnd.push(0);
-                lane += 1;
-              }
-            }
-          }
-          laneEnd[lane] = Math.max(laneEnd[lane] ?? 0, s.row + s.span);
-          s.lane = lane;
-          cluster.push(s);
-        }
-        close();
-      }
-    };
-    let pin: { id: string; lane: number; row: number; span: number } | undefined;
+    // A pin holds one card in a KNOWN lane: while an edge is being pulled the
+    // slot must not hop lanes under the pointer, so its resting lane is found
+    // first and the neighbours pack around the extent it previews.
+    let pin: Pin<Slot> | undefined;
     if (rest && drag?.resize) {
-      pack(rest);
+      const held = drag.resize.itemId;
+      const is = (s: Slot) => s.card?.itemId === held;
+      packLanes(rest.values(), undefined, grid.rowFit);
       for (const list of rest.values()) {
-        const own = list.find((s) => s.card?.itemId === drag.resize?.itemId);
+        const own = list.find(is);
         if (own) {
-          const preview = [...byCol.values()]
-            .flat()
-            .find((s) => s.card?.itemId === drag.resize?.itemId);
+          const preview = [...byCol.values()].flat().find(is);
           if (preview) {
-            pin = { id: drag.resize.itemId, lane: own.lane, row: preview.row, span: preview.span };
+            pin = { is, lane: own.lane, row: preview.row, span: preview.span };
           }
         }
       }
     }
-    pack(byCol, pin);
+    packLanes(byCol.values(), pin, grid.rowFit);
     return byCol;
-  }, [cards, weeks, draft, move, drag]);
+  }, [cards, weeks, draft, move, drag, grid.rowFit]);
+
 
   // One index of the board, for the rules that need to look a parent up.
   const byId = useMemo(
@@ -1525,34 +1170,6 @@ export function ProjectBoard({
       .map((p) => ({ project: p, ...progressOf(byProject.get(p) ?? []) }));
   }, [board.cards, board.projects, byId]);
 
-  const todayRow = weeks.indexOf(thisMonday);
-
-  // Open on today. A plan reaches months back, and the board opened at its
-  // very first week — someone arriving had to scroll past a spent quarter to
-  // find out where the team is. Once per project shown: after that the scroll
-  // is the reader's, and pressing "earlier weeks" must not yank it back.
-  // Which selection is on screen — the identity the open-on-today scroll
-  // remembers, so switching projects opens on today again.
-  const selectionKey = filter ? [...filter].sort().join("\u0000") : "*";
-  const scrolledFor = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    const scroller = scrollRef.current;
-    if (!scroller || !boardBox || todayRow < 0 || scrolledFor.current === selectionKey) {
-      return;
-    }
-    const top = Math.max(0, boardBox.gridTop + HEADER_PX + (todayRow - 2) * rowH);
-    // After the paint: switching project rebuilds the grid, and a scroll set
-    // before it has its new height is clamped to the old one. The mark is set
-    // in the callback, not here — this effect re-runs as the new board is
-    // measured, and a mark set up front would cancel the pending frame and
-    // then refuse to schedule another, which is why switching never moved.
-    const frame = requestAnimationFrame(() => {
-      scrolledFor.current = selectionKey;
-      scroller.scrollTop = top;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [boardBox, todayRow, selectionKey, weeks.length]);
-
   // The projects the week menu can act on: those in view, or the whole roster
   // when nothing is filtered. The no-project bucket is included in both cases
   // — deadlines belonging to no project exist and have to be manageable.
@@ -1600,7 +1217,9 @@ export function ProjectBoard({
           onManage={onManageProjects}
           noneChip={looseEpics ? "No project" : undefined}
         />
-        {!empty && <ZoomControl zoom={zoom} onChange={setZoom} />}
+        {!empty && (
+          <ZoomControl zoom={zoom} onChange={grid.setZoom} />
+        )}
       </div>
       {empty && (
         <div className="project-empty">
@@ -1647,57 +1266,47 @@ export function ProjectBoard({
         </div>
       )}
       {!empty && (
-      <div className="project-board" ref={scrollRef}>
-      <button
-        type="button"
-        className="project-more"
-        onClick={showEarlier}
-        title={`Show ${WEEK_STEP} more weeks before`}
-      >
-        ↑ earlier weeks
-      </button>
-      <div
-        className="project-grid"
-        ref={gridRef}
-        style={{
-          // Until the columns are dragged they share the room; once dragged
-          // they all take the width that was chosen.
-          // 54px is what "17 Aug" needs and no more — the ISO number that
-          // used to share this column is gone.
-          // Every column is sized explicitly: a column with a width of its
-          // own takes its ratio of the shared width, the rest take the shared
-          // width itself. Text is never scaled — only the room around it.
-          gridTemplateColumns: `54px ${epics
-            .map((e) => {
-              const f = colFactors[colKey(e.project, e.name)];
-              return `${Math.round(sharedCol * (f ?? 1))}px`;
-            })
-            .join(" ")} 34px`,
-          gridTemplateRows: `26px repeat(${weeks.length}, ${rowH}px)`,
-        }}
-      >
-        {/* header row */}
-        <div className="project-corner">
-          {epics.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
+      <WeekGrid
+        grid={grid}
+        columns={gridColumns}
+        corner={
+          epics.some((e) => colFactors[colKey(e.project, e.name)] !== undefined) && (
             <button
               type="button"
               className="project-cols-reset"
               title="Give the columns on this board the same width again (columns not shown keep theirs)"
-              onClick={() => {
-                const next = { ...factorsRef.current };
-                for (const e of epics) {
-                  delete next[colKey(e.project, e.name)];
-                }
-                factorsRef.current = next;
-                setColFactorsState(next);
-                localStorage.setItem(LS_COLF, JSON.stringify(next));
-              }}
+              onClick={() => grid.resetColFactors(epics.map((e) => colKey(e.project, e.name)))}
             >
               ⇥⇤
             </button>
-          )}
-        </div>
-        {epics.map((e) => {
+          )
+        }
+        weekProps={(w) => ({
+          title: `ISO week ${isoWeekNo(w)} · click for the deadline`,
+          onClick: (ev) => {
+            weekAnchor.current = ev.currentTarget;
+            setWeekMenu(weekMenu === w ? null : w);
+          },
+        })}
+        cellProps={(c, _col, _w, row) => ({
+          className:
+            drag &&
+            !drag.resize &&
+            colKey(drag.epic.project, drag.epic.name) === c.key &&
+            row >= Math.min(drag.from, drag.to) &&
+            row <= Math.max(drag.from, drag.to)
+              ? "project-cell-drag"
+              : undefined,
+          onPointerDown: (ev) => beginDrag(c.epic, row, ev),
+          onPointerLeave: () => {
+            if (!drag) {
+              cancelNudgeTimer();
+              setNudged(null);
+            }
+          },
+          onPointerCancel: () => setDrag(null),
+        })}
+        head={({ epic: e }) => {
           const k = colKey(e.project, e.name);
           if (renaming === k) {
             return (
@@ -1783,18 +1392,12 @@ export function ProjectBoard({
               <span
                 className="project-col-resize"
                 title="Drag to size this column · double-click to match the rest"
-                onPointerDown={beginResize(k)}
-                onPointerMove={moveResize}
-                onPointerUp={endResize}
-                onPointerCancel={() => setResizing(null)}
-                onDoubleClick={(ev) => {
-                  ev.stopPropagation();
-                  setColFactor(k, null);
-                }}
+                {...grid.columnResizer(k)}
               />
             </div>
           );
-        })}
+        }}
+        gutter={
         <div className="project-epic-head project-epic-add">
           {addingEpic ? (
             <input
@@ -1829,50 +1432,8 @@ export function ProjectBoard({
             </button>
           )}
         </div>
-
-        {/* week label column + row stripes */}
-        {weeks.map((w, i) => (
-          <div
-            key={w}
-            className={`project-week${i === todayRow ? " project-week-today" : ""}`}
-            style={{ gridRow: i + 2, gridColumn: 1 }}
-            title={`ISO week ${isoWeekNo(w)} · click for the deadline`}
-            onClick={(ev) => {
-              weekAnchor.current = ev.currentTarget;
-              setWeekMenu(weekMenu === w ? null : w);
-            }}
-          >
-            <span className="project-week-date">{weekLabel(w)}</span>
-          </div>
-        ))}
-
-        {/* cells: one per epic × week, the drag surface */}
-        {epics.map((e, col) =>
-          weeks.map((w, row) => (
-            <div
-              key={`${colKey(e.project, e.name)}/${w}`}
-              className={`project-cell${row === todayRow ? " project-cell-today" : ""}${
-                drag &&
-                !drag.resize &&
-                colKey(drag.epic.project, drag.epic.name) === colKey(e.project, e.name) &&
-                row >= Math.min(drag.from, drag.to) &&
-                row <= Math.max(drag.from, drag.to)
-                  ? " project-cell-drag"
-                  : ""
-              }`}
-              style={{ gridRow: row + 2, gridColumn: col + 2 }}
-              onPointerDown={(ev) => beginDrag(e, row, ev)}
-              onPointerLeave={() => {
-                if (!drag) {
-                  cancelNudgeTimer();
-                  setNudged(null);
-                }
-              }}
-              onPointerCancel={() => setDrag(null)}
-            />
-          )),
-        )}
-
+        }
+      >
         {/* deadlines: one line per week, dragged by the dot on its left */}
         {board.deadlines
           .filter((d) => !filter || filter.includes(d.project))
@@ -1972,7 +1533,7 @@ export function ProjectBoard({
         {epics.map((e, col) =>
           (slots.get(colKey(e.project, e.name)) ?? [])
             .filter((s): s is typeof s & { card: CardModel } => s.card !== null)
-            .map(({ card, row, span, lane, lanes, width: laneWidth }) => (
+            .map(({ card, row, span, lane, lanes, width: laneWidth, stack, stacked }) => (
             <div
               key={`${colKey(e.project, e.name)}\u0000${card.itemId}`}
               className={`project-slot ${slotTone(card, today)}${
@@ -2049,21 +1610,21 @@ export function ProjectBoard({
                 gridColumn: col + 2,
                 gridRow: `${row + 2} / span ${span}`,
                 borderLeftColor: card.team ? teamColor(card.team) : undefined,
-                // Cards sharing weeks in one column split its width instead
-                // of hiding each other. The width holds while the card is
-                // being dragged too: widening it on press made the first click
-                // of a double-click visibly inflate the card.
-                // Cards sharing a column carry an EXPLICIT width, and a
+                // Cards sharing weeks in one column split the room between
+                // them instead of hiding each other — the column's width, or
+                // the row's height when the reader let the rows grow. The
+                // share holds while the card is being dragged too: widening
+                // it on press made the first click of a double-click visibly
+                // inflate the card.
+                // A card with neighbours carries an EXPLICIT width, and a
                 // margin cannot shrink that — the step aside has to come out
-                // of the width itself, or a card with neighbours never moves.
-                ...(lanes > 1
-                  ? {
-                      width: `calc(${(100 / lanes) * laneWidth}% - 2px${
-                        nudged === card.itemId ? ` - ${NUDGE_PX}px` : ""
-                      })`,
-                      marginLeft: `${(100 / lanes) * lane}%`,
-                    }
-                  : {}),
+                // of the width itself, or such a card never moves.
+                ...laneStyle(
+                  { row, span, lane, lanes, width: laneWidth, stack, stacked },
+                  grid.rowFit,
+                  grid.rowH,
+                  nudged === card.itemId ? NUDGE_PX : 0,
+                ),
               }}
               onPointerDown={(ev) =>
                 beginMove(card, row, span, { project: e.project, epic: e.name }, ev)
@@ -2286,16 +1847,7 @@ export function ProjectBoard({
             </div>
           )),
         )}
-        </div>
-        <button
-          type="button"
-          className="project-more"
-          onClick={() => setPadFwd(padFwd + WEEK_STEP)}
-          title={`Show ${WEEK_STEP} more weeks after`}
-        >
-          ↓ later weeks
-        </button>
-      </div>
+      </WeekGrid>
       )}
       <Dropdown
         open={weekMenu !== null}

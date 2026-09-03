@@ -17,12 +17,50 @@ var ErrSubtaskDepth = errors.New("subtasks are one level deep")
 // board (or cannot hold subtasks).
 var ErrParentNotFound = errors.New("parent card not found")
 
-// ErrPlanSubtask is asking for a card that is both a subtask and a weekly-
-// plan card. A subtask has no band of its own — grouping hands its slot to
+// ErrSubtaskWeek is asking for a card that is both a subtask and scheduled
+// for a week of its own. A subtask has no week — grouping hands its week to
 // the parent — so the pair is two contradictory requests, and answering it
-// by moving the PARENT into the band named for the child mutates a card
+// by scheduling the PARENT for the week named for the child mutates a card
 // nobody asked about.
-var ErrPlanSubtask = errors.New("a subtask has no weekly-plan band of its own")
+var ErrSubtaskWeek = errors.New("a subtask has no week of its own")
+
+// ErrNotYoursToRefuse is refusing a card that is not on the person doing the
+// refusing. REFUSE is a first-person act — "I am not doing this" — so only
+// the person carrying the work may say it; a lead marking somebody else's
+// card refused would be putting words in their mouth. The lead's answer to a
+// refusal is the × or a stage that puts the card back to work, and CLEARING
+// the stage is not guarded: a rule that trapped the card in it would leave
+// the lead nothing to do but delete it.
+var ErrNotYoursToRefuse = errors.New("only the person a card is on can refuse it")
+
+// ErrNotYoursToPlan is a person filing work for THEMSELVES into one of the
+// planned zones. A person adds work to their own board only as unplanned —
+// something came up today; the other three zones are the plan, and planning
+// is done with the team rather than filed quietly into one's own column.
+// Planning somebody ELSE's work is the lead's gesture and passes, as does a
+// card placed by the thing it belongs to (a column, a parent, a review).
+var ErrNotYoursToPlan = errors.New("work you plan for yourself is unplanned work")
+
+// ErrNotYoursToRemove is a person taking off the board a card SOMEBODY ELSE
+// put on it for them. Their answer to work they will not do is the refused
+// stage (ErrNotYoursToRefuse names the other side of the same seat), which
+// leaves the card standing where the lead can see it and decide; removing it
+// takes the decision away from them.
+var ErrNotYoursToRemove = errors.New("only the person who created a card can remove it from their own board")
+
+// ErrNotYoursToDestroy is asking for a card OFF THE BOARD that this board did
+// not put there: a Project-board slot is that board's commitment, and a
+// process turn is its process's record of what a week was owed. The × empties
+// the working area for those and stops. The request is refused rather than
+// quietly turned into an unassign — a gesture that does something other than
+// what it says is how the × came to be mistrusted.
+var ErrNotYoursToDestroy = errors.New("this card is not this board's to destroy")
+
+// ErrNowhereToLeaveIt is asking to unassign a card that has nowhere to be
+// left: no week, no column. Emptying the working area would leave it with no
+// person, no dates and no home — alive on no board anyone can open. Taking it
+// OFF the board is the answer for such a card, and the caller has to say so.
+var ErrNowhereToLeaveIt = errors.New("the card has nowhere to be left: no week, no column")
 
 // ErrOpenSubtasks is returned when a card with unfinished subtasks is being
 // completed — closing the parent is the human's final call, made only once
@@ -79,30 +117,22 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	}); err != nil {
 		return err
 	}
-	// A weekly-plan card grouped under a parent hands its slot to the parent
-	// (the parent replaces it in the Weekly plan); a parent already in the
-	// plan keeps its own slot and the subtask's simply clears. A SLOT parent
-	// receives nothing: it is on the Weekly panel by its span already, and
-	// writing the subtask's week onto it is the conflicting write SetWeek
-	// refuses — the refusal used to kill the whole grouping.
-	if card.Plan != board.PlanNone {
-		if p.Plan == board.PlanNone && p.Epic == "" {
-			if err := s.backend.SetPlan(ctx, b, p, card.Plan); err != nil {
-				return err
-			}
+	// A card scheduled for a WEEK hands that week to the parent, which stands
+	// for it from then on; a parent that has a week of its own keeps it and
+	// the subtask's simply clears. A SLOT parent receives nothing: its row is
+	// its span already, and writing the subtask's week onto it is the
+	// conflicting write SetWeek refuses — the refusal used to kill the whole
+	// grouping.
+	if card.Week != "" {
+		if p.Week == "" && p.Epic == "" {
 			if err := s.backend.SetWeek(ctx, b, p, card.Week); err != nil {
 				return err
 			}
 		}
-		if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
-			return err
-		}
-		// The BAND goes; the WEEK stays for a card that stands in a COLUMN.
-		// There the week is the row the Project board draws it in — its span
-		// speaks for it, not stored plan membership — and clearing it took
-		// the card's stripe away and left the row to be re-derived from
-		// dates the client cannot see. The plan's × makes the same
-		// distinction (a slot keeps its week).
+		// The WEEK stays for a card that stands in a COLUMN. There it is the
+		// row the Project board draws the card in — its span speaks for it —
+		// and clearing it took the card's row away, to be re-derived from
+		// dates the client cannot see.
 		if !hasColumn(card) {
 			if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
 				return err

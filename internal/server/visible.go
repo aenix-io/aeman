@@ -359,13 +359,6 @@ func (v *visibleBackend) SetSprintStart(ctx context.Context, bd board.Board, car
 	return v.Backend.SetSprintStart(ctx, bd, card, date)
 }
 
-func (v *visibleBackend) SetPlan(ctx context.Context, bd board.Board, card board.Card, plan board.PlanBand) error {
-	if err := v.write(ctx, bd, card); err != nil {
-		return err
-	}
-	return v.Backend.SetPlan(ctx, bd, card, plan)
-}
-
 func (v *visibleBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
 	if err := v.write(ctx, bd, card); err != nil {
 		return err

@@ -12,6 +12,11 @@ export interface Member {
   avatarUrl?: string;
   /** Display name; empty or absent on a GitHub board. */
   name?: string;
+  /** How much open work is this person's right now, counted across EVERY
+   *  team — a board is read through a filter and a person is not, so the
+   *  number a column shows beside a name is the whole of it. Mirrors
+   *  board.CarryingNow. */
+  carrying?: number;
 }
 
 /** Avatars maps a login onto its avatar URL. */

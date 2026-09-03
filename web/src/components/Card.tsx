@@ -1,16 +1,24 @@
 import { useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
-import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, isInProgress } from "../stages";
+import {
+  STAGES,
+  STAGE_ORDER,
+  ME_ONLY_STAGES,
+  DEFAULT_BAR_COLOR,
+  barColor,
+  clampProgress,
+  clampsProgress,
+  isInProgress,
+} from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
-import { hasOriginToShow, type CardPlacements } from "../placements";
+import { hasOriginToShow, markOf, type CardPlacements } from "../placements";
 import { PlacementMenu } from "./PlacementMenu";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
-import { addDays, daysSince, localDateIso, todayIso, mondayOf } from "../date";
+import { daysSince, localDateIso } from "../date";
 import { Dropdown } from "./Dropdown";
 import { extractLinks, type CardLink } from "../links";
-import { effectiveBand } from "../weekly";
 import { recurrenceCycles, recurrenceLabel, recurrenceTitle } from "../personal";
 import { RangeCalendar } from "./RangeCalendar";
 
@@ -29,9 +37,10 @@ interface CardProps {
   onSelect: (card: CardModel) => void;
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
-  /** Whether the × is offered at all. A board that has nothing for it to do
-   *  — the weekly panel on a slot, which its span keeps there whatever the
-   *  band says — hides it rather than showing a button that does nothing. */
+  /** Whether the × is offered at all. A board hides it where it has nothing
+   *  to do — a project card or a process turn already out of the working
+   *  area, which the × would hand back to a place it is already in
+   *  (removal.offersRemoval). */
   deletable?: boolean;
   /** The board will put its own question to the user, so the card must not
    *  ask first. */
@@ -80,15 +89,17 @@ interface CardProps {
   /** Defer the card N days ahead of today (or of its already-deferred slot);
    *  the server computes the target day, sprint untouched. */
   onDefer?: (card: CardModel, days: number) => void;
-  /** Plan-card mode: the age-badge editor moves the plan week instead of dates. */
-  weekMode?: boolean;
-  onSetWeek?: (card: CardModel, week: string | null) => void;
   /** Dim the card's team avatar to 50%. Set unless this card is the selected
    *  team, so only the selected team's avatars stay at full opacity. */
   dimAvatar?: boolean;
   /** A personal-board card: its default recurrence turns with the day, not
    *  the sprint, and the menu says so. */
   personal?: boolean;
+  /** The card is drawn on the viewer's OWN board (Me), where the stages only
+   *  its owner may set are offered — refusing is a first-person act, and a
+   *  lead marking somebody else's card refused would be putting words in
+   *  their mouth. */
+  mine?: boolean;
   /** Resolve the card's description links server-side (GitHub issue/PR refs
    *  get their titles). The menu falls back to the local extraction. */
   onLoadLinks?: (card: CardModel) => Promise<CardLink[]>;
@@ -114,11 +125,6 @@ interface CardProps {
 }
 
 const SEGMENTS = 10;
-
-/** barColor is the fill colour for the progress segments, driven by stage. */
-function barColor(stage?: StageKey): string {
-  return stage ? STAGES[stage].color : DEFAULT_BAR_COLOR;
-}
 
 /** Card is a compact single-row item shared by the Me and Team boards. */
 export function Card({
@@ -147,10 +153,9 @@ export function Card({
   asOf,
   onSetDates,
   onDefer,
-  weekMode,
-  onSetWeek,
   dimAvatar,
   personal = false,
+  mine,
   onLoadLinks,
   selectedBy,
   subCount,
@@ -165,12 +170,9 @@ export function Card({
   const doneish =
     card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100);
   const rawValue = doneish ? 100 : card.progress ?? 0;
-  // Locked / on-review cards are clamped to a 10–90% band, so they always show
-  // the stage colour and never read as complete.
-  const value =
-    card.stage === "locked" || card.stage === "review"
-      ? Math.min(90, Math.max(10, rawValue))
-      : rawValue;
+  // A clamped stage is held in the 10–90 band, so it always shows the stage
+  // colour and never reads as complete (stages.clampProgress).
+  const value = clampProgress(card.stage, rawValue);
   const fill = barColor(doneish ? "done" : card.stage);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -216,7 +218,7 @@ export function Card({
   const ageRef = useRef<HTMLDivElement | null>(null);
 
   const canAssign = Boolean(onSetTeam || onSetAssignee);
-  const canEditDates = weekMode ? Boolean(onSetWeek) : Boolean(onSetDates);
+  const canEditDates = Boolean(onSetDates);
 
   // While dragging the handle, show the snapped drag value; otherwise the card's.
   const shown = dragValue ?? value;
@@ -232,8 +234,10 @@ export function Card({
         : Math.min(90, Math.max(10, Math.round(shown / 10) * 10));
   const filled = dispPct / 10;
 
-  // Where a pointer at clientX lands on the 10% grid. review/locked cards are
-  // clamped to 10–90%; other cards span 0–100% (0% clears).
+  // Where a pointer at clientX lands on the 10% grid. A clamped stage reaches
+  // only 10–90%; every other card spans 0–100% (0% clears). The reach is the
+  // same rule as the value: a handle that drags past its own limit and snaps
+  // back when the server answers is the bug this shares its answer to avoid.
   const valueAt = (clientX: number): number => {
     const rect = barRef.current?.getBoundingClientRect();
     if (!rect || rect.width <= 0) {
@@ -241,7 +245,7 @@ export function Card({
     }
     return snapProgress(
       (clientX - rect.left) / rect.width,
-      card.stage === "review" || card.stage === "locked",
+      clampsProgress(card.stage),
     );
   };
 
@@ -332,12 +336,8 @@ export function Card({
 
   const openDates = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (weekMode) {
-      setStartVal(card.week ?? "");
-    } else {
-      setStartVal(card.startDate ?? "");
-      setEndVal(card.day ?? "");
-    }
+    setStartVal(card.startDate ?? "");
+    setEndVal(card.day ?? "");
     setDatesOpen((o) => !o);
   };
 
@@ -357,21 +357,6 @@ export function Card({
     onDefer?.(card, days);
   };
 
-  // Plan cards: shift the plan week forward, or set it by picking a date.
-  // The weekly quick-moves name WEEKS, not offsets: on a card owed weeks
-  // ago "+1 week" moved it from the week it missed to another week already
-  // past — arithmetic on a date nobody was looking at. "This week" and
-  // "next week" say where the card lands, whatever week it is coming from.
-  const moveToWeek = (weeksAhead: number) => {
-    setDatesOpen(false);
-    onSetWeek?.(card, addDays(mondayOf(asOf ?? todayIso()), weeksAhead * 7));
-  };
-
-  const saveWeek = () => {
-    setDatesOpen(false);
-    onSetWeek?.(card, startVal || null);
-  };
-
   // The card's uid is what an agent needs to act on it (every MCP card tool
   // takes it), so copying it is the one thing worth a click on the card
   // itself — pasting it into a chat beats hunting for it in the API.
@@ -387,28 +372,10 @@ export function Card({
     });
   };
 
-  // A plan card not yet taken into work hasn't started aging: show 0d. Once it
-  // has an assignee it ages normally; and it gets a green "taken" background.
-  const taken = Boolean(weekMode) && card.assignees.length > 0;
-  // The plan stripe: the stored band, or — for a Project-board slot — the
-  // band derived from its end date. A slot needs no stored band to be in
-  // the weekly plan, so its row must not pretend otherwise. ON THE PANEL
-  // the week being looked at decides for a DEBT: a card owed in an earlier
-  // week stands in the by-Wednesday band there, and a stripe saying
-  // otherwise put a "by Friday" mark on a card sitting under "by
-  // Wednesday".
-  const band = effectiveBand(card, weekMode ? mondayOf(asOf ?? todayIso()) : undefined);
-  // The small second avatar: on a weekly-plan card it is the person the card
-  // is ASSIGNED to (who took it into work) — not the review counterpart; on
-  // grid cards it stays the counterpart (the reviewer / the implementer).
-  const smallAvatars = weekMode
-    ? card.assignees
-    : (counterpartAssignees ?? []);
-  const smallAvatarRole = weekMode
-    ? "Assigned to"
-    : card.reviewOf
-      ? "In implementation"
-      : "On review";
+  // The small second avatar is the review counterpart: the reviewer, or the
+  // person whose work is on review.
+  const smallAvatars = counterpartAssignees ?? [];
+  const smallAvatarRole = card.reviewOf ? "In implementation" : "On review";
   // Age is "days on the board" (its own tooltip): a card scheduled ahead is
   // NOT on the board while it waits, so the parked days must not count — a
   // card created today for next month used to arrive already three weeks old
@@ -418,8 +385,7 @@ export function Card({
     card.startDate && card.createdAt && card.startDate > localDateIso(card.createdAt)
       ? card.startDate
       : card.createdAt;
-  const ageDays =
-    weekMode && card.assignees.length === 0 ? 0 : daysSince(ageFrom, asOf);
+  const ageDays = daysSince(ageFrom, asOf);
 
   // The status control: an always-visible icon for review/locked/recurrent,
   // a hover-only flag otherwise. A staged card keeps it after the links icon
@@ -430,10 +396,11 @@ export function Card({
   const stageVisible =
     card.stage === "review" ||
     card.stage === "locked" ||
-    card.stage === "recurrent";
+    card.stage === "recurrent" ||
+    card.stage === "refuse";
   const stageControl = (
     <div
-      className={`card-stage${card.stage === "review" || card.stage === "locked" || card.stage === "recurrent" ? "" : " card-hoveronly"}`}
+      className={`card-stage${stageVisible ? "" : " card-hoveronly"}`}
       ref={menuRef}
     >
       <button
@@ -451,7 +418,9 @@ export function Card({
               ? recurrenceTitle(card.recurrence, personal)
               : card.stage === "locked"
                 ? "Locked"
-                : "Status"
+                : card.stage === "refuse"
+                  ? "Refused"
+                  : "Status"
         }
         style={card.stage ? { color: STAGES[card.stage].color } : undefined}
       >
@@ -482,6 +451,18 @@ export function Card({
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
             <path d="M3 22v-6h6" />
             <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        ) : card.stage === "refuse" ? (
+          // fa-skull, Font Awesome Free 6 (icons: CC BY 4.0) — inlined
+          // rather than pulling the library in for one glyph.
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 512 512"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M416 398.9c58.5-41.1 96-104.1 96-174.9C512 100.3 397.4 0 256 0S0 100.3 0 224c0 70.7 37.5 133.8 96 174.9c0 .4 0 .7 0 1.1l0 64c0 26.5 21.5 48 48 48l48 0 0-48c0-8.8 7.2-16 16-16s16 7.2 16 16l0 48 64 0 0-48c0-8.8 7.2-16 16-16s16 7.2 16 16l0 48 48 0c26.5 0 48-21.5 48-48l0-64c0-.4 0-.7 0-1.1zM96 256a64 64 0 1 1 128 0A64 64 0 1 1 96 256zm256-64a64 64 0 1 1 0 128 64 64 0 1 1 0-128z" />
           </svg>
         ) : card.stage === "locked" ? (
           <svg
@@ -521,7 +502,10 @@ export function Card({
           In Progress
         </button>
         {STAGE_ORDER.map((stage) =>
-          // A review card is auxiliary: it cannot be put on the "review" stage
+          // Refused is the owner's own answer and is offered only on their
+          // board; elsewhere the stage still RENDERS on a card that carries
+          // it — the lead has to see it — but cannot be chosen.
+          ME_ONLY_STAGES.includes(stage) && !mine ? null : // A review card is auxiliary: it cannot be put on the "review" stage
           // itself, nor made "recurrent" (a repeating task makes no sense for a
           // one-off review).
           (stage === "review" || stage === "recurrent") && card.reviewOf ? null : stage ===
@@ -600,10 +584,14 @@ export function Card({
   return (
     <div
       className={`card${selected ? " card-selected" : ""}${card.overdue ? " card-overdue" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
-        band ? ` card-plan-${band}` : ""
-      }${taken ? " card-plan-taken" : ""}${card.reviewOf ? " card-review" : ""}${
-        dimAvatar ? " card-dim-avatar" : ""
-      }${groupTarget ? " card-group-target" : ""}${record ? " card-record" : ""}`}
+        // Where the card came FROM, said by the stripe down its left edge: a
+        // Project-board commitment, a week its process owes, or somebody
+        // else's work waiting on this person. A review card is the innermost
+        // of the three — it IS the waiting — so it wins where they meet.
+        markOf(card) ? ` card-${markOf(card)}` : ""
+      }${dimAvatar ? " card-dim-avatar" : ""}${
+        groupTarget ? " card-group-target" : ""
+      }${record ? " card-record" : ""}`}
       onClick={() => onSelect(card)}
       onDoubleClick={() => onOpen(card)}
       title={card.title}
@@ -784,11 +772,7 @@ export function Card({
             className="card-age"
             style={{ color: ageColor(ageDays) }}
             title={
-              weekMode
-                ? "Move the plan week"
-                : onSetDates
-                  ? "Edit start / end dates"
-                  : `On the board ${ageDays} day(s)`
+              onSetDates ? "Edit start / end dates" : `On the board ${ageDays} day(s)`
             }
             onClick={canEditDates ? openDates : undefined}
           >
@@ -801,78 +785,40 @@ export function Card({
               onClose={() => setDatesOpen(false)}
               className="card-stage-menu card-dates-menu"
             >
-              {weekMode ? (
-                <>
-                  <div className="card-move-quick">
-                    <button
-                      type="button"
-                      className="card-move-quick-btn"
-                      onClick={() => moveToWeek(0)}
-                    >
-                      this week
-                    </button>
-                    <button
-                      type="button"
-                      className="card-move-quick-btn"
-                      onClick={() => moveToWeek(1)}
-                    >
-                      next week
-                    </button>
-                  </div>
-                  <RangeCalendar
-                    start={startVal || null}
-                    end={null}
-                    onChange={(s) => setStartVal(s ? mondayOf(s) : "")}
-                  />
-                  <button type="button" className="card-dates-save" onClick={saveWeek}>
-                    Save
+                <div className="card-move-quick">
+                  <button
+                    type="button"
+                    className="card-move-quick-btn"
+                    onClick={() => moveStart(1)}
+                  >
+                    +1 day
                   </button>
                   <button
                     type="button"
-                    className="card-dates-cancel"
-                    onClick={() => setDatesOpen(false)}
+                    className="card-move-quick-btn"
+                    onClick={() => moveStart(7)}
                   >
-                    Cancel
+                    +1 week
                   </button>
-                </>
-              ) : (
-                <>
-                  <div className="card-move-quick">
-                    <button
-                      type="button"
-                      className="card-move-quick-btn"
-                      onClick={() => moveStart(1)}
-                    >
-                      +1 day
-                    </button>
-                    <button
-                      type="button"
-                      className="card-move-quick-btn"
-                      onClick={() => moveStart(7)}
-                    >
-                      +1 week
-                    </button>
-                  </div>
-                  <RangeCalendar
-                    start={startVal || null}
-                    end={endVal || null}
-                    onChange={(s, e) => {
-                      setStartVal(s ?? "");
-                      setEndVal(e ?? "");
-                    }}
-                  />
-                  <button type="button" className="card-dates-save" onClick={saveDates}>
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    className="card-dates-cancel"
-                    onClick={() => setDatesOpen(false)}
-                  >
-                    Cancel
-                  </button>
-                </>
-              )}
+                </div>
+                <RangeCalendar
+                  start={startVal || null}
+                  end={endVal || null}
+                  onChange={(s, e) => {
+                    setStartVal(s ?? "");
+                    setEndVal(e ?? "");
+                  }}
+                />
+                <button type="button" className="card-dates-save" onClick={saveDates}>
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="card-dates-cancel"
+                  onClick={() => setDatesOpen(false)}
+                >
+                  Cancel
+                </button>
             </Dropdown>
           )}
         </div>

@@ -123,43 +123,6 @@ func TestMeView(t *testing.T) {
 	}
 }
 
-func planBoard() Board {
-	return NewBoard([]Card{
-		{ItemID: "p1", Team: "A", Plan: PlanWed, Week: "2026-06-15"},
-		{ItemID: "p2", Team: "A", Plan: PlanFri, Week: "2026-06-15"},
-		{ItemID: "p3", Team: "A", Plan: PlanWed, Week: "2026-06-22"},  // other week
-		{ItemID: "p4", Team: "B", Plan: PlanWed, Week: "2026-06-15"},  // other team
-		{ItemID: "p5", Team: "A", Plan: PlanNone, Week: "2026-06-15"}, // not a plan card
-		{ItemID: "p6", Team: "", Plan: PlanFri, Week: "2026-06-15"},   // no-team group
-	})
-}
-
-func TestWeeklyPlan(t *testing.T) {
-	b := planBoard()
-	cases := []struct {
-		name    string
-		team    string
-		week    string
-		wantWed []string
-		wantFri []string
-	}{
-		{"team A, current week, split by band", "A", "2026-06-15", []string{"p1"}, []string{"p2"}},
-		{"no-team group", "", "2026-06-15", []string{}, []string{"p6"}},
-		{"other week keeps only its card", "A", "2026-06-22", []string{"p3"}, []string{}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			bands := WeeklyPlan(b, c.team, c.week)
-			if got := ids(bands.Wed); !reflect.DeepEqual(got, c.wantWed) {
-				t.Errorf("WeeklyPlan(%q,%q).Wed = %v, want %v", c.team, c.week, got, c.wantWed)
-			}
-			if got := ids(bands.Fri); !reflect.DeepEqual(got, c.wantFri) {
-				t.Errorf("WeeklyPlan(%q,%q).Fri = %v, want %v", c.team, c.week, got, c.wantFri)
-			}
-		})
-	}
-}
-
 // Deferring a card takes it out of the sprint in progress at once — even when
 // that sprint opened days ago (no carry-over since), so its start day is in
 // the past. A genuinely CLOSED sprint's day still keeps the card as history.
@@ -203,96 +166,6 @@ func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
 	}
 }
 
-// A DEBT shows on the current week's panel beside that week's own work
-// (planShowsInWeekAt), and it goes in the BY-WEDNESDAY band: it was owed in
-// a week already past, so the nearest deadline of the week it is shown in
-// is the one it has to meet. Read by its stored band, or by the end date it
-// has already missed, such a card landed under "by Friday" — the latest
-// deadline of the week — which reads as "there is time".
-//
-// The opposite direction keeps the Friday band: a card that has moved on to
-// a LATER week is shown on the panel of a past week as history, and it
-// stayed open through that week's end.
-func TestWeeklyPlanPutsADebtInTheWednesdayBand(t *testing.T) {
-	const week, today = "2026-08-24", "2026-08-26"
-	last := AddDays(week, -7)
-	cases := []struct {
-		name  string
-		card  Card
-		panel string // the week whose panel is asked; the current one by default
-		wed   bool
-		fri   bool
-	}{
-		{"a banded card owed last week", Card{ItemID: "a", Title: "a", Team: "t",
-			Week: last, Plan: PlanFri}, "", true, false},
-		{"...whatever band it carries", Card{ItemID: "b", Title: "b", Team: "t",
-			Week: last, Plan: PlanWed}, "", true, false},
-		{"a slot that ended last week", Card{ItemID: "c", Title: "c", Team: "t",
-			Epic: "E", Week: last, Day: AddDays(week, -2)}, "", true, false},
-		{"this week's own work keeps its band", Card{ItemID: "d", Title: "d", Team: "t",
-			Week: week, Plan: PlanFri}, "", false, true},
-		// The other direction: on the panel of a week already over, a card
-		// that has moved on to a later one stayed open through that week's
-		// end — the by-Friday band, as before.
-		{"a card that moved on is history in the Friday band", Card{ItemID: "e", Title: "e",
-			Team: "t", Week: week, Plan: PlanWed, StartDate: last}, last, false, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			panel := tc.panel
-			if panel == "" {
-				panel = week
-			}
-			bands := WeeklyPlanAt(Board{Cards: []Card{tc.card}}, "t", panel, today)
-			if got := len(bands.Wed) == 1; got != tc.wed {
-				t.Errorf("in Wed band = %v, want %v", got, tc.wed)
-			}
-			if got := len(bands.Fri) == 1; got != tc.fri {
-				t.Errorf("in Fri band = %v, want %v", got, tc.fri)
-			}
-		})
-	}
-}
-
-// A Project-board slot has no stored plan band, yet it IS the week's work for
-// every week its span covers: the panel derives its band from the end date
-// instead of dropping it. The stored band, when present, always wins — deriving
-// must never move a card someone placed by hand.
-func TestWeeklyPlanDerivesSlotBands(t *testing.T) {
-	const week, today = "2026-08-24", "2026-08-24"
-	mk := func(id, wk, day string, plan PlanBand) Card {
-		return Card{ItemID: id, Title: id, Team: "t", Epic: "E", Week: wk, Day: day, Plan: plan}
-	}
-	cases := []struct {
-		name string
-		card Card
-		wed  bool // expected in the Wed band
-		fri  bool // expected in the Fri band
-	}{
-		{"ends by Wednesday -> Wed", mk("a", week, "2026-08-26", PlanNone), true, false},
-		{"ends exactly Wednesday -> Wed", mk("aw", week, AddDays(week, 2), PlanNone), true, false},
-		{"ends Thursday -> Fri", mk("at", week, AddDays(week, 3), PlanNone), false, true},
-		{"ends Friday -> Fri", mk("b", week, "2026-08-28", PlanNone), false, true},
-		{"a middle week of a long span -> Fri", mk("c", "2026-08-17", "2026-09-04", PlanNone), false, true},
-		{"ends by Wednesday of a later covered week -> Wed there", mk("cw", "2026-08-17", "2026-08-26", PlanNone), true, false},
-		{"stored band outranks the derived one", mk("d", week, "2026-08-28", PlanWed), true, false},
-		{"band-less non-slot stays off the panel", Card{ItemID: "e", Title: "e", Team: "t", Week: week}, false, false},
-		{"slot without an end date stays off", mk("f", week, "", PlanNone), false, false},
-		{"slot of another week stays off", mk("g", "2026-09-07", "2026-09-11", PlanNone), false, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			bands := WeeklyPlanAt(Board{Cards: []Card{tc.card}}, "t", week, today)
-			if got := len(bands.Wed) == 1; got != tc.wed {
-				t.Errorf("in Wed band = %v, want %v", got, tc.wed)
-			}
-			if got := len(bands.Fri) == 1; got != tc.fri {
-				t.Errorf("in Fri band = %v, want %v", got, tc.fri)
-			}
-		})
-	}
-}
-
 // A slot lives on the Project board until it joins a sprint: its column
 // holds it, so the day grid does not. A card carrying only a project name
 // has no column — the Project board renders columns by epic — so hiding it
@@ -314,6 +187,55 @@ func TestTeamGridHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != "project-only" || got[1] != "slot-in-sprint" {
 		t.Fatalf("grid = %v; want the project-only card and the slot that joined a sprint", got)
+	}
+}
+
+// A slot's week reaches the day grid, and reaches no further.
+//
+// The test above hands TeamGrid a hand-made Board, and a hand-made Board has
+// no derived week: NewBoardIn gives every slot with a start date the week of
+// that date (a slot's row IS its start date's week). So on a REAL board a
+// sprint-less slot is not simply hidden — it stands in the weeks it covers,
+// which is the set the Triage board shows and what the Unassigned column is
+// for. The gate above still holds everywhere else: outside those weeks the
+// slot is the Project board's business alone.
+func TestTeamGridShowsASlotInTheWeeksItCoversAndNowhereElse(t *testing.T) {
+	b := NewBoardIn("acme", []Card{
+		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
+			StartDate: "2026-09-01", Day: "2026-09-18"},
+	})
+	b.SprintStates = map[string]SprintState{"t": {Current: "2026-09-01"}}
+	// Every week the slot covers: the week of its start through the week its
+	// end reaches.
+	for _, day := range []string{"2026-09-03", "2026-09-07", "2026-09-14"} {
+		if got := TeamGrid(b, "t", day); len(got) != 1 {
+			t.Fatalf("TeamGrid(%s) = %d card(s); the week's own work stands in it", day, len(got))
+		}
+	}
+	// And the weeks around them, where it is the Project board's business.
+	for _, day := range []string{"2026-08-26", "2026-09-22"} {
+		if got := TeamGrid(b, "t", day); len(got) != 0 {
+			t.Fatalf("TeamGrid(%s) = %d card(s); outside its weeks a sprint-less slot stays off the grid", day, len(got))
+		}
+	}
+}
+
+// A DEFERRED card leaves the day grid at once — that is what deferring is —
+// and its week must not hold it there. Defer moves the dates and leaves the
+// week where it was, so the card the person pushed a month out was still
+// standing in this week's grid, on a board they had taken it off.
+func TestTeamGridLetsADeferredCardGo(t *testing.T) {
+	today := TodayIso()
+	b := Board{
+		Cards: []Card{{
+			ItemID: "def", Team: "t", Assignees: []string{"bob"},
+			Week: MondayOf(today), StartDate: AddDays(today, 30), Day: AddDays(today, 30),
+			SprintStart: today,
+		}},
+		SprintStates: map[string]SprintState{"t": {Current: today}},
+	}
+	if got := TeamGrid(b, "t", today); len(got) != 0 {
+		t.Fatalf("grid = %d card(s); a card deferred a month out is gone from today", len(got))
 	}
 }
 
@@ -339,23 +261,51 @@ func TestMeViewHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
 	}
 }
 
-// A SUBTASK takes no band row of its own. Grouping hands its slot to the
-// parent, and the panel draws it as a rider under that parent — but a
-// subtask that carries a COLUMN derives a week from its dates all the
-// same, and that put it in the band beside the very parent it rides: the
-// card appeared twice, and the group looked like it had strays floating
-// next to it.
-func TestWeeklyPlanLeavesSubtasksToTheirParent(t *testing.T) {
-	const week, today = "2026-08-24", "2026-08-26"
+// The week's own work stands on the day grid all week — its person's column,
+// or Unassigned when nobody has taken it. This is the set the Triage board
+// shows for that week: what the weekly panel used to hold beside the grid,
+// and the reason a card placed in a week is not invisible until someone
+// gives it a day.
+func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
+	today := TodayIso()
+	week := MondayOf(today)
 	b := NewBoard([]Card{
-		{ItemID: "ep", Title: EpicStateTitle, Epic: "Redis App", Project: "freedom"},
-		{ItemID: "p", Title: "the parent", Team: "t", Plan: PlanFri, Week: week},
-		{ItemID: "kid", Title: "a columned subtask", Team: "t", Parent: "p",
-			Project: "freedom", Epic: "Redis App", Week: week, StartDate: week, Day: AddDays(week, 4)},
+		// Placed in this week and nothing else: no dates, no sprint.
+		{ItemID: "placed", Team: "t", Week: week},
+		// A slot covering this week, on nobody's day.
+		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
+			StartDate: AddDays(week, -7), Day: AddDays(week, 4)},
+		// A process turn filed into this week.
+		{ItemID: "turn", Team: "t", Task: "task", Week: week, Stage: StageRecurrent},
+		// A debt: owed last week, still open — it stands beside this week's
+		// work without leaving the week it was owed in.
+		{ItemID: "debt", Team: "t", Week: AddDays(week, -7)},
+		// Placed in a week to come: on no day board until its Monday (B1).
+		{ItemID: "ahead", Team: "t", Week: AddDays(week, 7)},
+		// Another team's week is not this grid's business.
+		{ItemID: "elsewhere", Team: "other", Week: week},
 	})
-	bands := WeeklyPlanAt(b, "t", week, today)
-	all := append(append([]Card{}, bands.Wed...), bands.Fri...)
-	if len(all) != 1 || all[0].ItemID != "p" {
-		t.Fatalf("the panel holds the parent and nothing that rides it: %v", ids(all))
+	b.SprintStates = map[string]SprintState{"t": {Current: today}}
+
+	got := ids(TeamGrid(b, "t", today))
+	want := []string{"placed", "slot", "turn", "debt"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("grid = %v, want %v", got, want)
 	}
+
+	// A week that is not the one being looked at carries only its own: a debt
+	// is shown beside the CURRENT week's work, not on some other week's day.
+	next := AddDays(today, 7)
+	if got := ids(TeamGrid(b, "t", next)); slicesContains(got, "debt") {
+		t.Fatalf("a debt belongs to the current week's day, not %s: %v", next, got)
+	}
+}
+
+func slicesContains(xs []string, x string) bool {
+	for _, s := range xs {
+		if s == x {
+			return true
+		}
+	}
+	return false
 }

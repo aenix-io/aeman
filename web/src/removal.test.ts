@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { boardAsksAbout, deleteWarning, freeSubtasks, gridRemoval, personalRemovalKind, planRemoval, gridGesture, removalKind, subtaskRemovalPatch, subtaskRemovalUndo, type RemovableCard, type RemovalHomes } from "./removal";
-
-const ctx = { current: "2026-08-26", previous: "2026-08-25", today: "2026-08-26" };
-const card = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 0 };
+import {
+  asksFirst,
+  deleteWarning,
+  freeSubtasks,
+  gridRemoval,
+  offersRemoval,
+  removeChoices,
+  subtaskRemovalPatch,
+  subtaskRemovalUndo,
+  type RemovableCard,
+  type RemovalHomes,
+} from "./removal";
 
 /** mk builds the slice of a card these rules read, TYPED. `as never`
  *  silences the checker instead of asking it — `never` is assignable to
@@ -16,89 +24,37 @@ type Removable = RemovalHomes &
 const mk = (c: Removable): Removable => c;
 
 
-// One outcome now, whatever sprint the card is in: the × empties its last
-// home and the card goes. The demote it replaced is where the board's
-// invisible pile came from — cards alive in a sprint no live view reaches
-// (mirrors boardservice.Remove).
-describe("removalKind", () => {
-  it("deletes a card of the current sprint", () => {
-    expect(removalKind(card, ctx)).toBe("delete");
-  });
-
-  it("deletes a card created today", () => {
-    expect(removalKind({ ...card, startDate: "2026-08-26" }, ctx)).toBe("delete");
-  });
-
-  it("deletes whether or not the team has a previous sprint", () => {
-    expect(removalKind(card, { ...ctx, previous: undefined })).toBe("delete");
-  });
-
-  it("deletes a card that is not in the current sprint", () => {
-    expect(removalKind({ ...card, sprintStart: "2026-08-20" }, ctx)).toBe("delete");
-  });
-
-  // The one question left: the card carries work, and the × takes it off
-  // the board. The day it stood on keeps it, but today's board will not.
-  it("asks when the card carries progress", () => {
-    expect(removalKind({ ...card, progress: 40 }, ctx)).toBe("ask");
-    // Created today or not — work is work.
-    expect(removalKind({ ...card, startDate: "2026-08-26", progress: 40 }, ctx)).toBe("ask");
-  });
-
-  it("does not ask for an untouched card — nothing is lost", () => {
-    expect(removalKind({ ...card, progress: 0 }, ctx)).toBe("delete");
-  });
-});
-
-// The two rules meet here. A card filed under a Project-board column must
-// never be destroyed by the ×, so the dialog must not stand in front of one:
-// with a column there is nothing to lose, and the server hands the card back
-// to it.
-describe("removalKind on a card that belongs to a column", () => {
-  const worked = { sprintStart: "2026-08-26", startDate: "2026-08-20", progress: 40 };
-
-  it("never asks for a card with an epic", () => {
-    expect(removalKind({ ...worked, epic: "Cozystack Core" }, ctx)).toBe("delete");
-  });
-
-  // A bare project name is not a column: the Project board renders columns
-  // by epic, so such a card is on no board and the × can destroy it — which
-  // is exactly when the person must be asked.
-  it("still asks for a card that only names a project", () => {
-    expect(removalKind({ ...worked, project: "freedom" }, ctx)).toBe("ask");
-  });
-
-  it("still asks for a worked card that belongs to no column", () => {
-    expect(removalKind(worked, ctx)).toBe("ask");
-  });
-})
-
-describe("personalRemovalKind", () => {
-  const today = "2026-08-28";
-  it("asks about a worked-on card that did not start today — its history is at stake", () => {
-    expect(personalRemovalKind({ progress: 40, startDate: "2026-08-20" }, today)).toBe("ask");
-    expect(personalRemovalKind({ progress: 100, startDate: "2026-08-20" }, today)).toBe("ask");
-    expect(personalRemovalKind({ progress: 10 }, today)).toBe("ask");
-  });
-  it("deletes an untouched card, or one that started today, without asking", () => {
-    expect(personalRemovalKind({ progress: 0, startDate: "2026-08-20" }, today)).toBe("delete");
-    expect(personalRemovalKind({ startDate: "2026-08-20" }, today)).toBe("delete");
-    expect(personalRemovalKind({ progress: 60, startDate: today }, today)).toBe("delete");
-    expect(personalRemovalKind({ progress: 20, startDate: "2026-08-30" }, today)).toBe("delete");
-  });
-});
-
-// The grid × empties one of a card's two homes — the working area — and a
-// card that was nowhere else is deleted by it. What the card carries does
-// not change that; it decides whether the × asks first.
+// The grid × empties one of a card's homes — the working area — and a card
+// that was nowhere else is deleted by it. What the card carries does not
+// change that; it decides whether the × asks first.
 describe("what each × does, one answer for every board", () => {
   const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
   const inSprint = { sprintStart: "2026-08-24", startDate: "2026-08-29" };
 
-  it("sends a card back to the weekly plan it is in", () => {
-    expect(gridRemoval({ ...inSprint, plan: "fri" }, ctx)).toBe("leave");
-    // Even one carrying work: the plan is where it goes, not the bin.
-    expect(gridRemoval({ ...inSprint, plan: "fri", progress: 40 }, ctx)).toBe("leave");
+  it("sends a card back to the week it is scheduled for", () => {
+    expect(gridRemoval({ ...inSprint, week: "2026-08-24" }, ctx)).toBe("leave");
+    // Even one carrying work: the week is where it goes, not the bin.
+    expect(gridRemoval({ ...inSprint, week: "2026-08-24", progress: 40 }, ctx)).toBe(
+      "leave",
+    );
+  });
+
+  // The week counts as somewhere to go only while the card is ALSO in the
+  // working area. One that is nothing but its week — already standing in
+  // Unassigned — has no second home, and the × empties its last one. This
+  // rule drifted from the server's once, and the dialog then promised such a
+  // card it would be moved to Unassigned while the server deleted it.
+  it("deletes a card that is nothing but its week", () => {
+    expect(gridRemoval({ week: "2026-08-24" }, ctx)).toBe("delete");
+  });
+
+  // A PROCESS TURN never runs out: its week is its process's record of what
+  // that week was owed, and destroying it would lose the record.
+  it("always leaves a process turn in its week", () => {
+    expect(gridRemoval({ ...inSprint, week: "2026-08-24", task: "t1" }, ctx)).toBe(
+      "leave",
+    );
+    expect(gridRemoval({ week: "2026-08-24", task: "t1" }, ctx)).toBe("leave");
   });
 
   // The Me board asked this question on its own and answered it differently
@@ -106,7 +62,9 @@ describe("what each × does, one answer for every board", () => {
   // splitting it from its parent, and looking like the × had done nothing.
   it("deletes a subtask, which has no home of its own", () => {
     expect(gridRemoval({ ...inSprint, parent: "p" }, ctx)).toBe("delete");
-    expect(gridRemoval({ ...inSprint, parent: "p", plan: "fri" }, ctx)).toBe("delete");
+    expect(gridRemoval({ ...inSprint, parent: "p", week: "2026-08-24" }, ctx)).toBe(
+      "delete",
+    );
     // A COLUMN is the exception: it is a home of its own, drawn and counted
     // on the Project board (G57), and a card filed under one is never
     // deleted by either ×.
@@ -126,16 +84,6 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ ...inSprint, project: "core" }, ctx)).toBe("delete");
   });
 
-  it("keeps a plan card that is somewhere else, deletes one that is not", () => {
-    expect(planRemoval({ sprintStart: "2026-08-24" })).toBe("leave");
-    expect(planRemoval({ startDate: "2026-08-29" })).toBe("leave");
-    expect(planRemoval({ epic: "Auth" })).toBe("leave");
-    expect(planRemoval({})).toBe("delete");
-    // Being on a person or carrying work is not a place to be — the server
-    // deletes these, and a client that spares them shows a card that is
-    // already gone.
-    expect(planRemoval({ day: undefined })).toBe("delete");
-  });
 });
 
 
@@ -199,33 +147,6 @@ describe("freeing the subtasks of a deleted parent", () => {
   });
 });
 
-// The card's own "Delete?" prompt is for the plain case. It must stand down
-// wherever the board puts its own question — the two-way choice for a worked
-// card, and the named-loss warning before a delete — or the person answers
-// two prompts for one ×, the first of them the anonymous one W5 exists to
-// suppress.
-describe("who asks about a delete", () => {
-  it("stands down when the board opens its two-way choice", () => {
-    expect(boardAsksAbout({ title: "x" }, "ask", null)).toBe(true);
-  });
-
-  it("stands down when the board will name what the delete takes", () => {
-    expect(boardAsksAbout({ title: "x", progress: 40 }, "delete", null)).toBe(true);
-    expect(boardAsksAbout({ title: "x" }, "delete", "Review: x")).toBe(true);
-  });
-
-  // A prompt reading "Delete?" in front of something that keeps the card is
-  // how the × came to be read as deletion in the first place.
-  it("stands down when the × does not delete at all", () => {
-    expect(boardAsksAbout({ title: "x" }, "leave", null)).toBe(true);
-    expect(boardAsksAbout({ title: "x" }, "leave", null)).toBe(true);
-  });
-
-  it("leaves the plain delete to the card", () => {
-    expect(boardAsksAbout({ title: "x" }, "delete", null)).toBe(false);
-  });
-});
-
 // The grid × obeys the two-homes rule for a subtask too: with a column to
 // fall back on it lets the card go there, and only a subtask with nowhere
 // else is deleted. Before the Project board drew such a card, nobody could
@@ -244,118 +165,6 @@ describe("gridRemoval on a subtask", () => {
 
   it("deletes a subtask with nowhere else to be", () => {
     expect(gridRemoval(mk({ parent: "p1", sprintStart: "2026-08-24" }), ctx)).toBe("delete");
-  });
-});
-
-// The board's own question stands down for every outcome that KEEPS the
-// card. "Delete «…»?" in front of an × that ungroups and files the card in
-// its column is how the × came to be read as deletion.
-describe("boardAsksAbout for the ungroup outcome", () => {
-  it("asks nothing: the card is kept", () => {
-    expect(boardAsksAbout({ title: "x", progress: 0 }, "ungroup", null)).toBe(true);
-  });
-});
-
-// Who asks before a destructive ×. `boardAsks` true means "the BOARD will
-// ask, so the card's own anonymous prompt stands down" — a board that
-// claims it and then deletes in silence is worse than one that never
-// claimed it: that is a one-click loss of worked cards.
-describe("who asks about a subtask", () => {
-  const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
-  const worked = { title: "half-done subtask", parent: "p", progress: 60, sprintStart: "2026-08-24" };
-
-  it("scores a worked columnless subtask as a delete the board must name", () => {
-    expect(gridRemoval(mk(worked), ctx)).toBe("delete");
-    // The board takes the question on — and must actually put it.
-    expect(boardAsksAbout(worked, "delete", null)).toBe(true);
-    expect(deleteWarning(worked, null)).toContain("60%");
-  });
-
-  it("scores a weekly-panel subtask by the PLAN's rule, which is what runs there", () => {
-    // The panel's × is the plan's gesture for every card on it (G57: `from`
-    // picks which home is emptied). It used to dispatch subtasks to the
-    // grid handler — one × doing the other's work — and the score followed
-    // the dispatch rather than the rule.
-    expect(planRemoval(mk(worked))).toBe("leave");
-    expect(boardAsksAbout(worked, planRemoval(mk(worked)), null)).toBe(true);
-  });
-
-  // The × on a subtask whose column belongs to the PARENT's repository: the
-  // pull-out cannot take the column along, so the card has no home left and
-  // is deleted. The board must know, or it patches the card as kept and
-  // destroys work without asking (the server's
-  // TestAStrandedColumnDoesNotLeaveACardNowhere).
-  it("scores a columned subtask whose column cannot follow it out", () => {
-    const kid = { title: "child", parent: "p", epic: "Closed", progress: 60,
-      sprintStart: "2026-08-24" };
-    expect(gridRemoval(mk(kid), { ...ctx, columnFollows: false })).toBe("delete");
-    expect(gridRemoval(mk(kid), {
-      today: "2026-08-24", current: "2026-08-24", columnFollows: false,
-    })).toBe("delete");
-    // ...and the board takes the question on, with the loss named.
-    expect(boardAsksAbout(kid, "delete", null)).toBe(true);
-    expect(deleteWarning(kid, null)).toContain("60%");
-    // The column CAN follow on a single-repository board, where the
-    // question does not arise: the × ungroups and keeps it.
-    expect(gridRemoval(mk(kid), ctx)).toBe("ungroup");
-  });
-});
-
-// Which gesture the day grid's × performs — the routing itself, lifted out
-// of the boards. A columned subtask is RELEASED (ungrouped into its
-// column); a card with no home left is DELETED, and asked about first when
-// it carries work.
-describe("gridGesture", () => {
-  const ctx = { today: "2026-08-24", current: "2026-08-24", previous: "2026-08-17" };
-
-  it("releases a columned subtask, previous sprint or not", () => {
-    const card = { parent: "p", epic: "Cozystack", sprintStart: "2026-08-24" };
-    expect(gridGesture(mk(card), ctx)).toBe("release");
-  });
-
-  it("deletes a columnless subtask", () => {
-    expect(gridGesture(mk({ parent: "p", sprintStart: "2026-08-24" }), ctx)).toBe("delete");
-  });
-
-  it("deletes a columned subtask whose column stays behind", () => {
-    const kid = { parent: "p", epic: "Closed", sprintStart: "2026-08-24" };
-    expect(gridGesture(mk(kid), { ...ctx, columnFollows: false })).toBe("delete");
-  });
-
-  // The question applies here like anywhere else: the × takes the card off
-  // the board AND drops the column it stood in — and a subtask exempted
-  // from the question was the one card on the grid whose work could leave
-  // without one being asked.
-  it("asks about a worked subtask whose column stays behind", () => {
-    const worked = { parent: "p", epic: "Closed", progress: 60, sprintStart: "2026-08-24" };
-    expect(gridGesture(mk(worked), { ...ctx, columnFollows: false })).toBe("ask");
-    // Its column can follow on a board with one repository: nothing is
-    // lost, so nothing is asked.
-    expect(gridGesture(mk(worked), ctx)).toBe("release");
-  });
-
-  it("asks before an × that takes work off the board", () => {
-    expect(
-      gridGesture(
-        mk({ sprintStart: "2026-08-24", startDate: "2026-08-20", progress: 40 }),
-        ctx,
-      ),
-    ).toBe("ask");
-  });
-
-  it("deletes an untouched card with nowhere else to be, unasked", () => {
-    expect(
-      gridGesture(mk({ sprintStart: "2026-08-24", startDate: "2026-08-20" }), ctx),
-    ).toBe("delete");
-  });
-});
-
-// The plan's × never deletes a subtask: its home is its parent, so the
-// plan cannot be its last one (G57). Stated in this copy too, because a
-// rule kept on one side only is how the boards drifted before.
-describe("planRemoval on a subtask", () => {
-  it("leaves it, whatever else it carries", () => {
-    expect(planRemoval(mk({ parent: "p" }))).toBe("leave");
   });
 });
 
@@ -417,3 +226,109 @@ describe("subtaskRemovalPatch", () => {
     ).not.toHaveProperty("day");
   });
 });
+
+// The × asks before it acts — every time, whatever it is about to do, so
+// that a card handed back to Unassigned and a card taken off the board are
+// told apart BEFORE either happens. Four rules used to decide this between
+// them (removalKind, personalRemovalKind, gridGesture, boardAsksAbout) and
+// they disagreed: an × that hands a card back went in silence on one board
+// and asked on another, and a worked card could be destroyed unasked.
+describe("when the × asks first", () => {
+  const today = "2026-08-28";
+  const bornToday = `${today}T09:00:00Z`;
+
+  it("does not ask about a card made today that nobody has touched", () => {
+    expect(asksFirst({ progress: 0, createdAt: bornToday }, today)).toBe(false);
+    expect(asksFirst({ createdAt: bornToday }, today)).toBe(false);
+  });
+
+  it("asks once there is work on it, however fresh the card", () => {
+    expect(asksFirst({ progress: 10, createdAt: bornToday }, today)).toBe(true);
+  });
+
+  it("asks about a card that has been on the board since yesterday", () => {
+    expect(asksFirst({ progress: 0, createdAt: "2026-08-27T18:00:00Z" }, today)).toBe(true);
+  });
+
+  it("asks when nothing says when the card was made", () => {
+    // A card whose age the board cannot vouch for is not one to remove in
+    // silence: the silent case is the mis-typed card of a moment ago, and
+    // this is not known to be one.
+    expect(asksFirst({ progress: 0 }, today)).toBe(true);
+  });
+});
+
+// What the × may do to a card WHERE IT STANDS. The gesture used to work this
+// out for itself and do the one thing it decided, so taking a card with a
+// week off the board took two presses — the second landing on a card that no
+// longer looked like the one the person meant to remove. The person chooses
+// now, out of the card's own list, and the × is drawn only where that list is
+// not empty.
+describe("what the × offers", () => {
+  const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
+  // Somebody is carrying it: that, and not its dates, is what "move it to
+  // Unassigned" would change. A dated card nobody has taken is DRAWN in
+  // Unassigned too, and reading the working area as "not in Unassigned"
+  // offered such a card a move to the column it was already standing in.
+  const held = {
+    assignees: ["kvaps"],
+    sprintStart: "2026-08-24",
+    startDate: "2026-08-28",
+  };
+
+  it("offers an ordinary card the board, and its week beside it", () => {
+    expect(removeChoices({ ...held, week: "2026-08-24" }, ctx)).toEqual([
+      "off-board",
+      "unassign",
+    ]);
+  });
+
+  it("offers only the board to a card with nowhere to be left", () => {
+    // No week and no column: unassigning would leave it nowhere at all.
+    expect(removeChoices(held, ctx)).toEqual(["off-board"]);
+  });
+
+  it("offers only the board to a card standing in Unassigned", () => {
+    // Nobody is carrying it, dates or no dates: it is already there.
+    expect(removeChoices({ week: "2026-08-24" }, ctx)).toEqual(["off-board"]);
+    expect(
+      removeChoices({ week: "2026-08-24", sprintStart: "2026-08-24" }, ctx),
+    ).toEqual(["off-board"]);
+  });
+
+  it("offers a PROJECT card its column and nothing else", () => {
+    // The Project board's commitment is not this board's to destroy.
+    expect(removeChoices({ ...held, epic: "Auth" }, ctx)).toEqual(["unassign"]);
+  });
+
+  it("offers a PROCESS TURN its week and nothing else", () => {
+    expect(removeChoices({ ...held, task: "t1", week: "2026-08-24" }, ctx)).toEqual([
+      "unassign",
+    ]);
+  });
+
+  it("offers a project card in Unassigned nothing at all — so no × is drawn", () => {
+    expect(removeChoices({ epic: "Auth" }, ctx)).toEqual([]);
+    expect(offersRemoval({ epic: "Auth" }, ctx)).toBe(false);
+    // Dated, and still nobody's: the × has nothing to do here either.
+    expect(offersRemoval({ epic: "Auth", sprintStart: "2026-08-24" }, ctx)).toBe(false);
+    expect(removeChoices({ task: "t1", week: "2026-08-24" }, ctx)).toEqual([]);
+    expect(offersRemoval({ task: "t1", week: "2026-08-24" }, ctx)).toBe(false);
+  });
+
+  it("keeps drawing the × wherever there is something to do", () => {
+    expect(offersRemoval({ ...held, epic: "Auth" }, ctx)).toBe(true);
+    expect(offersRemoval({ week: "2026-08-24" }, ctx)).toBe(true);
+    expect(offersRemoval({}, ctx)).toBe(true);
+  });
+
+  // A SUBTASK is its own case: out of the group where it has a column to be
+  // left in, off the board where it has not.
+  it("takes a subtask out of its group, or off the board", () => {
+    expect(removeChoices({ ...held, parent: "p", epic: "Auth" }, ctx)).toEqual([
+      "ungroup",
+    ]);
+    expect(removeChoices({ ...held, parent: "p" }, ctx)).toEqual(["off-board"]);
+  });
+});
+

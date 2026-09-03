@@ -111,24 +111,11 @@ func TestAPIListCardsMeView(t *testing.T) {
 	}
 }
 
-func TestAPIListCardsWeeklyCarriesProgress(t *testing.T) {
-	fake := boardservicetest.New([]board.Card{
-		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-15", Progress: 40},
-		{ItemID: "p2", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-15", Stage: board.StageRecurrent, Progress: 100},
-	}, nil)
-	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?view=weekly&team=alpha&week=2026-06-15", "")
-	list := decodeList(t, rec)
-	if len(list.Items) != 2 || list.Weekly == nil || list.Weekly.Progress != 40 {
-		t.Fatalf("weekly = %+v %+v (recurrent excluded from the bar)", list.Items, list.Weekly)
-	}
-}
-
 func TestAPICreateCard(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
-		`{"title":"New task","team":"alpha","zone":"urgent","assignees":["kvaps"],"dates":{"start":"2026-06-21"}}`)
+		`{"title":"New task","team":"alpha","zone":"urgent","assignees":["bob"],"dates":{"start":"2026-06-21"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -139,6 +126,49 @@ func TestAPICreateCard(t *testing.T) {
 	// One-day range: end defaults to start; the card joins the current sprint.
 	if c.Spec.Dates.Start != "2026-06-21" || c.Spec.Dates.End != "2026-06-21" || c.Spec.Dates.Sprint != "2026-06-20" {
 		t.Fatalf("dates = %+v", c.Spec.Dates)
+	}
+}
+
+// The Me board's seat, at the HTTP door: a person files work for THEMSELVES
+// as unplanned and no other way — the planned zones are the plan, made with
+// the team. Planning somebody else's week is the lead's own gesture and is
+// untouched (the create above).
+func TestAPICreateRefusesSelfPlannedWork(t *testing.T) {
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	// WHO is asking is the whole rule, so the test says so itself. Left to
+	// resolve for real, the login comes from whatever identity the machine
+	// running the tests happens to have: on a developer's laptop that is a
+	// signed-in `gh` — the actor the fixture names, and the rule fires — and
+	// on CI there is none, the actor is anonymous, and the guard correctly
+	// steps aside from a create that is nobody's own work. The test passed at
+	// the desk and failed in CI, proving only where it ran.
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "gho_kvaps", "kvaps", nil }
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+		`{"title":"Mine","team":"alpha","zone":"urgent","assignees":["kvaps"]}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, srv, http.MethodPost, "/api/v1/cards",
+		`{"title":"Came up","team":"alpha","zone":"unplanned","assignees":["kvaps"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("unplanned work for oneself: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The rule is about a person planning THEIR OWN week, so it needs a person:
+// with no actor there is nobody whose own work this could be, and the create
+// goes through. Pinned because it is the state CI ran in while the test above
+// silently proved nothing — an anonymous caller must not be quietly held to a
+// rule about ownership, and must not be quietly exempt from one either.
+func TestAPICreateWithNoActorIsNotSelfPlannedWork(t *testing.T) {
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "", nil }
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+		`{"title":"Mine","team":"alpha","zone":"urgent","assignees":["kvaps"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -678,5 +708,43 @@ func TestAPIRenameTeam(t *testing.T) {
 	rec = do(t, srv, http.MethodPost, "/api/v1/teams/actions/rename", `{"team":"platform","to":"portal"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("rename into a taken name: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The intent survives a body the client streams.
+//
+// The handler asked ContentLength before reading, and a streamed body declares
+// none (-1), so the body went unread and an explicit "off-board" degraded into
+// the intentless gesture — which hands the card back to its week instead of
+// taking it off the board. A client that streams its request bodies (some HTTP
+// libraries do by default) got the opposite of what it asked for, silently.
+func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
+	today := board.TodayIso()
+	// A card in the working area AND scheduled for a week: the two intents
+	// part company on exactly this card. The intentless gesture hands it back
+	// to its week and leaves it standing; off-board takes it away. A card
+	// without the working area would be deleted either way, and the test
+	// would pass while proving nothing.
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Team: "alpha", Assignees: []string{"kvaps"},
+			Week: board.MondayOf(today), SprintStart: today, StartDate: today, Day: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/cards/c1/actions/remove",
+		strings.NewReader(`{"intent":"off-board"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.ContentLength = -1 // what a streamed body looks like to the handler
+	rec := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rec, r)
+
+	if rec.Code >= http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	// off-board was asked for and off-board is what happened: the card is
+	// gone. Had the body gone unread, the intentless gesture would have handed
+	// it back to its week and left it standing.
+	if got := fake.Card("c1"); got != nil {
+		t.Fatalf("the streamed intent was dropped; card = %+v", got)
 	}
 }

@@ -328,6 +328,14 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	}
 	cards = append(cards, s.Cards...)
 	bd := board.NewBoardIn(primary, cards)
+	// The team's capacity rides its state, not a state card: the card only
+	// carries the sprint, and the number belongs beside it.
+	for _, t := range s.Teams {
+		if st, ok := bd.SprintStates[t.Name]; ok && t.Capacity != (board.Capacity{}) {
+			st.Capacity = t.Capacity
+			bd.SprintStates[t.Name] = st
+		}
+	}
 	bd.Title = s.Board.Title
 	return bd
 }
@@ -444,7 +452,7 @@ func (b *Backend) CreateCard(ctx context.Context, _ board.Board, in board.Create
 func cardFromInput(in board.CreateInput, id, created, author string) board.Card {
 	c := board.Card{
 		ItemID: id, Title: in.Title, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Plan: in.Plan, Week: in.Week, Epic: in.Epic,
+		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Epic: in.Epic,
 		Project: in.Project, Process: in.Process, Task: in.Task, Recurrence: in.Recurrence, Paused: in.Paused,
 		Description: in.Body, CreatedAt: created, Author: author,
 	}
@@ -1074,11 +1082,6 @@ func (b *Backend) SetStart(ctx context.Context, _ board.Board, card board.Card, 
 // SetSprintStart sets or clears the sprint membership.
 func (b *Backend) SetSprintStart(ctx context.Context, _ board.Board, card board.Card, date string) error {
 	return b.editCard(ctx, "sprint", card, func(f *CardFile) { f.Card.SprintStart = date })
-}
-
-// SetPlan sets or clears the weekly-plan band.
-func (b *Backend) SetPlan(ctx context.Context, _ board.Board, card board.Card, plan board.PlanBand) error {
-	return b.editCard(ctx, "plan", card, func(f *CardFile) { f.Card.Plan = plan })
 }
 
 // SetWeek sets the week — of a card, or of a deadline stub.

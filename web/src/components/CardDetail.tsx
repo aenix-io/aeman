@@ -6,7 +6,10 @@ import type {
   CardLog,
   Note,
   Provider,
+  ZoneKey,
 } from "../providers/types";
+import { ZONES, ZONE_ORDER } from "../zones";
+import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
 import { localDateIso } from "../date";
 
@@ -55,6 +58,25 @@ export function CardDetail({
       node.focus();
     }
   }, []);
+  // What kind of work this is. It is set by which area of the Team board a
+  // card stands in, which is no help when the card is met anywhere else —
+  // and on the Triage board a column is a person, so there is no area to
+  // drop it into at all.
+  const zoneRef = useRef<HTMLSpanElement | null>(null);
+  const [zoneOpen, setZoneOpen] = useState(false);
+  const setZone = (zone: ZoneKey) => {
+    setZoneOpen(false);
+    if (zone === card.zone) {
+      return;
+    }
+    const before = card.zone;
+    patchCard(card.itemId, { zone });
+    void provider.patchCard(card.itemId, { zone }).catch((err: unknown) => {
+      patchCard(card.itemId, { zone: before });
+      fail(err);
+    });
+  };
+
   const [description, setDescription] = useState(card.description ?? "");
   // dirty marks the draft as the user's: once they typed, nothing arriving
   // from the board (a background re-list, the lazy body fetch, a watch frame)
@@ -315,8 +337,47 @@ export function CardDetail({
           {/* Where this card comes from. A turn of a process and a slot of a
               project look like ordinary cards on a day board, and the first
               question about one is always "what is this part of?". */}
-          {(card.process || card.epic || card.project) && (
-            <div className="modal-origin">
+          <div className="modal-origin">
+            {/* What kind of work it is, and the one thing here that can be
+                said from anywhere: a card met on a board with no zone areas
+                still has a zone, and this is where it is given one. */}
+            <span className="modal-origin-item modal-zone" ref={zoneRef}>
+              <span className="modal-origin-kind">zone</span>
+              <button
+                type="button"
+                className="modal-zone-btn"
+                disabled={isRecord}
+                onClick={() => setZoneOpen((o) => !o)}
+                title="What kind of work this is"
+              >
+                {card.zone && (
+                  <span
+                    className="team-dot"
+                    style={{ background: ZONES[card.zone].accent }}
+                  />
+                )}
+                {card.zone ? ZONES[card.zone].spine.toLowerCase() : "none"}
+                {!isRecord && <span className="add-card-team-caret">▾</span>}
+              </button>
+              <Dropdown
+                open={zoneOpen}
+                anchorRef={zoneRef}
+                onClose={() => setZoneOpen(false)}
+                className="add-card-team-menu"
+              >
+                {ZONE_ORDER.map((z) => (
+                  <button
+                    key={z}
+                    type="button"
+                    className="add-card-team-item"
+                    onClick={() => setZone(z)}
+                  >
+                    <span className="team-dot" style={{ background: ZONES[z].accent }} />
+                    {ZONES[z].spine.toLowerCase()}
+                  </button>
+                ))}
+              </Dropdown>
+            </span>
               {card.process && (
                 <span className="modal-origin-item" title="A turn of this process">
                   <span className="modal-origin-kind">process</span>
@@ -329,14 +390,13 @@ export function CardDetail({
                   {card.project}
                 </span>
               )}
-              {card.epic && (
-                <span className="modal-origin-item" title="In this column of the plan">
-                  <span className="modal-origin-kind">epic</span>
-                  {card.epic}
-                </span>
-              )}
-            </div>
-          )}
+            {card.epic && (
+              <span className="modal-origin-item" title="In this column of the plan">
+                <span className="modal-origin-kind">epic</span>
+                {card.epic}
+              </span>
+            )}
+          </div>
         </div>
 
         {tab === "details" && (

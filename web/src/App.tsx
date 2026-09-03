@@ -13,9 +13,10 @@ import {
   type WatchFrame,
   type PresenceResource,
 } from "./api/resources";
-import type { Board, Card as CardModel } from "./providers/types";
+import type { Board, Card as CardModel, SprintState } from "./providers/types";
 import { MeBoard } from "./components/MeBoard";
 import { TeamBoard } from "./components/TeamBoard";
+import { TriageBoard } from "./components/TriageBoard";
 import { ProjectBoard } from "./components/ProjectBoard";
 import { ProcessBoard } from "./components/ProcessBoard";
 import { TeamsModal } from "./components/TeamsModal";
@@ -24,6 +25,7 @@ import { boardMetadata, processesFrom, showingDay } from "./providers/api/apiPro
 import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
+import { DayNav } from "./components/DayNav";
 import { avatarsFrom, namesFrom } from "./users";
 import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
@@ -48,7 +50,7 @@ const waitingAfterMs = 300;
 const SNAPSHOT_FROZEN =
   "This is the board as it was that day — go back to today to change anything.";
 
-type ViewMode = "me" | "team" | "project" | "process";
+type ViewMode = "me" | "team" | "triage" | "project" | "process";
 
 const LS_VIEW = "aeman.view";
 const LS_TEAM_FILTER = "aeman.teamFilter";
@@ -66,6 +68,9 @@ function readView(): ViewMode {
   }
   if (raw === "process") {
     return "process";
+  }
+  if (raw === "triage") {
+    return "triage";
   }
   return "me";
 }
@@ -301,6 +306,13 @@ export function App() {
   // the board has once it is loaded.
   const [teamFilter, setTeamFilter] = useState<string[] | null>(readFilter);
 
+  // The sprint pointers as they stand TODAY. A past day is served as a record
+  // — its cards, its roster and its pointers are that day's — so the board in
+  // hand cannot say where the current sprint is while a record is on screen,
+  // and the jump that exists to bring somebody back was reading the very day
+  // it was meant to leave (which is why it sat disabled all the way back).
+  const [liveSprints, setLiveSprints] = useState<Record<string, SprintState>>({});
+
   // A tab can stay open across deploys (and, on a dev box, across dozens of
   // rebuilds) — it keeps running the bundle it loaded, which reads as "the fix
   // did not work". The server fingerprints the bundle it serves, so a mismatch
@@ -461,6 +473,33 @@ export function App() {
   // on its own day and the team works it from there). Asking is the client's
   // part: snapshotDay decides which days are worth asking about.
   const snapshot = asOf !== null && snapshotDay(view, selectedDate);
+
+  // The way back to the sprint being worked, beside the day it moves. One
+  // destination — the CURRENT sprint — with the arrow pointing the way:
+  // "Current sprint »" when it is ahead of the day on screen, "« Current
+  // sprint" when it is behind. Null while there is nowhere to go (no sprint
+  // at all, or the board already standing on its day), and the button is not
+  // drawn at all then: an arrow that points nowhere is worse than no arrow.
+  //
+  // It reads the LIVE pointers, never the board's: on a past day the board is
+  // that day's record, whose current sprint is the day itself, so the jump
+  // that exists to leave a record was asking the record where to go.
+  const sprintJump = useMemo<{ target: string; dir: "back" | "fwd" } | null>(() => {
+    const states =
+      teamFilter?.length === 1
+        ? [liveSprints[teamFilter[0]]].filter(Boolean)
+        : Object.values(liveSprints);
+    let cur: string | null = null;
+    for (const s of states) {
+      if (s?.current && (cur === null || s.current > cur)) {
+        cur = s.current;
+      }
+    }
+    if (cur === null || cur === selectedDate) {
+      return null;
+    }
+    return { target: cur, dir: selectedDate < cur ? "fwd" : "back" };
+  }, [liveSprints, teamFilter, selectedDate]);
   useEffect(() => {
     if (!snapshotDay(view, selectedDate)) {
       setAsOf(null);
@@ -540,7 +579,7 @@ export function App() {
   // What the active board loads and watches: Me is personal (the server fills in
   // "who am I" unless view-as impersonates someone), Team names the teams it
   // shows (the filter, or the whole roster) and loads the day grid PLUS the
-  // weekly plan. activeKey / watchKey are stable serialisations used to
+  // day being looked at. activeKey / watchKey are stable serialisations used to
   // re-fetch and re-subscribe only when the selection actually changes.
   // A linked personal board rides beside the Me view: fetched and watched
   // with it (its own selector, its own socket), never while impersonating.
@@ -713,6 +752,11 @@ export function App() {
       ]);
       setAsOf(listingMoment(lists));
       loadedBoardKey.current = queryString(boardQueryRef.current);
+      // An EMPTY board query is the live board: remember its pointers, since
+      // a record's are its own day's (see liveSprints).
+      if (Object.keys(boardQueryRef.current).length === 0) {
+        setLiveSprints(loaded.sprintStates);
+      }
       setBoard((cur) => ({
         ...loaded,
         cards: mergeCardLists(lists.map((l) => l.cards), cur?.cards),
@@ -755,6 +799,9 @@ export function App() {
         }
         if (loaded) {
           loadedBoardKey.current = boardKey;
+          if (Object.keys(boardQuery).length === 0) {
+            setLiveSprints(loaded.sprintStates);
+          }
         }
         setAsOf(listingMoment(lists));
         // The listing is the row view; the notes, events and bodies already
@@ -1093,7 +1140,7 @@ export function App() {
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       // Scope the watch to the active view: Me watches its day selection (and
       // the personal board on a second socket), Team watches every card of the
-      // teams it shows (grid + weekly plan). A card entering the selection
+      // teams it shows, whatever day it lands on. A card entering the selection
       // arrives as ADDED, one leaving as DELETED. ?client= keeps our own
       // mutations from echoing back. Re-subscribes when watchKey changes (a
       // dep below).
@@ -1245,6 +1292,11 @@ export function App() {
           <Logo className="brand-logo" />
           {config && <span className="version">{config.version}</span>}
         </div>
+        {board && (
+          <span className="board-title" title={board.url || undefined}>
+            {board.title}
+          </span>
+        )}
         <div className="account">
           <AppearanceMenu
             login={config?.login ?? null}
@@ -1314,10 +1366,17 @@ export function App() {
       )}
 
       <div className="toolbar">
-        {board && (
-          <span className="board-title" title={board.url || undefined}>
-            {board.title}
-          </span>
+        {/* The day belongs to the app, not to a board: it is the same value
+            whichever day board is open, so the control that moves it stands
+            with the view tabs rather than being drawn again inside each. The
+            boards that lay every week out at once (Triage, Project, Process)
+            have no day to show. */}
+        {(view === "me" || view === "team") && (
+          <DayNav
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            sprintJump={view === "team" ? sprintJump : null}
+          />
         )}
 
         {pendingSync === 0 && waiting && (
@@ -1382,6 +1441,15 @@ export function App() {
           <button
             type="button"
             role="tab"
+            aria-selected={view === "triage"}
+            className={`segment${view === "triage" ? " segment-active" : ""}`}
+            onClick={() => setView("triage")}
+          >
+            Triage
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={view === "project"}
             className={`segment${view === "project" ? " segment-active" : ""}`}
             onClick={() => setView("project")}
@@ -1411,7 +1479,6 @@ export function App() {
             board={board}
             selectedDate={selectedDate}
             asOf={asOf ?? undefined}
-            onSelectDate={setSelectedDate}
             viewAs={viewAs}
             onViewAs={setViewAsPersisted}
             provider={provider}
@@ -1468,6 +1535,26 @@ export function App() {
             onManageProjects={() => setManagingProjects(true)}
             avatars={avatars}
             names={names}
+            onError={onError}
+          />
+        )}
+        {board && view === "triage" && (
+          <TriageBoard
+            board={board}
+            provider={provider}
+            me={config?.login ?? ""}
+            roster={roster}
+            teamFilter={teamFilter}
+            onSetFilter={setTeamFilter}
+            avatars={avatars}
+            names={names}
+            patchCard={patchCard}
+            addCard={addCard}
+            replaceCard={replaceCard}
+            removeCard={removeCard}
+            reorderCards={reorderCards}
+            reload={reload}
+            onOpen={(c) => setDetailCard(c)}
             onError={onError}
           />
         )}

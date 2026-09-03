@@ -74,6 +74,7 @@ export function boardMetadata(
       login: m.login,
       avatarUrl: m.avatarUrl || undefined,
       name: m.name || undefined,
+      carrying: m.carrying || undefined,
     })),
     // The repositories the board spans, primary first. An older server names
     // none; the UI then shows nothing of domains at all.
@@ -243,15 +244,8 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
     }
     body.dates = dates;
   }
-  if (patch.plan) {
-    const plan: Record<string, string> = {};
-    if (patch.plan.band !== undefined) {
-      plan.band = patch.plan.band;
-    }
-    if (patch.plan.week !== undefined) {
-      plan.week = patch.plan.week;
-    }
-    body.plan = plan;
+  if (patch.week !== undefined) {
+    body.week = patch.week;
   }
   if (patch.epic !== undefined) {
     body.epic = patch.epic;
@@ -315,7 +309,7 @@ export const apiProvider: Provider = {
   async createCard(input: NewCardInput): Promise<Card> {
     if (input.personal) {
       // A personal card carries nothing of the day board — no team, dates,
-      // column or plan (the server refuses them beside `personal`); it files
+      // column or week (the server refuses them beside `personal`); it files
       // the card in the visitor's own repository and assigns it to them.
       return cardFrom("POST", "/cards", {
         title: input.title,
@@ -332,18 +326,18 @@ export const apiProvider: Provider = {
       // A parent may still be an optimistic tmp id: wait for the real uid.
       parent: input.parent ? await resolveCardId(input.parent) : "",
     };
-    // Plan cards carry no dates (they live in the weekly bands); day cards pass
-    // their start/end and the server joins (or records) the sprint itself.
+    // A card scheduled for a WEEK carries no dates; a day card passes its
+    // start/end and the server joins (or records) the sprint itself.
     if (input.start || input.day) {
       body.dates = { start: input.start ?? "", end: input.day ?? "" };
     }
-    if (input.plan) {
-      body.plan = { band: input.plan, week: input.week ?? "" };
+    if (input.week) {
+      body.week = input.week;
     }
     if (input.epic) {
       body.epic = input.epic;
       body.project = input.project ?? "";
-      // No plan.week: a slot's row is the week of its start date.
+      // No week: a slot's row is the week of its start date.
     }
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;
@@ -371,12 +365,9 @@ export const apiProvider: Provider = {
     await api("DELETE", `/cards/${uid}`);
   },
 
-  async removeCard(
-    uid: string,
-    from: "grid" | "plan",
-  ): Promise<void> {
+  async removeCard(uid: string, intent?: "unassign" | "off-board"): Promise<void> {
     uid = await resolveCardId(uid);
-    await api("POST", `/cards/${uid}/actions/remove`, { from });
+    await api("POST", `/cards/${uid}/actions/remove`, intent ? { intent } : {});
   },
 
   async moveCard(
@@ -431,26 +422,14 @@ export const apiProvider: Provider = {
     return cardFrom("POST", `/cards/${uid}/actions/remove-reviewer`, {});
   },
 
-  async takeIntoPlan(
-    uid: string,
-    engineer: string,
-    zone,
-    day?: string,
-  ): Promise<Card> {
+  async placeCard(uid: string, week: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/take-into-plan`, {
-      engineer,
-      zone: semanticZone(zone),
-      day: day ?? "",
-    });
+    return cardFrom("POST", `/cards/${uid}/actions/place`, { week });
   },
 
-  async releaseFromPlan(uid: string): Promise<Card> {
+  async untriageCard(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST",
-      `/cards/${uid}/actions/release-from-plan`,
-      {},
-    );
+    return cardFrom("POST", `/cards/${uid}/actions/untriage`, {});
   },
 
   async carryOver(

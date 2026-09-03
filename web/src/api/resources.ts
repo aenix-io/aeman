@@ -58,7 +58,7 @@ export interface CardResource {
     stage?: string;
     recurrence?: string;
     dates?: { start?: string; end?: string; sprint?: string };
-    plan?: { band?: string; week?: string };
+    week?: string;
     epic?: string;
     process?: string;
     task?: string;
@@ -82,6 +82,14 @@ export interface CardResource {
     /** The board day the card reached done (yyyy-mm-dd); cleared on reopen. */
     doneAt?: string;
     leftAt?: string;
+    /** Nobody placed the card in a week and it is not being worked. */
+    triage?: boolean;
+    /** The Monday of the Triage column the card stands in. */
+    triageWeek?: string;
+    /** A recurrent card's weeks to come. */
+    due?: string[];
+    /** A process turn's own occurrence: the weeks it may stand in. */
+    cycle?: { from: string; to: string };
     links?: {
       kind: string;
       url: string;
@@ -95,7 +103,11 @@ export interface CardResource {
 export interface SprintResource {
   kind: string;
   metadata: { team: string };
-  spec: { current?: string; previous?: string };
+  spec: {
+    current?: string;
+    previous?: string;
+    capacity?: { week: number; client: number; internal: number; derived: boolean };
+  };
 }
 
 export interface NoteResource {
@@ -126,7 +138,7 @@ export interface BoardResource {
     processes?: { name: string; project?: string }[];
     epics?: { name: string; project?: string; domain?: string }[];
     /** The roster; `name` is the display name, absent on a GitHub board. */
-    members?: { login: string; avatarUrl?: string; name?: string }[];
+    members?: { login: string; avatarUrl?: string; name?: string; carrying?: number }[];
     /** The repositories the board spans, primary first. */
     domains?: {
       name: string;
@@ -184,10 +196,14 @@ export interface WatchFrame {
 
 // --- Resource → internal model --------------------------------------------------
 
+// Every stage the server can send. A key missing here does not fall back —
+// it becomes NO stage, and the card renders as ordinary work: `refuse`
+// arrived, was dropped on the way in, and its black bar came out green.
 const STAGE_KEYS: Record<string, StageKey> = {
   locked: "locked",
   review: "review",
   recurrent: "recurrent",
+  refuse: "refuse",
   done: "done",
 };
 
@@ -198,7 +214,6 @@ export function resourceToCard(res: CardResource): Card {
   const m = res.metadata;
   const spec = res.spec;
   const dates = spec.dates ?? {};
-  const band = spec.plan?.band;
   return {
     itemId: m.uid,
     title: spec.title,
@@ -217,12 +232,15 @@ export function resourceToCard(res: CardResource): Card {
     asOf: res.status?.asOf,
     doneAt: res.status?.doneAt || undefined,
     leftAt: res.status?.leftAt || undefined,
+    triage: res.status?.triage || undefined,
+    triageWeek: res.status?.triageWeek || undefined,
+    due: res.status?.due,
+    cycle: res.status?.cycle,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
-    plan: band === "wed" || band === "fri" ? band : undefined,
-    week: spec.plan?.week || undefined,
+    week: spec.week || undefined,
     epic: spec.epic || undefined,
     project: spec.project || undefined,
     mirrors: spec.mirrors?.length ? spec.mirrors : undefined,
@@ -259,6 +277,7 @@ export function sprintStateFrom(res: SprintResource): SprintState {
   return {
     current: res.spec.current || null,
     previous: res.spec.previous || null,
+    capacity: res.spec.capacity,
   };
 }
 

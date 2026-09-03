@@ -14,7 +14,7 @@ import {
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
-import { isWorkable } from "../stages";
+import { clampProgress, clampsProgress, isWorkable } from "../stages";
 import { mergeNotes, sameNotes } from "../notes";
 import { dayFeedUpdates, type CardFrame } from "../daylog";
 import type {
@@ -31,19 +31,15 @@ import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
-import { slotWeekPatch } from "../weekly";
+import { slotWeekPatch } from "../slots";
 import {
-  boardAsksAbout,
+  asksFirst,
   deleteWarning,
   freeSubtasks,
-  gridGesture,
-  gridRemoval,
-  type GridGesture,
-  personalRemovalKind,
-  removalKind,
+  removeChoices,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
-  type Outcome,
+  type RemoveChoice,
 } from "../removal";
 import {
   columnFollows,
@@ -57,6 +53,7 @@ import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { isPersonalCard, personalRepoName, personalShows, splitPersonal } from "../personal";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { acceptsNewCard, mayRemove, sortableWithin } from "../meboard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
@@ -75,7 +72,6 @@ interface MeBoardProps {
    *  empty on a live board. What it holds cannot be added to. */
   asOf?: string;
 
-  onSelectDate: (day: string) => void;
   /** "View as" impersonation, owned by the App: the Me fetch carries it as an
    *  explicit user (null = the caller themselves). */
   viewAs: string | null;
@@ -154,7 +150,6 @@ export function MeBoard({
   me,
   selectedDate,
   asOf,
-  onSelectDate,
   viewAs,
   onViewAs,
   avatars,
@@ -208,7 +203,7 @@ export function MeBoard({
   // MCP / API connect dialog.
   const [connectOpen, setConnectOpen] = useState(false);
 
-  // Notes fold to a header bar on narrow screens (like the Team weekly plan)
+  // Notes fold to a header bar on narrow screens
   // and to a slim strip on wide ones. The collapsed choice persists per width
   // mode; crossing the breakpoint restores that mode's remembered (or default)
   // state. The breakpoint matches .me-panes.
@@ -345,7 +340,6 @@ export function MeBoard({
         // qualify: an old sprint-less stray stays on its own past days.
         if (
           !c.sprintStart &&
-          !c.plan &&
           c.startDate &&
           c.startDate <= selectedDate &&
           c.startDate >= as
@@ -394,7 +388,7 @@ export function MeBoard({
   }, [personalCards]);
 
   // Overall completion across the day's cards (a done card counts as 100%) — the
-  // thin bar under the zones, mirroring the weekly plan's progress strip.
+  // thin bar under the zones.
   const dayProgress = useMemo(() => {
     if (myCards.length === 0) {
       return 0;
@@ -811,7 +805,11 @@ export function MeBoard({
   const canGroup = (active: CardModel, target: CardModel) =>
     !target.parent &&
     target.itemId !== active.parent &&
-    !(childrenOf.get(active.itemId) ?? []).length;
+    !(childrenOf.get(active.itemId) ?? []).length &&
+    // Not across zones: a card nested under a parent elsewhere renders under
+    // that parent, which is the crossing this board does not allow — by
+    // another name (meboard.sortableWithin).
+    sortableWithin(active.zone ?? "gray", target.zone ?? "gray");
 
   // itemId → card, for resolving a drop's neighbours.
   const cardsById = useMemo(
@@ -840,14 +838,14 @@ export function MeBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCardId, childrenOf]);
 
-  // Group a dropped card as a subtask; the server enforces depth and moves a
-  // weekly card's plan slot onto the parent (which replaces it in the plan).
+  // Group a dropped card as a subtask; the server enforces depth and hands a
+  // scheduled card's week to the parent, which stands for it from then on.
   const handleGroup = (card: CardModel, parentId: string) => {
     if (card.itemId === parentId || card.parent === parentId) {
       return;
     }
-    const prev: Partial<CardModel> = { parent: card.parent, plan: card.plan, week: card.week };
-    patchCard(card.itemId, { parent: parentId, plan: undefined, week: undefined });
+    const prev: Partial<CardModel> = { parent: card.parent, week: card.week };
+    patchCard(card.itemId, { parent: parentId, week: undefined });
     autoExpanded.current = null; // the drop keeps the target unfolded
     setExpandedSubs((cur) => new Set(cur).add(parentId));
     void provider
@@ -955,10 +953,7 @@ export function MeBoard({
   };
 
   const handleProgress = (card: CardModel, raw: number) => {
-    let value =
-      card.stage === "review" || card.stage === "locked"
-        ? Math.min(90, Math.max(10, raw))
-        : raw;
+    let value = clampProgress(card.stage, raw);
     // A parent's bar cannot be dragged to done while subtasks are open (the
     // server guard); it tops out at 90 until every subtask is closed.
     if (
@@ -1028,9 +1023,9 @@ export function MeBoard({
     if (stage === "done") {
       patch.progress = 100;
     }
-    if (stage === "review" || stage === "locked") {
+    if (clampsProgress(stage)) {
       // The 10-90 clamp is stored on stage pick (mirrors board.ApplyStage).
-      patch.progress = Math.min(90, Math.max(10, card.progress ?? 0));
+      patch.progress = clampProgress(stage, card.progress ?? 0);
     }
     patchCard(card.itemId, patch);
     syncParentBar(card, stage === "done" ? 100 : patch.progress ?? card.progress ?? 0);
@@ -1121,7 +1116,7 @@ export function MeBoard({
   // it leaves today's board and is found by stepping back; the server records
   // the move and the re-list converges its outcome.
   // releaseCard hands the card to the server's smart × and takes what it
-  // decides: a card with a Project-board column or a weekly-plan band is
+  // decides: a card with a Project-board column or a week of its own is
   // released to it, never destroyed. The re-list brings back whatever the
   // rule did.
   const releaseCard = (card: CardModel) => {
@@ -1143,7 +1138,7 @@ export function MeBoard({
           },
     );
     void provider
-      .removeCard(card.itemId, "grid")
+      .removeCard(card.itemId, card.parent ? undefined : "unassign")
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -1165,7 +1160,7 @@ export function MeBoard({
       patchCard(c.itemId, { leftAt: yesterday });
     }
     void provider
-      .removeCard(card.itemId, "grid")
+      .removeCard(card.itemId)
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -1231,32 +1226,23 @@ export function MeBoard({
     }
     return board.cards.find((c) => c.itemId === ref)?.domain ?? undefined;
   };
-  const reviewOf = (card: CardModel) =>
-    board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
-
-  const removalOf = (card: CardModel): GridGesture => {
-    if (card.parent) {
-      // A subtask is never demoted alone and never asked about as one: what
-      // the × DOES to it is gridGesture's answer, carried as it comes
-      // rather than dressed as a demote and corrected downstream.
-      return gridGesture(card, gridCtx(card));
-    }
-    const today = todayIso();
-    if (isPersonalCard(card, board.personal)) {
-      return personalRemovalKind(card, today);
-    }
-    return removalKind(card, gridCtx(card));
-  };
-
   // What the × actually does to a team card here — the same answer the Team
   // board gets, from the same place (gridRemoval, mirroring
   // boardservice.Remove). This board used to decide on its own and sent
   // everything that was not demotable to DELETE /cards/{uid}, destroying a
-  // card the other board would have left in its weekly plan: one gesture,
+  // card the other board would have left in its week: one gesture,
   // two boards, opposite outcomes.
-  const outcomeOf = (card: CardModel): Outcome => gridRemoval(card, gridCtx(card));
+  const choicesFor = (card: CardModel): RemoveChoice[] =>
+    removeChoices(card, gridCtx(card));
 
-  const handleDelete = (card: CardModel, forced?: "delete" | "keep") => {
+  /** Whether a card can be LEFT BEHIND on yesterday instead of destroyed:
+   *  only a personal one, and only one that stood on an earlier day — there
+   *  is no yesterday to leave a card made today on. */
+  const leavableOn = (card: CardModel): boolean =>
+    isPersonalCard(card, board.personal) &&
+    (!card.startDate || card.startDate < todayIso());
+
+  const handleDelete = (card: CardModel, chosen?: RemoveChoice) => {
     // A just-created optimistic card has no server twin yet: drop it locally
     // (deleting it via the API would 404 and resurrect a phantom copy).
     if (card.itemId.startsWith("tmp-")) {
@@ -1268,35 +1254,41 @@ export function MeBoard({
     // "keep" is the personal board's own answer: leave the card on
     // yesterday. A team card has no such offer — the day it stood on keeps
     // it — so the dialog never sends one.
-    if (forced === "keep") {
+    if (chosen === "keep") {
       if (personal) {
         leaveBehind(card);
       }
       return;
     }
-    if (!forced) {
-      const kind = removalOf(card);
-      if (kind === "ask") {
-        setRemoveChoice(card);
-        return;
-      }
+    // The × asks BEFORE it acts, whatever it is about to do, and the dialog
+    // names the act — the one card it does not ask about is one made today
+    // that nobody has touched (asksFirst).
+    if (!chosen && asksFirst(card, todayIso())) {
+      setRemoveChoice(card);
+      return;
     }
-    // A card filed under a project column is never destroyed by an × — that
-    // column is a home it goes back to (A1/A3). The Me board used to send it
-    // to DELETE /cards/{uid} regardless, straight past the rule, because the
-    // removal kinds speak only of demote and delete. The smart × on the
-    // server knows what to do with it.
-    if (!personal && forced !== "delete" && outcomeOf(card) !== "delete") {
+    // Unasked (a card made today that nobody touched), the card's own first
+    // answer stands — the same one the dialog would have put at the top. A
+    // personal card has no list of its own: its board is all its owner's, so
+    // the × there is the delete the dialog offers beside "keep it".
+    const choice =
+      chosen ?? (personal ? "off-board" : choicesFor(card)[0]);
+    if (!choice) {
+      return;
+    }
+    // Anything but destroying it is the release: a card handed back to its
+    // week or its column, a subtask taken out of its group.
+    if (!personal && choice !== "off-board") {
       releaseCard(card);
       return;
     }
     // The server cascades the delete to a linked review card and names what
     // else goes with it: one question for all of it, one request.
     const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-    // The two-way dialog has already asked, in its own words and with the
-    // loss spelled out on its danger button; a browser confirm behind it is
-    // a second question for one gesture.
-    const warning = forced === "delete" ? null : deleteWarning(card, linkedReview?.title ?? null);
+    // The dialog has already asked, in its own words and with the loss
+    // spelled out on its danger button; a browser confirm behind it is a
+    // second question for one gesture.
+    const warning = chosen ? null : deleteWarning(card, linkedReview?.title ?? null);
     if (warning && !window.confirm(warning)) {
       return;
     }
@@ -1436,8 +1428,10 @@ export function MeBoard({
     };
     patchCard(card.itemId, {
       stage: "review",
-      // review/locked can't sit at full: the server knocks a 100% card to 90.
-      ...(card.progress === 100 ? { progress: 90 } : {}),
+      // The band, asked for rather than restated: the server clamps BOTH
+      // edges (a 0% card sent to review is stored at 10), and a copy of this
+      // rule that knows only the top edge shows a 0 the board does not have.
+      progress: clampProgress("review", card.progress ?? 0),
     });
     void provider
       .sendToReview(card.itemId, reviewerLogin, selectedDate, zone)
@@ -1548,7 +1542,15 @@ export function MeBoard({
     return () => window.removeEventListener("keydown", onKey);
   }, [flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
 
-  const handleDrop = ({ card, toMeta, groups: g, groupUnder }: DropResult<MeMeta>) => {
+  const handleDrop = ({ card, fromMeta, toMeta, groups: g, groupUnder }: DropResult<MeMeta>) => {
+    // A drag here reorders work inside a zone and does not move it between
+    // zones: the zone is the lead's statement of how the work was planned,
+    // and a person ordering their own day must not rewrite it. Grouping is
+    // no exception — canGroup refuses it across zones for the same reason,
+    // so a cross-zone drop reaching here is one to drop on the floor.
+    if (!sortableWithin(fromMeta.zone, toMeta.zone)) {
+      return;
+    }
     // The board committed exactly what the placeholder previewed: groupUnder
     // is the already-validated parent to nest under (null = standalone).
     const parentTo = groupUnder;
@@ -1561,7 +1563,6 @@ export function MeBoard({
       optimistic.parent = parentTo ?? undefined;
       patch.parent = parentTo ?? "";
       if (parentTo) {
-        optimistic.plan = undefined;
         optimistic.week = undefined;
         autoExpanded.current = null; // the drop keeps the target unfolded
         setExpandedSubs((cur) => new Set(cur).add(parentTo as string));
@@ -1672,7 +1673,7 @@ export function MeBoard({
   };
 
   // A personal card: filed in the viewer's own repository and assigned to
-  // them, with nothing of the day board (no team, dates or plan) — the server
+  // them, with nothing of the day board (no team or dates) — the server
   // takes `personal: true` and does the rest.
   const handleCreatePersonal = (zone: ZoneKey, title: string) => {
     const tempId = `tmp-${new Date().toISOString()}`;
@@ -1911,15 +1912,17 @@ export function MeBoard({
       onProgress={handleProgress}
       onDelete={handleDelete}
       placements={placementsFor(card)}
-      boardAsks={boardAsksAbout(
-        card,
-        removalOf(card) === "ask"
-          ? "ask"
-          : isPersonalCard(card, board.personal)
-            ? "delete" // personalRemovalKind answers only "ask" or "delete"
-            : outcomeOf(card),
-        reviewOf(card),
-      )}
+      // The board puts every question this × raises, and names the act it is
+      // about to do, so the card's own anonymous "Delete?" never stands in
+      // front of one.
+      boardAsks
+      mine={!viewAs}
+      // The × removes only what this person created themselves: work
+      // somebody else planned for them is not theirs to take off the board.
+      // Their answer to it is the refused stage, which leaves the card
+      // standing where the lead can see it. A card of their own PERSONAL
+      // board is all theirs, and a subtask is a piece of its parent.
+      deletable={personal || mayRemove(card, viewMe ?? undefined)}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
@@ -2004,36 +2007,10 @@ export function MeBoard({
 
   return (
     <div className="me">
+      {/* The day the board is looking at is chosen in the app's toolbar
+          (DayNav): it is the app's state, and one control for it keeps the
+          boards from disagreeing about the same day. */}
       <div className="board-toolbar">
-        <div className="field field-inline">
-          <span>Day</span>
-          <div className="day-nav">
-            <button
-              type="button"
-              className="day-arrow"
-              onClick={() => onSelectDate(addDays(selectedDate, -1))}
-              aria-label="Previous day"
-              title="Previous day"
-            >
-              ‹
-            </button>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => onSelectDate(e.target.value || todayIso())}
-            />
-            <button
-              type="button"
-              className="day-arrow"
-              onClick={() => onSelectDate(addDays(selectedDate, 1))}
-              aria-label="Next day"
-              title="Next day"
-            >
-              ›
-            </button>
-          </div>
-        </div>
-
         <TeamChips
           label="Team"
           teams={teams}
@@ -2048,16 +2025,6 @@ export function MeBoard({
           filterToggle={{ on: teamFocus, onToggle: () => setTeamFocus((v) => !v) }}
           focusToggle={{ on: focus, onToggle: () => setFocus((v) => !v) }}
         />
-
-        <button
-          type="button"
-          className="btn me-today"
-          onClick={() => onSelectDate(todayIso())}
-          disabled={selectedDate === todayIso()}
-          title="Jump to today"
-        >
-          Today
-        </button>
 
         <div className="field field-inline impersonate" ref={impRef}>
           <button
@@ -2134,6 +2101,11 @@ export function MeBoard({
               onHoverCard={setGroupHover}
               onDragActiveCard={handleDragActive}
               canGroup={canGroup}
+              // A drag reorders inside a zone and does not carry work into
+              // another: the zone is the lead's statement of how the work
+              // was planned (meboard.sortableWithin). Asked here so the
+              // placeholder never opens a gap the drop would refuse.
+              canMoveTo={(_c, from, to) => sortableWithin(from.zone, to.zone)}
               renderCard={(card) => withSubs(card, renderMeCard(card))}
               renderOverlay={(card) => (
                 <Card
@@ -2167,18 +2139,20 @@ export function MeBoard({
                     <span className="zone-spine">{def.spine}</span>
                     <div className="zone-cards">
                       {body}
-                      <AddCard
-                        hidden={holdsRecords}
-                        forcedTeam={
-                          teamFilter?.length === 1
-                            ? teamFilter[0] || null
-                            : undefined
-                        }
-                        teams={teams}
-                        onCreate={(title, team) =>
-                          handleCreate(group.meta.zone, title, team)
-                        }
-                      />
+                      {acceptsNewCard(group.meta.zone) && (
+                        <AddCard
+                          hidden={holdsRecords}
+                          forcedTeam={
+                            teamFilter?.length === 1
+                              ? teamFilter[0] || null
+                              : undefined
+                          }
+                          teams={teams}
+                          onCreate={(title, team) =>
+                            handleCreate(group.meta.zone, title, team)
+                          }
+                        />
+                      )}
                     </div>
                   </section>
                 );
@@ -2246,14 +2220,16 @@ export function MeBoard({
                         <span className="zone-spine">{def.spine}</span>
                         <div className="zone-cards">
                           {body}
-                          <AddCard
-                            hidden={holdsRecords}
-                            forcedTeam={null}
-                            placeholder="Add a personal card…"
-                            onCreate={(title) =>
-                              handleCreatePersonal(group.meta.zone, title)
-                            }
-                          />
+                          {acceptsNewCard(group.meta.zone) && (
+                            <AddCard
+                              hidden={holdsRecords}
+                              forcedTeam={null}
+                              placeholder="Add a personal card…"
+                              onCreate={(title) =>
+                                handleCreatePersonal(group.meta.zone, title)
+                              }
+                            />
+                          )}
                         </div>
                       </section>
                     );
@@ -2317,14 +2293,20 @@ export function MeBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
-          keepOn={
-            isPersonalCard(removeChoice, board.personal) ? addDays(todayIso(), -1) : null
+          // A PERSONAL card's board is all its owner's: it offers the delete
+          // and, for one that stood on an earlier day, the day to leave it on
+          // instead — a personal board keeps no record to find it in later.
+          choices={
+            isPersonalCard(removeChoice, board.personal)
+              ? leavableOn(removeChoice)
+                ? ["off-board", "keep"]
+                : ["off-board"]
+              : choicesFor(removeChoice)
           }
+          keepOn={leavableOn(removeChoice) ? addDays(todayIso(), -1) : null}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}
-          onSubmit={(hardDelete) =>
-            handleDelete(removeChoice, hardDelete ? "delete" : "keep")
-          }
+          onSubmit={(choice) => handleDelete(removeChoice, choice)}
         />
       )}
     </div>

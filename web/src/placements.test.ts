@@ -6,6 +6,7 @@ import {
   canCreateInColumn,
   columnFollows,
   columnsOf,
+  markOf,
   countedAmong,
   countedForProgress,
   drawnAsSlot,
@@ -87,18 +88,14 @@ describe("attach and mirror targets", () => {
   });
 });
 
-// Attaching a weekly-plan card gives it the slot of the week it was taken
-// from: start on its Monday, end on its band's day — the same dates the
-// server writes, so the optimistic card does not jump on the re-list.
+// Attaching a card scheduled for a WEEK gives it the slot of that week —
+// Monday to Friday, the same dates the server writes, so the optimistic card
+// does not jump on the re-list.
 describe("attachSlotDates", () => {
-  it("spans to Friday for a by-Friday card and Wednesday for a by-Wednesday one", () => {
-    expect(attachSlotDates("fri", "2026-08-24")).toEqual({
+  it("spans the week it was taken from, Monday to Friday", () => {
+    expect(attachSlotDates("2026-08-24")).toEqual({
       startDate: "2026-08-24",
       day: "2026-08-28",
-    });
-    expect(attachSlotDates("wed", "2026-08-24")).toEqual({
-      startDate: "2026-08-24",
-      day: "2026-08-26",
     });
   });
 });
@@ -156,7 +153,7 @@ describe("countedForProgress", () => {
   const index = (cards: Card[]) => new Map(cards.map((c) => [c.itemId, c]));
 
   it("counts a subtask whose parent is on no board of this project", () => {
-    // The parent lives in the weekly plan with no column of its own.
+    // The parent is on no board of this project — no column of its own.
     const parent = mk({ itemId: "p1" });
     expect(countedForProgress(child, index([child, parent]), { project: "engineering" })).toBe(true);
   });
@@ -519,8 +516,8 @@ describe("makeCardPlacements onAttachProject", () => {
     return patches[0];
   };
 
-  it("gives a dateless plan card its week's slot", () => {
-    const patch = run(mk({ itemId: "c1", plan: "fri", week: "2026-08-24" }));
+  it("gives a dateless card scheduled for a week that week's slot", () => {
+    const patch = run(mk({ itemId: "c1", week: "2026-08-24" }));
     expect(patch.startDate).toBe("2026-08-24");
     expect(patch.day).toBe("2026-08-28");
   });
@@ -538,7 +535,6 @@ describe("makeCardPlacements onAttachProject", () => {
   it("keeps a dated card's chosen schedule", () => {
     const patch = run(mk({
       itemId: "c1",
-      plan: "fri",
       week: "2026-08-24",
       startDate: "2026-09-07",
       day: "2026-09-09",
@@ -1170,5 +1166,23 @@ describe("attach targets for a card a LINK holds", () => {
       "engineering",
       "strategy",
     ]);
+  });
+});
+
+// The left stripe says where a card came FROM, and every board that draws one
+// asks this — the day boards down the card's edge, Triage on its slot. Two
+// boards deciding it apart is how one of them came to draw nothing at all
+// after the weekly plan, whose band the stripe used to be, was taken out.
+describe("markOf", () => {
+  it("marks a project's work, a process's turn, and neither", () => {
+    expect(markOf({ epic: "Auth" })).toBe("project");
+    expect(markOf({ task: "t1" })).toBe("process");
+    expect(markOf({})).toBe("");
+  });
+
+  // A review card of a project card is BOTH; the waiting is the innermost
+  // thing about it, so that is what the stripe says.
+  it("says review where a card is both", () => {
+    expect(markOf({ reviewOf: "c1", epic: "Auth" })).toBe("review");
   });
 });

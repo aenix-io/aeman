@@ -52,16 +52,13 @@
 
   /* Semantic surfaces that must flip for dark mode. */
   --card-border: #d6dbe1;
-  --card-taken-bg: #f4f4f4;
   --notes-bg: #fbfcfd;
   --bg-raised: #fff;
   --handle-bg: #fff;
   --avatar-fg: #24292f;
   --amber: #b8860b;
-  --band-wed: #3b82f6;
-  --band-fri: #8b5cf6;
-  --band-wed-bg: #eef4fb;
-  --band-fri-bg: #f3eefb;
+  --project-mark: #8b5cf6;
+  --process-mark: #58a6ff;
   --cal-range-bg: #dbeafe;
   --warn-bg: #fff8c5;
   --warn-line: #eac54f;
@@ -103,11 +100,19 @@
   --zone-gray-bg: #f3f4f6;
   --zone-green-accent: #3fb950;
   --zone-green-bg: #eafaef;
+  /* The Triage board's internal lane (docs/design/triage.md): work
+     nobody outside asked for. No day-board zone means the same thing, so
+     it carries its own blue rather than borrowing a zone's colour. */
+  --lane-internal-accent: #1f6feb;
+  --lane-internal-bg: #e7f1fd;
 
   /* Progress-bar / stage palette, consumed from JS via stages.ts. */
   --stage-locked: #cf222e;
   --stage-review: #d4a72c;
   --stage-recurrent: #58a6ff;
+  /* Refuse: the darkest bar on the board — a card its person has
+     handed back, waiting on the lead. */
+  --stage-refuse: #1f2328;
   --stage-done: #1f883d;
   --bar-default: #3fb950;
 }
@@ -124,20 +129,20 @@
   --zone-gray-bg: #edeff3;
   --zone-green-accent: #009e73; /* teal-green — nice to have */
   --zone-green-bg: #63d3d8;
+  --lane-internal-accent: #0072b2; /* CVD-safe blue */
+  --lane-internal-bg: #7fc7ee;
 
   --stage-locked: #d55e00;
   --stage-review: #e69f00;
   --stage-recurrent: #0072b2;
+  --stage-refuse: #1f2328;
   --stage-done: #007a59;
   --bar-default: #009e73;
 
-  /* Weekly-plan deadline bands. The default blue/violet pair collapses on the
-     red-green axis (violet minus its red content reads as blue), so the Fri
-     band moves to Okabe-Ito reddish-purple, pairwise safe against the blue. */
-  --band-wed: #0072b2;
-  --band-fri: #cc79a7;
-  --band-wed-bg: #e8f1f8;
-  --band-fri-bg: #f9edf4;
+  /* The project mark. Violet collapses on the red-green axis (minus its red
+     content it reads as blue), so it moves to Okabe-Ito reddish-purple. */
+  --project-mark: #cc79a7;
+  --process-mark: #0072b2;
 }
 
 /* ---- light + marine (blue-yellow-friendly) ----
@@ -151,20 +156,20 @@
   --zone-gray-bg: #e3e6ea;
   --zone-green-accent: #2596b5; /* cyan */
   --zone-green-bg: #6fcbe0;
+  --lane-internal-accent: #1f6feb;
+  --lane-internal-bg: #9ecdf5;
 
   --stage-locked: #cf222e;
   --stage-review: #b07d1a;
   --stage-recurrent: #1f6feb;
+  --stage-refuse: #1f2328;
   --stage-done: #16657f;
   --bar-default: #2596b5;
 
-  /* Weekly-plan deadline bands: under tritanopia violet drifts toward the
-     blues, so the Fri band moves to reddish-purple (red survives the missing
-     S-cone) while Wed stays blue. */
-  --band-wed: #0072b2;
-  --band-fri: #cc79a7;
-  --band-wed-bg: #e8f1f8;
-  --band-fri-bg: #f9edf4;
+  /* The project mark: under tritanopia violet drifts toward the blues, so it
+     moves to reddish-purple (red survives the missing S-cone). */
+  --project-mark: #cc79a7;
+  --process-mark: #1f6feb;
 }
 
 /* ---- dark base (dark + default) ----
@@ -188,16 +193,13 @@
 
   --on-accent: #fff;
   --card-border: #30363d;
-  --card-taken-bg: #1c222b;
   --notes-bg: #10151c;
   --bg-raised: #21262d;
   --handle-bg: #e6edf3;
   --avatar-fg: #e6edf3;
   --amber: #e3b341;
-  --band-wed: #4493f8;
-  --band-fri: #a371f7;
-  --band-wed-bg: #10233b;
-  --band-fri-bg: #241a3a;
+  --project-mark: #a371f7;
+  --process-mark: #79c0ff;
   --cal-range-bg: #163356;
   --warn-bg: #2d2a10;
   --warn-line: #7a6a1e;
@@ -226,12 +228,17 @@
   --zone-gray-bg: #2b3138;
   --zone-green-accent: #3fb950;
   --zone-green-bg: #1a3d2a;
+  --lane-internal-accent: #58a6ff;
+  --lane-internal-bg: #16324f;
 
   --stage-locked: #ff7b72;
   --stage-review: #e3b341;
   --stage-recurrent: #79c0ff;
   /* Done deepens, the in-progress bar stays bright: the pair must be
      tellable apart at a glance (enforced by theme-contrast.test.ts). */
+  /* Refuse stays the darkest bar here too, but not black: on a dark
+     track a black fill is no fill at all. */
+  --stage-refuse: #484f58;
   --stage-done: #238636;
   --bar-default: #3fb950;
 }
@@ -246,18 +253,19 @@
   --zone-gray-bg: #242a30;
   --zone-green-accent: #2ec4a6;
   --zone-green-bg: #106f66;
+  --lane-internal-accent: #58a6ff;
+  --lane-internal-bg: #123c63;
 
   --stage-locked: #ff8a50;
   --stage-review: #f0b429;
   --stage-recurrent: #58a6ff;
+  --stage-refuse: #484f58;
   --stage-done: #0e8f77;
   --bar-default: #2ec4a6;
 
-  /* Weekly-plan bands, dark variants of the light-vivid pair. */
-  --band-wed: #58a9ff;
-  --band-fri: #e592c2;
-  --band-wed-bg: #10233b;
-  --band-fri-bg: #331b2b;
+  /* The project mark, dark variant of the light-vivid one. */
+  --project-mark: #e592c2;
+  --process-mark: #58a6ff;
 }
 
 /* ---- dark + marine (blue-yellow-friendly) ---- */
@@ -270,18 +278,19 @@
   --zone-gray-bg: #242a30;
   --zone-green-accent: #56b6c2;
   --zone-green-bg: #0e665c;
+  --lane-internal-accent: #79c0ff;
+  --lane-internal-bg: #103a5e;
 
   --stage-locked: #ff7b72;
   --stage-review: #e3b341;
   --stage-recurrent: #79c0ff;
+  --stage-refuse: #484f58;
   --stage-done: #1d7f9c;
   --bar-default: #56b6c2;
 
-  /* Weekly-plan bands, dark variants of the light-marine pair. */
-  --band-wed: #58a9ff;
-  --band-fri: #e592c2;
-  --band-wed-bg: #10233b;
-  --band-fri-bg: #331b2b;
+  /* The project mark, dark variant of the light-marine one. */
+  --project-mark: #e592c2;
+  --process-mark: #79c0ff;
 }
 
 * {
@@ -329,6 +338,7 @@ select {
 }
 
 .app-header {
+  position: relative; /* the board name is centred on the bar, see .board-title */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -722,8 +732,7 @@ select {
   flex: none;
 }
 
-/* Day status bar (under the progress strip): closed/total per zone, like the
-   weekly plan's head. */
+/* Day status bar (under the progress strip): closed/total per zone. */
 .me-day-stats {
   display: flex;
   align-items: center;
@@ -770,7 +779,7 @@ select {
   outline-offset: -2px;
 }
 
-/* A light dashed separator between stacked zones, like the weekly plan. */
+/* A light dashed separator between stacked zones. */
 .zone-area + .zone-area {
   border-top: 1px dashed var(--line);
 }
@@ -877,11 +886,9 @@ select {
   opacity: 0.85;
 }
 
-/* Nothing offers to drag it: .card:active and the weekly variant both set a
-   grabbing hand, and a record does not move. */
-.card.card-record:active,
-.card.card-record.plan-card,
-.card.card-record.plan-card:active {
+/* Nothing offers to drag it: .card:active sets a grabbing hand, and a record
+   does not move. */
+.card.card-record:active {
   cursor: default;
 }
 
@@ -943,10 +950,13 @@ select {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
-/* Plan-linked cards in working views get a coloured left stripe by band; review
-   cards (linked back to an original) get a yellow stripe the same way. */
-.card-plan-wed::before,
-.card-plan-fri::before,
+/* The left stripe says where a card came FROM, wherever the card is met: a
+   PROJECT card is a commitment made on the Project board, a PROCESS TURN is a
+   week its process owes, and a REVIEW card is somebody else's work waiting on
+   this person. Work the day board made itself wears none — the stripe marks
+   what came from elsewhere, which is why it is worth a glance. */
+.card-project::before,
+.card-process::before,
 .card-review::before {
   content: "";
   position: absolute;
@@ -957,21 +967,18 @@ select {
   border-radius: 5px 0 0 5px;
 }
 
-.card-plan-wed::before {
-  background: var(--band-wed);
+.card-project::before {
+  background: var(--project-mark);
 }
 
-.card-plan-fri::before {
-  background: var(--band-fri);
+/* A turn rides its process's own blue — the recurrent stage's, since a turn
+   IS recurrent work and the two must not read as different things. */
+.card-process::before {
+  background: var(--process-mark);
 }
 
 .card-review::before {
   background: var(--stage-review);
-}
-
-/* A plan card taken into work (assigned on the board) gets a light-blue tint. */
-.card-plan-taken {
-  background: var(--card-taken-bg);
 }
 
 /* Team avatars are dimmed to 50% by default; only cards of the currently
@@ -1076,7 +1083,28 @@ select {
 .day-nav {
   display: inline-flex;
   align-items: center;
+  align-self: center; /* the toolbar aligns to flex-end; the day sits centred */
   gap: 2px;
+}
+
+/* The control carries its own look. It used to borrow it from the .field
+   wrapper it sat in, and moving it to the app's toolbar left the date as a
+   raw browser input — a heavy default border in the middle of the bar. */
+.day-nav input[type="date"] {
+  font-size: 13px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: inherit;
+}
+
+/* Today and the sprint jump sit with the date they move, not away across
+   the toolbar. */
+.day-today,
+.day-sprint {
+  margin-left: 4px;
 }
 
 .day-arrow {
@@ -1350,6 +1378,20 @@ button.team-avatar {
   flex: none;
 }
 
+/* Where the dot is the whole answer, it says which team it stands for: two
+   colours are hard to tell apart at nine pixels, a letter is not. */
+.team-dot-lettered {
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+}
+
 /* Portalled to <body> via Dropdown (which positions it), so overflow/scroll
    ancestors of the zone can never clip the roster. */
 .add-card-team-menu {
@@ -1409,8 +1451,11 @@ button.team-avatar {
   display: flex;
   align-items: center;
   gap: 4px;
-  /* No auto margin here: .me-today owns the right-push — two auto margins
-     would split the free space and strand Today mid-bar. */
+  /* The View-as picker is the toolbar's right edge now that the day control
+     has moved up to the app's own bar: it owns the push, and it is the only
+     thing that does — two auto margins would split the free space between
+     them and strand both mid-bar. */
+  margin-left: auto;
 }
 
 .btn.impersonate-active {
@@ -2277,58 +2322,7 @@ button.card-age {
   overflow: auto;
 }
 
-/* Founders' weekly plan: a full-width band below the grid, split in two. */
-.team-weekly {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  max-height: 50%;
-  overflow: hidden;
-  border-top: 2px solid var(--line);
-}
-
-/* Fixed header (resize handle + progress + title); the bands fill below it. */
-.team-weekly-top {
-  flex: none;
-  background: var(--bg);
-}
-
-/* Drag handle at the top edge of the expanded plan to resize its height. */
-.team-weekly-resize {
-  height: 6px;
-  margin-top: -2px;
-  cursor: ns-resize;
-  background: transparent;
-}
-
-.team-weekly-resize:hover {
-  background: var(--accent);
-}
-
-.team-weekly-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 8px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-}
-
-.team-weekly-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.team-weekly-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.project-footer-toggle,
-.team-weekly-toggle {
+.project-footer-toggle {
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--bg);
@@ -2340,15 +2334,6 @@ button.card-age {
   min-width: 36px;
 }
 
-.team-weekly-toggle:hover {
-  background: var(--line-soft);
-}
-
-.team-weekly-collapsed {
-  overflow: visible;
-}
-
-.team-weekly-progress,
 .me-day-progress,
 .project-progress,
 .project-footer-bar {
@@ -2357,7 +2342,6 @@ button.card-age {
   background: var(--line-soft);
 }
 
-.team-weekly-progress-fill,
 .me-day-progress-fill,
 .project-progress-fill,
 .project-footer-bar-fill {
@@ -2366,52 +2350,6 @@ button.card-age {
   transition: width 0.2s;
 }
 
-/* The two bands sit side by side and fill the plan's height (scroll if taller). */
-.team-weekly-bands {
-  display: flex;
-  align-items: stretch;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.team-weekly-band {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  overflow-y: auto;
-}
-
-.team-weekly-wed {
-  background: var(--band-wed-bg);
-}
-
-.team-weekly-fri {
-  background: var(--band-fri-bg);
-  border-left: 1px dashed var(--line);
-}
-
-.team-weekly-band-drop {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
-}
-
-.plan-card {
-  cursor: grab;
-}
-
-.plan-card:active {
-  cursor: grabbing;
-}
-
-/* The lifted card is shown in the shared DragOverlay; fade the original. */
-.plan-card-dragging {
-  opacity: 0.4;
-}
 
 .team-col-droptarget {
   outline: 2px dashed var(--accent);
@@ -2906,12 +2844,6 @@ button.card-age {
   display: contents;
 }
 
-/* Me view: push the Today button (and the View-as picker after it) to the
-   right edge of the toolbar. */
-.me-today {
-  margin-left: auto;
-}
-
 /* Review-round badge: a dark-yellow circled number just left of the day counter
    on a review card that has been sent back for another round (round 2+). */
 .card-review-round {
@@ -3115,11 +3047,6 @@ button.card-age {
   margin-left: 0;
   padding-left: 0;
   border-left: none;
-}
-
-/* Subtask rows under a weekly-plan parent taken into work dim with it. */
-.subtask-indent-taken .card {
-  opacity: 0.7;
 }
 
 /* A drag hovering a card's vertical middle band retargets the drop to "group
@@ -3355,8 +3282,8 @@ button.card-age {
   font-variant-numeric: tabular-nums;
 }
 
-/* The same strip the Team board's weekly plan wears — bar across the top of a
-   status row — so the two boards read alike. */
+/* A bar across the top of a status row, the same strip the day boards wear,
+   so they all read alike. */
 .project-footer {
   flex: none;
   border-top: 1px solid var(--line);
@@ -4263,19 +4190,12 @@ button.card-age {
   margin-left: auto;
 }
 
-/* A card from a plan — a slot, a process turn, a weekly-plan card — still open
-   past the day it was owed by. The line says "this is a debt" wherever the
-   card shows: on the day board, in the weekly plan, on the Project board. It
-   does not move the card; carry-over is still how work moves. */
+/* A card scheduled ahead — a slot, a process turn, a card given a week —
+   still open past the day it was owed by. The line says "this is a debt"
+   wherever the card shows: on the day board, on Triage, on the Project
+   board. It does not move the card; carry-over is still how work moves. */
 .card-overdue {
   box-shadow: inset 3px 0 0 var(--danger);
-}
-
-/* The same edge already carries the plan band's colour; a debt outranks the
-   band it was owed in, so the line takes the edge. */
-.card-overdue.card-plan-wed::before,
-.card-overdue.card-plan-fri::before {
-  background: var(--danger);
 }
 
 /* No line on a late slot: the Project board already tints it red all over,
@@ -4426,7 +4346,7 @@ button.card-age {
 }
 
 .zoom-reset:hover:not(:disabled) {
-  color: var(--ink);
+  color: var(--fg);
   border-color: var(--line);
 }
 
@@ -4569,13 +4489,22 @@ button.card-age {
 
 /* The board's name in the toolbar — the one board this server serves, where
    the owner / number fields of the picker era used to be. */
+/* The board's name, centred on the top bar. Absolutely placed rather than a
+   flex child, so it is centred on the BAR and not on the space left between
+   the brand and the account — those two are different widths, and a centred
+   flex child drifts with whichever grows. It never covers them: the width
+   stops short of both, and a long name is cut with an ellipsis. */
 .board-title {
-  align-self: center;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(40%, 420px);
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 /* A person without a picture on the roster (an assignee who is not a member):
@@ -4740,4 +4669,346 @@ button.card-age {
   margin: 8px 0 0;
   font-size: 12px;
   color: var(--danger);
+}
+
+/* ---- Triage ---- */
+/* Who does what, and in which week (docs/design/triage.md). The strip on
+   the left holds what nobody has given a week; the grid on the right is the
+   Project board's shape with people across and weeks down. */
+.triage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.triage .board-toolbar {
+  flex: none;
+}
+
+/* The grid IS the board: nothing stands beside it. */
+.triage .project-board {
+  flex: 1;
+  min-width: 0;
+  margin: 0 14px 14px 10px;
+}
+
+/* A column is a person: the avatar and the name, in the header the grid
+   draws for every column. */
+.triage-person {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  /* The room on the right is the grip's: a name must not run under it. */
+  padding: 0 10px 0 6px;
+  overflow: hidden;
+}
+
+.triage-person .avatar-img {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+  flex: none;
+}
+
+/* What the person is carrying altogether, at the far end of their column's
+   header — the name has the room it needs, the number takes the corner. */
+.triage-person-load {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.triage-person-none {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* The week column carries what that week holds UNDER its date, not beside
+   it: the column is as wide as "17 Aug" needs and no wider, so a date and a
+   three-figure count set on one line run into each other. */
+.triage .project-week {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  line-height: 1.15;
+}
+
+.triage-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* A slot on this board carries a progress bar along its foot and a stripe
+   down its left, so a card reads the same here as it does on the day board. */
+.triage-slot {
+  padding-bottom: 6px;
+  /* What a slot's left mark is drawn FROM. The rules below say only what a
+     card's mark is (--mark) and never how it is painted, because the ghost of
+     a turn to come cannot paint it as a border at all (.triage-slot-coming)
+     and the colour must not be written down twice. */
+  border-left-color: var(--mark, var(--card-border));
+}
+
+/* Which week of a longer card this box is — (1/2), (2/2). Quiet: the title
+   is what the reader is looking for. */
+.triage-slot-part {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.triage-slot-bar {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 2px;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--line-soft);
+}
+
+.triage-slot-bar i {
+  display: block;
+  height: 100%;
+  /* The colour is the board's: the stage decides it (stages.barColor). */
+}
+
+/* The stripe down a card's left is the ZONE it stands in: what kind of work
+   it is, in the colours the Team board gives them. */
+.triage-slot-zone-gray {
+  --mark: var(--zone-gray-accent);
+}
+
+.triage-slot-zone-green {
+  --mark: var(--zone-green-accent);
+}
+
+.triage-slot-zone-yellow {
+  --mark: var(--zone-yellow-accent);
+}
+
+/* Urgent is the LIGHTER red, a debt the strong one: "must be done today" and
+   "was due and is not done" are different news and must not read as one. The
+   zone's own accent already is the lighter of the two in both themes
+   (#f85149 against #cf222e, #ff7b72 against #f85149), so it is taken as it
+   stands — a mix towards the background would wash out the colour-blind
+   palette, which repaints these accents and nothing else. */
+.triage-slot-zone-red {
+  --mark: var(--zone-red-accent);
+}
+
+/* The catch on a project card's weeks. Closed by default and never
+   remembered: the next visit starts closed again. */
+.triage-lock {
+  /* At the right edge with the scale, not among the board's own readings:
+     it governs the cards, and the reader reaches for it rarely. */
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  line-height: 1;
+  padding: 3px 5px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.triage-lock:hover {
+  opacity: 1;
+  color: var(--fg);
+  border-color: var(--line);
+}
+
+/* Open, it says so in the colour of the thing it is holding back. */
+.triage-lock-open {
+  opacity: 1;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+/* The lock has taken the space before it, so the scale sits against it
+   rather than being pushed out again. */
+.triage .zoom-control {
+  margin-left: 0;
+}
+
+/* The one thing in the origin row that can be changed: what kind of work
+   the card is. It reads as the rest of the row until it is reached for. */
+.modal-zone {
+  position: relative;
+}
+
+.modal-zone-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 3px;
+  cursor: pointer;
+}
+
+.modal-zone-btn:hover:not(:disabled) {
+  border-color: var(--line);
+}
+
+.modal-zone-btn:disabled {
+  cursor: default;
+}
+
+/* Somewhere to start a card, standing where the next one would: under the
+   last of its cell, at the full width of the column, and no taller than the
+   card it is about to become — the board is read down a column and a form
+   twice a card's height would push the week open every time it is touched. */
+.triage-compose {
+  z-index: 3;
+  align-self: start;
+  padding: 0 3px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.triage-compose .add-card-form {
+  width: 100%;
+  margin: 2px 0;
+  border-color: var(--line);
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.triage-compose .add-card-input {
+  padding: 1px 5px;
+  font-size: 11px;
+}
+
+.triage-compose .add-card-team-btn {
+  font-size: 10px;
+  padding: 0 4px;
+}
+
+/* A turn a process is going to file: drawn before it exists, so it is drawn
+   as an outline. Nothing can be done to it — there is no card yet — and the
+   cursor says so. */
+.triage-slot-coming {
+  background: none;
+  border-style: dashed;
+  /* The mark is NOT this card's left border. A rounded corner is shared
+     between the two sides that make it, and a dashed side takes its share in
+     dashes: the mark broke off a few pixels above the foot and the bottom-left
+     corner came out grey, so a turn to come wore a scratch where its filed
+     turns wear a stripe. Squaring the corner cured that and cost the ghost its
+     rounding, which is the shape that says "card" — so the dashes keep every
+     corner to themselves and the mark is drawn over the border, below. */
+  border-left-color: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  cursor: default;
+}
+
+/* The mark itself: the width of the border it covers, the height of the whole
+   card including its top and bottom edges, rounded down the left the way the
+   card is — the same stripe a filed turn wears, and the same one the day
+   boards draw (.card-project, .card-process). */
+.triage-slot-coming::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -1px;
+  bottom: -1px;
+  width: 3px;
+  border-radius: 5px 0 0 5px;
+  background: var(--mark, var(--muted));
+}
+
+/* A project card is a commitment made on the Project board and a turn is a
+   week its process owes: both pass through this board, and their week is the
+   other one's to say, so they wear their own mark rather than a zone nobody
+   set here. The same two marks the day boards draw down a card's left edge
+   (.card-project, .card-process), so one card reads the same on every board
+   it is met on. */
+.triage-slot-project {
+  --mark: var(--project-mark);
+}
+
+.triage-slot-process {
+  --mark: var(--process-mark);
+}
+
+/* A debt keeps the strong red, whatever zone it is in. */
+.triage-slot.project-slot-late {
+  --mark: var(--danger);
+}
+
+.triage-slot-resize {
+  cursor: ns-resize;
+}
+
+.triage-deadline {
+  border-top-color: var(--danger);
+}
+
+/* On this board the head carries the NAME and nothing else. The line's own run
+   begins where the WEEKS do: the piece of it that crossed the dates column
+   hung off the left end of every deadline like a tail and pointed at nothing,
+   since the dates are not a week work can be due in. The border stays, unpainted
+   — the tab is placed against it. */
+.triage-deadline-name {
+  border-top-color: transparent;
+}
+
+/* Whose deadline it is. This board shows every project of the team at once,
+   so the line needs a name: it sits in the week column, just above the line
+   it belongs to, in that project's own colour. Absolute because the line
+   itself is a zero-height border and has no room inside it; right-aligned so
+   the names stack against the columns rather than drifting across the dates
+   under them. */
+.triage-deadline-label {
+  position: absolute;
+  /* Flush with the column's edge, where the line's own run begins. Inset, it
+     left a few pixels of line poking out past the tab's right foot — a tail
+     on every deadline, and one the eye went to instead of the name. Now the
+     tab ends where the weeks start and the line carries straight on. */
+  right: 0;
+  /* Sits ON the line: the tab's flat foot IS the line's own top edge, so the
+     two read as one mark rather than a label floating near a rule. */
+  bottom: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 5px 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.1;
+  pointer-events: auto;
+}
+
+/* A slot here carries no owner badge — the COLUMN is the owner — so the ×
+   has the right edge to itself and sits against it. */
+.triage-slot .project-slot-actions {
+  right: 4px;
+}
+
+/* The gap between the boxes of one card while it is carried or stretched:
+   behind them, above the cells, in the colour a cell wore when the cells
+   were the ones being lit. The top and the height are the board's — it knows
+   where in the week's stack the boxes stand. */
+.triage-span {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  margin: 0 3px;
+  pointer-events: none;
+  z-index: 1;
 }

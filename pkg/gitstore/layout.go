@@ -90,7 +90,6 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("start", c.StartDate)
 	w("day", c.Day)
 	w("sprint", c.SprintStart)
-	w("plan", string(c.Plan))
 	w("week", c.Week)
 	w("project", c.Project)
 	w("epic", c.Epic)
@@ -315,7 +314,10 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 	case "stage":
 		c.Stage = board.StageKey(val.Value)
 	case "plan":
-		c.Plan = board.PlanBand(val.Value)
+		// The weekly plan is gone. The key is READ and dropped rather than
+		// left unknown: an unknown key rides through in Extra and would be
+		// written back on every edit, so a board would keep re-committing a
+		// band nothing has meant since v0.20.
 	case "progress":
 		c.Progress = num()
 	case "doneFrom":

@@ -17,8 +17,7 @@ func TestEventBodyRoundTrip(t *testing.T) {
 		{Kind: EventReviewSent, Actor: "kvaps", To: "lllamnyp"},
 		{Kind: EventReviewPassed, Actor: "lllamnyp", From: "lllamnyp"},
 		{Kind: EventReviewerRemoved, Actor: "kvaps", From: "lllamnyp"},
-		{Kind: EventPlanTaken, Actor: "kvaps", To: "dan"},
-		{Kind: EventPlanReleased, Actor: "kvaps", From: "wed"},
+		{Kind: EventWeek, Actor: "kvaps", From: "2026-07-06", To: "2026-07-13"},
 	}
 	for _, e := range events {
 		body := FormatEventBody(e)
@@ -82,33 +81,6 @@ func TestNoteAuthorRoundTrip(t *testing.T) {
 	}
 	if RenderNoteBody("", "bare") != "bare" {
 		t.Fatal("empty author stores the bare text")
-	}
-}
-
-// The weekly history rule against an explicit clock: a worked card moved to a
-// later week shows in a week only once that week's Friday has passed — a card
-// pushed forward mid-week leaves the running week's panel.
-func TestPlanShowsInWeekAt(t *testing.T) {
-	worked := Card{Plan: PlanWed, Week: "2026-07-13", StartDate: "2026-06-29", Progress: 30}
-	cases := []struct {
-		name  string
-		card  Card
-		week  string
-		today string
-		want  bool
-	}{
-		{"own week always shows", worked, "2026-07-13", "2026-07-06", true},
-		{"running week hides a forward-moved card (Freedom bandwidth)", worked, "2026-07-06", "2026-07-06", false},
-		{"still hidden on that week's Friday", worked, "2026-07-06", "2026-07-10", false},
-		{"finished week shows the history", worked, "2026-07-06", "2026-07-11", true},
-		{"Sunday after the closing Friday shows it (the carry-week sync case)", worked, "2026-06-29", "2026-07-05", true},
-		{"never-started plan card leaves no history", Card{Plan: PlanFri, Week: "2026-07-13"}, "2026-07-06", "2026-07-11", false},
-		{"weeks before the work anchor stay empty", worked, "2026-06-22", "2026-07-11", false},
-	}
-	for _, tc := range cases {
-		if got := planShowsInWeekAt(tc.card, tc.week, tc.today); got != tc.want {
-			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
-		}
 	}
 }
 

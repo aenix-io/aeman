@@ -12,7 +12,7 @@ import type { Member } from "../users";
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
 /** StageKey is an explicit per-card status that recolours the progress bar. */
-export type StageKey = "locked" | "review" | "recurrent" | "done";
+export type StageKey = "locked" | "review" | "recurrent" | "refuse" | "done";
 
 /** Note is a dated work note attached to a card (a line of its log). */
 export interface Note {
@@ -72,9 +72,8 @@ export interface Card {
   /** ISO date (yyyy-mm-dd) the sprint this card belongs to was started.
    * This is what the boards orient by (day/startDate are just metadata). */
   sprintStart?: string;
-  /** Weekly-plan band ("wed"/"fri"); set = this is a founders' weekly-plan card. */
-  plan?: "wed" | "fri";
-  /** ISO date (yyyy-mm-dd) of the plan week this card belongs to (weekly cycle). */
+  /** ISO date (yyyy-mm-dd) of the WEEK this card is scheduled for — the row
+   *  it stands in on the Triage board. */
   week?: string;
   /** The column this card is filed under: epic + project TOGETHER, since epic
    *  names repeat across projects. Its week is the row. */
@@ -83,8 +82,8 @@ export interface Card {
   /** On a process turn: the process it belongs to, and the task it came from. */
   process?: string;
   task?: string;
-  /** A card from a plan — a slot, a turn, a weekly-plan card — still open past
-   *  the day it was owed by. Derived by the server from the card's dates. */
+  /** A card scheduled ahead — a slot, a turn, a card given a week — still
+   *  open past the day it was owed by. Derived by the server from its dates. */
   overdue?: boolean;
   /** The moment this card is FROM, when it is a record rather than the live
    *  card: its team's sprint has moved on past the day being looked at. The
@@ -96,6 +95,22 @@ export interface Card {
   /** The board day a personal card was left behind on by the × — on the
    *  column that day and before, off it from the next; cleared by re-dating. */
   leftAt?: string;
+  /** Nobody placed the card in a week and it is not being worked (B3). */
+  triage?: boolean;
+  /** The Monday of the Triage column the card stands in (B5). */
+  triageWeek?: string;
+  /** A RECURRENT card's weeks to come: the ones it comes round in over the
+   *  planning horizon and no copy of it stands in yet. A team's own repeating
+   *  work is reseeded by carry-over rather than filed by a process, and the
+   *  weeks it will land in are as spoken for as a process turn's. */
+  due?: string[];
+  /** A process TURN's own occurrence: the first and last week it may stand
+   *  in, both Mondays and both inclusive. A turn is one turn of its
+   *  process's calendar, and carrying it past the next due date would put it
+   *  where the next one belongs. The server sends it (board.CycleWindow) —
+   *  the calendar is its, and a second answer to "when is this next due"
+   *  would be one waiting to disagree. */
+  cycle?: { from: string; to: string };
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -117,7 +132,6 @@ export interface NewCardInput {
   zone?: ZoneKey;
   day?: string | null;
   start?: string | null;
-  plan?: "wed" | "fri" | null;
   week?: string | null;
   epic?: string | null;
   project?: string | null;
@@ -133,7 +147,7 @@ export interface NewCardInput {
    * sprint" create); the next carry-over to reach its day adopts it. */
   noSprint?: boolean;
   /** Create on the visitor's personal board: their own repository, assigned
-   * to them, with no team, column or plan band. */
+   * to them, with no team and no column. */
   personal?: boolean;
 }
 
@@ -142,7 +156,12 @@ export interface NewCardInput {
 export interface SprintState {
   current: string | null;
   previous: string | null;
+  /** The team's cards a week and the lanes' shares, for the Triage board;
+   *  derived from the last four weeks' done cards when the roster has no
+   *  number (docs/design/triage.md). */
+  capacity?: { week: number; client: number; internal: number; derived: boolean };
 }
+
 
 /** ProcessTask is what a process iterates on, plus how the last few
  *  iterations went. */
@@ -156,6 +175,11 @@ export interface ProcessTask {
   assignee?: string;
   accumulate?: boolean;
   history: { uid: string; week: string; state: "done" | "open" | "late" }[];
+  /** The weeks this task comes due in over the planning horizon and has no
+   *  turn of its own yet — what the process is going to file. A board that
+   *  plans weeks ahead draws them: a week already spoken for by a process is
+   *  not a week the team is free in. A paused process sends none. */
+  due?: string[];
   /** Counts over ALL turns, including the ones history leaves out. */
   turns?: number;
   done?: number;
@@ -258,7 +282,8 @@ export interface CardPatch {
   /** "" clears the stage; "done" marks the card done (derived server-side). */
   stage?: StageKey | "";
   dates?: { start?: string; end?: string; sprint?: string };
-  plan?: { band?: "wed" | "fri" | ""; week?: string };
+  /** The week the card is scheduled for ("" takes it off the Triage weeks). */
+  week?: string;
   /** Re-file under a column ("" clears). Naming only the epic keeps the card
    *  inside its project; crossing projects names both halves. */
   epic?: string;
@@ -291,7 +316,7 @@ export interface CardDayLog {
   events: CardEvent[];
 }
 
-/** CarryReport is what a carry-over / carry-week pass did — or would do on a
+/** CarryReport is what a carry-over pass did — or would do on a
  * dry run, which feeds the confirm-dialog counts. */
 export interface CarryReport {
   carried: number;
@@ -329,13 +354,16 @@ export interface Provider {
   patchCard(uid: string, patch: CardPatch): Promise<Card>;
   /** Hard delete; the server cascades to the linked review card. */
   deleteCard(uid: string): Promise<void>;
-  /** The smart ×: the server demotes / releases / deletes by the board rules. */
-  removeCard(uid: string, from: "grid" | "plan"): Promise<void>;
+  /** The ×, carrying which of its two meanings was chosen: "unassign" empties
+   *  the working area and leaves the card in its week or its column,
+   *  "off-board" takes it away with the subtasks that were pieces of it.
+   *  Omitted, the gesture decides for itself as it always did. */
+  removeCard(uid: string, intent?: "unassign" | "off-board"): Promise<void>;
   /** Reposition card after afterId in the project order (null = top). */
   moveCard(uid: string, afterId: string | null): Promise<void>;
   /** Reorder to sit right before another card: the server resolves the true
-   *  global anchor, so callers rendering a filtered slice (a weekly band)
-   *  don't need to know the full board order. */
+   *  global anchor, so callers rendering a filtered slice don't need to know
+   *  the full board order. */
   moveCardBefore(uid: string, beforeId: string): Promise<void>;
   /** Push the scheduled day N days ahead of max(today, current start). */
   deferCard(uid: string, days: number): Promise<Card>;
@@ -354,15 +382,11 @@ export interface Provider {
   ): Promise<Card>;
   /** Delete the linked review card; returns the original. */
   removeReviewer(uid: string): Promise<Card>;
-  /** Take a plan card into work: assign + zone + join the sprint. */
-  takeIntoPlan(
-    uid: string,
-    engineer: string,
-    zone: ZoneKey | undefined,
-    day?: string,
-  ): Promise<Card>;
-  /** Release a card from the weekly plan (the plan-band × semantics). */
-  releaseFromPlan(uid: string): Promise<Card>;
+  /** Place a card in a week of the Triage board — which is what triaging it
+   *  means (docs/design/triage.md). */
+  placeCard(uid: string, week: string): Promise<Card>;
+  /** Take a card out of every week — back to the triage strip. */
+  untriageCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.
    * dryRun reports the would-be counts without writing. team = null is the
    * no-team group. */

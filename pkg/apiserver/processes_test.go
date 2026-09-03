@@ -22,7 +22,7 @@ func TestProcessHistoryIsBoundedButCountsAll(t *testing.T) {
 	for i := 0; i < 52; i++ {
 		c := board.Card{
 			ItemID: fmt.Sprintf("t%d", i), Title: "Article", Task: "task",
-			Week: week, Plan: board.PlanFri, Team: "alpha", Stage: board.StageRecurrent,
+			Week: week, Team: "alpha", Stage: board.StageRecurrent,
 		}
 		if i%3 == 0 {
 			c.Progress = 100

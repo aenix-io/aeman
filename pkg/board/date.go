@@ -156,3 +156,15 @@ func parseTimestamp(iso string) (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+// DaysBetween is the signed number of days from one ISO day to another —
+// negative when `to` is the earlier one. Mirrors daysBetween in
+// web/src/date.ts.
+func DaysBetween(from, to string) int {
+	t1, err1 := time.Parse(isoLayout, from)
+	t2, err2 := time.Parse(isoLayout, to)
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+	return int(t2.Sub(t1).Hours() / 24)
+}

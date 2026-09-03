@@ -33,20 +33,23 @@ export function eventLabel(e: CardEvent): string {
       return from ? `review passed by @${from}` : "review passed";
     case "reviewer-removed":
       return from ? `reviewer @${from} removed` : "reviewer removed";
+    // The weekly plan is gone, but its entries stay in the log: a commit
+    // already written is history, and history that renders as a blank line
+    // is worse than history that names something the board no longer has.
     case "plan-taken":
       return to ? `taken into work by @${to}` : "taken into work";
     case "plan-added":
       return `added to the weekly plan (${to})`;
     case "plan-released":
-      return "released from the plan";
+      return "released from the weekly plan";
     case "dates":
       return `dates ${from || "—"} → ${to || "—"}`;
     case "sprint":
       return `sprint ${from || "—"} → ${to || "—"}`;
     case "week":
-      return `plan week ${from || "—"} → ${to || "—"}`;
+      return `week ${from || "—"} → ${to || "—"}`;
     case "plan-band":
-      return `plan band ${from || "—"} → ${to || "—"}`;
+      return `weekly-plan band ${from || "—"} → ${to || "—"}`;
     case "review-round":
       return `review round ${from} → ${to} (reset to 0%)`;
     case "parent":

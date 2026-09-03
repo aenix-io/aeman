@@ -1,7 +1,7 @@
 // Package apiserver is the Kubernetes-style resource layer of the aeman API:
 // it translates the internal board domain into Card/Sprint/Note/Ordering
 // resources (metadata/spec/status), evaluates LIST selectors for the Team, Me
-// and Weekly views, and derives the fields the UI would otherwise compute.
+// and Triage views, and derives the fields the UI would otherwise compute.
 // It is backend-agnostic: everything works on the domain board snapshot.
 package apiserver
 
@@ -57,14 +57,6 @@ type CardDates struct {
 	Sprint string `json:"sprint,omitempty"`
 }
 
-// CardPlan places the card in the founders' weekly plan — or, for an epic
-// card, anchors its week row (Band empty: the card is on the Plan board, not
-// in a team's wed/fri bands).
-type CardPlan struct {
-	Band string `json:"band,omitempty"`
-	Week string `json:"week,omitempty"`
-}
-
 // CardSpec is the user's intent — everything an edit can change.
 type CardSpec struct {
 	Title string `json:"title"`
@@ -82,7 +74,9 @@ type CardSpec struct {
 	// sprint, "week" / "month" = once the interval has elapsed.
 	Recurrence string    `json:"recurrence,omitempty"`
 	Dates      CardDates `json:"dates"`
-	Plan       *CardPlan `json:"plan,omitempty"`
+	// Week is the week the card is scheduled for, a Monday: its row on the
+	// Triage board, and — for an epic card — on the Project board.
+	Week string `json:"week,omitempty"`
 	// Epic and Project are the column the card is filed under ("" = none) —
 	// the pair, since epic names repeat across projects. The card's Week is
 	// the row, and Dates span the weeks its slot stretches over.
@@ -103,12 +97,19 @@ type CardSpec struct {
 	Parent string `json:"parent,omitempty"`
 }
 
+// CycleWindow is the span of weeks a process turn's own occurrence covers,
+// as Mondays, both ends inclusive.
+type CycleWindow struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 // CardStatus is derived by the server, never written by clients.
 type CardStatus struct {
 	Complete   bool `json:"complete"`
 	InProgress bool `json:"inProgress"`
 	// Overdue: a card that came from a plan — a slot, a process turn, a
-	// weekly-plan card — still open past the day it was owed by. Derived on
+	// card scheduled for a week — still open past the day it was owed by. Derived on
 	// read from the card's own dates (board.Overdue); never stored.
 	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
@@ -130,6 +131,31 @@ type CardStatus struct {
 	// DoneAt is the board day the card reached 100 (cleared on reopen) — the
 	// personal board shows a done card that day and drops it the next.
 	DoneAt string `json:"doneAt,omitempty"`
+	// Triage marks a card the Triage board's strip holds: nobody placed
+	// it in a week and it is not being worked (B5).
+	Triage bool `json:"triage,omitempty"`
+	// TriageWeek is the Monday of the column the card stands in on the
+	// Triage board — its week. Absent means it stands in none: the strip
+	// holds it until somebody says when the work is due (B5).
+	TriageWeek string `json:"triageWeek,omitempty"`
+	// Due is a RECURRENT card's weeks to come: the ones it comes round in
+	// over the planning horizon and no copy of it stands in yet. A team's own
+	// repeating work — the weekly report, the monthly invoice — is reseeded
+	// by carry-over rather than filed by a process, and the weeks it will
+	// land in are as spoken for as a process turn's. Absent on everything
+	// else, and on a recurrence with no calendar (per sprint).
+	Due []string `json:"due,omitempty"`
+	// Cycle is a process TURN's own occurrence: the first and last week it
+	// may stand in, both Mondays and both inclusive. A turn belongs to one
+	// turn of its process's calendar, and moving it past the next due date
+	// would put it where the NEXT turn belongs — the two would then read as
+	// one process running twice. Absent on everything that is not a turn,
+	// and on a turn whose task has no calendar to reckon with.
+	//
+	// It is sent rather than derived by the client because the calendar is
+	// the server's (board.CycleWindow): a second implementation of "when is
+	// this next due" is a second answer waiting to disagree.
+	Cycle *CycleWindow `json:"cycle,omitempty"`
 	// LeftAt is the board day the × took the card off. On a personal card
 	// that is a live rule — the board shows it that day and before, not
 	// after; on a team card the × demotes into the previous sprint and this
@@ -170,6 +196,18 @@ type SprintMetadata struct {
 type SprintSpec struct {
 	Current  string `json:"current,omitempty"`
 	Previous string `json:"previous,omitempty"`
+	// Capacity is the team's cards a week and the lanes' shares, for the
+	// Triage board — the roster's number, or one derived from the cards
+	// done in the last four weeks (Derived says which; B7).
+	Capacity *SprintCapacity `json:"capacity,omitempty"`
+}
+
+// SprintCapacity is a team's capacity as the API states it.
+type SprintCapacity struct {
+	Week     int  `json:"week"`
+	Client   int  `json:"client"`
+	Internal int  `json:"internal"`
+	Derived  bool `json:"derived"`
 }
 
 // Note is a work note as an API resource, a subresource of a card.
@@ -264,6 +302,11 @@ type Member struct {
 	Login     string `json:"login"`
 	Name      string `json:"name,omitempty"`
 	AvatarURL string `json:"avatarUrl,omitempty"`
+	// Carrying is how much open work is this person's right now, counted
+	// across EVERY team — a board is read through a filter and a person is
+	// not, so handing somebody a card without the whole number in front of
+	// you is a decision made in the dark (board.CarryingNow).
+	Carrying int `json:"carrying,omitempty"`
 }
 
 // DomainInfo is one readable domain of the visitor's board.
@@ -382,22 +425,14 @@ func epicRefs(b board.Board) []EpicRef {
 	return out
 }
 
-// CardList is the LIST response envelope; Weekly carries the view's computed
-// extras when the weekly view was selected.
+// CardList is the LIST response envelope.
 type CardList struct {
-	Kind   string         `json:"kind"`
-	Items  []Card         `json:"items"`
-	Weekly *WeeklySummary `json:"weekly,omitempty"`
+	Kind  string `json:"kind"`
+	Items []Card `json:"items"`
 	// AsOf is the moment a snapshot listing reflects (RFC3339) — the end of
 	// the day it was asked for. Empty on a live listing; a day the history
 	// no longer reaches is refused (410) rather than answered.
 	AsOf string `json:"asOf,omitempty"`
-}
-
-// WeeklySummary is the weekly view's computed plan progress (recurrent cards
-// excluded — they restart every week and would skew the bar).
-type WeeklySummary struct {
-	Progress int `json:"progress"`
 }
 
 // CardResource maps a domain card onto the API resource, deriving status from
@@ -424,6 +459,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Stage:       string(c.Stage),
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
+		Week:        c.Week,
 		Epic:        c.Epic,
 		Project:     c.Project,
 		Mirrors:     append([]board.Placement{}, c.Mirrors...),
@@ -431,9 +467,6 @@ func CardResource(b board.Board, c board.Card) Card {
 		Task:        c.Task,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
-	}
-	if c.Plan != board.PlanNone || c.Week != "" {
-		spec.Plan = &CardPlan{Band: string(c.Plan), Week: c.Week}
 	}
 	status := CardStatus{
 		Complete:    board.Complete(c.Stage, c.Progress),
@@ -443,6 +476,22 @@ func CardResource(b board.Board, c board.Card) Card {
 		Domain:      c.Domain,
 		DoneAt:      c.DoneAt,
 		LeftAt:      c.LeftAt,
+		Triage:      board.NeedsTriage(b, c, board.TodayIso()),
+		TriageWeek:  board.TriageWeekOf(b, c, board.TodayIso()),
+	}
+	status.Due = board.UpcomingRecurrences(b, c, board.TodayIso(), TurnsAhead)
+	// A process turn carries the occurrence it belongs to, so the board can
+	// bound the grip without a calendar of its own.
+	if c.Task != "" && c.Week != "" {
+		for _, t := range b.Tasks {
+			if t.ItemID != c.Task {
+				continue
+			}
+			if from, to := board.CycleWindow(t, c.Week); from != "" {
+				status.Cycle = &CycleWindow{From: from, To: to}
+			}
+			break
+		}
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a
@@ -485,10 +534,12 @@ func SprintResources(b board.Board) []Sprint {
 	out := make([]Sprint, 0, len(teams))
 	for _, t := range teams {
 		st := b.SprintStates[t]
+		cap, derived := board.CapacityOf(b, t, board.TodayIso())
 		out = append(out, Sprint{
 			Kind:     "Sprint",
 			Metadata: SprintMetadata{Team: t},
-			Spec:     SprintSpec{Current: st.Current, Previous: st.Previous},
+			Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
+				Capacity: &SprintCapacity{Week: cap.Week, Client: cap.Client, Internal: cap.Internal, Derived: derived}},
 		})
 	}
 	return out
@@ -573,9 +624,10 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 		}
 	}
 	sortStrings(members)
+	carrying := board.CarryingNow(b, board.TodayIso())
 	people := make([]Member, 0, len(members))
 	for _, login := range members {
-		m := Member{Login: login}
+		m := Member{Login: login, Carrying: carrying[login]}
 		if person != nil {
 			p := person(login)
 			m.Name, m.AvatarURL = p.Name, p.AvatarURL

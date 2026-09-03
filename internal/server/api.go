@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -24,20 +25,18 @@ import (
 //
 //	GET    /api/v1                                    public route catalog (no auth)
 //	GET    /api/v1/board                              board identity + team roster
-//	GET    /api/v1/cards                              LIST cards (selectors: view/team/day/user/week/stage/zone/assignee)
+//	GET    /api/v1/cards                              LIST cards (selectors: view/team/day/user/stage/zone/assignee)
 //	POST   /api/v1/cards                              create a card
 //	GET    /api/v1/cards/{uid}                        one card
 //	PATCH  /api/v1/cards/{uid}                        edit spec fields (admission applies the rules)
 //	DELETE /api/v1/cards/{uid}                        hard delete (cascades to the review card)
-//	POST   /api/v1/cards/{uid}/actions/remove         the smart × (grid/plan semantics)
+//	POST   /api/v1/cards/{uid}/actions/remove         the smart ×
 //	POST   /api/v1/cards/{uid}/actions/move           reorder after another card
 //	POST   /api/v1/cards/{uid}/actions/defer          push the scheduled day N days ahead
 //	POST   /api/v1/cards/{uid}/actions/in-progress    move to the implicit In Progress
 //	POST   /api/v1/cards/{uid}/actions/reopen         undo a done mark, restoring the pre-done progress
 //	POST   /api/v1/cards/{uid}/actions/send-to-review send (or reassign) to a reviewer
 //	POST   /api/v1/cards/{uid}/actions/remove-reviewer delete the linked review card
-//	POST   /api/v1/cards/{uid}/actions/take-into-plan  take a plan card into work
-//	POST   /api/v1/cards/{uid}/actions/release-from-plan release from the weekly plan
 //	GET    /api/v1/cards/{uid}/links                  links from the description (GitHub refs resolved)
 //	GET    /api/v1/cards/{uid}/log                    unified activity feed (events + notes)
 //	GET    /api/v1/cards/{uid}/notes                  the card's work notes
@@ -67,8 +66,8 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/unmirror", s.handleUnmirror)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-from-project", s.handleRemoveFromProject)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-reviewer", s.handleRemoveReviewer)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/take-into-plan", s.handleTakeIntoPlan)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/release-from-plan", s.handleReleaseFromPlan)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/place", s.handlePlaceCard)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/untriage", s.handleUntriageCard)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/links", s.handleListLinks)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/log", s.handleCardLog)
 	mux.HandleFunc("GET /api/v1/logs", s.handleDayLogs)
@@ -138,22 +137,20 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
 			{"GET", "/api/v1/board", "Board identity, team roster, deadlines, and the Project board's projects and epic columns. The board is the one the server was started with — no addressing parameter; \"project\" is aeman's planning entity"},
-			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|weekly|project, team, day, user, week, project, stage, zone, assignee, fields=full for complete cards"},
-			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint; plan cards via spec.plan)"},
+			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|triage|project, team, day, user, project, stage, zone, assignee, fields=full for complete cards"},
+			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint; a card scheduled for a week via week)"},
 			{"GET", "/api/v1/cards/{uid}", "One card in full (the body lives here, not in listings)"},
 			{"PATCH", "/api/v1/cards/{uid}", "Edit spec fields; the server applies clamps, links and date rules"},
 			{"DELETE", "/api/v1/cards/{uid}", "Hard delete (cascades to the linked review card)"},
-			{"POST", "/api/v1/cards/{uid}/actions/remove", "The smart remove: demote, release or delete by board rules ({from: grid|plan})"},
+			{"POST", "/api/v1/cards/{uid}/actions/remove", "The smart remove: hand the card back to a home it still has, or delete it by the board rules"},
 			{"POST", "/api/v1/cards/{uid}/actions/move", "Reorder after ({after}) or before ({before}) another card; empty = top"},
 			{"POST", "/api/v1/cards/{uid}/actions/defer", "Push the scheduled day {days} ahead of today"},
 			{"POST", "/api/v1/cards/{uid}/actions/reopen", "Undo a done mark: the stage clears and the progress returns to what the card had when done was set (its log records the jump); no history falls back to In Progress"},
 			{"POST", "/api/v1/cards/{uid}/actions/in-progress", "Move to the implicit In Progress status"},
 			{"POST", "/api/v1/cards/{uid}/actions/send-to-review", "Send to review ({reviewer, day}); reassigns if a review card exists"},
 			{"POST", "/api/v1/cards/{uid}/actions/remove-reviewer", "Delete the linked review card"},
-			{"POST", "/api/v1/cards/{uid}/actions/take-into-plan", "Take a plan card into work ({engineer, zone, day})"},
-			{"POST", "/api/v1/cards/{uid}/actions/release-from-plan", "Release a card from the weekly plan"},
 			{"GET", "/api/v1/cards/{uid}/links", "URLs from the card's description; GitHub issue/PR refs resolved with titles, listed first"},
-			{"GET", "/api/v1/cards/{uid}/log", "The card's activity feed: recorded events (stage/progress/review/plan changes) and work notes, one chronological list"},
+			{"GET", "/api/v1/cards/{uid}/log", "The card's activity feed: recorded events (stage/progress/review/week changes) and work notes, one chronological list"},
 			{"GET", "/api/v1/cards/{uid}/notes", "The card's work notes"},
 			{"POST", "/api/v1/cards/{uid}/notes", "Append a work note ({text})"},
 			{"PATCH", "/api/v1/cards/{uid}/notes/{noteId}", "Edit a work note ({text})"},
@@ -512,13 +509,12 @@ type createCardRequest struct {
 		End    string `json:"end"`
 		Sprint string `json:"sprint"`
 	} `json:"dates"`
-	Plan *struct {
-		Band string `json:"band"`
-		Week string `json:"week"`
-	} `json:"plan"`
+	// Week schedules the card for a WEEK (its Monday) instead of a day: no
+	// dates are set and no sprint is joined.
+	Week string `json:"week"`
 	// Epic + Project file the card on the Project board, under the column that
-	// pair identifies. Its row is the week of dates.start — plan.week is for
-	// weekly-plan cards and is ignored here — and dates may span weeks.
+	// pair identifies. Its row is the week of dates.start — week is what
+	// anchors it when there are no dates — and dates may span weeks.
 	Epic           string `json:"epic"`
 	CardProject    string `json:"project"`
 	ReviewOf       string `json:"reviewOf"`
@@ -579,16 +575,8 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if len(in.Assignees) > 0 {
 		args.Assignee = in.Assignees[0]
 	}
-	if in.Epic != "" && in.Plan != nil && in.Plan.Week != "" {
-		args.Week = in.Plan.Week
-	}
-	if in.Plan != nil && in.Plan.Band != "" {
-		band, ok := parsePlanBand(w, in.Plan.Band)
-		if !ok {
-			return
-		}
-		args.Plan = band
-		args.Week = in.Plan.Week
+	if in.Week != "" {
+		args.Week = in.Week
 	}
 	card, err := svc.CreateCard(r.Context(), boardID, args)
 	if err != nil {
@@ -618,11 +606,12 @@ type cardPatch struct {
 	// Epic and Project are the two halves of the card's column ("" clears).
 	// Epic names repeat across projects, so filing into another project's
 	// column names both; naming only the epic stays inside the card's project.
-	Epic     *string     `json:"epic"`
-	Project  *string     `json:"project"`
-	Dates    *datesPatch `json:"dates"`
-	Plan     *planPatch  `json:"plan"`
-	ReviewOf *string     `json:"reviewOf"`
+	Epic    *string     `json:"epic"`
+	Project *string     `json:"project"`
+	Dates   *datesPatch `json:"dates"`
+	// Week is the week the card is scheduled for ("" takes it off the weeks).
+	Week     *string `json:"week"`
+	ReviewOf *string `json:"reviewOf"`
 	// Parent groups the card as a subtask under another card ("" ungroups).
 	Parent *string `json:"parent"`
 	// Process ties the card to a process — the recurring shelf's counterpart
@@ -635,12 +624,6 @@ type datesPatch struct {
 	Start  *string `json:"start"`
 	End    *string `json:"end"`
 	Sprint *string `json:"sprint"`
-}
-
-// planPatch is the spec.plan fragment of a card patch.
-type planPatch struct {
-	Band *string `json:"band"`
-	Week *string `json:"week"`
 }
 
 // applyGroupingPatch is the parent/process fragment of a card patch: what
@@ -737,8 +720,9 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if p.Plan != nil {
-		if !s.applyPlanPatch(w, r, svc, boardID, uid, p.Plan) {
+	if p.Week != nil {
+		if err := svc.SetWeek(r.Context(), boardID, uid, *p.Week); err != nil {
+			s.apiError(w, r, err)
 			return
 		}
 	}
@@ -800,28 +784,6 @@ func (s *Server) applyDatesPatch(w http.ResponseWriter, r *http.Request, svc *bo
 	return true
 }
 
-// applyPlanPatch applies a spec.plan patch (band and/or week).
-func (s *Server) applyPlanPatch(w http.ResponseWriter, r *http.Request, svc *boardservice.Service, boardID string, uid string, pl *planPatch) bool {
-	ctx := r.Context()
-	if pl.Band != nil {
-		band, ok := parsePlanBand(w, *pl.Band)
-		if !ok {
-			return false
-		}
-		if err := svc.SetPlan(ctx, boardID, uid, band); err != nil {
-			s.apiError(w, r, err)
-			return false
-		}
-	}
-	if pl.Week != nil {
-		if err := svc.SetWeek(ctx, boardID, uid, *pl.Week); err != nil {
-			s.apiError(w, r, err)
-			return false
-		}
-	}
-	return true
-}
-
 // --- Card actions --------------------------------------------------------------
 
 func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
@@ -838,20 +800,29 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		From string `json:"from"`
+		Intent string `json:"intent"`
 	}
-	if !decodeJSON(w, r, &in) {
+	// The body is read whenever there is one to read. Asking ContentLength
+	// instead skipped a CHUNKED body, which has no length to declare (-1), so
+	// an explicit "unassign" silently became the intentless gesture — and the
+	// gesture deletes where unassign refuses to. An empty body is the
+	// intentless call, which is the same as sending none.
+	if r.Body != nil && r.ContentLength != 0 && !decodeJSONAllowingEmpty(w, r, &in) {
 		return
 	}
-	if in.From != "" && in.From != "grid" && in.From != "plan" {
-		writeJSONError(w, http.StatusBadRequest, "from must be grid or plan")
+	intent := boardservice.RemoveIntent(in.Intent)
+	switch intent {
+	case boardservice.RemoveAuto, boardservice.Unassign, boardservice.OffBoard:
+	default:
+		writeJSONError(w, http.StatusBadRequest,
+			"unknown intent (use unassign, off-board, or leave it out)")
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid"), in.From); err != nil {
+	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid"), intent); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1066,21 +1037,13 @@ func (s *Server) handleRemoveReviewer(w http.ResponseWriter, r *http.Request) {
 	s.cardResponse(w, r, svc, boardID, uid)
 }
 
-func (s *Server) handleTakeIntoPlan(w http.ResponseWriter, r *http.Request) {
+// handlePlaceCard puts a card in a week of the Triage board, which is what
+// triaging it means (docs/design/triage.md).
+func (s *Server) handlePlaceCard(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Engineer string `json:"engineer"`
-		Zone     string `json:"zone"`
-		Day      string `json:"day"`
+		Week string `json:"week"`
 	}
 	if !decodeJSON(w, r, &in) {
-		return
-	}
-	if in.Engineer == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "engineer is required")
-		return
-	}
-	zone, ok := parseZone(w, in.Zone)
-	if !ok {
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
@@ -1088,20 +1051,21 @@ func (s *Server) handleTakeIntoPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.TakeIntoPlan(r.Context(), boardID, uid, in.Engineer, zone, in.Day); err != nil {
+	if err := svc.Place(r.Context(), boardID, uid, in.Week); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
 	s.cardResponse(w, r, svc, boardID, uid)
 }
 
-func (s *Server) handleReleaseFromPlan(w http.ResponseWriter, r *http.Request) {
+// handleUntriageCard takes a card out of every week — back to the strip.
+func (s *Server) handleUntriageCard(w http.ResponseWriter, r *http.Request) {
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
 	uid := r.PathValue("uid")
-	if err := svc.ReleaseFromPlan(r.Context(), boardID, uid); err != nil {
+	if err := svc.Untriage(r.Context(), boardID, uid); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1944,20 +1908,12 @@ func parseZone(w http.ResponseWriter, name string) (board.ZoneKey, bool) {
 // parseStage validates a stage name ("" clears).
 func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
 	switch board.StageKey(name) {
-	case board.StageNone, board.StageLocked, board.StageReview, board.StageRecurrent, board.StageDone:
+	case board.StageNone, board.StageLocked, board.StageReview, board.StageRecurrent,
+		board.StageRefuse, board.StageDone:
 		return board.StageKey(name), true
 	}
-	writeJSONError(w, http.StatusBadRequest, "unknown stage (locked, review, recurrent, done or empty)")
-	return "", false
-}
-
-// parsePlanBand validates a weekly-plan band ("" releases).
-func parsePlanBand(w http.ResponseWriter, name string) (board.PlanBand, bool) {
-	switch board.PlanBand(name) {
-	case board.PlanNone, board.PlanWed, board.PlanFri:
-		return board.PlanBand(name), true
-	}
-	writeJSONError(w, http.StatusBadRequest, "unknown plan band (wed, fri or empty)")
+	writeJSONError(w, http.StatusBadRequest,
+		"unknown stage (locked, review, recurrent, refuse, done or empty)")
 	return "", false
 }
 
@@ -1971,12 +1927,32 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
+// decodeJSONAllowingEmpty reads a body that the caller may legitimately have
+// left empty — an action whose every field is optional. A body that is there
+// is still parsed, and still refused when it is malformed; only "nothing at
+// all" is let through, leaving dst as it was.
+func decodeJSONAllowingEmpty(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return false
+	}
+	return true
+}
+
 // apiError maps service errors onto HTTP statuses.
 func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 	switch {
 	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, boardservice.ErrForbidden):
+	case errors.Is(err, boardservice.ErrForbidden),
+		// The Me board's narrower seat: another caller is not wrong about
+		// the card, they are the wrong person to be doing this to it.
+		errors.Is(err, boardservice.ErrNotYoursToRefuse),
+		errors.Is(err, boardservice.ErrNotYoursToPlan),
+		errors.Is(err, boardservice.ErrNotYoursToRemove):
 		writeJSONError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, gitstore.ErrUnknownDomain):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -1998,7 +1974,11 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
 		errors.Is(err, boardservice.ErrNoteTooLong),
 		errors.Is(err, boardservice.ErrSubtaskDepth),
-		errors.Is(err, boardservice.ErrPlanSubtask),
+		errors.Is(err, boardservice.ErrSubtaskWeek),
+		// The × was told to do something the card does not allow: a slot or a
+		// turn taken off the board, or a card unassigned into nowhere.
+		errors.Is(err, boardservice.ErrNotYoursToDestroy),
+		errors.Is(err, boardservice.ErrNowhereToLeaveIt),
 		errors.Is(err, boardservice.ErrParentNotFound),
 		errors.Is(err, boardservice.ErrOpenSubtasks),
 		errors.Is(err, boardservice.ErrTeamInUse),
@@ -2009,6 +1989,7 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProjectExists),
 		errors.Is(err, boardservice.ErrProjectNotFound),
 		errors.Is(err, boardservice.ErrWeekDerived),
+		errors.Is(err, boardservice.ErrNotAMonday),
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrTurnProcess),

@@ -103,8 +103,8 @@ func TestMapDomainBoard(t *testing.T) {
 	if orig.StartDate != "2026-06-20" || orig.SprintStart != "2026-06-22" {
 		t.Errorf("orig dates = %q / %q", orig.StartDate, orig.SprintStart)
 	}
-	if orig.Team != "alpha" || orig.Plan != board.PlanWed || orig.Week != "2026-06-22" {
-		t.Errorf("orig team/plan/week = %q / %q / %q", orig.Team, orig.Plan, orig.Week)
+	if orig.Team != "alpha" || orig.Week != "2026-06-22" {
+		t.Errorf("orig team/week = %q / %q", orig.Team, orig.Week)
 	}
 	if len(orig.Assignees) != 1 || orig.Assignees[0] != "bob" {
 		t.Errorf("orig assignees = %v", orig.Assignees)

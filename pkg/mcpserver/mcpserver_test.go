@@ -83,8 +83,7 @@ func TestMCPListsTools(t *testing.T) {
 	want := []string{
 		"get_board", "list_cards", "get_card", "create_card", "update_card",
 		"delete_card", "remove_card", "move_card", "defer_card", "in_progress",
-		"send_to_review", "remove_reviewer", "take_into_plan", "release_from_plan",
-		"carry_over",
+		"send_to_review", "remove_reviewer", "carry_over",
 		"list_links", "list_log", "list_notes", "add_note", "edit_note", "delete_note",
 		"add_epic", "delete_epic", "set_epic_project", "rename_epic",
 		"add_project", "delete_project", "reorder_projects", "rename_project", "rename_team",
@@ -248,21 +247,21 @@ func TestMCPDeleteCardCascades(t *testing.T) {
 }
 
 func TestMCPRemoveCard(t *testing.T) {
-	// remove_card empties one of a card's two homes. A card that is also in
-	// the weekly plan is left there, out of the working area — whatever it
-	// carries; deleting deliberately is delete_card's job.
-	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Progress: 40, Plan: board.PlanFri, Week: "2026-08-24",
+	// remove_card empties the working area. A card that is also scheduled for
+	// a WEEK is left in that week — whatever it carries; deleting
+	// deliberately is delete_card's job.
+	fake := boardservicetest.New([]board.Card{{ItemID: "c1", Progress: 40, Week: "2026-08-24",
 		SprintStart: "2026-08-28", StartDate: "2026-08-28"}}, nil)
 	cs := connect(t, Config{Board: "acme"}, fake)
 	call(t, cs, "remove_card", map[string]any{"uid": "c1"})
 	c := fake.Card("c1")
 	if c == nil {
-		t.Fatalf("a card in the plan must not be deleted by remove_card")
+		t.Fatalf("a card scheduled for a week must not be deleted by remove_card")
 	}
-	if c.Plan != board.PlanFri || c.SprintStart != "" {
-		t.Fatalf("it stays in the plan and leaves the working area: %+v", c)
+	if c.Week != "2026-08-24" || c.SprintStart != "" {
+		t.Fatalf("it keeps its week and leaves the working area: %+v", c)
 	}
-	// A card that is nowhere else — no band, no column — was only in the
+	// A card that is nowhere else — no week, no column — was only in the
 	// working area, and removing it from there is deletion; what it carries
 	// is the caller's to ask about first.
 	fake2 := boardservicetest.New([]board.Card{{ItemID: "c2", Progress: 40}}, nil)
@@ -270,9 +269,6 @@ func TestMCPRemoveCard(t *testing.T) {
 	call(t, cs2, "remove_card", map[string]any{"uid": "c2"})
 	if fake2.Card("c2") != nil {
 		t.Fatal("a card with nowhere else to be is deleted by remove_card")
-	}
-	if msg := callErr(t, cs, "remove_card", map[string]any{"uid": "c1", "from": "nowhere"}); !strings.Contains(msg, "unknown from") {
-		t.Fatalf("unknown from must be rejected: %s", msg)
 	}
 }
 

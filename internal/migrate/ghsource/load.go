@@ -289,12 +289,6 @@ func applyDomainRole(card *board.Card, v *rawFieldValue, roles domainFieldRoles)
 		card.StartDate = v.Date
 	case roles.SprintStart != nil && id == roles.SprintStart.ID && v.Date != "":
 		card.SprintStart = v.Date
-	case roles.Plan != nil && id == roles.Plan.ID && v.Name != "":
-		if strings.EqualFold(v.Name, "fri") {
-			card.Plan = board.PlanFri
-		} else {
-			card.Plan = board.PlanWed
-		}
 	case roles.Week != nil && id == roles.Week.ID && v.Date != "":
 		card.Week = v.Date
 	case roles.Epic != nil && id == roles.Epic.ID && v.Text != "":
@@ -332,7 +326,6 @@ type domainFieldRoles struct {
 	SprintStart *Field
 	Sprint      *Field
 	Status      *Field
-	Plan        *Field
 	Week        *Field
 	Epic        *Field
 	Project     *Field
@@ -358,7 +351,6 @@ var domainRoleAliases = map[string][]string{
 	"sprintStart": {"sprint start", "sprintstart"},
 	"sprint":      {"sprint", "iteration"},
 	"status":      {"status"},
-	"plan":        {"plan"},
 	"week":        {"week"},
 	"epic":        {"epic"},
 	"project":     {"project"},
@@ -395,8 +387,6 @@ func domainRoles(fields []Field) domainFieldRoles {
 			r.Sprint = f
 		case r.Status == nil && domainMatchesAlias("status", name):
 			r.Status = f
-		case r.Plan == nil && domainMatchesAlias("plan", name):
-			r.Plan = f
 		case r.Week == nil && domainMatchesAlias("week", name):
 			r.Week = f
 		case r.Epic == nil && domainMatchesAlias("epic", name):

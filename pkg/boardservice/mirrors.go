@@ -199,12 +199,8 @@ func (s *Service) RemoveFromProject(ctx context.Context, boardID string, itemID,
 	if err := refileGuard(b, c, func(a *board.Card) { a.Project = ""; a.Epic = "" }); err != nil {
 		return err
 	}
-	// The weekly plan goes with it, always.
-	if c.Plan != board.PlanNone {
-		if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
-			return err
-		}
-	}
+	// The week goes with it, always: it was the slot's row, not a placement
+	// anyone made for the card itself.
 	if c.Week != "" {
 		if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
 			return err

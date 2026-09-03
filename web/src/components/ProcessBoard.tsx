@@ -924,7 +924,7 @@ function TaskRow({
               title, the body and the cycle. */}
           <CellPicker
             className="process-cell-team"
-            title="Which team's weekly plan the iterations land in"
+            title="Which team the iterations land in"
             label={
               t.team ? (
                 <>

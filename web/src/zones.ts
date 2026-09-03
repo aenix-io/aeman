@@ -47,7 +47,7 @@ export const ZONES: Record<ZoneKey, ZoneDef> = {
   },
   red: {
     key: "red",
-    title: "Critical today",
+    title: "Critical",
     spine: "URGENT",
     description: "Must be resolved before the end of the day",
     accent: "var(--zone-red-accent)",

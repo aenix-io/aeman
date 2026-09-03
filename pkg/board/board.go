@@ -1,6 +1,6 @@
 // Package board holds aeman's pure board logic, ported from the web frontend:
-// date helpers, the stage model, per-team sprint pointers, the three board views
-// (Team grid, Me, Weekly plan) and the status/progress transition rules. Every
+// date helpers, the stage model, per-team sprint pointers, the board views
+// (Team grid, Me, Triage) and the status/progress transition rules. Every
 // function works on an in-memory Board snapshot with no network access, so the
 // HTTP API and the MCP server can later expose the same views and actions.
 package board
@@ -61,17 +61,14 @@ const (
 	ZoneRed    ZoneKey = "red"
 )
 
-// PlanBand is a card's weekly-plan band. It mirrors the `plan?: "wed" | "fri"`
-// field in web/src/providers/types.ts; PlanNone ("") means the card is not a
-// weekly-plan card.
-type PlanBand string
-
-// The weekly-plan bands. PlanNone ("") means the card is not in the weekly plan.
-const (
-	PlanNone PlanBand = ""
-	PlanWed  PlanBand = "wed"
-	PlanFri  PlanBand = "fri"
-)
+// Capacity is a team's throughput in cards a week, and the shares of it the
+// lanes may take: Client is a ceiling, Internal a floor, both in percent.
+// Week 0 means "derive it" (see CapacityOf).
+type Capacity struct {
+	Week     int `json:"week,omitempty"`
+	Client   int `json:"client,omitempty"`
+	Internal int `json:"internal,omitempty"`
+}
 
 // Note is a dated work note attached to a card: an issue/PR comment, or a line
 // stored in a draft issue's body when the card has no comment thread. It mirrors
@@ -106,9 +103,10 @@ type Card struct {
 	// sprint it belongs to (what the day boards orient by).
 	StartDate   string `json:"startDate,omitempty"`
 	SprintStart string `json:"sprintStart,omitempty"`
-	// Plan/Week place the card in the founders' weekly plan (Week is a Monday).
-	Plan PlanBand `json:"plan,omitempty"`
-	Week string   `json:"week,omitempty"`
+	// Week is the week the card is scheduled for, a Monday: the row it stands
+	// in on the Triage board. A Week AHEAD of the current one is a backlog
+	// placement — the card is on no day board until that Monday (B1).
+	Week string `json:"week,omitempty"`
 	// Epic names the Project-board column this card belongs to ("" = none). An
 	// epic card's row is its Week; StartDate..Day span the weeks its slot
 	// covers when it stretches over more than one.
@@ -215,24 +213,23 @@ type CreateInput struct {
 	// Personal files the card in the caller's personal domain (Domain names
 	// it) instead of where the home rule would put it; such a card stays
 	// there whatever team or project it is later given.
-	Personal    bool     `json:"personal,omitempty"`
-	Title       string   `json:"title"`
-	Zone        ZoneKey  `json:"zone,omitempty"`
-	Day         string   `json:"day,omitempty"`
-	Start       string   `json:"start,omitempty"`
-	SprintStart string   `json:"sprintStart,omitempty"`
-	Assignee    string   `json:"assignee,omitempty"`
-	Team        string   `json:"team,omitempty"`
-	ReviewOf    string   `json:"reviewOf,omitempty"`
-	Parent      string   `json:"parent,omitempty"`
-	Plan        PlanBand `json:"plan,omitempty"`
-	Week        string   `json:"week,omitempty"`
-	Epic        string   `json:"epic,omitempty"`
-	Project     string   `json:"project,omitempty"`
-	Process     string   `json:"process,omitempty"`
-	Task        string   `json:"task,omitempty"`
-	Recurrence  string   `json:"recurrence,omitempty"`
-	Paused      bool     `json:"paused,omitempty"`
+	Personal    bool    `json:"personal,omitempty"`
+	Title       string  `json:"title"`
+	Zone        ZoneKey `json:"zone,omitempty"`
+	Day         string  `json:"day,omitempty"`
+	Start       string  `json:"start,omitempty"`
+	SprintStart string  `json:"sprintStart,omitempty"`
+	Assignee    string  `json:"assignee,omitempty"`
+	Team        string  `json:"team,omitempty"`
+	ReviewOf    string  `json:"reviewOf,omitempty"`
+	Parent      string  `json:"parent,omitempty"`
+	Week        string  `json:"week,omitempty"`
+	Epic        string  `json:"epic,omitempty"`
+	Project     string  `json:"project,omitempty"`
+	Process     string  `json:"process,omitempty"`
+	Task        string  `json:"task,omitempty"`
+	Recurrence  string  `json:"recurrence,omitempty"`
+	Paused      bool    `json:"paused,omitempty"`
 	// Body is the draft's description, written with the create rather than
 	// after it: a card that appears without its text, then fills in a second
 	// later, reads as a card the board got wrong.
@@ -275,6 +272,8 @@ type SprintState struct {
 	Current  string `json:"current"`
 	Previous string `json:"previous"`
 	ItemID   string `json:"itemId"`
+	// Capacity is the team's, from its roster file; zero when nothing is set.
+	Capacity Capacity `json:"capacity,omitempty"`
 }
 
 // Board is an in-memory snapshot of a project board: its fields, the visible

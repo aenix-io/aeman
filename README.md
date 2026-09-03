@@ -28,9 +28,9 @@ Every open board is **live**: edits made by teammates — or by AI agents over M
 
 Sprints are open-ended and advanced by hand: **Carry over** starts a team's new sprint on today and pulls its unfinished cards forward (with a *no team* group too). A card carries two dates — the sprint it belongs to (**sprint start**) and the day it actually started (**start**, kept as history) — so the Team board shows it on its sprint's day, on the day it was created, and on past sprint days it passed through. **+1 day / +1 week** defers a card counting from today, hiding it until its new day without losing that history. The current sprint is tracked per team, so an engineer on several teams sees each team's current cards at once. The full date model lives in [docs/dates.md](docs/dates.md).
 
-### Weekly team plan
+### Triage — the weeks ahead
 
-Below the team grid sits a weekly plan: business tasks assigned to a team for the week, split into two bands (by Wednesday / by Friday). A team lead drags a plan card onto a member to take it into work — the same card then shows up in the grid while staying in the plan, marked with a coloured left stripe. A thin overall progress bar tracks completion across the plan, and a per-week **Carry over** moves unfinished plan cards into the next week — a cycle independent of the daily sprints.
+Beside the day boards sits **Triage**: the weeks laid out side by side, a column per person, showing who does what and in which week. Work accepted but not for now is placed in a week rather than dropped onto today, and a card whose week lies ahead is on no day board until that week begins — which is what makes the queue a regulator rather than a stack. A card still open when its week has passed is a **debt**: it stays in the week it was owed in, marked overdue, because that week is the record of what was missed.
 
 ## Architecture
 

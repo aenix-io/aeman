@@ -4,27 +4,29 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // Selector scopes a card LIST or watch subscription. View selectors reproduce
-// exactly what the UI renders (the Team grid, the Me day board, the Weekly
-// plan); the plain field selectors compose with no view.
+// exactly what the UI renders (the Team grid, the Me day board, the Triage
+// weeks); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "personal", "weekly" or "project". "" and "all" both list every
+	// View is "", "all", "team", "me", "personal", "triage" or "project". "" and "all" both list every
 	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
 	View string
-	// Team is the team key for the team/weekly views ("" = the no-team group).
+	// Team is the team key for the team/triage views ("" = the no-team group).
 	Team string
 	// Day is the viewed day for the team/me views (defaults to today).
 	Day string
 	// User is the person for the me view ("" = everyone).
 	User string
-	// Week is the plan week (a Monday) for the weekly view (defaults to the
-	// current week).
-	Week string
+	// From and Weeks bound the triage view: the columns from the Monday
+	// From (defaults to the current week) for Weeks weeks (defaults to 6).
+	From  string
+	Weeks int
 	// Project filters the project view to one project's epic columns. Empty
 	// means every project — the all-projects overview. Note this is the
 	// planning entity, NOT the GitHub board (that is addressed by owner+board).
@@ -74,7 +76,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Project:        q.Get("project"),
 		Day:            q.Get("day"),
 		User:           q.Get("user"),
-		Week:           q.Get("week"),
+		From:           q.Get("from"),
 		Assignee:       q.Get("assignee"),
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
 		Snapshot:       q.Get("snapshot") == "true" || q.Get("snapshot") == "1",
@@ -97,8 +99,15 @@ func ParseSelector(q url.Values) (Selector, error) {
 		v := q.Get("zone")
 		sel.Zone = &v
 	}
+	if w := q.Get("weeks"); w != "" {
+		n, err := strconv.Atoi(w)
+		if err != nil || n < 1 || n > 26 {
+			return Selector{}, fmt.Errorf("weeks %q: want 1..26", w)
+		}
+		sel.Weeks = n
+	}
 	switch sel.View {
-	case "", "all", "team", "me", "personal", "weekly", "project":
+	case "", "all", "team", "me", "personal", "project", "triage":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -112,8 +121,13 @@ func (s Selector) normalized() Selector {
 			s.Day = board.TodayIso()
 		}
 	}
-	if s.View == "weekly" && s.Week == "" {
-		s.Week = board.MondayOf(board.TodayIso())
+	if s.View == "triage" {
+		if s.From == "" {
+			s.From = board.MondayOf(board.TodayIso())
+		}
+		if s.Weeks == 0 {
+			s.Weeks = 6
+		}
 	}
 	return s
 }
@@ -150,8 +164,8 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		for _, c := range b.Cards {
 			// A SUBTASK that carries its own column belongs here on its own
 			// merit (G57), not as a rider of a delivered parent: the case
-			// the rule exists for is a parent that lives elsewhere — the
-			// weekly plan, the working area — and is in no project view at
+			// the rule exists for is a parent that lives elsewhere — a week
+			// of its own, the working area — and is in no project view at
 			// all, which left the whole group visible nowhere.
 			if c.Epic == "" {
 				continue
@@ -166,19 +180,8 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 			}
 			base = append(base, c)
 		}
-	case "weekly":
-		// weekly accepts a comma-separated team set too, so the Team board's
-		// weekly-plan panel fetches every team it shows in one request.
-		seen := map[string]bool{}
-		for _, t := range strings.Split(sel.Team, ",") {
-			bands := board.WeeklyPlan(b, strings.TrimSpace(t), sel.Week)
-			for _, c := range append(append([]board.Card{}, bands.Wed...), bands.Fri...) {
-				if !seen[c.ItemID] {
-					seen[c.ItemID] = true
-					base = append(base, c)
-				}
-			}
-		}
+	case "triage":
+		base = triageCards(b, sel)
 	default:
 		base = b.Cards
 	}
@@ -423,8 +426,7 @@ func MarkRecords(list *CardList, records map[string]bool, asOf string) {
 	}
 }
 
-// ListCards builds the LIST response for a selector: resources in board order,
-// plus the weekly summary when the weekly view was selected.
+// ListCards builds the LIST response for a selector: resources in board order.
 func ListCards(b board.Board, sel Selector) CardList {
 	cards := FilterCards(b, sel)
 	resource := CardSummaryResource
@@ -435,33 +437,41 @@ func ListCards(b board.Board, sel Selector) CardList {
 	for _, c := range cards {
 		items = append(items, resource(b, c))
 	}
-	list := CardList{Kind: "CardList", Items: items}
-	if sel.View == "weekly" {
-		list.Weekly = &WeeklySummary{Progress: planProgress(cards)}
-	}
-	return list
+	return CardList{Kind: "CardList", Items: items}
 }
 
-// planProgress averages the week's completion over its one-off cards: done
-// counts as 100, recurrent cards are excluded (they restart every week and
-// would skew the bar). It mirrors planProgress in TeamBoard.tsx.
-func planProgress(cards []board.Card) int {
-	sum, n := 0, 0
-	for _, c := range cards {
-		if c.Stage == board.StageRecurrent {
+// triageCards is the Triage board's own selection: the teams' cards placed
+// in the weeks asked for, the current sprint (which is the current week's
+// column), the debts owed from earlier weeks — they stand in that column too
+// — and the cards nobody placed at all, which are the triage strip (B3, B5).
+func triageCards(b board.Board, sel Selector) []board.Card {
+	today := board.TodayIso()
+	until := board.AddDays(sel.From, 7*sel.Weeks)
+	thisWeek := board.MondayOf(today)
+	var out []board.Card
+	for _, c := range b.Cards {
+		if c.Parent != "" || board.IsStateTitle(c.Title) || board.IsPersonalDomain(c.Domain) {
 			continue
 		}
-		n++
-		if c.Stage == board.StageDone {
-			sum += 100
+		if !teamInSet(c.Team, sel.Team) {
 			continue
 		}
-		sum += c.Progress
+		if board.NeedsTriage(b, c, today) {
+			out = append(out, c)
+			continue
+		}
+		w := board.TriageWeekOf(b, c, today)
+		if w == "" {
+			continue
+		}
+		// In the window, or a debt from before it: an open card owed in a
+		// week already gone stands in the current one.
+		debt := !board.Complete(c.Stage, c.Progress) && w < thisWeek && sel.From <= thisWeek
+		if (w >= sel.From && w < until) || debt {
+			out = append(out, c)
+		}
 	}
-	if n == 0 {
-		return 0
-	}
-	return (sum + n/2) / n
+	return out
 }
 
 // teamInSet reports whether a card's team is in a comma-separated selector

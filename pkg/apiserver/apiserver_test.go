@@ -23,9 +23,9 @@ func testBoard() board.Board {
 			{ItemID: "rev", Title: "review: Wire the API", Team: "alpha",
 				ReviewOf: "c1", Progress: 40, Assignees: []string{"lllamnyp"},
 				StartDate: "2026-01-10", SprintStart: "2026-01-10"},
-			{ItemID: "p1", Title: "plan it", Team: "alpha", Plan: board.PlanWed,
+			{ItemID: "p1", Title: "plan it", Team: "alpha",
 				Week: "2026-01-05", Progress: 50},
-			{ItemID: "p2", Title: "recurring", Team: "alpha", Plan: board.PlanFri,
+			{ItemID: "p2", Title: "recurring", Team: "alpha",
 				Week: "2026-01-05", Stage: board.StageRecurrent, Progress: 100},
 			{ItemID: "z1", Title: "done thing", Team: "alpha", Zone: board.ZoneGreen,
 				Progress: 100, StartDate: "2026-01-10", SprintStart: "2026-01-10"},
@@ -108,7 +108,10 @@ func TestListSelectors(t *testing.T) {
 		}
 		return out
 	}
-	if !reflect.DeepEqual(ids(team), []string{"c1", "rev", "z1"}) {
+	// p1 and p2 are the week's own work: placed in the week the viewed day
+	// falls in, they stand on the grid all week (in Unassigned, nobody having
+	// taken them) the way the weekly panel used to hold them beside it.
+	if !reflect.DeepEqual(ids(team), []string{"c1", "rev", "p1", "p2", "z1"}) {
 		t.Fatalf("team view = %v", ids(team))
 	}
 	me := FilterCards(b, Selector{View: "me", User: "octocat", Day: "2026-01-10"})
@@ -131,18 +134,6 @@ func TestListSelectors(t *testing.T) {
 	}
 }
 
-// V2: the weekly view computes the plan progress, excluding recurrent cards.
-func TestWeeklyViewProgressExcludesRecurrent(t *testing.T) {
-	b := testBoard()
-	list := ListCards(b, Selector{View: "weekly", Team: "alpha", Week: "2026-01-05"})
-	if len(list.Items) != 2 {
-		t.Fatalf("weekly items = %d", len(list.Items))
-	}
-	if list.Weekly == nil || list.Weekly.Progress != 50 {
-		t.Fatalf("weekly summary = %+v (recurrent p2 must not count)", list.Weekly)
-	}
-}
-
 // V4 support: Matches agrees with FilterCards.
 func TestSelectorMatches(t *testing.T) {
 	b := testBoard()
@@ -150,8 +141,8 @@ func TestSelectorMatches(t *testing.T) {
 	if !sel.Matches(b, b.Cards[0]) {
 		t.Fatal("c1 is in the team view")
 	}
-	if sel.Matches(b, b.Cards[2]) {
-		t.Fatal("p1 (a plan card) is not on the day grid")
+	if !sel.Matches(b, b.Cards[2]) {
+		t.Fatal("p1 is this week's own work and stands on the grid")
 	}
 }
 
@@ -291,24 +282,6 @@ func TestTeamViewMultiTeam(t *testing.T) {
 	}
 }
 
-// view=weekly accepts a comma set too: the Team board's weekly-plan panel
-// fetches every team it shows in one request.
-func TestWeeklyViewMultiTeam(t *testing.T) {
-	week := "2026-01-05"
-	b := board.Board{Cards: []board.Card{
-		{ItemID: "aw", Team: "alpha", Plan: board.PlanWed, Week: week},
-		{ItemID: "bf", Team: "beta", Plan: board.PlanFri, Week: week},
-		{ItemID: "gw", Team: "gamma", Plan: board.PlanWed, Week: week},
-	}}
-	ids := map[string]bool{}
-	for _, c := range FilterCards(b, Selector{View: "weekly", Team: "alpha,beta", Week: week}) {
-		ids[c.ItemID] = true
-	}
-	if !ids["aw"] || !ids["bf"] || ids["gw"] {
-		t.Fatalf("weekly team=alpha,beta = %v, want alpha+beta only", ids)
-	}
-}
-
 // The board resource carries the people roster (every distinct assignee), so
 // pickers work even though clients load one view at a time.
 // Members are the board's distinct assignees, sorted, each with the avatar
@@ -326,7 +299,12 @@ func TestBoardResourceMembers(t *testing.T) {
 		}
 	}
 	with := BoardResourceWith(b, func(login string) string { return "https://cdn.example/" + login })
-	want := []Member{{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp"}, {Login: "octocat", AvatarURL: "https://cdn.example/octocat"}}
+	// The roster carries how much each person is holding right now, across
+	// every team: a board is read through a filter and a person is not.
+	want := []Member{
+		{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp", Carrying: 1},
+		{Login: "octocat", AvatarURL: "https://cdn.example/octocat", Carrying: 1},
+	}
 	if !reflect.DeepEqual(with.Metadata.Members, want) {
 		t.Fatalf("members with avatars = %+v", with.Metadata.Members)
 	}
@@ -338,62 +316,6 @@ func memberLogins(ms []Member) []string {
 		out = append(out, m.Login)
 	}
 	return out
-}
-
-// A worked plan card moved forward keeps showing in FINISHED past weeks it was
-// worked in (week history); a pure never-started plan card moves with its week
-// and leaves no history. Weeks are relative to the real clock — a fully past
-// week is deterministic; the running-week gate is covered by
-// TestPlanShowsInWeekAt in pkg/board.
-func TestWeeklyHistoryForWorkedCards(t *testing.T) {
-	wPrev := board.AddDays(board.MondayOf(board.TodayIso()), -7)
-	wCur := board.MondayOf(board.TodayIso())
-	b := board.Board{Cards: []board.Card{
-		{ItemID: "worked", Team: "alpha", Plan: board.PlanWed, Week: wCur,
-			StartDate: board.AddDays(wPrev, 2), Assignees: []string{"bob"}, Progress: 40},
-		{ItemID: "pure", Team: "alpha", Plan: board.PlanFri, Week: wCur},
-		// Taken into the sprint without a start date (take-into-plan sets only
-		// the sprint): the sprint join anchors its week history.
-		{ItemID: "sprintOnly", Team: "alpha", Plan: board.PlanFri, Week: wCur,
-			SprintStart: board.AddDays(wPrev, 4), Assignees: []string{"dan"}},
-		// Anchored only in the current week: no trace in the previous one.
-		{ItemID: "later", Team: "alpha", Plan: board.PlanWed,
-			Week: board.AddDays(wCur, 7), StartDate: wCur, Progress: 20},
-	}}
-	ids := func(week string) map[string]bool {
-		out := map[string]bool{}
-		for _, c := range FilterCards(b, Selector{View: "weekly", Team: "alpha", Week: week}) {
-			out[c.ItemID] = true
-		}
-		return out
-	}
-	prev := ids(wPrev)
-	if !prev["worked"] || !prev["sprintOnly"] || prev["pure"] || prev["later"] {
-		t.Fatalf("previous week = %v, want worked+sprintOnly as history", prev)
-	}
-	cur := ids(wCur)
-	if !cur["worked"] || !cur["pure"] || !cur["sprintOnly"] {
-		t.Fatalf("current week = %v, want its own members", cur)
-	}
-}
-
-// A week-history entry sits in the by-Friday band of the finished past week
-// regardless of its current band; in its own week it sits in its own band.
-func TestWeeklyHistoryLandsInFriBand(t *testing.T) {
-	wPrev := board.AddDays(board.MondayOf(board.TodayIso()), -7)
-	wCur := board.MondayOf(board.TodayIso())
-	b := board.Board{Cards: []board.Card{
-		{ItemID: "moved", Team: "alpha", Plan: board.PlanWed, Week: wCur,
-			StartDate: board.AddDays(wPrev, 2), Progress: 40},
-	}}
-	prev := board.WeeklyPlan(b, "alpha", wPrev)
-	if len(prev.Fri) != 1 || len(prev.Wed) != 0 {
-		t.Fatalf("past week: history goes to the fri band, got wed=%d fri=%d", len(prev.Wed), len(prev.Fri))
-	}
-	cur := board.WeeklyPlan(b, "alpha", wCur)
-	if len(cur.Wed) != 1 || len(cur.Fri) != 0 {
-		t.Fatalf("own week: the card sits in its own band, got wed=%d fri=%d", len(cur.Wed), len(cur.Fri))
-	}
 }
 
 // The resource says which repository a card lives in (status.domain): the

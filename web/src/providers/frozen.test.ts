@@ -64,7 +64,7 @@ describe("frozenProvider", () => {
     for (const write of [
       () => frozen.patchCard("old", { progress: 50 }),
       () => frozen.deleteCard("old"),
-      () => frozen.removeCard("old", "grid"),
+      () => frozen.removeCard("old", "off-board"),
       () => frozen.moveCard("old", null),
       () => frozen.setInProgress("old"),
     ]) {
@@ -79,7 +79,7 @@ describe("frozenProvider", () => {
     const { provider, calls } = spyProvider();
     const frozen = guard(provider);
     await frozen.patchCard("live", { progress: 50 });
-    await frozen.removeCard("live", "grid");
+    await frozen.removeCard("live", "off-board");
     await frozen.setInProgress("live");
     expect(calls).toEqual(["patchCard", "removeCard", "setInProgress"]);
   });

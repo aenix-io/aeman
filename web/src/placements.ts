@@ -140,15 +140,12 @@ export function mirrorTargets(
   return out;
 }
 
-/** attachSlotDates is the span a weekly-plan card takes when it is attached
- *  to a column: the slot of the week it was taken from — start on its
- *  Monday, end on its band's day. The same dates the server writes, so the
- *  optimistic card does not jump on the re-list. */
-export function attachSlotDates(
-  band: "wed" | "fri",
-  week: string,
-): { startDate: string; day: string } {
-  return { startDate: week, day: addDays(week, band === "wed" ? 2 : 4) };
+/** attachSlotDates is the span a week-scheduled card takes when it is
+ *  attached to a column: the slot of the week it was taken from — Monday to
+ *  Friday, the whole of the week it was owed in. The same dates the server
+ *  writes, so the optimistic card does not jump on the re-list. */
+export function attachSlotDates(week: string): { startDate: string; day: string } {
+  return { startDate: week, day: addDays(week, 4) };
 }
 
 /** Outcome of the Project board's × on one placement — what the server will
@@ -379,10 +376,10 @@ export function makeCardPlacements(
     ...targets,
     onAttachProject: (project, epic) => {
       const patch: Partial<Card> = { project, epic };
-      if (!card.startDate && card.plan && card.week) {
+      if (!card.startDate && card.week) {
         // The card takes the slot of the week it was taken from — the same
         // dates the server writes (attachSlotDates).
-        Object.assign(patch, attachSlotDates(card.plan, card.week));
+        Object.assign(patch, attachSlotDates(card.week));
       }
       deps.patchCard(card.itemId, patch);
       call(deps.provider.patchCard(card.itemId, { epic, project }));
@@ -735,4 +732,33 @@ export function projectsWithColumns(
     out.push("");
   }
   return out;
+}
+
+/** CardMark is what a card's left stripe says about where the work came FROM:
+ *  a REVIEW waiting on this person, a PROJECT board's commitment, a PROCESS's
+ *  turn — or nothing, for the day board's own work. The stripe is worth a
+ *  glance precisely because it marks what arrived from elsewhere. */
+export type CardMark = "review" | "project" | "process" | "";
+
+/** markOf answers it once, for every board that draws the mark: the day
+ *  boards down a card's left edge (Card.tsx: .card-review / -project /
+ *  -process) and the Triage board on its own slot (.triage-slot-project /
+ *  -process). Two boards deciding this separately is how one of them came to
+ *  draw no mark at all after the weekly plan — whose band the stripe used to
+ *  be — was taken out.
+ *
+ *  A review card of a project card is BOTH; the waiting is the innermost
+ *  thing about it, so that is what the stripe says. Triage never meets a
+ *  review card (a review follows the card it reviews and is not scheduled),
+ *  so the two boards agree wherever they both draw. */
+export function markOf(
+  c: Pick<Card, "reviewOf" | "epic" | "task">,
+): CardMark {
+  if (c.reviewOf) {
+    return "review";
+  }
+  if (c.epic) {
+    return "project";
+  }
+  return c.task ? "process" : "";
 }
