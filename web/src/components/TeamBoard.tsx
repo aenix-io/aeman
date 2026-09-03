@@ -24,6 +24,7 @@ import type {
   ZoneKey,
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
+import { clampProgress, clampsProgress } from "../stages";
 import { todayIso, addDays, localDateIso, mondayOf } from "../date";
 import { inWeek, placedAhead } from "../triage";
 import { activeSprint, currentSprint, previousSprint, sprintForDate } from "../sprint";
@@ -41,12 +42,11 @@ import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
 import { slotWeekPatch } from "../slots";
 import { subtaskShows } from "../subtasks";
 import {
-  boardAsksAbout,
+  asksFirst,
+  offersRemoval,
   deleteWarning,
-  gridGesture,
   gridRemoval,
   hasColumn,
-  removalKind,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
 } from "../removal";
@@ -795,19 +795,14 @@ export function TeamBoard({
       onProgress={handleProgress}
       onDelete={handleGridDelete}
       placements={placementsFor(card)}
-      // No exception for a subtask: gridRemoval already answers for it, and
-      // hard-coding "ask nothing" here put a "Delete «…»?" in front of an ×
-      // that ungroups the card and keeps it — the very reading of the ×
-      // this shared rule exists to prevent.
-      boardAsks={
-        boardAsksAbout(
-          card,
-          removalKind(card, gridCtx(card)) === "ask"
-            ? "ask"
-            : gridRemoval(card, gridCtx(card)),
-          reviewOf(card),
-        )
-      }
+      // The board puts every question this × raises, and names the act it
+      // is about to do (RemoveChoiceDialog), so the card's own anonymous
+      // "Delete?" never stands in front of one.
+      boardAsks
+      // A project card and a process turn already out of the working area
+      // have nowhere further to go: the × would write nothing, and one that
+      // does nothing reads as a delete that failed.
+      deletable={offersRemoval(card)}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
@@ -941,10 +936,7 @@ export function TeamBoard({
   };
 
   const handleProgress = (card: CardModel, raw: number) => {
-    let value =
-      card.stage === "review" || card.stage === "locked"
-        ? Math.min(90, Math.max(10, raw))
-        : raw;
+    let value = clampProgress(card.stage, raw);
     // A parent's bar cannot be dragged to done while subtasks are open (the
     // server guard); it tops out at 90 until every subtask is closed.
     if (
@@ -1013,9 +1005,9 @@ export function TeamBoard({
     if (stage === "done") {
       patch.progress = 100;
     }
-    if (stage === "review" || stage === "locked") {
+    if (clampsProgress(stage)) {
       // The 10-90 clamp is stored on stage pick (mirrors board.ApplyStage).
-      patch.progress = Math.min(90, Math.max(10, card.progress ?? 0));
+      patch.progress = clampProgress(stage, card.progress ?? 0);
     }
     patchCard(card.itemId, patch);
     syncParentBar(card, stage === "done" ? 100 : patch.progress ?? card.progress ?? 0);
@@ -1142,11 +1134,13 @@ export function TeamBoard({
       removeCard(card.itemId);
       return;
     }
-    // An × that takes work off the board is confirmed first — the card and
-    // the subtasks that are pieces of it go, and the day they stood on is
-    // what keeps them. gridGesture answers for every card the grid draws,
-    // so the two boards ask alike.
-    if (!forced && gridGesture(card, gridCtx(card)) === "ask") {
+    // The × asks BEFORE it acts, whatever it is about to do — the dialog
+    // names the act, so a card handed back to Unassigned and a card taken
+    // off the board are told apart before either happens. The one card it
+    // does not ask about is one made today that nobody has touched
+    // (asksFirst), which the branch above has already answered for a card
+    // that never reached the server at all.
+    if (!forced && asksFirst(card, todayIso())) {
       setRemoveChoice(card);
       return;
     }
@@ -1985,6 +1979,7 @@ export function TeamBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
+          outcome={gridRemoval(removeChoice, gridCtx(removeChoice))}
           keepOn={null}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}

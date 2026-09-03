@@ -22,7 +22,7 @@ import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/t
 import { registerPendingCard } from "../api/pending";
 import { addDays, mondayOf, todayIso } from "../date";
 import { anchorFor, byPile, needsTriage, orderWith, placedIn } from "../triage";
-import { freeSubtasks, gridRemoval } from "../removal";
+import { asksFirst, freeSubtasks, gridRemoval } from "../removal";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { isPersonalDomain } from "../domains";
 import { displayName, type Avatars, type Names } from "../users";
@@ -480,13 +480,13 @@ export function TriageBoard({
   const [asking, setAsking] = useState<CardModel | null>(null);
   const remove = useCallback(
     (card: CardModel) => {
-      if (removalOf(card) === "delete") {
+      if (asksFirst(card, today)) {
         setAsking(card);
         return;
       }
       doRemove(card);
     },
-    [removalOf, doRemove],
+    [today, doRemove],
   );
 
   // Stretching: the card's end date moves to the Friday of the week the
@@ -1147,6 +1147,7 @@ export function TriageBoard({
         <RemoveChoiceDialog
           title={asking.title}
           progress={asking.progress ?? 0}
+          outcome={removalOf(asking)}
           keepOn={null}
           subtasks={board.cards.filter((c) => c.parent === asking.itemId).length}
           onClose={() => setAsking(null)}

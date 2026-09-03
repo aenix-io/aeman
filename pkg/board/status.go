@@ -1,11 +1,16 @@
 package board
 
 // ClampProgress clamps a raw progress value for a card in the given stage. A
-// review or locked card is held within the 10–90% band (never 0% or 100%); any
-// other stage, including StageNone, keeps the value unchanged. It mirrors the
-// slider clamp shared by handleProgress and the Card component.
+// card that is review, locked or REFUSED is held within the 10–90% band
+// (never 0% or 100%); any other stage, including StageNone, keeps the value
+// unchanged. It mirrors the slider clamp shared by handleProgress and the
+// Card component.
+//
+// All three are work that is neither untouched nor finished: it is parked
+// on somebody else's answer, and a bar at either end would read as one of
+// those two.
 func ClampProgress(stage StageKey, value int) int {
-	if stage == StageReview || stage == StageLocked {
+	if stage == StageReview || stage == StageLocked || stage == StageRefuse {
 		if value < 10 {
 			return 10
 		}
@@ -24,13 +29,14 @@ func ClampProgress(stage StageKey, value int) int {
 // dragged forward.
 // Workable reports whether a card can be picked up and worked on right now: it
 // is neither finished nor parked awaiting someone else. It excludes done
-// (complete) cards, cards on review (waiting on a reviewer) and locked
-// (blocked) cards, keeping in-progress, not-yet-started and recurrent ones.
+// (complete) cards, cards on review (waiting on a reviewer), locked
+// (blocked) ones and REFUSE ones (waiting on the lead's answer), keeping
+// in-progress, not-yet-started and recurrent ones.
 func Workable(c Card) bool {
 	if Complete(c.Stage, c.Progress) {
 		return false
 	}
-	return c.Stage != StageLocked && c.Stage != StageReview
+	return c.Stage != StageLocked && c.Stage != StageReview && c.Stage != StageRefuse
 }
 
 func Complete(stage StageKey, progress int) bool {

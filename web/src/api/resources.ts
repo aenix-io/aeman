@@ -192,10 +192,14 @@ export interface WatchFrame {
 
 // --- Resource → internal model --------------------------------------------------
 
+// Every stage the server can send. A key missing here does not fall back —
+// it becomes NO stage, and the card renders as ordinary work: `refuse`
+// arrived, was dropped on the way in, and its black bar came out green.
 const STAGE_KEYS: Record<string, StageKey> = {
   locked: "locked",
   review: "review",
   recurrent: "recurrent",
+  refuse: "refuse",
   done: "done",
 };
 

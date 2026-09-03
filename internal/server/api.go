@@ -1888,10 +1888,12 @@ func parseZone(w http.ResponseWriter, name string) (board.ZoneKey, bool) {
 // parseStage validates a stage name ("" clears).
 func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
 	switch board.StageKey(name) {
-	case board.StageNone, board.StageLocked, board.StageReview, board.StageRecurrent, board.StageDone:
+	case board.StageNone, board.StageLocked, board.StageReview, board.StageRecurrent,
+		board.StageRefuse, board.StageDone:
 		return board.StageKey(name), true
 	}
-	writeJSONError(w, http.StatusBadRequest, "unknown stage (locked, review, recurrent, done or empty)")
+	writeJSONError(w, http.StatusBadRequest,
+		"unknown stage (locked, review, recurrent, refused, done or empty)")
 	return "", false
 }
 
@@ -1910,7 +1912,12 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 	switch {
 	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound):
 		writeJSONError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, boardservice.ErrForbidden):
+	case errors.Is(err, boardservice.ErrForbidden),
+		// The Me board's narrower seat: another caller is not wrong about
+		// the card, they are the wrong person to be doing this to it.
+		errors.Is(err, boardservice.ErrNotYoursToRefuse),
+		errors.Is(err, boardservice.ErrNotYoursToPlan),
+		errors.Is(err, boardservice.ErrNotYoursToRemove):
 		writeJSONError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, gitstore.ErrUnknownDomain):
 		writeJSONError(w, http.StatusBadRequest, err.Error())

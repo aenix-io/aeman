@@ -14,7 +14,7 @@ import {
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
-import { isWorkable } from "../stages";
+import { clampProgress, clampsProgress, isWorkable } from "../stages";
 import { mergeNotes, sameNotes } from "../notes";
 import { dayFeedUpdates, type CardFrame } from "../daylog";
 import type {
@@ -33,14 +33,10 @@ import { subtaskShows } from "../subtasks";
 import { activeSprint, currentSprint, previousSprint } from "../sprint";
 import { slotWeekPatch } from "../slots";
 import {
-  boardAsksAbout,
+  asksFirst,
   deleteWarning,
   freeSubtasks,
-  gridGesture,
   gridRemoval,
-  type GridGesture,
-  personalRemovalKind,
-  removalKind,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
   type Outcome,
@@ -57,6 +53,7 @@ import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { isPersonalCard, personalRepoName, personalShows, splitPersonal } from "../personal";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
+import { acceptsNewCard, mayRemove, sortableWithin } from "../meboard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
@@ -810,7 +807,11 @@ export function MeBoard({
   const canGroup = (active: CardModel, target: CardModel) =>
     !target.parent &&
     target.itemId !== active.parent &&
-    !(childrenOf.get(active.itemId) ?? []).length;
+    !(childrenOf.get(active.itemId) ?? []).length &&
+    // Not across zones: a card nested under a parent elsewhere renders under
+    // that parent, which is the crossing this board does not allow — by
+    // another name (meboard.sortableWithin).
+    sortableWithin(active.zone ?? "gray", target.zone ?? "gray");
 
   // itemId → card, for resolving a drop's neighbours.
   const cardsById = useMemo(
@@ -954,10 +955,7 @@ export function MeBoard({
   };
 
   const handleProgress = (card: CardModel, raw: number) => {
-    let value =
-      card.stage === "review" || card.stage === "locked"
-        ? Math.min(90, Math.max(10, raw))
-        : raw;
+    let value = clampProgress(card.stage, raw);
     // A parent's bar cannot be dragged to done while subtasks are open (the
     // server guard); it tops out at 90 until every subtask is closed.
     if (
@@ -1027,9 +1025,9 @@ export function MeBoard({
     if (stage === "done") {
       patch.progress = 100;
     }
-    if (stage === "review" || stage === "locked") {
+    if (clampsProgress(stage)) {
       // The 10-90 clamp is stored on stage pick (mirrors board.ApplyStage).
-      patch.progress = Math.min(90, Math.max(10, card.progress ?? 0));
+      patch.progress = clampProgress(stage, card.progress ?? 0);
     }
     patchCard(card.itemId, patch);
     syncParentBar(card, stage === "done" ? 100 : patch.progress ?? card.progress ?? 0);
@@ -1230,23 +1228,6 @@ export function MeBoard({
     }
     return board.cards.find((c) => c.itemId === ref)?.domain ?? undefined;
   };
-  const reviewOf = (card: CardModel) =>
-    board.cards.find((c) => c.reviewOf === card.itemId)?.title ?? null;
-
-  const removalOf = (card: CardModel): GridGesture => {
-    if (card.parent) {
-      // A subtask is never demoted alone and never asked about as one: what
-      // the × DOES to it is gridGesture's answer, carried as it comes
-      // rather than dressed as a demote and corrected downstream.
-      return gridGesture(card, gridCtx(card));
-    }
-    const today = todayIso();
-    if (isPersonalCard(card, board.personal)) {
-      return personalRemovalKind(card, today);
-    }
-    return removalKind(card, gridCtx(card));
-  };
-
   // What the × actually does to a team card here — the same answer the Team
   // board gets, from the same place (gridRemoval, mirroring
   // boardservice.Remove). This board used to decide on its own and sent
@@ -1273,12 +1254,12 @@ export function MeBoard({
       }
       return;
     }
-    if (!forced) {
-      const kind = removalOf(card);
-      if (kind === "ask") {
-        setRemoveChoice(card);
-        return;
-      }
+    // The × asks BEFORE it acts, whatever it is about to do, and the dialog
+    // names the act — the one card it does not ask about is one made today
+    // that nobody has touched (asksFirst).
+    if (!forced && asksFirst(card, todayIso())) {
+      setRemoveChoice(card);
+      return;
     }
     // A card filed under a project column is never destroyed by an × — that
     // column is a home it goes back to (A1/A3). The Me board used to send it
@@ -1292,10 +1273,10 @@ export function MeBoard({
     // The server cascades the delete to a linked review card and names what
     // else goes with it: one question for all of it, one request.
     const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
-    // The two-way dialog has already asked, in its own words and with the
-    // loss spelled out on its danger button; a browser confirm behind it is
-    // a second question for one gesture.
-    const warning = forced === "delete" ? null : deleteWarning(card, linkedReview?.title ?? null);
+    // The dialog has already asked, in its own words and with the loss
+    // spelled out on its danger button; a browser confirm behind it is a
+    // second question for one gesture.
+    const warning = forced ? null : deleteWarning(card, linkedReview?.title ?? null);
     if (warning && !window.confirm(warning)) {
       return;
     }
@@ -1547,7 +1528,15 @@ export function MeBoard({
     return () => window.removeEventListener("keydown", onKey);
   }, [flatCards, selectedCardId, board, provider, reorderCards, reload, onError]);
 
-  const handleDrop = ({ card, toMeta, groups: g, groupUnder }: DropResult<MeMeta>) => {
+  const handleDrop = ({ card, fromMeta, toMeta, groups: g, groupUnder }: DropResult<MeMeta>) => {
+    // A drag here reorders work inside a zone and does not move it between
+    // zones: the zone is the lead's statement of how the work was planned,
+    // and a person ordering their own day must not rewrite it. Grouping is
+    // no exception — canGroup refuses it across zones for the same reason,
+    // so a cross-zone drop reaching here is one to drop on the floor.
+    if (!sortableWithin(fromMeta.zone, toMeta.zone)) {
+      return;
+    }
     // The board committed exactly what the placeholder previewed: groupUnder
     // is the already-validated parent to nest under (null = standalone).
     const parentTo = groupUnder;
@@ -1909,15 +1898,17 @@ export function MeBoard({
       onProgress={handleProgress}
       onDelete={handleDelete}
       placements={placementsFor(card)}
-      boardAsks={boardAsksAbout(
-        card,
-        removalOf(card) === "ask"
-          ? "ask"
-          : isPersonalCard(card, board.personal)
-            ? "delete" // personalRemovalKind answers only "ask" or "delete"
-            : outcomeOf(card),
-        reviewOf(card),
-      )}
+      // The board puts every question this × raises, and names the act it is
+      // about to do, so the card's own anonymous "Delete?" never stands in
+      // front of one.
+      boardAsks
+      mine={!viewAs}
+      // The × removes only what this person created themselves: work
+      // somebody else planned for them is not theirs to take off the board.
+      // Their answer to it is the refused stage, which leaves the card
+      // standing where the lead can see it. A card of their own PERSONAL
+      // board is all theirs, and a subtask is a piece of its parent.
+      deletable={personal || mayRemove(card, viewMe ?? undefined)}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
@@ -2132,6 +2123,11 @@ export function MeBoard({
               onHoverCard={setGroupHover}
               onDragActiveCard={handleDragActive}
               canGroup={canGroup}
+              // A drag reorders inside a zone and does not carry work into
+              // another: the zone is the lead's statement of how the work
+              // was planned (meboard.sortableWithin). Asked here so the
+              // placeholder never opens a gap the drop would refuse.
+              canMoveTo={(_c, from, to) => sortableWithin(from.zone, to.zone)}
               renderCard={(card) => withSubs(card, renderMeCard(card))}
               renderOverlay={(card) => (
                 <Card
@@ -2165,18 +2161,20 @@ export function MeBoard({
                     <span className="zone-spine">{def.spine}</span>
                     <div className="zone-cards">
                       {body}
-                      <AddCard
-                        hidden={holdsRecords}
-                        forcedTeam={
-                          teamFilter?.length === 1
-                            ? teamFilter[0] || null
-                            : undefined
-                        }
-                        teams={teams}
-                        onCreate={(title, team) =>
-                          handleCreate(group.meta.zone, title, team)
-                        }
-                      />
+                      {acceptsNewCard(group.meta.zone) && (
+                        <AddCard
+                          hidden={holdsRecords}
+                          forcedTeam={
+                            teamFilter?.length === 1
+                              ? teamFilter[0] || null
+                              : undefined
+                          }
+                          teams={teams}
+                          onCreate={(title, team) =>
+                            handleCreate(group.meta.zone, title, team)
+                          }
+                        />
+                      )}
                     </div>
                   </section>
                 );
@@ -2244,14 +2242,16 @@ export function MeBoard({
                         <span className="zone-spine">{def.spine}</span>
                         <div className="zone-cards">
                           {body}
-                          <AddCard
-                            hidden={holdsRecords}
-                            forcedTeam={null}
-                            placeholder="Add a personal card…"
-                            onCreate={(title) =>
-                              handleCreatePersonal(group.meta.zone, title)
-                            }
-                          />
+                          {acceptsNewCard(group.meta.zone) && (
+                            <AddCard
+                              hidden={holdsRecords}
+                              forcedTeam={null}
+                              placeholder="Add a personal card…"
+                              onCreate={(title) =>
+                                handleCreatePersonal(group.meta.zone, title)
+                              }
+                            />
+                          )}
                         </div>
                       </section>
                     );
@@ -2315,8 +2315,16 @@ export function MeBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
+          outcome={
+            isPersonalCard(removeChoice, board.personal)
+              ? "delete"
+              : outcomeOf(removeChoice)
+          }
           keepOn={
-            isPersonalCard(removeChoice, board.personal) ? addDays(todayIso(), -1) : null
+            isPersonalCard(removeChoice, board.personal) &&
+            (!removeChoice.startDate || removeChoice.startDate < todayIso())
+              ? addDays(todayIso(), -1)
+              : null
           }
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}

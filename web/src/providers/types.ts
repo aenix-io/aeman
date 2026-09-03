@@ -12,7 +12,7 @@ import type { Member } from "../users";
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
 /** StageKey is an explicit per-card status that recolours the progress bar. */
-export type StageKey = "locked" | "review" | "recurrent" | "done";
+export type StageKey = "locked" | "review" | "recurrent" | "refuse" | "done";
 
 /** Note is a dated work note attached to a card (a line of its log). */
 export interface Note {

@@ -1,5 +1,4 @@
-/** What the × on a grid card should do — once nothing else is keeping it. */
-export type Removal = "delete" | "ask";
+import { localDateIso } from "./date";
 
 export interface RemovableCard {
   sprintStart?: string;
@@ -24,44 +23,6 @@ export interface RemovalContext {
    *  can belong to the parent's repository and the card cannot keep it;
    *  absent means "it can", which is the answer everywhere else. */
   columnFollows?: boolean;
-}
-
-/** removalKind decides whether a destructive × may go ahead unasked,
- *  mirroring boardservice.Remove: the card's last home is being emptied, so
- *  the card goes. It used to have a third answer — a card of the current
- *  sprint was DEMOTED into the one before instead of deleted — and that is
- *  where the board's invisible pile of open work came from: no live view
- *  reaches a card in a sprint two behind, and no carry-over ever takes it.
- *  The day the card stood on keeps it now (G60), so there is one outcome.
- *
- *  "ask" is the case the rule must not decide alone: a card carrying work
- *  takes that work off the board with it, and the person chooses.
- */
-/** personalRemovalKind is the × on a personal card, which has no sprint to
- *  demote into (mirrors boardservice.removePersonal): a card that has been
- *  worked on and did not start today is left behind on yesterday's board —
- *  history kept, off the column from today — and that reads like deletion,
- *  so the person is asked; an untouched card, or one that started today, is
- *  simply deleted. */
-export function personalRemovalKind(
-  c: Pick<RemovableCard, "progress" | "startDate">,
-  today: string,
-): "ask" | "delete" {
-  const worked = (c.progress ?? 0) > 0;
-  const startedEarlier = !c.startDate || c.startDate < today;
-  return worked && startedEarlier ? "ask" : "delete";
-}
-
-export function removalKind(c: RemovableCard, _ctx: RemovalContext): Removal {
-  // A card in a Project-board column is never destroyed by the ×: the server
-  // hands it back to that column. With no destructive option there is
-  // nothing to ask. The column is the EPIC side of the (project, epic) pair
-  // — the board renders columns by epic, so a bare project name puts the
-  // card on no board and cannot spare it.
-  if (c.epic) {
-    return "delete";
-  }
-  return (c.progress ?? 0) > 0 ? "ask" : "delete";
 }
 
 /** HomesOf is what the grid × needs to know about a card: where else it is,
@@ -154,13 +115,6 @@ export function hasColumn(c: RemovalHomes): boolean {
  *  take it out of its group, or — its last home emptied — delete it. */
 export type Outcome = "leave" | "delete" | "ungroup";
 
-/** looseOf is the card as the × leaves it when the column it carried
- *  cannot follow it out of the group: an ordinary, columnless card, which
- *  is what the server then answers for (boardservice removeFromGrid). */
-function looseOf<T extends RemovalHomes>(c: T): T {
-  return { ...c, epic: undefined, project: undefined };
-}
-
 /** gridRemoval mirrors boardservice.Remove(from="grid"), in its order: a
  *  card scheduled for a WEEK goes back to that week on the Triage board;
  *  otherwise its column keeps it, or nothing does and it is deleted. One
@@ -200,21 +154,35 @@ export function gridRemoval(
   return hasColumn(c) ? "leave" : "delete";
 }
 
-/** boardAsksAbout reports that the card's own anonymous "Delete?" prompt
- *  must stand down: because the board opens its two-way choice (W5), because
- *  it will name what the delete takes (deleteWarning), or because the × does
- *  not delete at all — a prompt reading "Delete?" in front of something that
- *  KEEPS the card is how the × came to be read as deletion. The card asks
- *  only for a plain delete with nothing to name. */
-export function boardAsksAbout(
-  c: Pick<HomesOf, "progress" | "title">,
-  outcome: Outcome | "ask",
-  linkedReview: string | null,
+/** asksFirst reports that the × must put its question before it acts. It
+ *  always does — whatever the × is about to do, the person sees it named and
+ *  agrees to it — except on a card there is nothing to think about: one made
+ *  today that nobody has moved off 0%. A mis-typed card added a moment ago
+ *  goes without ceremony; anything else is a decision, and a gesture that
+ *  acts in silence is how an × comes to be feared. */
+export function asksFirst(
+  c: { progress?: number; createdAt?: string },
+  today: string,
 ): boolean {
-  if (outcome !== "delete") {
-    return true;
+  const untouched = (c.progress ?? 0) === 0;
+  const bornToday = !!c.createdAt && localDateIso(c.createdAt) === today;
+  return !(untouched && bornToday);
+}
+
+/** offersRemoval reports whether the × has anything to do for this card where
+ *  it stands. A PROJECT card and a PROCESS TURN are never destroyed by it —
+ *  the one is handed back to its column, the other to the week its process
+ *  owes — so once the card is already there, out of the working area, the ×
+ *  would write nothing at all, and an × that does nothing is worse than no ×
+ *  (it reads as a delete that failed). Every other card keeps its ×: its last
+ *  home going IS something the × does. */
+export function offersRemoval(
+  c: RemovalHomes & Pick<RemovableCard, "parent"> & { task?: string },
+): boolean {
+  if (hasColumn(c) || c.task) {
+    return inWorkingArea(c);
   }
-  return deleteWarning(c, linkedReview) !== null;
+  return true;
 }
 
 /** SubtaskPatch is the optimistic state the grid's × leaves on a SUBTASK:
@@ -271,34 +239,4 @@ export function subtaskRemovalUndo(c: SubtaskUndo): SubtaskUndo {
     startDate: c.startDate,
     day: c.day,
   };
-}
-
-/** GridGesture is what the day grid's × actually DOES to a card — the
- *  routing the boards used to each work out for themselves, which is how
- *  they came to disagree about the same card. "release" is the smart × on
- *  the server (POST actions/remove): the card leaves the working area for
- *  whatever home it has, and a subtask standing in a column leaves the
- *  GROUP with it (G57). "delete" is the last home going — the card, and the
- *  subtasks that were pieces of it — and "ask" is the confirmation that
- *  stands in front of it when there is work to lose. */
-export type GridGesture = "ask" | "release" | "delete";
-
-/** gridGesture routes one × press: a card with another home is RELEASED
- *  into it, one with none is DELETED, and a delete that would take work
- *  with it is ASKED about first. A columned subtask is released whatever
- *  it carries — the server hands it to its column. */
-export function gridGesture(
-  c: RemovalHomes &
-    Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent">,
-  ctx: RemovalContext,
-): GridGesture {
-  if (gridRemoval(c, ctx) !== "delete") {
-    return "release";
-  }
-  // The card's last home is going. A subtask reaches this only with no
-  // column of its own (or one that cannot follow it out), and its work
-  // deserves the same question every other card's does — a subtask
-  // exempted from it was the one card on the grid whose work left in
-  // silence.
-  return removalKind(looseOf(c), ctx) === "ask" ? "ask" : "delete";
 }

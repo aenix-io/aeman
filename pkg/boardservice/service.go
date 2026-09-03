@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -245,6 +246,9 @@ type CreateCardArgs struct {
 // the day and the card joins that fresh sprint. It mirrors handleCreate in
 // TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
+	if err := planningYourOwnWork(ctx, args); err != nil {
+		return board.Card{}, err
+	}
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return board.Card{}, err
@@ -995,6 +999,9 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string) err
 	if err != nil {
 		return err
 	}
+	if err := removingSomebodyElsesCard(ctx, c); err != nil {
+		return err
+	}
 	if board.IsPersonalDomain(c.Domain) {
 		return s.removePersonal(ctx, b, c)
 	}
@@ -1420,6 +1427,12 @@ func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, s
 	// A review card is auxiliary and one-off: it cannot be made recurrent.
 	if stage == board.StageRecurrent && card.ReviewOf != "" {
 		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)
+	}
+	// REFUSE is the answer of the person carrying the work, and of nobody
+	// else. The Me board is where the stage is offered, but an agent reaches
+	// the same door, so the rule lives here.
+	if stage == board.StageRefuse && !slices.Contains(card.Assignees, board.ActorFrom(ctx)) {
+		return ErrNotYoursToRefuse
 	}
 	// Closing the parent is the human's final call - made only once every
 	// subtask is done.
@@ -2299,7 +2312,48 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 	if err != nil {
 		return err
 	}
+	if err := removingSomebodyElsesCard(ctx, card); err != nil {
+		return err
+	}
 	return s.deleteWithCascade(ctx, b, card)
+}
+
+// planningYourOwnWork refuses a create that files work for the ACTOR
+// THEMSELVES into a planned zone. The Me board offers its add form in the
+// unplanned zone alone, and the rule lives here because an agent reaches the
+// same door (web/src/meboard.ts is the mirror).
+//
+// Untouched: a create for somebody else (the lead planning the team's week),
+// and one whose card is placed by the thing it belongs to — a column, a
+// parent, a review or a process turn — whose zone nobody chose here.
+func planningYourOwnWork(ctx context.Context, args CreateCardArgs) error {
+	actor := board.ActorFrom(ctx)
+	if actor == "" || args.Assignee != actor {
+		return nil
+	}
+	if args.Epic != "" || args.Parent != "" || args.ReviewOf != "" {
+		return nil
+	}
+	if args.Zone == "" || args.Zone == board.ZoneYellow {
+		return nil
+	}
+	return fmt.Errorf("%w: %q", ErrNotYoursToPlan, args.Zone)
+}
+
+// removingSomebodyElsesCard refuses an × on a card the actor is CARRYING but
+// did not create: work planned for them is not theirs to take off the board,
+// and their answer to it is the refused stage. A card on somebody else is
+// the lead's to remove, and a SUBTASK is a piece of its parent rather than
+// work assigned to anyone.
+func removingSomebodyElsesCard(ctx context.Context, card board.Card) error {
+	actor := board.ActorFrom(ctx)
+	if actor == "" || card.Parent != "" || card.Author == "" || card.Author == actor {
+		return nil
+	}
+	if !slices.Contains(card.Assignees, actor) {
+		return nil
+	}
+	return fmt.Errorf("%w: %q created it", ErrNotYoursToRemove, card.Author)
 }
 
 // deleteWithCascade deletes a card and any review card linked to it. The

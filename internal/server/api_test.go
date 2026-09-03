@@ -115,7 +115,7 @@ func TestAPICreateCard(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
-		`{"title":"New task","team":"alpha","zone":"urgent","assignees":["kvaps"],"dates":{"start":"2026-06-21"}}`)
+		`{"title":"New task","team":"alpha","zone":"urgent","assignees":["bob"],"dates":{"start":"2026-06-21"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -126,6 +126,25 @@ func TestAPICreateCard(t *testing.T) {
 	// One-day range: end defaults to start; the card joins the current sprint.
 	if c.Spec.Dates.Start != "2026-06-21" || c.Spec.Dates.End != "2026-06-21" || c.Spec.Dates.Sprint != "2026-06-20" {
 		t.Fatalf("dates = %+v", c.Spec.Dates)
+	}
+}
+
+// The Me board's seat, at the HTTP door: a person files work for THEMSELVES
+// as unplanned and no other way — the planned zones are the plan, made with
+// the team. Planning somebody else's week is the lead's own gesture and is
+// untouched (the create above).
+func TestAPICreateRefusesSelfPlannedWork(t *testing.T) {
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+		`{"title":"Mine","team":"alpha","zone":"urgent","assignees":["kvaps"]}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	rec = do(t, srv, http.MethodPost, "/api/v1/cards",
+		`{"title":"Came up","team":"alpha","zone":"unplanned","assignees":["kvaps"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("unplanned work for oneself: status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
 

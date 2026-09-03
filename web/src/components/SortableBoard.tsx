@@ -81,6 +81,13 @@ interface SortableBoardProps<Meta> {
   onDragActiveCard?: (cardId: string | null) => void;
   /** Whether the active card may group under the target (e.g. depth limits). */
   canGroup?: (active: CardModel, target: CardModel) => boolean;
+  /** Whether a card may cross from one group into another. A drop the board
+   *  will refuse must not be PREVIEWED either: the placeholder opening a gap
+   *  in a group that then rejects the card is a promise the board does not
+   *  keep, and the card visibly springs back on release. Grouping is asked
+   *  separately (canGroup) — a subtask joins its parent's group by nesting,
+   *  not by crossing. Absent means every crossing is allowed. */
+  canMoveTo?: (card: CardModel, from: Meta, to: Meta) => boolean;
   /** Optional class wrapping the laid-out groups (e.g. a horizontal scroller). */
   scrollClassName?: string;
   /** Whether a card is a RECORD — what it was on a day its team has since
@@ -224,6 +231,7 @@ export function SortableBoard<Meta>({
   onHoverCard,
   onDragActiveCard,
   canGroup,
+  canMoveTo,
   scrollClassName,
   isRecord,
 }: SortableBoardProps<Meta>) {
@@ -633,6 +641,13 @@ export function SortableBoard<Meta>({
         return cur.map((g, i) =>
           i === from ? { ...g, ids: arrayMove(ids, oldIndex, newIndex) } : g,
         );
+      }
+      // Crossing into another group: only where the board would take it.
+      // Previewing a move that the drop then refuses opens a gap the card
+      // springs back out of, which reads as the board losing the drag.
+      const card = cardById.get(activeKey);
+      if (canMoveTo && card && !canMoveTo(card, cur[from].meta, cur[to].meta)) {
+        return cur;
       }
       // Move the active card out of its group into the target group, at the
       // index of the card it is hovering (or the end when over the container).

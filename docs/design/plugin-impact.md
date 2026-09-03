@@ -43,8 +43,8 @@ Front-matter keys, in the order the server writes them: `title, assignees, autho
 
 One key is READ and dropped rather than written or preserved: `plan` (`wed | fri`), the weekly plan's band, retired in v0.20. An unknown key rides through untouched, so leaving it unknown would have every board re-commit a band nothing means; a writer should not emit it, and may leave an old one where it is — the next write to that card takes it off.
 
-- `zone`: `gray | green | yellow | red` (empty = none). `stage`: `review | locked | recurrent` (empty = none).
-- `progress`: 0–100; review/locked clamp to [10, 90] (S1, S7). `doneFrom` is written when progress reaches 100 (the value before) and cleared when it drops below (G3, G23); `Reopen` restores it. `doneAt` is written alongside — the board day (yyyy-mm-dd) the card reached 100 — and cleared the same way (P6); the personal board shows a done card that day and hides it the next.
+- `zone`: `gray | green | yellow | red` (empty = none). `stage`: `review | locked | recurrent | refused` (empty = none).
+- `progress`: 0–100; review/locked/refuse clamp to [10, 90] (S1, S7). `doneFrom` is written when progress reaches 100 (the value before) and cleared when it drops below (G3, G23); `Reopen` restores it. `doneAt` is written alongside — the board day (yyyy-mm-dd) the card reached 100 — and cleared the same way (P6); the personal board shows a done card that day and hides it the next.
 - Dates are `yyyy-mm-dd`: `start` (startDate), `day` (end of the visible range), `sprint` (sprintStart), `week` (a Monday — the week the card is scheduled for, which is its column on the Triage board; for a card in a Project-board column it is the row, derived from `start`). Timestamps (`created`, `movedAt`) are RFC 3339 UTC.
 - `assignees` is a YAML list of logins. `author` is the creator's login.
 - `parent`, `reviewOf`, `task` are ULIDs of other files. `project`, `epic`, `team`, `process` are **names**, resolved against the roster on read.

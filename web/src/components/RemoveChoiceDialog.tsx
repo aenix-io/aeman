@@ -1,3 +1,5 @@
+import type { Outcome } from "../removal";
+
 interface RemoveChoiceDialogProps {
   title: string;
   /** How far along the card is — what is at stake. */
@@ -8,23 +10,53 @@ interface RemoveChoiceDialogProps {
   keepOn?: string | null;
   /** How many subtasks go with it, if any. */
   subtasks: number;
+  /** What the × will actually do. The dialog NAMES it rather than asking
+   *  "delete?" in front of something that keeps the card: a project card
+   *  goes back to Unassigned, a grouped one comes out of its group, and only
+   *  a card with nowhere else to be is taken off the board. */
+  outcome?: Outcome;
   onClose: () => void;
   /** true = take the card off the board, false = keep it on `keepOn`. */
   onSubmit: (hardDelete: boolean) => void;
 }
 
-/** RemoveChoiceDialog asks before an × that takes work off the board.
+/** What the one option says, per outcome: the button names the act and the
+ *  line under it says where the card ends up. */
+function act(outcome: Outcome, keepOn?: string | null): { label: string; note: string } {
+  if (outcome === "leave") {
+    return {
+      label: "Move it to Unassigned",
+      note: "It comes off the day — nobody's, no dates — and stands in the week it is scheduled for.",
+    };
+  }
+  if (outcome === "ungroup") {
+    return {
+      label: "Take it out of the group",
+      note: "It stops being a subtask and stays where it is, in its own column.",
+    };
+  }
+  return {
+    label: "Take it off the board",
+    note: keepOn
+      ? "The card, its notes and its log are gone for good."
+      : "The day it stood on keeps it — step back to that day to see it. Today’s board is done with it.",
+  };
+}
+
+/** RemoveChoiceDialog asks before the ×, and says what it is about to do.
  *
- *  A TEAM card is taken off for good: the day it stood on holds it — flip
- *  back to that day to see it — so there is one action to confirm and the
- *  words say where the card goes. A PERSONAL card has no such day (a
- *  personal board keeps no records), so its × still offers to leave the card
- *  on yesterday instead. */
+ *  Every × puts this question, whatever it would do — the exception is a
+ *  card made today that nobody has touched, which goes without ceremony
+ *  (`asksFirst`). A TEAM card the × destroys is taken off for good: the day
+ *  it stood on holds it — flip back to that day to see it. A PERSONAL card
+ *  has no such day (a personal board keeps no records), so its × still
+ *  offers to leave the card on yesterday instead. */
 export function RemoveChoiceDialog({
   title,
   progress,
   keepOn,
   subtasks,
+  outcome = "delete",
   onClose,
   onSubmit,
 }: RemoveChoiceDialogProps) {
@@ -32,10 +64,12 @@ export function RemoveChoiceDialog({
     onSubmit(hardDelete);
     onClose();
   };
+  const destroys = outcome === "delete";
   const family =
-    subtasks > 0
+    subtasks > 0 && destroys
       ? ` Its ${subtasks} subtask${subtasks > 1 ? "s" : ""} go${subtasks > 1 ? "" : "es"} with it.`
       : "";
+  const choice = act(outcome, keepOn);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -51,7 +85,9 @@ export function RemoveChoiceDialog({
         }}
       >
         <div className="modal-header">
-          <h2 className="modal-title">Remove from the board?</h2>
+          <h2 className="modal-title">
+            {destroys ? "Remove from the board?" : "Take it off the day?"}
+          </h2>
           <button
             type="button"
             className="modal-close"
@@ -67,7 +103,7 @@ export function RemoveChoiceDialog({
             “{title}” is {progress}% done.{family}
           </p>
           <div className="sprint-choice-options">
-            {keepOn && (
+            {keepOn && destroys && (
               <button
                 type="button"
                 className="btn sprint-choice-btn"
@@ -83,16 +119,12 @@ export function RemoveChoiceDialog({
             )}
             <button
               type="button"
-              className="btn sprint-choice-btn sprint-choice-btn-danger"
-              autoFocus={!keepOn}
+              className={`btn sprint-choice-btn${destroys ? " sprint-choice-btn-danger" : ""}`}
+              autoFocus={!keepOn || !destroys}
               onClick={() => pick(true)}
             >
-              <strong>Take it off the board</strong>
-              <span>
-                {keepOn
-                  ? "The card, its notes and its log are gone for good."
-                  : "The day it stood on keeps it — step back to that day to see it. Today’s board is done with it."}
-              </span>
+              <strong>{choice.label}</strong>
+              <span>{choice.note}</span>
             </button>
           </div>
         </div>

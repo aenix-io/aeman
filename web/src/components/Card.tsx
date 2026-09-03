@@ -1,6 +1,15 @@
 import { useMemo, useRef, useState } from "react";
 import type { Card as CardModel, StageKey } from "../providers/types";
-import { STAGES, STAGE_ORDER, DEFAULT_BAR_COLOR, barColor, isInProgress } from "../stages";
+import {
+  STAGES,
+  STAGE_ORDER,
+  ME_ONLY_STAGES,
+  DEFAULT_BAR_COLOR,
+  barColor,
+  clampProgress,
+  clampsProgress,
+  isInProgress,
+} from "../stages";
 import { snapProgress } from "../progress";
 import { teamColor, teamInitial } from "../avatar";
 import { hasOriginToShow, type CardPlacements } from "../placements";
@@ -28,6 +37,11 @@ interface CardProps {
   onSelect: (card: CardModel) => void;
   onProgress: (card: CardModel, value: number) => void;
   onDelete: (card: CardModel) => void;
+  /** Whether the × is offered at all. A board hides it where it has nothing
+   *  to do — a project card or a process turn already out of the working
+   *  area, which the × would hand back to a place it is already in
+   *  (removal.offersRemoval). */
+  deletable?: boolean;
   /** The board will put its own question to the user, so the card must not
    *  ask first. */
   boardAsks?: boolean;
@@ -81,6 +95,11 @@ interface CardProps {
   /** A personal-board card: its default recurrence turns with the day, not
    *  the sprint, and the menu says so. */
   personal?: boolean;
+  /** The card is drawn on the viewer's OWN board (Me), where the stages only
+   *  its owner may set are offered — refusing is a first-person act, and a
+   *  lead marking somebody else's card refused would be putting words in
+   *  their mouth. */
+  mine?: boolean;
   /** Resolve the card's description links server-side (GitHub issue/PR refs
    *  get their titles). The menu falls back to the local extraction. */
   onLoadLinks?: (card: CardModel) => Promise<CardLink[]>;
@@ -114,6 +133,7 @@ export function Card({
   onSelect,
   onProgress,
   onDelete,
+  deletable = true,
   boardAsks,
   placements,
   onStage,
@@ -135,6 +155,7 @@ export function Card({
   onDefer,
   dimAvatar,
   personal = false,
+  mine,
   onLoadLinks,
   selectedBy,
   subCount,
@@ -149,12 +170,9 @@ export function Card({
   const doneish =
     card.stage === "done" || (!card.stage && (card.progress ?? 0) >= 100);
   const rawValue = doneish ? 100 : card.progress ?? 0;
-  // Locked / on-review cards are clamped to a 10–90% band, so they always show
-  // the stage colour and never read as complete.
-  const value =
-    card.stage === "locked" || card.stage === "review"
-      ? Math.min(90, Math.max(10, rawValue))
-      : rawValue;
+  // A clamped stage is held in the 10–90 band, so it always shows the stage
+  // colour and never reads as complete (stages.clampProgress).
+  const value = clampProgress(card.stage, rawValue);
   const fill = barColor(doneish ? "done" : card.stage);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -216,8 +234,10 @@ export function Card({
         : Math.min(90, Math.max(10, Math.round(shown / 10) * 10));
   const filled = dispPct / 10;
 
-  // Where a pointer at clientX lands on the 10% grid. review/locked cards are
-  // clamped to 10–90%; other cards span 0–100% (0% clears).
+  // Where a pointer at clientX lands on the 10% grid. A clamped stage reaches
+  // only 10–90%; every other card spans 0–100% (0% clears). The reach is the
+  // same rule as the value: a handle that drags past its own limit and snaps
+  // back when the server answers is the bug this shares its answer to avoid.
   const valueAt = (clientX: number): number => {
     const rect = barRef.current?.getBoundingClientRect();
     if (!rect || rect.width <= 0) {
@@ -225,7 +245,7 @@ export function Card({
     }
     return snapProgress(
       (clientX - rect.left) / rect.width,
-      card.stage === "review" || card.stage === "locked",
+      clampsProgress(card.stage),
     );
   };
 
@@ -376,10 +396,11 @@ export function Card({
   const stageVisible =
     card.stage === "review" ||
     card.stage === "locked" ||
-    card.stage === "recurrent";
+    card.stage === "recurrent" ||
+    card.stage === "refuse";
   const stageControl = (
     <div
-      className={`card-stage${card.stage === "review" || card.stage === "locked" || card.stage === "recurrent" ? "" : " card-hoveronly"}`}
+      className={`card-stage${stageVisible ? "" : " card-hoveronly"}`}
       ref={menuRef}
     >
       <button
@@ -397,7 +418,9 @@ export function Card({
               ? recurrenceTitle(card.recurrence, personal)
               : card.stage === "locked"
                 ? "Locked"
-                : "Status"
+                : card.stage === "refuse"
+                  ? "Refused"
+                  : "Status"
         }
         style={card.stage ? { color: STAGES[card.stage].color } : undefined}
       >
@@ -428,6 +451,18 @@ export function Card({
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
             <path d="M3 22v-6h6" />
             <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        ) : card.stage === "refuse" ? (
+          // fa-skull, Font Awesome Free 6 (icons: CC BY 4.0) — inlined
+          // rather than pulling the library in for one glyph.
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 512 512"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M416 398.9c58.5-41.1 96-104.1 96-174.9C512 100.3 397.4 0 256 0S0 100.3 0 224c0 70.7 37.5 133.8 96 174.9c0 .4 0 .7 0 1.1l0 64c0 26.5 21.5 48 48 48l48 0 0-48c0-8.8 7.2-16 16-16s16 7.2 16 16l0 48 64 0 0-48c0-8.8 7.2-16 16-16s16 7.2 16 16l0 48 48 0c26.5 0 48-21.5 48-48l0-64c0-.4 0-.7 0-1.1zM96 256a64 64 0 1 1 128 0A64 64 0 1 1 96 256zm256-64a64 64 0 1 1 0 128 64 64 0 1 1 0-128z" />
           </svg>
         ) : card.stage === "locked" ? (
           <svg
@@ -467,7 +502,10 @@ export function Card({
           In Progress
         </button>
         {STAGE_ORDER.map((stage) =>
-          // A review card is auxiliary: it cannot be put on the "review" stage
+          // Refused is the owner's own answer and is offered only on their
+          // board; elsewhere the stage still RENDERS on a card that carries
+          // it — the lead has to see it — but cannot be chosen.
+          ME_ONLY_STAGES.includes(stage) && !mine ? null : // A review card is auxiliary: it cannot be put on the "review" stage
           // itself, nor made "recurrent" (a repeating task makes no sense for a
           // one-off review).
           (stage === "review" || stage === "recurrent") && card.reviewOf ? null : stage ===
@@ -605,15 +643,17 @@ export function Card({
             {copied ? "✓" : "ID"}
           </button>
         )}
-        <button
-          type="button"
-          className="card-action card-hoveronly card-action-delete"
-          onClick={handleDelete}
-          aria-label="Delete card"
-          title="Delete"
-        >
-          ×
-        </button>
+        {deletable && (
+          <button
+            type="button"
+            className="card-action card-hoveronly card-action-delete"
+            onClick={handleDelete}
+            aria-label="Delete card"
+            title="Delete"
+          >
+            ×
+          </button>
+        )}
         {onAddSubtask && !card.parent && (
           <button
             type="button"

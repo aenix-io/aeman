@@ -152,6 +152,11 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
   in the past), but the future `startDate` keeps hiding it until its day comes.
 
 ### Recurrent cards
+- The **refuse** stage is a person's answer on their own board: "I am not
+  doing this". The card is not taken off the board and not hidden — it goes
+  back to the team's grid wearing the darkest bar there is, for the lead to
+  answer (put it back to work, or take it off). Only the person the card is
+  on may set it. Its progress holds the 10–90 band, like review and locked.
 - The **recurrent** stage marks a repeating task. Unlike review/locked its
   progress spans the full 0–100% (no clamp), and 100% counts as **complete**.
 - **Carry Over**: an unfinished recurrent card carries like any other card; a

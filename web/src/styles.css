@@ -109,6 +109,9 @@
   --stage-locked: #cf222e;
   --stage-review: #d4a72c;
   --stage-recurrent: #58a6ff;
+  /* Refuse: the darkest bar on the board — a card its person has
+     handed back, waiting on the lead. */
+  --stage-refuse: #1f2328;
   --stage-done: #1f883d;
   --bar-default: #3fb950;
 }
@@ -131,6 +134,7 @@
   --stage-locked: #d55e00;
   --stage-review: #e69f00;
   --stage-recurrent: #0072b2;
+  --stage-refuse: #1f2328;
   --stage-done: #007a59;
   --bar-default: #009e73;
 
@@ -156,6 +160,7 @@
   --stage-locked: #cf222e;
   --stage-review: #b07d1a;
   --stage-recurrent: #1f6feb;
+  --stage-refuse: #1f2328;
   --stage-done: #16657f;
   --bar-default: #2596b5;
 
@@ -227,6 +232,9 @@
   --stage-recurrent: #79c0ff;
   /* Done deepens, the in-progress bar stays bright: the pair must be
      tellable apart at a glance (enforced by theme-contrast.test.ts). */
+  /* Refuse stays the darkest bar here too, but not black: on a dark
+     track a black fill is no fill at all. */
+  --stage-refuse: #484f58;
   --stage-done: #238636;
   --bar-default: #3fb950;
 }
@@ -247,6 +255,7 @@
   --stage-locked: #ff8a50;
   --stage-review: #f0b429;
   --stage-recurrent: #58a6ff;
+  --stage-refuse: #484f58;
   --stage-done: #0e8f77;
   --bar-default: #2ec4a6;
 
@@ -270,6 +279,7 @@
   --stage-locked: #ff7b72;
   --stage-review: #e3b341;
   --stage-recurrent: #79c0ff;
+  --stage-refuse: #484f58;
   --stage-done: #1d7f9c;
   --bar-default: #56b6c2;
 
