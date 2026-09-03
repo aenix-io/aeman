@@ -190,6 +190,55 @@ func TestTeamGridHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
 	}
 }
 
+// A slot's week reaches the day grid, and reaches no further.
+//
+// The test above hands TeamGrid a hand-made Board, and a hand-made Board has
+// no derived week: NewBoardIn gives every slot with a start date the week of
+// that date (a slot's row IS its start date's week). So on a REAL board a
+// sprint-less slot is not simply hidden — it stands in the weeks it covers,
+// which is the set the Triage board shows and what the Unassigned column is
+// for. The gate above still holds everywhere else: outside those weeks the
+// slot is the Project board's business alone.
+func TestTeamGridShowsASlotInTheWeeksItCoversAndNowhereElse(t *testing.T) {
+	b := NewBoardIn("acme", []Card{
+		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
+			StartDate: "2026-09-01", Day: "2026-09-18"},
+	})
+	b.SprintStates = map[string]SprintState{"t": {Current: "2026-09-01"}}
+	// Every week the slot covers: the week of its start through the week its
+	// end reaches.
+	for _, day := range []string{"2026-09-03", "2026-09-07", "2026-09-14"} {
+		if got := TeamGrid(b, "t", day); len(got) != 1 {
+			t.Fatalf("TeamGrid(%s) = %d card(s); the week's own work stands in it", day, len(got))
+		}
+	}
+	// And the weeks around them, where it is the Project board's business.
+	for _, day := range []string{"2026-08-26", "2026-09-22"} {
+		if got := TeamGrid(b, "t", day); len(got) != 0 {
+			t.Fatalf("TeamGrid(%s) = %d card(s); outside its weeks a sprint-less slot stays off the grid", day, len(got))
+		}
+	}
+}
+
+// A DEFERRED card leaves the day grid at once — that is what deferring is —
+// and its week must not hold it there. Defer moves the dates and leaves the
+// week where it was, so the card the person pushed a month out was still
+// standing in this week's grid, on a board they had taken it off.
+func TestTeamGridLetsADeferredCardGo(t *testing.T) {
+	today := TodayIso()
+	b := Board{
+		Cards: []Card{{
+			ItemID: "def", Team: "t", Assignees: []string{"bob"},
+			Week: MondayOf(today), StartDate: AddDays(today, 30), Day: AddDays(today, 30),
+			SprintStart: today,
+		}},
+		SprintStates: map[string]SprintState{"t": {Current: today}},
+	}
+	if got := TeamGrid(b, "t", today); len(got) != 0 {
+		t.Fatalf("grid = %d card(s); a card deferred a month out is gone from today", len(got))
+	}
+}
+
 // MeView draws the same line, for the same reason.
 func TestMeViewHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
 	today := TodayIso()

@@ -218,3 +218,15 @@ export function removableOnTriage(
   return (!c.epic && !c.task) || unlocked;
 }
 
+/** deferred reports that a card has been scheduled AWAY from today: its start
+ *  date is still to come. Such a card lives on that day (and through its
+ *  range) and is hidden everywhere else until the day arrives — on the day
+ *  grid, and equally in the week it is due in, which is where it went on
+ *  being drawn after somebody had deliberately taken it off today's board.
+ *  Mirrors board.deferred (pkg/board/filters.go). */
+export function deferred(
+  c: Pick<Card, "startDate">,
+  today: string,
+): boolean {
+  return !!c.startDate && c.startDate > today;
+}

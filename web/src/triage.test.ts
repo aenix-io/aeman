@@ -3,6 +3,7 @@ import type { Card } from "./providers/types";
 import {
   anchorFor,
   byPile,
+  deferred,
   needsTriage,
   orderWith,
   pileRank,
@@ -266,5 +267,24 @@ describe("placed ahead", () => {
 
   it("is not a card with no week at all", () => {
     expect(placedAhead(card({}), TODAY)).toBe(false);
+  });
+});
+
+// Deferring is the act of taking a card off the board until a later day, so
+// its week must not keep drawing it today: a card pushed a month out went on
+// standing in this week's grid, on a board the person had just cleared it
+// from. Mirrors board.deferred.
+describe("deferred", () => {
+  it("says a card scheduled for a later day is off today's board", () => {
+    expect(deferred({ startDate: "2026-10-03" }, "2026-09-03")).toBe(true);
+  });
+
+  it("says nothing of a card standing on today, or on a day gone by", () => {
+    expect(deferred({ startDate: "2026-09-03" }, "2026-09-03")).toBe(false);
+    expect(deferred({ startDate: "2026-08-20" }, "2026-09-03")).toBe(false);
+  });
+
+  it("says nothing of a card with no date at all — a week is not a deferral", () => {
+    expect(deferred({}, "2026-09-03")).toBe(false);
   });
 });

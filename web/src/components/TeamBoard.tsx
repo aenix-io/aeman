@@ -26,7 +26,7 @@ import type {
 import { ZONES, ZONE_ORDER } from "../zones";
 import { clampProgress, clampsProgress } from "../stages";
 import { todayIso, addDays, localDateIso, mondayOf } from "../date";
-import { inWeek, placedAhead } from "../triage";
+import { deferred, inWeek, placedAhead } from "../triage";
 import { activeSprint, currentSprint, previousSprint, sprintForDate } from "../sprint";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
@@ -237,7 +237,12 @@ export function TeamBoard({
         // column, or in Unassigned when nobody has taken it. This is the set
         // the Triage board shows for that week, and what the weekly panel
         // used to hold beside the grid (mirrors board.TeamGrid).
-        if (inWeek(c, mondayOf(selectedDate), today)) {
+        //
+        // A DEFERRED card is not part of it: deferring is the act of taking a
+        // card off the board until a later day, and its week says when the
+        // work is due, not that it should still be drawn today. The rule
+        // below says the same about the days.
+        if (!deferred(c, today) && inWeek(c, mondayOf(selectedDate), today)) {
           return true;
         }
         // A Project slot with no week of this one's own lives on the Project
@@ -260,7 +265,7 @@ export function TeamBoard({
         // team's CURRENT sprint is never history: deferring is precisely the
         // act of taking the card out of the sprint in progress, so it must
         // leave that day at once (mirrors board.TeamGrid).
-        if (c.startDate && c.startDate > today) {
+        if (deferred(c, today)) {
           const pastSprintDay =
             !!c.sprintStart &&
             selectedDate === c.sprintStart &&

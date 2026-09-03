@@ -30,8 +30,17 @@ func TeamGrid(b Board, team, day string) []Card {
 		// column, or in Unassigned when nobody has taken it. This is the set
 		// the Triage board shows for that week: what the weekly panel used
 		// to hold beside the grid, now in the grid itself, so a card placed
-		// in a week is not invisible until somebody gives it a day.
-		if InWeek(c, MondayOf(day), today) {
+		// in a week is not invisible until somebody gives it a day. A slot
+		// covering the week is part of that set, which is why this stands
+		// above the epic gate rather than below it.
+		//
+		// A DEFERRED card is not, though. Deferring is the act of taking a
+		// card off the board until a later day, and its week says when the
+		// work is due, not that it should still be drawn today: a card pushed
+		// a month out went on standing in this week's grid, on a board the
+		// person had just cleared it from. The rule below says the same thing
+		// about the days; this says it about the week.
+		if !deferred(c, today) && InWeek(c, MondayOf(day), today) {
 			out = append(out, c)
 			continue
 		}
@@ -54,7 +63,7 @@ func TeamGrid(b Board, team, day string) []Card {
 		// sprint is never history: deferring a card is precisely the act of
 		// taking it out of the sprint in progress, so it must leave that day at
 		// once — even when the sprint opened days ago (no carry-over since).
-		if c.StartDate != "" && c.StartDate > today {
+		if deferred(c, today) {
 			pastSprintDay := c.SprintStart != "" && day == c.SprintStart &&
 				c.SprintStart < today && c.SprintStart != CurrentSprint(b, c.Team)
 			if day == c.StartDate || inRange || pastSprintDay {
@@ -172,4 +181,13 @@ func childAssigned(b Board, itemID, user string) bool {
 		}
 	}
 	return false
+}
+
+// deferred reports that a card has been scheduled AWAY from today: its start
+// date is still to come. Such a card lives on that day (and through its range)
+// and is hidden everywhere else until the day arrives — on the day grid, and
+// equally in the week it is due in, which is where it went on being drawn
+// after somebody had deliberately taken it off today's board.
+func deferred(c Card, today string) bool {
+	return c.StartDate != "" && c.StartDate > today
 }
