@@ -103,20 +103,17 @@ describe("what a drag may do on the Me board", () => {
   });
 });
 
-// The rule reaches the Triage board too, where a person can create a card
-// straight into their own column. That board offered every zone and DEFAULTED
-// to a planned one, so the ordinary gesture — press your own cell, type,
-// Enter — made a card the server refuses, and an error stood where the card
-// should have been. The zones a person may file for themselves are asked for
-// there now, from here.
-describe("adding work to your own column, wherever the board is", () => {
-  const zones: ZoneKey[] = ["red", "yellow", "gray", "green"];
-
-  it("leaves exactly one zone to offer in your own column", () => {
+// The Me board's add form stands in the unplanned zone alone — that is what
+// this board is FOR: something came up today, and the week's plan is made
+// elsewhere. It is the board's own offer and nothing more: the Team and
+// Triage grids are where planning is done, and they offer every zone in every
+// column, one's own included. The server holds no rule about it — it did
+// once, and because all three boards send the same create it refused a lead
+// putting a card in their own column.
+describe("what the Me board offers, and how far that reaches", () => {
+  it("adds in the unplanned zone and no other", () => {
+    const zones: ZoneKey[] = ["red", "yellow", "gray", "green"];
     expect(zones.filter(acceptsNewCard)).toEqual([ADD_ZONE]);
-  });
-
-  it("and that zone is the unplanned one", () => {
     expect(ADD_ZONE).toBe("yellow");
   });
 });

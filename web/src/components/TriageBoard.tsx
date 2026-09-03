@@ -35,7 +35,6 @@ import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
 import { isComplete } from "../stages";
-import { ADD_ZONE, acceptsNewCard } from "../meboard";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { type Laned, extentOf, laneStyle, packLanes, weekLabel } from "../weekgrid";
@@ -66,11 +65,6 @@ const DRAG_SLOP = 4;
 interface TriageBoardProps {
   board: Board;
   provider: Provider;
-  /** The viewer's own login. A person adds work FOR THEMSELVES only as
-   *  unplanned — the other zones are the plan, and the plan is made with the
-   *  team (boardservice.planningYourOwnWork) — so their own column offers the
-   *  one zone the server will accept. */
-  me?: string;
   roster: string[];
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
@@ -122,7 +116,6 @@ function readPeopleOrder(): string[] | null {
 export function TriageBoard({
   board,
   provider,
-  me,
   roster,
   teamFilter,
   onSetFilter,
@@ -1206,24 +1199,21 @@ export function TriageBoard({
                     allowNoTeam={false}
                     picker={{
                       title: "Zone",
-                      // In your OWN column the zones the plan owns are not
-                      // offered: the server refuses work you file for
-                      // yourself outside the unplanned one, so offering them
-                      // was offering a card that comes straight back as an
-                      // error — and "planned" was the default.
-                      options: ZONE_ORDER.filter(
-                        (z) => who !== me || acceptsNewCard(z),
-                      ).map((z) => ({
+                      // Every zone, in every column, one's own included: this
+                      // board is where planning is DONE, and a lead plans
+                      // their own week here like anybody else's. The Me
+                      // board's narrower offer is that board's, not a rule
+                      // about who a card is for.
+                      options: ZONE_ORDER.map((z) => ({
                         key: z,
                         label: ZONES[z].title,
                         color: ZONES[z].accent,
                         hint: ZONES[z].description,
                       })),
-                      initial: who === me ? ADD_ZONE : "gray",
+                      initial: "gray",
                     }}
                     onCreate={(title, team, zone) => {
-                      const fallback = who === me ? ADD_ZONE : "gray";
-                      create(composing.row, who, title, (zone || fallback) as ZoneKey, team ?? null);
+                      create(composing.row, who, title, (zone || "gray") as ZoneKey, team ?? null);
                     }}
                     onClosed={() => setComposing(null)}
                   />
