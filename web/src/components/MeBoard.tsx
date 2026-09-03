@@ -1428,8 +1428,10 @@ export function MeBoard({
     };
     patchCard(card.itemId, {
       stage: "review",
-      // review/locked can't sit at full: the server knocks a 100% card to 90.
-      ...(card.progress === 100 ? { progress: 90 } : {}),
+      // The band, asked for rather than restated: the server clamps BOTH
+      // edges (a 0% card sent to review is stored at 10), and a copy of this
+      // rule that knows only the top edge shows a 0 the board does not have.
+      progress: clampProgress("review", card.progress ?? 0),
     });
     void provider
       .sendToReview(card.itemId, reviewerLogin, selectedDate, zone)

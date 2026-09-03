@@ -34,6 +34,7 @@ import { asksFirst, freeSubtasks, removeChoices, type RemoveChoice } from "../re
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
+import { ADD_ZONE, acceptsNewCard } from "../meboard";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { type Laned, extentOf, laneStyle, packLanes, weekLabel } from "../weekgrid";
@@ -64,6 +65,11 @@ const DRAG_SLOP = 4;
 interface TriageBoardProps {
   board: Board;
   provider: Provider;
+  /** The viewer's own login. A person adds work FOR THEMSELVES only as
+   *  unplanned — the other zones are the plan, and the plan is made with the
+   *  team (boardservice.planningYourOwnWork) — so their own column offers the
+   *  one zone the server will accept. */
+  me?: string;
   roster: string[];
   teamFilter: string[] | null;
   onSetFilter: (keys: string[] | null) => void;
@@ -119,6 +125,7 @@ function readPeopleOrder(): string[] | null {
 export function TriageBoard({
   board,
   provider,
+  me,
   roster,
   teamFilter,
   onSetFilter,
@@ -309,7 +316,7 @@ export function TriageBoard({
     // A week's cards stand one under the next at the full width, and the
     // week grows to hold them — this board is read down a person's column.
     rows: "grow",
-    selection: teams.join(" "),
+    selection: teams.join("\0"),
     // No past rows: what was owed in a week gone by is owed in the first one.
     back: 0,
   });
@@ -1138,7 +1145,8 @@ export function TriageBoard({
                     {card.title}
                     {parts > 1 && <span className="triage-slot-part"> ({part + 1}/{parts})</span>}
                   </span>
-                  {!slot.projected && removableOnTriage(card, unlocked) && (
+                  {!slot.projected &&
+                    removableOnTriage(card, unlocked, choicesFor(card)) && (
                     <span className="project-slot-actions">
                       <button
                         type="button"
@@ -1201,16 +1209,24 @@ export function TriageBoard({
                     allowNoTeam={false}
                     picker={{
                       title: "Zone",
-                      options: ZONE_ORDER.map((z) => ({
+                      // In your OWN column the zones the plan owns are not
+                      // offered: the server refuses work you file for
+                      // yourself outside the unplanned one, so offering them
+                      // was offering a card that comes straight back as an
+                      // error — and "planned" was the default.
+                      options: ZONE_ORDER.filter(
+                        (z) => who !== me || acceptsNewCard(z),
+                      ).map((z) => ({
                         key: z,
                         label: ZONES[z].title,
                         color: ZONES[z].accent,
                         hint: ZONES[z].description,
                       })),
-                      initial: "gray",
+                      initial: who === me ? ADD_ZONE : "gray",
                     }}
                     onCreate={(title, team, zone) => {
-                      create(composing.row, who, title, (zone || "gray") as ZoneKey, team ?? null);
+                      const fallback = who === me ? ADD_ZONE : "gray";
+                      create(composing.row, who, title, (zone || fallback) as ZoneKey, team ?? null);
                     }}
                     onClosed={() => setComposing(null)}
                   />

@@ -2,12 +2,22 @@
 // scoped watch so both cover exactly what the active board shows.
 
 import { mondayOf, todayIso } from "./date";
+import { WEEKS_FWD } from "./weekgrid";
 
 export type ViewMode = "me" | "team" | "triage" | "project" | "process";
 
-// TRIAGE_WEEKS is how many weeks the Triage board asks for, the current
-// one included.
-export const TRIAGE_WEEKS = 6;
+// TRIAGE_WEEKS is how many weeks the Triage board asks for, the current one
+// included — and it is DERIVED from how many the board draws, never chosen
+// beside it. The grid runs from this Monday to WEEKS_FWD after it, both ends
+// inclusive, so that is what the fetch must cover.
+//
+// The two used to be separate numbers, 6 asked for and 9 drawn, and the three
+// rows past the window were a trap: a card dropped in one was written with a
+// week the listing does not return, so after the next reload it stood on no
+// board at all — not Triage (outside the window), not the day boards (a week
+// ahead is on none), not Project (no column) — and could be found only by its
+// uid.
+export const TRIAGE_WEEKS = WEEKS_FWD + 1;
 
 // viewQueries builds the LIST selectors for a board view — possibly several,
 // fetched together and merged. Me is the personal board: the server resolves

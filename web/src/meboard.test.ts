@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ZoneKey } from "./providers/types";
-import { acceptsNewCard, mayRemove, sortableWithin } from "./meboard";
+import { ADD_ZONE, acceptsNewCard, mayRemove, sortableWithin } from "./meboard";
 
 // The Me board is the person's own view of the team's work, and what they may
 // do to it there is narrower than what a lead may do on the Team board. The
@@ -100,5 +100,23 @@ describe("what a drag may do on the Me board", () => {
     const grouping = (from: ZoneKey, to: ZoneKey) => sortableWithin(from, to);
     expect(grouping("yellow", "red")).toBe(false);
     expect(grouping("yellow", "yellow")).toBe(true);
+  });
+});
+
+// The rule reaches the Triage board too, where a person can create a card
+// straight into their own column. That board offered every zone and DEFAULTED
+// to a planned one, so the ordinary gesture — press your own cell, type,
+// Enter — made a card the server refuses, and an error stood where the card
+// should have been. The zones a person may file for themselves are asked for
+// there now, from here.
+describe("adding work to your own column, wherever the board is", () => {
+  const zones: ZoneKey[] = ["red", "yellow", "gray", "green"];
+
+  it("leaves exactly one zone to offer in your own column", () => {
+    expect(zones.filter(acceptsNewCard)).toEqual([ADD_ZONE]);
+  });
+
+  it("and that zone is the unplanned one", () => {
+    expect(ADD_ZONE).toBe("yellow");
   });
 });

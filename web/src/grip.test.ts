@@ -64,4 +64,20 @@ describe("where the × is drawn on Triage", () => {
     expect(removableOnTriage(card({ epic: "Storage" }), true)).toBe(true);
     expect(removableOnTriage(card({ task: "t1" }), true)).toBe(true);
   });
+
+  // ...but only while there is something to offer. With the catch lifted, a
+  // project card or a turn that NOBODY has taken has an empty list: the one
+  // option would move it to Unassigned, which is where it already stands. The
+  // × was drawn all the same and opened a dialog with no buttons in it,
+  // closing only on Escape — an × that does nothing reads as a delete that
+  // failed, which is the reading this whole gesture was rebuilt to avoid.
+  it("is not drawn when the card has no answer to give", () => {
+    expect(removableOnTriage(card({ epic: "Storage" }), true, [])).toBe(false);
+    expect(removableOnTriage(card({ task: "t1" }), true, [])).toBe(false);
+    expect(removableOnTriage(card(), false, [])).toBe(false);
+  });
+
+  it("is drawn once the card has one", () => {
+    expect(removableOnTriage(card({ epic: "Storage" }), true, ["unassign"])).toBe(true);
+  });
 });

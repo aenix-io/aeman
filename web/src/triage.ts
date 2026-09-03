@@ -210,11 +210,21 @@ export function gripOf(
  *  card and a PROCESS TURN are not this board's to destroy — one is a
  *  commitment made on the Project board, the other a process's record of a
  *  week it owed — so the × appears on them only with the catch lifted, the
- *  same gesture that admits everything else about them. */
+ *  same gesture that admits everything else about them.
+ *
+ *  And only where it has something to OFFER. `choices` is what the card
+ *  allows (removal.removeChoices): a project card or a turn that nobody has
+ *  taken is already where the only option would put it, so the list is empty
+ *  — and the × opened a dialog with no buttons in it, closing only on Escape.
+ *  An × that does nothing reads as a delete that failed. */
 export function removableOnTriage(
   c: Pick<Card, "epic" | "task">,
   unlocked: boolean,
+  choices: readonly unknown[] = [1],
 ): boolean {
+  if (choices.length === 0) {
+    return false;
+  }
   return (!c.epic && !c.task) || unlocked;
 }
 

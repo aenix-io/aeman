@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { addDays, todayIso } from "./date";
+import { WEEKS_FWD } from "./weekgrid";
 import {
   queryString,
   snapshotDay,
+  TRIAGE_WEEKS,
   viewQueries,
   watchQueries,
   watchQuery,
@@ -172,5 +174,25 @@ describe("queryString", () => {
     const a = queryString(watchQuery("me", TODAY, []));
     const b = queryString(watchQuery("me", TODAY, ["ignored-for-me"]));
     expect(a).toBe(b);
+  });
+});
+
+// The Triage board asks for exactly the weeks it draws.
+//
+// They were two separate numbers — six fetched, nine drawn — and the rows past
+// the window were a trap: a card dropped in one carried a week the listing
+// does not return, so after the next reload it stood on no board at all. Not
+// Triage (outside the window), not the day boards (a week ahead is on none),
+// not Project (no column). A live card openable only by its uid.
+describe("the Triage window", () => {
+  it("covers every row the grid draws", () => {
+    // The grid runs from this Monday through WEEKS_FWD after it, inclusive.
+    expect(TRIAGE_WEEKS).toBe(WEEKS_FWD + 1);
+  });
+
+  it("asks the server for that window, starting at this Monday", () => {
+    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, false, TODAY);
+    expect(q.view).toBe("triage");
+    expect(q.weeks).toBe(String(TRIAGE_WEEKS));
   });
 });

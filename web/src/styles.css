@@ -4346,7 +4346,7 @@ button.card-age {
 }
 
 .zoom-reset:hover:not(:disabled) {
-  color: var(--ink);
+  color: var(--fg);
   border-color: var(--line);
 }
 
@@ -4822,7 +4822,7 @@ button.card-age {
 
 .triage-lock:hover {
   opacity: 1;
-  color: var(--ink);
+  color: var(--fg);
   border-color: var(--line);
 }
 
