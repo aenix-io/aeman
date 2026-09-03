@@ -30,8 +30,8 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 	if week == "" {
 		return nil
 	}
-	if !board.IsDayIso(week) || board.MondayOf(week) != week {
-		return fmt.Errorf("%w: %q", ErrNotAMonday, week)
+	if err := guardWeek(week); err != nil {
+		return err
 	}
 	today := board.TodayIso()
 	if card.Epic != "" && card.Week != "" && card.Day != "" {
@@ -131,6 +131,26 @@ func (s *Service) Untriage(ctx context.Context, boardID, itemID string) error {
 			return err
 		}
 		s.logEvent(ctx, b, card, board.EventWeek, card.Week, "")
+	}
+	return nil
+}
+
+// guardWeek refuses a week that is not a Monday. A column on the Triage board
+// IS a Monday and the comparison against it is a string comparison, so a card
+// whose week is a Thursday — or a word — stands in no column at all; it is not
+// in the strip either, which holds cards with NO week, and it has left the day
+// boards on the way. The card is alive, unchanged and on no board anyone can
+// open, findable only by its uid.
+//
+// Every door asks it: this board's own drag (Place), the patch that sets a
+// week (SetWeek) and the create that files a card straight into one. An empty
+// week is not a week — it is the card having none — and passes.
+func guardWeek(week string) error {
+	if week == "" {
+		return nil
+	}
+	if !board.IsDayIso(week) || board.MondayOf(week) != week {
+		return fmt.Errorf("%w: %q", ErrNotAMonday, week)
 	}
 	return nil
 }

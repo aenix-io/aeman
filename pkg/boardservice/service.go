@@ -249,6 +249,10 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	if err := planningYourOwnWork(ctx, args); err != nil {
 		return board.Card{}, err
 	}
+	// A week is a Monday wherever one is given, this door included.
+	if err := guardWeek(args.Week); err != nil {
+		return board.Card{}, err
+	}
 	b, err := s.backend.LoadBoard(ctx, boardID)
 	if err != nil {
 		return board.Card{}, err
@@ -1854,6 +1858,9 @@ func (s *Service) SetSprintStart(ctx context.Context, boardID string, itemID, da
 // refused: its week comes from its start date, and accepting a second value
 // here is exactly how the two came to disagree.
 func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week string) error {
+	if err := guardWeek(week); err != nil {
+		return err
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err

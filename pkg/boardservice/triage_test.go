@@ -1,6 +1,7 @@
 package boardservice
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -81,5 +82,43 @@ func TestPlacingBackWithNoSprintPointerSeedsOneOnTheWeek(t *testing.T) {
 	}
 	if c := f.get("c1"); c.SprintStart != thisWeek {
 		t.Fatalf("sprintStart = %q, want the week itself: %+v", c.SprintStart, c)
+	}
+}
+
+// A week is a MONDAY at every door, not only at the one the board's own drag
+// goes through.
+//
+// Place said so; SetWeek and the create did not, so PATCH {"week": ...} and
+// POST /cards {"week": ...} took any string at all. That is worse than untidy:
+// a card whose week is a Thursday — or the word "next" — stands in no column
+// the Triage board draws (a column is a Monday, and the comparison is a string
+// comparison), and it is not in the strip either, because the strip holds
+// cards with NO week. It leaves the Team grid and the Me board along with it.
+// The card is alive, changed nothing about itself, and appears on no board its
+// owner can open: findable only by uid.
+func TestAWeekIsAMondayAtEveryDoor(t *testing.T) {
+	today := board.TodayIso()
+	for _, week := range []string{"2026-09-03", "next", "2026-09-07x", "20260907"} {
+		f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Progress: 40}},
+			map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+		if err := New(f).SetWeek(ctx, "acme", "c1", week); !errors.Is(err, ErrNotAMonday) {
+			t.Fatalf("SetWeek(%q) = %v, want ErrNotAMonday", week, err)
+		}
+		if got := f.get("c1"); got.Week != "" {
+			t.Fatalf("SetWeek(%q) wrote %q; the refusal fires before the write", week, got.Week)
+		}
+		if _, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
+			Title: "Mine", Team: "alpha", Week: week,
+		}); !errors.Is(err, ErrNotAMonday) {
+			t.Fatalf("create with week %q = %v, want ErrNotAMonday", week, err)
+		}
+	}
+	// The Mondays themselves still pass, and so does clearing the week.
+	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha"}},
+		map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	for _, week := range []string{board.MondayOf(today), ""} {
+		if err := New(f).SetWeek(ctx, "acme", "c1", week); err != nil {
+			t.Fatalf("SetWeek(%q) = %v", week, err)
+		}
 	}
 }
