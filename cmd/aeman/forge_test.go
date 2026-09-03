@@ -108,7 +108,7 @@ func TestResolveForgeTokenPrefersTheEnvironmentThenTheCLI(t *testing.T) {
 	// that no longer exists.
 	with := func(f forge.Forge, cli forge.CLI, e func(string) string) forge.CLI {
 		log, _ := testLog()
-		return &chain{log: log, forge: f, sources: []forge.CLI{newEnvCLI(f, e, srv.Client()), cli}}
+		return &chain{log: log, forge: f, sources: []forge.CLI{newEnvCLI(f, e, guardedClient(srv)), cli}}
 	}
 
 	cli := &fakeCLI{token: "cli-token"}
@@ -185,6 +185,18 @@ func TestOAuthPairMustMatchTheForge(t *testing.T) {
 // fakeForge answers /user with the login a token belongs to and 401 for a
 // token it does not know, so a chain's Login can be checked without a real
 // GitHub.
+
+// guardedClient is the client a test hands to the code under test. An
+// httptest client carries its own Transport and so never consults the
+// default one nonet.Block replaces, which would leave a case pointed at
+// a real host reaching it through the very helper meant to keep the test
+// local. Loopback still passes, so the fake server works unchanged.
+func guardedClient(srv *httptest.Server) *http.Client {
+	c := srv.Client()
+	c.Transport = nonet.Guard(c.Transport)
+	return c
+}
+
 func fakeForge(t *testing.T, logins map[string]string) (forge.Forge, *http.Client) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +208,7 @@ func fakeForge(t *testing.T, logins map[string]string) (forge.Forge, *http.Clien
 		_, _ = io.WriteString(w, `{"login":"`+login+`"}`)
 	}))
 	t.Cleanup(srv.Close)
-	return forge.NewGitHubAt(srv.URL), srv.Client()
+	return forge.NewGitHubAt(srv.URL), guardedClient(srv)
 }
 
 // testLog is a debug-level logger over a buffer, so a test can assert on
@@ -226,10 +238,12 @@ func TestChainPrefersKeychainOverCLI(t *testing.T) {
 
 	// And cliFor is what puts it there: the same store, reached through the
 	// chain the commands actually build.
-	// The value is compared, never printed. The last source of the chain
-	// cliFor builds execs the developer's own gh, so the token reaching
-	// this line is a real one whenever the rule under test is broken —
-	// which is exactly when the message would be written to the log.
+	// The last source stands in, so a broken rule reaches a fake rather
+	// than execing the developer's gh and pulling their real credential
+	// into this process. The value is compared and never printed, which
+	// matters for the same reason.
+	defer func(prev func(forge.Forge) forge.CLI) { forgeToolCLI = prev }(forgeToolCLI)
+	forgeToolCLI = func(forge.Forge) forge.CLI { return &fakeCLI{token: "from-tool"} }
 	if tok, err := cliFor(f, store, func(string) string { return "" }, log).Token(ctx); err != nil || tok != "ghp_stored" {
 		t.Fatalf("cliFor(...).Token did not come from the store: err=%v, matched=%t", err, tok == "ghp_stored")
 	}
@@ -776,7 +790,7 @@ func TestEnvCLIAsksTheForgeOncePerToken(t *testing.T) {
 	t.Cleanup(srv.Close)
 	f := forge.NewGitHubAt(srv.URL)
 
-	c := newEnvCLI(f, func(string) string { return "ghp_env" }, srv.Client())
+	c := newEnvCLI(f, func(string) string { return "ghp_env" }, guardedClient(srv))
 	for range 5 {
 		if _, login, err := c.TokenAndLogin(ctx); err != nil || login != "alice" {
 			t.Fatalf("TokenAndLogin = %q, %v", login, err)
@@ -795,12 +809,19 @@ func TestEnvCLIAsksTheForgeOncePerToken(t *testing.T) {
 	}
 }
 
-// Every test in this package runs with the network shut off, so a case
-// that builds a forge against the real host fails on the dial instead of
-// reaching it. Grepping for the constructor was the other option and it
-// flags ten harmless uses — a real forge is how a test says "GitHub's
-// variable names" — while missing the one shape that matters, a fake-
-// looking forge whose base is real.
+// This package's tests run with the network shut off: the default
+// transport refuses anything but loopback, and so do the clients the fake
+// forges hand out, which carry their own and would otherwise go around
+// it. A case that builds a forge against the real host fails on the
+// request rather than reaching it with whatever token the machine
+// exports. What the guard cannot see is a client assembled by hand with
+// its own Transport, and a subprocess: the source that execs gh or glab
+// has its own network, which is why this package stands in for it.
+//
+// Grepping for the constructor was the other option: it flags ten
+// harmless uses — a real forge is how a test says "GitHub's variable
+// names" — while missing the one shape that matters, a fake-looking
+// forge whose base is real.
 // refusingTool stands in for the source that execs the machine's own gh
 // or glab. Constructing it has to keep working, because cliFor builds the
 // whole chain before anything is asked; being ASKED is what no test may
@@ -934,7 +955,7 @@ func TestEnvCLIRemembersAForgeThatCouldNotAnswer(t *testing.T) {
 	t.Cleanup(srv.Close)
 	f := forge.NewGitHubAt(srv.URL)
 
-	c := newEnvCLI(f, func(string) string { return "ghp_app" }, srv.Client())
+	c := newEnvCLI(f, func(string) string { return "ghp_app" }, guardedClient(srv))
 	now := time.Now()
 	c.now = func() time.Time { return now }
 
@@ -954,15 +975,35 @@ func TestEnvCLIRemembersAForgeThatCouldNotAnswer(t *testing.T) {
 	if n := calls.Load(); n != 2 {
 		t.Fatalf("the forge was asked %d times after the window, want 2", n)
 	}
+}
 
-	// A different variable value is a different question.
-	c2 := newEnvCLI(f, func(string) string { return "ghp_other" }, srv.Client())
-	c2.now = func() time.Time { return now }
-	if _, err := c2.Login(context.Background()); err == nil {
-		t.Fatal("still not a login")
+// The window is the TOKEN's, not the source's. A variable that changes
+// under a running process — the environment of an `aeman mcp` restarted
+// by its client, a test harness rewriting it — asks again at once rather
+// than serving the previous token's silence. The clock does not move
+// here, so only the value key can make this pass.
+func TestEnvCLIWindowIsKeyedByTheTokenValue(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	token := "ghp_first"
+	c := newEnvCLI(forge.NewGitHubAt(srv.URL), func(string) string { return token }, guardedClient(srv))
+	frozen := time.Now()
+	c.now = func() time.Time { return frozen }
+
+	if _, err := c.Login(context.Background()); err == nil {
+		t.Fatal("want a failure")
 	}
-	if n := calls.Load(); n != 3 {
-		t.Fatalf("the forge was asked %d times, want 3: another token is another question", n)
+	token = "ghp_second"
+	if _, err := c.Login(context.Background()); err == nil {
+		t.Fatal("want a failure")
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("the forge was asked %d times, want 2: a new token is a new question", n)
 	}
 }
 
@@ -975,7 +1016,7 @@ func TestEnvCLIRemembersAForgeThatCouldNotAnswer(t *testing.T) {
 // token that says which one it is.
 func TestCliForAsksTheEnvironmentThenTheKeychainThenTheTool(t *testing.T) {
 	ctx := context.Background()
-	f, client := fakeForge(t, map[string]string{
+	f, _ := fakeForge(t, map[string]string{
 		"from-env": "envperson", "from-store": "storeperson", "from-tool": "toolperson",
 	})
 	defer func(prev func(forge.Forge) forge.CLI) { forgeToolCLI = prev }(forgeToolCLI)
@@ -1004,7 +1045,6 @@ func TestCliForAsksTheEnvironmentThenTheKeychainThenTheTool(t *testing.T) {
 	if tok, err := cliFor(f, tokenstoretest.NewFake(), empty, log).Token(ctx); err != nil || tok != "from-tool" {
 		t.Fatalf("with only the tool: err=%v, source=%s", err, whichSource(tok))
 	}
-	_ = client
 }
 
 // whichSource names the source a token came from without printing the
@@ -1024,6 +1064,20 @@ func whichSource(tok string) string {
 	return "unrecognised"
 }
 
+// The client the fake forge hands out carries the guard too. It is the
+// client the code under test is given, and it never consults the default
+// transport, so without this a case pointed at the real host would reach
+// it through the very helper meant to keep the test local.
+func TestTheFakeForgesClientRefusesTheRealHost(t *testing.T) {
+	_, client := fakeForge(t, nil)
+	off := forge.NewGitHubAt("http://192.0.2.1")
+	if _, err := off.User(context.Background(), client, "not-a-token"); err == nil {
+		t.Fatal("the helper's client left the machine")
+	} else if !strings.Contains(err.Error(), "tried to reach") {
+		t.Fatalf("error = %v; want the guard's refusal, not a network answer", err)
+	}
+}
+
 // The environment's source keeps the same rule: a caller that gave up
 // does not answer for the next one.
 func TestEnvCLIDoesNotRememberTheCallersOwnCancellation(t *testing.T) {
@@ -1037,35 +1091,5 @@ func TestEnvCLIDoesNotRememberTheCallersOwnCancellation(t *testing.T) {
 	}
 	if login, err := c.Login(context.Background()); err != nil || login != "alice" {
 		t.Fatalf("second caller: login=%q err=%v; want the owner, asked afresh", login, err)
-	}
-}
-
-// The window is the TOKEN's, not the source's. A variable that changes
-// under a running process — the environment of an `aeman mcp` restarted
-// by its client, a test harness rewriting it — asks again at once rather
-// than serving the previous token's silence. The clock does not move
-// here, so only the value key can make this pass.
-func TestEnvCLIWindowIsKeyedByTheTokenValue(t *testing.T) {
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	t.Cleanup(srv.Close)
-
-	token := "ghp_first"
-	c := newEnvCLI(forge.NewGitHubAt(srv.URL), func(string) string { return token }, srv.Client())
-	frozen := time.Now()
-	c.now = func() time.Time { return frozen }
-
-	if _, err := c.Login(context.Background()); err == nil {
-		t.Fatal("want a failure")
-	}
-	token = "ghp_second"
-	if _, err := c.Login(context.Background()); err == nil {
-		t.Fatal("want a failure")
-	}
-	if n := calls.Load(); n != 2 {
-		t.Fatalf("the forge was asked %d times, want 2: a new token is a new question", n)
 	}
 }

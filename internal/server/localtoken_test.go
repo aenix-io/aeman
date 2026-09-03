@@ -271,9 +271,13 @@ func TestARejectedTokenIsNotAuthenticated(t *testing.T) {
 	}
 }
 
-// This package's tests run with the network shut off: a case that builds
-// a forge against the real host fails on the request instead of reaching
-// it with whatever token the machine exports.
+// This package's tests run with the network shut off: the default
+// transport refuses anything but loopback, so a case that reaches for a
+// real forge through it fails on the request rather than answering with
+// whatever token the machine exports. Clients built from an httptest
+// server carry their own transport and are not covered — the fakes here
+// hand out the server rather than a client, unlike the ones in cmd/aeman
+// and internal/tokenstore, which wrap what they hand over.
 func TestMain(m *testing.M) {
 	restore := nonet.Block()
 	code := m.Run()

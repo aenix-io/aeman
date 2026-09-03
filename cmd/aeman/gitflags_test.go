@@ -523,7 +523,7 @@ func TestFillGitTokenDoesNotWaitOnTheForgeForThePushCredential(t *testing.T) {
 				return "env-token"
 			}
 			return ""
-		}, srv.Client()),
+		}, guardedClient(srv)),
 	}}
 	cfg := &server.GitConfig{Forge: f, Repos: []server.RepoSpec{{Name: "board"}}}
 
@@ -564,7 +564,7 @@ func TestTheStartUpLoginIsBounded(t *testing.T) {
 	f := forge.NewGitHubAt(srv.URL)
 	log, _ := testLog()
 	cli := &chain{log: log, forge: f, sources: []forge.CLI{
-		newEnvCLI(f, func(string) string { return "env-token" }, srv.Client()),
+		newEnvCLI(f, func(string) string { return "env-token" }, guardedClient(srv)),
 	}}
 
 	done := make(chan struct{})

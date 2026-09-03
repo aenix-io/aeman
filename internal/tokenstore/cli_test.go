@@ -36,7 +36,13 @@ func fakeGitHub(t *testing.T, logins map[string]string, calls *atomic.Int32) (fo
 		_, _ = io.WriteString(w, `{"login":"`+login+`","name":"","avatar_url":""}`)
 	}))
 	t.Cleanup(srv.Close)
-	return forge.NewGitHubAt(srv.URL), srv.Client()
+	client := srv.Client()
+	// The guard the default transport carries, on the client the code
+	// under test is handed: this one never consults the default, so
+	// without this a case pointed at a real host would reach it through
+	// the client this helper supplied.
+	client.Transport = nonet.Guard(client.Transport)
+	return forge.NewGitHubAt(srv.URL), client
 }
 
 // The actor behind a stored token is whoever the forge says the token
@@ -346,9 +352,13 @@ func (f *fake) Delete(host string) error {
 	return nil
 }
 
-// This package's tests run with the network shut off: a case that builds
-// a forge against the real host fails on the request instead of reaching
-// it with whatever token the machine exports.
+// This package's tests run with the network shut off: the default
+// transport refuses anything but loopback, and so do the clients the fake
+// forges hand out, which carry their own and would otherwise go around
+// it. A case that builds a forge against the real host fails on the
+// request rather than reaching it with whatever token the machine
+// exports. What the guard cannot see is a client assembled by hand with
+// its own Transport.
 func TestMain(m *testing.M) {
 	restore := nonet.Block()
 	code := m.Run()
@@ -367,7 +377,13 @@ func forgeThatCannotAnswer(t *testing.T, calls *atomic.Int32, delay time.Duratio
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	t.Cleanup(srv.Close)
-	return forge.NewGitHubAt(srv.URL), srv.Client()
+	client := srv.Client()
+	// The guard the default transport carries, on the client the code
+	// under test is handed: this one never consults the default, so
+	// without this a case pointed at a real host would reach it through
+	// the client this helper supplied.
+	client.Transport = nonet.Guard(client.Transport)
+	return forge.NewGitHubAt(srv.URL), client
 }
 
 // A forge that cannot say who the token belongs to costs ONE call per
@@ -454,6 +470,18 @@ func TestKeychainCLIConcurrentCallersDoNotQueueBehindADeadForge(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > latency*4 {
 		t.Fatalf("%d callers took %v against a %v forge; they queued behind it", callers, elapsed, latency)
+	}
+}
+
+// The same guard on the client this package's fakes hand out.
+func TestTheFakeForgesClientRefusesTheRealHost(t *testing.T) {
+	var calls atomic.Int32
+	_, client := fakeGitHub(t, nil, &calls)
+	off := forge.NewGitHubAt("http://192.0.2.1")
+	if _, err := off.User(context.Background(), client, "not-a-token"); err == nil {
+		t.Fatal("the helper's client left the machine")
+	} else if !strings.Contains(err.Error(), "tried to reach") {
+		t.Fatalf("error = %v; want the guard's refusal, not a network answer", err)
 	}
 }
 

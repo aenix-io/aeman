@@ -7,13 +7,15 @@
 // test's output. That has happened here. Refusing the request closes the
 // route itself, rather than the constructor that happened to take it.
 //
-// Two things it does not cover. A client carrying its own Transport goes
-// around it, which today is only httptest's. And a subprocess has its own
-// network: `cliFor` appends a source that execs the developer's real `gh`
-// or `glab`, and a test that reaches it reads the credential of whoever
-// is running the tests. Nothing in this package can see that — the
-// defence there is to put a fake ahead of the CLI source, which every
-// test that could reach one does.
+// What it does not cover. A subprocess has its own network: `cliFor`
+// appends a source that execs the developer's real `gh` or `glab`, and a
+// test that reaches it reads the credential of whoever is running the
+// tests. Nothing here can see that, so the defence is a stand-in ahead
+// of the tool source. And a client carrying its own Transport never
+// consults the default one this replaces, so Block does not reach it
+// either: those are wrapped with Guard, in the test helpers that hand a
+// client to the code under test. One assembled by hand and not wrapped
+// stays outside both.
 package nonet
 
 import (
@@ -33,11 +35,39 @@ import (
 // traffic it was written to stop.
 func Block() func() {
 	prev := http.DefaultTransport
-	http.DefaultTransport = refusing{prev}
+	http.DefaultTransport = Guard(prev)
 	return func() { http.DefaultTransport = prev }
 }
 
+// Guard wraps one transport so it refuses anything but loopback, for the
+// clients that never consult the default: httptest.Server.Client() and
+// anything built on it carry their own, which Block does not reach. A helper that hands a fake forge's client to the code
+// under test should wrap it, or a case that points that code at a real
+// host reaches it through the client the helper supplied.
+func Guard(next http.RoundTripper) http.RoundTripper {
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	if _, done := next.(refusing); done {
+		// Idempotent: httptest.Server.Client() hands back the same client
+		// every call, so a helper that wraps it would otherwise nest a
+		// layer per call against the same server.
+		return next
+	}
+	return refusing{next}
+}
+
 type refusing struct{ next http.RoundTripper }
+
+// CloseIdleConnections passes the call on. httptest.Server.Close type
+// asserts for this on the client's transport, so swallowing it would
+// quietly disable that half of the server's shutdown once Guard wraps
+// what Client() returns.
+func (r refusing) CloseIdleConnections() {
+	if c, ok := r.next.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
+}
 
 func (r refusing) RoundTrip(req *http.Request) (*http.Response, error) {
 	host := req.URL.Hostname()
