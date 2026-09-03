@@ -1542,7 +1542,6 @@ export function App() {
           <TriageBoard
             board={board}
             provider={provider}
-            me={config?.login ?? ""}
             roster={roster}
             teamFilter={teamFilter}
             onSetFilter={setTeamFilter}

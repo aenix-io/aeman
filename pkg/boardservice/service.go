@@ -246,9 +246,6 @@ type CreateCardArgs struct {
 // the day and the card joins that fresh sprint. It mirrors handleCreate in
 // TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
-	if err := planningYourOwnWork(ctx, args); err != nil {
-		return board.Card{}, err
-	}
 	// A week is a Monday wherever one is given, this door included.
 	if err := guardWeek(args.Week); err != nil {
 		return board.Card{}, err
@@ -2399,28 +2396,6 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 		return err
 	}
 	return s.deleteWithCascade(ctx, b, card)
-}
-
-// planningYourOwnWork refuses a create that files work for the ACTOR
-// THEMSELVES into a planned zone. The Me board offers its add form in the
-// unplanned zone alone, and the rule lives here because an agent reaches the
-// same door (web/src/meboard.ts is the mirror).
-//
-// Untouched: a create for somebody else (the lead planning the team's week),
-// and one whose card is placed by the thing it belongs to — a column, a
-// parent, a review or a process turn — whose zone nobody chose here.
-func planningYourOwnWork(ctx context.Context, args CreateCardArgs) error {
-	actor := board.ActorFrom(ctx)
-	if actor == "" || args.Assignee != actor {
-		return nil
-	}
-	if args.Epic != "" || args.Parent != "" || args.ReviewOf != "" {
-		return nil
-	}
-	if args.Zone == "" || args.Zone == board.ZoneYellow {
-		return nil
-	}
-	return fmt.Errorf("%w: %q", ErrNotYoursToPlan, args.Zone)
 }
 
 // removingSomebodyElsesCard refuses an × on a card the actor is CARRYING but

@@ -1951,7 +1951,6 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		// The Me board's narrower seat: another caller is not wrong about
 		// the card, they are the wrong person to be doing this to it.
 		errors.Is(err, boardservice.ErrNotYoursToRefuse),
-		errors.Is(err, boardservice.ErrNotYoursToPlan),
 		errors.Is(err, boardservice.ErrNotYoursToRemove):
 		writeJSONError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, gitstore.ErrUnknownDomain):

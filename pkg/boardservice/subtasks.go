@@ -33,14 +33,6 @@ var ErrSubtaskWeek = errors.New("a subtask has no week of its own")
 // the lead nothing to do but delete it.
 var ErrNotYoursToRefuse = errors.New("only the person a card is on can refuse it")
 
-// ErrNotYoursToPlan is a person filing work for THEMSELVES into one of the
-// planned zones. A person adds work to their own board only as unplanned —
-// something came up today; the other three zones are the plan, and planning
-// is done with the team rather than filed quietly into one's own column.
-// Planning somebody ELSE's work is the lead's gesture and passes, as does a
-// card placed by the thing it belongs to (a column, a parent, a review).
-var ErrNotYoursToPlan = errors.New("work you plan for yourself is unplanned work")
-
 // ErrNotYoursToRemove is a person taking off the board a card SOMEBODY ELSE
 // put on it for them. Their answer to work they will not do is the refused
 // stage (ErrNotYoursToRefuse names the other side of the same seat), which

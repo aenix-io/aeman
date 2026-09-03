@@ -11,10 +11,27 @@ import (
 // the server's, not the browser's: an agent reaches the same doors. Two
 // rules, both about work a person did not choose for themselves.
 
-// A person ADDS work to their own board only as unplanned: something came up
-// today. The other three zones are the plan, and planning is done with the
-// team, not filed quietly into one's own column.
-func TestAPersonPlansNoWorkForThemselves(t *testing.T) {
+// A person may plan work for THEMSELVES, and the server does not argue.
+//
+// It used to refuse a create that filed work for the actor into a planned
+// zone — the Me board offers its add form in the unplanned zone alone, and
+// the rule was put in the service so an agent met the same door. That was a
+// mistake, and a live one: the Team and Triage boards are where planning is
+// DONE, a lead plans their own week there like anybody else's, and the three
+// boards send the same create — the same zone, day and assignee — so the
+// server cannot tell which one is asking. The refusal reached all of them and
+// a lead could not put a card in their own column (reported on the live board:
+// `work you plan for yourself is unplanned work: "gray"`).
+//
+// It also protected nothing. The guard sat on the create alone, so the same
+// card could be made in the unplanned zone and moved with a zone patch a
+// moment later, which is two steps and no refusal.
+//
+// What remains is the Me board's own offer: its add form appears in the
+// unplanned zone only (web/src/meboard.ts, acceptsNewCard). That is a
+// statement about what that board is for, and it belongs where the board is
+// drawn rather than in a rule every caller meets.
+func TestAPersonMayPlanTheirOwnWork(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
 		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Auth", Project: "core"},
@@ -22,41 +39,20 @@ func TestAPersonPlansNoWorkForThemselves(t *testing.T) {
 	svc := f2svc(f)
 	me := WithActor(ctx, "kvaps")
 
-	for _, zone := range []board.ZoneKey{board.ZoneRed, board.ZoneGray, board.ZoneGreen} {
-		_, err := svc.CreateCard(me, "acme", CreateCardArgs{
+	// Every zone, for oneself: this is the gesture that was refused.
+	for _, zone := range []board.ZoneKey{board.ZoneRed, board.ZoneGray, board.ZoneGreen, board.ZoneYellow} {
+		if _, err := svc.CreateCard(me, "acme", CreateCardArgs{
 			Title: "mine", Team: "alpha", Zone: zone, Assignee: "kvaps",
-		})
-		if !errors.Is(err, ErrNotYoursToPlan) {
-			t.Fatalf("zone %q for oneself = %v, want ErrNotYoursToPlan", zone, err)
+		}); err != nil {
+			t.Fatalf("zone %q for oneself = %v; a person plans their own week too", zone, err)
 		}
 	}
-	if len(f.creates) != 0 {
-		t.Fatalf("the refusal fires before the write: %d creates", len(f.creates))
-	}
 
-	// Unplanned is the zone the seat has: something arrived today.
-	if _, err := svc.CreateCard(me, "acme", CreateCardArgs{
-		Title: "came up", Team: "alpha", Zone: board.ZoneYellow, Assignee: "kvaps",
-	}); err != nil {
-		t.Fatalf("unplanned work for oneself: %v", err)
-	}
-
-	// Planning work for SOMEBODY ELSE is the lead's own gesture and passes:
-	// the rule is about a person quietly planning their own week.
+	// And for somebody else, which was never in question.
 	if _, err := svc.CreateCard(me, "acme", CreateCardArgs{
 		Title: "for them", Team: "alpha", Zone: board.ZoneRed, Assignee: "lllamnyp",
 	}); err != nil {
 		t.Fatalf("planning another person's work: %v", err)
-	}
-
-	// So does a card that is not a standalone one: a review card, a subtask
-	// and a card filed under a column are placed by the thing they belong
-	// to, and their zone is not a plan anybody made here.
-	if _, err := svc.CreateCard(me, "acme", CreateCardArgs{
-		Title: "a piece of it", Team: "alpha", Zone: board.ZoneRed,
-		Assignee: "kvaps", Epic: "Auth", Project: "core",
-	}); err != nil {
-		t.Fatalf("a columned create: %v", err)
 	}
 }
 
