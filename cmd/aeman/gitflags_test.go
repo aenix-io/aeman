@@ -12,6 +12,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -582,5 +585,222 @@ func TestTheStartUpLoginIsBounded(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the start-up login is still waiting on the forge")
+	}
+}
+
+// parseGitFlags is one round through the flag set: what a process is given
+// on the command line and in its environment, resolved.
+func parseGitFlags(t *testing.T, env map[string]string, args []string) *server.GitConfig {
+	t.Helper()
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	gf := addGitFlags(fs, func(k string) string { return env[k] })
+	if err := fs.Parse(args); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := gf.config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// A service unit is a file, not a shell: it inherits none of the
+// environment the install was typed in, so flagArgs has to bake the
+// RESOLVED configuration into it. An install driven entirely by
+// AEMAN_REPOS must still produce a unit that names the repositories.
+func TestFlagArgsRoundTripThroughTheFlagSet(t *testing.T) {
+	env := map[string]string{
+		// A host that does NOT contain "gitlab": forge.Detect cannot reach
+		// GitLab from the URL alone, so the rendered --forge/--gitlab-url
+		// are the only thing carrying it into the unit.
+		"AEMAN_REPOS":         "shared=https://code.example.org/a.git,closed=https://code.example.org/b.git",
+		"AEMAN_DATA":          "/var/lib/aeman",
+		"AEMAN_HISTORY":       "3w",
+		"AEMAN_HISTORY_MAX":   "90d",
+		"AEMAN_SYNC_INTERVAL": "30s",
+		"AEMAN_UNPUSHED_WARN": "10m",
+		"AEMAN_COMMITTER":     "bot <bot@example.org>",
+		"AEMAN_AUTHOR_EMAIL":  "{login}@example.org",
+		"AEMAN_FORGE":         "gitlab",
+		"AEMAN_GITLAB_URL":    "https://code.example.org",
+	}
+	want := parseGitFlags(t, env, nil)
+
+	// The unit's own run has none of that environment.
+	got := parseGitFlags(t, map[string]string{}, flagArgs(want))
+
+	if !reflect.DeepEqual(got.Repos, want.Repos) {
+		t.Errorf("repos = %+v, want %+v", got.Repos, want.Repos)
+	}
+	if got.DataDir != want.DataDir {
+		t.Errorf("data = %q, want %q", got.DataDir, want.DataDir)
+	}
+	if got.History != want.History || got.HistoryMax != want.HistoryMax ||
+		got.SyncInterval != want.SyncInterval || got.UnpushedWarn != want.UnpushedWarn {
+		t.Errorf("spans = %v %v %v %v, want %v %v %v %v",
+			got.History, got.HistoryMax, got.SyncInterval, got.UnpushedWarn,
+			want.History, want.HistoryMax, want.SyncInterval, want.UnpushedWarn)
+	}
+	if got.Committer != want.Committer || got.AuthorEmail != want.AuthorEmail {
+		t.Errorf("identity = %+v %q, want %+v %q", got.Committer, got.AuthorEmail, want.Committer, want.AuthorEmail)
+	}
+	// The forge and the instance it points at survive too: a self-hosted
+	// GitLab reached under a name that is not the repository's host would
+	// otherwise silently become github.com in the unit.
+	if got.Forge.Kind() != want.Forge.Kind() || got.Forge.AuthorizeURL() != want.Forge.AuthorizeURL() {
+		t.Errorf("forge = %s %s, want %s %s",
+			got.Forge.Kind(), got.Forge.AuthorizeURL(), want.Forge.Kind(), want.Forge.AuthorizeURL())
+	}
+}
+
+// A unit does not run from the directory the install was typed in: launchd
+// starts an agent in /, systemd a user service in the home directory. A
+// relative --data carried across verbatim has the daemon open a different
+// clone from the one the operator meant, or on launchd fail to make one at
+// all and respawn forever.
+// A credential can also arrive inside the repository URL, and a unit's
+// command line is not private: /proc/<pid>/cmdline is world-readable on
+// Linux and `systemctl --user cat` prints ExecStart in full. So it is
+// dropped rather than rendered, and the install says which one it dropped.
+func TestFlagArgsDropsACredentialInsideARepositoryURL(t *testing.T) {
+	cfg := parseGitFlags(t, map[string]string{
+		"AEMAN_REPOS": "board=https://x-access-token:ghp_inthisurl@github.com/acme/board.git",
+	}, nil)
+	rendered := strings.Join(flagArgs(cfg), " ")
+	if strings.Contains(rendered, "ghp_inthisurl") || strings.Contains(rendered, "x-access-token") {
+		t.Fatalf("flagArgs rendered the URL's credential: %s", rendered)
+	}
+	// The repository is still there, or the check above passes on nothing.
+	if !strings.Contains(rendered, "board=https://github.com/acme/board.git") {
+		t.Fatalf("flagArgs mangled the URL instead of stripping the credential: %s", rendered)
+	}
+	// And the daemon still clones with the credential — only the unit is
+	// without it.
+	if cfg.Repos[0].URL != "https://x-access-token:ghp_inthisurl@github.com/acme/board.git" {
+		t.Fatalf("the running process lost its credential too: %q", cfg.Repos[0].URL)
+	}
+}
+
+// An `ssh://` login must survive the strip, but a password sitting next to
+// it is a secret like any other and the unit's command line is readable by
+// other accounts. Dropping it costs nothing: go-git's ssh transport passes
+// only the endpoint user to DefaultAuthBuilder and never reads a URL
+// password.
+func TestFlagArgsDropsAPasswordFromAnSSHRemote(t *testing.T) {
+	const remote = "ssh://git:s3cret@github.com/acme/board.git"
+	cfg := parseGitFlags(t, map[string]string{"AEMAN_REPOS": "board=" + remote}, nil)
+	rendered := strings.Join(flagArgs(cfg), " ")
+	if strings.Contains(rendered, "s3cret") {
+		t.Fatalf("flagArgs rendered the ssh password: %s", rendered)
+	}
+	// The login is load-bearing, so the strip must not take it along.
+	if !strings.Contains(rendered, "board=ssh://git@github.com/acme/board.git") {
+		t.Fatalf("flagArgs dropped the ssh login with the password: %s", rendered)
+	}
+	// And the install has to name it, or a credential goes missing in
+	// silence for whoever is reading the output.
+	if !hasCredential(remote) {
+		t.Error("the ssh password is not reported as dropped")
+	}
+	// The running process keeps it; only the unit file is without it.
+	if cfg.Repos[0].URL != remote {
+		t.Fatalf("the running process lost its password too: %q", cfg.Repos[0].URL)
+	}
+}
+
+// Every URL form that hides no secret must reach the unit exactly as
+// given, and none of them may be reported as a dropped credential. An
+// `ssh://` userinfo with no password is the LOGIN, and go-git falls back to
+// the local OS account when it is missing, so dropping it would have every
+// fetch and push authenticate as the wrong user while the daemon reported
+// itself healthy.
+func TestFlagArgsKeepsEveryOtherURLFormIntact(t *testing.T) {
+	for _, remote := range []string{
+		// The login, not a secret: stripping it made go-git fall back to
+		// the local OS account.
+		"ssh://git@github.com/acme/board.git",
+		// Does not parse as a URL at all, so it must survive untouched.
+		"git@github.com:acme/board.git",
+		// No userinfo to confuse anything — pinned because "safe by
+		// construction" is the argument that was already wrong once here.
+		"file:///srv/boards/board.git",
+		"/srv/boards/board.git",
+	} {
+		cfg := parseGitFlags(t, map[string]string{"AEMAN_REPOS": "board=" + remote}, nil)
+		rendered := strings.Join(flagArgs(cfg), " ")
+		if !strings.Contains(rendered, "board="+remote) {
+			t.Errorf("flagArgs changed %q:\n%s", remote, rendered)
+		}
+		// And the install must not call the login a credential.
+		if hasCredential(remote) {
+			t.Errorf("%q was read as carrying a credential", remote)
+		}
+	}
+}
+
+// A local remote given as a relative path hits the same trap --data does:
+// the unit is not run from the directory the install was typed in.
+func TestFlagArgsResolvesARelativeRepositoryPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "board.git"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	cfg := parseGitFlags(t, map[string]string{"AEMAN_REPOS": "board=board.git"}, nil)
+	rendered := strings.Join(flagArgs(cfg), " ")
+	want := filepath.Join(dir, "board.git")
+	if !strings.Contains(rendered, "board="+want) {
+		t.Fatalf("flagArgs left the local path relative: %s", rendered)
+	}
+
+	// A URL keeps its shape, and a path that does not exist is not guessed at.
+	for _, raw := range []string{"https://example.com/board.git", "ssh://git@example.com/board.git", "nope.git"} {
+		cfg := parseGitFlags(t, map[string]string{"AEMAN_REPOS": "board=" + raw}, nil)
+		if got := strings.Join(flagArgs(cfg), " "); !strings.Contains(got, "board="+raw) {
+			t.Errorf("flagArgs changed %q: %s", raw, got)
+		}
+	}
+}
+
+func TestFlagArgsResolvesARelativeDataDir(t *testing.T) {
+	cfg := parseGitFlags(t, map[string]string{"AEMAN_REPOS": "board=https://example.com/b.git"},
+		[]string{"--data", filepath.Join(".", "board-data")})
+	args := flagArgs(cfg)
+	i := slices.Index(args, "--data")
+	if i < 0 || i+1 >= len(args) {
+		t.Fatalf("flagArgs rendered no --data: %v", args)
+	}
+	if !filepath.IsAbs(args[i+1]) {
+		t.Fatalf("--data %q stayed relative", args[i+1])
+	}
+	if filepath.Base(args[i+1]) != "board-data" {
+		t.Fatalf("--data %q is not the directory that was asked for", args[i+1])
+	}
+}
+
+// The unit file sits in the user's home in plain text, readable by anything
+// that runs as them. The daemon finds its credential the way `aeman mcp`
+// does — from the environment or the forge's CLI — so no token is ever
+// written into it.
+func TestFlagArgsNeverRendersACredential(t *testing.T) {
+	env := map[string]string{
+		"AEMAN_REPOS":              "shared=https://x/a.git,closed=https://x/b.git",
+		"AEMAN_GIT_TOKEN":          "ghp_sharedsecret",
+		"AEMAN_GIT_TOKEN_CLOSED":   "ghp_closedsecret",
+		"AEMAN_GITHUB_APP_KEY":     "ghp_appkeysecret",
+		"AEMAN_GIT_TOKEN_NOTAREPO": "ghp_straysecret",
+	}
+	cfg := parseGitFlags(t, env, nil)
+	rendered := strings.Join(flagArgs(cfg), " ")
+	for _, secret := range []string{"ghp_sharedsecret", "ghp_closedsecret", "ghp_appkeysecret", "ghp_straysecret"} {
+		if strings.Contains(rendered, secret) {
+			t.Errorf("flagArgs rendered %s: %s", secret, rendered)
+		}
+	}
+	// The repositories themselves still have to be there, or the check
+	// above passes on an empty string.
+	if !strings.Contains(rendered, "shared=https://x/a.git") || !strings.Contains(rendered, "closed=https://x/b.git") {
+		t.Fatalf("flagArgs dropped the repositories: %s", rendered)
 	}
 }

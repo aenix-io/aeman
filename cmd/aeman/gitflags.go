@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -225,6 +226,173 @@ func (g *gitFlags) config() (*server.GitConfig, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// flagArgs renders a resolved GitConfig back as the flags that reproduce
+// it — what a service unit runs the daemon with. A unit file is read by the
+// service manager, not by a shell: it inherits none of the environment the
+// install was typed in, so an install configured entirely through
+// AEMAN_REPOS still has to end up naming its repositories.
+//
+// No credential is ever rendered. The unit is a plain file in the user's
+// home, and the daemon finds its token where `aeman mcp` does: the
+// environment, the keychain `aeman login` writes, or the forge's CLI.
+func flagArgs(cfg *server.GitConfig) []string {
+	if cfg == nil {
+		return nil
+	}
+	args := make([]string, 0, 2*len(cfg.Repos)+20)
+	for _, r := range cfg.Repos {
+		args = append(args, "--repo", r.Name+"="+absoluteLocalPath(withoutCredential(r.URL)))
+	}
+	// A relative --data names the directory the install was typed in, and
+	// the unit is not run from there: launchd starts an agent in /, systemd
+	// a user service in the home directory. Resolving it here is the
+	// difference between the daemon opening the board and quietly making a
+	// second one beside it.
+	data := cfg.DataDir
+	if abs, err := filepath.Abs(data); err == nil {
+		data = abs
+	}
+	args = append(args,
+		"--data", data,
+		"--history", cfg.History.String(),
+		"--history-max", cfg.HistoryMax.String(),
+		"--sync-interval", cfg.SyncInterval.String(),
+		"--unpushed-warn", cfg.UnpushedWarn.String(),
+		"--committer", fmt.Sprintf("%s <%s>", cfg.Committer.Name, cfg.Committer.Email),
+	)
+	if cfg.AuthorEmail != "" {
+		args = append(args, "--author-email", cfg.AuthorEmail)
+	}
+	if cfg.Forge != nil {
+		args = append(args, "--forge", string(cfg.Forge.Kind()))
+		if cfg.Forge.Kind() == forge.GitLab {
+			args = append(args, "--gitlab-url", gitlabBaseOf(cfg.Forge))
+		}
+	}
+	return args
+}
+
+// carriesCredential reports whether a repository URL embeds a SECRET, which
+// is what may not reach a unit: a unit's command line is not private however
+// tight the file's mode is — on Linux /proc/<pid>/cmdline is world-readable
+// and `systemctl --user cat` prints ExecStart in full — so a token there
+// would be readable by exactly the other accounts this daemon's own
+// documentation warns about.
+//
+// What counts as the secret depends on the scheme. Over HTTP(S) the whole
+// userinfo does: the username is half of a token pair (`x-access-token`).
+// Elsewhere only the password does, because the username is the LOGIN
+// go-git authenticates as: DefaultAuthBuilder passes the endpoint user to
+// NewSSHAgentAuth, which calls username() for an empty one, so dropping it
+// would have every fetch and push run as the wrong account while the daemon
+// reported itself healthy. A password there is never read by that transport
+// at all, so it is free to drop. The scp form (`git@host:path`) does not
+// parse as a URL and is left alone by both callers.
+//
+// One predicate serves both the strip and the warning: two conditions
+// would be free to disagree, and then a URL is stripped without being
+// reported, or reported without being stripped.
+func carriesCredential(u *url.URL) bool {
+	if u.User == nil {
+		return false
+	}
+	if webScheme(u.Scheme) {
+		return true
+	}
+	_, set := u.User.Password()
+	return set
+}
+
+// webScheme keeps the one scheme test in one place: carriesCredential and
+// withoutCredential must agree about which URLs hide a token in the
+// username, or a URL is stripped without being reported.
+func webScheme(scheme string) bool {
+	return scheme == "http" || scheme == "https"
+}
+
+// needsSSHAgent reports whether a remote is reached over ssh, which decides
+// nothing about credentials in the URL and everything about whether a unit
+// can authenticate at all: go-git falls back to NewSSHAgentAuth, and an
+// agent is a socket, not a token.
+func needsSSHAgent(raw string) bool {
+	if scpLike(raw) {
+		return true
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "ssh" || strings.HasSuffix(u.Scheme, "+ssh")
+}
+
+// scpLike matches the two spellings git reads as ssh without a scheme,
+// `user@host:path` and `host:path`, neither of which arrives here as a
+// scheme to test: url.Parse refuses the first for the colon in its first
+// path segment, and takes the second as a scheme named after the host with
+// an opaque body. A single character before the colon is a Windows drive
+// letter, not a host, and a slash before it means the colon is inside a
+// path.
+func scpLike(raw string) bool {
+	if strings.Contains(raw, "://") {
+		return false
+	}
+	host, path, found := strings.Cut(raw, ":")
+	return found && path != "" && len(host) > 1 && !strings.Contains(host, "/")
+}
+
+// absoluteLocalPath resolves a remote given as a relative local path, for
+// the same reason --data is resolved: a unit is not run from the directory
+// the install was typed in — launchd starts an agent in /, systemd a user
+// service in the home directory. A URL with a scheme, and anything that is
+// not an existing path, is left exactly as given.
+func absoluteLocalPath(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
+		return raw
+	}
+	if filepath.IsAbs(raw) {
+		return raw
+	}
+	if _, err := os.Stat(raw); err != nil {
+		return raw
+	}
+	abs, err := filepath.Abs(raw)
+	if err != nil {
+		return raw
+	}
+	return abs
+}
+
+// withoutCredential is the repository URL as it may be written into a unit:
+// no userinfo at all over HTTP(S), and the login without its password
+// elsewhere.
+func withoutCredential(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || !carriesCredential(u) {
+		return raw
+	}
+	if webScheme(u.Scheme) {
+		u.User = nil
+	} else {
+		u.User = url.User(u.User.Username())
+	}
+	return u.String()
+}
+
+// hasCredential reports whether a URL carries a credential, so the install
+// can say that this one is being dropped.
+func hasCredential(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && carriesCredential(u)
+}
+
+// gitlabBaseOf reads back the instance a GitLab forge was built for. The
+// forge keeps its base URL to itself and hangs every endpoint off it, so
+// the OAuth one is where the base is read from; the round-trip test pins
+// that, and breaks if the endpoint ever moves.
+func gitlabBaseOf(f forge.Forge) string {
+	return strings.TrimSuffix(f.AuthorizeURL(), "/oauth/authorize")
 }
 
 // githubApp builds the GitHub App credential when AEMAN_GITHUB_APP_ID is

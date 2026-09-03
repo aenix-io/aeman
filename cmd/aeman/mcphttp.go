@@ -42,6 +42,14 @@ var (
 	mcpSessionTimeout = 12 * time.Hour
 )
 
+// mcpStopBudget is the longest a stop can take: the queue's flush, the open
+// connections, then the mop-up. stopTimeout derives the unit's kill deadline
+// from it, so neither can drift past the other: a manager that kills at 30
+// while the stop needs 45 destroys the commits the queue was holding.
+func mcpStopBudget() time.Duration {
+	return mcpDrainBudget + mcpShutdownBudget + mcpLastDrainBudget
+}
+
 // checkListenAddr refuses an address that puts the board on the network.
 // Nothing authenticates the endpoint: whoever reaches the port holds the
 // board with the daemon's own push credential, so binding it anywhere but
@@ -123,8 +131,8 @@ func mcpHTTPHandler(srv *mcp.Server, health func() daemonHealth) http.Handler {
 // serveMCPHTTP runs the daemon until ctx is cancelled, then flushes the write
 // queue before it stops answering. The shape follows the HTTP server's own
 // stop (internal/server: Server.Run) with one pass more: nothing else keeps
-// answering tool calls while it drains. The three phases together are what
-// a stop can cost, and whatever supervises the daemon has to allow for it.
+// answering tool calls while it drains. mcpStopBudget is what the whole
+// thing can cost, and the service unit's kill deadline is derived from it.
 func serveMCPHTTP(ctx context.Context, addr string, h http.Handler, drain func(context.Context) error, log *slog.Logger) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

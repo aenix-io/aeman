@@ -76,6 +76,8 @@ func run(args []string) error {
 		return runServe(args[1:])
 	case "mcp":
 		return runMCP(args[1:])
+	case "service":
+		return runService(args[1:])
 	case "init":
 		return runInit(args[1:])
 	case "migrate":
@@ -101,6 +103,7 @@ func usage() {
 Usage:
   aeman serve [flags]   Start the server and open the UI
   aeman mcp [flags]     Start the MCP server on stdio, or --listen for a shared daemon
+  aeman service VERB    Install, uninstall or inspect the MCP daemon (install|uninstall|status)
   aeman init --repo URL Bootstrap an empty repository as a board
   aeman migrate [flags] Copy a GitHub Projects v2 board into a repository
   aeman login [flags]   Store the forge token in the OS keychain
@@ -111,6 +114,10 @@ Usage:
 The board's storage is a git repository: pass --repo name=url (or
 AEMAN_REPOS) to serve and mcp. Without it the GitHub Projects v2 board
 named by --owner/--board is served.
+
+One process owns a data directory at a time. 'aeman service install' runs
+the MCP daemon in the background and every client connects to it over
+loopback HTTP instead of starting one of its own.
 
 Run 'aeman serve --help', 'aeman mcp --help' or 'aeman init --help' for flags.
 `)
