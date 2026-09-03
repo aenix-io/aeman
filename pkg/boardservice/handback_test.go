@@ -84,11 +84,14 @@ func TestTheRemoveLeavesACardThatIsScheduledForAWeek(t *testing.T) {
 	if c.Week != week {
 		t.Fatalf("it must keep the week it is scheduled for: week=%q", c.Week)
 	}
-	if c.SprintStart != "" || len(c.Assignees) != 0 {
-		t.Fatalf("it must leave the working area: sprint=%q assignees=%v", c.SprintStart, c.Assignees)
+	if c.SprintStart != "" || len(c.Assignees) != 0 || c.StartDate != "" || c.Day != "" {
+		t.Fatalf("it must leave the working area: %+v", c)
 	}
-	if onGrid(t, fake, "c1") {
-		t.Fatal("it is still on the day grid — the dates keep it there")
+	// It is still ON the grid — in Unassigned, which is where the week's own
+	// work stands — but it is nobody's and has no day: the × emptied the
+	// working area, it did not take the card off the board.
+	if !onGrid(t, fake, "c1") {
+		t.Fatal("the week's own work stands in Unassigned, not nowhere")
 	}
 }
 

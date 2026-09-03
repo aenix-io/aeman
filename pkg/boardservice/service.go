@@ -1057,10 +1057,14 @@ func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Car
 	// × takes it out of the working area and leaves it there — whatever it
 	// carries. Only while it IS in the working area: a card that is nothing
 	// but its week has no second home to be handed to, and an × that always
-	// answered "back to your week" could never remove one at all. A slot's
-	// week is derived from its start date rather than stored, so it is
-	// answered by the column arm below instead.
-	if c.Week != "" && !hasColumn(c) && inWorkingArea(c) {
+	// answered "back to your week" could never remove one at all. A PROCESS
+	// TURN is the exception, and never runs out of homes: the week it was
+	// filed into is its process's record of what that week was owed, and the
+	// turn is how the board remembers it — so the × empties the working area
+	// and, pressed again, does nothing. A slot's week is derived from its
+	// start date rather than stored, so it is answered by the column arm
+	// below instead.
+	if c.Week != "" && !hasColumn(c) && (inWorkingArea(c) || c.Task != "") {
 		if len(c.Assignees) > 0 {
 			if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
 				return err

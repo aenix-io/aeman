@@ -26,6 +26,15 @@ func TeamGrid(b Board, team, day string) []Card {
 		if PlacedAhead(c, today) {
 			continue
 		}
+		// The WEEK's own work stands on the grid all week — in its person's
+		// column, or in Unassigned when nobody has taken it. This is the set
+		// the Triage board shows for that week: what the weekly panel used
+		// to hold beside the grid, now in the grid itself, so a card placed
+		// in a week is not invisible until somebody gives it a day.
+		if InWeek(c, MondayOf(day), today) {
+			out = append(out, c)
+			continue
+		}
 		// An epic card lives on the Project board until it joins a sprint (see
 		// MeView) — its multi-week span must not smear across the day grid.
 		// The COLUMN is what keeps it there, and a column needs the epic

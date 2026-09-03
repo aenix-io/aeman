@@ -133,6 +133,37 @@ export function weeksCovered(c: Pick<Card, "week" | "day">): string[] {
   return out;
 }
 
+/** placedAhead reports whether the card is placed in a week ahead of today's.
+ *  Such a card is on no day board until its Monday (B1): that is what makes
+ *  the backlog a regulator rather than a list. Mirrors board.PlacedAhead. */
+export function placedAhead(c: Pick<Card, "week">, today: string): boolean {
+  return !!c.week && c.week > mondayOf(today);
+}
+
+/** inWeek reports whether the card is the given week's own work: any of the
+ *  weeks it covers, or — in the CURRENT week — a DEBT owed in an earlier one,
+ *  which stands beside that week's work without leaving the week it was owed
+ *  in. It is what a week's column holds here and what the Team board's grid
+ *  carries all week, so a card placed in a week is not invisible until
+ *  somebody gives it a day. Mirrors board.InWeek.
+ *
+ *  The debt is the card's own `overdue`, which the server derives: a client
+ *  re-deriving it from dates would answer differently the moment the two
+ *  drifted. */
+export function inWeek(
+  c: Pick<Card, "week" | "day" | "overdue">,
+  week: string,
+  today: string,
+): boolean {
+  if (!c.week) {
+    return false;
+  }
+  if (weeksCovered(c).includes(week)) {
+    return true;
+  }
+  return week === mondayOf(today) && c.week < week && !!c.overdue;
+}
+
 /** reachOf is the last week a card reaches — its own when it was never
  *  stretched. */
 export function reachOf(c: Pick<Card, "week" | "day">): string {

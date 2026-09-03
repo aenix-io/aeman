@@ -108,7 +108,10 @@ func TestListSelectors(t *testing.T) {
 		}
 		return out
 	}
-	if !reflect.DeepEqual(ids(team), []string{"c1", "rev", "z1"}) {
+	// p1 and p2 are the week's own work: placed in the week the viewed day
+	// falls in, they stand on the grid all week (in Unassigned, nobody having
+	// taken them) the way the weekly panel used to hold them beside it.
+	if !reflect.DeepEqual(ids(team), []string{"c1", "rev", "p1", "p2", "z1"}) {
 		t.Fatalf("team view = %v", ids(team))
 	}
 	me := FilterCards(b, Selector{View: "me", User: "octocat", Day: "2026-01-10"})
@@ -138,8 +141,8 @@ func TestSelectorMatches(t *testing.T) {
 	if !sel.Matches(b, b.Cards[0]) {
 		t.Fatal("c1 is in the team view")
 	}
-	if sel.Matches(b, b.Cards[2]) {
-		t.Fatal("p1 (a plan card) is not on the day grid")
+	if !sel.Matches(b, b.Cards[2]) {
+		t.Fatal("p1 is this week's own work and stands on the grid")
 	}
 }
 

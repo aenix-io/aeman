@@ -211,3 +211,52 @@ func TestMeViewHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
 		t.Fatalf("MeView = %v; want the project-only card and the owned slot", got)
 	}
 }
+
+// The week's own work stands on the day grid all week — its person's column,
+// or Unassigned when nobody has taken it. This is the set the Triage board
+// shows for that week: what the weekly panel used to hold beside the grid,
+// and the reason a card placed in a week is not invisible until someone
+// gives it a day.
+func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
+	today := TodayIso()
+	week := MondayOf(today)
+	b := NewBoard([]Card{
+		// Placed in this week and nothing else: no dates, no sprint.
+		{ItemID: "placed", Team: "t", Week: week},
+		// A slot covering this week, on nobody's day.
+		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
+			StartDate: AddDays(week, -7), Day: AddDays(week, 4)},
+		// A process turn filed into this week.
+		{ItemID: "turn", Team: "t", Task: "task", Week: week, Stage: StageRecurrent},
+		// A debt: owed last week, still open — it stands beside this week's
+		// work without leaving the week it was owed in.
+		{ItemID: "debt", Team: "t", Week: AddDays(week, -7)},
+		// Placed in a week to come: on no day board until its Monday (B1).
+		{ItemID: "ahead", Team: "t", Week: AddDays(week, 7)},
+		// Another team's week is not this grid's business.
+		{ItemID: "elsewhere", Team: "other", Week: week},
+	})
+	b.SprintStates = map[string]SprintState{"t": {Current: today}}
+
+	got := ids(TeamGrid(b, "t", today))
+	want := []string{"placed", "slot", "turn", "debt"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("grid = %v, want %v", got, want)
+	}
+
+	// A week that is not the one being looked at carries only its own: a debt
+	// is shown beside the CURRENT week's work, not on some other week's day.
+	next := AddDays(today, 7)
+	if got := ids(TeamGrid(b, "t", next)); slicesContains(got, "debt") {
+		t.Fatalf("a debt belongs to the current week's day, not %s: %v", next, got)
+	}
+}
+
+func slicesContains(xs []string, x string) bool {
+	for _, s := range xs {
+		if s == x {
+			return true
+		}
+	}
+	return false
+}

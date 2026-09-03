@@ -536,6 +536,42 @@ func TestTheCrossNeverDeletesASlot(t *testing.T) {
 	}
 }
 
+// The × never deletes a process TURN either, wherever it finds it: the week
+// it was filed into is the process's own record of what that week was owed,
+// and the turn is how the board remembers it. The × takes it out of the
+// working area and leaves it in its week — and pressed again, on a turn that
+// is nothing but its week, it does nothing rather than destroying the record.
+func TestTheCrossNeverDeletesAProcessTurn(t *testing.T) {
+	today := board.TodayIso()
+	week := board.MondayOf(today)
+	fake := newFake([]board.Card{
+		{ItemID: "turn", Title: "Article", Task: "task", Team: "alpha", Week: week,
+			Stage: board.StageRecurrent, Assignees: []string{"writer"},
+			SprintStart: today, StartDate: today, Day: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	svc := New(fake)
+	if err := svc.Remove(context.Background(), "acme", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.get("turn")
+	if got == nil {
+		t.Fatal("the × deleted a process turn")
+	}
+	if got.Week != week {
+		t.Fatalf("the turn keeps the week it was owed in: %+v", got)
+	}
+	if got.SprintStart != "" || len(got.Assignees) != 0 || got.StartDate != "" {
+		t.Fatalf("it leaves the working area: %+v", got)
+	}
+	// Pressed again on a turn that is only its week: still there.
+	if err := svc.Remove(context.Background(), "acme", "turn"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.get("turn") == nil {
+		t.Fatal("a second × destroyed the process's record of that week")
+	}
+}
+
 // Re-dating a slot is planning: one nobody started stays out of the sprints,
 // and one somebody is working on keeps the sprint they are working in.
 func TestRedatingASlotLeavesItsSprintAlone(t *testing.T) {
