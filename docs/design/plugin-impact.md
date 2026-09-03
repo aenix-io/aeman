@@ -39,7 +39,7 @@ The path never encodes mutable state: renaming, re-zoning, re-teaming or moving 
 
 YAML front-matter between `---` fences, then the description, then an optional `## Notes` section. Empty fields are omitted. Unknown keys are preserved by the server; do not rely on their order.
 
-Front-matter keys, in the order the server writes them: `title, assignees, author, team, zone, stage, progress, doneFrom, doneAt, start, day, sprint, week, project, epic, mirrors, parent, reviewOf, reviewRound, recurrence, process, task, accumulate, link, github, movedFrom, movedAt, rank, created`.
+Front-matter keys, in the order the server writes them: `title, assignees, author, team, zone, stage, progress, doneFrom, doneAt, leftAt, start, day, sprint, week, project, epic, mirrors, parent, reviewOf, reviewRound, recurrence, process, task, accumulate, link, github, movedFrom, movedAt, rank, created`.
 
 One key is READ and dropped rather than written or preserved: `plan` (`wed | fri`), the weekly plan's band, retired in v0.20. An unknown key rides through untouched, so leaving it unknown would have every board re-commit a band nothing means; a writer should not emit it, and may leave an old one where it is — the next write to that card takes it off.
 

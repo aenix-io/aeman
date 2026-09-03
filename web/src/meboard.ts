@@ -59,3 +59,20 @@ export function mayRemove(
 export function sortableWithin(from: ZoneKey, to: ZoneKey): boolean {
   return from === to;
 }
+
+/** mayRefuse reports whether this person may put a card on the REFUSE stage:
+ *  only a card that is on THEM. Refusing is a first-person act — "I am not
+ *  doing this" — so saying it over somebody else's card would be putting
+ *  words in their mouth, and the server refuses it (ErrNotYoursToRefuse).
+ *
+ *  The Me board shows more than the cards on you: a PARENT joins it when any
+ *  of its subtasks is yours, since the piece you are doing hangs under it.
+ *  Offering the stage on every card the board draws therefore offered it on
+ *  parents nobody had given you — the menu opened, the click failed. Mirrors
+ *  the guard in boardservice.SetStage. */
+export function mayRefuse(
+  c: { assignees?: string[] },
+  me: string | undefined,
+): boolean {
+  return !!me && (c.assignees ?? []).includes(me);
+}

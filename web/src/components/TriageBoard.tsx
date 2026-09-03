@@ -34,6 +34,7 @@ import { asksFirst, freeSubtasks, removeChoices, type RemoveChoice } from "../re
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
+import { isComplete } from "../stages";
 import { ADD_ZONE, acceptsNewCard } from "../meboard";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
@@ -102,10 +103,6 @@ interface Slot extends Laned {
    *  falls in is already spoken for, and a board that plans weeks ahead has
    *  to say so. */
   projected?: boolean;
-}
-
-function isDone(c: CardModel): boolean {
-  return c.stage === "done" || (c.progress ?? 0) >= 100;
 }
 
 function whoOf(c: CardModel): string {
@@ -248,7 +245,7 @@ export function TriageBoard({
         continue;
       }
       // A card that HAS a week still has to be work someone is doing.
-      if (week && (c.parent || isPersonalDomain(c.domain ?? "") || isDone(c))) {
+      if (week && (c.parent || isPersonalDomain(c.domain ?? "") || isComplete(c))) {
         continue;
       }
       seen.add(whoOf(c));
@@ -1104,7 +1101,7 @@ export function TriageBoard({
           {people.map((p, col) =>
             (slots.get(p.key) ?? []).map((slot) => {
               const { card, row, part, parts } = slot;
-              const done = isDone(card);
+              const done = isComplete(card);
               const progress = done ? 100 : (card.progress ?? 0);
               // The stripe says where the card came FROM, and it is the same
               // answer the day boards draw (placements.markOf): a PROJECT card
