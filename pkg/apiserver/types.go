@@ -97,6 +97,13 @@ type CardSpec struct {
 	Parent string `json:"parent,omitempty"`
 }
 
+// CycleWindow is the span of weeks a process turn's own occurrence covers,
+// as Mondays, both ends inclusive.
+type CycleWindow struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 // CardStatus is derived by the server, never written by clients.
 type CardStatus struct {
 	Complete   bool `json:"complete"`
@@ -131,6 +138,24 @@ type CardStatus struct {
 	// Triage board — its week. Absent means it stands in none: the strip
 	// holds it until somebody says when the work is due (B5).
 	TriageWeek string `json:"triageWeek,omitempty"`
+	// Due is a RECURRENT card's weeks to come: the ones it comes round in
+	// over the planning horizon and no copy of it stands in yet. A team's own
+	// repeating work — the weekly report, the monthly invoice — is reseeded
+	// by carry-over rather than filed by a process, and the weeks it will
+	// land in are as spoken for as a process turn's. Absent on everything
+	// else, and on a recurrence with no calendar (per sprint).
+	Due []string `json:"due,omitempty"`
+	// Cycle is a process TURN's own occurrence: the first and last week it
+	// may stand in, both Mondays and both inclusive. A turn belongs to one
+	// turn of its process's calendar, and moving it past the next due date
+	// would put it where the NEXT turn belongs — the two would then read as
+	// one process running twice. Absent on everything that is not a turn,
+	// and on a turn whose task has no calendar to reckon with.
+	//
+	// It is sent rather than derived by the client because the calendar is
+	// the server's (board.CycleWindow): a second implementation of "when is
+	// this next due" is a second answer waiting to disagree.
+	Cycle *CycleWindow `json:"cycle,omitempty"`
 	// LeftAt is the board day the × took the card off. On a personal card
 	// that is a live rule — the board shows it that day and before, not
 	// after; on a team card the × demotes into the previous sprint and this
@@ -453,6 +478,20 @@ func CardResource(b board.Board, c board.Card) Card {
 		LeftAt:      c.LeftAt,
 		Triage:      board.NeedsTriage(b, c, board.TodayIso()),
 		TriageWeek:  board.TriageWeekOf(b, c, board.TodayIso()),
+	}
+	status.Due = board.UpcomingRecurrences(b, c, board.TodayIso(), TurnsAhead)
+	// A process turn carries the occurrence it belongs to, so the board can
+	// bound the grip without a calendar of its own.
+	if c.Task != "" && c.Week != "" {
+		for _, t := range b.Tasks {
+			if t.ItemID != c.Task {
+				continue
+			}
+			if from, to := board.CycleWindow(t, c.Week); from != "" {
+				status.Cycle = &CycleWindow{From: from, To: to}
+			}
+			break
+		}
 	}
 	for _, l := range board.ExtractLinks(c.Description) {
 		// A row needs an indicator and a menu, not an inventory: a
