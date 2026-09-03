@@ -1,7 +1,10 @@
-// Command aeman is a backend-less project management UI. It serves an embedded
-// single-page application and uses GitHub Projects v2 as its data backend,
-// authenticating through the local gh CLI or a GitHub OAuth web flow. It also
-// exposes a native JSON API and an MCP server.
+// Command aeman is a short-term planning system whose storage is a git
+// repository. It serves an embedded single-page application over a native
+// JSON API and an MCP server, committing every change to the board's
+// repositories on GitHub or GitLab. A single-user run takes its identity
+// and credential from the environment, the OS keychain (`aeman login`) or
+// the forge's own tool; a self-hosted one signs each visitor in over
+// OAuth. `aeman migrate` copies a GitHub Projects v2 board in, once.
 package main
 
 import (
@@ -225,14 +228,18 @@ func runMCP(args []string) error {
 		Lock:    true,
 		Version: version,
 		// Scope the default (unspecified-view) list to the local user's own Me
-		// board; best-effort via the forge's CLI, else the list stays sprint-scoped.
+		// board; best-effort via the credential chain, else the list stays
+		// sprint-scoped.
 		ResolveLogin: cli.Login,
 		Backend:      gb.Backend(),
 	}
 	drain := gb.Drain
 	srv := mcpserver.New(cfg)
 
-	// Attribute activity events to the local CLI identity (cached per process).
+	// Attribute activity events to whoever the elected source's token
+	// belongs to. Cached per TOKEN rather than per process: a token
+	// replaced by `aeman login` in another terminal is re-read within
+	// the window and its owner asked again.
 	srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if login, err := cli.Login(ctx); err == nil {

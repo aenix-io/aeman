@@ -10,7 +10,7 @@ const github = {
   signInTitle: "Sign in to aeman",
   signInLead: "Connect your GitHub account to open the board.",
   signInButton: "Sign in with GitHub",
-  noTokenHint: "No GitHub token — run gh auth login in the terminal where aeman runs.",
+  noTokenHint: "No GitHub token — run aeman login, or gh auth login, in the terminal where aeman runs.",
   repoPlaceholder: "https://github.com/<you>/<repo>",
   connectHint: "Sign in with GitHub on first use (OAuth, no token stored).",
 };
@@ -23,7 +23,7 @@ const gitlab = {
   signInTitle: "Sign in to aeman",
   signInLead: "Connect your GitLab account to open the board.",
   signInButton: "Sign in with GitLab",
-  noTokenHint: "No GitLab token — run glab auth login in the terminal where aeman runs.",
+  noTokenHint: "No GitLab token — run aeman login, or glab auth login, in the terminal where aeman runs.",
   repoPlaceholder: "https://gitlab.com/<you>/<repo>",
   connectHint: "Sign in with GitLab on first use (OAuth, no token stored).",
 };

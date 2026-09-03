@@ -22,8 +22,9 @@ type people struct {
 	forge  forge.Forge
 	client *http.Client
 	// token is the credential the directory is read with: the server's own
-	// in OAuth mode, the forge CLI's on a single-user server. "" asks as
-	// nobody, which gitlab.com allows for public profiles.
+	// in OAuth mode, and on a single-user server whichever source the CLI
+	// elected. "" asks as nobody, which gitlab.com allows for public
+	// profiles.
 	token func(ctx context.Context) string
 	now   func() time.Time
 

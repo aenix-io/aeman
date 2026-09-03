@@ -55,9 +55,9 @@ type Options struct {
 	// the authority on repository access, the directory of names and
 	// avatars, the git credential's dialect. GitHub when nil.
 	Forge forge.Forge
-	// CLI is the forge's command-line tool standing in for the signed-in
-	// person on a single-user server (gh, glab); the gh CLI when nil. Unused
-	// in OAuth mode.
+	// CLI is where a single-user server reads its credential and the
+	// person it belongs to — the environment, the OS keychain, or the
+	// forge's own tool; the gh CLI when nil. Unused in OAuth mode.
 	CLI forge.CLI
 }
 

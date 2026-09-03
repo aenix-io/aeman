@@ -49,7 +49,7 @@ Beside the day boards sits **Triage**: the weeks laid out side by side, a column
 - **Kubernetes-style API and live sync**: cards, sprints, notes and the board order are resources (`{kind, metadata, spec, status}`); a client LISTs them (`GET /api/v1/cards`) and then applies a WATCH stream of `ADDED / MODIFIED / DELETED` resource events over a WebSocket — optionally scoped to one view by the same selectors LIST takes. Every write — from the UI, the REST API or an agent over MCP — goes through one board service with a shared in-memory store, is answered at once, and reaches every open board in about a second (a client's own changes are not echoed back to it).
 - **Every request is one commit.** The server keeps a shallow clone of the board's repositories under `--data`, commits each request's writes as one commit (author = the person, committer = the server, machine-readable `Aeman-*` trailers), pushes in the background and fetches other replicas' commits on a timer; a rejected push is re-applied on the new tip field by field. The card's activity feed *is* this history.
 - **Visibility by repository.** A board may span several repositories (domains): a closed project in a private repository next to the shared one. A visitor sees the union of what they can read — an unreadable domain is absent, not empty — and writes need write access to the repository they land in. Design: [docs/design/git-backend.md](docs/design/git-backend.md).
-- The browser never holds a token: the binary resolves the identity server-side (local `gh` or `glab` login, or per-user OAuth sessions in the self-hosted mode); the push credential is the server's (`AEMAN_GIT_TOKEN`).
+- The browser never holds a token: the binary resolves the identity server-side (the owner of the locally stored token — `aeman login`, `gh`, `glab` — or per-user OAuth sessions in the self-hosted mode); the push credential is the server's (`AEMAN_GIT_TOKEN`).
 
 ### Repository layout
 
@@ -65,9 +65,9 @@ Ids are ULIDs; files keep unknown keys, so hand edits and other tools survive. `
 
 ## Requirements
 
-- A git repository aeman can push to over HTTPS, on GitHub or GitLab (gitlab.com or self-hosted) — `AEMAN_GIT_TOKEN`; the local mode falls back to the forge CLI's token — or a local path for a single-user setup.
-- The forge's CLI, signed in, for the local identity — depending on where the board repositories live: [GitHub CLI (`gh`)](https://cli.github.com/) (`gh auth login`; also needed for the migration) or [GitLab CLI (`glab`)](https://gitlab.com/gitlab-org/cli) (`glab auth login`).
-- Go 1.26+ and Node.js 20+ to build from source.
+- A git repository aeman can push to over HTTPS, on GitHub or GitLab (gitlab.com or self-hosted) — `AEMAN_GIT_TOKEN`, or `aeman login` to keep the token in the OS keychain instead — or a local path for a single-user setup.
+- Optionally the forge's CLI, signed in, as another place the local identity and token can come from — depending on where the board repositories live: [GitHub CLI (`gh`)](https://cli.github.com/) (`gh auth login`) or [GitLab CLI (`glab`)](https://gitlab.com/gitlab-org/cli) (`glab auth login`). `aeman login` covers the same ground without either.
+- Go 1.26.4+ and Node.js 20+ to build from source.
 
 ## Build & run
 
@@ -86,7 +86,7 @@ make run            # go run ./cmd/aeman serve
 
 `aeman serve` flags: `--repo name=url` (repeatable; the board's repositories, primary first — env `AEMAN_REPOS`), `--data` (where the clones live), `--history` (how far back the log is loaded in the background, default 2 weeks) and `--history-max` (how far a card's log may deepen on demand, default a year), `--sync-interval` (fetch cadence, 15 s), `--unpushed-warn` (age of an unpushed commit that turns `/api/healthz` degraded, 5 m), `--committer` and `--author-email`, `--addr`, `--open`, `--verbose`. Each flag has an `AEMAN_*` environment twin; the push credential is `AEMAN_GIT_TOKEN`, never a flag. ("Project" is aeman's own planning entity — a group of epic columns — not a repository.)
 
-The board lives on one **forge** — GitHub or GitLab (gitlab.com or self-hosted) — which signs visitors in and answers who may read which repository. `--forge github|gitlab` (`AEMAN_FORGE`) picks it; unset, it follows the primary repository's host: `github.com` → GitHub, a host containing `gitlab` → GitLab, anything else → GitHub unless `AEMAN_GITLAB_URL` is set. `--gitlab-url` (`AEMAN_GITLAB_URL`) names a self-hosted GitLab's base URL (default `https://<host of the primary repository>`). Without OAuth variables the binary runs in the local, single-user mode and takes its identity and token from the forge's CLI signed in on the machine: `gh auth login` on GitHub, `glab auth login` on GitLab. The token is `AEMAN_GIT_TOKEN` when set, else `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), else the CLI's own.
+The board lives on one **forge** — GitHub or GitLab (gitlab.com or self-hosted) — which signs visitors in and answers who may read which repository. `--forge github|gitlab` (`AEMAN_FORGE`) picks it; unset, it follows the primary repository's host: `github.com` → GitHub, a host containing `gitlab` → GitLab, anything else → GitHub unless `AEMAN_GITLAB_URL` is set. `--gitlab-url` (`AEMAN_GITLAB_URL`) names a self-hosted GitLab's base URL (default `https://<host of the primary repository>`). Without OAuth variables the binary runs in the local, single-user mode. The push credential is `AEMAN_GIT_TOKEN` when set, else `GITHUB_TOKEN`/`GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), else the OS keychain that `aeman login` writes, else the forge's CLI signed in on the machine (`gh auth login`, `glab auth login`). The identity is whoever that credential belongs to — the same order, so the push and the name on the commits are one account. `AEMAN_GIT_TOKEN` is the exception: it names the server's credential only, and the identity then starts at the forge's own variables.
 
 ## API and MCP server
 

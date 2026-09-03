@@ -34,7 +34,7 @@ export interface AppConfig {
   forge?: "github" | "gitlab";
   /** Human name of the forge: "GitHub" | "GitLab". */
   forgeLabel?: string;
-  /** The forge's CLI the local mode reads its token from: "gh" | "glab". */
+  /** The forge's own CLI, "gh" | "glab" — one of the sources a local run reads its token from, after the environment and the OS keychain. */
   cli?: string;
   /** The forge's host: "github.com", "gitlab.com", or a self-hosted one. */
   forgeHost?: string;

@@ -631,7 +631,7 @@ forge wants), never a flag.
 
 | mode | identity | visible domains | write check | push credential |
 | --- | --- | --- | --- | --- |
-| local (`gh` token) | `gh api user` login, as today | all configured | none beyond the forge's own on push | `AEMAN_GIT_TOKEN` if set, else `gh auth token` |
+| local (single user) | the owner of the token the chain elected, asked of the forge | all configured | none beyond the forge's own on push | `AEMAN_GIT_TOKEN` if set, else the forge's own variables, then the OS keychain (`aeman login`), then `gh auth token` / `glab config get token` |
 | self-hosted (OAuth) | the session's login, as today | those the visitor `CanRead` | the target domain must be `CanWrite` for the visitor | `AEMAN_GIT_TOKEN` |
 
 The forge adapter provides **two** probes, `CanRead(ctx, user, repo)`
