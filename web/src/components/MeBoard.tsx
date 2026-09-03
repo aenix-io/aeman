@@ -53,7 +53,7 @@ import { cardDomainBadge, reviewerCandidates } from "../domains";
 import { isPersonalCard, personalRepoName, personalShows, splitPersonal } from "../personal";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
-import { acceptsNewCard, mayRemove, sortableWithin } from "../meboard";
+import { acceptsNewCard, mayRefuse, mayRemove, sortableWithin } from "../meboard";
 import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
@@ -1916,7 +1916,10 @@ export function MeBoard({
       // about to do, so the card's own anonymous "Delete?" never stands in
       // front of one.
       boardAsks
-      mine={!viewAs}
+      // The refuse stage is offered only on a card that is ON this person:
+      // the board also draws PARENTS whose subtask is theirs, and the stage
+      // is not theirs to set on those (the server refuses it).
+      mine={!viewAs && mayRefuse(card, viewMe ?? undefined)}
       // The × removes only what this person created themselves: work
       // somebody else planned for them is not theirs to take off the board.
       // Their answer to it is the refused stage, which leaves the card

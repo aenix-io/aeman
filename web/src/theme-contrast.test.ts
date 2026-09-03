@@ -142,6 +142,23 @@ describe("done vs in-progress bar separation", () => {
   }
 });
 
+// A REFUSED bar is the darkest on the board — that is what it says: work
+// somebody has put down, waiting on the lead. Dark is not the same as
+// invisible, though: it is drawn on the bar's own track, and if the two are
+// too close the card reads as untouched rather than refused. Held against the
+// track it sits in rather than against the page, which is the surface behind
+// it (styles.css: .triage-slot-bar / .card-bar use --line-soft).
+describe("a refused bar is visible in the track it sits in", () => {
+  for (const [name, sels] of Object.entries(cell)) {
+    it(`${name}: --stage-refuse stands out from --line-soft`, () => {
+      const refuse = resolve("--stage-refuse", sels);
+      const track = resolve("--line-soft", sels);
+      expect(refuse).not.toBe(track);
+      expect(contrast(refuse, track)).toBeGreaterThanOrEqual(1.5);
+    });
+  }
+});
+
 // The spine label is the only text that sits on a zone fill; in the CVD palettes
 // and dark mode it is painted --fg, and must stay readable on every zone.
 describe("zone spine contrast where the spine is --fg", () => {
