@@ -598,3 +598,56 @@ func TestReadersAskOneByOneAboutWhoTheListingCannotSee(t *testing.T) {
 		t.Fatalf("%d per-login questions, want 2 — only for the logins the listing did not name", n)
 	}
 }
+
+// Host is the forge instance a credential belongs to, and it is the forge
+// itself that knows: github.com for GitHub, the base URL's host for a
+// GitLab wherever it lives. A caller that stores a token per forge needs
+// one answer, not its own parse of whichever URL it happens to hold.
+func TestHostIsTheForgeInstance(t *testing.T) {
+	cases := []struct {
+		name string
+		f    Forge
+		want string
+	}{
+		{"github", NewGitHub(), "github.com"},
+		{"github at another api base", NewGitHubAt("https://api.example.org"), "github.com"},
+		{"gitlab.com", NewGitLab("https://gitlab.com"), "gitlab.com"},
+		{"self-hosted", NewGitLab("https://gitlab.example.org/"), "gitlab.example.org"},
+		{"with a port", NewGitLab("https://gitlab.example.org:8443"), "gitlab.example.org:8443"},
+		{"no scheme", NewGitLab("gitlab.example.org"), "gitlab.example.org"},
+		// A base URL is typed by a person; a repository URL arrives folded.
+		// The same instance named either way is ONE account.
+		{"mixed case", NewGitLab("https://GitLab.Example.org"), "gitlab.example.org"},
+		{"mixed case, no scheme", NewGitLab("GitLab.Example.org"), "gitlab.example.org"},
+		// url.Parse reads this as a scheme, leaving an empty Host, so it
+		// is the fallback that answers — the only input where that path
+		// carries anything.
+		{"no scheme, with a port", NewGitLab("gitlab.example.org:8443"), "gitlab.example.org:8443"},
+	}
+	for _, tc := range cases {
+		if got := tc.f.Host(); got != tc.want {
+			t.Errorf("%s: Host() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	// And the forge Detect builds carries the host the board's URL or
+	// --gitlab-url named, which is what makes one definition of the account
+	// possible at all.
+	for _, tc := range []struct{ repoURL, gitlabBase, want string }{
+		{"https://github.com/acme/board.git", "", "github.com"},
+		{"https://gitlab.example.org/a/b.git", "", "gitlab.example.org"},
+		{"git@host.example:a/b.git", "", "github.com"},
+		{"", "https://gitlab.example.org", "gitlab.example.org"},
+		{"", "https://GitLab.Example.org", "gitlab.example.org"},
+		{"https://GitLab.Example.org/a/b.git", "", "gitlab.example.org"},
+		{"", "", "github.com"},
+	} {
+		f, err := Detect(tc.repoURL, "", tc.gitlabBase)
+		if err != nil {
+			t.Fatalf("Detect(%q, %q): %v", tc.repoURL, tc.gitlabBase, err)
+		}
+		if got := f.Host(); got != tc.want {
+			t.Errorf("Detect(%q, %q).Host() = %q, want %q", tc.repoURL, tc.gitlabBase, got, tc.want)
+		}
+	}
+}

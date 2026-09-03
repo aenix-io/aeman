@@ -76,6 +76,11 @@ type Forge interface {
 	// Kind names the forge; Label is its display name for UI copy.
 	Kind() Kind
 	Label() string
+	// Host is the instance this forge is: github.com, or the host of a
+	// GitLab's base URL. It is what a credential belongs to, so a caller
+	// keeping one token per forge keys it by this rather than parsing a
+	// repository URL of its own.
+	Host() string
 
 	// AuthorizeURL and TokenURL are the OAuth endpoints the sign-in flow
 	// uses; DefaultScopes the scope string a board needs when the operator

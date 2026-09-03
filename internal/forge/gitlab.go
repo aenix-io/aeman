@@ -29,8 +29,25 @@ const (
 // NewGitLab is the GitLab instance at base.
 func NewGitLab(base string) Forge { return &gitlab{base: strings.TrimRight(base, "/")} }
 
-func (g *gitlab) Kind() Kind           { return GitLab }
-func (g *gitlab) Label() string        { return "GitLab" }
+func (g *gitlab) Kind() Kind    { return GitLab }
+func (g *gitlab) Label() string { return "GitLab" }
+
+// Host is the instance's host, port and all — two GitLabs on one machine
+// are two forges and hold two credentials. A base given without a scheme
+// is already the host. Lower-cased, because this is a key: a base URL is
+// typed by a person (`--gitlab-url https://GitLab.Example.org`) while a
+// repository URL arrives already folded, and the same instance named two
+// ways must not become two keychain items. The PATH is dropped, so two
+// instances mounted at subpaths of one host (GitLab's relative-URL-root
+// deployment) share an account and therefore a stored token; folding the
+// path in would also hand `glab --host` something it does not take.
+func (g *gitlab) Host() string {
+	u, err := url.Parse(g.base)
+	if err != nil || u.Host == "" {
+		return strings.ToLower(g.base)
+	}
+	return strings.ToLower(u.Host)
+}
 func (g *gitlab) AuthorizeURL() string { return g.base + "/oauth/authorize" }
 func (g *gitlab) TokenURL() string     { return g.base + "/oauth/token" }
 func (g *gitlab) api() string          { return g.base + "/api/v4" }
