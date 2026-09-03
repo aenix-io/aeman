@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/aenix-io/aeman/internal/nonet"
 )
 
 type recordedReq struct {
@@ -217,4 +220,14 @@ func TestGraphQLBadCredentialsIsTyped(t *testing.T) {
 	if errors.Is(err, ErrBadCredentials) {
 		t.Fatalf("a 502 is not a credentials problem: %v", err)
 	}
+}
+
+// This package reads a real GitHub Projects board, so a test that
+// forgets its httptest base talks to the live API with whatever token the
+// machine exports. The network is shut off for the binary.
+func TestMain(m *testing.M) {
+	restore := nonet.Block()
+	code := m.Run()
+	restore()
+	os.Exit(code)
 }

@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	forgepkg "github.com/aenix-io/aeman/internal/forge"
+	"github.com/aenix-io/aeman/internal/nonet"
 	"github.com/aenix-io/aeman/pkg/gitstore"
 )
 
@@ -267,4 +269,14 @@ func TestARejectedTokenIsNotAuthenticated(t *testing.T) {
 	if cfg.Authenticated || cfg.TokenAvailable {
 		t.Fatalf("authenticated = %v, tokenAvailable = %v; a refused token must show the banner", cfg.Authenticated, cfg.TokenAvailable)
 	}
+}
+
+// This package's tests run with the network shut off: a case that builds
+// a forge against the real host fails on the request instead of reaching
+// it with whatever token the machine exports.
+func TestMain(m *testing.M) {
+	restore := nonet.Block()
+	code := m.Run()
+	restore()
+	os.Exit(code)
 }

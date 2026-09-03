@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/aenix-io/aeman/internal/forge"
+	"github.com/aenix-io/aeman/internal/nonet"
 	"github.com/aenix-io/aeman/internal/server"
 	"github.com/aenix-io/aeman/internal/tokenstore"
 	"github.com/aenix-io/aeman/internal/tokenstore/tokenstoretest"
@@ -786,6 +788,27 @@ func TestEnvCLIAsksTheForgeOncePerToken(t *testing.T) {
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("the forge was asked %d times, want 1: both entry points share one guard", n)
 	}
+}
+
+// Every test in this package runs with the network shut off, so a case
+// that builds a forge against the real host fails on the dial instead of
+// reaching it. Grepping for the constructor was the other option and it
+// flags ten harmless uses — a real forge is how a test says "GitHub's
+// variable names" — while missing the one shape that matters, a fake-
+// looking forge whose base is real.
+func TestMain(m *testing.M) {
+	restore := nonet.Block()
+	// The commands build the real keychain, and logout deletes from it
+	// without asking; a test that calls an entry point would do that to
+	// whoever is running `go test`. Every test here injects a fake
+	// instead, and this makes the other path impossible rather than
+	// discouraged.
+	openStore = func(*slog.Logger) tokenstore.Store {
+		panic("a test reached the real OS keychain: pass a tokenstoretest.Fake instead of calling a command entry point")
+	}
+	code := m.Run()
+	restore()
+	os.Exit(code)
 }
 
 // The push credential and the name on the commits come from ONE source,

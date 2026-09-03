@@ -6,9 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/aenix-io/aeman/internal/nonet"
 )
 
 // The forge is named by the primary repository's host unless the operator
@@ -650,4 +653,16 @@ func TestHostIsTheForgeInstance(t *testing.T) {
 			t.Errorf("Detect(%q, %q).Host() = %q, want %q", tc.repoURL, tc.gitlabBase, got, tc.want)
 		}
 	}
+}
+
+// The real-host constructors live in this package, so its tests are the
+// ones that reach a forge by accident: NewGitHub() is one call away from
+// every case here. The network is shut off for the binary — a case that
+// builds one and asks it anything fails on the request instead of
+// answering out of the machine's own credentials.
+func TestMain(m *testing.M) {
+	restore := nonet.Block()
+	code := m.Run()
+	restore()
+	os.Exit(code)
 }

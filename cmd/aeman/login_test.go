@@ -391,6 +391,21 @@ func TestATokenGivenAsAnArgumentIsRefused(t *testing.T) {
 	}
 }
 
+// The real keychain is unreachable from this package's tests. The entry
+// points open a store, and logout deletes from it unconditionally, so a
+// test that calls one would do that to whoever runs `go test` — which is
+// how the override in TestMain came to exist. Constructing a store makes
+// no call to the OS, so this stays harmless if the override is ever lost;
+// it just fails.
+func TestTheRealKeychainIsUnreachableFromTests(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("openStore still builds the real keychain in tests")
+		}
+	}()
+	_ = openStore(newLogger(false))
+}
+
 // The question goes to stderr, so `aeman login > file` still shows it and
 // the file holds only what the command produced. Every other test here
 // supplies its own writer, which pins that the prompt goes to the writer

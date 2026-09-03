@@ -6,12 +6,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aenix-io/aeman/internal/forge"
+	"github.com/aenix-io/aeman/internal/nonet"
 )
 
 // fakeGitHub answers /user with the login a token belongs to and 401 for a
@@ -330,4 +332,14 @@ func (f *fake) Delete(host string) error {
 	}
 	delete(f.items, host)
 	return nil
+}
+
+// This package's tests run with the network shut off: a case that builds
+// a forge against the real host fails on the request instead of reaching
+// it with whatever token the machine exports.
+func TestMain(m *testing.M) {
+	restore := nonet.Block()
+	code := m.Run()
+	restore()
+	os.Exit(code)
 }
