@@ -262,8 +262,18 @@ func (b *storeBackend) mutateCardOp(ctx context.Context, bd board.Board, itemID,
 
 // waitDrained blocks until every board's write-behind queue is empty or the
 // context expires — the shutdown path calls it so a restart does not drop
-// changes users already saw applied.
-func (s *boardStore) waitDrained(ctx context.Context) {
+// changes users already saw applied. It returns how many writes are STILL
+// unsynced: 0 when the queue emptied, and the count that remains when the
+// deadline came first.
+//
+// It used to return nothing, and that was the whole of a data-loss bug. The
+// two outcomes are not alike — one means every change is now a commit, the
+// other means some change exists only in this process's memory and is about
+// to be dropped — and a caller that cannot tell them apart reports success
+// for both. The queue wedges when a network fetch holds the apply lock (a
+// laptop that slept, a half-open socket to the forge), so this is not a
+// theoretical branch: it is what a stop during a network stall does.
+func (s *boardStore) waitDrained(ctx context.Context) int {
 	for {
 		s.mu.Lock()
 		pending := 0
@@ -274,11 +284,11 @@ func (s *boardStore) waitDrained(ctx context.Context) {
 		}
 		s.mu.Unlock()
 		if pending == 0 {
-			return
+			return 0
 		}
 		select {
 		case <-ctx.Done():
-			return
+			return pending
 		case <-time.After(100 * time.Millisecond):
 		}
 	}

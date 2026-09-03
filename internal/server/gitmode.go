@@ -145,10 +145,23 @@ func (g *GitBackend) AttachPersonal(ctx context.Context, login, token string) er
 // Drain waits for the write queue and pushes — what a stdio MCP process
 // does before it exits, so a client that closes the pipe right after a
 // mutation loses nothing.
+// It reports a queue that did not empty as an ERROR rather than pushing on
+// in silence: what is left never became a commit and does not survive this
+// process, so a caller that logs the error is the only thing standing
+// between a lost change and nobody knowing.
 func (g *GitBackend) Drain(ctx context.Context) error {
-	g.be.store.waitDrained(ctx)
-	return g.be.syncNow(ctx, storeKey(g.board))
+	if left := g.be.store.waitDrained(ctx); left > 0 {
+		return fmt.Errorf("%w: %d change(s) never became commits and are lost with this process",
+			errQueueNotDrained, left)
+	}
+	return g.be.syncNowWaiting(ctx, storeKey(g.board))
 }
+
+// errQueueNotDrained is a drain that ran out of time with writes still in the
+// queue. It is not a push failure — unpushed COMMITS sit in the clone and the
+// next start sends them — but a loss: these changes never became commits at
+// all, and nothing outlives the process holding them.
+var errQueueNotDrained = errors.New("the write queue did not drain")
 
 // UnpushedAge is how long the oldest commit this process has failed to push
 // has been waiting; zero when everything has landed. A stdio process lived
@@ -381,13 +394,24 @@ func (s *Server) gitBoard() string {
 
 // drainAndPush is the shutdown path in git mode: wait for the queue, then
 // push whatever is unpushed — one push, not N mutations.
+//
+// A queue that did not empty is SAID OUT LOUD. What is left at this point
+// never became a commit, so it is not waiting in the clone for the next start
+// — it is in this process's memory and goes with it, though the person who
+// made those changes was told they were saved. Nothing else reports it
+// either: /healthz counts commits in the clone, so a write that never became
+// one is invisible there. A line in the log at the moment it happens is the
+// only trace such a loss can leave.
 func (s *Server) drainAndPush(ctx context.Context) error {
-	s.store.waitDrained(ctx)
+	if left := s.store.waitDrained(ctx); left > 0 {
+		s.log.Error("the write queue did not drain before shutdown; changes that never became commits are lost",
+			"unsaved", left)
+	}
 	if s.gitBE == nil {
 		return nil
 	}
 	boardID := s.gitBoard()
-	return s.gitBE.syncNow(ctx, storeKey(boardID))
+	return s.gitBE.syncNowWaiting(ctx, storeKey(boardID))
 }
 
 // actionName is what a request is, for the commit it becomes: the name

@@ -302,6 +302,28 @@ func (b *storeBackend) unpushedAge(_ string) time.Duration {
 // syncNow runs one sync cycle for the board: push every domain with
 // unpushed commits; on a rejection re-apply that domain on the new tip and
 // push again; then fetch and adopt what others pushed.
+// syncNowWaiting is syncNow for the SHUTDOWN path: where syncNow steps
+// aside when another push is already running — right, while the process
+// lives, since that push is doing the work — a stop cannot. Stepping aside
+// there reports a flush that never happened, and the process exits believing
+// it pushed. So this waits for the running push to finish and then pushes
+// what is left, or gives up with the context and says so.
+func (b *storeBackend) syncNowWaiting(ctx context.Context, key string) error {
+	for {
+		b.git.mu.Lock()
+		busy := b.git.pushing
+		b.git.mu.Unlock()
+		if !busy {
+			return b.syncNow(ctx, key)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("a push was still running when the drain gave up: %w", ctx.Err())
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
 func (b *storeBackend) syncNow(ctx context.Context, key string) error {
 	g := b.git
 	g.mu.Lock()
@@ -476,13 +498,34 @@ func (b *storeBackend) runSync(ctx context.Context, interval time.Duration) {
 			}
 			b.store.mu.Unlock()
 			for _, k := range keys {
-				if err := b.tick(ctx, k); err != nil && !errors.Is(err, context.Canceled) {
+				// Every tick is BOUNDED. It holds the apply lock across a
+				// network fetch, and the queue's commits need that lock, so
+				// a fetch that never returns — a laptop that slept, a
+				// half-open socket to the forge — stops the queue for as
+				// long as it hangs. Unbounded, that was forever: writes
+				// piled up uncommitted, and a shutdown then dropped them.
+				//
+				// The bound is shorter than the shutdown's drain window
+				// (see Server.Run) on purpose: a stall must let go of the
+				// lock in time for the drain to still empty the queue.
+				// Losing a tick costs nothing — the next one repeats it.
+				tickCtx, cancel := context.WithTimeout(ctx, syncTickTimeout)
+				err := b.tick(tickCtx, k)
+				cancel()
+				if err != nil && !errors.Is(err, context.Canceled) {
 					b.git.log.Warn("sync", "board", k, "err", err)
 				}
 			}
 		}
 	}
 }
+
+// syncTickTimeout bounds one fetch tick. It is deliberately shorter than the
+// 20s the shutdown gives the queue to drain: the tick holds the apply lock
+// that the queue's commits need, so it has to let go while there is still
+// time to empty the queue. An incremental fetch takes well under this; a tick
+// that does not finish is skipped and repeated on the next interval.
+const syncTickTimeout = 15 * time.Second
 
 // tick is one fetch-tick cycle for a board: sync, then file the week's due
 // process turns as the server identity — the sweep's home now that no
