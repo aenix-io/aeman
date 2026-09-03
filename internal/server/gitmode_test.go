@@ -35,6 +35,7 @@ func gitModeServer(t *testing.T, remote gitstore.Remote) *Server {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	releaseDataDir(t, srv)
 	// Identity without a GitHub token: git mode needs none for the API.
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "tester", nil }
 	srv.gitBE.git.pushDelay = 0 // tests push by hand; a timer firing after the test races TempDir's cleanup
@@ -150,6 +151,28 @@ func TestGitModeRefusesUnbornRemote(t *testing.T) {
 	}
 }
 
+// The claim is taken before the directory is touched, so every failure
+// after that point has to hand it back: a start that refused once would
+// otherwise leave the directory locked until the process died, and the
+// second attempt would blame a process that is this very one.
+func TestAFailedStartReleasesTheDataDir(t *testing.T) {
+	remote := gitRemote(t) // registered, never seeded: the start refuses
+	dir := t.TempDir()
+	if _, err := New(Options{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Git:    &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir},
+	}); err == nil {
+		t.Fatal("an unborn remote must refuse the start")
+	}
+	l, err := lockDataDir(dir)
+	if err != nil {
+		t.Fatalf("the refused start kept the claim: %v", err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A second start over the same data directory reopens the clone instead of
 // cloning again, and picks up what the remote gained meanwhile.
 func TestGitModeReopensTheClone(t *testing.T) {
@@ -165,6 +188,7 @@ func TestGitModeReopensTheClone(t *testing.T) {
 			t.Fatal(err)
 		}
 		srv.apiTokens = func(*http.Request) (string, string, error) { return "", "tester", nil }
+		t.Cleanup(func() { _ = srv.Close() })
 		return srv
 	}
 	first := mk()
@@ -175,7 +199,11 @@ func TestGitModeReopensTheClone(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	first.store.waitDrained(ctx)
-	// No push: the process "dies".
+	// No push: the process "dies" — and dying releases its claim on the
+	// data directory, which is what lets the second one open it at all.
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	second := mk()
 	rec = do(t, second, http.MethodGet, "/api/v1/cards?view=all", "")
 	if !strings.Contains(rec.Body.String(), `"offline"`) {
@@ -195,6 +223,7 @@ func TestOpenGitBackendStandalone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = gb.Close() })
 	ctx := withAction(context.Background(), "01JB4KA0M2P4R6T8V0X2Z4B6M1", "progress")
 	bd, err := gb.Backend().LoadBoard(ctx, "ignored")
 	if err != nil {
@@ -216,6 +245,138 @@ func TestOpenGitBackendStandalone(t *testing.T) {
 	p, _ := gitstore.CardPath(cardByTitle(bd, "one").ItemID)
 	if data, _ := other.ReadFile(p); !strings.Contains(string(data), "progress: 60") {
 		t.Fatalf("the drained write is not on the remote:\n%s", data)
+	}
+}
+
+// The daemon's whole health signal is this number, and this is the only
+// place the delegation to the store is exercised: /healthz's own test
+// supplies its own health function, so nothing there would notice this
+// reading the wrong board. It must not rest on unpushedAge ignoring the
+// key it is given.
+func TestOpenGitBackendReportsItsUnpushedAge(t *testing.T) {
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	gb, err := OpenGitBackend(&GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: t.TempDir()},
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = gb.Close() })
+
+	if age := gb.UnpushedAge(); age != 0 {
+		t.Fatalf("a fresh clone has nothing waiting, got %v", age)
+	}
+
+	ctx := withAction(context.Background(), "01JB4KA0M2P4R6T8V0X2Z4B6M1", "progress")
+	bd, err := gb.Backend().LoadBoard(ctx, "ignored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gb.Backend().SetProgress(ctx, bd, cardByTitle(bd, "one"), 60); err != nil {
+		t.Fatal(err)
+	}
+	// The write has to become a commit before it counts as unpushed.
+	wait, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	gb.be.store.waitDrained(wait)
+	if age := gb.UnpushedAge(); age <= 0 {
+		t.Fatalf("a committed, unpushed write is not reported: %v", age)
+	}
+
+	if err := gb.Drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if age := gb.UnpushedAge(); age != 0 {
+		t.Fatalf("after the push nothing is waiting, got %v", age)
+	}
+}
+
+// The rejection replaced an index-out-of-range panic on cfg.Repos[0].
+func TestOpenGitBackendRefusesNoRepository(t *testing.T) {
+	_, err := OpenGitBackend(&GitConfig{DataDir: t.TempDir()},
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil {
+		t.Fatal("a backend with no repository was opened")
+	}
+	if !strings.Contains(err.Error(), "--repo") {
+		t.Fatalf("the refusal does not name the flag: %v", err)
+	}
+}
+
+// G62 — one process owns a board's clones. A second `aeman mcp` on the same
+// --data is refused at start, naming the directory, rather than left to
+// race the first one's fetch and push; and the refusal lasts exactly as
+// long as the first process holds the directory.
+func TestOpenGitBackendRefusesASecondProcessOnTheSameData(t *testing.T) {
+	// What this pins is the refusal, not the grace a start gives a
+	// predecessor that is leaving: this holder is not going anywhere.
+	restore := dataLockWait
+	dataLockWait = 50 * time.Millisecond
+	t.Cleanup(func() { dataLockWait = restore })
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	open := func() (*GitBackend, error) {
+		return OpenGitBackend(&GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir},
+			slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}
+	first, err := open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := open(); err == nil {
+		t.Fatal("a second backend opened the data directory the first one holds")
+	} else if !strings.Contains(err.Error(), dir) {
+		t.Fatalf("the refusal does not name the directory: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	second, err := open()
+	if err != nil {
+		t.Fatalf("the directory is still claimed after Close: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+// The claim does not care which subcommand took it: `aeman serve` and
+// `aeman mcp` are one process each, and the second of them is told to talk
+// to the first over HTTP instead of opening the clones a second time.
+func TestServeAndMCPCannotShareOneDataDir(t *testing.T) {
+	// What this pins is the refusal, not the grace a start gives a
+	// predecessor that is leaving: this holder is not going anywhere.
+	restore := dataLockWait
+	dataLockWait = 50 * time.Millisecond
+	t.Cleanup(func() { dataLockWait = restore })
+	remote := gitRemote(t)
+	seedGitRemote(t, remote)
+	dir := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv, err := New(Options{
+		Logger: log,
+		Git:    &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	mcpCfg := &GitConfig{Repos: []RepoSpec{{Name: "board", URL: remote.URL}}, DataDir: dir}
+	if _, err := OpenGitBackend(mcpCfg, log); err == nil {
+		t.Fatal("aeman mcp opened the data directory the server holds")
+	} else if !strings.Contains(err.Error(), "aeman mcp --listen") {
+		t.Fatalf("the refusal does not point at the shared daemon: %v", err)
+	}
+	if err := srv.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	gb, err := OpenGitBackend(mcpCfg, log)
+	if err != nil {
+		t.Fatalf("the server's Close did not release the directory: %v", err)
+	}
+	if err := gb.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 }
 

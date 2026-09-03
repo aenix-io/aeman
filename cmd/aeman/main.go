@@ -178,6 +178,9 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The data directory is claimed for as long as this process runs; hand
+	// it back on the way out so the next start is not refused.
+	defer srv.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -216,6 +219,7 @@ func runMCP(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer gb.Close()
 	// The local person's personal board, if the primary links one: attached
 	// with the same credential the pushes use.
 	if login, err := boundedLogin(context.Background(), cli); err == nil {

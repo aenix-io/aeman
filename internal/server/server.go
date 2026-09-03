@@ -87,6 +87,10 @@ type Server struct {
 	// clone, not one per request; nil otherwise. gitCfg is its config.
 	gitBE  *storeBackend
 	gitCfg *GitConfig
+	// dataLock is this process's exclusive claim on the data directory, held
+	// for the server's whole life — a setup-mode server included. Nil when
+	// the server serves no board of its own.
+	dataLock *dataLock
 	// visibleBE is gitBE as a visitor may use it — reads projected onto the
 	// domains the request's rights can read, writes checked against them;
 	// access decides those rights per visitor. Both nil outside git mode.
@@ -243,6 +247,17 @@ func New(opts Options) (*Server, error) {
 	s.store.log = s.log
 	s.store.member = s.people.member // the forge the identities come from
 	if opts.Git != nil {
+		// The claim belongs to the process, not to the store: the
+		// App-not-installed start below fails to open the board and stays
+		// up serving the setup page, having already made the clone
+		// directories, so releasing it there would let a second server onto
+		// the same --data. Taken before anything is written, handed back by
+		// Close and by every fatal return under it.
+		lock, err := lockDataDirWaiting(opts.Git.DataDir)
+		if err != nil {
+			return nil, err
+		}
+		s.dataLock = lock
 		if err := s.initGit(opts, f); err != nil {
 			// One kind of startup trouble is fixed with a click — the
 			// board's GitHub App missing from a repository — so the server
@@ -253,6 +268,7 @@ func New(opts Options) (*Server, error) {
 			// to start: a page cannot fix a wrong token.
 			var notInstalled *forge.AppNotInstalledError
 			if !errors.As(err, &notInstalled) {
+				_ = s.dataLock.Close()
 				return nil, err
 			}
 			s.setup = &setupState{problem: err.Error(), installURL: notInstalled.InstallURL, forge: f}
@@ -386,6 +402,13 @@ func (s *Server) URL() string {
 	host = strings.Replace(host, "0.0.0.0", "127.0.0.1", 1)
 	return "http://" + host
 }
+
+// Close releases the server's claim on its data directory, so the next
+// `aeman serve` or `aeman mcp` may open the board's clones. It does not stop
+// the background sync, so it belongs on a process's way out rather than
+// mid-life. A server built without git mode holds no directory and Close
+// does nothing.
+func (s *Server) Close() error { return s.dataLock.Close() }
 
 // Run starts the server and blocks until ctx is cancelled or it fails.
 func (s *Server) Run(ctx context.Context) error {

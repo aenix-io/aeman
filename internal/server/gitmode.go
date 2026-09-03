@@ -106,6 +106,7 @@ func (s *Server) openGit(cfg *GitConfig) error {
 type GitBackend struct {
 	be    *storeBackend
 	board string // the board's name: its primary repository
+	lock  *dataLock
 }
 
 // OpenGitBackend clones or reopens the configured repository and returns a
@@ -114,13 +115,21 @@ func OpenGitBackend(cfg *GitConfig, log *slog.Logger) (*GitBackend, error) {
 	if log == nil {
 		log = slog.Default()
 	}
+	if len(cfg.Repos) == 0 {
+		return nil, errors.New("git mode needs at least one --repo")
+	}
+	lock, err := lockDataDirWaiting(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
 	store := newBoardStore()
 	store.log = log
 	be, err := openGitStore(store, cfg, log)
 	if err != nil {
+		_ = lock.Close()
 		return nil, err
 	}
-	return &GitBackend{be: be, board: cfg.Repos[0].Name}, nil
+	return &GitBackend{be: be, board: cfg.Repos[0].Name, lock: lock}, nil
 }
 
 // Backend is the boardservice.Backend to build a service on.
@@ -140,6 +149,19 @@ func (g *GitBackend) Drain(ctx context.Context) error {
 	g.be.store.waitDrained(ctx)
 	return g.be.syncNow(ctx, storeKey(g.board))
 }
+
+// UnpushedAge is how long the oldest commit this process has failed to push
+// has been waiting; zero when everything has landed. A stdio process lived
+// one editor session and reported a failed push on the client's stderr; a
+// daemon runs unattended for weeks, so this is what tells one that is
+// working apart from one whose credential died a week ago.
+func (g *GitBackend) UnpushedAge() time.Duration { return g.be.unpushedAge(storeKey(g.board)) }
+
+// Close releases this process's claim on the data directory, so the next
+// `aeman serve` or `aeman mcp` may open the clones. It does not stop the
+// background sync, so it belongs on a process's way out rather than
+// mid-life.
+func (g *GitBackend) Close() error { return g.lock.Close() }
 
 // openGitStore is the shared core: clone or reopen every domain under the
 // data dir, check each has a board, build the store backend with its sync.

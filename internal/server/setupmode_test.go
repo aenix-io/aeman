@@ -69,6 +69,7 @@ func TestAMissingInstallationIsAPageNotARefusalToStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a missing installation must not refuse the start: %v", err)
 	}
+	t.Cleanup(func() { _ = srv.Close() })
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "kvaps", nil }
 
 	// The page says what is wrong and what to click.
@@ -137,6 +138,7 @@ func TestGitHubsPostInstallRedirectIsNotAFailedSignIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = srv.Close() })
 	srv.gitBE.git.pushDelay = 0
 
 	get := func(target string) *httptest.ResponseRecorder {
@@ -156,5 +158,64 @@ func TestGitHubsPostInstallRedirectIsNotAFailedSignIn(t *testing.T) {
 	// An ordinary sign-in callback with a wrong state stays refused.
 	if rec := get("/auth/callback?code=xyz&state=not-ours"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("a forged sign-in: %d, want 400", rec.Code)
+	}
+}
+
+// The App-not-installed start is the one failure that leaves the process
+// ALIVE: it serves the setup page and waits. It has already created the
+// clone directories by then, so it has to hold the claim on --data too —
+// otherwise a second `aeman serve` is accepted onto the same directory, and
+// when the app finally lands both retry and clone over each other, which is
+// the corruption the claim exists to prevent. G62 says a second start is
+// refused, with no exception for this one.
+func TestASetupModeServerHoldsItsDataDir(t *testing.T) {
+	url := "gittest://remotes/acme/" + strings.ReplaceAll(t.Name(), "/", "_") + ".git"
+	gitTestRemotes[url] = memory.NewStorage()
+	remote := gitstore.Remote{URL: url}
+	seedGitRemote(t, remote)
+
+	appSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app" {
+			_, _ = w.Write([]byte(`{"slug":"aenix-aeman","html_url":"https://github.com/apps/aenix-aeman"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound) // never installed
+	}))
+	t.Cleanup(appSrv.Close)
+	app, err := forgepkg.NewGitHubAppAt(appSrv.URL, appSrv.Client(), "12345", testServerAppPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	srv, err := New(Options{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Git: &GitConfig{App: app,
+			Repos:     []RepoSpec{{Name: "board", URL: remote.URL}},
+			DataDir:   dir,
+			Committer: gitstore.Identity{Name: "aeman", Email: "aeman@test"}},
+	})
+	if err != nil {
+		t.Fatalf("a missing installation must not refuse the start: %v", err)
+	}
+	if _, ok := srv.inSetup(); !ok {
+		t.Fatal("the server is not in setup mode, so this proves nothing")
+	}
+
+	if l, err := lockDataDir(dir); err == nil {
+		_ = l.Close()
+		t.Fatal("a second process was let onto the data directory a live setup-mode server owns")
+	}
+
+	// And it hands the directory back like any other server.
+	if err := srv.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	l, err := lockDataDir(dir)
+	if err != nil {
+		t.Fatalf("Close did not release the directory: %v", err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

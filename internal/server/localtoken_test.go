@@ -47,6 +47,7 @@ func TestLocalModeWithoutATokenIsNotAuthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	releaseDataDir(t, srv)
 	srv.gitBE.git.pushDelay = 0 // a timer firing after the test races TempDir's cleanup
 
 	rec := httptest.NewRecorder()
@@ -116,6 +117,7 @@ func TestTheRequestsTokenAndLoginComeFromOneSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	releaseDataDir(t, srv)
 	srv.gitBE.git.pushDelay = 0
 
 	tok, login, err := srv.tokenForRequest(httptest.NewRequest(http.MethodGet, "/api/v1/cards", nil))
@@ -145,6 +147,7 @@ func TestConfigReportsTheLoginOfTheTokenItFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	releaseDataDir(t, srv)
 	srv.gitBE.git.pushDelay = 0
 
 	rec := httptest.NewRecorder()
@@ -200,6 +203,7 @@ func TestAnUnreachableForgeIsNotAMissingToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	releaseDataDir(t, srv)
 	srv.gitBE.git.pushDelay = 0
 
 	rec := httptest.NewRecorder()
@@ -255,6 +259,7 @@ func TestARejectedTokenIsNotAuthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	releaseDataDir(t, srv)
 	srv.gitBE.git.pushDelay = 0
 
 	rec := httptest.NewRecorder()
