@@ -45,6 +45,18 @@ type CLI struct {
 	// long as it sits there. Keyed by VALUE, so replacing the token is a
 	// new question with nothing to expire first.
 	refused string
+	// unanswered is the token value the forge could not name an owner
+	// for, with when that happened and what it said. A refusal is an
+	// answer and keeps its place above; this is the absence of one, so it
+	// expires (forge.UnansweredTTL) rather than standing until the token
+	// changes. Keyed by value like refused, though here that key cannot
+	// fire while the token itself is cached for longer than the window:
+	// it is what makes the two sources the same rule, and it is the
+	// environment's, whose value can change under a running process,
+	// that exercises it.
+	unanswered    string
+	unansweredAt  time.Time
+	unansweredErr error
 }
 
 var (
@@ -132,13 +144,27 @@ func (c *CLI) loginLocked(ctx context.Context, tok string) (string, error) {
 	if tok == c.refused {
 		return "", forge.ErrBadToken
 	}
+	if tok == c.unanswered && c.now().Sub(c.unansweredAt) < forge.UnansweredTTL {
+		return "", c.unansweredErr
+	}
 	user, err := c.forge.User(ctx, c.client, tok)
 	if err != nil {
 		if errors.Is(err, forge.ErrBadToken) {
 			c.refused = tok
+			return "", err
+		}
+		// Only what the FORGE did is remembered. An error that came
+		// from the caller's own context says nothing about the forge,
+		// and the window is shared: recording it would hand the next
+		// caller, with a live context, a stale error and no call. The
+		// source's own client timeout still lands here, which is the
+		// case the window is for.
+		if ctx.Err() == nil {
+			c.unanswered, c.unansweredAt, c.unansweredErr = tok, c.now(), err
 		}
 		return "", err
 	}
+	c.unanswered, c.unansweredErr = "", nil
 	c.login = user.Login
 	return c.login, nil
 }

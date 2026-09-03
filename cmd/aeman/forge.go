@@ -63,9 +63,19 @@ type envCLI struct {
 	env    func(string) string
 	client *http.Client
 
+	// now is the clock the unanswered window is judged by; tests replace
+	// it, as the keychain's source does for its token window.
+	now func() time.Time
+
 	mu      sync.Mutex
 	login   string
 	refused string
+	// unanswered is the token value the forge could not name an owner
+	// for. A refusal stands until the value changes because it is an
+	// answer; this is the absence of one, so it expires.
+	unanswered    string
+	unansweredAt  time.Time
+	unansweredErr error
 }
 
 var (
@@ -82,7 +92,7 @@ func newEnvCLI(f forge.Forge, env func(string) string, client *http.Client) *env
 		// under the lock this source's Login holds.
 		client = &http.Client{Timeout: forgeTimeout}
 	}
-	return &envCLI{forge: f, env: env, client: client}
+	return &envCLI{forge: f, env: env, client: client, now: time.Now}
 }
 
 // Token is the first of the forge's variables that holds one. An empty
@@ -159,13 +169,27 @@ func (c *envCLI) loginLocked(ctx context.Context) (string, error) {
 	if tok == c.refused {
 		return "", forge.ErrBadToken
 	}
+	if tok == c.unanswered && c.now().Sub(c.unansweredAt) < forge.UnansweredTTL {
+		return "", c.unansweredErr
+	}
 	user, err := c.forge.User(ctx, c.client, tok)
 	if err != nil {
 		if errors.Is(err, forge.ErrBadToken) {
 			c.refused = tok
+			return "", err
+		}
+		// Only what the FORGE did is remembered. An error that came
+		// from the caller's own context says nothing about the forge,
+		// and the window is shared: recording it would hand the next
+		// caller, with a live context, a stale error and no call. The
+		// source's own client timeout still lands here, which is the
+		// case the window is for.
+		if ctx.Err() == nil {
+			c.unanswered, c.unansweredAt, c.unansweredErr = tok, c.now(), err
 		}
 		return "", err
 	}
+	c.unanswered, c.unansweredErr = "", nil
 	c.login = user.Login
 	return c.login, nil
 }

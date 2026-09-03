@@ -897,3 +897,95 @@ func TestAnEmptiedWinnerDoesNotReplaceTheNoTokenError(t *testing.T) {
 		t.Fatalf("the store's own complaint went nowhere: %s", buf.String())
 	}
 }
+
+// The environment's source remembers an unanswerable forge the same way
+// the keychain's does. It is the source in front, so a 403 token here —
+// a GitHub App installation token is the ordinary case — costs one call
+// per window rather than one on every request, under the lock the next
+// caller is waiting on.
+func TestEnvCLIRemembersAForgeThatCouldNotAnswer(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+	f := forge.NewGitHubAt(srv.URL)
+
+	c := newEnvCLI(f, func(string) string { return "ghp_app" }, srv.Client())
+	now := time.Now()
+	c.now = func() time.Time { return now }
+
+	for range 20 {
+		if _, err := c.Login(context.Background()); err == nil {
+			t.Fatal("a forge that will not answer is not a login")
+		}
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times for twenty logins, want 1", n)
+	}
+
+	now = now.Add(forge.UnansweredTTL + time.Second)
+	if _, err := c.Login(context.Background()); err == nil {
+		t.Fatal("still not a login")
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("the forge was asked %d times after the window, want 2", n)
+	}
+
+	// A different variable value is a different question.
+	c2 := newEnvCLI(f, func(string) string { return "ghp_other" }, srv.Client())
+	c2.now = func() time.Time { return now }
+	if _, err := c2.Login(context.Background()); err == nil {
+		t.Fatal("still not a login")
+	}
+	if n := calls.Load(); n != 3 {
+		t.Fatalf("the forge was asked %d times, want 3: another token is another question", n)
+	}
+}
+
+// The environment's source keeps the same rule: a caller that gave up
+// does not answer for the next one.
+func TestEnvCLIDoesNotRememberTheCallersOwnCancellation(t *testing.T) {
+	f, client := fakeForge(t, map[string]string{"ghp_env": "alice"})
+	c := newEnvCLI(f, func(string) string { return "ghp_env" }, client)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.Login(ctx); err == nil {
+		t.Fatal("a cancelled caller gets no login")
+	}
+	if login, err := c.Login(context.Background()); err != nil || login != "alice" {
+		t.Fatalf("second caller: login=%q err=%v; want the owner, asked afresh", login, err)
+	}
+}
+
+// The window is the TOKEN's, not the source's. A variable that changes
+// under a running process — the environment of an `aeman mcp` restarted
+// by its client, a test harness rewriting it — asks again at once rather
+// than serving the previous token's silence. The clock does not move
+// here, so only the value key can make this pass.
+func TestEnvCLIWindowIsKeyedByTheTokenValue(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	token := "ghp_first"
+	c := newEnvCLI(forge.NewGitHubAt(srv.URL), func(string) string { return token }, srv.Client())
+	frozen := time.Now()
+	c.now = func() time.Time { return frozen }
+
+	if _, err := c.Login(context.Background()); err == nil {
+		t.Fatal("want a failure")
+	}
+	token = "ghp_second"
+	if _, err := c.Login(context.Background()); err == nil {
+		t.Fatal("want a failure")
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("the forge was asked %d times, want 2: a new token is a new question", n)
+	}
+}

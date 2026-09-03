@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -238,6 +239,17 @@ func TestKeychainCLIRemembersARefusalPerTokenValue(t *testing.T) {
 		t.Fatalf("the forge was asked %d times for one refused token, want 1", n)
 	}
 
+	// A refusal does not expire the way an unanswered call does: it is an
+	// answer, and it stands until the token changes. Well past the
+	// unanswered window, the forge is still not asked.
+	cli.now = func() time.Time { return time.Now().Add(4 * forge.UnansweredTTL) }
+	if _, err := cli.Login(ctx); !errors.Is(err, forge.ErrBadToken) {
+		t.Fatalf("Login well after the unanswered window = %v, want the refusal to stand", err)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times; a refusal must not expire", n)
+	}
+
 	// A new token is a new question.
 	store.Put("github.com", "ghp_fresh")
 	cli.now = func() time.Time { return time.Now().Add(2 * tokenTTL) }
@@ -342,4 +354,132 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	restore()
 	os.Exit(code)
+}
+
+// forgeThatCannotAnswer answers /user with a status that is neither the
+// login nor a refusal — 403 is what a GitHub App installation token gets,
+// and a 5xx or a timeout arrives the same way.
+func forgeThatCannotAnswer(t *testing.T, calls *atomic.Int32, delay time.Duration) (forge.Forge, *http.Client) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		time.Sleep(delay)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+	return forge.NewGitHubAt(srv.URL), srv.Client()
+}
+
+// A forge that cannot say who the token belongs to costs ONE call per
+// window, not one per request. The answer is not cacheable as a login and
+// the token is not refused, so without a window every request repeats the
+// call — under this source's lock, where the next request waits for it.
+func TestKeychainCLIRemembersAForgeThatCouldNotAnswer(t *testing.T) {
+	var calls atomic.Int32
+	f, client := forgeThatCannotAnswer(t, &calls, 0)
+	store := newFake().Put("github.com", "ghp_app")
+	cli := NewCLI(store, f, client)
+	now := time.Now()
+	cli.now = func() time.Time { return now }
+
+	for range 20 {
+		if _, err := cli.Login(context.Background()); err == nil {
+			t.Fatal("a forge that will not answer is not a login")
+		}
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times for twenty logins, want 1", n)
+	}
+
+	// The window is not a verdict: once it passes the forge is asked
+	// again, so a token that starts working is named without a restart.
+	now = now.Add(forge.UnansweredTTL + time.Second)
+	if _, err := cli.Login(context.Background()); err == nil {
+		t.Fatal("still not a login")
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("the forge was asked %d times after the window, want 2", n)
+	}
+}
+
+// A token replaced in the store is a new question. What this pins is the
+// token TTL, not the value key: the item is only re-read once that window
+// passes, and by then the shorter unanswered window has expired anyway.
+// The value key underneath is defensive here and is exercised where it
+// can fire, on the environment's source, whose value can change under a
+// running process.
+func TestKeychainCLIAsksAgainForATokenReplacedInTheStore(t *testing.T) {
+	var calls atomic.Int32
+	f, client := forgeThatCannotAnswer(t, &calls, 0)
+	store := newFake().Put("github.com", "ghp_app")
+	cli := NewCLI(store, f, client)
+	base := time.Now()
+	cli.now = func() time.Time { return base }
+
+	if _, err := cli.Login(context.Background()); err == nil {
+		t.Fatal("want a failure")
+	}
+	store.Put("github.com", "ghp_replaced")
+	base = base.Add(tokenTTL + time.Second) // let the token be re-read
+	if _, err := cli.Login(context.Background()); err == nil {
+		t.Fatal("want a failure")
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("the forge was asked %d times, want 2: a replaced token is a new question", n)
+	}
+}
+
+// Callers do not queue behind a forge that cannot answer. The first call
+// pays for it; the rest read the window.
+func TestKeychainCLIConcurrentCallersDoNotQueueBehindADeadForge(t *testing.T) {
+	const callers = 8
+	const latency = 100 * time.Millisecond
+	var calls atomic.Int32
+	f, client := forgeThatCannotAnswer(t, &calls, latency)
+	cli := NewCLI(newFake().Put("github.com", "ghp_app"), f, client)
+
+	start := time.Now()
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = cli.Login(context.Background())
+		}()
+	}
+	wg.Wait()
+
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times by %d callers, want 1", n, callers)
+	}
+	if elapsed := time.Since(start); elapsed > latency*4 {
+		t.Fatalf("%d callers took %v against a %v forge; they queued behind it", callers, elapsed, latency)
+	}
+}
+
+// One caller giving up must not answer for the next. The window exists
+// for a forge that could not answer; a context cancelled by the caller
+// says nothing about the forge, and recording it hands the next caller —
+// with a live context and a forge that is fine — a stale error and no
+// call. A browser abandoning a request while the login cache is cold is
+// enough to blank the identity for the whole window.
+func TestKeychainCLIDoesNotRememberTheCallersOwnCancellation(t *testing.T) {
+	var calls atomic.Int32
+	f, client := fakeGitHub(t, map[string]string{"ghp_alice": "alice"}, &calls)
+	cli := NewCLI(newFake().Put("github.com", "ghp_alice"), f, client)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := cli.Login(ctx); err == nil {
+		t.Fatal("a cancelled caller gets no login")
+	}
+
+	// The next caller asks for itself.
+	login, err := cli.Login(context.Background())
+	if err != nil || login != "alice" {
+		t.Fatalf("second caller: login=%q err=%v; want the owner, asked afresh", login, err)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the forge was asked %d times; the second caller was served the first's cancellation", n)
+	}
 }
