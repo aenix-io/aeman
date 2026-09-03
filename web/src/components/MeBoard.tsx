@@ -36,10 +36,10 @@ import {
   asksFirst,
   deleteWarning,
   freeSubtasks,
-  gridRemoval,
+  removeChoices,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
-  type Outcome,
+  type RemoveChoice,
 } from "../removal";
 import {
   columnFollows,
@@ -72,7 +72,6 @@ interface MeBoardProps {
    *  empty on a live board. What it holds cannot be added to. */
   asOf?: string;
 
-  onSelectDate: (day: string) => void;
   /** "View as" impersonation, owned by the App: the Me fetch carries it as an
    *  explicit user (null = the caller themselves). */
   viewAs: string | null;
@@ -151,7 +150,6 @@ export function MeBoard({
   me,
   selectedDate,
   asOf,
-  onSelectDate,
   viewAs,
   onViewAs,
   avatars,
@@ -1140,7 +1138,7 @@ export function MeBoard({
           },
     );
     void provider
-      .removeCard(card.itemId, "grid")
+      .removeCard(card.itemId, card.parent ? undefined : "unassign")
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -1162,7 +1160,7 @@ export function MeBoard({
       patchCard(c.itemId, { leftAt: yesterday });
     }
     void provider
-      .removeCard(card.itemId, "grid")
+      .removeCard(card.itemId)
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -1234,9 +1232,17 @@ export function MeBoard({
   // everything that was not demotable to DELETE /cards/{uid}, destroying a
   // card the other board would have left in its week: one gesture,
   // two boards, opposite outcomes.
-  const outcomeOf = (card: CardModel): Outcome => gridRemoval(card, gridCtx(card));
+  const choicesFor = (card: CardModel): RemoveChoice[] =>
+    removeChoices(card, gridCtx(card));
 
-  const handleDelete = (card: CardModel, forced?: "delete" | "keep") => {
+  /** Whether a card can be LEFT BEHIND on yesterday instead of destroyed:
+   *  only a personal one, and only one that stood on an earlier day — there
+   *  is no yesterday to leave a card made today on. */
+  const leavableOn = (card: CardModel): boolean =>
+    isPersonalCard(card, board.personal) &&
+    (!card.startDate || card.startDate < todayIso());
+
+  const handleDelete = (card: CardModel, chosen?: RemoveChoice) => {
     // A just-created optimistic card has no server twin yet: drop it locally
     // (deleting it via the API would 404 and resurrect a phantom copy).
     if (card.itemId.startsWith("tmp-")) {
@@ -1248,7 +1254,7 @@ export function MeBoard({
     // "keep" is the personal board's own answer: leave the card on
     // yesterday. A team card has no such offer — the day it stood on keeps
     // it — so the dialog never sends one.
-    if (forced === "keep") {
+    if (chosen === "keep") {
       if (personal) {
         leaveBehind(card);
       }
@@ -1257,16 +1263,22 @@ export function MeBoard({
     // The × asks BEFORE it acts, whatever it is about to do, and the dialog
     // names the act — the one card it does not ask about is one made today
     // that nobody has touched (asksFirst).
-    if (!forced && asksFirst(card, todayIso())) {
+    if (!chosen && asksFirst(card, todayIso())) {
       setRemoveChoice(card);
       return;
     }
-    // A card filed under a project column is never destroyed by an × — that
-    // column is a home it goes back to (A1/A3). The Me board used to send it
-    // to DELETE /cards/{uid} regardless, straight past the rule, because the
-    // removal kinds speak only of demote and delete. The smart × on the
-    // server knows what to do with it.
-    if (!personal && forced !== "delete" && outcomeOf(card) !== "delete") {
+    // Unasked (a card made today that nobody touched), the card's own first
+    // answer stands — the same one the dialog would have put at the top. A
+    // personal card has no list of its own: its board is all its owner's, so
+    // the × there is the delete the dialog offers beside "keep it".
+    const choice =
+      chosen ?? (personal ? "off-board" : choicesFor(card)[0]);
+    if (!choice) {
+      return;
+    }
+    // Anything but destroying it is the release: a card handed back to its
+    // week or its column, a subtask taken out of its group.
+    if (!personal && choice !== "off-board") {
       releaseCard(card);
       return;
     }
@@ -1276,7 +1288,7 @@ export function MeBoard({
     // The dialog has already asked, in its own words and with the loss
     // spelled out on its danger button; a browser confirm behind it is a
     // second question for one gesture.
-    const warning = forced ? null : deleteWarning(card, linkedReview?.title ?? null);
+    const warning = chosen ? null : deleteWarning(card, linkedReview?.title ?? null);
     if (warning && !window.confirm(warning)) {
       return;
     }
@@ -1993,36 +2005,10 @@ export function MeBoard({
 
   return (
     <div className="me">
+      {/* The day the board is looking at is chosen in the app's toolbar
+          (DayNav): it is the app's state, and one control for it keeps the
+          boards from disagreeing about the same day. */}
       <div className="board-toolbar">
-        <div className="field field-inline">
-          <span>Day</span>
-          <div className="day-nav">
-            <button
-              type="button"
-              className="day-arrow"
-              onClick={() => onSelectDate(addDays(selectedDate, -1))}
-              aria-label="Previous day"
-              title="Previous day"
-            >
-              ‹
-            </button>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => onSelectDate(e.target.value || todayIso())}
-            />
-            <button
-              type="button"
-              className="day-arrow"
-              onClick={() => onSelectDate(addDays(selectedDate, 1))}
-              aria-label="Next day"
-              title="Next day"
-            >
-              ›
-            </button>
-          </div>
-        </div>
-
         <TeamChips
           label="Team"
           teams={teams}
@@ -2037,16 +2023,6 @@ export function MeBoard({
           filterToggle={{ on: teamFocus, onToggle: () => setTeamFocus((v) => !v) }}
           focusToggle={{ on: focus, onToggle: () => setFocus((v) => !v) }}
         />
-
-        <button
-          type="button"
-          className="btn me-today"
-          onClick={() => onSelectDate(todayIso())}
-          disabled={selectedDate === todayIso()}
-          title="Jump to today"
-        >
-          Today
-        </button>
 
         <div className="field field-inline impersonate" ref={impRef}>
           <button
@@ -2315,22 +2291,20 @@ export function MeBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
-          outcome={
+          // A PERSONAL card's board is all its owner's: it offers the delete
+          // and, for one that stood on an earlier day, the day to leave it on
+          // instead — a personal board keeps no record to find it in later.
+          choices={
             isPersonalCard(removeChoice, board.personal)
-              ? "delete"
-              : outcomeOf(removeChoice)
+              ? leavableOn(removeChoice)
+                ? ["off-board", "keep"]
+                : ["off-board"]
+              : choicesFor(removeChoice)
           }
-          keepOn={
-            isPersonalCard(removeChoice, board.personal) &&
-            (!removeChoice.startDate || removeChoice.startDate < todayIso())
-              ? addDays(todayIso(), -1)
-              : null
-          }
+          keepOn={leavableOn(removeChoice) ? addDays(todayIso(), -1) : null}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}
-          onSubmit={(hardDelete) =>
-            handleDelete(removeChoice, hardDelete ? "delete" : "keep")
-          }
+          onSubmit={(choice) => handleDelete(removeChoice, choice)}
         />
       )}
     </div>

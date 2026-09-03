@@ -46,15 +46,16 @@ export function placedIn(c: Pick<Card, "week">): string | null {
  *  down a column should meet first.
  *
  *  A debt before anything else: it was due and is not done, and that is true
- *  whatever kind of work it is. Then the project's own work, which is a
- *  commitment made elsewhere and only passing through here. Then the zones,
- *  in the order the Team board reads them: what must be done today, what
- *  turned up unasked, what was planned, and what to start if there is time.
+ *  whatever kind of work it is. Then the PROJECT's own work, then the
+ *  PROCESSES' — both are commitments made elsewhere and only passing through
+ *  here, and neither is a zone anybody set on this board. Then the zones, in
+ *  the order the Team board reads them: what must be done today, what turned
+ *  up unasked, what was planned, and what to start if there is time.
  *
  *  Cards of the same rank keep the order the board holds them in, so the
  *  order somebody set by hand still means something among its peers. */
 export function pileRank(
-  c: Pick<Card, "overdue" | "epic" | "zone"> & { projected?: boolean },
+  c: Pick<Card, "overdue" | "epic" | "zone" | "task"> & { projected?: boolean },
 ): number {
   if (c.overdue) {
     return 0;
@@ -62,9 +63,9 @@ export function pileRank(
   if (c.epic) {
     return 1;
   }
-  // A turn a process will file is a commitment made elsewhere too, and it
-  // will take the week's time whether or not anybody plans around it.
-  if (c.projected) {
+  // A process turn, whether already filed or only drawn ahead: it will take
+  // the week's time whether or not anybody plans around it.
+  if (c.task || c.projected) {
     return 2;
   }
   switch (c.zone) {
@@ -170,3 +171,50 @@ export function reachOf(c: Pick<Card, "week" | "day">): string {
   const weeks = weeksCovered(c);
   return weeks[weeks.length - 1] ?? "";
 }
+
+/** Grip is how far a card may be carried in TIME on this board: anywhere,
+ *  nowhere, or inside a window of weeks. Where it may go between PEOPLE is a
+ *  separate question — every card changes hands freely. */
+export type Grip = "free" | "pinned" | { from: string; to: string };
+
+/** gripOf is what the catch (the padlock) and the card's own kind allow.
+ *
+ *  A PROJECT card's weeks are the Project board's: it is carried between
+ *  hands and not in time, until the catch is lifted.
+ *
+ *  A PROCESS TURN belongs to one turn of its process's calendar, so it moves
+ *  inside that occurrence and no further (`cycle`, sent by the server): a
+ *  turn carried past the next due date stands where the next one belongs,
+ *  and the two read as one process running twice. Lifting the catch frees
+ *  only the tasks that ACCUMULATE — those are the ones whose turns are meant
+ *  to pile up, so one standing in another's week is the point rather than a
+ *  mistake. A turn whose task has no calendar at all (a per-sprint one) has
+ *  no occurrence to stay inside and does not move in time.
+ *
+ *  Everything else the board draws is the board's own work, and its week is
+ *  whichever one somebody drags it to. */
+export function gripOf(
+  c: Pick<Card, "epic" | "task" | "cycle">,
+  opts: { unlocked: boolean; accumulates: boolean },
+): Grip {
+  if (c.epic) {
+    return opts.unlocked ? "free" : "pinned";
+  }
+  if (c.task) {
+    return opts.unlocked && opts.accumulates ? "free" : (c.cycle ?? "pinned");
+  }
+  return "free";
+}
+
+/** removableOnTriage reports whether the × is drawn on a card here. A PROJECT
+ *  card and a PROCESS TURN are not this board's to destroy — one is a
+ *  commitment made on the Project board, the other a process's record of a
+ *  week it owed — so the × appears on them only with the catch lifted, the
+ *  same gesture that admits everything else about them. */
+export function removableOnTriage(
+  c: Pick<Card, "epic" | "task">,
+  unlocked: boolean,
+): boolean {
+  return (!c.epic && !c.task) || unlocked;
+}
+

@@ -58,6 +58,7 @@
   --avatar-fg: #24292f;
   --amber: #b8860b;
   --project-mark: #8b5cf6;
+  --process-mark: #58a6ff;
   --cal-range-bg: #dbeafe;
   --warn-bg: #fff8c5;
   --warn-line: #eac54f;
@@ -141,6 +142,7 @@
   /* The project mark. Violet collapses on the red-green axis (minus its red
      content it reads as blue), so it moves to Okabe-Ito reddish-purple. */
   --project-mark: #cc79a7;
+  --process-mark: #0072b2;
 }
 
 /* ---- light + marine (blue-yellow-friendly) ----
@@ -167,6 +169,7 @@
   /* The project mark: under tritanopia violet drifts toward the blues, so it
      moves to reddish-purple (red survives the missing S-cone). */
   --project-mark: #cc79a7;
+  --process-mark: #1f6feb;
 }
 
 /* ---- dark base (dark + default) ----
@@ -196,6 +199,7 @@
   --avatar-fg: #e6edf3;
   --amber: #e3b341;
   --project-mark: #a371f7;
+  --process-mark: #79c0ff;
   --cal-range-bg: #163356;
   --warn-bg: #2d2a10;
   --warn-line: #7a6a1e;
@@ -261,6 +265,7 @@
 
   /* The project mark, dark variant of the light-vivid one. */
   --project-mark: #e592c2;
+  --process-mark: #58a6ff;
 }
 
 /* ---- dark + marine (blue-yellow-friendly) ---- */
@@ -285,6 +290,7 @@
 
   /* The project mark, dark variant of the light-marine one. */
   --project-mark: #e592c2;
+  --process-mark: #79c0ff;
 }
 
 * {
@@ -332,6 +338,7 @@ select {
 }
 
 .app-header {
+  position: relative; /* the board name is centred on the bar, see .board-title */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -943,7 +950,13 @@ select {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
-/* A review card (linked back to an original) gets a yellow left stripe. */
+/* The left stripe says where a card came FROM, wherever the card is met: a
+   PROJECT card is a commitment made on the Project board, a PROCESS TURN is a
+   week its process owes, and a REVIEW card is somebody else's work waiting on
+   this person. Work the day board made itself wears none — the stripe marks
+   what came from elsewhere, which is why it is worth a glance. */
+.card-project::before,
+.card-process::before,
 .card-review::before {
   content: "";
   position: absolute;
@@ -952,6 +965,16 @@ select {
   bottom: 0;
   width: 4px;
   border-radius: 5px 0 0 5px;
+}
+
+.card-project::before {
+  background: var(--project-mark);
+}
+
+/* A turn rides its process's own blue — the recurrent stage's, since a turn
+   IS recurrent work and the two must not read as different things. */
+.card-process::before {
+  background: var(--process-mark);
 }
 
 .card-review::before {
@@ -1060,7 +1083,28 @@ select {
 .day-nav {
   display: inline-flex;
   align-items: center;
+  align-self: center; /* the toolbar aligns to flex-end; the day sits centred */
   gap: 2px;
+}
+
+/* The control carries its own look. It used to borrow it from the .field
+   wrapper it sat in, and moving it to the app's toolbar left the date as a
+   raw browser input — a heavy default border in the middle of the bar. */
+.day-nav input[type="date"] {
+  font-size: 13px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: inherit;
+}
+
+/* Today and the sprint jump sit with the date they move, not away across
+   the toolbar. */
+.day-today,
+.day-sprint {
+  margin-left: 4px;
 }
 
 .day-arrow {
@@ -1407,8 +1451,11 @@ button.team-avatar {
   display: flex;
   align-items: center;
   gap: 4px;
-  /* No auto margin here: .me-today owns the right-push — two auto margins
-     would split the free space and strand Today mid-bar. */
+  /* The View-as picker is the toolbar's right edge now that the day control
+     has moved up to the app's own bar: it owns the push, and it is the only
+     thing that does — two auto margins would split the free space between
+     them and strand both mid-bar. */
+  margin-left: auto;
 }
 
 .btn.impersonate-active {
@@ -2795,12 +2842,6 @@ button.card-age {
    positioned avatars exist visually. */
 .card-presence {
   display: contents;
-}
-
-/* Me view: push the Today button (and the View-as picker after it) to the
-   right edge of the toolbar. */
-.me-today {
-  margin-left: auto;
 }
 
 /* Review-round badge: a dark-yellow circled number just left of the day counter
@@ -4448,13 +4489,22 @@ button.card-age {
 
 /* The board's name in the toolbar — the one board this server serves, where
    the owner / number fields of the picker era used to be. */
+/* The board's name, centred on the top bar. Absolutely placed rather than a
+   flex child, so it is centred on the BAR and not on the space left between
+   the brand and the account — those two are different widths, and a centred
+   flex child drifts with whichever grows. It never covers them: the width
+   stops short of both, and a long name is cut with an ellipsis. */
 .board-title {
-  align-self: center;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(40%, 420px);
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 /* A person without a picture on the roster (an assignee who is not a member):
@@ -4697,6 +4747,11 @@ button.card-age {
    down its left, so a card reads the same here as it does on the day board. */
 .triage-slot {
   padding-bottom: 6px;
+  /* What a slot's left mark is drawn FROM. The rules below say only what a
+     card's mark is (--mark) and never how it is painted, because the ghost of
+     a turn to come cannot paint it as a border at all (.triage-slot-coming)
+     and the colour must not be written down twice. */
+  border-left-color: var(--mark, var(--card-border));
 }
 
 /* Which week of a longer card this box is — (1/2), (2/2). Quiet: the title
@@ -4726,15 +4781,15 @@ button.card-age {
 /* The stripe down a card's left is the ZONE it stands in: what kind of work
    it is, in the colours the Team board gives them. */
 .triage-slot-zone-gray {
-  border-left-color: var(--zone-gray-accent);
+  --mark: var(--zone-gray-accent);
 }
 
 .triage-slot-zone-green {
-  border-left-color: var(--zone-green-accent);
+  --mark: var(--zone-green-accent);
 }
 
 .triage-slot-zone-yellow {
-  border-left-color: var(--zone-yellow-accent);
+  --mark: var(--zone-yellow-accent);
 }
 
 /* Urgent is the LIGHTER red, a debt the strong one: "must be done today" and
@@ -4744,7 +4799,7 @@ button.card-age {
    stands — a mix towards the background would wash out the colour-blind
    palette, which repaints these accents and nothing else. */
 .triage-slot-zone-red {
-  border-left-color: var(--zone-red-accent);
+  --mark: var(--zone-red-accent);
 }
 
 /* The catch on a project card's weeks. Closed by default and never
@@ -4847,23 +4902,51 @@ button.card-age {
 .triage-slot-coming {
   background: none;
   border-style: dashed;
-  border-left-style: solid;
-  border-left-color: var(--muted);
+  /* The mark is NOT this card's left border. A rounded corner is shared
+     between the two sides that make it, and a dashed side takes its share in
+     dashes: the mark broke off a few pixels above the foot and the bottom-left
+     corner came out grey, so a turn to come wore a scratch where its filed
+     turns wear a stripe. Squaring the corner cured that and cost the ghost its
+     rounding, which is the shape that says "card" — so the dashes keep every
+     corner to themselves and the mark is drawn over the border, below. */
+  border-left-color: transparent;
   box-shadow: none;
   color: var(--muted);
   cursor: default;
 }
 
-/* A project card is a commitment made on the Project board, passing through
-   this one: its week is that board's to say, so it wears the project mark
-   rather than a zone nobody set here. */
+/* The mark itself: the width of the border it covers, the height of the whole
+   card including its top and bottom edges, rounded down the left the way the
+   card is — the same stripe a filed turn wears, and the same one the day
+   boards draw (.card-project, .card-process). */
+.triage-slot-coming::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -1px;
+  bottom: -1px;
+  width: 3px;
+  border-radius: 5px 0 0 5px;
+  background: var(--mark, var(--muted));
+}
+
+/* A project card is a commitment made on the Project board and a turn is a
+   week its process owes: both pass through this board, and their week is the
+   other one's to say, so they wear their own mark rather than a zone nobody
+   set here. The same two marks the day boards draw down a card's left edge
+   (.card-project, .card-process), so one card reads the same on every board
+   it is met on. */
 .triage-slot-project {
-  border-left-color: var(--project-mark);
+  --mark: var(--project-mark);
+}
+
+.triage-slot-process {
+  --mark: var(--process-mark);
 }
 
 /* A debt keeps the strong red, whatever zone it is in. */
 .triage-slot.project-slot-late {
-  border-left-color: var(--danger);
+  --mark: var(--danger);
 }
 
 .triage-slot-resize {
@@ -4872,6 +4955,45 @@ button.card-age {
 
 .triage-deadline {
   border-top-color: var(--danger);
+}
+
+/* On this board the head carries the NAME and nothing else. The line's own run
+   begins where the WEEKS do: the piece of it that crossed the dates column
+   hung off the left end of every deadline like a tail and pointed at nothing,
+   since the dates are not a week work can be due in. The border stays, unpainted
+   — the tab is placed against it. */
+.triage-deadline-name {
+  border-top-color: transparent;
+}
+
+/* Whose deadline it is. This board shows every project of the team at once,
+   so the line needs a name: it sits in the week column, just above the line
+   it belongs to, in that project's own colour. Absolute because the line
+   itself is a zero-height border and has no room inside it; right-aligned so
+   the names stack against the columns rather than drifting across the dates
+   under them. */
+.triage-deadline-label {
+  position: absolute;
+  /* Flush with the column's edge, where the line's own run begins. Inset, it
+     left a few pixels of line poking out past the tab's right foot — a tail
+     on every deadline, and one the eye went to instead of the name. Now the
+     tab ends where the weeks start and the line carries straight on. */
+  right: 0;
+  /* Sits ON the line: the tab's flat foot IS the line's own top edge, so the
+     two read as one mark rather than a label floating near a rule. */
+  bottom: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 5px 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.1;
+  pointer-events: auto;
 }
 
 /* A slot here carries no owner badge — the COLUMN is the owner — so the ×

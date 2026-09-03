@@ -86,6 +86,10 @@ export interface CardResource {
     triage?: boolean;
     /** The Monday of the Triage column the card stands in. */
     triageWeek?: string;
+    /** A recurrent card's weeks to come. */
+    due?: string[];
+    /** A process turn's own occurrence: the weeks it may stand in. */
+    cycle?: { from: string; to: string };
     links?: {
       kind: string;
       url: string;
@@ -230,6 +234,8 @@ export function resourceToCard(res: CardResource): Card {
     leftAt: res.status?.leftAt || undefined,
     triage: res.status?.triage || undefined,
     triageWeek: res.status?.triageWeek || undefined,
+    due: res.status?.due,
+    cycle: res.status?.cycle,
     recurrence: spec.recurrence || undefined,
     day: dates.end || undefined,
     startDate: dates.start || undefined,

@@ -94,16 +94,27 @@ export function AddCard({
   const submitRef = useRef(submit);
   submitRef.current = submit;
 
-  // A click outside the form saves the card (if it has a title) rather than
-  // discarding it.
+  // A press outside the form closes it, saving the card when it has a title
+  // rather than discarding what was typed.
+  //
+  // POINTERDOWN, not mousedown, and captured on the way DOWN. A board that
+  // drags with pointer events calls preventDefault on its own pointerdown —
+  // which suppresses the compatibility mouse events entirely, so a press on
+  // a card, or anywhere else that drags, never reached a mousedown listener
+  // and the form stayed open behind whatever was clicked. Capture, because
+  // those handlers also stop the event from bubbling.
+  //
+  // The press that OPENED the form is already past: the form opens on click,
+  // which fires after its own pointerdown, and this listener is added only
+  // once open is true.
   useEffect(() => {
     if (!open) {
       return;
     }
-    const onDocDown = (e: MouseEvent) => {
+    const onDocDown = (e: PointerEvent) => {
       const t = e.target as Element;
       // The team menu is portalled to <body> (so overflow ancestors cannot
-      // clip it) — a click inside it is part of the form, not an outside save.
+      // clip it) — a press inside it is part of the form, not an outside save.
       if (t.closest?.(".add-card-team-menu")) {
         return;
       }
@@ -111,8 +122,8 @@ export function AddCard({
         submitRef.current();
       }
     };
-    document.addEventListener("mousedown", onDocDown);
-    return () => document.removeEventListener("mousedown", onDocDown);
+    document.addEventListener("pointerdown", onDocDown, true);
+    return () => document.removeEventListener("pointerdown", onDocDown, true);
   }, [open]);
 
   const chosen = picker?.options.find((o) => o.key === picked);

@@ -86,6 +86,19 @@ describe("pileRank", () => {
     expect(pileRank(slot)).toBeLessThan(pileRank(card({ zone: "red" })));
   });
 
+  // A process turn is a commitment made elsewhere too, and it will take the
+  // week's time whether or not anybody plans around it — so it reads right
+  // after the project's work and before anything a zone decides. Already
+  // filed or only drawn ahead makes no difference to the week it costs.
+  it("puts the processes' work right after the project's", () => {
+    const turn = card({ task: "t1", zone: "green" });
+    const ghost = { ...card({ zone: "green" }), projected: true };
+    for (const c of [turn, ghost]) {
+      expect(pileRank(c)).toBeGreaterThan(pileRank(card({ epic: "Storage" })));
+      expect(pileRank(c)).toBeLessThan(pileRank(card({ zone: "red" })));
+    }
+  });
+
   it("leaves a card of no zone at the back", () => {
     expect(pileRank(card())).toBeGreaterThan(pileRank(card({ zone: "green" })));
   });

@@ -36,7 +36,7 @@ const card = (over: Partial<Card> = {}): Card =>
     ...over,
   }) as Card;
 
-const board = (cards: Card[]): Board =>
+const board = (cards: Card[], deadlines: { week: string; project: string }[] = []): Board =>
   ({
     title: "test",
     url: "",
@@ -44,17 +44,17 @@ const board = (cards: Card[]): Board =>
     teams: ["core"],
     projects: [],
     epics: [],
-    deadlines: [],
+    deadlines,
     processes: [],
     members: [],
     domains: [],
     sprintStates: {},
   }) as unknown as Board;
 
-function draw(cards: Card[]) {
+function draw(cards: Card[], deadlines: { week: string; project: string }[] = []) {
   return renderToStaticMarkup(
     <TriageBoard
-      board={board(cards)}
+      board={board(cards, deadlines)}
       provider={{} as Provider}
       roster={["core"]}
       teamFilter={["core"]}
@@ -410,5 +410,36 @@ describe("the Triage board", () => {
     expect(html.match(/project-epic-head triage-person/g)?.length).toBe(2);
     // Unassigned stands in the first column.
     expect(html.indexOf("Unassigned")).toBeLessThan(html.indexOf("lexfrei"));
+  });
+
+  // Every project of the team lands on this one board, so a bare red line
+  // said only "something is due" and left the reader to work out whose. The
+  // line carries its project's NAME in the week column, in that project's own
+  // colour — the same colour the Project board gives it when several plans
+  // share a screen.
+  it("says whose deadline the line is", () => {
+    const html = draw([card()], [
+      { week: "2026-09-07", project: "cozystack" },
+      { week: "2026-09-14", project: "freedom" },
+    ]);
+    expect(html).toContain("triage-deadline-label");
+    expect(html).toContain("cozystack");
+    expect(html).toContain("freedom");
+    // The label stands in the week column; the line still crosses the cards.
+    expect(html).toContain("grid-row:3;grid-column:1");
+    expect(html).toContain("grid-row:3;grid-column:2 / -2");
+    // Two projects, two colours: neither line is the plain danger red that
+    // would make them indistinguishable.
+    const colours = [...html.matchAll(/border-top-color:([^;"]+)/g)].map((m) => m[1]);
+    expect(new Set(colours).size).toBeGreaterThan(1);
+  });
+
+  // A PROCESS TURN passes through this board too: its week is its process's
+  // to say, so it wears the process mark rather than a zone nobody set here
+  // — the same mark the day boards draw down its left edge.
+  it("stripes a process turn with the process mark, not a zone", () => {
+    const html = draw([card({ task: "t1", zone: "red" })]);
+    expect(html).toContain("triage-slot-process");
+    expect(html).not.toContain("triage-slot-zone-red");
   });
 });

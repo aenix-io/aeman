@@ -88,12 +88,18 @@ export function freeSubtasks(
 
 /** RemovalHomes is where a card is, as the × sees it. */
 export interface RemovalHomes {
+  /** Who is carrying the card. Empty means it stands in Unassigned, which is
+   *  where the × would otherwise offer to put it. */
+  assignees?: string[];
   epic?: string;
   /** Read by nothing here on purpose: a bare project name is a label, not a
    *  home. It is in the shape so a card can be passed whole. */
   project?: string;
   /** A week is a home: the Triage board draws every card that has one. */
   week?: string;
+  /** On a process TURN, the task it came from. Its week is that process's
+   *  record of what the week was owed, so the × never empties it. */
+  task?: string;
   sprintStart?: string;
   startDate?: string;
   day?: string;
@@ -147,8 +153,19 @@ export function gridRemoval(
     return "ungroup";
   }
   // A card with a WEEK still has the Triage board to be on: taking it off
-  // the day grid puts it back in that week rather than destroying it.
-  if (c.week) {
+  // the day grid puts it back in that week rather than destroying it. Only
+  // while it IS in the working area, though — a card that is nothing but its
+  // week has no second home to be handed to, and an × that always answered
+  // "back to your week" could never remove one at all. A PROCESS TURN is the
+  // exception and never runs out of homes: its week is its process's record
+  // of what that week was owed.
+  //
+  // This mirrors boardservice.removeFromGrid exactly. It once said only
+  // `if (c.week)` while the server had moved on — so the dialog promised a
+  // card already in Unassigned that it would be moved to Unassigned, and the
+  // server deleted it. The card vanished under a sentence saying it would
+  // not.
+  if (c.week && !hasColumn(c) && (inWorkingArea(c) || c.task)) {
     return "leave";
   }
   return hasColumn(c) ? "leave" : "delete";
@@ -169,20 +186,64 @@ export function asksFirst(
   return !(untouched && bornToday);
 }
 
-/** offersRemoval reports whether the × has anything to do for this card where
- *  it stands. A PROJECT card and a PROCESS TURN are never destroyed by it —
- *  the one is handed back to its column, the other to the week its process
- *  owes — so once the card is already there, out of the working area, the ×
- *  would write nothing at all, and an × that does nothing is worse than no ×
- *  (it reads as a delete that failed). Every other card keeps its ×: its last
- *  home going IS something the × does. */
-export function offersRemoval(
-  c: RemovalHomes & Pick<RemovableCard, "parent"> & { task?: string },
-): boolean {
-  if (hasColumn(c) || c.task) {
-    return inWorkingArea(c);
+/** RemoveChoice is one of the things an × can mean, and the dialog offers the
+ *  card's own list of them (removeChoices). "keep" is the personal board's
+ *  alone: it has no day's record to fall back on, so its × offers to leave
+ *  the card on yesterday instead of destroying it. */
+export type RemoveChoice = "off-board" | "unassign" | "ungroup" | "keep";
+
+/** removeChoices is what the × may do to this card WHERE IT STANDS, most
+ *  destructive first, and the × is drawn only where the list is not empty.
+ *
+ *  The gesture used to work this out for itself and do the one thing it
+ *  decided: a card with a week was always handed back to that week, so taking
+ *  one off the board took two presses — the second landing on a card that no
+ *  longer looked like the one the person meant to remove. The choice is
+ *  theirs now, and it is narrow on purpose:
+ *
+ *  - An ordinary card can go OFF THE BOARD. If it also has somewhere to be
+ *    left — a week, a column — and it is standing in the working area, it can
+ *    be UNASSIGNED into that instead.
+ *  - A PROJECT card and a PROCESS TURN can only be unassigned: the one is the
+ *    Project board's commitment, the other its process's record of a week,
+ *    and neither is this board's to destroy. Once already unassigned they
+ *    have no × at all — an × that does nothing reads as a delete that failed.
+ *  - A SUBTASK is its own case: the × takes it OUT OF THE GROUP when it has a
+ *    column to be left in, and off the board when it has not. */
+export function removeChoices(
+  c: RemovalHomes &
+    Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent"> & {
+      task?: string;
+    },
+  ctx: RemovalContext,
+): RemoveChoice[] {
+  if (c.parent) {
+    return gridRemoval(c, ctx) === "ungroup" ? ["ungroup"] : ["off-board"];
   }
-  return true;
+  // Unassigned is where a card with NOBODY on it stands, and that — not its
+  // dates — is what the option would change. A card already there was being
+  // offered a move to the column it was in: the day grid draws a dated card
+  // nobody has taken in Unassigned too, so reading "in the working area" as
+  // "not in Unassigned" answered a different question than the one asked.
+  const somewhereElse = hasColumn(c) || !!c.week;
+  const unassign: RemoveChoice[] =
+    somewhereElse && (c.assignees?.length ?? 0) > 0 ? ["unassign"] : [];
+  if (hasColumn(c) || c.task) {
+    return unassign;
+  }
+  return ["off-board", ...unassign];
+}
+
+/** offersRemoval reports whether the × is drawn at all: only where it has
+ *  something it could do. */
+export function offersRemoval(
+  c: RemovalHomes &
+    Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent"> & {
+      task?: string;
+    },
+  ctx: RemovalContext,
+): boolean {
+  return removeChoices(c, ctx).length > 0;
 }
 
 /** SubtaskPatch is the optimistic state the grid's × leaves on a SUBTASK:

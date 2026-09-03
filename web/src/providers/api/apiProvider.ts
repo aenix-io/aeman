@@ -365,9 +365,9 @@ export const apiProvider: Provider = {
     await api("DELETE", `/cards/${uid}`);
   },
 
-  async removeCard(uid: string, from: "grid"): Promise<void> {
+  async removeCard(uid: string, intent?: "unassign" | "off-board"): Promise<void> {
     uid = await resolveCardId(uid);
-    await api("POST", `/cards/${uid}/actions/remove`, { from });
+    await api("POST", `/cards/${uid}/actions/remove`, intent ? { intent } : {});
   },
 
   async moveCard(

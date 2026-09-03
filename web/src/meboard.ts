@@ -23,21 +23,28 @@ export function acceptsNewCard(zone: ZoneKey): boolean {
 }
 
 /** mayRemove reports whether the Me board draws an × on a card: only on one
- *  this person created themselves. Work somebody else planned for them is
- *  not theirs to take off the board — the answer to "I am not doing this" is
- *  the refused stage, which leaves the card standing for the lead.
+ *  this person put on this board themselves — their own card, still standing
+ *  in the one zone the board adds to (ADD_ZONE). Anything else is somebody's
+ *  plan: work another person scheduled for them, or work they scheduled on
+ *  the Team or Triage board, where planning is done and where that × lives.
+ *  The answer to "I am not doing this" is the refuse stage, which leaves the
+ *  card standing for the lead.
+ *
+ *  Authorship alone was not enough, and it read as the × coming back: a lead
+ *  writes most of what they are assigned, so most of their own board carried
+ *  one. The zone is what says whether the card is still only theirs.
  *
  *  A SUBTASK is out of the rule's reach: it is a piece of the card it hangs
  *  under rather than work assigned to anyone, so whoever can see the parent
  *  can add one and take it away again. */
 export function mayRemove(
-  c: { author?: string; parent?: string },
+  c: { author?: string; parent?: string; zone?: ZoneKey },
   me: string | undefined,
 ): boolean {
   if (c.parent) {
     return true;
   }
-  return !!me && c.author === me;
+  return !!me && c.author === me && c.zone === ADD_ZONE;
 }
 
 /** sortableWithin reports whether a drag from one zone into another is

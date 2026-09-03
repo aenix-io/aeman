@@ -44,8 +44,9 @@ import { subtaskShows } from "../subtasks";
 import {
   asksFirst,
   offersRemoval,
+  removeChoices,
+  type RemoveChoice,
   deleteWarning,
-  gridRemoval,
   hasColumn,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
@@ -292,45 +293,6 @@ export function TeamBoard({
       }),
     [inFilter, selectedDate, board],
   );
-
-  // The sprint-jump button. Standing on the current sprint, it offers the
-  // previous one ("« Last sprint"). Standing anywhere else, it returns to the
-  // current sprint, the arrow pointing the way ("Current sprint »" when it is
-  // ahead in time, "« Current sprint" when it is behind). Uses the filtered
-  // team's sprint, or the latest across teams when unfiltered. Null = nowhere to
-  // jump.
-  const sprintJump = useMemo<{
-    target: string;
-    label: string;
-    dir: "back" | "fwd";
-  } | null>(() => {
-    let cur: string | null;
-    let prev: string | null;
-    if (teamFilter?.length === 1) {
-      cur = currentSprint(board, teamFilter[0]);
-      prev = previousSprint(board, teamFilter[0]);
-    } else {
-      cur = null;
-      prev = null;
-      for (const s of Object.values(board.sprintStates)) {
-        if (s.current && (cur === null || s.current > cur)) {
-          cur = s.current;
-        }
-        if (s.previous && (prev === null || s.previous > prev)) {
-          prev = s.previous;
-        }
-      }
-    }
-    if (cur === null) {
-      return null;
-    }
-    if (selectedDate === cur) {
-      return prev ? { target: prev, label: "Last sprint", dir: "back" } : null;
-    }
-    return selectedDate < cur
-      ? { target: cur, label: "Current sprint", dir: "fwd" }
-      : { target: cur, label: "Current sprint", dir: "back" };
-  }, [board, teamFilter, selectedDate]);
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
   // first). Columns come from everyone with a card in the selected teams in ANY
@@ -802,7 +764,7 @@ export function TeamBoard({
       // A project card and a process turn already out of the working area
       // have nowhere further to go: the × would write nothing, and one that
       // does nothing reads as a delete that failed.
-      deletable={offersRemoval(card)}
+      deletable={offersRemoval(card, gridCtx(card))}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
@@ -1128,7 +1090,7 @@ export function TeamBoard({
     });
   };
 
-  const handleGridDelete = (card: CardModel, forced?: "confirmed") => {
+  const handleGridDelete = (card: CardModel, chosen?: RemoveChoice) => {
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
@@ -1140,8 +1102,14 @@ export function TeamBoard({
     // does not ask about is one made today that nobody has touched
     // (asksFirst), which the branch above has already answered for a card
     // that never reached the server at all.
-    if (!forced && asksFirst(card, todayIso())) {
+    if (!chosen && asksFirst(card, todayIso())) {
       setRemoveChoice(card);
+      return;
+    }
+    // Unasked (a card made today that nobody touched), the card's own first
+    // answer stands — the same one the dialog would have put at the top.
+    const choice = chosen ?? removeChoices(card, gridCtx(card))[0];
+    if (!choice) {
       return;
     }
     // A subtask with nowhere else to be has no sprint history of its own:
@@ -1150,7 +1118,7 @@ export function TeamBoard({
     // ungroups it and leaves it there, so this board asks gridRemoval like
     // it does for everything else instead of sending a DELETE past the
     // rule — which destroyed work the Me board would have kept.
-    if (card.parent && gridRemoval(card, gridCtx(card)) === "delete") {
+    if (card.parent && choice === "off-board") {
       // The board took the question on (boardAsks), so the board must put
       // it: the card's own prompt has stood down, and deleting in silence
       // is how a worked subtask went in one click.
@@ -1176,7 +1144,7 @@ export function TeamBoard({
       const prev = subtaskRemovalUndo(card) as Partial<CardModel>;
       patchCard(card.itemId, subtaskRemovalPatch(card, gridCtx(card)));
       void provider
-        .removeCard(card.itemId, "grid")
+        .removeCard(card.itemId)
         .then(() => reload())
         .catch((err: unknown) => {
           if (isGone(err)) {
@@ -1198,7 +1166,7 @@ export function TeamBoard({
     // card carries work or a review card, which the delete takes with it.
     // Its subtasks go with it: they are pieces of the same work, and the
     // dialog says how many.
-    if (gridRemoval(card, gridCtx(card)) === "delete") {
+    if (choice === "off-board") {
       const linkedReview = board.cards.find((c) => c.reviewOf === card.itemId);
       const warning = deleteWarning(card, linkedReview?.title ?? null);
       if (warning && !window.confirm(warning)) {
@@ -1215,7 +1183,7 @@ export function TeamBoard({
         removeCard(linkedReview.itemId);
       }
       void provider
-        .removeCard(card.itemId, "grid")
+        .removeCard(card.itemId, "off-board")
         .then(() => reload())
         .catch((err: unknown) => {
           if (!isGone(err)) {
@@ -1240,7 +1208,7 @@ export function TeamBoard({
     });
     rollback = () => patchCard(card.itemId, prev);
     void provider
-      .removeCard(card.itemId, "grid")
+      .removeCard(card.itemId, "unassign")
       .then(() => reload())
       .catch((err: unknown) => {
         if (isGone(err)) {
@@ -1670,36 +1638,10 @@ export function TeamBoard({
 
   return (
     <div className="team">
+      {/* The day the board is looking at is chosen in the app's toolbar
+          (DayNav): it is the app's state, and one control for it keeps the
+          boards from disagreeing about the same day. */}
       <div className="board-toolbar">
-        <div className="field field-inline">
-          <span>Day</span>
-          <div className="day-nav">
-            <button
-              type="button"
-              className="day-arrow"
-              onClick={() => onSelectDate(addDays(selectedDate, -1))}
-              aria-label="Previous day"
-              title="Previous day"
-            >
-              ‹
-            </button>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => onSelectDate(e.target.value || todayIso())}
-            />
-            <button
-              type="button"
-              className="day-arrow"
-              onClick={() => onSelectDate(addDays(selectedDate, 1))}
-              aria-label="Next day"
-              title="Next day"
-            >
-              ›
-            </button>
-          </div>
-        </div>
-
         <TeamChips
           label="Team"
           teams={roster}
@@ -1763,31 +1705,6 @@ export function TeamBoard({
               <path d="m18 12 4 4-4 4" />
             </svg>
           )}
-        </button>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => {
-            if (sprintJump) {
-              onSelectDate(sprintJump.target);
-            }
-          }}
-          disabled={!sprintJump}
-          title="Jump to a sprint's day"
-          aria-label="Jump to sprint"
-        >
-          {sprintJump?.dir === "fwd"
-            ? `${sprintJump.label} »`
-            : `« ${sprintJump?.label ?? "Last sprint"}`}
-        </button>
-        <button
-          type="button"
-          className="btn"
-          onClick={() => onSelectDate(todayIso())}
-          disabled={selectedDate === todayIso()}
-          title="Jump to today"
-        >
-          Today
         </button>
         <div className="sprint-wrap" ref={sprintRef}>
           <button
@@ -1979,11 +1896,11 @@ export function TeamBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
-          outcome={gridRemoval(removeChoice, gridCtx(removeChoice))}
+          choices={removeChoices(removeChoice, gridCtx(removeChoice))}
           keepOn={null}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}
-          onSubmit={() => handleGridDelete(removeChoice, "confirmed")}
+          onSubmit={(choice) => handleGridDelete(removeChoice, choice)}
         />
       )}
     </div>

@@ -24,30 +24,49 @@ describe("where a card can be added on the Me board", () => {
   });
 });
 
-// The × on the Me board removes only what the person put there themselves.
-// Work somebody else planned for them is not theirs to take off the board:
-// the answer to "I am not doing this" is the refused stage, which leaves the
-// card where the lead can see it and decide.
+// The × on the Me board removes only what the person put there themselves,
+// on this board: their own card, still standing in the one zone this board
+// adds to. Work somebody else planned for them is not theirs to take off the
+// board — and neither is work they planned SOMEWHERE ELSE, on the Team or
+// Triage board, which is where a lead plans and where that × belongs. The
+// answer to "I am not doing this" is the refuse stage, which leaves the card
+// where the lead can see it and decide.
 describe("what the × may remove on the Me board", () => {
   const me = "kvaps";
+  const mine = { author: me, zone: "yellow" as ZoneKey };
 
-  it("removes a card this person created", () => {
-    expect(mayRemove({ author: me }, me)).toBe(true);
+  it("removes a card this person put on their own board", () => {
+    expect(mayRemove(mine, me)).toBe(true);
   });
 
   it("leaves a card somebody else created", () => {
-    expect(mayRemove({ author: "lllamnyp" }, me)).toBe(false);
+    expect(mayRemove({ ...mine, author: "lllamnyp" }, me)).toBe(false);
+  });
+
+  // The lead's plan is the other three zones, and a card of the person's OWN
+  // making that has been planned into one of them is no longer only theirs:
+  // somebody read it and gave it a place in the week. This is the case the
+  // first rule missed — a lead saw an × on most of their own board, being the
+  // author of most of what they are assigned.
+  it("leaves a card of its own that the plan has taken up", () => {
+    expect(mayRemove({ author: me, zone: "red" }, me)).toBe(false);
+    expect(mayRemove({ author: me, zone: "gray" }, me)).toBe(false);
+    expect(mayRemove({ author: me, zone: "green" }, me)).toBe(false);
+  });
+
+  it("leaves a card of its own that stands in no zone at all", () => {
+    expect(mayRemove({ author: me }, me)).toBe(false);
   });
 
   it("leaves a card whose author nothing records", () => {
-    // An old card, or one written straight into git: unattributed work is
-    // not this person's to destroy.
-    expect(mayRemove({}, me)).toBe(false);
+    // An old card, or one written straight into the repository: unattributed
+    // work is not this person's to destroy.
+    expect(mayRemove({ zone: "yellow" }, me)).toBe(false);
   });
 
   it("leaves everything when nobody is signed in", () => {
-    expect(mayRemove({ author: me }, undefined)).toBe(false);
-    expect(mayRemove({ author: me }, "")).toBe(false);
+    expect(mayRemove(mine, undefined)).toBe(false);
+    expect(mayRemove(mine, "")).toBe(false);
   });
 
   // A SUBTASK is a piece of the card it hangs under, not work assigned to
@@ -55,6 +74,7 @@ describe("what the × may remove on the Me board", () => {
   // Its × is the parent's own gesture and this rule does not reach it.
   it("says nothing about subtasks — their × is the parent's", () => {
     expect(mayRemove({ author: "lllamnyp", parent: "p1" }, me)).toBe(true);
+    expect(mayRemove({ author: "lllamnyp", parent: "p1", zone: "red" }, me)).toBe(true);
   });
 });
 

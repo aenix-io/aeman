@@ -584,7 +584,17 @@ export function Card({
   return (
     <div
       className={`card${selected ? " card-selected" : ""}${card.overdue ? " card-overdue" : ""}${(selectedBy?.length ?? 0) > 0 ? " card-peer-selected" : ""}${
-        card.reviewOf ? " card-review" : ""
+        // Where the card came FROM, said by the stripe down its left edge: a
+        // Project-board commitment, a week its process owes, or somebody
+        // else's work waiting on this person. A review card is the innermost
+        // of the three — it IS the waiting — so it wins where they meet.
+        card.reviewOf
+          ? " card-review"
+          : card.epic
+            ? " card-project"
+            : card.task
+              ? " card-process"
+              : ""
       }${dimAvatar ? " card-dim-avatar" : ""}${
         groupTarget ? " card-group-target" : ""
       }${record ? " card-record" : ""}`}

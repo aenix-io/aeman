@@ -99,6 +99,18 @@ export interface Card {
   triage?: boolean;
   /** The Monday of the Triage column the card stands in (B5). */
   triageWeek?: string;
+  /** A RECURRENT card's weeks to come: the ones it comes round in over the
+   *  planning horizon and no copy of it stands in yet. A team's own repeating
+   *  work is reseeded by carry-over rather than filed by a process, and the
+   *  weeks it will land in are as spoken for as a process turn's. */
+  due?: string[];
+  /** A process TURN's own occurrence: the first and last week it may stand
+   *  in, both Mondays and both inclusive. A turn is one turn of its
+   *  process's calendar, and carrying it past the next due date would put it
+   *  where the next one belongs. The server sends it (board.CycleWindow) —
+   *  the calendar is its, and a second answer to "when is this next due"
+   *  would be one waiting to disagree. */
+  cycle?: { from: string; to: string };
   /** Free-form card details (the body minus the appended action log).
    *  Undefined until loaded: listings are the board-row shape without the
    *  body, and the boards fetch it when a card is selected or opened. */
@@ -342,9 +354,11 @@ export interface Provider {
   patchCard(uid: string, patch: CardPatch): Promise<Card>;
   /** Hard delete; the server cascades to the linked review card. */
   deleteCard(uid: string): Promise<void>;
-  /** The smart ×: the server hands the card back to a home it still has, or
-   *  deletes it when the working area was the last one. */
-  removeCard(uid: string, from: "grid"): Promise<void>;
+  /** The ×, carrying which of its two meanings was chosen: "unassign" empties
+   *  the working area and leaves the card in its week or its column,
+   *  "off-board" takes it away with the subtasks that were pieces of it.
+   *  Omitted, the gesture decides for itself as it always did. */
+  removeCard(uid: string, intent?: "unassign" | "off-board"): Promise<void>;
   /** Reposition card after afterId in the project order (null = top). */
   moveCard(uid: string, afterId: string | null): Promise<void>;
   /** Reorder to sit right before another card: the server resolves the true

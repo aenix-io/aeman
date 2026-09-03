@@ -5,6 +5,7 @@ import {
   freeSubtasks,
   gridRemoval,
   offersRemoval,
+  removeChoices,
   subtaskRemovalPatch,
   subtaskRemovalUndo,
   type RemovableCard,
@@ -36,6 +37,24 @@ describe("what each × does, one answer for every board", () => {
     expect(gridRemoval({ ...inSprint, week: "2026-08-24", progress: 40 }, ctx)).toBe(
       "leave",
     );
+  });
+
+  // The week counts as somewhere to go only while the card is ALSO in the
+  // working area. One that is nothing but its week — already standing in
+  // Unassigned — has no second home, and the × empties its last one. This
+  // rule drifted from the server's once, and the dialog then promised such a
+  // card it would be moved to Unassigned while the server deleted it.
+  it("deletes a card that is nothing but its week", () => {
+    expect(gridRemoval({ week: "2026-08-24" }, ctx)).toBe("delete");
+  });
+
+  // A PROCESS TURN never runs out: its week is its process's record of what
+  // that week was owed, and destroying it would lose the record.
+  it("always leaves a process turn in its week", () => {
+    expect(gridRemoval({ ...inSprint, week: "2026-08-24", task: "t1" }, ctx)).toBe(
+      "leave",
+    );
+    expect(gridRemoval({ week: "2026-08-24", task: "t1" }, ctx)).toBe("leave");
   });
 
   // The Me board asked this question on its own and answered it differently
@@ -239,31 +258,77 @@ describe("when the × asks first", () => {
   });
 });
 
-// A project card and a process turn are never destroyed by the ×: one is
-// handed back to its column, the other to the week its process owes. Once
-// the card is already there the × would write nothing at all — and an × that
-// does nothing reads as a delete that failed, so the board does not draw one.
-describe("where the × is offered at all", () => {
-  const working = { sprintStart: "2026-08-24", startDate: "2026-08-28" };
+// What the × may do to a card WHERE IT STANDS. The gesture used to work this
+// out for itself and do the one thing it decided, so taking a card with a
+// week off the board took two presses — the second landing on a card that no
+// longer looked like the one the person meant to remove. The person chooses
+// now, out of the card's own list, and the × is drawn only where that list is
+// not empty.
+describe("what the × offers", () => {
+  const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
+  // Somebody is carrying it: that, and not its dates, is what "move it to
+  // Unassigned" would change. A dated card nobody has taken is DRAWN in
+  // Unassigned too, and reading the working area as "not in Unassigned"
+  // offered such a card a move to the column it was already standing in.
+  const held = {
+    assignees: ["kvaps"],
+    sprintStart: "2026-08-24",
+    startDate: "2026-08-28",
+  };
 
-  it("is offered on a project card that is on the day grid", () => {
-    expect(offersRemoval({ ...working, epic: "Auth" })).toBe(true);
+  it("offers an ordinary card the board, and its week beside it", () => {
+    expect(removeChoices({ ...held, week: "2026-08-24" }, ctx)).toEqual([
+      "off-board",
+      "unassign",
+    ]);
   });
 
-  it("is not offered on a project card already out of the working area", () => {
-    expect(offersRemoval({ epic: "Auth" })).toBe(false);
+  it("offers only the board to a card with nowhere to be left", () => {
+    // No week and no column: unassigning would leave it nowhere at all.
+    expect(removeChoices(held, ctx)).toEqual(["off-board"]);
   });
 
-  it("is offered on a process turn on the day grid, and not on one in its week", () => {
-    expect(offersRemoval({ ...working, task: "t1" })).toBe(true);
-    expect(offersRemoval({ task: "t1", week: "2026-08-24" })).toBe(false);
+  it("offers only the board to a card standing in Unassigned", () => {
+    // Nobody is carrying it, dates or no dates: it is already there.
+    expect(removeChoices({ week: "2026-08-24" }, ctx)).toEqual(["off-board"]);
+    expect(
+      removeChoices({ week: "2026-08-24", sprintStart: "2026-08-24" }, ctx),
+    ).toEqual(["off-board"]);
   });
 
-  it("is offered on every other card, wherever it stands", () => {
-    // Its last home going IS something the × does — that is the case the
-    // dialog exists for.
-    expect(offersRemoval({ week: "2026-08-24" })).toBe(true);
-    expect(offersRemoval({})).toBe(true);
+  it("offers a PROJECT card its column and nothing else", () => {
+    // The Project board's commitment is not this board's to destroy.
+    expect(removeChoices({ ...held, epic: "Auth" }, ctx)).toEqual(["unassign"]);
+  });
+
+  it("offers a PROCESS TURN its week and nothing else", () => {
+    expect(removeChoices({ ...held, task: "t1", week: "2026-08-24" }, ctx)).toEqual([
+      "unassign",
+    ]);
+  });
+
+  it("offers a project card in Unassigned nothing at all — so no × is drawn", () => {
+    expect(removeChoices({ epic: "Auth" }, ctx)).toEqual([]);
+    expect(offersRemoval({ epic: "Auth" }, ctx)).toBe(false);
+    // Dated, and still nobody's: the × has nothing to do here either.
+    expect(offersRemoval({ epic: "Auth", sprintStart: "2026-08-24" }, ctx)).toBe(false);
+    expect(removeChoices({ task: "t1", week: "2026-08-24" }, ctx)).toEqual([]);
+    expect(offersRemoval({ task: "t1", week: "2026-08-24" }, ctx)).toBe(false);
+  });
+
+  it("keeps drawing the × wherever there is something to do", () => {
+    expect(offersRemoval({ ...held, epic: "Auth" }, ctx)).toBe(true);
+    expect(offersRemoval({ week: "2026-08-24" }, ctx)).toBe(true);
+    expect(offersRemoval({}, ctx)).toBe(true);
+  });
+
+  // A SUBTASK is its own case: out of the group where it has a column to be
+  // left in, off the board where it has not.
+  it("takes a subtask out of its group, or off the board", () => {
+    expect(removeChoices({ ...held, parent: "p", epic: "Auth" }, ctx)).toEqual([
+      "ungroup",
+    ]);
+    expect(removeChoices({ ...held, parent: "p" }, ctx)).toEqual(["off-board"]);
   });
 });
 
