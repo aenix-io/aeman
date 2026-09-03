@@ -1373,8 +1373,11 @@ export function TeamBoard({
     };
     patchCard(card.itemId, {
       stage: "review",
-      // The 10-90 clamp is stored on the review pick (mirrors board.ApplyStage).
-      progress: Math.min(90, Math.max(10, card.progress ?? 0)),
+      // The band is stored on the review pick (mirrors board.ApplyStage), and
+      // it is asked for rather than written out again: a hand-written copy of
+      // this rule is how a stage came to be clamped in some places and not
+      // others, and the copy that is forgotten is the one that shows.
+      progress: clampProgress("review", card.progress ?? 0),
     });
     const creating = provider.sendToReview(card.itemId,
       reviewerLogin,
