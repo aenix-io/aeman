@@ -270,8 +270,14 @@ Rules:
   schema). Unknown keys are preserved on rewrite — a newer server must
   not strip what an older one does not know.
 - `zone` and `stage` are the domain keys (`red|yellow|green|gray`,
-  `locked|review|done|recurrent`), not display names. Derived states
-  (In Progress, Done-by-100%) are **not stored**, exactly as today.
+  `locked|review|recurrent|refuse`), not display names. Derived states
+  (In Progress, Done-by-100%) are **not stored**, exactly as today — which
+  is why `done` is not among the stage keys: a finished card is `progress:
+  100` with no stage at all. `refuse` is the answer of the person the card
+  is on ("I am not doing this"); it stores like `locked` and `review`, its
+  progress inside [10, 90], and it leaves the card on the board rather than
+  taking it off. A writer emitting a stage the list does not name produces a
+  card this server refuses to write and no board draws as that stage.
 - `doneFrom` is the progress the card had when a write took it to 100:
   written by that write — the slider, or a review passing (`applyStage`
   takes 90 → 100, so `doneFrom: 90`) — and cleared by a reopen. `Reopen`
