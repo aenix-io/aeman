@@ -798,11 +798,25 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Intent string `json:"intent"`
+	}
+	if r.ContentLength > 0 && !decodeJSON(w, r, &in) {
+		return
+	}
+	intent := boardservice.RemoveIntent(in.Intent)
+	switch intent {
+	case boardservice.RemoveAuto, boardservice.Unassign, boardservice.OffBoard:
+	default:
+		writeJSONError(w, http.StatusBadRequest,
+			"unknown intent (use unassign, off-board, or leave it out)")
+		return
+	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid")); err != nil {
+	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid"), intent); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -1940,6 +1954,10 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrNoteTooLong),
 		errors.Is(err, boardservice.ErrSubtaskDepth),
 		errors.Is(err, boardservice.ErrSubtaskWeek),
+		// The × was told to do something the card does not allow: a slot or a
+		// turn taken off the board, or a card unassigned into nowhere.
+		errors.Is(err, boardservice.ErrNotYoursToDestroy),
+		errors.Is(err, boardservice.ErrNowhereToLeaveIt),
 		errors.Is(err, boardservice.ErrParentNotFound),
 		errors.Is(err, boardservice.ErrOpenSubtasks),
 		errors.Is(err, boardservice.ErrTeamInUse),

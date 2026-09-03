@@ -53,7 +53,7 @@ func TestTheGridRemoveDeletesACardThatIsNowhereElse(t *testing.T) {
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -73,7 +73,7 @@ func TestTheRemoveLeavesACardThatIsScheduledForAWeek(t *testing.T) {
 			Week: week, SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -105,13 +105,13 @@ func TestTheRemovePressedTwiceEmptiesTheLastHome(t *testing.T) {
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := findCard(mustLoad(t, fake), "c1"); !ok {
 		t.Fatal("the first × leaves the card in its week")
 	}
-	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := findCard(mustLoad(t, fake), "c1"); ok {
@@ -136,7 +136,7 @@ func TestTheRemoveNeverDeletesAProjectCard(t *testing.T) {
 		{ItemID: "c1", Title: "a slot", Team: "platform", Project: "core", Epic: "Auth",
 			SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "c1"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -165,7 +165,7 @@ func TestWorkDoesNotTurnARemoveIntoAMove(t *testing.T) {
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -187,7 +187,7 @@ func TestACardThatOnlyNamesAProjectIsNotSparedByThatName(t *testing.T) {
 		{ItemID: "c1", Title: "project, no column", Team: "platform", Project: "core",
 			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "c1"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -224,13 +224,13 @@ func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if !shown(t, fake, "c1") {
 		t.Fatal("after the ×, the card is on no board")
 	}
-	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -249,7 +249,7 @@ func TestSubtasksLeaveTheWorkingAreaWithTheirParent(t *testing.T) {
 		{ItemID: "s", Title: "child", Team: "platform", Parent: "p",
 			SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "p"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "p", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -273,7 +273,7 @@ func TestTheRemoveOnAPersonalCardFollowsThePersonalRule(t *testing.T) {
 		{ItemID: "p1", Title: "mine", Domain: "~kvaps", Progress: 40,
 			StartDate: board.AddDays(today, -3), Day: board.AddDays(today, -3)},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "p1"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "p1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -296,7 +296,7 @@ func TestLeavingTheWorkingAreaIsRecorded(t *testing.T) {
 		{ItemID: "c1", Title: "in both", Team: "platform", Week: board.MondayOf(today),
 			SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "c1"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if !fake.saw("AppendEvent c1 sprint " + today + "->") {
@@ -319,7 +319,7 @@ func TestTheRemoveOnASubtaskDeletesItRatherThanDemotingIt(t *testing.T) {
 		{ItemID: "s", Title: "child", Team: "platform", Parent: "p",
 			SprintStart: today, StartDate: board.AddDays(today, -2), Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "s"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "s", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")

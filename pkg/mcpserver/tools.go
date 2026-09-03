@@ -813,10 +813,12 @@ func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in card
 	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
 }
 
-// removeCardInput is the smart ×: the backend decides between demote, release
-// and real delete based on where the card sits.
+// removeCardInput is the smart ×. Omitting the intent leaves the gesture to
+// decide, as it always did; naming one is how the UI passes on the answer the
+// person gave its dialog.
 type removeCardInput struct {
 	cardRef
+	Intent string `json:"intent,omitempty" jsonschema:"what the x is to do: unassign (empty the working area and leave the card in its week or its column) or off-board (take it away, with the subtasks that were pieces of it). Omit to let the gesture decide, which is what it did before there was a choice. off-board is refused for a Project-board slot and a process turn — those belong to another board's plan; unassign is refused for a card with no week and no column, which would leave it nowhere at all"`
 }
 
 func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in removeCardInput) (*mcp.CallToolResult, statusOutput, error) {
@@ -824,7 +826,13 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 	if err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.Remove(ctx, boardID, in.UID); err != nil {
+	intent := boardservice.RemoveIntent(in.Intent)
+	switch intent {
+	case boardservice.RemoveAuto, boardservice.Unassign, boardservice.OffBoard:
+	default:
+		return nil, statusOutput{}, fmt.Errorf("unknown intent %q (use unassign, off-board, or leave it out)", in.Intent)
+	}
+	if err := svc.Remove(ctx, boardID, in.UID, intent); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil

@@ -524,7 +524,7 @@ func TestTheCrossNeverDeletesASlot(t *testing.T) {
 		{ItemID: "slot", Title: "a roadmap slot", Epic: "E", Project: "P",
 			StartDate: today, Day: board.AddDays(today, 30), Week: week, Team: "alpha"},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
-	if err := New(fake).Remove(context.Background(), "acme", "slot"); err != nil {
+	if err := New(fake).Remove(context.Background(), "acme", "slot", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	got := fake.get("slot")
@@ -550,7 +550,7 @@ func TestTheCrossNeverDeletesAProcessTurn(t *testing.T) {
 			SprintStart: today, StartDate: today, Day: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	svc := New(fake)
-	if err := svc.Remove(context.Background(), "acme", "turn"); err != nil {
+	if err := svc.Remove(context.Background(), "acme", "turn", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	got := fake.get("turn")
@@ -564,7 +564,7 @@ func TestTheCrossNeverDeletesAProcessTurn(t *testing.T) {
 		t.Fatalf("it leaves the working area: %+v", got)
 	}
 	// Pressed again on a turn that is only its week: still there.
-	if err := svc.Remove(context.Background(), "acme", "turn"); err != nil {
+	if err := svc.Remove(context.Background(), "acme", "turn", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if fake.get("turn") == nil {

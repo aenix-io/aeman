@@ -25,7 +25,7 @@ func TestTheGridCrossDeletesAWorkedCard(t *testing.T) {
 			StartDate: board.AddDays(today, -1), Day: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, Previous: prev}})
 
-	if err := f2svc(f).Remove(context.Background(), "acme", "c1"); err != nil {
+	if err := f2svc(f).Remove(context.Background(), "acme", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if c := f.get("c1"); c != nil {
@@ -49,7 +49,7 @@ func TestTheGridCrossDeletesAnUntouchedCardToo(t *testing.T) {
 			StartDate: board.AddDays(today, -1), Day: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, Previous: prev}})
 
-	if err := f2svc(f).Remove(context.Background(), "acme", "c1"); err != nil {
+	if err := f2svc(f).Remove(context.Background(), "acme", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if c := f.get("c1"); c != nil {
@@ -69,7 +69,7 @@ func TestTheGridCrossStillHandsAColumnCardBack(t *testing.T) {
 			Assignees: []string{"kvaps"}},
 	}, map[string]board.SprintState{"alpha": {Current: today, Previous: prev}})
 
-	if err := f2svc(f).Remove(context.Background(), "acme", "c1"); err != nil {
+	if err := f2svc(f).Remove(context.Background(), "acme", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("c1")

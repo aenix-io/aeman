@@ -1442,7 +1442,7 @@ func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
 			Project: "engineering", Epic: "Cozystack",
 			StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
 	})
-	if err := New(f).Remove(ctx, "acme", "c1"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -1484,7 +1484,7 @@ func TestTheGridRemoveStillDeletesAColumnlessSubtask(t *testing.T) {
 		{ItemID: "c1", Title: "plain child", Team: "platform", Parent: "p",
 			SprintStart: board.TodayIso()},
 	})
-	if err := New(f).Remove(ctx, "acme", "c1"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -2059,7 +2059,7 @@ func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	err := New(f).Remove(ctx, "acme", "kid")
+	err := New(f).Remove(ctx, "acme", "kid", RemoveAuto)
 	if !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the follower's column refuses the pull-out: %v", err)
 	}
@@ -2091,7 +2091,7 @@ func TestAStrandedColumnDoesNotLeaveACardNowhere(t *testing.T) {
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).Remove(ctx, "acme", "kid"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "kid", RemoveAuto); err != nil {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -2114,7 +2114,7 @@ func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).Remove(ctx, "acme", "kid"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "kid", RemoveAuto); err != nil {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -2138,7 +2138,7 @@ func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).Remove(ctx, "acme", "kid"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "kid", RemoveAuto); err != nil {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")

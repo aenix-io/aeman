@@ -80,7 +80,7 @@ func TestAPersonRemovesOnlyTheirOwnCard(t *testing.T) {
 	me := WithActor(ctx, "kvaps")
 
 	f := newBoard()
-	if err := f2svc(f).Remove(me, "acme", "theirs"); !errors.Is(err, ErrNotYoursToRemove) {
+	if err := f2svc(f).Remove(me, "acme", "theirs", RemoveAuto); !errors.Is(err, ErrNotYoursToRemove) {
 		t.Fatalf("removing work planned for me = %v, want ErrNotYoursToRemove", err)
 	}
 	if f.get("theirs") == nil {
@@ -89,21 +89,21 @@ func TestAPersonRemovesOnlyTheirOwnCard(t *testing.T) {
 
 	// My own card, which I made, is mine to take off again.
 	f = newBoard()
-	if err := f2svc(f).Remove(me, "acme", "mine"); err != nil {
+	if err := f2svc(f).Remove(me, "acme", "mine", RemoveAuto); err != nil {
 		t.Fatalf("removing my own card: %v", err)
 	}
 
 	// A card on SOMEBODY ELSE is the lead's to remove: the rule speaks about
 	// the person carrying the work, and that is not me here.
 	f = newBoard()
-	if err := f2svc(f).Remove(me, "acme", "somebody-elses"); err != nil {
+	if err := f2svc(f).Remove(me, "acme", "somebody-elses", RemoveAuto); err != nil {
 		t.Fatalf("the lead's x on another person's card: %v", err)
 	}
 
 	// A SUBTASK is a piece of the card it hangs under, not work assigned to
 	// anyone: whoever sees the parent may take it away.
 	f = newBoard()
-	if err := f2svc(f).Remove(me, "acme", "kid"); err != nil {
+	if err := f2svc(f).Remove(me, "acme", "kid", RemoveAuto); err != nil {
 		t.Fatalf("a subtask of somebody else's card: %v", err)
 	}
 

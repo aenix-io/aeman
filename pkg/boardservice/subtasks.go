@@ -48,6 +48,20 @@ var ErrNotYoursToPlan = errors.New("work you plan for yourself is unplanned work
 // takes the decision away from them.
 var ErrNotYoursToRemove = errors.New("only the person who created a card can remove it from their own board")
 
+// ErrNotYoursToDestroy is asking for a card OFF THE BOARD that this board did
+// not put there: a Project-board slot is that board's commitment, and a
+// process turn is its process's record of what a week was owed. The × empties
+// the working area for those and stops. The request is refused rather than
+// quietly turned into an unassign — a gesture that does something other than
+// what it says is how the × came to be mistrusted.
+var ErrNotYoursToDestroy = errors.New("this card is not this board's to destroy")
+
+// ErrNowhereToLeaveIt is asking to unassign a card that has nowhere to be
+// left: no week, no column. Emptying the working area would leave it with no
+// person, no dates and no home — alive on no board anyone can open. Taking it
+// OFF the board is the answer for such a card, and the caller has to say so.
+var ErrNowhereToLeaveIt = errors.New("the card has nowhere to be left: no week, no column")
+
 // ErrOpenSubtasks is returned when a card with unfinished subtasks is being
 // completed — closing the parent is the human's final call, made only once
 // every subtask is done.

@@ -312,7 +312,7 @@ func TestSmartRemoveTakesSubtasksWithIt(t *testing.T) {
 	}, map[string]board.SprintState{
 		"alpha": {Current: "2026-01-10", Previous: "2026-01-03"},
 	})
-	if err := f2svc(f).Remove(ctx, "acme", "p"); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "p", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("p") != nil {
@@ -354,7 +354,7 @@ func TestSmartRemoveCreatedTodayHandsBackAParentThatHasAWeek(t *testing.T) {
 	}, map[string]board.SprintState{
 		"alpha": {Current: today, Previous: "2026-01-03"},
 	})
-	if err := f2svc(f).Remove(ctx, "acme", "p"); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "p", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	p := f.get("p")

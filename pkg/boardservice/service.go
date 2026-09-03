@@ -987,6 +987,28 @@ func (s *Service) syncChildrenSprint(ctx context.Context, b board.Board, parentI
 // Remove is the smart × — one method, the backend decides the outcome. A
 // card has two homes — the working area (a sprint and its days) and the
 // weekly plan (a band and its week) — and each × empties one of them. It
+// RemoveIntent is which of the two things an × means. The gesture used to
+// decide for itself — a card with a week was ALWAYS handed back to that week,
+// so taking one off the board took two presses, the second landing on a card
+// that no longer looked like the one the person meant to remove. The board
+// asks now (RemoveChoiceDialog offers what the card allows), so the request
+// carries the answer.
+type RemoveIntent string
+
+const (
+	// RemoveAuto is the gesture deciding for itself, as it always did: the
+	// card leaves the working area for whatever home it has left, and is
+	// deleted when it had none. It is the ZERO value, so a caller that does
+	// not care — an agent, an embedder, the API with no intent in the body —
+	// gets the old behaviour by saying nothing.
+	RemoveAuto RemoveIntent = ""
+	// Unassign empties the WORKING AREA and leaves the card where it still
+	// belongs: its week, or its Project-board column. It destroys nothing.
+	Unassign RemoveIntent = "unassign"
+	// OffBoard takes the card away, with the subtasks that were pieces of it.
+	OffBoard RemoveIntent = "off-board"
+)
+
 // mirrors handleGridDelete in TeamBoard.tsx: the card leaves the working area
 // — assignee, sprint and dates cleared (a slot keeps its dates: they are its
 // row) — and stays wherever else it is: the WEEK it is scheduled for, or its
@@ -994,7 +1016,7 @@ func (s *Service) syncChildrenSprint(ctx context.Context, b board.Board, parentI
 // (cascading its review card; subtasks are freed into standalone cards). What
 // it carries changes nothing here — the UI asks first when there is work to
 // lose.
-func (s *Service) Remove(ctx context.Context, boardID string, itemID string) error {
+func (s *Service) Remove(ctx context.Context, boardID string, itemID string, intent RemoveIntent) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -1004,6 +1026,25 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID string) err
 	}
 	if board.IsPersonalDomain(c.Domain) {
 		return s.removePersonal(ctx, b, c)
+	}
+	// OFF THE BOARD is taken at its word: the card goes even though its week
+	// or its column would have kept it, and the subtasks that were pieces of
+	// it go along. Only what this board put on itself, though — a slot and a
+	// process turn belong to another board's plan (ErrNotYoursToDestroy).
+	// A SUBTASK is not answered here: the × on one means "out of the group",
+	// which the arm below still decides.
+	if intent == OffBoard && c.Parent == "" {
+		if hasColumn(c) || c.Task != "" {
+			return fmt.Errorf("%w: %q", ErrNotYoursToDestroy, c.Title)
+		}
+		return s.deleteGroup(ctx, b, c)
+	}
+	// UNASSIGN needs somewhere to leave the card. With no week and no column
+	// emptying the working area would leave it with no person, no dates and
+	// no home at all — the state this rule exists to prevent — so the caller
+	// is told to say OffBoard if that is what they meant.
+	if intent == Unassign && c.Parent == "" && !hasColumn(c) && c.Week == "" {
+		return fmt.Errorf("%w: %q", ErrNowhereToLeaveIt, c.Title)
 	}
 	// A subtask has no sprint history of its own: it rides its parent, so
 	// demoting it alone would split the family across two sprints — the very

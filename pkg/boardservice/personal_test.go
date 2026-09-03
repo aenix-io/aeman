@@ -167,7 +167,7 @@ func TestRemoveOnAPersonalCardLeavesItBehindOrDeletes(t *testing.T) {
 	svc := New(fake)
 	ctx := board.WithActor(t.Context(), "kvaps")
 
-	if err := svc.Remove(ctx, "o", "p1"); err != nil {
+	if err := svc.Remove(ctx, "o", "p1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if c := fake.get("p1"); c == nil || c.LeftAt != yesterday || c.Progress != 40 {
@@ -180,7 +180,7 @@ func TestRemoveOnAPersonalCardLeavesItBehindOrDeletes(t *testing.T) {
 		t.Fatalf("the × must delete nothing here; log = %v", fake.log)
 	}
 	for _, id := range []string{"p2", "p3"} {
-		if err := svc.Remove(ctx, "o", id); err != nil {
+		if err := svc.Remove(ctx, "o", id, RemoveAuto); err != nil {
 			t.Fatal(err)
 		}
 		if fake.get(id) != nil {
@@ -199,7 +199,7 @@ func TestRemoveOnAPersonalCardLeavesItBehindOrDeletes(t *testing.T) {
 	if c := fake.get("s1"); c.LeftAt != "" {
 		t.Fatalf("its subtask after the calendar: %+v; want leftAt cleared", c)
 	}
-	if err := svc.Remove(ctx, "o", "p1"); err != nil {
+	if err := svc.Remove(ctx, "o", "p1", RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Defer(ctx, "o", "p1", 1); err != nil {
