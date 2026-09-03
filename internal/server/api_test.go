@@ -136,6 +136,14 @@ func TestAPICreateCard(t *testing.T) {
 func TestAPICreateRefusesSelfPlannedWork(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
+	// WHO is asking is the whole rule, so the test says so itself. Left to
+	// resolve for real, the login comes from whatever identity the machine
+	// running the tests happens to have: on a developer's laptop that is a
+	// signed-in `gh` — the actor the fixture names, and the rule fires — and
+	// on CI there is none, the actor is anonymous, and the guard correctly
+	// steps aside from a create that is nobody's own work. The test passed at
+	// the desk and failed in CI, proving only where it ran.
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "gho_kvaps", "kvaps", nil }
 	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
 		`{"title":"Mine","team":"alpha","zone":"urgent","assignees":["kvaps"]}`)
 	if rec.Code != http.StatusForbidden {
@@ -145,6 +153,22 @@ func TestAPICreateRefusesSelfPlannedWork(t *testing.T) {
 		`{"title":"Came up","team":"alpha","zone":"unplanned","assignees":["kvaps"]}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("unplanned work for oneself: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The rule is about a person planning THEIR OWN week, so it needs a person:
+// with no actor there is nobody whose own work this could be, and the create
+// goes through. Pinned because it is the state CI ran in while the test above
+// silently proved nothing — an anonymous caller must not be quietly held to a
+// rule about ownership, and must not be quietly exempt from one either.
+func TestAPICreateWithNoActorIsNotSelfPlannedWork(t *testing.T) {
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "", "", nil }
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+		`{"title":"Mine","team":"alpha","zone":"urgent","assignees":["kvaps"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
 
