@@ -100,7 +100,7 @@ func usage() {
 
 Usage:
   aeman serve [flags]   Start the server and open the UI
-  aeman mcp [flags]     Start the MCP server on stdio
+  aeman mcp [flags]     Start the MCP server on stdio, or --listen for a shared daemon
   aeman init --repo URL Bootstrap an empty repository as a board
   aeman migrate [flags] Copy a GitHub Projects v2 board into a repository
   aeman login [flags]   Store the forge token in the OS keychain
@@ -195,9 +195,24 @@ func runServe(args []string) error {
 func runMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	verbose := fs.Bool("verbose", false, "enable debug logging")
+	listen := fs.String("listen", os.Getenv("AEMAN_MCP_LISTEN"),
+		"serve every client on this loopback address instead of stdio, e.g. 127.0.0.1:8766 (env AEMAN_MCP_LISTEN)")
+	// No environment fallback: putting an unauthenticated board on the
+	// network is a thing to type, not a thing to inherit.
+	listenInsecure := fs.Bool("listen-insecure", false, "let --listen bind a non-loopback address, exposing the board to whoever can reach it")
 	gf := addGitFlags(fs, os.Getenv)
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	// Judge the address before anything opens the board: the clone below
+	// takes up to two minutes, and a refusal that arrives after it has
+	// already been paid for arrives too late to read as a typo.
+	if *listen != "" {
+		if err := checkListenAddr(*listen, *listenInsecure); err != nil {
+			return err
+		}
+	} else if *listenInsecure {
+		return fmt.Errorf("--listen-insecure without --listen: this process would speak stdio and expose nothing; pass --listen host:port")
 	}
 	gitCfg, err := gf.config()
 	if err != nil {
@@ -255,6 +270,12 @@ func runMCP(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if *listen != "" {
+		health := func() daemonHealth { return daemonReport(gb.UnpushedAge(), gitCfg.UnpushedWarn) }
+		// serveMCPHTTP says "ready" once the port is actually bound.
+		return serveMCPHTTP(ctx, *listen, mcpHTTPHandler(srv, health), drain, logger)
+	}
 
 	logger.Info("aeman MCP server ready on stdio", "repos", len(gitCfg.Repos))
 	err = mcpserver.Serve(ctx, srv)
