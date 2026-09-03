@@ -45,5 +45,10 @@ jobs:
           go-version: "1.27"
       - name: Build binary
         run: make backend
+      # CI runs on Linux only, so the Windows half of the data-directory
+      # lock is otherwise never type-checked. vet rather than build: build
+      # skips _test.go, which is where that half is exercised.
+      - name: Cross-check for Windows
+        run: GOOS=windows go vet ./...
       - name: Test
         run: go test ./...
