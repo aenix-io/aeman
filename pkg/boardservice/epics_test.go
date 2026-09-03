@@ -448,8 +448,8 @@ func TestSlotWeekFollowsItsStart(t *testing.T) {
 }
 
 // Setting a slot's week by hand is refused: there is nothing to set, and
-// accepting a value here is how the two came to disagree. A weekly-plan card
-// — which has no dates at all — still moves between weeks.
+// accepting a value here is how the two came to disagree. A card that has no
+// dates at all — one the Triage board scheduled — still moves between weeks.
 func TestSlotWeekIsNotSettable(t *testing.T) {
 	today := board.TodayIso()
 	fake := newFake([]board.Card{
@@ -457,8 +457,8 @@ func TestSlotWeekIsNotSettable(t *testing.T) {
 		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
 		{ItemID: "slot", Title: "a slot", Epic: "Infra", Project: "Cozystack",
 			StartDate: "2026-08-24", Day: "2026-08-28", Week: "2026-08-24"},
-		{ItemID: "plan", Title: "a weekly-plan card", Team: "alpha",
-			Plan: board.PlanFri, Week: board.MondayOf(today)},
+		{ItemID: "plan", Title: "a card of a week", Team: "alpha",
+			Week: board.MondayOf(today)},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	svc := New(fake)
 	ctx := context.Background()
@@ -489,8 +489,8 @@ func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
 			StartDate: "2026-08-06", Day: "2026-08-07", Week: "2026-08-24"},
 		// No start at all: nothing to derive from, so the week stands.
 		{ItemID: "c2", Title: "dateless", Epic: "E", Project: "P", Week: "2026-08-24"},
-		// Not a slot: a weekly-plan card keeps its own week.
-		{ItemID: "c3", Title: "plan", Plan: board.PlanFri, Week: "2026-08-24"},
+		// Not a slot: a card scheduled for a week keeps its own.
+		{ItemID: "c3", Title: "plan", Week: "2026-08-24"},
 	})
 	byID := map[string]board.Card{}
 	for _, c := range b.Cards {
@@ -504,58 +504,6 @@ func TestBoardRepairsStaleSlotWeeks(t *testing.T) {
 	}
 	if got := byID["c3"].Week; got != "2026-08-24" {
 		t.Fatalf("a weekly-plan card must be left alone, got %q", got)
-	}
-}
-
-// Handing a slot to a team files it in that team's weekly plan, whichever door
-// the change came through — the frontend used to add the band on its own, so
-// the same assignment made over MCP left the card in nobody's plan.
-func TestTeamFilesASlotInTheWeeklyPlan(t *testing.T) {
-	today := board.TodayIso()
-	week := board.MondayOf(today)
-	fake := newFake([]board.Card{
-		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "Cozystack"},
-		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "Infra", Project: "Cozystack"},
-		{ItemID: "slot", Title: "a slot", Epic: "Infra", Project: "Cozystack",
-			StartDate: today, Day: today, Week: week},
-		{ItemID: "day", Title: "an ordinary card", StartDate: today, Day: today},
-	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
-	svc := New(fake)
-	ctx := context.Background()
-
-	if err := svc.SetTeam(ctx, "acme", "slot", "alpha", ""); err != nil {
-		t.Fatal(err)
-	}
-	got := fake.get("slot")
-	if got.Plan != board.PlanFri {
-		t.Fatalf("band = %q, want the slot filed in the weekly plan", got.Plan)
-	}
-	if got.SprintStart != "" {
-		t.Fatalf("filing a slot in a plan must not start it, got sprint %q", got.SprintStart)
-	}
-	b, err := svc.Board(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	bands := board.WeeklyPlan(b, "alpha", week)
-	if len(bands.Fri) != 1 || bands.Fri[0].ItemID != "slot" {
-		t.Fatalf("the slot must show in alpha's plan for its week; got %+v", bands)
-	}
-
-	// Taking the team away takes an unstarted slot back out of the plan.
-	if err := svc.SetTeam(ctx, "acme", "slot", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	if got := fake.get("slot"); got.Plan != board.PlanNone {
-		t.Fatalf("band = %q, want the slot out of the plan again", got.Plan)
-	}
-
-	// An ordinary day card is untouched by any of this.
-	if err := svc.SetTeam(ctx, "acme", "day", "alpha", ""); err != nil {
-		t.Fatal(err)
-	}
-	if got := fake.get("day"); got.Plan != board.PlanNone {
-		t.Fatalf("an ordinary card must not be filed in the weekly plan, got %q", got.Plan)
 	}
 }
 

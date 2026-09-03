@@ -111,7 +111,7 @@ func TestSpawnCopiesTheTemplateNotThePreviousIteration(t *testing.T) {
 	}
 	first := its[0]
 	if first.Title != "Technical article" || first.Description != "the brief" ||
-		first.Plan != board.PlanFri || first.Week != week || first.Team != "alpha" ||
+		first.Week != week || first.Team != "alpha" ||
 		first.Stage != board.StageRecurrent || len(first.Assignees) != 1 || first.Assignees[0] != "writer" {
 		t.Fatalf("iteration = %+v", first)
 	}
@@ -512,42 +512,27 @@ func TestDeletingATaskFreesItsTurns(t *testing.T) {
 	}
 }
 
-// A slot only visits a weekly plan; the × there takes it out of the plan and
-// never deletes the roadmap card, whether or not anyone has touched it.
-func TestThePlanCrossNeverDeletesASlot(t *testing.T) {
+// The × never deletes a roadmap slot, whether or not anyone has touched it:
+// its column is a home the × does not empty, and the card's span there is
+// the plan somebody made on the Project board.
+func TestTheCrossNeverDeletesASlot(t *testing.T) {
 	today := board.TodayIso()
 	week := board.MondayOf(today)
-	newBoard := func() *fakeBackend {
-		return newFake([]board.Card{
-			{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
-			{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
-			{ItemID: "slot", Title: "a roadmap slot", Epic: "E", Project: "P",
-				StartDate: today, Day: board.AddDays(today, 30), Week: week,
-				Team: "alpha", Plan: board.PlanFri},
-		}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	fake := newFake([]board.Card{
+		{ItemID: "p1", Title: board.ProjectStateTitle, Project: "P"},
+		{ItemID: "e1", Title: board.EpicStateTitle, Epic: "E", Project: "P"},
+		{ItemID: "slot", Title: "a roadmap slot", Epic: "E", Project: "P",
+			StartDate: today, Day: board.AddDays(today, 30), Week: week, Team: "alpha"},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	if err := New(fake).Remove(context.Background(), "acme", "slot"); err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range []struct {
-		name string
-		call func(*Service) error
-	}{
-		{"the plan ×", func(s *Service) error { return s.Remove(context.Background(), "acme", "slot", "plan") }},
-		{"release from plan", func(s *Service) error { return s.ReleaseFromPlan(context.Background(), "acme", "slot") }},
-	} {
-		fake := newBoard()
-		svc := New(fake)
-		if err := c.call(svc); err != nil {
-			t.Fatalf("%s: %v", c.name, err)
-		}
-		got := fake.get("slot")
-		if got == nil {
-			t.Fatalf("%s deleted the slot", c.name)
-		}
-		if got.Plan != board.PlanNone {
-			t.Errorf("%s left the band %q", c.name, got.Plan)
-		}
-		if got.Week != week || got.Epic != "E" || got.StartDate != today {
-			t.Errorf("%s changed the slot: week %q epic %q start %q", c.name, got.Week, got.Epic, got.StartDate)
-		}
+	got := fake.get("slot")
+	if got == nil {
+		t.Fatal("the × deleted the slot")
+	}
+	if got.Week != week || got.Epic != "E" || got.StartDate != today {
+		t.Errorf("the × changed the slot: week %q epic %q start %q", got.Week, got.Epic, got.StartDate)
 	}
 }
 

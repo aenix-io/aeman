@@ -66,7 +66,6 @@ type Backend interface {
 	CardLogSince(ctx context.Context, b board.Board, id string, since time.Time) ([]board.Event, time.Time, error)
 	SetStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetSprintStart(ctx context.Context, b board.Board, card board.Card, date string) error
-	SetPlan(ctx context.Context, b board.Board, card board.Card, plan board.PlanBand) error
 	SetWeek(ctx context.Context, b board.Board, card board.Card, week string) error
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	// SetEpic files the card under a Project-board column ("" clears).

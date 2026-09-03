@@ -89,7 +89,7 @@ func TestNoTwoRulesShareAnID(t *testing.T) {
 	// rewrites every citation of it, and these have none — but the list
 	// does not grow: a NEW collision fails here, and one that is cleaned
 	// up fails here too, so the list cannot go stale either way.
-	known := map[string]bool{"M1": true, "M2": true, "M3": true, "P9": true, "V1": true, "V2": true}
+	known := map[string]bool{"M1": true, "M2": true, "M3": true, "P9": true, "V1": true}
 	seen := map[string]int{}
 	for _, line := range strings.Split(string(matrix), "\n") {
 		m := regexp.MustCompile(`^\| ([A-Z][0-9]+) \|`).FindStringSubmatch(line)

@@ -603,8 +603,6 @@ func (m *mapper) apply(c *board.Card, kind, v string) {
 		c.SprintStart = v
 	case board.EventWeek:
 		c.Week = v
-	case board.EventPlanBand:
-		c.Plan = board.PlanBand(v)
 	case board.EventTeam:
 		c.Team = v
 	case board.EventEpic:

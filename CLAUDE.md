@@ -28,14 +28,14 @@ The server holds an in-memory cache of the board (`internal/server/boardstore.go
 
 Layering, bottom-up:
 
-- `pkg/board` — the pure domain, no I/O: zones, stages and the **derived** states (Done and In Progress are computed, never stored), progress clamps, the day/sprint date model, the view filters (`MeView`, `TeamGrid`, `WeeklyPlan`), sprints and carry-over selection, rank keys (`rank.go`), the domain rule (`domain.go`: which repository a card lives in — linked cards first, then project, then team) and the per-visitor projection (`Visible`).
+- `pkg/board` — the pure domain, no I/O: zones, stages and the **derived** states (Done and In Progress are computed, never stored), progress clamps, the day/sprint date model, the view filters (`MeView`, `TeamGrid`, `NeedsTriage`), sprints and carry-over selection, rank keys (`rank.go`), the domain rule (`domain.go`: which repository a card lives in — linked cards first, then project, then team) and the per-visitor projection (`Visible`).
 - `pkg/boardservice` — the service every caller shares: the admission chain (clamps, review linkage, cancel/reactivate), the card actions (create, defer, remove, carry-over, send-to-review, …). Events are not written anywhere: **the commits are the activity log** (`LogReader`).
 - `pkg/gitstore` — the storage: the repository layout (`cards/<a>/<b>/<ulid>.md`, roster YAML), file codecs that keep unknown keys, ULIDs (deterministic for process turns), commits with `Aeman-*` trailers built through go-git plumbing (no worktree), shallow clone / deepen-since / push / fetch / rebase, `MultiBackend` over several domains (roster fragments merged on read, cross-domain moves as create-then-delete), the card log walker.
 - `pkg/apiserver` — the Kubernetes-style resource types (`{kind, metadata, spec, status}`) served over LIST + WATCH.
 - `pkg/mcpserver` — the MCP tool set (same board service).
 - `internal/server` — HTTP/WS, OAuth sessions (self-hosted mode) vs local `gh` identity (`internal/ghcli`), the board cache and write queue, the git sync (`gitsync.go`, `gitmode.go`), per-visitor domain rights from the forge (`access.go`, `visible.go`).
 - `internal/migrate` — the one-way migration from a GitHub Projects v2 board (`aeman migrate`), with its own minimal GitHub reader (`ghsource`).
-- `web/` — the React SPA. The domain rules are **mirrored** in the frontend, and the mirrors are files, not scattered component code: `web/src/date.ts` and `web/src/sprint.ts` (the date and sprint model), `web/src/weekly.ts` (the weekly plan's bands, incl. a slot's derived band and a debt's), `web/src/removal.ts` (what each × does, and the optimistic patch it leaves), `web/src/placements.ts` + `web/src/domains.ts` (columns, mirrors and the one repository comparison), `web/src/viewquery.ts` (what each view asks the server for, including which days are shown as a snapshot — the same condition the server applies), with `MeBoard.tsx`/`TeamBoard.tsx`/`ProjectBoard.tsx` calling them rather than re-deciding. A change to a filter, date, sprint, band, removal or domain rule lands in both the Go and the TS copy — with a vitest case beside the Go one — or the optimistic UI diverges from the server.
+- `web/` — the React SPA. The domain rules are **mirrored** in the frontend, and the mirrors are files, not scattered component code: `web/src/date.ts` and `web/src/sprint.ts` (the date and sprint model), `web/src/slots.ts` (what makes a card a Project-board slot, and the week that follows its dates), `web/src/removal.ts` (what each × does, and the optimistic patch it leaves), `web/src/placements.ts` + `web/src/domains.ts` (columns, mirrors and the one repository comparison), `web/src/viewquery.ts` (what each view asks the server for, including which days are shown as a snapshot — the same condition the server applies), with `MeBoard.tsx`/`TeamBoard.tsx`/`ProjectBoard.tsx` calling them rather than re-deciding. A change to a filter, date, sprint, band, removal or domain rule lands in both the Go and the TS copy — with a vitest case beside the Go one — or the optimistic UI diverges from the server.
 
 The packages under `pkg/` are importable by external tools (see `docs/embedding.md`) — they are a public contract, not internal plumbing.
 
@@ -49,7 +49,7 @@ Tests here are not happy-path exercises — they are the **second documentation 
 
 The date/sprint/visibility logic is subtle and duplicated across consumers; the docs are load-bearing, not decoration:
 
-- `docs/dates.md` — the date model and the Team/Me/Weekly visibility rules.
+- `docs/dates.md` — the date model and the Team/Me/Triage visibility rules.
 - `docs/api.md` — the REST/WATCH/MCP surface.
 - `docs/design/behavior-matrix.md` — the behaviour matrix new rules get rows in.
 

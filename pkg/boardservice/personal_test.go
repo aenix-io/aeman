@@ -167,7 +167,7 @@ func TestRemoveOnAPersonalCardLeavesItBehindOrDeletes(t *testing.T) {
 	svc := New(fake)
 	ctx := board.WithActor(t.Context(), "kvaps")
 
-	if err := svc.Remove(ctx, "o", "p1", "grid"); err != nil {
+	if err := svc.Remove(ctx, "o", "p1"); err != nil {
 		t.Fatal(err)
 	}
 	if c := fake.get("p1"); c == nil || c.LeftAt != yesterday || c.Progress != 40 {
@@ -180,7 +180,7 @@ func TestRemoveOnAPersonalCardLeavesItBehindOrDeletes(t *testing.T) {
 		t.Fatalf("the × must delete nothing here; log = %v", fake.log)
 	}
 	for _, id := range []string{"p2", "p3"} {
-		if err := svc.Remove(ctx, "o", id, "grid"); err != nil {
+		if err := svc.Remove(ctx, "o", id); err != nil {
 			t.Fatal(err)
 		}
 		if fake.get(id) != nil {
@@ -199,7 +199,7 @@ func TestRemoveOnAPersonalCardLeavesItBehindOrDeletes(t *testing.T) {
 	if c := fake.get("s1"); c.LeftAt != "" {
 		t.Fatalf("its subtask after the calendar: %+v; want leftAt cleared", c)
 	}
-	if err := svc.Remove(ctx, "o", "p1", "grid"); err != nil {
+	if err := svc.Remove(ctx, "o", "p1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Defer(ctx, "o", "p1", 1); err != nil {
@@ -217,7 +217,7 @@ func TestCreatePersonalCardRefusesPlacementAndAnonymity(t *testing.T) {
 	for name, args := range map[string]CreateCardArgs{
 		"team":   {Title: "x", Personal: true, Team: "portal"},
 		"column": {Title: "x", Personal: true, Project: "freedom", Epic: "Docs"},
-		"plan":   {Title: "x", Personal: true, Plan: board.PlanWed, Week: "2026-08-24"},
+		"week":   {Title: "x", Personal: true, Week: "2026-08-24"},
 	} {
 		if _, err := svc.CreateCard(ctx, "o", args); !errors.Is(err, ErrPersonalPlacement) {
 			t.Fatalf("%s on a personal card: err = %v, want ErrPersonalPlacement", name, err)

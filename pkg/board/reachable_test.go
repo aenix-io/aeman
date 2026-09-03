@@ -25,8 +25,8 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 		{ItemID: "deferred", Team: "portal", SprintStart: cur, StartDate: "2026-09-10", Day: "2026-09-10"},
 		// In a Project-board column, which is a board of its own.
 		{ItemID: "slot", Team: "portal", Epic: "Auth", Project: "freedom", Week: "2026-09-07", Day: "2026-09-11"},
-		// In the weekly plan.
-		{ItemID: "plan", Team: "portal", Plan: PlanFri, Week: "2026-09-07"},
+		// Scheduled for a week, which is a column of the Triage board.
+		{ItemID: "week", Team: "portal", Week: "2026-09-07"},
 		// Done, and so off the board on purpose.
 		{ItemID: "done", Team: "portal", Progress: 100, SprintStart: "2026-07-06", StartDate: "2026-07-06"},
 
@@ -45,7 +45,7 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 	})
 	got := Reachable(b, today)
 
-	for _, id := range []string{"today", "yesterday", "deferred", "slot", "plan", "done",
+	for _, id := range []string{"today", "yesterday", "deferred", "slot", "week", "done",
 		"kid-of-today", "review-of-today"} {
 		if !got[id] {
 			t.Errorf("%s is on a board someone can open, and Reachable says it is not", id)

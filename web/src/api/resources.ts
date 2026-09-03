@@ -58,7 +58,7 @@ export interface CardResource {
     stage?: string;
     recurrence?: string;
     dates?: { start?: string; end?: string; sprint?: string };
-    plan?: { band?: string; week?: string };
+    week?: string;
     epic?: string;
     process?: string;
     task?: string;
@@ -230,7 +230,7 @@ export function resourceToCard(res: CardResource): Card {
     day: dates.end || undefined,
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
-    week: spec.plan?.week || undefined,
+    week: spec.week || undefined,
     epic: spec.epic || undefined,
     project: spec.project || undefined,
     mirrors: spec.mirrors?.length ? spec.mirrors : undefined,

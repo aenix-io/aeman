@@ -62,7 +62,7 @@ func (s *Service) ReseedPersonal(ctx context.Context, boardID, login, day string
 }
 
 func (s *Service) createPersonalCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
-	if args.Team != "" || args.Project != "" || args.Epic != "" || args.Plan != board.PlanNone || args.Week != "" {
+	if args.Team != "" || args.Project != "" || args.Epic != "" || args.Week != "" {
 		return board.Card{}, ErrPersonalPlacement
 	}
 	actor := board.ActorFrom(ctx)

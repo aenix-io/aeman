@@ -1,7 +1,7 @@
 # Board dates, sprints, and card visibility
 
 Source of truth for how aeman places cards on days, what a "sprint" is, and the
-visibility rules for the Team / Me / Weekly views, plus create, Carry Over, and
+visibility rules for the Team / Me / Triage views, plus create, Carry Over, and
 send-to-next-day. The date logic is subtle — **keep this file in sync with the
 code** whenever the rules change.
 
@@ -27,7 +27,9 @@ Also:
   visible **range**: the card shows on every day of `[startDate, day]` in both
   views. Set on create to the same day as `startDate` (a one-day range); the
   calendar's end field edits it.
-- **Week** (`week`, date) — weekly-plan only (Monday of the plan week).
+- **Week** (`week`, date) — the week the card is scheduled for (its Monday):
+  the column it stands in on the Triage board. A card in a Project-board
+  column has one too, derived from its start date — there it is the row.
 - Hidden per-team **`aeman:sprint-state`** card: `Sprint Start` = the team's
   **current** sprint date, `Start` = its **previous** sprint date. Read via
   `currentSprint(team)` / `previousSprint(team)`.
@@ -128,8 +130,8 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - A carried card keeps its `startDate`, so it stays visible on the days of the
   sprint it came from (see the Team / Me rules): Carry Over adds it to the new
   sprint without removing it from the previous one.
-- **Adoption**: unfinished **sprint-less** day cards ("next sprint" creates,
-  not plan cards) with `old sprint < startDate <= today` also get
+- **Adoption**: unfinished **sprint-less** day cards ("next sprint" creates)
+  with `old sprint < startDate <= today` also get
   `sprintStart = today` — they join the sprint this Carry Over opens, which is
   what "the next sprint" meant when they were created. Ones still ahead of
   today wait for a later Carry Over; ones scheduled **before** the closing
@@ -156,34 +158,29 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
   **finished** one (100%) stays behind and is **reseeded** — a fresh copy is
   created in the new sprint with the same title and description, no notes,
   at 0%, recurrent again.
-- **Carry over week**: the same rule for plan cards — a finished recurrent plan
-  card stays in its week and a fresh copy is created in the target week, unless
-  a plan card with the same title is already there (re-running is idempotent).
-- Recurrent plan cards are **excluded from the weekly progress bar**: it
-  describes the week's one-off work only.
 
-### Project-board slots in the Weekly plan
+### Attaching a week-scheduled card to a Project-board column
 
-A weekly-plan card with no dates of its own, **attached** to a Project-board column, takes the slot of the week it was taken from: its start becomes that week's Monday and its end its band's day (by-Wednesday → the Wednesday, by-Friday → the Friday), so the new slot's row is the very week the card was planned in — it does not jump elsewhere on the way to the Project board (G55). A plan card that already carries dates keeps them: the attach never rewrites a schedule someone chose.
-- A **slot** (an epic-column card: epic + `week` + `day` set) needs **no
-  stored plan band** to be on the Weekly panel: its span IS its plan. It
-  shows on the panel of **every week between its boundaries**.
-- Its band **derives from the end date**: only the week the slot *ends* in
-  can be a by-Wednesday week (`day` ≤ that week's Wednesday); every earlier
-  covered week holds the slot in the by-Friday band — it stays open through
-  that week's end.
-- A **stored band always wins** — hand placement outranks derivation, so
-  deriving never moves a card someone placed. The row's plan stripe in Me and
-  Team uses the same effective band.
-- Except for a **debt**. A plan card or slot still open past the day it was
-  owed by shows on the CURRENT week's panel as well as on its own (the debt
-  rule), and there it stands in the **by-Wednesday** band whatever it
-  carries: it is already late, so what it faces is the nearest deadline of
-  the week it is standing in, not that week's last one. Its own week and
-  band are untouched — on the panel of the week it was owed in it is still
-  the card it was. The stripe follows the panel for the same reason: a
-  "by Friday" mark on a card sitting under "by Wednesday" is two answers to
-  one question.
+A card scheduled for a **week** and carrying no dates of its own, **attached**
+to a Project-board column, takes the slot of that week: Monday to Friday, the
+whole of the week it was owed in, so the new slot's row is the very week the
+card was scheduled for — it does not jump elsewhere on the way to the Project
+board (G55). A card that already carries dates keeps them: the attach never
+rewrites a schedule someone chose.
+
+### When work is owed
+
+A card's due date is its own kind's clock (`board.DueDate`), and a card still
+open past it is a **debt** — marked overdue wherever it is drawn, and never
+moved: the week it was owed in is the record of what was missed.
+
+- a Project-board **slot** is owed by its end date;
+- a process **turn** by the end of the week it was filed in;
+- a card scheduled for a **week** by that week's Friday — or, stretched over
+  several weeks, by the end of its reach, since stretching it is saying it
+  takes longer;
+- a card with no week at all has no due date here: the day board's carry-over
+  is how those move.
 
 ### Subtasks (grouped cards)
 - A card with a **parent** (the `Parent` text field, one level deep) is a
@@ -196,7 +193,7 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
 - **On the Project board** a subtask that carries its own column is drawn as
   an ordinary slot, marked `↳` with its parent's title: grouping work under a
   parent must not take it off the planner, and a parent commonly lives
-  elsewhere (the weekly plan, the working area), so hiding the children left a
+  elsewhere (a week of its own, the working area), so hiding the children left a
   whole group visible in no column at all. Its team badge is read-only there —
   a subtask's team follows its parent — and the slot's × only takes the column
   away: the card still rides its parent, so it is never deleted from there. The
@@ -224,11 +221,11 @@ A weekly-plan card with no dates of its own, **attached** to a Project-board col
   0–90%. The final done / 100% is always a human decision on the parent, and a
   card **cannot be done while it has open subtasks**.
 - **Grouping** a card under a parent syncs it into the parent's sprint
-  (`sprintStart` copied), moves it onto the **parent's team**, and clears its
-  own plan slot; a **weekly-plan card dropped onto a grid card** hands its
-  plan slot to the parent instead (the parent replaces it in the Weekly
-  panel) — subtasks are never plan cards themselves, though an expanded
-  weekly parent shows its subtask rows nested under it.
+  (`sprintStart` copied), moves it onto the **parent's team**, and hands over
+  its **week**: the parent stands for it on the Triage board from then on, and
+  a subtask never has a week of its own. A card in a COLUMN keeps its week —
+  there it is the row the Project board draws it in, not a placement anyone
+  made for the card itself.
 - **A subtask's person always follows its parent**, the way its team does:
   grouping hands the child over to the parent's assignee, a direct change on a
   subtask snaps back to the parent's, and re-assigning a parent hands the whole

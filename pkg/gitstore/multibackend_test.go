@@ -691,7 +691,7 @@ func TestTheGridRemoveOnASubtaskAcrossRepositories(t *testing.T) {
 	mb := NewMultiBackend([]Domain{{Name: "shared", Repo: shared}, {Name: "closed", Repo: closed}},
 		BackendOptions{Now: func() time.Time { clock = clock.Add(time.Second); return clock }})
 	ctx, flush := WithScope(ctxAs("kvaps"), Action{Name: "remove", ID: "01JB4KA0M2P4R6T8V0X2Z4B6N2", Cards: []string{"01KID00001"}})
-	if err := boardservice.New(mb).Remove(ctx, "acme", "01KID00001", "grid"); err != nil {
+	if err := boardservice.New(mb).Remove(ctx, "acme", "01KID00001"); err != nil {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	if _, err := flush(); err != nil {

@@ -146,13 +146,12 @@ func TestRemoveFromProjectPromotesTheFirstMirror(t *testing.T) {
 	}
 }
 
-func TestRemoveFromLastProjectDropsThePlanAndKeepsOnlyWorkedCards(t *testing.T) {
+func TestRemoveFromLastProjectDropsTheWeekAndKeepsOnlyWorkedCards(t *testing.T) {
 	worked := board.Card{ItemID: "w", Title: "worked", Team: "platform", Project: "engineering", Epic: "Cozystack",
-		Assignees: []string{"kvaps"}, Progress: 40,
-		Plan: board.PlanFri, Week: "2026-08-24",
+		Assignees: []string{"kvaps"}, Progress: 40, Week: "2026-08-24",
 		SprintStart: board.TodayIso(), StartDate: board.TodayIso(), Day: board.TodayIso()}
 	idle := board.Card{ItemID: "i", Title: "idle", Team: "platform", Project: "engineering", Epic: "Cozystack",
-		Plan: board.PlanFri, Week: "2026-08-24",
+		Week:        "2026-08-24",
 		SprintStart: board.TodayIso(), StartDate: board.TodayIso(), Day: board.TodayIso()}
 	f := mirrorBoard([]board.Card{worked, idle})
 	svc := New(f)
@@ -165,8 +164,8 @@ func TestRemoveFromLastProjectDropsThePlanAndKeepsOnlyWorkedCards(t *testing.T) 
 	if !ok {
 		t.Fatal("a worked card survives as an orphan of the working area")
 	}
-	if c.Plan != board.PlanNone || c.Week != "" {
-		t.Fatalf("the weekly plan is left ALWAYS on the last column: %+v", c)
+	if c.Week != "" {
+		t.Fatalf("the week was the slot's row and goes with the column: %+v", c)
 	}
 	if c.Project != "" || c.Epic != "" {
 		t.Fatalf("the column is gone: %+v", c)
@@ -178,9 +177,9 @@ func TestRemoveFromLastProjectDropsThePlanAndKeepsOnlyWorkedCards(t *testing.T) 
 	if err := svc.RemoveFromProject(ctx, "acme", "i", "engineering", "Cozystack"); err != nil {
 		t.Fatal(err)
 	}
-	// The deleted card's plan was never cleared first: a write into the
+	// The deleted card's week was never cleared first: a write into the
 	// very commit that removes the file is a dead write.
-	if f.count("SetPlan i") != 0 || f.count("SetWeek i") != 0 {
+	if f.count("SetWeek i") != 0 {
 		t.Fatalf("no dead writes into a file about to be removed: %v", f.log)
 	}
 	b, _ = f.LoadBoard(ctx, "acme")
@@ -440,41 +439,17 @@ func TestGroupingUnderAPersonalParentCannotCarryAColumnIn(t *testing.T) {
 	}
 }
 
-// The plan's × writes nothing for a card whose week is the row it is drawn
-// in rather than plan membership — a COLUMN card with no band. The panel
-// must not offer one there (weekly.planRemoveOffered): a click that does
-// nothing is the failure that rule exists to prevent, and the two copies
-// have to agree on which cards it covers.
-func TestThePlanRemoveWritesNothingForAColumnCardWithNoBand(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "slot", Team: "platform", Project: "engineering", Epic: "Cozystack",
-			Week: "2026-08-24"},
-	})
-	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
-		t.Fatalf("nothing to empty is not an error: %v", err)
-	}
-	if n := len(f.log); n != 1 { // the LoadBoard the call opens with
-		t.Fatalf("and nothing is written: %v", f.log)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Week != "2026-08-24" || c.Epic != "Cozystack" {
-		t.Fatalf("the card is untouched: %+v", c)
-	}
-}
-
-// Grouping takes a card's BAND — the parent takes its place in the plan —
-// but not the WEEK of a card that stands in a COLUMN: there the week is the
-// row the Project board draws it in, and clearing it took the card's stripe
-// away and left its row to be re-derived from dates the client is not shown.
+// Grouping hands a card's WEEK to its parent, which stands for it from then
+// on — but not the week of a card that stands in a COLUMN: there the week is
+// the row the Project board draws it in, and clearing it took the card's row
+// away, to be re-derived from dates the client is not shown.
 func TestGroupingKeepsTheWeekOfACardInAColumn(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "slot", Title: "a card in a column", Team: "platform",
-			Project: "engineering", Epic: "Cozystack", Plan: board.PlanFri,
+			Project: "engineering", Epic: "Cozystack",
 			Week: "2026-08-31", StartDate: "2026-08-31", Day: "2026-09-04"},
-		{ItemID: "plain", Title: "a plan card", Team: "platform",
-			Plan: board.PlanFri, Week: "2026-08-31"},
+		{ItemID: "plain", Title: "a card of a week", Team: "platform", Week: "2026-08-31"},
 	})
 	svc := New(f)
 	if err := svc.SetParent(ctx, "acme", "slot", "p"); err != nil {
@@ -482,20 +457,20 @@ func TestGroupingKeepsTheWeekOfACardInAColumn(t *testing.T) {
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	c, _ := findCard(b, "slot")
-	if c.Plan != board.PlanNone {
-		t.Fatalf("the band goes to the parent: %+v", c)
-	}
 	if c.Week != "2026-08-31" {
 		t.Fatalf("the week stays — it is the row the card is drawn in: %+v", c)
 	}
-	// A card with no column has no row of its own: both go.
+	// A card with no column has no row of its own: the week goes to the parent.
 	if err := svc.SetParent(ctx, "acme", "plain", "p"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = f.LoadBoard(ctx, "acme")
 	c, _ = findCard(b, "plain")
-	if c.Plan != board.PlanNone || c.Week != "" {
-		t.Fatalf("a plan card hands over both: %+v", c)
+	if c.Week != "" {
+		t.Fatalf("the week goes to the parent: %+v", c)
+	}
+	if parent, _ := findCard(b, "p"); parent.Week != "2026-08-31" {
+		t.Fatalf("and the parent stands for it: %+v", parent)
 	}
 }
 
@@ -548,14 +523,12 @@ func TestRenameProjectRewritesMirrors(t *testing.T) {
 	}
 }
 
-// A weekly-plan card attached to a project takes the weekly slot it was
-// taken from: its plan week becomes the slot's row — start on that Monday,
-// end on its band's day — so the card does not jump to another week on the
-// way to the Project board.
-func TestAttachingAPlanCardTakesItsWeeksSlot(t *testing.T) {
+// A card scheduled for a WEEK and attached to a project takes the slot of
+// that week: Monday to Friday, the whole of the week it was owed in, so the
+// card does not jump to another week on the way to the Project board.
+func TestAttachingACardOfAWeekTakesThatWeeksSlot(t *testing.T) {
 	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "planned", Team: "platform", Plan: board.PlanFri, Week: "2026-08-24"},
-		{ItemID: "c2", Title: "planned wed", Team: "platform", Plan: board.PlanWed, Week: "2026-08-24"},
+		{ItemID: "c1", Title: "planned", Team: "platform", Week: "2026-08-24"},
 	})
 	svc := New(f)
 	project := "engineering"
@@ -565,27 +538,19 @@ func TestAttachingAPlanCardTakesItsWeeksSlot(t *testing.T) {
 	b, _ := f.LoadBoard(ctx, "acme")
 	c, _ := findCard(b, "c1")
 	if c.StartDate != "2026-08-24" || c.Day != "2026-08-28" {
-		t.Fatalf("a by-Friday card spans its week to Friday: %+v", c)
+		t.Fatalf("it spans the week it came from, Monday to Friday: %+v", c)
 	}
 	if c.Week != "2026-08-24" {
 		t.Fatalf("the slot's row is the week it came from: %+v", c)
-	}
-	if err := svc.SetEpic(ctx, "acme", "c2", "Cozystack", &project); err != nil {
-		t.Fatal(err)
-	}
-	b, _ = f.LoadBoard(ctx, "acme")
-	c, _ = findCard(b, "c2")
-	if c.StartDate != "2026-08-24" || c.Day != "2026-08-26" {
-		t.Fatalf("a by-Wednesday card ends on its Wednesday: %+v", c)
 	}
 }
 
 // The slot rule applies only to a card with NO dates of its own: an attach
 // never rewrites a schedule someone chose — the card keeps its dates, and
 // its row is wherever those dates put it.
-func TestAttachingADatedPlanCardKeepsItsDates(t *testing.T) {
+func TestAttachingADatedCardKeepsItsDates(t *testing.T) {
 	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "scheduled", Team: "platform", Plan: board.PlanFri, Week: "2026-08-24",
+		{ItemID: "c1", Title: "scheduled", Team: "platform", Week: "2026-08-24",
 			StartDate: "2026-09-07", Day: "2026-09-09"},
 	})
 	svc := New(f)
@@ -1031,7 +996,7 @@ func TestRemoveFromLastColumnCannotStrandTheTie(t *testing.T) {
 		{ItemID: "c1", Title: "closed chore", Stage: board.StageRecurrent,
 			Project: "strategy", Epic: "Fundraising", Domain: "founders",
 			Process: "Fundraising ops", Assignees: []string{"kvaps"}, Progress: 40,
-			Plan: board.PlanFri, Week: "2026-08-24"},
+			Week: "2026-08-24"},
 		{ItemID: "c2", Title: "open chore", Stage: board.StageRecurrent,
 			Project: "engineering", Epic: "Cozystack",
 			Process: "Invoicing", Assignees: []string{"kvaps"}, Progress: 40},
@@ -1042,7 +1007,7 @@ func TestRemoveFromLastColumnCannotStrandTheTie(t *testing.T) {
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	c, _ := findCard(b, "c1")
-	if c.Epic != "Fundraising" || c.Plan != board.PlanFri {
+	if c.Epic != "Fundraising" || c.Week != "2026-08-24" {
 		t.Fatalf("the refusal must fire before anything is written: %+v", c)
 	}
 	// Same repository: the orphan keeps its tie and goes free.
@@ -1251,15 +1216,15 @@ func TestAttachingToAForeignNoProjectColumnIsRefused(t *testing.T) {
 	}
 }
 
-// Every refusal fires BEFORE anything is written. The grouping's weekly-plan
-// handover ran first, so a refused grouping still took the child's slot
-// away and gave it to the parent — in the cache only, since the commit
-// never happened: the board then showed a state git had never held.
-func TestARefusedGroupingLeavesThePlanSlotAlone(t *testing.T) {
+// Every refusal fires BEFORE anything is written. The grouping's week
+// handover ran first, so a refused grouping still took the child's week away
+// and gave it to the parent — in the cache only, since the commit never
+// happened: the board then showed a state git had never held.
+func TestARefusedGroupingLeavesTheWeekAlone(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "far", Title: "parent elsewhere", Project: "strategy", Epic: "Fundraising", Domain: "founders"},
 		{ItemID: "c1", Title: "planned child", Project: "engineering", Epic: "Cozystack",
-			Plan: board.PlanWed, Week: "2026-08-24"},
+			Week: "2026-08-24"},
 	})
 	svc := New(f)
 	if err := svc.SetParent(ctx, "acme", "c1", "far"); !errors.Is(err, ErrCrossDomain) {
@@ -1267,11 +1232,11 @@ func TestARefusedGroupingLeavesThePlanSlotAlone(t *testing.T) {
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	c, _ := findCard(b, "c1")
-	if c.Plan != board.PlanWed || c.Week != "2026-08-24" {
-		t.Fatalf("the refused grouping must not have taken the slot: %+v", c)
+	if c.Week != "2026-08-24" {
+		t.Fatalf("the refused grouping must not have taken the week: %+v", c)
 	}
 	parent, _ := findCard(b, "far")
-	if parent.Plan != board.PlanNone || parent.Week != "" {
+	if parent.Week != "" {
 		t.Fatalf("nor handed it to the parent: %+v", parent)
 	}
 }
@@ -1477,7 +1442,7 @@ func TestTheGridRemoveKeepsAColumnedSubtask(t *testing.T) {
 			Project: "engineering", Epic: "Cozystack",
 			StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
 	})
-	if err := New(f).Remove(ctx, "acme", "c1", "grid"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -1519,7 +1484,7 @@ func TestTheGridRemoveStillDeletesAColumnlessSubtask(t *testing.T) {
 		{ItemID: "c1", Title: "plain child", Team: "platform", Parent: "p",
 			SprintStart: board.TodayIso()},
 	})
-	if err := New(f).Remove(ctx, "acme", "c1", "grid"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -1633,38 +1598,6 @@ func TestCreatingUnderAnImpossibleParentCreatesNothing(t *testing.T) {
 	// top-level card, and logs a created event for a card that never was.
 	if n := f.count("CreateCard"); n != 0 {
 		t.Fatalf("the refusal must come before the write, saw %d creates", n)
-	}
-}
-
-// `from` picks WHICH home the × empties — the whole two-homes contract of
-// this endpoint. The subtask branch sat above the dispatch, so a caller
-// asking for the plan (REST, MCP) got the grid's gesture instead: the card
-// ungrouped and released, in answer to a request about a band it does not
-// even have.
-func TestRemoveFromThePlanIsNotTheGridsGestureForASubtask(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "columned child", Team: "platform", Parent: "p",
-			Project: "engineering", Epic: "Cozystack",
-			StartDate: board.TodayIso(), Day: board.TodayIso(), SprintStart: board.TodayIso()},
-	})
-	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, ok := findCard(b, "c1")
-	if !ok {
-		t.Fatal("the plan × has no business deleting a card that stands in a column")
-	}
-	// A subtask carries no plan band (grouping clears it), so there is
-	// nothing to empty: the card is left exactly as it was.
-	if c.Parent != "p" || c.SprintStart == "" {
-		t.Fatalf("the grid's gesture must not run in the plan's name: %+v", c)
-	}
-	// And nothing was written: an empty band cleared again is a write in
-	// the request's commit for a change nobody made.
-	if n := f.count("SetPlan"); n != 0 {
-		t.Fatalf("nothing to empty, nothing to write: %d plan writes", n)
 	}
 }
 
@@ -1804,28 +1737,6 @@ func TestTheCreateProbeReadsTheLinkBeforeTheParent(t *testing.T) {
 	}
 }
 
-// The plan's × empties the weekly plan. A card with no band there has
-// nothing to empty — and a SUBTASK never has one, since grouping clears
-// it — so the gesture writes nothing at all rather than clearing an empty
-// field twice into the request's commit.
-func TestRemoveFromThePlanWritesNothingWhenThereIsNoBand(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "plain child", Team: "platform", Parent: "p",
-			SprintStart: board.TodayIso()},
-	})
-	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	if _, ok := findCard(b, "c1"); !ok {
-		t.Fatal("the plan × does not delete a card that was never in the plan")
-	}
-	if n := f.count("SetPlan") + f.count("SetWeek"); n != 0 {
-		t.Fatalf("nothing to empty, nothing to write: %d writes (%v)", n, f.log)
-	}
-}
-
 // Create is a door like any other, and a COLUMN is what G57 is about: the
 // guard skipped every request that named no link, so the one gesture that
 // could still write "file here, column there" was the one that makes the
@@ -1888,22 +1799,6 @@ func TestFreeingASubtaskDropsAColumnItsRepositoryNoLongerHolds(t *testing.T) {
 	}
 }
 
-// The plan's × still deletes a card whose only home was the plan — the
-// rule api.md states — while writing nothing for a card that was never in
-// it. A SUBTASK is never deleted here: its home is its parent.
-func TestRemoveFromThePlanStillDeletesACardWithNowhereElseToBe(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "c1", Title: "plan card", Team: "platform", Plan: board.PlanWed, Week: "2026-08-24"},
-	})
-	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	if _, ok := findCard(b, "c1"); ok {
-		t.Fatal("the plan was its only home")
-	}
-}
-
 // The personal door is a create door like the others: a parent it names
 // must exist, must not be a subtask itself, and must live in the
 // repository the new card will — a personal card's file is in the
@@ -1956,61 +1851,60 @@ func TestThePersonalDoorValidatesAndGroupsLikeTheOthers(t *testing.T) {
 	}
 }
 
-// A subtask is never a plan card — grouping hands its slot to the parent —
-// so a create asking for both is asking for two contradictory things. It
-// used to be answered by MOVING THE PARENT into the band the request named
-// for the child: a mutation of a card nobody asked about.
-func TestCreatingAPlanCardUnderAParentIsRefused(t *testing.T) {
+// A subtask has no week of its own — grouping hands it to the parent — so a
+// create asking for both is asking for two contradictory things. It used to
+// be answered by scheduling THE PARENT for the week the request named for
+// the child: a mutation of a card nobody asked about.
+func TestCreatingACardOfAWeekUnderAParentIsRefused(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 	})
 	svc := New(f)
 	if _, err := svc.CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "planned child", Team: "platform", Parent: "p", Plan: board.PlanWed,
-	}); !errors.Is(err, ErrPlanSubtask) {
-		t.Fatalf("a subtask has no band of its own: %v", err)
+		Title: "planned child", Team: "platform", Parent: "p", Week: "2026-08-24",
+	}); !errors.Is(err, ErrSubtaskWeek) {
+		t.Fatalf("a subtask has no week of its own: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	parent, _ := findCard(b, "p")
-	if parent.Plan != board.PlanNone {
-		t.Fatalf("and the parent keeps its own plan: %+v", parent)
+	if parent.Week != "" {
+		t.Fatalf("and the parent keeps its own schedule: %+v", parent)
 	}
 	if n := f.count("CreateCard"); n != 0 {
 		t.Fatalf("the refusal comes before the write: %d creates", n)
 	}
 }
 
-// A card is a subtask or a plan card, never both (G58) — and a BAND given
-// to a standing subtask is how a person says "take it out of the group and
-// plan it". The refusal that used to stand here left them with no gesture:
-// grouping had already taken the card's band and week, the plan's × does
-// nothing for a subtask, and the grid's × deletes it, so a card dropped
-// under the wrong parent could not be freed at all. It is pulled out, and
-// the band lands on the card that comes back — in the week it is planned
-// into, since a band with no week is on no panel.
-func TestGivingAStandingSubtaskAPlanBandTakesItOutOfTheGroup(t *testing.T) {
+// A card is a subtask or a card of its own week, never both (G58) — and a
+// WEEK given to a standing subtask is how a person says "take it out of the
+// group and schedule it". A refusal here would leave them with no gesture:
+// grouping has already taken the card's week, and the × deletes a subtask,
+// so a card dropped under the wrong parent could not be freed at all. It is
+// pulled out, and the week lands on the card that comes back.
+func TestGivingAStandingSubtaskAWeekTakesItOutOfTheGroup(t *testing.T) {
 	f := mirrorBoard([]board.Card{
 		{ItemID: "p", Title: "parent", Team: "platform"},
 		{ItemID: "kid", Title: "child", Team: "platform", Parent: "p"},
 	})
 	svc := New(f)
-	if err := svc.SetPlan(ctx, "acme", "kid", board.PlanWed); err != nil {
-		t.Fatalf("the band takes it out of the group: %v", err)
+	if err := svc.SetWeek(ctx, "acme", "kid", "2026-08-24"); err != nil {
+		t.Fatalf("the week takes it out of the group: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
 	c, _ := findCard(b, "kid")
 	if c.Parent != "" {
 		t.Fatalf("out of the group: %+v", c)
 	}
-	if c.Plan != board.PlanWed {
-		t.Fatalf("with the band it was given: %+v", c)
-	}
-	if c.Week != board.MondayOf(board.TodayIso()) {
-		t.Fatalf("and a week to be planned in, or it is on no panel: %+v", c)
+	if c.Week != "2026-08-24" {
+		t.Fatalf("with the week it was given: %+v", c)
 	}
 	// Clearing is still free, and still means nothing more than clearing.
-	if err := svc.SetPlan(ctx, "acme", "kid", board.PlanNone); err != nil {
+	if err := svc.SetWeek(ctx, "acme", "kid", ""); err != nil {
 		t.Fatalf("clearing is free: %v", err)
+	}
+	b, _ = f.LoadBoard(ctx, "acme")
+	if c, _ := findCard(b, "kid"); c.Parent != "" {
+		t.Fatalf("and does not regroup anything: %+v", c)
 	}
 }
 
@@ -2019,8 +1913,8 @@ func TestGivingAStandingSubtaskAPlanBandTakesItOutOfTheGroup(t *testing.T) {
 func TestCreatingACardThatIsBothIsStillRefused(t *testing.T) {
 	f := mirrorBoard([]board.Card{{ItemID: "p", Title: "parent", Team: "platform"}})
 	if _, err := New(f).CreateCard(ctx, "acme", CreateCardArgs{
-		Title: "both", Team: "platform", Parent: "p", Plan: board.PlanWed,
-	}); !errors.Is(err, ErrPlanSubtask) {
+		Title: "both", Team: "platform", Parent: "p", Week: "2026-08-24",
+	}); !errors.Is(err, ErrSubtaskWeek) {
 		t.Fatalf("a create names one or the other: %v", err)
 	}
 }
@@ -2147,29 +2041,6 @@ func TestAStampedBoardKeepsAFreedSubtasksLawfulColumn(t *testing.T) {
 	}
 }
 
-// api.md and the matrix agree that the plan's × never deletes a SUBTASK —
-// its home is its parent, so the plan cannot be its last one. A subtask
-// carrying a plan WEEK but no band slipped past the no-band return and
-// was deleted.
-func TestThePlanRemoveNeverDeletesASubtaskThatCarriesAWeek(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform"},
-		{ItemID: "c1", Title: "child with a stale week", Team: "platform", Parent: "p",
-			Week: "2026-08-24"},
-	})
-	if err := New(f).Remove(ctx, "acme", "c1", "plan"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, ok := findCard(b, "c1")
-	if !ok {
-		t.Fatal("a subtask's home is its parent; the plan × cannot be its last home")
-	}
-	if c.Week != "" {
-		t.Fatalf("the plan's records are emptied: %+v", c)
-	}
-}
-
 // Every refusal fires BEFORE anything is written. The × above repairs the
 // card's own stranded column rather than refusing over it — but a REVIEW
 // CARD standing in a column of the parent's repository follows the subtask
@@ -2188,7 +2059,7 @@ func TestTheGridRemoveWritesNothingWhenItRefusesOverAFollower(t *testing.T) {
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	err := New(f).Remove(ctx, "acme", "kid", "grid")
+	err := New(f).Remove(ctx, "acme", "kid")
 	if !errors.Is(err, ErrCrossDomain) {
 		t.Fatalf("the follower's column refuses the pull-out: %v", err)
 	}
@@ -2220,7 +2091,7 @@ func TestAStrandedColumnDoesNotLeaveACardNowhere(t *testing.T) {
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).Remove(ctx, "acme", "kid", "grid"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "kid"); err != nil {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -2243,7 +2114,7 @@ func TestAStrandedColumnWithNoSprintToDemoteIntoDeletesTheCard(t *testing.T) {
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).Remove(ctx, "acme", "kid", "grid"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "kid"); err != nil {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")
@@ -2267,7 +2138,7 @@ func TestTheGridRemoveCompletesWhenUngroupingStrandsTheColumn(t *testing.T) {
 	})
 	f.b.SprintStates["founders"] = board.SprintState{Current: board.TodayIso(), ItemID: "st-f"}
 	f.b.Domains = map[string]string{"st-f": "founders", "ep-closed": "founders"}
-	if err := New(f).Remove(ctx, "acme", "kid", "grid"); err != nil {
+	if err := New(f).Remove(ctx, "acme", "kid"); err != nil {
 		t.Fatalf("the × must complete: %v", err)
 	}
 	b, _ := f.LoadBoard(ctx, "acme")

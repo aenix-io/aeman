@@ -244,8 +244,8 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
     }
     body.dates = dates;
   }
-  if (patch.plan?.week !== undefined) {
-    body.plan = { week: patch.plan.week };
+  if (patch.week !== undefined) {
+    body.week = patch.week;
   }
   if (patch.epic !== undefined) {
     body.epic = patch.epic;
@@ -309,7 +309,7 @@ export const apiProvider: Provider = {
   async createCard(input: NewCardInput): Promise<Card> {
     if (input.personal) {
       // A personal card carries nothing of the day board — no team, dates,
-      // column or plan (the server refuses them beside `personal`); it files
+      // column or week (the server refuses them beside `personal`); it files
       // the card in the visitor's own repository and assigns it to them.
       return cardFrom("POST", "/cards", {
         title: input.title,
@@ -332,12 +332,12 @@ export const apiProvider: Provider = {
       body.dates = { start: input.start ?? "", end: input.day ?? "" };
     }
     if (input.week) {
-      body.plan = { week: input.week };
+      body.week = input.week;
     }
     if (input.epic) {
       body.epic = input.epic;
       body.project = input.project ?? "";
-      // No plan.week: a slot's row is the week of its start date.
+      // No week: a slot's row is the week of its start date.
     }
     if (input.startNewSprint !== undefined) {
       body.startNewSprint = input.startNewSprint;

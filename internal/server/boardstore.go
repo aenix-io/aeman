@@ -1696,15 +1696,6 @@ func (b *storeBackend) SetSprintStart(ctx context.Context, bd board.Board, card 
 	return nil
 }
 
-func (b *storeBackend) SetPlan(ctx context.Context, bd board.Board, card board.Card, plan board.PlanBand) error {
-	b.mutateCard(ctx, bd, card.ItemID, "plan", "set the plan band on "+cardRef(card), func(c *board.Card) {
-		c.Plan = plan
-	}, func(ctx context.Context) error {
-		return b.inner.SetPlan(ctx, bd, card, plan)
-	})
-	return nil
-}
-
 func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
 	if card.Title == board.DeadlineStateTitle {
 		// Dragging the line: its card is not in the cached card list, so the
@@ -2199,7 +2190,6 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		StartDate:   in.Start,
 		SprintStart: in.SprintStart,
 		Team:        in.Team,
-		Plan:        in.Plan,
 		Week:        in.Week,
 		Epic:        in.Epic,
 		Project:     in.Project,

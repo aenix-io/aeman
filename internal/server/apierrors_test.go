@@ -17,7 +17,7 @@ import (
 // refused the change" — while the default arm answers 502, "the forge
 // could not be reached". A sentinel that misses apiError's list therefore
 // tells the caller a lie about whose fault it is and invites a retry that
-// cannot help: ErrPlanSubtask shipped exactly that way.
+// cannot help: ErrSubtaskWeek shipped exactly that way.
 //
 // The list of sentinels is read from the SOURCE, not from a table kept
 // here: a table has to be updated by the same person who forgot the other
@@ -43,8 +43,8 @@ func TestEverySentinelIsAnsweredByApiError(t *testing.T) {
 	// forbidden one 403. What no refusal may be is a GATEWAY failure,
 	// which is what the default arm means.
 	// And the mapping is real, not just a mention: one sentinel end to end.
-	if code := statusFor(t, boardservice.ErrPlanSubtask); code != 422 {
-		t.Fatalf("ErrPlanSubtask answers %d, want 422", code)
+	if code := statusFor(t, boardservice.ErrSubtaskWeek); code != 422 {
+		t.Fatalf("ErrSubtaskWeek answers %d, want 422", code)
 	}
 }
 

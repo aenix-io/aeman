@@ -16,16 +16,13 @@ var ErrNotAMonday = errors.New("a week on the Triage board is a Monday")
 // board holds it in the strip.
 //
 // What the week does depends on what the card already is. A Project-board
-// SLOT moves its dates and its week follows them, as on the Project board. A
-// weekly-plan card keeps its band — the plan is a commitment to a day of the
-// week, and moving the card between weeks does not undo it. Every other card
-// takes the week ALONE: it is work of the board scheduled for that week, not
-// a promise on the weekly panel, and giving it a band would put it there.
+// SLOT moves its dates and its week follows them, as on the Project board.
+// Every other card takes the week alone.
 //
 // A card placed in a week AHEAD leaves the day board: its dates and sprint go,
 // since a card in a week to come is on no day (B1). Placed in the CURRENT
 // week it keeps them — that is the week the board is working.
-func (s *Service) Place(ctx context.Context, boardID, itemID, week string, band board.PlanBand) error {
+func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error {
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -55,28 +52,6 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string, band 
 			return err
 		}
 		card.Parent = ""
-	}
-	// The band is the WEEKLY PLAN's: a card that has one keeps it, a card
-	// that has none is not given one by being scheduled. Only an explicit
-	// band (the plan's own drop) sets it.
-	if band == board.PlanNone {
-		band = card.Plan
-	}
-	// A card owed by Wednesday, moved into a week whose Wednesday has
-	// passed, is owed by Friday: the earlier deadline is gone (B10).
-	if band == board.PlanWed && week == board.MondayOf(today) && today > board.AddDays(week, 2) {
-		band = board.PlanFri
-	}
-	if band != card.Plan {
-		if err := s.backend.SetPlan(ctx, b, card, band); err != nil {
-			return err
-		}
-		if card.Plan == board.PlanNone {
-			s.logEvent(ctx, b, card, board.EventPlanAdded, "", string(band))
-		} else {
-			s.logEvent(ctx, b, card, board.EventPlanBand, string(card.Plan), string(band))
-		}
-		card.Plan = band
 	}
 	if week != card.Week {
 		if err := s.backend.SetWeek(ctx, b, card, week); err != nil {
@@ -150,12 +125,6 @@ func (s *Service) Untriage(ctx context.Context, boardID, itemID string) error {
 	}
 	if card.Epic != "" {
 		return fmt.Errorf("%w: a slot's week is its row — take it off the column instead", ErrWeekDerived)
-	}
-	if card.Plan != board.PlanNone {
-		if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
-			return err
-		}
-		s.logEvent(ctx, b, card, board.EventPlanReleased, string(card.Plan), "")
 	}
 	if card.Week != "" {
 		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {

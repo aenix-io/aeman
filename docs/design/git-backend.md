@@ -241,7 +241,6 @@ doneFrom: 0
 start: 2026-08-26
 day: 2026-08-28
 sprint: 2026-08-24
-plan: fri
 week: 2026-08-24
 project: portal
 epic: Bugs

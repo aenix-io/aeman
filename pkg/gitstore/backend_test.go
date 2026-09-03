@@ -168,7 +168,7 @@ func TestCreateIterationIDIsDeterministic(t *testing.T) {
 	a, _ := newBackend(t)
 	b, _ := newBackend(t)
 	ctx := ctxAs("aeman")
-	in := board.CreateInput{Title: "weekly turn", Team: "portal", Task: "01TASK0000000000000000000A", Week: "2026-08-24", Plan: board.PlanFri}
+	in := board.CreateInput{Title: "weekly turn", Team: "portal", Task: "01TASK0000000000000000000A", Week: "2026-08-24"}
 	ba, _ := a.LoadBoard(ctx, "x")
 	bb, _ := b.LoadBoard(ctx, "x")
 	ca, err := a.CreateCard(ctx, ba, in)

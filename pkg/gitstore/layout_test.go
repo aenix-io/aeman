@@ -119,7 +119,7 @@ func TestCardFileOmitsEmptyFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"assignees:", "team:", "zone:", "stage:", "progress:", "day:", "start:", "sprint:", "plan:", "week:", "project:", "epic:", "parent:", "reviewOf:", "reviewRound:", "recurrence:", "process:", "task:", "accumulate:", "link:", "github:", "doneFrom:", "movedFrom:", "## Notes"} {
+	for _, key := range []string{"assignees:", "team:", "zone:", "stage:", "progress:", "day:", "start:", "sprint:", "week:", "project:", "epic:", "parent:", "reviewOf:", "reviewRound:", "recurrence:", "process:", "task:", "accumulate:", "link:", "github:", "doneFrom:", "movedFrom:", "## Notes"} {
 		if bytes.Contains(data, []byte(key)) {
 			t.Fatalf("empty %s written:\n%s", key, data)
 		}

@@ -6,11 +6,12 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// A card has two homes and the × empties one of them: the working area (a
-// sprint and its days) and the weekly plan (a band and its week). Removing
-// it from one leaves it in the other; removing it from its last one deletes
-// it. A card filed under a Project-board column always has that column to
-// go home to, so the × never destroys it.
+// A card can be in two places at once: the working area (a sprint and its
+// days) and the WEEK it is scheduled for, which is its column on the Triage
+// board. The × empties the working area, and where the card goes is decided
+// by what it has left — its week, its Project-board column, or nothing, in
+// which case it is deleted. A card filed under a column always has that
+// column to go home to, so the × never destroys it.
 //
 // The Unassigned column is not special in any of this: it is the day grid
 // like every other column, and a card made there and removed there is gone
@@ -52,36 +53,36 @@ func TestTheGridRemoveDeletesACardThatIsNowhereElse(t *testing.T) {
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", "grid"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
 	if _, ok := findCard(b, "c1"); ok {
-		t.Fatal("a card with no plan band and no column must be deleted by the grid ×")
+		t.Fatal("a card with no week and no column must be deleted by the ×")
 	}
 }
 
-// The same card, once it is also in the weekly plan, has somewhere to stay:
-// the grid × takes it out of the working area — off the day grid, dates and
-// all — and leaves it in the plan.
-func TestTheGridRemoveLeavesACardThatIsAlsoInThePlan(t *testing.T) {
+// The same card, once it is also scheduled for a WEEK, has somewhere to
+// stay: the × takes it out of the working area — off the day grid, dates and
+// all — and leaves it in that week, on the Triage board.
+func TestTheRemoveLeavesACardThatIsScheduledForAWeek(t *testing.T) {
 	today := board.TodayIso()
+	week := board.MondayOf(today)
 	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "taken from the plan", Team: "platform", Assignees: []string{"kvaps"},
-			Plan: board.PlanFri, Week: board.MondayOf(today),
-			SprintStart: today, StartDate: today, Day: today},
+		{ItemID: "c1", Title: "taken out of its week", Team: "platform", Assignees: []string{"kvaps"},
+			Week: week, SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", "grid"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
 	c, ok := findCard(b, "c1")
 	if !ok {
-		t.Fatal("a card that is in the plan must not be deleted by the grid ×")
+		t.Fatal("a card scheduled for a week must not be deleted by the ×")
 	}
-	if c.Plan != board.PlanFri || c.Week != board.MondayOf(today) {
-		t.Fatalf("it must keep its place in the plan: plan=%q week=%q", c.Plan, c.Week)
+	if c.Week != week {
+		t.Fatalf("it must keep the week it is scheduled for: week=%q", c.Week)
 	}
 	if c.SprintStart != "" || len(c.Assignees) != 0 {
 		t.Fatalf("it must leave the working area: sprint=%q assignees=%v", c.SprintStart, c.Assignees)
@@ -91,77 +92,57 @@ func TestTheGridRemoveLeavesACardThatIsAlsoInThePlan(t *testing.T) {
 	}
 }
 
-// And the other way round, which already held and must keep holding: the
-// plan × on a card someone is working on takes it out of the plan and
-// leaves it in the working area.
-func TestThePlanRemoveLeavesACardThatIsAlsoInTheWorkingArea(t *testing.T) {
+// And pressed again on the card that is now nothing but its week, the ×
+// deletes it: there is no second home left to hand it to. An × that always
+// answered "back to your week" could never remove such a card at all.
+func TestTheRemovePressedTwiceEmptiesTheLastHome(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "in both", Team: "platform", Assignees: []string{"kvaps"}, Progress: 30,
-			Plan: board.PlanFri, Week: board.MondayOf(today),
+		{ItemID: "c1", Title: "in both", Team: "platform", Week: board.MondayOf(today),
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", "plan"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findCard(mustLoad(t, fake), "c1"); !ok {
+		t.Fatal("the first × leaves the card in its week")
+	}
+	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findCard(mustLoad(t, fake), "c1"); ok {
+		t.Fatal("emptied of its last home, the card must be gone")
+	}
+}
+
+func mustLoad(t *testing.T, fake *fakeBackend) board.Board {
+	t.Helper()
+	b, err := fake.LoadBoard(t.Context(), "o")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// A card filed under a Project-board column is never destroyed by the ×: its
+// column is a home it cannot be removed from here.
+func TestTheRemoveNeverDeletesAProjectCard(t *testing.T) {
+	today := board.TodayIso()
+	fake := gridBoard([]board.Card{
+		{ItemID: "c1", Title: "a slot", Team: "platform", Project: "core", Epic: "Auth",
+			SprintStart: today, StartDate: today, Day: today},
+	})
+	if err := New(fake).Remove(t.Context(), "o", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
 	c, ok := findCard(b, "c1")
 	if !ok {
-		t.Fatal("a card in the working area must not be deleted by the plan ×")
+		t.Fatal("the × deleted a project card")
 	}
-	if c.Plan != board.PlanNone {
-		t.Fatalf("it must leave the plan: plan=%q", c.Plan)
-	}
-	if c.SprintStart != today || !onGrid(t, fake, "c1") {
-		t.Fatalf("it must stay in the working area: sprint=%q onGrid=%v", c.SprintStart, onGrid(t, fake, "c1"))
-	}
-}
-
-// Emptying both homes deletes the card: out of the working area first, then
-// out of the plan, and it is gone.
-func TestRemovedFromBothHomesTheCardIsGone(t *testing.T) {
-	today := board.TodayIso()
-	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "in both", Team: "platform",
-			Plan: board.PlanFri, Week: board.MondayOf(today),
-			SprintStart: today, StartDate: today, Day: today},
-	})
-	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", "grid"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Remove(t.Context(), "o", "c1", "plan"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := fake.LoadBoard(t.Context(), "o")
-	if _, ok := findCard(b, "c1"); ok {
-		t.Fatal("emptied of both homes, the card must be gone")
-	}
-}
-
-// A card filed under a Project-board column is never destroyed by either ×:
-// its column is a home it cannot be removed from here.
-func TestNeitherRemoveDeletesAProjectCard(t *testing.T) {
-	today := board.TodayIso()
-	for _, from := range []string{"grid", "plan"} {
-		fake := gridBoard([]board.Card{
-			{ItemID: "c1", Title: "a slot", Team: "platform", Project: "core", Epic: "Auth",
-				Plan: board.PlanFri, Week: board.MondayOf(today),
-				SprintStart: today, StartDate: today, Day: today},
-		})
-		svc := New(fake)
-		if err := svc.Remove(t.Context(), "o", "c1", from); err != nil {
-			t.Fatalf("%s: %v", from, err)
-		}
-		b, _ := fake.LoadBoard(t.Context(), "o")
-		c, ok := findCard(b, "c1")
-		if !ok {
-			t.Fatalf("the %s × deleted a project card", from)
-		}
-		if c.Project != "core" || c.Epic != "Auth" {
-			t.Fatalf("%s: the column must stay: project=%q epic=%q", from, c.Project, c.Epic)
-		}
+	if c.Project != "core" || c.Epic != "Auth" {
+		t.Fatalf("the column must stay: project=%q epic=%q", c.Project, c.Epic)
 	}
 }
 
@@ -181,7 +162,7 @@ func TestWorkDoesNotTurnARemoveIntoAMove(t *testing.T) {
 			SprintStart: today, StartDate: today, Day: today},
 	})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", "grid"); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -193,48 +174,17 @@ func TestWorkDoesNotTurnARemoveIntoAMove(t *testing.T) {
 	}
 }
 
-// The plan × must obey the same two-homes rule from its side: a card that is
-// in the working area — on the day grid by its sprint — stays there, even
-// when nobody took it and nobody worked it. The plan branch used to spare
-// only an assigned-or-worked card and deleted this one outright, sprint and
-// all: reachable through take_into_plan with no engineer, or a drag into the
-// grid's Unassigned column.
-func TestThePlanRemoveLeavesAnUnassignedCardThatIsInTheWorkingArea(t *testing.T) {
-	today := board.TodayIso()
-	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "in both, nobody's", Team: "platform",
-			Plan: board.PlanFri, Week: board.MondayOf(today),
-			SprintStart: today, StartDate: today, Day: today},
-	})
-	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", "plan"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := fake.LoadBoard(t.Context(), "o")
-	c, ok := findCard(b, "c1")
-	if !ok {
-		t.Fatal("a card on the day grid must not be deleted by the plan ×")
-	}
-	if c.Plan != board.PlanNone {
-		t.Fatalf("it must leave the plan: plan=%q", c.Plan)
-	}
-	if c.SprintStart != today || !onGrid(t, fake, "c1") {
-		t.Fatalf("it must stay in the working area: sprint=%q onGrid=%v", c.SprintStart, onGrid(t, fake, "c1"))
-	}
-}
-
 // A card carrying only a project name is on no board of its own: the
-// Project board renders columns by epic, and the weekly plan derives a
-// slot's band by epic. So the name is a label, not a home — the × treats
-// the card like any other, and with nowhere else to be it is deleted rather
-// than left alive where no board would show it.
+// Project board renders columns by epic. So the name is a label, not a home
+// — the × treats the card like any other, and with nowhere else to be it is
+// deleted rather than left alive where no board would show it.
 func TestACardThatOnlyNamesAProjectIsNotSparedByThatName(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
 		{ItemID: "c1", Title: "project, no column", Team: "platform", Project: "core",
 			Assignees: []string{"kvaps"}, SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "c1", "grid"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -245,7 +195,7 @@ func TestACardThatOnlyNamesAProjectIsNotSparedByThatName(t *testing.T) {
 
 // The invariant behind all of it: a card the × keeps is a card some board
 // still shows. Sparing one for what it carries — a person, a progress bar —
-// left it alive with no sprint, no dates, no band and no column: findable
+// left it alive with no sprint, no dates, no week and no column: findable
 // nowhere, deletable nowhere.
 func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 	today := board.TodayIso()
@@ -255,47 +205,34 @@ func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 		if onGrid(t, fake, id) {
 			return true
 		}
-		bands := board.WeeklyPlanAt(b, "platform", board.MondayOf(today), today)
-		for _, c := range append(append([]board.Card{}, bands.Wed...), bands.Fri...) {
-			if c.ItemID == id {
-				return true
-			}
-		}
 		for _, c := range board.MeView(b, "", today) {
 			if c.ItemID == id {
 				return true
 			}
 		}
 		c, ok := findCard(b, id)
-		return ok && c.Epic != "" // a slot lives on the Project board
+		// A slot lives on the Project board; a card with a week stands in
+		// that week's column on Triage.
+		return ok && (c.Epic != "" || c.Week != "")
 	}
-	cases := []struct{ name, first, second string }{
-		{"out of the working area, then out of the plan", "grid", "plan"},
-		{"out of the plan, then out of the working area", "plan", "grid"},
+	fake := gridBoard([]board.Card{
+		{ItemID: "c1", Title: "worked, in both", Team: "platform",
+			Assignees: []string{"kvaps"}, Progress: 40, Week: board.MondayOf(today),
+			SprintStart: today, StartDate: today, Day: today},
+	})
+	svc := New(fake)
+	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+		t.Fatal(err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			fake := gridBoard([]board.Card{
-				{ItemID: "c1", Title: "worked, in both", Team: "platform",
-					Assignees: []string{"kvaps"}, Progress: 40,
-					Plan: board.PlanFri, Week: board.MondayOf(today),
-					SprintStart: today, StartDate: today, Day: today},
-			})
-			svc := New(fake)
-			if err := svc.Remove(t.Context(), "o", "c1", tc.first); err != nil {
-				t.Fatal(err)
-			}
-			if !shown(t, fake, "c1") {
-				t.Fatalf("after the %s ×, the card is on no board", tc.first)
-			}
-			if err := svc.Remove(t.Context(), "o", "c1", tc.second); err != nil {
-				t.Fatal(err)
-			}
-			b, _ := fake.LoadBoard(t.Context(), "o")
-			if _, ok := findCard(b, "c1"); ok {
-				t.Fatalf("emptied of both homes the card must be gone, not invisible: shown=%v", shown(t, fake, "c1"))
-			}
-		})
+	if !shown(t, fake, "c1") {
+		t.Fatal("after the ×, the card is on no board")
+	}
+	if err := svc.Remove(t.Context(), "o", "c1"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := fake.LoadBoard(t.Context(), "o")
+	if _, ok := findCard(b, "c1"); ok {
+		t.Fatalf("emptied of its last home the card must be gone, not invisible: shown=%v", shown(t, fake, "c1"))
 	}
 }
 
@@ -304,12 +241,12 @@ func TestACardTheRemoveKeepsIsAlwaysOnSomeBoard(t *testing.T) {
 func TestSubtasksLeaveTheWorkingAreaWithTheirParent(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
-		{ItemID: "p", Title: "parent", Team: "platform", Plan: board.PlanFri, Week: board.MondayOf(today),
+		{ItemID: "p", Title: "parent", Team: "platform", Week: board.MondayOf(today),
 			SprintStart: today, StartDate: today, Day: today},
 		{ItemID: "s", Title: "child", Team: "platform", Parent: "p",
 			SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "p", "grid"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "p"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -325,18 +262,15 @@ func TestSubtasksLeaveTheWorkingAreaWithTheirParent(t *testing.T) {
 	}
 }
 
-// A personal card has no weekly plan to be released from, and the plan × is
-// the door release_from_plan now goes through — so the personal path must
-// not be reachable by it. The invariant is stated here rather than assumed:
-// a personal card handed to it is left behind or deleted by the personal
-// rule, never treated as a plan card.
-func TestReleaseFromPlanOnAPersonalCardFollowsThePersonalRule(t *testing.T) {
+// A personal card follows the personal rule, never the board's: the × on one
+// leaves it behind on the day it was worked, or deletes it.
+func TestTheRemoveOnAPersonalCardFollowsThePersonalRule(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
 		{ItemID: "p1", Title: "mine", Domain: "~kvaps", Progress: 40,
 			StartDate: board.AddDays(today, -3), Day: board.AddDays(today, -3)},
 	})
-	if err := New(fake).ReleaseFromPlan(t.Context(), "o", "p1"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "p1"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")
@@ -349,54 +283,6 @@ func TestReleaseFromPlanOnAPersonalCardFollowsThePersonalRule(t *testing.T) {
 	}
 }
 
-// release_from_plan is the same gesture as the plan × through another door
-// (REST /actions/release-from-plan, MCP release_from_plan) and obeys the
-// same rule — it is now the same code. It used to know only about a person
-// and progress, so a card standing on the day grid that nobody had taken
-// was destroyed by it: the very hole that was closed in Remove.
-func TestReleaseFromPlanLeavesACardThatIsSomewhereElse(t *testing.T) {
-	today := board.TodayIso()
-	cases := []struct {
-		name string
-		card board.Card
-	}{
-		{"in the working area, nobody's", board.Card{ItemID: "c1", Team: "platform",
-			Plan: board.PlanFri, Week: board.MondayOf(today),
-			SprintStart: today, StartDate: today, Day: today}},
-		{"dated but not in a sprint", board.Card{ItemID: "c1", Team: "platform",
-			Plan: board.PlanFri, Week: board.MondayOf(today), StartDate: today, Day: today}},
-		{"a slot, which its column keeps", board.Card{ItemID: "c1", Team: "platform",
-			Project: "core", Epic: "Auth", Plan: board.PlanFri, Week: board.MondayOf(today),
-			StartDate: today, Day: today}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			fake := gridBoard([]board.Card{tc.card})
-			if err := New(fake).ReleaseFromPlan(t.Context(), "o", "c1"); err != nil {
-				t.Fatal(err)
-			}
-			b, _ := fake.LoadBoard(t.Context(), "o")
-			c, ok := findCard(b, "c1")
-			if !ok {
-				t.Fatal("release_from_plan destroyed a card that was somewhere else")
-			}
-			if c.Plan != board.PlanNone {
-				t.Fatalf("it must still leave the plan: plan=%q", c.Plan)
-			}
-		})
-	}
-	// A card that is nowhere else is still deleted by it.
-	fake := gridBoard([]board.Card{{ItemID: "c1", Team: "platform",
-		Plan: board.PlanFri, Week: board.MondayOf(today)}})
-	if err := New(fake).ReleaseFromPlan(t.Context(), "o", "c1"); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := fake.LoadBoard(t.Context(), "o")
-	if _, ok := findCard(b, "c1"); ok {
-		t.Fatal("a pure plan card, nowhere else, is deleted")
-	}
-}
-
 // Leaving the working area is written down. A demote logs its sprint move
 // because a card that leaves today's board without a word in its own history
 // is a card nobody can account for (W6); the × that empties the working area
@@ -404,11 +290,10 @@ func TestReleaseFromPlanLeavesACardThatIsSomewhereElse(t *testing.T) {
 func TestLeavingTheWorkingAreaIsRecorded(t *testing.T) {
 	today := board.TodayIso()
 	fake := gridBoard([]board.Card{
-		{ItemID: "c1", Title: "in both", Team: "platform",
-			Plan: board.PlanFri, Week: board.MondayOf(today),
+		{ItemID: "c1", Title: "in both", Team: "platform", Week: board.MondayOf(today),
 			SprintStart: today, StartDate: today, Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "c1", "grid"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "c1"); err != nil {
 		t.Fatal(err)
 	}
 	if !fake.saw("AppendEvent c1 sprint " + today + "->") {
@@ -431,7 +316,7 @@ func TestTheRemoveOnASubtaskDeletesItRatherThanDemotingIt(t *testing.T) {
 		{ItemID: "s", Title: "child", Team: "platform", Parent: "p",
 			SprintStart: today, StartDate: board.AddDays(today, -2), Day: today},
 	})
-	if err := New(fake).Remove(t.Context(), "o", "s", "grid"); err != nil {
+	if err := New(fake).Remove(t.Context(), "o", "s"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")

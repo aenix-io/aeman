@@ -93,8 +93,8 @@ func TestProjectViewDeliversSubtasksThatCarryAColumn(t *testing.T) {
 	b := board.NewBoard([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "freedom"},
 		{ItemID: "ep", Title: board.EpicStateTitle, Epic: "Redis App", Project: "freedom"},
-		// The parent is a plan card: no column, so no project view holds it.
-		{ItemID: "parent", Title: "TLS for DBaaS", Plan: board.PlanWed, Week: "2026-08-24"},
+		// The parent has only a week: no column, so no project view holds it.
+		{ItemID: "parent", Title: "TLS for DBaaS", Week: "2026-08-24"},
 		{ItemID: "child", Title: "TLS for Redis", Parent: "parent",
 			Project: "freedom", Epic: "Redis App"},
 		{ItemID: "loose", Title: "no column", Parent: "parent"},

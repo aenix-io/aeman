@@ -13,16 +13,12 @@ func TestOverdue(t *testing.T) {
 		{"a slot still running", Card{Epic: "E", StartDate: "2026-08-03", Day: "2026-09-04"}, false},
 		{"a slot ending today is not overdue yet", Card{Epic: "E", Day: today}, false},
 		{"a finished slot is never overdue", Card{Epic: "E", Day: "2026-08-01", Progress: 100}, false},
-		{"a turn of last week", Card{Task: "t", Week: "2026-08-17", Plan: PlanFri}, true},
-		{"a turn of this week", Card{Task: "t", Week: "2026-08-24", Plan: PlanFri}, false},
-		{"by-Wednesday, on Thursday", Card{Plan: PlanWed, Week: "2026-08-24"}, true},
-		{"by-Friday, on Thursday", Card{Plan: PlanFri, Week: "2026-08-24"}, false},
-		{"by-Friday of last week", Card{Plan: PlanFri, Week: "2026-08-17"}, true},
-		{"a plan card with no week", Card{Plan: PlanFri}, false},
-		// A card the Backlog board scheduled: a week and no band. It is owed
-		// by the end of the week it was placed in — being scheduled for a
-		// week IS the promise, and without this a debt from the backlog read
-		// as work with all the time in the world.
+		{"a turn of last week", Card{Task: "t", Week: "2026-08-17"}, true},
+		{"a turn of this week", Card{Task: "t", Week: "2026-08-24"}, false},
+		// A card the Triage board scheduled. It is owed by the end of the
+		// week it was placed in — being scheduled for a week IS the promise,
+		// and without this a debt read as work with all the time in the
+		// world.
 		{"a card scheduled for last week", Card{Week: "2026-08-17"}, true},
 		{"a card scheduled for this week", Card{Week: "2026-08-24"}, false},
 		{"a card scheduled for next week", Card{Week: "2026-08-31"}, false},
@@ -36,34 +32,21 @@ func TestOverdue(t *testing.T) {
 	}
 }
 
-// An overdue plan card shows on the current week's panel beside that week's
-// work — in the BY-WEDNESDAY band, since it is already late — and stays on
-// the panel of the week it was owed in, under the band it carries there.
-// Nothing moves: the card's own week and band are untouched.
-func TestADebtFollowsYou(t *testing.T) {
+// A card stretched over several weeks is owed by the END of its reach:
+// stretching it is saying it takes longer, and reading the first week's
+// Friday would call it late while it is still running.
+func TestAStretchedCardIsOwedByItsEnd(t *testing.T) {
 	today := "2026-08-27" // Thursday of the week of 24 Aug
-	thisWeek := "2026-08-24"
-	debt := Card{ItemID: "debt", Team: "alpha", Plan: PlanFri, Week: "2026-08-17"}
-	paid := Card{ItemID: "paid", Team: "alpha", Plan: PlanFri, Week: "2026-08-17", Progress: 100, Stage: StageDone}
-	b := NewBoard([]Card{debt, paid})
-
-	now := WeeklyPlanAt(b, "alpha", thisWeek, today)
-	if len(now.Wed) != 1 || now.Wed[0].ItemID != "debt" {
-		t.Fatalf("this week's panel must carry the open debt by Wednesday, and nothing closed; got %+v", now)
+	stretched := Card{Week: "2026-08-17", Day: "2026-09-04"}
+	if due := DueDate(stretched); due != "2026-09-04" {
+		t.Fatalf("due = %q, want the end of its reach", due)
 	}
-	if len(now.Fri) != 0 {
-		t.Fatalf("a debt is not this week's by-Friday work: %+v", now.Fri)
+	if Overdue(stretched, today) {
+		t.Fatal("a card still inside its reach is not a debt")
 	}
-	then := WeeklyPlanAt(b, "alpha", "2026-08-17", today)
-	if len(then.Fri) != 2 {
-		t.Fatalf("the week it was owed in keeps both; got %d", len(then.Fri))
-	}
-	// Not on some other future week.
-	if later := WeeklyPlanAt(b, "alpha", "2026-08-31", today); len(later.Fri) != 0 {
-		t.Fatalf("a debt is not next week's work; got %d", len(later.Fri))
-	}
-	// And the card itself did not move.
-	if debt.Week != "2026-08-17" {
-		t.Fatal("the card moved")
+	// One whose reach has run out is.
+	short := Card{Week: "2026-08-10", Day: "2026-08-21"}
+	if !Overdue(short, today) {
+		t.Fatal("a card past the end of its reach is a debt")
 	}
 }

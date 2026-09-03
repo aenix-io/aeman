@@ -248,18 +248,15 @@ func (s *Service) SetEpic(ctx context.Context, boardID string, itemID, epic stri
 		}
 	}
 	// Filing a card under a column makes it a slot, and a slot's row is its
-	// start date's week. A weekly-plan card has no dates of its own — its
-	// place is the band and the week — so it takes the SLOT OF THAT WEEK on
-	// the way: start on its Monday, end on its band's day. Without this it
-	// would land in the column with no row at all and jump to another week
-	// on the next full load.
+	// start date's week. A card scheduled for a WEEK has no dates of its own
+	// — the week is its whole place — so it takes the SLOT OF THAT WEEK on
+	// the way: Monday to Friday, the whole of the week it was owed in.
+	// Without this it would land in the column with no row at all and jump to
+	// another week on the next full load.
 	if epic != "" {
 		card.Epic = epic
-		if card.StartDate == "" && card.Plan != board.PlanNone && card.Week != "" {
-			end := board.AddDays(card.Week, 4) // by Friday
-			if card.Plan == board.PlanWed {
-				end = board.AddDays(card.Week, 2)
-			}
+		if card.StartDate == "" && card.Week != "" {
+			end := board.AddDays(card.Week, 4) // through its Friday
 			if err := s.backend.SetStart(ctx, b, card, card.Week); err != nil {
 				return err
 			}

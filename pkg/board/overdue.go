@@ -6,10 +6,9 @@ package board
 //
 //   - a Project-board slot is owed by its end date;
 //   - a process turn is owed by the end of the week it was filed in;
-//   - a weekly-plan card is owed by its band — Wednesday or Friday of its
-//     week. "By Wednesday" means by Wednesday, or the bands mean nothing.
+//   - a card scheduled for a WEEK is owed by the end of that week.
 //
-// Ordinary day cards are not plan work and have no due date here: the day
+// A card with no week is not scheduled work and has no due date here: the day
 // board's carry-over is how those move, and it is not this rule's business.
 func DueDate(c Card) string {
 	switch {
@@ -20,19 +19,11 @@ func DueDate(c Card) string {
 			return ""
 		}
 		return AddDays(c.Week, 6)
-	case c.Plan != PlanNone:
-		if c.Week == "" {
-			return ""
-		}
-		if c.Plan == PlanWed {
-			return AddDays(c.Week, 2)
-		}
-		return AddDays(c.Week, 4)
 	case c.Week != "":
-		// A card the Triage board scheduled: a week and no band of its own.
-		// Being placed in a week IS the promise, so it is owed by the end of
-		// that week — the same Friday a by-Friday card is owed by. Without
-		// this a backlog debt read as work with all the time in the world.
+		// A card the Triage board scheduled. Being placed in a week IS the
+		// promise, so it is owed by the end of that week — its Friday.
+		// Without this a backlog debt read as work with all the time in the
+		// world.
 		//
 		// A card STRETCHED over several weeks is owed by the end of its
 		// reach: stretching it is saying it takes longer, and reading the

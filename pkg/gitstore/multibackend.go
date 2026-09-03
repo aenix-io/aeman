@@ -829,15 +829,6 @@ func (mb *MultiBackend) SetSprintStart(ctx context.Context, bd board.Board, card
 	return be.SetSprintStart(ctx, bd, card, date)
 }
 
-// SetPlan writes in the card's domain.
-func (mb *MultiBackend) SetPlan(ctx context.Context, bd board.Board, card board.Card, plan board.PlanBand) error {
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetPlan(ctx, bd, card, plan)
-}
-
 // SetWeek writes in the card's (or deadline's) domain.
 func (mb *MultiBackend) SetWeek(ctx context.Context, bd board.Board, card board.Card, week string) error {
 	be, err := mb.route(ctx, card)

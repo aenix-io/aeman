@@ -675,11 +675,10 @@ func (s *Service) spawnDue(ctx context.Context, b board.Board, t board.Card) {
 	}
 }
 
-// spawnIteration copies a task into one weekly-plan card.
+// spawnIteration copies a task into one card of the week it is owed in.
 func (s *Service) spawnIteration(ctx context.Context, b board.Board, t board.Card, week string) error {
 	in := board.CreateInput{
 		Title:      TaskTitle(t),
-		Plan:       board.PlanFri,
 		Week:       week,
 		Team:       t.Team,
 		Task:       t.ItemID,

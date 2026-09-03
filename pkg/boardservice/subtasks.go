@@ -17,12 +17,12 @@ var ErrSubtaskDepth = errors.New("subtasks are one level deep")
 // board (or cannot hold subtasks).
 var ErrParentNotFound = errors.New("parent card not found")
 
-// ErrPlanSubtask is asking for a card that is both a subtask and a weekly-
-// plan card. A subtask has no band of its own — grouping hands its slot to
+// ErrSubtaskWeek is asking for a card that is both a subtask and scheduled
+// for a week of its own. A subtask has no week — grouping hands its week to
 // the parent — so the pair is two contradictory requests, and answering it
-// by moving the PARENT into the band named for the child mutates a card
+// by scheduling the PARENT for the week named for the child mutates a card
 // nobody asked about.
-var ErrPlanSubtask = errors.New("a subtask has no weekly-plan band of its own")
+var ErrSubtaskWeek = errors.New("a subtask has no week of its own")
 
 // ErrOpenSubtasks is returned when a card with unfinished subtasks is being
 // completed — closing the parent is the human's final call, made only once
@@ -79,30 +79,22 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	}); err != nil {
 		return err
 	}
-	// A weekly-plan card grouped under a parent hands its slot to the parent
-	// (the parent replaces it in the Weekly plan); a parent already in the
-	// plan keeps its own slot and the subtask's simply clears. A SLOT parent
-	// receives nothing: it is on the Weekly panel by its span already, and
-	// writing the subtask's week onto it is the conflicting write SetWeek
-	// refuses — the refusal used to kill the whole grouping.
-	if card.Plan != board.PlanNone {
-		if p.Plan == board.PlanNone && p.Epic == "" {
-			if err := s.backend.SetPlan(ctx, b, p, card.Plan); err != nil {
-				return err
-			}
+	// A card scheduled for a WEEK hands that week to the parent, which stands
+	// for it from then on; a parent that has a week of its own keeps it and
+	// the subtask's simply clears. A SLOT parent receives nothing: its row is
+	// its span already, and writing the subtask's week onto it is the
+	// conflicting write SetWeek refuses — the refusal used to kill the whole
+	// grouping.
+	if card.Week != "" {
+		if p.Week == "" && p.Epic == "" {
 			if err := s.backend.SetWeek(ctx, b, p, card.Week); err != nil {
 				return err
 			}
 		}
-		if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
-			return err
-		}
-		// The BAND goes; the WEEK stays for a card that stands in a COLUMN.
-		// There the week is the row the Project board draws it in — its span
-		// speaks for it, not stored plan membership — and clearing it took
-		// the card's stripe away and left the row to be re-derived from
-		// dates the client cannot see. The plan's × makes the same
-		// distinction (a slot keeps its week).
+		// The WEEK stays for a card that stands in a COLUMN. There it is the
+		// row the Project board draws the card in — its span speaks for it —
+		// and clearing it took the card's row away, to be re-derived from
+		// dates the client cannot see.
 		if !hasColumn(card) {
 			if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
 				return err

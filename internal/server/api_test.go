@@ -111,19 +111,6 @@ func TestAPIListCardsMeView(t *testing.T) {
 	}
 }
 
-func TestAPIListCardsWeeklyCarriesProgress(t *testing.T) {
-	fake := boardservicetest.New([]board.Card{
-		{ItemID: "p1", Team: "alpha", Plan: board.PlanWed, Week: "2026-06-15", Progress: 40},
-		{ItemID: "p2", Team: "alpha", Plan: board.PlanFri, Week: "2026-06-15", Stage: board.StageRecurrent, Progress: 100},
-	}, nil)
-	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?view=weekly&team=alpha&week=2026-06-15", "")
-	list := decodeList(t, rec)
-	if len(list.Items) != 2 || list.Weekly == nil || list.Weekly.Progress != 40 {
-		t.Fatalf("weekly = %+v %+v (recurrent excluded from the bar)", list.Items, list.Weekly)
-	}
-}
-
 func TestAPICreateCard(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)

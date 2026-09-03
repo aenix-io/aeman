@@ -16,7 +16,7 @@ import (
 )
 
 // Every open board is a SCOPED watch — a team grid, somebody's Me view, the
-// weekly plan — and a scoped subscription has to know whether a changed card
+// Triage weeks — and a scoped subscription has to know whether a changed card
 // entered or left its view. Asking that question card by card meant building
 // the whole view again for every card and every tab: FilterCards over the
 // entire board, sorted and projected, to look up one uid. A carry-over moves
@@ -81,13 +81,13 @@ func carryWithTabs(t *testing.T, name string, tabs int) (time.Duration, int64) {
 	defer cancel()
 	srv.store.waitDrained(ctx)
 
-	// The views a team keeps open on a planning morning: the grid, the plan
-	// and people's own boards — every one of them scoped.
+	// The views a team keeps open on a planning morning: the grid, the weeks
+	// ahead and people's own boards — every one of them scoped.
 	key := storeKey(srv.boardRef(nil))
 	sels := []apiserver.Selector{
 		{View: "team", Team: "portal"},
 		{View: "me", User: "kvaps"},
-		{View: "weekly", Team: "portal"},
+		{View: "triage", Team: "portal"},
 	}
 	var frames atomic.Int64
 	var wg sync.WaitGroup

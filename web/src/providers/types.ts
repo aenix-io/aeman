@@ -270,8 +270,8 @@ export interface CardPatch {
   /** "" clears the stage; "done" marks the card done (derived server-side). */
   stage?: StageKey | "";
   dates?: { start?: string; end?: string; sprint?: string };
-  /** The week the card is scheduled for ("" clears it). */
-  plan?: { week?: string };
+  /** The week the card is scheduled for ("" takes it off the Triage weeks). */
+  week?: string;
   /** Re-file under a column ("" clears). Naming only the epic keeps the card
    *  inside its project; crossing projects names both halves. */
   epic?: string;

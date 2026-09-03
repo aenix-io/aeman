@@ -1,7 +1,7 @@
 // Package apiserver is the Kubernetes-style resource layer of the aeman API:
 // it translates the internal board domain into Card/Sprint/Note/Ordering
 // resources (metadata/spec/status), evaluates LIST selectors for the Team, Me
-// and Weekly views, and derives the fields the UI would otherwise compute.
+// and Triage views, and derives the fields the UI would otherwise compute.
 // It is backend-agnostic: everything works on the domain board snapshot.
 package apiserver
 
@@ -57,14 +57,6 @@ type CardDates struct {
 	Sprint string `json:"sprint,omitempty"`
 }
 
-// CardPlan places the card in the founders' weekly plan — or, for an epic
-// card, anchors its week row (Band empty: the card is on the Plan board, not
-// in a team's wed/fri bands).
-type CardPlan struct {
-	Band string `json:"band,omitempty"`
-	Week string `json:"week,omitempty"`
-}
-
 // CardSpec is the user's intent — everything an edit can change.
 type CardSpec struct {
 	Title string `json:"title"`
@@ -82,7 +74,9 @@ type CardSpec struct {
 	// sprint, "week" / "month" = once the interval has elapsed.
 	Recurrence string    `json:"recurrence,omitempty"`
 	Dates      CardDates `json:"dates"`
-	Plan       *CardPlan `json:"plan,omitempty"`
+	// Week is the week the card is scheduled for, a Monday: its row on the
+	// Triage board, and — for an epic card — on the Project board.
+	Week string `json:"week,omitempty"`
 	// Epic and Project are the column the card is filed under ("" = none) —
 	// the pair, since epic names repeat across projects. The card's Week is
 	// the row, and Dates span the weeks its slot stretches over.
@@ -108,7 +102,7 @@ type CardStatus struct {
 	Complete   bool `json:"complete"`
 	InProgress bool `json:"inProgress"`
 	// Overdue: a card that came from a plan — a slot, a process turn, a
-	// weekly-plan card — still open past the day it was owed by. Derived on
+	// card scheduled for a week — still open past the day it was owed by. Derived on
 	// read from the card's own dates (board.Overdue); never stored.
 	Overdue     bool   `json:"overdue,omitempty"`
 	ReviewedBy  string `json:"reviewedBy,omitempty"`
@@ -406,22 +400,14 @@ func epicRefs(b board.Board) []EpicRef {
 	return out
 }
 
-// CardList is the LIST response envelope; Weekly carries the view's computed
-// extras when the weekly view was selected.
+// CardList is the LIST response envelope.
 type CardList struct {
-	Kind   string         `json:"kind"`
-	Items  []Card         `json:"items"`
-	Weekly *WeeklySummary `json:"weekly,omitempty"`
+	Kind  string `json:"kind"`
+	Items []Card `json:"items"`
 	// AsOf is the moment a snapshot listing reflects (RFC3339) — the end of
 	// the day it was asked for. Empty on a live listing; a day the history
 	// no longer reaches is refused (410) rather than answered.
 	AsOf string `json:"asOf,omitempty"`
-}
-
-// WeeklySummary is the weekly view's computed plan progress (recurrent cards
-// excluded — they restart every week and would skew the bar).
-type WeeklySummary struct {
-	Progress int `json:"progress"`
 }
 
 // CardResource maps a domain card onto the API resource, deriving status from
@@ -448,6 +434,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Stage:       string(c.Stage),
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
+		Week:        c.Week,
 		Epic:        c.Epic,
 		Project:     c.Project,
 		Mirrors:     append([]board.Placement{}, c.Mirrors...),
@@ -455,9 +442,6 @@ func CardResource(b board.Board, c board.Card) Card {
 		Task:        c.Task,
 		ReviewOf:    c.ReviewOf,
 		Parent:      c.Parent,
-	}
-	if c.Plan != board.PlanNone || c.Week != "" {
-		spec.Plan = &CardPlan{Band: string(c.Plan), Week: c.Week}
 	}
 	status := CardStatus{
 		Complete:    board.Complete(c.Stage, c.Progress),

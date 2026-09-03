@@ -196,20 +196,6 @@ func (s *Service) MeView(ctx context.Context, boardID string, user, day string) 
 	return board.MeView(b, user, day), nil
 }
 
-// WeeklyPlan returns a team's weekly-plan cards for a week (week = "" is the
-// Monday of the current week), split into the Wed/Fri bands. It mirrors the
-// `weekly` memo in TeamBoard.tsx via board.WeeklyPlan.
-func (s *Service) WeeklyPlan(ctx context.Context, boardID string, team, week string) (board.WeeklyBands, error) {
-	b, err := s.backend.LoadBoard(ctx, boardID)
-	if err != nil {
-		return board.WeeklyBands{}, err
-	}
-	if week == "" {
-		week = board.MondayOf(board.TodayIso())
-	}
-	return board.WeeklyPlan(b, team, week), nil
-}
-
 // --- Create / sprints ------------------------------------------------------
 
 // CreateCardArgs are the inputs to CreateCard. Day defaults to today.
@@ -226,9 +212,8 @@ type CreateCardArgs struct {
 	// joins (defaults: the day, and the team's current sprint).
 	Start       string
 	SprintStart string
-	// Plan/Week create a weekly-plan card instead of a day card: no dates are
-	// set and no sprint is joined or started (Week defaults to this Monday).
-	Plan board.PlanBand
+	// Week creates a card scheduled for a WEEK instead of a day card: no
+	// dates are set and no sprint is joined or started.
 	Week string
 	// Epic + Project create a Project-board card: filed under the column that
 	// pair identifies, its Week is the row (defaulting to the Monday of Start,
@@ -298,35 +283,11 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 		return s.createPersonalCard(ctx, b, args, linkDescription, pendingRef)
 	}
 
-	// An epic card lives on the Plan board: filed under its column, anchored
-	// to its week row, optionally spanning several weeks via start..day. It
-	// joins no sprint and no plan band — assigning it to a team later places
-	// it into that team's weekly plan.
+	// An epic card lives on the Project board: filed under its column,
+	// anchored to its week row, optionally spanning several weeks via
+	// start..day. It joins no sprint.
 	if args.Epic != "" {
 		return s.createEpicCard(ctx, b, args, linkDescription, pendingRef)
-	}
-	// A weekly-plan card lives in the plan bands, not on the day boards: it gets
-	// no dates and joins no sprint. It mirrors handleCreatePlan in TeamBoard.tsx.
-	if args.Plan != board.PlanNone {
-		week := args.Week
-		if week == "" {
-			week = board.MondayOf(board.TodayIso())
-		}
-		card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
-			Title:    args.Title,
-			Zone:     args.Zone,
-			Plan:     args.Plan,
-			Week:     week,
-			Assignee: args.Assignee,
-			Team:     args.Team,
-			ReviewOf: args.ReviewOf,
-		})
-		card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
-		if err == nil {
-			s.resolveTitleAsync(ctx, b, card, pendingRef)
-			s.logEvent(ctx, b, card, board.EventCreated, "", "")
-		}
-		return card, err
 	}
 	// A card given a WEEK and no day is scheduled for that week alone.
 	if args.Week != "" && args.Start == "" && args.Day == "" && args.SprintStart == "" {
@@ -652,7 +613,7 @@ func selectCarry(b board.Board, team, old, today string) (carry, reseed, relocat
 		// scheduled PAST the closing sprint qualify — an old sprint-less stray
 		// (a report card, a pre-sprint legacy card) is not this sprint's work
 		// and must not be dragged in.
-		if c.SprintStart == "" && c.Plan == board.PlanNone && c.StartDate != "" &&
+		if c.SprintStart == "" && c.StartDate != "" &&
 			old != "" && c.StartDate > old &&
 			c.StartDate <= today && !board.Complete(c.Stage, c.Progress) {
 			carry = append(carry, c)
@@ -1022,94 +983,20 @@ func (s *Service) syncChildrenSprint(ctx context.Context, b board.Board, parentI
 // Remove is the smart × — one method, the backend decides the outcome. A
 // card has two homes — the working area (a sprint and its days) and the
 // weekly plan (a band and its week) — and each × empties one of them. It
-// mirrors handleGridDelete/removeFromPlan in TeamBoard.tsx:
-//
-//   - from the grid (from = "" or "grid"): a card still in the team's current
-//     sprint demotes to the previous one (all dates pulled along). Otherwise
-//     the card leaves the working area — assignee, sprint and dates cleared
-//     (a slot keeps its dates: they are its row) — and stays wherever else it
-//     is: its plan band, or its Project-board column. With neither it was
-//     nowhere else, and it is deleted (cascading its review card; subtasks
-//     are freed into standalone cards). What it carries changes nothing here
-//     — the UI asks first when there is work to lose.
-//   - from the plan band (from = "plan"): the card leaves the plan and stays
-//     wherever else it is — with a person, with work, in a sprint, or under
-//     a column. A pure plan card, nowhere else, is deleted.
-func (s *Service) Remove(ctx context.Context, boardID string, itemID, from string) error {
+// mirrors handleGridDelete in TeamBoard.tsx: the card leaves the working area
+// — assignee, sprint and dates cleared (a slot keeps its dates: they are its
+// row) — and stays wherever else it is: the WEEK it is scheduled for, or its
+// Project-board column. With neither it was nowhere else, and it is deleted
+// (cascading its review card; subtasks are freed into standalone cards). What
+// it carries changes nothing here — the UI asks first when there is work to
+// lose.
+func (s *Service) Remove(ctx context.Context, boardID string, itemID string) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
 	}
 	if board.IsPersonalDomain(c.Domain) {
 		return s.removePersonal(ctx, b, c)
-	}
-	if from == "plan" {
-		// A slot of a plan is never deleted by the plan ×. It is a piece of a
-		// roadmap that happens to be in a weekly plan because someone gave it
-		// a team; taking it out of the plan means exactly that, and its dates
-		// and its column stay. (Its row is derived from its start, so the
-		// week is not cleared either.) The COLUMN is what makes it a slot,
-		// and a column needs the epic side: a bare project name puts a card
-		// on no board at all, so it cannot be the home that spares it.
-		// Nothing in the plan, nothing to empty. A card with no band — and a
-		// SUBTASK never has one, since grouping clears it — would otherwise
-		// have empty fields cleared into this request's commit for a change
-		// nobody made. A SLOT's week is derived from its start date rather
-		// than stored plan membership, so it does not count as one here.
-		if c.Plan == board.PlanNone && (hasColumn(c) || c.Week == "") {
-			return nil
-		}
-		// A SUBTASK is never deleted by this ×: its home is its parent, so
-		// emptying the plan cannot be emptying its last home. It loses the
-		// plan's records and stays.
-		if c.Parent != "" {
-			if c.Plan != board.PlanNone {
-				if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
-					return err
-				}
-				s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
-			}
-			// The week may outlive the band (a grouping clears only what
-			// the card had), and clearing it is the whole of the gesture
-			// for such a card.
-			if c.Week != "" {
-				if err := s.clearPlanWeek(ctx, b, c); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-
-		if hasColumn(c) {
-			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
-			return nil
-		}
-		// A card that is still SOMEWHERE — in the working area by its sprint
-		// or its dates — sheds only its weekly membership and stays there.
-		// Being on a person or carrying progress is not a place to be: sparing
-		// a card for that left it alive with no sprint, no dates, no band and
-		// no column, which is to say nowhere anyone could find it.
-		if inWorkingArea(c) {
-			if err := s.backend.SetPlan(ctx, b, c, board.PlanNone); err != nil {
-				return err
-			}
-			if err := s.clearPlanWeek(ctx, b, c); err != nil {
-				return err
-			}
-			s.logEvent(ctx, b, c, board.EventPlanReleased, string(c.Plan), "")
-			return nil
-		}
-		// A pure plan card — unassigned, never worked — is deleted for real.
-		// Demoting it to an earlier week does not take it off anyone's screen:
-		// its Wednesday or Friday is then in the past, so the debt rule brings
-		// it back onto the CURRENT week's panel (planShowsInWeekAt). It would
-		// gain a history it never had and still be in the way. (The comment
-		// here used to blame carry-week for the same loop; that action was
-		// retired in v0.19 and the debt rule replaced it.)
-		return s.deleteWithCascade(ctx, b, c)
 	}
 	// A subtask has no sprint history of its own: it rides its parent, so
 	// demoting it alone would split the family across two sprints — the very
@@ -1154,7 +1041,7 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 		// band and no column — alive, and on no board anyone can open.
 		// The card in hand again, for the same reason: a re-read answers
 		// differently for an embedder than for the server.
-		c.Epic, c.Project = "", ""
+		c.Epic, c.Project, c.Week = "", "", ""
 		return s.removeFromGrid(ctx, b, c)
 	}
 	return s.removeFromGrid(ctx, b, c)
@@ -1166,12 +1053,14 @@ func (s *Service) Remove(ctx context.Context, boardID string, itemID, from strin
 // not follow it out of the group, is answered by the SAME law rather than a
 // second copy of it.
 func (s *Service) removeFromGrid(ctx context.Context, b board.Board, c board.Card) error {
-	if c.Plan != board.PlanNone {
-		// The card is in the weekly plan too, so this × takes it out of the
-		// working area and leaves it there — whatever it carries. The grid ×
-		// used to do the opposite for a worked card (shed the band, stay on
-		// the grid), which made one gesture mean two different things
-		// depending on the progress bar.
+	// A card scheduled for a WEEK has the Triage board to go back to, so this
+	// × takes it out of the working area and leaves it there — whatever it
+	// carries. Only while it IS in the working area: a card that is nothing
+	// but its week has no second home to be handed to, and an × that always
+	// answered "back to your week" could never remove one at all. A slot's
+	// week is derived from its start date rather than stored, so it is
+	// answered by the column arm below instead.
+	if c.Week != "" && !hasColumn(c) && inWorkingArea(c) {
 		if len(c.Assignees) > 0 {
 			if err := s.backend.SetAssignee(ctx, b, c, ""); err != nil {
 				return err
@@ -1818,15 +1707,6 @@ func (s *Service) SetDay(ctx context.Context, boardID string, itemID, day string
 	return nil
 }
 
-// clearPlanWeek drops a card's plan week — except a slot's, which is derived
-// from its start date and would come straight back on the next read, having
-// meanwhile taken the slot off the Project board.
-// Only reached for a card with no column: a slot's week is its row, and the
-// plan branch returns before this for one.
-func (s *Service) clearPlanWeek(ctx context.Context, b board.Board, c board.Card) error {
-	return s.backend.SetWeek(ctx, b, c, "")
-}
-
 // syncSlotWeek keeps a Project-board slot's row under its start date. The week
 // is not a second thing to set: it IS the start's week, and a card whose dates
 // moved while its week stayed behind sat in a row its own dates contradicted.
@@ -1876,55 +1756,6 @@ func (s *Service) SetSprintStart(ctx context.Context, boardID string, itemID, da
 	return s.syncChildrenSprint(ctx, b, card.ItemID, date)
 }
 
-// SetPlan sets a card's weekly-plan band (plan = "" clears it).
-func (s *Service) SetPlan(ctx context.Context, boardID string, itemID string, plan board.PlanBand) error {
-	b, card, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	// A card is a SUBTASK or a plan card, never both (G58) — and giving a
-	// standing subtask a band is how a person says "take it out of the
-	// group and put it in the plan". Refusing left them with no gesture at
-	// all: grouping had already cleared the card's band and week, the
-	// plan's × does nothing for a subtask, and the grid's × deletes it, so
-	// a card dropped under the wrong parent was stuck there. It is pulled
-	// out first, and the band lands on the card that comes back.
-	if card.Parent != "" && plan != board.PlanNone {
-		if err := s.ungroup(ctx, b, card); err != nil {
-			return err
-		}
-		// The card in hand, not a re-read: a staged write is invisible to a
-		// bare store until the scope flushes.
-		card.Parent = ""
-	}
-	if err := s.backend.SetPlan(ctx, b, card, plan); err != nil {
-		return err
-	}
-	// A band with no WEEK is on no panel: the card would take the band and
-	// vanish. A card that has never been in the plan — or one whose week
-	// grouping cleared — joins the week it is being planned into, which is
-	// the current one.
-	if plan != board.PlanNone && card.Week == "" {
-		week := board.MondayOf(board.TodayIso())
-		if err := s.backend.SetWeek(ctx, b, card, week); err != nil {
-			return err
-		}
-		card.Week = week
-	}
-	// The semantic transition matters more than the raw band value: a regular
-	// card gaining a band joined the weekly plan, one losing it left the plan;
-	// only a band-to-band change is a deadline move.
-	switch {
-	case card.Plan == board.PlanNone && plan != board.PlanNone:
-		s.logEvent(ctx, b, card, board.EventPlanAdded, "", string(plan))
-	case card.Plan != board.PlanNone && plan == board.PlanNone:
-		s.logEvent(ctx, b, card, board.EventPlanReleased, string(card.Plan), "")
-	default:
-		s.logEvent(ctx, b, card, board.EventPlanBand, string(card.Plan), string(plan))
-	}
-	return nil
-}
-
 // SetWeek sets a card's plan week, a Monday (week = "" clears it).
 // SetWeek moves a WEEKLY-PLAN card to another week. A Project-board slot is
 // refused: its week comes from its start date, and accepting a second value
@@ -1948,6 +1779,18 @@ func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week stri
 			return nil
 		}
 		return fmt.Errorf("%w: a slot's week follows its start date — move the dates instead", ErrWeekDerived)
+	}
+	// A card is a subtask or a card of its own week, never both (G58) — and a
+	// WEEK given to a standing subtask is how a person says "take it out of
+	// the group and schedule it". A refusal here would leave them with no
+	// gesture at all: grouping has already taken the card's week, and the ×
+	// deletes it, so a card dropped under the wrong parent could not be
+	// freed. Clearing a week is not that request and ungroups nothing.
+	if week != "" && card.Parent != "" {
+		if err := s.ungroup(ctx, b, card); err != nil {
+			return err
+		}
+		card.Parent = ""
 	}
 	if err := s.backend.SetWeek(ctx, b, card, week); err != nil {
 		return err
@@ -2272,42 +2115,11 @@ func (s *Service) SetTeam(ctx context.Context, boardID string, itemID, team, day
 	if err := s.setTeamOne(ctx, b, card, team, sprintStart); err != nil {
 		return err
 	}
-	if err := s.syncSlotPlan(ctx, b, card, team); err != nil {
-		return err
-	}
 	// The team travels with the whole group: subtasks follow their parent.
 	for _, c := range board.Children(b, card.ItemID) {
 		if err := s.setTeamOne(ctx, b, c, team, sprintStart); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// syncSlotPlan files a Project-board slot in its team's weekly plan, or takes
-// it back out. The band is what puts a card in that plan, and it used to be
-// added by the frontend alone — so the same assignment made over MCP or the
-// HTTP API left the card with a team and in nobody's plan. The rule belongs
-// here, where every door passes.
-func (s *Service) syncSlotPlan(ctx context.Context, b board.Board, card board.Card, team string) error {
-	if card.Epic == "" {
-		return nil
-	}
-	if team != "" && card.Plan == board.PlanNone {
-		if err := s.backend.SetPlan(ctx, b, card, board.PlanFri); err != nil {
-			return err
-		}
-		s.logEvent(ctx, b, card, board.EventPlanBand, "", string(board.PlanFri))
-		return nil
-	}
-	// Taking the team away from a slot nobody has started takes it out of the
-	// plan with it: a weekly plan belongs to a team, and a card in no team's
-	// plan is just clutter in the last one's.
-	if team == "" && card.Plan != board.PlanNone && card.SprintStart == "" && card.Progress == 0 {
-		if err := s.backend.SetPlan(ctx, b, card, board.PlanNone); err != nil {
-			return err
-		}
-		s.logEvent(ctx, b, card, board.EventPlanBand, string(card.Plan), "")
 	}
 	return nil
 }
@@ -2551,79 +2363,6 @@ func (s *Service) freeChildren(ctx context.Context, b board.Board, card board.Ca
 
 // --- Weekly plan -----------------------------------------------------------
 
-// TakeIntoPlan takes a weekly-plan card into work: it assigns the card to an
-// engineer (engineer = "" unassigns), sets its zone (zone = "" keeps the card's
-// own zone, defaulting to gray) and joins the card's team's current sprint
-// (day = "" is today). It mirrors takePlanCard in TeamBoard.tsx.
-func (s *Service) TakeIntoPlan(ctx context.Context, boardID string, itemID, engineer string, zone board.ZoneKey, day string) error {
-	b, card, err := s.loadCard(ctx, boardID, itemID)
-	if err != nil {
-		return err
-	}
-	if day == "" {
-		day = board.TodayIso()
-	}
-	if zone == "" {
-		zone = card.Zone
-		if zone == "" {
-			zone = board.ZoneGray
-		}
-	}
-	// A review card belongs to the SAME sprint as the card it reviews, not
-	// merely the team's current pointer — otherwise a card being reviewed in an
-	// older, not-yet-carried sprint would get a review card in a different
-	// sprint, and carry-over would split them.
-	sprintStart := card.SprintStart
-	if sprintStart == "" {
-		sprintStart = board.CurrentSprint(b, card.Team)
-	}
-	if sprintStart == "" {
-		sprintStart = day
-	}
-	if err := s.backend.SetAssignee(ctx, b, card, engineer); err != nil {
-		return err
-	}
-	if zone != card.Zone {
-		if err := s.backend.SetZone(ctx, b, card, zone); err != nil {
-			return err
-		}
-	}
-	if err := s.backend.SetSprintStart(ctx, b, card, sprintStart); err != nil {
-		return err
-	}
-	// Taking a card into work on day D puts it ON day D. A card scheduled for
-	// a later day is DEFERRED, and the deferral outranks the sprint in every
-	// day view — so the drop was accepted, the event recorded, and the card
-	// stayed invisible. On the live board that showed up as four identical
-	// plan-taken events inside one minute: the same card dropped again and
-	// again because nothing appeared. Only the near end moves; a slot's far
-	// end is its plan on the roadmap and stays where it was.
-	if card.StartDate != "" && card.StartDate > day {
-		if err := s.backend.SetStart(ctx, b, card, day); err != nil {
-			return err
-		}
-		end := card.Day
-		if end != "" && end < day {
-			end = day
-			if err := s.backend.SetDay(ctx, b, card, end); err != nil {
-				return err
-			}
-		}
-		s.logEvent(ctx, b, card, board.EventDates,
-			board.DateRange(card.StartDate, card.Day), board.DateRange(day, end))
-	}
-	s.logEvent(ctx, b, card, board.EventPlanTaken, "", engineer)
-	return nil
-}
-
-// ReleaseFromPlan removes a card from the weekly plan. It is the plan ×
-// reached through another door (/actions/release-from-plan, the MCP tool),
-// so it is that same code: two doors of one gesture drifted apart once
-// already — one cleared the week where the other kept it.
-func (s *Service) ReleaseFromPlan(ctx context.Context, boardID string, itemID string) error {
-	return s.Remove(ctx, boardID, itemID, "plan")
-}
-
 // groupOrUndo finishes a create by grouping the new card, and undoes the
 // create when it cannot: a half-grouped twin left standing is a stray
 // top-level card in somebody's column. If the undo itself fails, both
@@ -2662,8 +2401,8 @@ func linksArePossible(b board.Board, args CreateCardArgs) error {
 		if p.Parent != "" {
 			return ErrSubtaskDepth
 		}
-		if args.Plan != board.PlanNone {
-			return ErrPlanSubtask
+		if args.Week != "" {
+			return ErrSubtaskWeek
 		}
 	}
 	// A COLUMN is what G57 is about, so a request that names one is asked
@@ -2716,6 +2455,16 @@ func (s *Service) dropAStrandedColumn(ctx context.Context, b board.Board, c boar
 	}
 	if c.Project != "" {
 		if err := s.backend.SetProject(ctx, b, c, ""); err != nil {
+			return err
+		}
+	}
+	// The ROW goes with the column: a slot's week is derived from its start
+	// date (board.NewBoard), so a card that keeps it after losing the column
+	// carries a week nobody placed it in — and the × then reads that week as
+	// a home worth sparing the card for. RemoveFromProject says the same for
+	// the same reason.
+	if c.Week != "" {
+		if err := s.backend.SetWeek(ctx, b, c, ""); err != nil {
 			return err
 		}
 	}

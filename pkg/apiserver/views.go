@@ -11,21 +11,18 @@ import (
 )
 
 // Selector scopes a card LIST or watch subscription. View selectors reproduce
-// exactly what the UI renders (the Team grid, the Me day board, the Weekly
-// plan); the plain field selectors compose with no view.
+// exactly what the UI renders (the Team grid, the Me day board, the Triage
+// weeks); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "personal", "weekly" or "project". "" and "all" both list every
+	// View is "", "all", "team", "me", "personal", "triage" or "project". "" and "all" both list every
 	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
 	View string
-	// Team is the team key for the team/weekly views ("" = the no-team group).
+	// Team is the team key for the team/triage views ("" = the no-team group).
 	Team string
 	// Day is the viewed day for the team/me views (defaults to today).
 	Day string
 	// User is the person for the me view ("" = everyone).
 	User string
-	// Week is the plan week (a Monday) for the weekly view (defaults to the
-	// current week).
-	Week string
 	// From and Weeks bound the triage view: the columns from the Monday
 	// From (defaults to the current week) for Weeks weeks (defaults to 6).
 	From  string
@@ -79,7 +76,6 @@ func ParseSelector(q url.Values) (Selector, error) {
 		Project:        q.Get("project"),
 		Day:            q.Get("day"),
 		User:           q.Get("user"),
-		Week:           q.Get("week"),
 		From:           q.Get("from"),
 		Assignee:       q.Get("assignee"),
 		Focus:          q.Get("focus") == "true" || q.Get("focus") == "1",
@@ -111,7 +107,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Weeks = n
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "personal", "weekly", "project", "triage":
+	case "", "all", "team", "me", "personal", "project", "triage":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -124,9 +120,6 @@ func (s Selector) normalized() Selector {
 		if s.Day == "" {
 			s.Day = board.TodayIso()
 		}
-	}
-	if s.View == "weekly" && s.Week == "" {
-		s.Week = board.MondayOf(board.TodayIso())
 	}
 	if s.View == "triage" {
 		if s.From == "" {
@@ -171,8 +164,8 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		for _, c := range b.Cards {
 			// A SUBTASK that carries its own column belongs here on its own
 			// merit (G57), not as a rider of a delivered parent: the case
-			// the rule exists for is a parent that lives elsewhere — the
-			// weekly plan, the working area — and is in no project view at
+			// the rule exists for is a parent that lives elsewhere — a week
+			// of its own, the working area — and is in no project view at
 			// all, which left the whole group visible nowhere.
 			if c.Epic == "" {
 				continue
@@ -186,19 +179,6 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 				continue
 			}
 			base = append(base, c)
-		}
-	case "weekly":
-		// weekly accepts a comma-separated team set too, so the Team board's
-		// weekly-plan panel fetches every team it shows in one request.
-		seen := map[string]bool{}
-		for _, t := range strings.Split(sel.Team, ",") {
-			bands := board.WeeklyPlan(b, strings.TrimSpace(t), sel.Week)
-			for _, c := range append(append([]board.Card{}, bands.Wed...), bands.Fri...) {
-				if !seen[c.ItemID] {
-					seen[c.ItemID] = true
-					base = append(base, c)
-				}
-			}
 		}
 	case "triage":
 		base = triageCards(b, sel)
@@ -446,8 +426,7 @@ func MarkRecords(list *CardList, records map[string]bool, asOf string) {
 	}
 }
 
-// ListCards builds the LIST response for a selector: resources in board order,
-// plus the weekly summary when the weekly view was selected.
+// ListCards builds the LIST response for a selector: resources in board order.
 func ListCards(b board.Board, sel Selector) CardList {
 	cards := FilterCards(b, sel)
 	resource := CardSummaryResource
@@ -458,33 +437,7 @@ func ListCards(b board.Board, sel Selector) CardList {
 	for _, c := range cards {
 		items = append(items, resource(b, c))
 	}
-	list := CardList{Kind: "CardList", Items: items}
-	if sel.View == "weekly" {
-		list.Weekly = &WeeklySummary{Progress: planProgress(cards)}
-	}
-	return list
-}
-
-// planProgress averages the week's completion over its one-off cards: done
-// counts as 100, recurrent cards are excluded (they restart every week and
-// would skew the bar). It mirrors planProgress in TeamBoard.tsx.
-func planProgress(cards []board.Card) int {
-	sum, n := 0, 0
-	for _, c := range cards {
-		if c.Stage == board.StageRecurrent {
-			continue
-		}
-		n++
-		if c.Stage == board.StageDone {
-			sum += 100
-			continue
-		}
-		sum += c.Progress
-	}
-	if n == 0 {
-		return 0
-	}
-	return (sum + n/2) / n
+	return CardList{Kind: "CardList", Items: items}
 }
 
 // triageCards is the Triage board's own selection: the teams' cards placed

@@ -259,7 +259,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 	card := board.Card{
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
-		Plan: in.Plan, Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
 		Paused:      in.Paused,
 		Description: in.Body,
@@ -494,17 +494,6 @@ func (f *Backend) SetSprintStart(_ context.Context, _ board.Board, card board.Ca
 	f.rec("SetSprintStart %s %s", card.ItemID, date)
 	if c := f.card(card.ItemID); c != nil {
 		c.SprintStart = date
-	}
-	return nil
-}
-
-// SetPlan sets a card's weekly-plan band.
-func (f *Backend) SetPlan(_ context.Context, _ board.Board, card board.Card, plan board.PlanBand) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.rec("SetPlan %s %s", card.ItemID, plan)
-	if c := f.card(card.ItemID); c != nil {
-		c.Plan = plan
 	}
 	return nil
 }

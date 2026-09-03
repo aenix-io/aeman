@@ -22,14 +22,14 @@ func TestPlacingBackInThisWeekPutsTheCardOnTheDayBoardAgain(t *testing.T) {
 	}}, map[string]board.SprintState{"alpha": {Current: thisWeek}})
 	svc := f2svc(f)
 
-	if err := svc.Place(ctx, "acme", "c1", ahead, board.PlanNone); err != nil {
+	if err := svc.Place(ctx, "acme", "c1", ahead); err != nil {
 		t.Fatal(err)
 	}
 	if c := f.get("c1"); c.StartDate != "" || c.Day != "" || c.SprintStart != "" {
 		t.Fatalf("a week ahead is off the day board: %+v", c)
 	}
 
-	if err := svc.Place(ctx, "acme", "c1", thisWeek, board.PlanNone); err != nil {
+	if err := svc.Place(ctx, "acme", "c1", thisWeek); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("c1")
@@ -59,7 +59,7 @@ func TestPlacingInThisWeekLeavesADayAlreadyChosenAlone(t *testing.T) {
 		StartDate: today, Day: today, SprintStart: thisWeek,
 	}}, map[string]board.SprintState{"alpha": {Current: thisWeek}})
 
-	if err := f2svc(f).Place(ctx, "acme", "c1", thisWeek, board.PlanNone); err != nil {
+	if err := f2svc(f).Place(ctx, "acme", "c1", thisWeek); err != nil {
 		t.Fatal(err)
 	}
 	if c := f.get("c1"); c.StartDate != today || c.Day != today || c.SprintStart != thisWeek {
@@ -76,7 +76,7 @@ func TestPlacingBackWithNoSprintPointerSeedsOneOnTheWeek(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Week: board.AddDays(thisWeek, 7)}},
 		map[string]board.SprintState{})
 
-	if err := f2svc(f).Place(ctx, "acme", "c1", thisWeek, board.PlanNone); err != nil {
+	if err := f2svc(f).Place(ctx, "acme", "c1", thisWeek); err != nil {
 		t.Fatal(err)
 	}
 	if c := f.get("c1"); c.SprintStart != thisWeek {

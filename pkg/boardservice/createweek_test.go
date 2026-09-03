@@ -28,11 +28,6 @@ func TestCreateWithAWeekAndNoDatesTakesTheWeekAlone(t *testing.T) {
 	if got.StartDate != "" || got.Day != "" || got.SprintStart != "" {
 		t.Fatalf("a card of a week to come carries no day: %+v", got)
 	}
-	// And no band: a band is a promise on the weekly panel, which nobody made
-	// by scheduling work for a week.
-	if got.Plan != board.PlanNone {
-		t.Fatalf("plan = %q, want none", got.Plan)
-	}
 }
 
 // Started in the week being worked, a card belongs to today as well — the
