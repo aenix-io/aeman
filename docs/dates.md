@@ -85,6 +85,17 @@ A card filed under a Project-board **column** (an epic) is not on the day grid u
   deferring never erases where the card came from. It is hidden everywhere else
   until its day arrives, then it materializes back into the rules above.
 
+### The week a card is scheduled for
+
+Beside the days, a card may carry a **week** — the Monday it is scheduled for, which is its column on the Triage board. It is a plainer answer than a date: "this is due that week", made before anybody says which day.
+
+- A card placed in a week **AHEAD** of this one is on **no day board at all** until its Monday comes — not the Team grid, not the Me board, not the carry-over's reckoning of what is being carried now. Scheduling work for a later week is precisely the act of taking it off today.
+- The week's own work stands on the **Team grid all week**: in its person's column, or in **Unassigned** when nobody has taken it. This is the same set the Triage board shows for that week — cards placed in it, Project slots covering it, process turns filed into it, and debts owed in an earlier week that are still open. It puts on the day grid what the weekly plan panel used to hold beside it, so a card scheduled for a week is not invisible until somebody gives it a day.
+- The **Me view does not** draw that set. A person's board is the day's work, and a week is not a day: a card reaches it when it is dated, which is the moment somebody decided when it is actually being done.
+- A **deferred** card is not part of the week's set either. Deferring is the act of taking a card off the board until a later day, and its week says when the work is due, not that it should still be drawn today.
+
+A week is a **Monday** everywhere it is written — the board's own drag, the patch that sets one, the create that files a card straight into one. Any other day is refused (422): a Triage column is a Monday, so a card whose week is a Thursday would stand in no column, appear in no strip, and be findable only by its uid.
+
 ### A past day is shown as it was (the snapshot)
 
 The rules above place TODAY's cards on a day. That is what a day-lens is: dates decide where a card belongs, and a card finished this morning reads finished on every day you flip to. Going BACK on the Me or Team board answers a different question — what did the board look like then — and gets a different answer: the board **as it stood** when that day ended, read from the repositories' own history (the tree at that day's last commit). Every field is the day's own; a card created since is simply absent.

@@ -132,7 +132,7 @@ type CardStatus struct {
 	// personal board shows a done card that day and drops it the next.
 	DoneAt string `json:"doneAt,omitempty"`
 	// Triage marks a card the Triage board's strip holds: nobody placed
-	// it in a week and it is not being worked (B3).
+	// it in a week and it is not being worked (B5).
 	Triage bool `json:"triage,omitempty"`
 	// TriageWeek is the Monday of the column the card stands in on the
 	// Triage board — its week. Absent means it stands in none: the strip

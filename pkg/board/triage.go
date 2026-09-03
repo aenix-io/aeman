@@ -13,7 +13,7 @@ func PlacedAhead(c Card, today string) bool {
 }
 
 // NeedsTriage reports whether nobody has said WHEN the card's work is due: an
-// open card of its own (no parent, no original) with no week (B3). The week
+// open card of its own (no parent, no original) with no week (B5). The week
 // is the whole of the decision — a card on today's board was put there by the
 // day's planning, not by a week's, and until someone gives it a week it is
 // work of unknown time. That is the pile the strip exists to show, however
