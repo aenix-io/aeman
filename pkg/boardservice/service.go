@@ -1444,26 +1444,19 @@ func (s *Service) cancelLinkedReview(ctx context.Context, b board.Board, origina
 	if review.Progress > 0 {
 		return nil
 	}
-	cur := board.CurrentSprint(b, review.Team)
-	prev := board.PreviousSprint(b, review.Team)
-	if review.SprintStart != "" && cur != "" && review.SprintStart == cur && prev != "" && prev < cur {
-		if err := s.backend.SetStart(ctx, b, review, prev); err != nil {
-			return err
-		}
-		if err := s.backend.SetSprintStart(ctx, b, review, prev); err != nil {
-			return err
-		}
-		if err := s.backend.SetReviewOf(ctx, b, review, ""); err != nil {
-			return err
-		}
-		if review.Day != "" && review.Day != prev {
-			if err := s.backend.SetDay(ctx, b, review, prev); err != nil {
-				return err
-			}
-		}
-		s.logReviewCancelled(ctx, b, original, review)
-		return nil
-	}
+	// The card goes, wherever its sprint put it. It used to be handed back to
+	// the closing sprint instead when it sat in the current one — the thought
+	// being that it should not linger on the new sprint — and what that made
+	// was worse than lingering: a card with the link broken, no progress and
+	// no week, which is precisely the shape the Triage strip holds up as work
+	// nobody has scheduled. It stood there asking to be planned, wearing the
+	// title of a review that had been called off, and appeared on nobody's own
+	// board, because its day and sprint were yesterday's. Seen on the live
+	// board, and nobody could say what it was for.
+	//
+	// Deleting loses nothing: the day the card stood on gives it back (G60),
+	// and the cancellation is recorded on the ORIGINAL, which is where a
+	// person looks for what happened to the review.
 	if err := s.backend.DeleteCard(ctx, b, review); err != nil {
 		return err
 	}

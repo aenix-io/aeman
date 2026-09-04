@@ -1354,7 +1354,7 @@ func TestRemoveGridHandsBackAWorkedCardIntoItsWeek(t *testing.T) {
 
 // --- Leaving review cancels the linked review card (matrix A5) ---------------
 
-func TestStageOffReviewDemotesLinkedReview(t *testing.T) {
+func TestStageOffReviewTakesTheUntouchedReviewCardAway(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Team: "alpha", Stage: board.StageReview, Progress: 50},
 		{ItemID: "rev", Team: "alpha", ReviewOf: "orig",
@@ -1363,12 +1363,8 @@ func TestStageOffReviewDemotesLinkedReview(t *testing.T) {
 	if err := f2svc(f).SetStage(ctx, "acme", "orig", board.StageNone); err != nil {
 		t.Fatal(err)
 	}
-	r := f.get("rev")
-	if r == nil || r.SprintStart != "2026-01-03" || r.StartDate != "2026-01-03" {
-		t.Fatalf("the linked review card demotes with the x logic: %+v", r)
-	}
-	if r.ReviewOf != "" {
-		t.Fatalf("the review link must break, or the original keeps showing On review: %+v", r)
+	if r := f.get("rev"); r != nil {
+		t.Fatalf("a review nobody had started is off the board when it is cancelled: %+v", r)
 	}
 }
 
