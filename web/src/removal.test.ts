@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  asksFirst,
   deleteWarning,
   freeSubtasks,
   gridRemoval,
@@ -227,43 +226,62 @@ describe("subtaskRemovalPatch", () => {
   });
 });
 
-// The × asks before it acts — every time, whatever it is about to do, so
-// that a card handed back to Unassigned and a card taken off the board are
-// told apart BEFORE either happens. Four rules used to decide this between
-// them (removalKind, personalRemovalKind, gridGesture, boardAsksAbout) and
-// they disagreed: an × that hands a card back went in silence on one board
-// and asked on another, and a worked card could be destroyed unasked.
-describe("when the × asks first", () => {
-  const today = "2026-08-28";
-  const bornToday = `${today}T09:00:00Z`;
+// Work finished LATE belongs to the sprint it was done in, not the one it was
+// carried into.
+//
+// The shape it comes in: an engineer finished a card and never moved the bar.
+// Carry Over took it for open work and pulled it into the new sprint. Somebody
+// then noticed and marked it 100 — and there it stands, in a sprint it was
+// never worked in, counting against it.
+//
+// The board KEEPS showing it, deliberately: a finished card standing in the
+// current sprint is the signal that this happened, and dropping it quietly
+// would lose the only prompt anybody gets. What clears the signal is somebody
+// SAYING where the work belongs, which is this answer.
+describe("sending finished work back to the sprint it was done in", () => {
+  const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
+  const done = { progress: 100, sprintStart: "2026-08-24", startDate: "2026-08-28" };
 
-  it("does not ask about a card made today that nobody has touched", () => {
-    expect(asksFirst({ progress: 0, createdAt: bornToday }, today)).toBe(false);
-    expect(asksFirst({ createdAt: bornToday }, today)).toBe(false);
+  it("is offered on a finished card standing in the current sprint", () => {
+    expect(removeChoices(done, ctx)).toContain("finished-earlier");
   });
 
-  it("asks once there is work on it, however fresh the card", () => {
-    expect(asksFirst({ progress: 10, createdAt: bornToday }, today)).toBe(true);
+  it("is not offered on work that is still going", () => {
+    // Unfinished work in this sprint is this sprint's, whatever else is true
+    // of it: there is nothing to record as done anywhere else.
+    expect(removeChoices({ ...done, progress: 60 }, ctx)).not.toContain("finished-earlier");
   });
 
-  it("asks about a card that has been on the board since yesterday", () => {
-    expect(asksFirst({ progress: 0, createdAt: "2026-08-27T18:00:00Z" }, today)).toBe(true);
+  it("is not offered when there is no earlier sprint to send it to", () => {
+    // A team's first sprint has nothing behind it.
+    expect(
+      removeChoices(done, { current: "2026-08-24", today: "2026-08-29" }),
+    ).not.toContain("finished-earlier");
   });
 
-  it("asks when nothing says when the card was made", () => {
-    // A card whose age the board cannot vouch for is not one to remove in
-    // silence: the silent case is the mis-typed card of a moment ago, and
-    // this is not known to be one.
-    expect(asksFirst({ progress: 0 }, today)).toBe(true);
+  it("is not offered on a card already in the earlier sprint", () => {
+    // It is where the answer would put it, and an option that does nothing
+    // reads as one that failed.
+    expect(
+      removeChoices({ ...done, sprintStart: "2026-08-17" }, ctx),
+    ).not.toContain("finished-earlier");
+  });
+
+  it("is not offered for work another board owns", () => {
+    // A Project-board slot and a process turn carry their own dates, and the
+    // sprint is not what places them.
+    expect(removeChoices({ ...done, epic: "Auth" }, ctx)).not.toContain("finished-earlier");
+    expect(removeChoices({ ...done, task: "t1" }, ctx)).not.toContain("finished-earlier");
+  });
+
+  it("stands after the answers that destroy, and before the backlog", () => {
+    // Most destructive first, and the shelf is for work still to be done —
+    // which this is not.
+    const got = removeChoices(done, ctx);
+    expect(got.indexOf("finished-earlier")).toBeGreaterThan(got.indexOf("off-board"));
   });
 });
 
-// What the × may do to a card WHERE IT STANDS. The gesture used to work this
-// out for itself and do the one thing it decided, so taking a card with a
-// week off the board took two presses — the second landing on a card that no
-// longer looked like the one the person meant to remove. The person chooses
-// now, out of the card's own list, and the × is drawn only where that list is
-// not empty.
 describe("what the × offers", () => {
   const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
   // Somebody is carrying it: that, and not its dates, is what "move it to

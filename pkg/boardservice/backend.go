@@ -57,6 +57,12 @@ type Backend interface {
 	SetProgress(ctx context.Context, b board.Board, card board.Card, progress int) error
 	SetZone(ctx context.Context, b board.Board, card board.Card, zone board.ZoneKey) error
 	SetDay(ctx context.Context, b board.Board, card board.Card, day string) error
+	// SetDoneAt writes the board day a card counts as finished on. Normally
+	// SetProgress sets it as a side effect of reaching 100 — this is for the
+	// one case that has to say a different day: work finished in an earlier
+	// sprint and only marked done now, which moves the credit with the card
+	// (FinishedEarlier).
+	SetDoneAt(ctx context.Context, b board.Board, card board.Card, day string) error
 	// SetLeftAt writes (or clears, with "") the board day a personal card
 	// was left behind on by the ×.
 	SetLeftAt(ctx context.Context, b board.Board, card board.Card, day string) error

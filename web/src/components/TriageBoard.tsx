@@ -20,6 +20,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
+import { justMade, noteMade } from "../justmade";
 import { addDays, mondayOf, todayIso } from "../date";
 import {
   anchorFor,
@@ -600,7 +601,10 @@ export function TriageBoard({
       // another zone on the way.
       void provider
         .createCard({ title, team: team || null, zone: "gray", parked: true })
-        .then(addCard)
+        .then((card) => {
+          noteMade(card.itemId);
+          addCard(card);
+        })
         .catch((err: Error) => {
           onError(err.message);
         });
@@ -629,6 +633,18 @@ export function TriageBoard({
   // that no longer exists.
   const doRemove = useCallback(
     (card: CardModel, choice: RemoveChoice) => {
+      // Work finished in the sprint before this one, and only marked done
+      // now: the card goes back to where the work happened.
+      if (choice === "finished-earlier") {
+        void provider
+          .finishedEarlier(card.itemId)
+          .then(addCard)
+          .catch((err: Error) => {
+            onError(err.message);
+            reload();
+          });
+        return;
+      }
       // The answer that destroys nothing: the work is kept, off the plan, on
       // its team's shelf.
       if (choice === "backlog") {
@@ -661,7 +677,7 @@ export function TriageBoard({
   const [asking, setAsking] = useState<CardModel | null>(null);
   const remove = useCallback(
     (card: CardModel) => {
-      if (asksFirst(card, today)) {
+      if (asksFirst(card, justMade(card.itemId))) {
         setAsking(card);
         return;
       }

@@ -1709,7 +1709,13 @@ func (s *Service) Reopen(ctx context.Context, boardID string, itemID string) err
 		restored = card.DoneFrom
 	}
 	if restored < 0 {
-		return s.SetInProgress(ctx, boardID, itemID)
+		if err := s.SetInProgress(ctx, boardID, itemID); err != nil {
+			return err
+		}
+		// Both exits pull the card back: a card done from 0 has no recorded
+		// jump and leaves by this one, which is the common case and the one
+		// that slipped through.
+		return s.pullBackFromAnEarlierSprint(ctx, b, card)
 	}
 	newStage, _ := board.ApplyInProgress(card.Stage, card.Progress)
 	if err := s.keepsItsMarker(card, newStage); err != nil {
@@ -1726,7 +1732,11 @@ func (s *Service) Reopen(ctx context.Context, boardID string, itemID string) err
 		s.logEvent(ctx, b, card, board.EventProgress,
 			strconv.Itoa(card.Progress), strconv.Itoa(restored))
 	}
-	return nil
+	// Work picked up again is picked up NOW. A card sent back to an earlier
+	// sprint (FinishedEarlier) is invisible to every live view, which is safe
+	// only while it is done; reopened there it would be open work nobody can
+	// see and no carry-over will take — the pile the old demote left behind.
+	return s.pullBackFromAnEarlierSprint(ctx, b, card)
 }
 
 // SetProgress sets a card's progress. It mirrors handleProgress in TeamBoard.tsx:

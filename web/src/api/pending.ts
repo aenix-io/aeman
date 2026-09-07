@@ -6,6 +6,8 @@
  * a create → edit → edit burst is applied in order once the create lands. If
  * the create fails, the queued mutations reject and their optimistic patches
  * roll back through the callers' existing error paths. */
+import { noteMade } from "../justmade";
+
 const pending = new Map<string, Promise<string>>();
 
 /** registerPendingCard maps an optimistic tmp id onto the create call's real
@@ -15,6 +17,12 @@ export function registerPendingCard(
   tmpId: string,
   realId: Promise<string>,
 ): void {
+  // Every create comes through here, so this is where a card is recorded as
+  // made in the view being looked at — the one thing the × needs to know to
+  // act without asking (justmade.ts). Both ids: the board draws the tmp one
+  // until the server answers, and the × may fall on either.
+  noteMade(tmpId);
+  void realId.then(noteMade).catch(() => undefined);
   // Swallow the rejection on the registry's own reference: the create call
   // site handles the failure; queued consumers get their own rejections.
   realId.catch(() => undefined).finally(() => pending.delete(tmpId));

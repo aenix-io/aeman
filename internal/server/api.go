@@ -68,6 +68,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-reviewer", s.handleRemoveReviewer)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/place", s.handlePlaceCard)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/untriage", s.handleUntriageCard)
+	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/finished-earlier", s.handleFinishedEarlier)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/links", s.handleListLinks)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/log", s.handleCardLog)
 	mux.HandleFunc("GET /api/v1/logs", s.handleDayLogs)
@@ -1061,6 +1062,23 @@ func (s *Server) handlePlaceCard(w http.ResponseWriter, r *http.Request) {
 	s.cardResponse(w, r, svc, boardID, uid)
 }
 
+// handleFinishedEarlier sends finished work back to the sprint it was done
+// in — its dates and the day it counts as done along with it. It is a MOVE and
+// not a removal, so it has a door of its own: Remove's law is about emptying
+// the working area, and this fills a different one.
+func (s *Server) handleFinishedEarlier(w http.ResponseWriter, r *http.Request) {
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	uid := r.PathValue("uid")
+	if err := svc.FinishedEarlier(r.Context(), boardID, uid); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	s.cardResponse(w, r, svc, boardID, uid)
+}
+
 // handleUntriageCard takes a card out of every week — back to the strip.
 func (s *Server) handleUntriageCard(w http.ResponseWriter, r *http.Request) {
 	svc, boardID, ok := s.service(w, r)
@@ -2007,8 +2025,11 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		// A list the team does not have, and work another board owns: both
 		// are rules refusing a change, not the forge failing.
 		errors.Is(err, boardservice.ErrNotYoursToPark),
-		// A list a team already has, and one still holding cards: both are
-		// rules refusing a change to the shelves themselves.
+		// Work sent back to the sprint it was done in, where there is nothing
+		// to send or nowhere to send it: rules refusing a change, not a forge
+		// failure.
+		errors.Is(err, boardservice.ErrNotFinished),
+		errors.Is(err, boardservice.ErrNoEarlierSprint),
 		errors.Is(err, boardservice.ErrParentNotFound),
 		errors.Is(err, boardservice.ErrOpenSubtasks),
 		errors.Is(err, boardservice.ErrTeamInUse),

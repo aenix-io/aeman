@@ -435,6 +435,11 @@ export const apiProvider: Provider = {
     return cardFrom("POST", `/cards/${uid}/actions/place`, { week });
   },
 
+  async finishedEarlier(uid: string): Promise<Card> {
+    uid = await resolveCardId(uid);
+    return cardFrom("POST", `/cards/${uid}/actions/finished-earlier`, {});
+  },
+
   async untriageCard(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom("POST", `/cards/${uid}/actions/untriage`, {});

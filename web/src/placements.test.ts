@@ -27,6 +27,7 @@ import {
   teamlessIsLawful,
   teamsACardCanTake,
   type CardPlacements,
+  datesAreAnotherBoards,
 } from "./placements";
 import type { Card } from "./providers/types";
 
@@ -1184,5 +1185,34 @@ describe("markOf", () => {
   // thing about it, so that is what the stripe says.
   it("says review where a card is both", () => {
     expect(markOf({ reviewOf: "c1", epic: "Auth" })).toBe("review");
+  });
+});
+
+// A Project-board SLOT's dates are its ROW there: the week it stands in is the
+// Monday of its start, and its span is how many weeks the work takes. Editing
+// them from a day board re-dates another board's commitment in passing —
+// which is the same thing the Triage board's catch holds still (triage.gripOf,
+// "pinned"), said about the dates instead of the drag.
+//
+// It is a rule of the DAY BOARDS, not of the server: the Project board sets
+// those dates itself and must go on doing so, and the server cannot tell which
+// board is asking. That lesson is already paid for on this branch — a
+// Me-board-only narrowing put in the service refused the Team and Triage
+// grids too, because the create they send is identical.
+describe("whose dates a card's are", () => {
+  it("keeps a day board off a project card's", () => {
+    expect(datesAreAnotherBoards({ epic: "Auth" })).toBe(true);
+  });
+
+  it("leaves an ordinary card's alone", () => {
+    expect(datesAreAnotherBoards({})).toBe(false);
+  });
+
+  // A process TURN's dates are the day somebody works it, which is the day
+  // board's own business — its WEEK is the process's record, and nothing here
+  // touches that.
+  it("does not take a process turn's away", () => {
+    // Its WEEK is the process's record; the day somebody works it is not.
+    expect(datesAreAnotherBoards({ epic: undefined })).toBe(false);
   });
 });

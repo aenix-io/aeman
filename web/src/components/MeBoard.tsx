@@ -14,6 +14,7 @@ import {
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
+import { justMade } from "../justmade";
 import { clampProgress, clampsProgress, isWorkable } from "../stages";
 import { mergeNotes, sameNotes } from "../notes";
 import { dayFeedUpdates, type CardFrame } from "../daylog";
@@ -1261,6 +1262,18 @@ export function MeBoard({
       }
       return;
     }
+    // Work finished in the sprint before this one, and only marked done
+    // now: the card goes back to where the work happened.
+    if (chosen === "finished-earlier") {
+      void provider
+        .finishedEarlier(card.itemId)
+        .then(() => reload())
+        .catch((err: unknown) => {
+          onError(errMessage(err));
+          reload();
+        });
+      return;
+    }
     // The answer that destroys nothing: the work is kept, off the plan, on
     // its team's shelf.
     if (chosen === "backlog") {
@@ -1272,9 +1285,9 @@ export function MeBoard({
       return;
     }
     // The × asks BEFORE it acts, whatever it is about to do, and the dialog
-    // names the act — the one card it does not ask about is one made today
-    // that nobody has touched (asksFirst).
-    if (!chosen && asksFirst(card, todayIso())) {
+    // names the act. It acts alone only when there is nothing to decide: one
+    // answer, on a card made today that nobody has touched (asksFirst).
+    if (!chosen && asksFirst(card, justMade(card.itemId))) {
       setRemoveChoice(card);
       return;
     }

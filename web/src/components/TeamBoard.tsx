@@ -14,6 +14,7 @@ import {
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
+import { justMade } from "../justmade";
 import type {
   Board,
   Card as CardModel,
@@ -53,6 +54,7 @@ import {
 } from "../removal";
 import {
   columnFollows,
+  datesAreAnotherBoards,
   makeCardPlacements,
   rosterOf,
   type CardPlacements,
@@ -786,7 +788,11 @@ export function TeamBoard({
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      onSetDates={handleSetDates}
+      // A project card's dates are its ROW on the Project board — the week
+      // it stands in is the Monday of its start, and its span is how many
+      // weeks the work takes. This board does not re-date another board's
+      // commitment in passing (placements.datesAreAnotherBoards).
+      onSetDates={datesAreAnotherBoards(card) ? undefined : handleSetDates}
       onDefer={handleDefer}
       dimAvatar
       subCount={(childrenOf.get(card.itemId) ?? []).length}
@@ -1108,7 +1114,7 @@ export function TeamBoard({
     // does not ask about is one made today that nobody has touched
     // (asksFirst), which the branch above has already answered for a card
     // that never reached the server at all.
-    if (!chosen && asksFirst(card, todayIso())) {
+    if (!chosen && asksFirst(card, justMade(card.itemId))) {
       setRemoveChoice(card);
       return;
     }
@@ -1116,6 +1122,18 @@ export function TeamBoard({
     // answer stands — the same one the dialog would have put at the top.
     const choice = chosen ?? removeChoices(card, gridCtx(card))[0];
     if (!choice) {
+      return;
+    }
+    // Work finished in the sprint before this one, and only marked done
+    // now: the card goes back to where the work happened.
+    if (choice === "finished-earlier") {
+      void provider
+        .finishedEarlier(card.itemId)
+        .then(() => reload())
+        .catch((err: unknown) => {
+          onError(errMessage(err));
+          reload();
+        });
       return;
     }
     // The answer that destroys nothing: the work is kept, off the plan, on

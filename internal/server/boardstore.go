@@ -1665,6 +1665,16 @@ func (b *storeBackend) SetDay(ctx context.Context, bd board.Board, card board.Ca
 	return nil
 }
 
+func (b *storeBackend) SetDoneAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
+	b.mutateCard(ctx, bd, card.ItemID, "done-at",
+		"record "+cardRef(card)+" as finished on "+day, func(c *board.Card) {
+			c.DoneAt = day
+		}, func(ctx context.Context) error {
+			return b.inner.SetDoneAt(ctx, bd, card, day)
+		})
+	return nil
+}
+
 func (b *storeBackend) SetLeftAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
 	summary := "leave " + cardRef(card) + " behind"
 	if day == "" {
