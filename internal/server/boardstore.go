@@ -936,7 +936,7 @@ func (e *boardEntry) diffNotify(old board.Board) {
 		}
 	}
 	for team, st := range e.board.SprintStates {
-		if old.SprintStates[team] != st {
+		if !sameSprintState(old.SprintStates[team], st) {
 			e.sprintChanged("", team)
 		}
 	}
@@ -1736,6 +1736,22 @@ func (b *storeBackend) SetWeek(ctx context.Context, bd board.Board, card board.C
 	return nil
 }
 
+// SetBacklog parks the card on one of its team's lists, or takes it off.
+func (b *storeBackend) SetBacklog(
+	ctx context.Context, bd board.Board, card board.Card, parked bool,
+) error {
+	what := "take " + cardRef(card) + " off the backlog"
+	if parked {
+		what = "park " + cardRef(card) + " on its team's backlog"
+	}
+	b.mutateCard(ctx, bd, card.ItemID, "backlog", what, func(c *board.Card) {
+		c.Parked = parked
+	}, func(ctx context.Context) error {
+		return b.inner.SetBacklog(ctx, bd, card, parked)
+	})
+	return nil
+}
+
 func (b *storeBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
 	if card.Title == board.SprintStateTitle {
 		// The team's own stub is not a card the cache holds: its name is the
@@ -2124,6 +2140,7 @@ func (b *storeBackend) ResolveIssueRef(ctx context.Context, link board.Link) (bo
 // write — this is what makes Carry Over instant. A first pointer creates a
 // state card whose id the cache does not know, so that (rare) path stays
 // synchronous and reloads the board.
+
 func (b *storeBackend) SetSprintState(ctx context.Context, bd board.Board, team, current, previous string) error {
 	e := b.store.entry(storeKey(bd.Board))
 	e.mu.Lock()
@@ -2191,6 +2208,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		SprintStart: in.SprintStart,
 		Team:        in.Team,
 		Week:        in.Week,
+		Parked:      in.Parked,
 		Epic:        in.Epic,
 		Project:     in.Project,
 		Process:     in.Process,
@@ -2303,4 +2321,10 @@ func installStub(target *board.Board, card board.Card) bool {
 		target.Domains[card.ItemID] = card.Domain
 	}
 	return true
+}
+
+// sameSprintState compares two sprint states field by field — the pointers
+// and the capacity, which is everything a watcher would want told about.
+func sameSprintState(a, b board.SprintState) bool {
+	return a == b
 }

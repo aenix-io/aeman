@@ -67,6 +67,8 @@ type Backend interface {
 	SetStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetSprintStart(ctx context.Context, b board.Board, card board.Card, date string) error
 	SetWeek(ctx context.Context, b board.Board, card board.Card, week string) error
+	// SetBacklog puts the card on its team's shelf, or takes it off.
+	SetBacklog(ctx context.Context, b board.Board, card board.Card, parked bool) error
 	SetTeam(ctx context.Context, b board.Board, card board.Card, team string) error
 	// SetEpic files the card under a Project-board column ("" clears).
 	SetEpic(ctx context.Context, b board.Board, card board.Card, epic string) error

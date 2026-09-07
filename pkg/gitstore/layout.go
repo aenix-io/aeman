@@ -91,6 +91,9 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("day", c.Day)
 	w("sprint", c.SprintStart)
 	w("week", c.Week)
+	if c.Parked {
+		b.WriteString("parked: true\n")
+	}
 	w("project", c.Project)
 	w("epic", c.Epic)
 	if len(c.Mirrors) > 0 {
@@ -330,6 +333,8 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 		c.ReviewRound = num()
 	case "accumulate":
 		c.Accumulate = val.Value == "true"
+	case "parked":
+		c.Parked = val.Value == "true"
 	default:
 		return false
 	}

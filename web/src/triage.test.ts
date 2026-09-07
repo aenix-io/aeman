@@ -65,6 +65,17 @@ describe("needsTriage", () => {
     // long the work takes, which is the whole of the question.
     expect(needsTriage(card({ day: "2026-09-02" }))).toBe(true);
   });
+
+  it("asks nothing of a parked card — the answer was 'not now'", () => {
+    // The strip is the question "when?", and parking a card ANSWERS it: not
+    // now. Leaving it in the strip would ask again every morning, which is
+    // how an inbox stops meaning anything.
+    expect(needsTriage(card({ parked: true }))).toBe(false);
+  });
+
+  it("asks again the moment a card comes off its shelf", () => {
+    expect(needsTriage(card({ parked: false }))).toBe(true);
+  });
 });
 
 describe("pileRank", () => {
@@ -179,6 +190,15 @@ describe("anchorFor", () => {
 });
 
 describe("placedIn", () => {
+  it("is nothing for a parked card, whatever week it carries", () => {
+    // The two are exclusive and every door that gives a week takes the card
+    // off its shelf — but the storage is a git repository anything may write
+    // to, so a card CAN arrive carrying both. Drawn by its week it would
+    // stand in the grid AND in the drawer: the same work twice, counted
+    // twice against the week. Mirrors board.TriageWeekOf.
+    expect(placedIn(card({ week: "2026-09-07", parked: true }))).toBeNull();
+  });
+
   it("is the card's week, and nothing else", () => {
     expect(placedIn(card({ week: "2026-08-31" }))).toBe("2026-08-31");
   });

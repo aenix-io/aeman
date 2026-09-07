@@ -280,20 +280,58 @@ describe("what the × offers", () => {
     expect(removeChoices({ ...held, week: "2026-08-24" }, ctx)).toEqual([
       "off-board",
       "unassign",
+      "backlog",
     ]);
   });
 
-  it("offers only the board to a card with nowhere to be left", () => {
+  it("does not offer Unassigned to a card with nowhere to be left", () => {
     // No week and no column: unassigning would leave it nowhere at all.
-    expect(removeChoices(held, ctx)).toEqual(["off-board"]);
+    expect(removeChoices(held, ctx)).toEqual(["off-board", "backlog"]);
   });
 
-  it("offers only the board to a card standing in Unassigned", () => {
+  it("does not offer Unassigned to a card standing in it already", () => {
     // Nobody is carrying it, dates or no dates: it is already there.
-    expect(removeChoices({ week: "2026-08-24" }, ctx)).toEqual(["off-board"]);
+    expect(removeChoices({ week: "2026-08-24" }, ctx)).toEqual([
+      "off-board",
+      "backlog",
+    ]);
     expect(
       removeChoices({ week: "2026-08-24", sprintStart: "2026-08-24" }, ctx),
-    ).toEqual(["off-board"]);
+    ).toEqual(["off-board", "backlog"]);
+  });
+
+  // The BACKLOG is the third answer, and the least destructive of the three,
+  // so it comes last — the × unasked still means what it always meant, and
+  // the dialog is where the shelf becomes an option. It is offered wherever
+  // parking is: an ordinary card, whatever else it has. Never for work
+  // another board owns, never for a card already on the shelf, and never for
+  // a subtask or a review, which follow the card they belong to and would be
+  // parked out of sight of it.
+  it("offers the backlog last, as the answer that destroys nothing", () => {
+    expect(removeChoices({ ...held, week: "2026-08-24" }, ctx)).toEqual([
+      "off-board",
+      "unassign",
+      "backlog",
+    ]);
+    expect(removeChoices(held, ctx)).toEqual(["off-board", "backlog"]);
+  });
+
+  it("does not offer it to work another board owns", () => {
+    expect(removeChoices({ ...held, epic: "Auth" }, ctx)).not.toContain("backlog");
+    expect(removeChoices({ ...held, task: "t1", week: "2026-08-24" }, ctx)).not.toContain(
+      "backlog",
+    );
+  });
+
+  it("does not offer it to a card already on the shelf", () => {
+    expect(removeChoices({ ...held, parked: true }, ctx)).not.toContain("backlog");
+  });
+
+  it("does not offer it to a subtask or a review", () => {
+    // Both follow the card they belong to; parking one alone would put it
+    // where nothing draws it, out of sight of its own parent.
+    expect(removeChoices({ ...held, parent: "p1" }, ctx)).not.toContain("backlog");
+    expect(removeChoices({ ...held, reviewOf: "c9" }, ctx)).not.toContain("backlog");
   });
 
   it("offers a PROJECT card its column and nothing else", () => {

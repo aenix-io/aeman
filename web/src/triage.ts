@@ -5,6 +5,7 @@
 // Mirrors board.NeedsTriage / board.TriageWeekOf on the server.
 import type { Card } from "./providers/types";
 import { addDays, mondayOf } from "./date";
+import { parked } from "./backlog";
 import { isPersonalDomain } from "./domains";
 
 /** needsTriage reports whether nobody has said WHEN the card's work is due:
@@ -20,12 +21,23 @@ import { isPersonalDomain } from "./domains";
  *  browser, so there is nothing to check here.
  */
 export function needsTriage(
-  c: Pick<Card, "parent" | "reviewOf" | "week" | "domain" | "stage" | "progress">,
+  c: Pick<
+    Card,
+    "parent" | "reviewOf" | "week" | "domain" | "stage" | "progress" | "parked"
+  >,
 ): boolean {
   if (isPersonalDomain(c.domain ?? "")) {
     return false;
   }
   if (c.parent || c.reviewOf || c.week) {
+    return false;
+  }
+  // Parked work has already been triaged: "not now" is an answer, and the
+  // strip must stop asking or it fills with everything ever deferred. Through
+  // the shared rule, never the field: a card on its own TEAM's shelf names no
+  // list at all, and reading only the name put every one of them back in the
+  // strip the moment it was parked.
+  if (parked(c)) {
     return false;
   }
   if (c.stage === "review") {
@@ -37,8 +49,16 @@ export function needsTriage(
 /** placedIn is the Monday of the column a card stands in — its week, and
  *  nothing else. Null means it stands in none: the strip holds it until
  *  somebody says when the work is due. Being on today's board is not that
- *  decision; the day's planning put it there, not the week's. */
-export function placedIn(c: Pick<Card, "week">): string | null {
+ *  decision; the day's planning put it there, not the week's.
+ *
+ *  A PARKED card stands in none either, week or no week: the two are
+ *  exclusive, and a card carrying both — which only a direct write to the
+ *  repository can now produce — would be drawn in the grid AND in the drawer.
+ *  Mirrors board.TriageWeekOf, where the shelf wins for the same reason. */
+export function placedIn(c: Pick<Card, "week" | "parked">): string | null {
+  if (parked(c)) {
+    return null;
+  }
   return c.week || null;
 }
 

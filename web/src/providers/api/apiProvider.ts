@@ -247,6 +247,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
   if (patch.week !== undefined) {
     body.week = patch.week;
   }
+  if (patch.parked !== undefined) {
+    body.parked = patch.parked;
+  }
   if (patch.epic !== undefined) {
     body.epic = patch.epic;
   }
@@ -333,6 +336,11 @@ export const apiProvider: Provider = {
     }
     if (input.week) {
       body.week = input.week;
+    }
+    // Born ON the shelf: like a week, it carries no dates and joins no sprint,
+    // and the card never passes through the strip on its way there.
+    if (input.parked) {
+      body.parked = true;
     }
     if (input.epic) {
       body.epic = input.epic;
@@ -525,6 +533,7 @@ export const apiProvider: Provider = {
   async renameTeam(from: string, to: string): Promise<void> {
     await api("POST", "/teams/actions/rename", { team: from, to });
   },
+
 
   async renameProject(
     from: string,

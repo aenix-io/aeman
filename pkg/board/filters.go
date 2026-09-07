@@ -26,6 +26,11 @@ func TeamGrid(b Board, team, day string) []Card {
 		if PlacedAhead(c, today) {
 			continue
 		}
+		// A card parked on a BACKLOG is not planned at all, so it is on no
+		// day board — the same answer a week ahead gets, for the same reason.
+		if InBacklog(c) {
+			continue
+		}
 		// The WEEK's own work stands on the grid all week — in its person's
 		// column, or in Unassigned when nobody has taken it. This is the set
 		// the Triage board shows for that week: what the weekly panel used
@@ -133,6 +138,11 @@ func MeView(b Board, user, day string) []Card {
 		}
 		// A card placed in a week ahead waits in the backlog (B1).
 		if PlacedAhead(c, today) {
+			continue
+		}
+		// And one parked on a list is not this person's day either: it is
+		// waiting to be planned, not being worked on.
+		if InBacklog(c) {
 			continue
 		}
 		// A deferred / future-scheduled card (startDate past today) is hidden

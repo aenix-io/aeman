@@ -260,6 +260,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Parked:  in.Parked,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
 		Paused:      in.Paused,
 		Description: in.Body,
@@ -498,7 +499,19 @@ func (f *Backend) SetSprintStart(_ context.Context, _ board.Board, card board.Ca
 	return nil
 }
 
-// SetWeek sets a card's plan week.
+// SetBacklog puts a card on its team's shelf, or takes it off.
+func (f *Backend) SetBacklog(
+	_ context.Context, _ board.Board, card board.Card, parked bool,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetBacklog %s %t", card.ItemID, parked)
+	if c := f.card(card.ItemID); c != nil {
+		c.Parked = parked
+	}
+	return nil
+}
+
 func (f *Backend) SetWeek(_ context.Context, _ board.Board, card board.Card, week string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -620,7 +633,6 @@ func (f *Backend) SetReviewRound(_ context.Context, _ board.Board, card board.Ca
 	return nil
 }
 
-// SetSprintState creates or updates a team's sprint pointer.
 func (f *Backend) SetSprintState(_ context.Context, _ board.Board, team, current, previous string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

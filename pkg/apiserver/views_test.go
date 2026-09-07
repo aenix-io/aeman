@@ -208,3 +208,81 @@ func TestProjectViewHoldsTheCardsMirroredIntoIt(t *testing.T) {
 		t.Fatalf("and nothing that stands in neither: %v", ids)
 	}
 }
+
+// A PARKED card takes its subtasks off the view with it.
+//
+// The pieces of a parked card are not separate work waiting to be picked up:
+// they are parts of something nobody is doing yet, and leaving them behind
+// would scatter a card's insides across a board its parent has left.
+//
+// It costs nothing to arrange, which is the point. The board filters drop the
+// parked parent, and children are only ever appended to a parent that is
+// PRESENT — so the rule is derived rather than written on each child. Nothing
+// has to be undone to bring them back: planning the parent again returns the
+// whole group, whole, in one write.
+func TestAParkedParentTakesItsSubtasksOffTheView(t *testing.T) {
+	today := board.TodayIso()
+	park := func(parked bool) board.Board {
+		return board.Board{
+			Cards: []board.Card{
+				{ItemID: "p", Team: "alpha", Parked: parked,
+					StartDate: today, Day: today, SprintStart: today},
+				{ItemID: "kid", Team: "alpha", Parent: "p",
+					StartDate: today, Day: today, SprintStart: today},
+			},
+			SprintStates: map[string]board.SprintState{"alpha": {Current: today}},
+		}
+	}
+	ids := func(b board.Board) []string {
+		out := []string{}
+		for _, c := range FilterCards(b, Selector{View: "team", Team: "alpha", Day: today}) {
+			out = append(out, c.ItemID)
+		}
+		return out
+	}
+
+	if got := ids(park(true)); len(got) != 0 {
+		t.Fatalf("view = %v; a parked card and its pieces are off the day board", got)
+	}
+	// Planned again — both are back, and neither had to be touched.
+	if got := ids(park(false)); len(got) != 2 {
+		t.Fatalf("view = %v; the card comes back with its piece", got)
+	}
+}
+
+// view=backlog answers a different question from the strip, which is why it is
+// a view of its own: the strip asks "when is this due" and holds cards waiting
+// for an answer, while a list says "not now" and holds work with no week at
+// all — a board drawing the weeks has nowhere to put it.
+func TestTheBacklogViewListsWhatATeamHasParked(t *testing.T) {
+	b := board.Board{
+		Cards: []board.Card{
+			{ItemID: "now1", Team: "alpha", Parked: true, CreatedAt: "2026-01-02T00:00:00Z"},
+			{ItemID: "ice", Team: "alpha", Parked: true, CreatedAt: "2026-01-01T00:00:00Z"},
+			{ItemID: "planned", Team: "alpha", Week: "2026-08-31"},
+			{ItemID: "strip", Team: "alpha"},
+			{ItemID: "theirs", Team: "beta", Parked: true},
+			// A subtask rides its parent and is never listed on its own.
+			{ItemID: "kid", Team: "alpha", Parent: "now1", Parked: true},
+		},
+	}
+	ids := func(sel Selector) []string {
+		out := []string{}
+		for _, c := range FilterCards(b, sel) {
+			out = append(out, c.ItemID)
+		}
+		return out
+	}
+
+	// Every list the team has, oldest first where nobody arranged them — and
+	// each parked card's subtasks ride along, as they do in every other view:
+	// the client nests them under their parent and needs the whole set for its
+	// derived-progress math.
+	if got := ids(Selector{View: "backlog", Team: "alpha"}); !slices.Equal(got, []string{"ice", "now1", "kid"}) {
+		t.Fatalf("view=backlog&team=alpha = %v; want the parked cards, oldest first, pieces after", got)
+	}
+	// Another team's shelf is another team's business.
+	if got := ids(Selector{View: "backlog", Team: "beta"}); !slices.Equal(got, []string{"theirs"}) {
+		t.Fatalf("view=backlog&team=beta = %v", got)
+	}
+}

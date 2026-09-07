@@ -195,4 +195,16 @@ describe("the Triage window", () => {
     expect(q.view).toBe("triage");
     expect(q.weeks).toBe(String(TRIAGE_WEEKS));
   });
+
+  it("asks for the parked work as well — no week puts it in no window", () => {
+    // A parked card has no week at all, so the weeks query cannot reach it
+    // however wide the window is. The drawer is fetched beside the grid
+    // rather than when it opens, so its counts are right before it does.
+    const qs = viewQueries("triage", TODAY, ["alpha", "beta"], undefined, false, TODAY);
+    const parked = qs.find((q) => q.view === "backlog");
+    expect(parked).toBeDefined();
+    expect(parked?.team).toBe("alpha,beta");
+    // And it asks for every list the teams have, not one of them.
+    expect(parked?.backlog).toBeUndefined();
+  });
 });

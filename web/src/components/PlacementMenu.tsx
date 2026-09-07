@@ -9,6 +9,10 @@ interface PlacementMenuProps {
   targets?: ProjectTargets[];
   /** Flat mode — processes have no columns, so the list is one level. */
   flat?: string[];
+  /** Flat mode with a KEY behind each label: for entries whose visible text
+   *  is not what identifies them, so two rows may read alike and still be
+   *  told apart. Picking one calls with (key, ""). */
+  items?: { key: string; label: string }[];
   /** Picking a column calls with (project, epic); flat mode with (item, ""). */
   onPick: (project: string, epic: string) => void;
 }
@@ -20,12 +24,14 @@ interface PlacementMenuProps {
  *  DOM, so a nested portal would dismiss it — and an accordion inside a
  *  scrollable menu can never leave the screen, which a flyout chained off
  *  a flyout regularly does. */
-export function PlacementMenu({ label, targets, flat, onPick }: PlacementMenuProps) {
+export function PlacementMenu({ label, targets, flat, items, onPick }: PlacementMenuProps) {
   const [open, setOpen] = useState(false);
   const [project, setProject] = useState<string | null>(null);
-  const items = flat ?? [];
+  // One shape inside: a plain string is its own key, which is what every
+  // caller that has nothing else to say by wants.
+  const leaves = items ?? (flat ?? []).map((f) => ({ key: f, label: f }));
   const cols = targets ?? [];
-  if (cols.length === 0 && items.length === 0) {
+  if (cols.length === 0 && leaves.length === 0) {
     return null;
   }
   return (
@@ -40,14 +46,14 @@ export function PlacementMenu({ label, targets, flat, onPick }: PlacementMenuPro
       </button>
       {open && (
         <div className="card-placements-list">
-          {items.map((p) => (
+          {leaves.map((p) => (
             <button
-              key={p}
+              key={p.key}
               type="button"
               className="card-stage-item card-placements-leaf"
-              onClick={() => onPick(p, "")}
+              onClick={() => onPick(p.key, "")}
             >
-              {p}
+              {p.label}
             </button>
           ))}
           {cols.map((p) => (

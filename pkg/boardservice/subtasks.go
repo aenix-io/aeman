@@ -33,6 +33,12 @@ var ErrSubtaskWeek = errors.New("a subtask has no week of its own")
 // the lead nothing to do but delete it.
 var ErrNotYoursToRefuse = errors.New("only the person a card is on can refuse it")
 
+// ErrNotYoursToPark is a Project-board slot or a process turn sent to a list.
+// Their week is another board's to say — a slot's follows its dates, a turn's
+// is its process's record of the week it owed — so parking one here would
+// edit a plan this board does not own.
+var ErrNotYoursToPark = errors.New("this work is not this board's to park")
+
 // ErrNotYoursToRemove is a person taking off the board a card SOMEBODY ELSE
 // put on it for them. Their answer to work they will not do is the refused
 // stage (ErrNotYoursToRefuse names the other side of the same seat), which
@@ -118,6 +124,12 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 	if card.Week != "" {
 		if p.Week == "" && p.Epic == "" {
 			if err := s.backend.SetWeek(ctx, b, p, card.Week); err != nil {
+				return err
+			}
+			// A PARKED parent handed a week comes off its shelf like any
+			// other card given one — it would otherwise stand in that week
+			// and sit in the drawer at the same time.
+			if err := s.leaveShelf(ctx, b, p, card.Week); err != nil {
 				return err
 			}
 		}

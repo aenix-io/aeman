@@ -216,6 +216,11 @@ type CreateCardArgs struct {
 	// Week creates a card scheduled for a WEEK instead of a day card: no
 	// dates are set and no sprint is joined or started.
 	Week string
+	// Parked creates the card on its team's SHELF instead of in the plan.
+	// Like Week, no dates are set and no sprint is joined: a parked card is on
+	// no day. Born there rather than born in the strip and moved — one commit,
+	// and no instant in between where the card stands somewhere nobody put it.
+	Parked bool
 	// Epic + Project create a Project-board card: filed under the column that
 	// pair identifies, its Week is the row (defaulting to the Monday of Start,
 	// then of today), Start/Day may span several weeks, and no sprint is
@@ -297,6 +302,10 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	// A card given a WEEK and no day is scheduled for that week alone.
 	if args.Week != "" && args.Start == "" && args.Day == "" && args.SprintStart == "" {
 		return s.createWeekCard(ctx, b, args, linkDescription, pendingRef)
+	}
+	// A card born on a SHELF, for the same reason: it is on no day.
+	if args.Parked {
+		return s.createParkedCard(ctx, b, args, linkDescription, pendingRef)
 	}
 	// Start and Day (the end/due date) default to each other so a create with
 	// only one of them yields a one-day range — a backdated create must NOT get
@@ -462,6 +471,36 @@ func (s *Service) createWeekCard(ctx context.Context, b board.Board, args Create
 	if err == nil {
 		s.resolveTitleAsync(ctx, b, card, pendingRef)
 		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+	}
+	return card, err
+}
+
+// createParkedCard makes a card that starts life on a shelf: no dates, no
+// sprint, no week — the same nothing a card given only a week gets, because a
+// parked card is on no day either.
+func (s *Service) createParkedCard(ctx context.Context, b board.Board, args CreateCardArgs, linkDescription string, pendingRef *board.Link) (board.Card, error) {
+	if err := s.declareTeam(ctx, b, args.Team); err != nil {
+		return board.Card{}, err
+	}
+	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
+		Title: args.Title,
+		// PLANNED work, whatever was asked for — the same rule SetBacklog
+		// applies to a card put on the shelf, at the other door into it. The
+		// other three zones are statements about today, and a card started in
+		// the backlog wearing "critical" says something about a day nobody is
+		// planning.
+		Zone:     board.ZoneGray,
+		Parked:   true,
+		Assignee: args.Assignee,
+		Team:     args.Team,
+		ReviewOf: args.ReviewOf,
+		Parent:   args.Parent,
+	})
+	card, err = s.withLinkDescription(ctx, b, card, err, linkDescription)
+	if err == nil {
+		s.resolveTitleAsync(ctx, b, card, pendingRef)
+		s.logEvent(ctx, b, card, board.EventCreated, "", "")
+		s.logEvent(ctx, b, card, board.EventBacklog, "", backlogLabel(card))
 	}
 	return card, err
 }
@@ -1847,6 +1886,107 @@ func (s *Service) SetSprintStart(ctx context.Context, boardID string, itemID, da
 // SetWeek moves a WEEKLY-PLAN card to another week. A Project-board slot is
 // refused: its week comes from its start date, and accepting a second value
 // here is exactly how the two came to disagree.
+// SetBacklog puts a card on its team's shelf, or takes it off.
+// Parking is the decision "not now" — the act that moves a card out of the
+// inbox without pretending it is planned.
+//
+// Every team has a shelf and nothing declares it, so this can never be refused
+// for want of one. It empties the WORKING AREA on the way: the week, the
+// person, the sprint and the dates. A parked card carrying an owner and a day
+// reads as somebody's work in progress when nobody is doing it — which is the
+// confusion the third state exists to end.
+func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string, parked bool) error {
+	b, card, err := s.loadCard(ctx, boardID, itemID)
+	if err != nil {
+		return err
+	}
+	// A PROJECT card and a PROCESS TURN are not this board's to park. A slot's
+	// week follows its start date and belongs to the Project board's plan; a
+	// turn's week is its process's record of what that week was owed. Taking
+	// either out of the week here would edit a plan this board does not own.
+	if parked && (card.Epic != "" || card.Task != "") {
+		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
+	}
+	if err := s.backend.SetBacklog(ctx, b, card, parked); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, card, board.EventBacklog, backlogLabel(card), backlogLabel(
+		board.Card{Team: card.Team, Parked: parked}))
+	if !parked {
+		// Coming OFF the shelf reorders nothing: the card is going back to the
+		// strip to be given a week, and its place among the parked work is not
+		// something the strip has an opinion about.
+		return nil
+	}
+	// It lands at the TOP of the shelf. A shelf nobody has sorted reads
+	// oldest-first, which answers "what has been waiting longest" — right for
+	// a shelf being worked through, wrong for the card just put there, which
+	// is the one the person will look for and would go under a hundred older
+	// ones. Placing it by hand is what the ordering rule reads first
+	// (board.BacklogOrder), and the top of the board's order is the top of
+	// every shelf in it, since a shelf is a slice of that one order.
+	if err := s.backend.MoveCard(ctx, b, card, ""); err != nil {
+		return err
+	}
+	// And it becomes PLANNED work, whatever zone it was in. The other three
+	// are statements about TODAY: critical means today, unplanned means it
+	// turned up today, "if time left" is about a day's spare capacity. None of
+	// them survives the card being put aside, and a shelf full of red is a
+	// shelf that lies to whoever opens it — the card was urgent the day
+	// somebody shelved it, and it has been on the shelf since. What is left is
+	// ordinary planned work, which is what a shelved card is: work that will
+	// be planned, some day.
+	if card.Zone != board.ZoneGray {
+		if err := s.backend.SetZone(ctx, b, card, board.ZoneGray); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventZone, string(card.Zone), string(board.ZoneGray))
+	}
+	// The REVIEW goes with the work it was asking about. A review is a
+	// question put to somebody about work being done now; parking the work
+	// withdraws the question rather than leaving a reviewer holding a card
+	// for something nobody is doing. When the work comes back, whoever picks
+	// it up asks again — of whoever is right by then.
+	//
+	// It is the same cancellation leaving the review stage performs, so both
+	// doors behave alike: a review nobody has started leaves the board, one
+	// already worked on is untouched (that work is the reviewer's), and the
+	// cancellation is recorded on the original.
+	if err := s.cancelLinkedReview(ctx, b, card); err != nil {
+		return err
+	}
+	if len(card.Assignees) > 0 {
+		if err := s.backend.SetAssignee(ctx, b, card, ""); err != nil {
+			return err
+		}
+		s.logEvent(ctx, b, card, board.EventAssignee, card.Assignees[0], "")
+	}
+	if card.Week != "" {
+		if err := s.backend.SetWeek(ctx, b, card, ""); err != nil {
+			return err
+		}
+	}
+	return s.leaveWorkingArea(ctx, b, card)
+}
+
+// backlogLabel names the shelf a card stands on, for the activity log: the
+// team's, and "" for a card on none. The log is read by people, and "" would
+// say the same thing for "off the shelf" and "on it".
+func backlogLabel(c board.Card) string {
+	if !board.InBacklog(c) {
+		return ""
+	}
+	return teamLabel(c.Team)
+}
+
+// teamLabel names a team for an error, including the group that has no name.
+func teamLabel(team string) string {
+	if team == "" {
+		return "the no-team group"
+	}
+	return team
+}
+
 func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week string) error {
 	if err := guardWeek(week); err != nil {
 		return err
@@ -1886,6 +2026,28 @@ func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week stri
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventWeek, card.Week, week)
+	return s.leaveShelf(ctx, b, card, week)
+}
+
+// leaveShelf takes a card off its shelf when it is given a WEEK. Scheduling is
+// the same decision from the other side: the card has been planned, so the
+// shelf lets go. A card on a shelf AND in a week would be drawn in both, and
+// counted against the week from a place that is not supposed to be a plan.
+//
+// It lives here, alone, because EVERY door that gives a card a week has to
+// answer this and they do not all go through one another: SetWeek is the
+// plain one, Place is the Triage board's (it has its own dates work to do),
+// and grouping hands a parent its subtask's week. Place was written without
+// it, and a card dragged out of the backlog onto the grid stayed in the
+// drawer — drawn in its week and on its shelf at once.
+func (s *Service) leaveShelf(ctx context.Context, b board.Board, card board.Card, week string) error {
+	if week == "" || !board.InBacklog(card) {
+		return nil
+	}
+	if err := s.backend.SetBacklog(ctx, b, card, false); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, card, board.EventBacklog, backlogLabel(card), "")
 	return nil
 }
 

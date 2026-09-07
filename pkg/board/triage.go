@@ -29,6 +29,14 @@ func NeedsTriage(_ Board, c Card, _ string) bool {
 	if c.Parent != "" || c.ReviewOf != "" || c.Week != "" {
 		return false
 	}
+	// A card PARKED on a list is out of the strip. The strip is the inbox —
+	// work that arrived and nobody has looked at — and putting a card on a
+	// list is the act of looking: somebody read it and said "not now, and
+	// here is where it waits". Leaving it in both would make the queue
+	// unreadable, since a shelf may be long and a queue must be short.
+	if InBacklog(c) {
+		return false
+	}
 	if c.Stage == StageReview {
 		return false
 	}
@@ -58,7 +66,19 @@ func InWeek(c Card, week, today string) bool {
 // TriageWeekOf is the Monday of the column a card stands in on the Triage
 // board — its week, and nothing else. A card with no week stands in no
 // column: it is in the strip, waiting for someone to say when.
-func TriageWeekOf(_ Board, c Card, _ string) string { return c.Week }
+//
+// A PARKED card stands in none either, week or no week. The two are exclusive
+// and every door that gives a week takes the card off its shelf — but the
+// storage is a git repository anything may write to, so a card can arrive
+// carrying both. Drawn by its week it would stand in the grid AND in the
+// drawer: the same work in two places, counted twice against the week. The
+// shelf wins, because the drawer is where such a card can be dealt with.
+func TriageWeekOf(_ Board, c Card, _ string) string {
+	if InBacklog(c) {
+		return ""
+	}
+	return c.Week
+}
 
 // WeeksCovered is every week a card occupies on the Triage board: the week
 // it was placed in, through the week its end date reaches. Stretching a card

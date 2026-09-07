@@ -330,11 +330,21 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	bd := board.NewBoardIn(primary, cards)
 	// The team's capacity rides its state, not a state card: the card only
 	// carries the sprint, and the number belongs beside it.
+	// The team's BACKLOG LISTS ride there too, for the same reason: they are
+	// the team's, they live in its roster file, and every board that draws a
+	// list reads them from here. A team's state may not exist yet — a team
+	// with lists but no sprint is perfectly ordinary — so it is created rather
+	// than skipped, or the lists would be invisible until somebody started a
+	// sprint.
 	for _, t := range s.Teams {
-		if st, ok := bd.SprintStates[t.Name]; ok && t.Capacity != (board.Capacity{}) {
-			st.Capacity = t.Capacity
-			bd.SprintStates[t.Name] = st
+		st, ok := bd.SprintStates[t.Name]
+		if !ok {
+			continue
 		}
+		if t.Capacity != (board.Capacity{}) {
+			st.Capacity = t.Capacity
+		}
+		bd.SprintStates[t.Name] = st
 	}
 	bd.Title = s.Board.Title
 	return bd
@@ -453,6 +463,7 @@ func cardFromInput(in board.CreateInput, id, created, author string) board.Card 
 	c := board.Card{
 		ItemID: id, Title: in.Title, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Epic: in.Epic,
+		Parked:  in.Parked,
 		Project: in.Project, Process: in.Process, Task: in.Task, Recurrence: in.Recurrence, Paused: in.Paused,
 		Description: in.Body, CreatedAt: created, Author: author,
 	}
@@ -1109,6 +1120,13 @@ func (b *Backend) SetTeam(ctx context.Context, _ board.Board, card board.Card, t
 	return b.editCard(ctx, "team", card, func(f *CardFile) { f.Card.Team = team })
 }
 
+// SetBacklog puts the card on its team's shelf, or takes it off.
+func (b *Backend) SetBacklog(
+	ctx context.Context, _ board.Board, card board.Card, parked bool,
+) error {
+	return b.editCard(ctx, "backlog", card, func(f *CardFile) { f.Card.Parked = parked })
+}
+
 // SetEpic files the card under a column, or renames an epic stub.
 func (b *Backend) SetEpic(ctx context.Context, _ board.Board, card board.Card, epic string) error {
 	if card.Title == board.EpicStateTitle {
@@ -1232,6 +1250,7 @@ func (b *Backend) SetReviewRound(ctx context.Context, _ board.Board, card board.
 
 // SetSprintState writes a team's sprint pointer, creating the team file if
 // the team is new. The no-team group is the file "_".
+
 func (b *Backend) SetSprintState(ctx context.Context, _ board.Board, team, current, previous string) error {
 	s, err := b.snapshot(ctx)
 	if err != nil {

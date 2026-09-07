@@ -58,6 +58,7 @@ import { Dropdown } from "./Dropdown";
 import { TeamChips } from "./TeamChips";
 import { NotesPanel, type DayEvent, type DayNote } from "./NotesPanel";
 import { ConnectDialog } from "./ConnectDialog";
+import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { SortableBoard, type BoardGroup, type DropResult } from "./SortableBoard";
 import { globalOrderFromGroups, afterIdFor } from "./dndOrder";
@@ -1258,6 +1259,16 @@ export function MeBoard({
       if (personal) {
         leaveBehind(card);
       }
+      return;
+    }
+    // The answer that destroys nothing: the work is kept, off the plan, on
+    // its team's shelf.
+    if (chosen === "backlog") {
+      patchCard(card.itemId, parkedLocally());
+      void provider.patchCard(card.itemId, { parked: true }).catch((err: unknown) => {
+        onError(errMessage(err));
+        reload();
+      });
       return;
     }
     // The × asks BEFORE it acts, whatever it is about to do, and the dialog

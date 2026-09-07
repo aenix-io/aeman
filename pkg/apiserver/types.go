@@ -77,6 +77,12 @@ type CardSpec struct {
 	// Week is the week the card is scheduled for, a Monday: its row on the
 	// Triage board, and — for an epic card — on the Project board.
 	Week string `json:"week,omitempty"`
+	// Parked says the card is on its team's SHELF rather than in the plan.
+	// Every team has one and nothing declares it. Exclusive with Week — a card
+	// is on the shelf or in a week, never both. A parked card is on no day
+	// board and out of the Triage strip: parking is the act of reading the
+	// inbox and saying "not now".
+	Parked bool `json:"parked,omitempty"`
 	// Epic and Project are the column the card is filed under ("" = none) —
 	// the pair, since epic names repeat across projects. The card's Week is
 	// the row, and Dates span the weeks its slot stretches over.
@@ -460,6 +466,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Recurrence:  c.Recurrence,
 		Dates:       CardDates{Start: c.StartDate, End: c.Day, Sprint: c.SprintStart},
 		Week:        c.Week,
+		Parked:      c.Parked,
 		Epic:        c.Epic,
 		Project:     c.Project,
 		Mirrors:     append([]board.Placement{}, c.Mirrors...),
