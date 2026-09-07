@@ -269,6 +269,62 @@ func TestRepackKeepsHistoryReadable(t *testing.T) {
 	}
 }
 
+// G21, the second time round: a repack that REPLACES an existing pack leaves
+// the history readable too.
+//
+// The test above repacks once, and a first repack deletes nothing — there is
+// no earlier pack to replace, so the storer's view cannot go stale. The second
+// repack is the one that bites: RepackObjects writes a new pack and DELETES
+// the old ones, while the storer's pack index is a map built once and cached
+// for the life of the process. Nothing invalidates it, so every object that
+// lived in the deleted pack becomes unreachable — to that process, for good.
+//
+// This is what took the production board down on 2026-09-05: prune failed on
+// the spot with "packfile not found", the board then loaded ZERO cards, and
+// every push failed the same way for two days, while the repository on disk
+// was perfectly healthy the whole time. Only a restart cleared it, because
+// only a restart built a new storer.
+func TestASecondRepackLeavesTheHistoryReadable(t *testing.T) {
+	dir := t.TempDir()
+	r, err := Init(filesystem.NewStorage(osfs.New(dir), cache.NewObjectLRUDefault()), Options{Committer: serverID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := func(i int) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "progress", Actor: "kvaps", Summary: "step",
+			At: at("2026-08-01T09:00:00Z").Add(time.Duration(i) * time.Hour)}, []FileWrite{
+			{Path: "cards/a/1/A1.md", Data: []byte("---\ntitle: a\nprogress: " + strings.Repeat("1", i%9+1) + "\n---\n")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 20; i++ {
+		commit(i)
+	}
+	// The first repack: nothing to replace.
+	if err := r.Maintain(); err != nil {
+		t.Fatalf("first maintain: %v", err)
+	}
+	// More work, then the repack that REPLACES the pack the first one wrote.
+	for i := 20; i < 40; i++ {
+		commit(i)
+	}
+	if err := r.Maintain(); err != nil {
+		t.Fatalf("second maintain: %v", err)
+	}
+
+	// Everything the process could read before, it can read now. This is the
+	// assertion production failed: the objects were on disk and invisible.
+	n := 0
+	if err := r.Walk(r.Head(), func(*object.Commit) (bool, error) { n++; return true, nil }); err != nil || n != 40 {
+		t.Fatalf("history after the second repack: %d commits, %v", n, err)
+	}
+	if _, err := Load(r); err != nil {
+		t.Fatalf("load after the second repack: %v", err)
+	}
+}
+
 func countFiles(t *testing.T, dir string) int {
 	t.Helper()
 	n := 0

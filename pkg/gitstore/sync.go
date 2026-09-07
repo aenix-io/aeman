@@ -353,6 +353,20 @@ func (r *Repo) Maintain() error {
 	if err := repo.RepackObjects(&git.RepackConfig{}); err != nil {
 		return fmt.Errorf("gitstore: repack: %w", err)
 	}
+	// The repack DELETED the packs it replaced, and the storer's pack index is
+	// a map built once and cached for the life of the process — nothing
+	// invalidates it. Without this, every object that lived in a deleted pack
+	// becomes unreachable to this process, permanently: the prune below fails
+	// on the spot, the board then loads zero cards, and every push fails the
+	// same way, while the repository on disk is perfectly healthy. Only a
+	// restart cleared it, because only a restart built a new storer.
+	//
+	// It bites on the SECOND repack, never the first: a first repack has no
+	// earlier pack to replace, which is why this survived a test that repacks
+	// once and two months of production.
+	if r, ok := r.s.(interface{ Reindex() }); ok {
+		r.Reindex()
+	}
 	err = repo.Prune(git.PruneOptions{OnlyObjectsOlderThan: time.Now(), Handler: repo.DeleteObject})
 	if err != nil && !errors.Is(err, git.ErrLooseObjectsNotSupported) {
 		return fmt.Errorf("gitstore: prune: %w", err)
