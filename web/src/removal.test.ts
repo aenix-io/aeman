@@ -226,6 +226,62 @@ describe("subtaskRemovalPatch", () => {
   });
 });
 
+// Work finished LATE belongs to the sprint it was done in, not the one it was
+// carried into.
+//
+// The shape it comes in: an engineer finished a card and never moved the bar.
+// Carry Over took it for open work and pulled it into the new sprint. Somebody
+// then noticed and marked it 100 — and there it stands, in a sprint it was
+// never worked in, counting against it.
+//
+// The board KEEPS showing it, deliberately: a finished card standing in the
+// current sprint is the signal that this happened, and dropping it quietly
+// would lose the only prompt anybody gets. What clears the signal is somebody
+// SAYING where the work belongs, which is this answer.
+describe("sending finished work back to the sprint it was done in", () => {
+  const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
+  const done = { progress: 100, sprintStart: "2026-08-24", startDate: "2026-08-28" };
+
+  it("is offered on a finished card standing in the current sprint", () => {
+    expect(removeChoices(done, ctx)).toContain("finished-earlier");
+  });
+
+  it("is not offered on work that is still going", () => {
+    // Unfinished work in this sprint is this sprint's, whatever else is true
+    // of it: there is nothing to record as done anywhere else.
+    expect(removeChoices({ ...done, progress: 60 }, ctx)).not.toContain("finished-earlier");
+  });
+
+  it("is not offered when there is no earlier sprint to send it to", () => {
+    // A team's first sprint has nothing behind it.
+    expect(
+      removeChoices(done, { current: "2026-08-24", today: "2026-08-29" }),
+    ).not.toContain("finished-earlier");
+  });
+
+  it("is not offered on a card already in the earlier sprint", () => {
+    // It is where the answer would put it, and an option that does nothing
+    // reads as one that failed.
+    expect(
+      removeChoices({ ...done, sprintStart: "2026-08-17" }, ctx),
+    ).not.toContain("finished-earlier");
+  });
+
+  it("is not offered for work another board owns", () => {
+    // A Project-board slot and a process turn carry their own dates, and the
+    // sprint is not what places them.
+    expect(removeChoices({ ...done, epic: "Auth" }, ctx)).not.toContain("finished-earlier");
+    expect(removeChoices({ ...done, task: "t1" }, ctx)).not.toContain("finished-earlier");
+  });
+
+  it("stands after the answers that destroy, and before the backlog", () => {
+    // Most destructive first, and the shelf is for work still to be done —
+    // which this is not.
+    const got = removeChoices(done, ctx);
+    expect(got.indexOf("finished-earlier")).toBeGreaterThan(got.indexOf("off-board"));
+  });
+});
+
 describe("what the × offers", () => {
   const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
   // Somebody is carrying it: that, and not its dates, is what "move it to

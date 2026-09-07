@@ -1262,6 +1262,18 @@ export function MeBoard({
       }
       return;
     }
+    // Work finished in the sprint before this one, and only marked done
+    // now: the card goes back to where the work happened.
+    if (chosen === "finished-earlier") {
+      void provider
+        .finishedEarlier(card.itemId)
+        .then(() => reload())
+        .catch((err: unknown) => {
+          onError(errMessage(err));
+          reload();
+        });
+      return;
+    }
     // The answer that destroys nothing: the work is kept, off the plan, on
     // its team's shelf.
     if (chosen === "backlog") {

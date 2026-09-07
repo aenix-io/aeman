@@ -34,6 +34,12 @@ function say(choice: RemoveChoice, keepOn?: string | null) {
         note: "It stops being a subtask and stays where it is, in its own column.",
         danger: false,
       };
+    case "finished-earlier":
+      return {
+        label: "It was finished in the previous sprint",
+        note: "The work goes back to the sprint it was done in, and counts there instead of here.",
+        danger: false,
+      };
     case "backlog":
       return {
         label: "Send it to the backlog",

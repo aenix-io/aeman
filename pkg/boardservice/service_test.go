@@ -357,6 +357,16 @@ func (f *fakeBackend) SetDay(_ context.Context, _ board.Board, card board.Card, 
 	return nil
 }
 
+func (f *fakeBackend) SetDoneAt(_ context.Context, _ board.Board, card board.Card, day string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetDoneAt %s %s", card.ItemID, day)
+	if c := f.get(card.ItemID); c != nil {
+		c.DoneAt = day
+	}
+	return nil
+}
+
 func (f *fakeBackend) SetLeftAt(_ context.Context, _ board.Board, card board.Card, day string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

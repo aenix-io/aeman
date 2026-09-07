@@ -394,6 +394,10 @@ export interface Provider {
   /** Place a card in a week of the Triage board — which is what triaging it
    *  means (docs/design/triage.md). */
   placeCard(uid: string, week: string): Promise<Card>;
+  /** Send finished work back to the sprint it was done in, its dates and the
+   *  day it counts as done along with it. Refused (422) on work still going,
+   *  and where there is no earlier sprint to send it to. */
+  finishedEarlier(uid: string): Promise<Card>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.

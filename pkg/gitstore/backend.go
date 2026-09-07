@@ -1069,6 +1069,12 @@ func (b *Backend) SetProgress(ctx context.Context, _ board.Board, card board.Car
 	})
 }
 
+// SetDoneAt writes the board day the card counts as finished on, without
+// touching the progress that normally sets it.
+func (b *Backend) SetDoneAt(ctx context.Context, _ board.Board, card board.Card, day string) error {
+	return b.editCard(ctx, "done-at", card, func(f *CardFile) { f.Card.DoneAt = day })
+}
+
 // SetZone sets or clears the zone.
 func (b *Backend) SetZone(ctx context.Context, _ board.Board, card board.Card, zone board.ZoneKey) error {
 	return b.editCard(ctx, "zone", card, func(f *CardFile) { f.Card.Zone = zone })

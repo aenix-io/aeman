@@ -200,7 +200,13 @@ export function asksFirst(
  *  the card on yesterday instead of destroying it. "backlog" is the answer
  *  that destroys nothing: the work is kept, off the plan, on its team's
  *  shelf. */
-export type RemoveChoice = "off-board" | "unassign" | "ungroup" | "keep" | "backlog";
+export type RemoveChoice =
+  | "off-board"
+  | "unassign"
+  | "ungroup"
+  | "keep"
+  | "backlog"
+  | "finished-earlier";
 
 /** removeChoices is what the × may do to this card WHERE IT STANDS, most
  *  destructive first, and the × is drawn only where the list is not empty.
@@ -229,7 +235,16 @@ export type RemoveChoice = "off-board" | "unassign" | "ungroup" | "keep" | "back
  *  Parking is not offered for work another board owns (a slot, a turn), for a
  *  card already on the shelf, or for a SUBTASK or a REVIEW: those two follow
  *  the card they belong to, and parking one alone would put it where nothing
- *  draws it — out of sight of the very card it is part of. */
+ *  draws it — out of sight of the very card it is part of.
+ *
+ *  FINISHED EARLIER is the last of them, and the narrowest: work that was done
+ *  in the sprint before this one and only marked done now. An engineer
+ *  finishes a card and never moves the bar; Carry Over takes it for open work
+ *  and pulls it into the new sprint; somebody notices and marks it 100 — and
+ *  there it stands, in a sprint it was never worked in, counting against it.
+ *  The board goes on showing it deliberately: that is the only prompt anybody
+ *  gets that this happened, so it is not dropped quietly. This answer is how
+ *  a person clears the prompt by saying where the work belongs. */
 export function removeChoices(
   c: RemovalHomes &
     Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent"> & {
@@ -244,6 +259,19 @@ export function removeChoices(
   }
   const shelve: RemoveChoice[] =
     !c.parked && !hasColumn(c) && !c.task && !c.reviewOf ? ["backlog"] : [];
+  // Only where it would MOVE the card: finished work, standing in the current
+  // sprint, with an earlier sprint to send it to. Never for work another board
+  // owns — a slot and a turn carry their own dates, and the sprint is not what
+  // places them.
+  const finishedEarlier: RemoveChoice[] =
+    (c.progress ?? 0) >= 100 &&
+    !!ctx.previous &&
+    !!ctx.current &&
+    c.sprintStart === ctx.current &&
+    !hasColumn(c) &&
+    !c.task
+      ? ["finished-earlier"]
+      : [];
   // Unassigned is where a card with NOBODY on it stands, and that — not its
   // dates — is what the option would change. A card already there was being
   // offered a move to the column it was in: the day grid draws a dated card
@@ -255,7 +283,7 @@ export function removeChoices(
   if (hasColumn(c) || c.task) {
     return unassign;
   }
-  return ["off-board", ...unassign, ...shelve];
+  return ["off-board", ...unassign, ...finishedEarlier, ...shelve];
 }
 
 /** offersRemoval reports whether the × is drawn at all: only where it has
