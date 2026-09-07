@@ -24,6 +24,7 @@ import { justMade, noteMade } from "../justmade";
 import { addDays, mondayOf, todayIso } from "../date";
 import {
   anchorFor,
+  broughtBack,
   byPile,
   gripOf,
   needsTriage,
@@ -446,6 +447,10 @@ export function TriageBoard({
         ...(week > thisWeek && !c.epic
           ? { startDate: undefined, day: undefined, sprintStart: undefined }
           : {}),
+        // And one whose days ran out comes back INTO the week with new ones,
+        // the same ones the server gives it (triage.broughtBack) — drawn on
+        // the day it is being done from, not on the week it was owed in.
+        ...(broughtBack(c, week, today) ?? {}),
       }));
       const assign =
         whoOf(card) === who
@@ -456,7 +461,7 @@ export function TriageBoard({
         .then(addCard)
         .catch(fail(card, before));
     },
-    [provider, patchCard, addCard, fail, thisWeek],
+    [provider, patchCard, addCard, fail, thisWeek, today],
   );
 
   // The ids of one cell's cards, in the order they stand. The stack is drawn

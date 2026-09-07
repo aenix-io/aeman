@@ -88,6 +88,24 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 		s.logEvent(ctx, b, card, board.EventDates, card.StartDate+"…"+card.Day, "")
 		return nil
 	}
+	// A card whose days RAN OUT comes back with new ones. Its range ended
+	// before this week began, so it is on no day board at all — the Triage
+	// grid is the only place it is still drawn, standing in the week it was
+	// owed in — and without this the drag only moves the column it is drawn
+	// in: the card takes the current week and stays invisible everywhere the
+	// work is actually done. Nine process turns sat like that on the
+	// production board, three of them a month past their week, and no gesture
+	// on this board could bring them back.
+	//
+	// The days it gets are the ones a turn filed for this week would have:
+	// from TODAY — not the week's Monday, since a start before the current
+	// sprint began would join the PREVIOUS one — through the end of the week.
+	// Only the week being WORKED does this; placing into an earlier one is
+	// filing a record, not saying "this is being done now".
+	if week == board.MondayOf(today) && card.Epic == "" &&
+		!board.IsPersonalDomain(card.Domain) && daysRanOut(card, week) {
+		return s.SetDates(ctx, boardID, itemID, today, board.AddDays(week, 6))
+	}
 	// Brought back into the week the team is working, a card that stands on
 	// no day at all joins the sprint being worked — which is where a card of
 	// the current week with no day of its own belongs, and where carry-over
@@ -116,6 +134,19 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 		}
 	}
 	return nil
+}
+
+// daysRanOut reports that a card's own days are all behind the given week —
+// the last one it stands on is earlier than that week's Monday. A card with no
+// days at all has none to run out (it is the other case Place answers, by
+// joining the sprint), and one still reaching into the week is being worked on
+// the days somebody chose.
+func daysRanOut(c board.Card, week string) bool {
+	last := c.Day
+	if last == "" {
+		last = c.StartDate
+	}
+	return last != "" && last < week
 }
 
 // Untriage takes a card out of its week: it is back in the strip, waiting for
