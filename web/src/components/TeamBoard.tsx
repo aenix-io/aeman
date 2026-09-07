@@ -14,6 +14,7 @@ import {
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
+import { justMade } from "../justmade";
 import type {
   Board,
   Card as CardModel,
@@ -1108,7 +1109,7 @@ export function TeamBoard({
     // does not ask about is one made today that nobody has touched
     // (asksFirst), which the branch above has already answered for a card
     // that never reached the server at all.
-    if (!chosen && asksFirst(card, todayIso())) {
+    if (!chosen && asksFirst(card, justMade(card.itemId))) {
       setRemoveChoice(card);
       return;
     }

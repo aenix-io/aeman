@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  asksFirst,
   deleteWarning,
   freeSubtasks,
   gridRemoval,
@@ -227,43 +226,6 @@ describe("subtaskRemovalPatch", () => {
   });
 });
 
-// The × asks before it acts — every time, whatever it is about to do, so
-// that a card handed back to Unassigned and a card taken off the board are
-// told apart BEFORE either happens. Four rules used to decide this between
-// them (removalKind, personalRemovalKind, gridGesture, boardAsksAbout) and
-// they disagreed: an × that hands a card back went in silence on one board
-// and asked on another, and a worked card could be destroyed unasked.
-describe("when the × asks first", () => {
-  const today = "2026-08-28";
-  const bornToday = `${today}T09:00:00Z`;
-
-  it("does not ask about a card made today that nobody has touched", () => {
-    expect(asksFirst({ progress: 0, createdAt: bornToday }, today)).toBe(false);
-    expect(asksFirst({ createdAt: bornToday }, today)).toBe(false);
-  });
-
-  it("asks once there is work on it, however fresh the card", () => {
-    expect(asksFirst({ progress: 10, createdAt: bornToday }, today)).toBe(true);
-  });
-
-  it("asks about a card that has been on the board since yesterday", () => {
-    expect(asksFirst({ progress: 0, createdAt: "2026-08-27T18:00:00Z" }, today)).toBe(true);
-  });
-
-  it("asks when nothing says when the card was made", () => {
-    // A card whose age the board cannot vouch for is not one to remove in
-    // silence: the silent case is the mis-typed card of a moment ago, and
-    // this is not known to be one.
-    expect(asksFirst({ progress: 0 }, today)).toBe(true);
-  });
-});
-
-// What the × may do to a card WHERE IT STANDS. The gesture used to work this
-// out for itself and do the one thing it decided, so taking a card with a
-// week off the board took two presses — the second landing on a card that no
-// longer looked like the one the person meant to remove. The person chooses
-// now, out of the card's own list, and the × is drawn only where that list is
-// not empty.
 describe("what the × offers", () => {
   const ctx = { current: "2026-08-24", previous: "2026-08-17", today: "2026-08-29" };
   // Somebody is carrying it: that, and not its dates, is what "move it to

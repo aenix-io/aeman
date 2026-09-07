@@ -31,6 +31,7 @@ import { forgeCopy } from "./forge";
 import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
+import { forgetMade } from "./justmade";
 import { queryString, snapshotDay, viewQueries, watchQueries } from "./viewquery";
 import { frozenProvider } from "./providers/frozen";
 import { PersonalDialog } from "./components/PersonalDialog";
@@ -240,6 +241,13 @@ export function App() {
   // however short, and a flash at the edge of the screen reads as something
   // being wrong rather than as work in progress.
   const [waiting, setWaiting] = useState(false);
+  // Moving to another view ends the moment the × acts in silence: what the
+  // reader made in the view they left is no longer in front of them, and a
+  // card they are meeting again is a decision (justmade.ts).
+  useEffect(() => {
+    forgetMade();
+  }, [view]);
+
   useEffect(() => {
     if (!loading) {
       setWaiting(false);

@@ -20,6 +20,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
+import { justMade, noteMade } from "../justmade";
 import { addDays, mondayOf, todayIso } from "../date";
 import {
   anchorFor,
@@ -600,7 +601,10 @@ export function TriageBoard({
       // another zone on the way.
       void provider
         .createCard({ title, team: team || null, zone: "gray", parked: true })
-        .then(addCard)
+        .then((card) => {
+          noteMade(card.itemId);
+          addCard(card);
+        })
         .catch((err: Error) => {
           onError(err.message);
         });
@@ -661,7 +665,7 @@ export function TriageBoard({
   const [asking, setAsking] = useState<CardModel | null>(null);
   const remove = useCallback(
     (card: CardModel) => {
-      if (asksFirst(card, today)) {
+      if (asksFirst(card, justMade(card.itemId))) {
         setAsking(card);
         return;
       }

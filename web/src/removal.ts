@@ -1,4 +1,3 @@
-import { localDateIso } from "./date";
 
 export interface RemovableCard {
   sprintStart?: string;
@@ -171,19 +170,28 @@ export function gridRemoval(
   return hasColumn(c) ? "leave" : "delete";
 }
 
-/** asksFirst reports that the × must put its question before it acts. It
- *  always does — whatever the × is about to do, the person sees it named and
- *  agrees to it — except on a card there is nothing to think about: one made
- *  today that nobody has moved off 0%. A mis-typed card added a moment ago
- *  goes without ceremony; anything else is a decision, and a gesture that
- *  acts in silence is how an × comes to be feared. */
+/** asksFirst reports that the × must put its question before it acts.
+ *
+ *  It acts alone in one case only: a card the reader made in the view they are
+ *  looking at, that nobody has moved off 0%. Such a card is one they have the
+ *  whole of in their head — they typed it, they can see it, and the × means
+ *  "no, not that". A dialog there is ceremony over a line that took a second
+ *  to write.
+ *
+ *  Everywhere else it asks. The × has three answers now, one of which destroys
+ *  nothing, and choosing among them in silence is choosing for the person.
+ *
+ *  The old reading was "made TODAY and still at 0%", which sounds like the
+ *  same thing and is not: a card typed at nine in the morning is still "today"
+ *  at six in the evening, long after the reader stopped holding it, and the ×
+ *  went on deleting it without a word. Reported from the live board as "the ×
+ *  does not open the dialog". Whether a card was made here is justmade.ts.
+ */
 export function asksFirst(
-  c: { progress?: number; createdAt?: string },
-  today: string,
+  c: { progress?: number },
+  madeHere = false,
 ): boolean {
-  const untouched = (c.progress ?? 0) === 0;
-  const bornToday = !!c.createdAt && localDateIso(c.createdAt) === today;
-  return !(untouched && bornToday);
+  return !(madeHere && (c.progress ?? 0) === 0);
 }
 
 /** RemoveChoice is one of the things an × can mean, and the dialog offers the
