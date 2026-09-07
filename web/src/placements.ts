@@ -767,6 +767,27 @@ export type CardMark = "review" | "project" | "process" | "";
  *  thing about it, so that is what the stripe says. Triage never meets a
  *  review card (a review follows the card it reviews and is not scheduled),
  *  so the two boards agree wherever they both draw. */
+/** datesAreAnotherBoards reports that a card's dates are not this board's to
+ *  change.
+ *
+ *  A Project-board SLOT's dates ARE its row there: the week it stands in is
+ *  the Monday of its start, and its span is how many weeks the work takes.
+ *  Editing them from a day board re-dates another board's commitment in
+ *  passing — the same thing the Triage board's catch holds still (triage.gripOf
+ *  answers "pinned"), said about the dates instead of about the drag.
+ *
+ *  A process TURN is NOT one: the day somebody works it is the day board's own
+ *  business, and its WEEK — which is its process's record of what that week was
+ *  owed — is not touched by a date at all.
+ *
+ *  It is a rule of the DAY BOARDS, not of the server. The Project board sets
+ *  those dates itself and must go on doing so, and the server cannot tell
+ *  which board is asking: a narrowing meant for one board, put in the service,
+ *  refused every board that sends the same call. */
+export function datesAreAnotherBoards(c: Pick<Card, "epic">): boolean {
+  return !!c.epic;
+}
+
 export function markOf(
   c: Pick<Card, "reviewOf" | "epic" | "task">,
 ): CardMark {

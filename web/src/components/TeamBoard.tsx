@@ -54,6 +54,7 @@ import {
 } from "../removal";
 import {
   columnFollows,
+  datesAreAnotherBoards,
   makeCardPlacements,
   rosterOf,
   type CardPlacements,
@@ -787,7 +788,11 @@ export function TeamBoard({
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      onSetDates={handleSetDates}
+      // A project card's dates are its ROW on the Project board — the week
+      // it stands in is the Monday of its start, and its span is how many
+      // weeks the work takes. This board does not re-date another board's
+      // commitment in passing (placements.datesAreAnotherBoards).
+      onSetDates={datesAreAnotherBoards(card) ? undefined : handleSetDates}
       onDefer={handleDefer}
       dimAvatar
       subCount={(childrenOf.get(card.itemId) ?? []).length}
