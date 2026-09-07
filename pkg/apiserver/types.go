@@ -459,7 +459,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Title:       c.Title,
 		Description: &description,
 		Team:        c.Team,
-		Zone:        SemanticZone(c.Zone),
+		Zone:        SemanticZone(board.ZoneOf(c)),
 		Assignees:   append([]string{}, c.Assignees...),
 		Progress:    c.Progress,
 		Stage:       string(c.Stage),

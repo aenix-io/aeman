@@ -192,7 +192,7 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		if sel.Stage != nil && string(c.Stage) != *sel.Stage {
 			continue
 		}
-		if sel.Zone != nil && SemanticZone(c.Zone) != *sel.Zone {
+		if sel.Zone != nil && SemanticZone(board.ZoneOf(c)) != *sel.Zone {
 			continue
 		}
 		if sel.Assignee != "" && !contains(c.Assignees, sel.Assignee) {
@@ -396,7 +396,7 @@ func onThisBoard(c board.Card, sel Selector) bool {
 	if sel.Stage != nil && string(c.Stage) != *sel.Stage {
 		return false
 	}
-	if sel.Zone != nil && SemanticZone(c.Zone) != *sel.Zone {
+	if sel.Zone != nil && SemanticZone(board.ZoneOf(c)) != *sel.Zone {
 		return false
 	}
 	if sel.Assignee != "" && !contains(c.Assignees, sel.Assignee) {
