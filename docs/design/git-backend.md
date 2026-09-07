@@ -279,7 +279,12 @@ Rules:
   `locked|review|recurrent|refuse`), not display names. Derived states
   (In Progress, Done-by-100%) are **not stored**, exactly as today — which
   is why `done` is not among the stage keys: a finished card is `progress:
-  100` with no stage at all. `refuse` is the answer of the person the card
+  100` with no stage at all. An absent `zone` is derived the same way: a
+  card carrying a sprint or dates of its own — one in the working area —
+  reads as `gray` (planned work), which is where every board draws it,
+  while a card on no day keeps the empty zone as a state of its own
+  (B15). A writer may therefore leave `zone` out; it says "planned" for
+  work on a day and "not yet asked" for work that is not. `refuse` is the answer of the person the card
   is on ("I am not doing this"); it stores like `locked` and `review`, its
   progress inside [10, 90], and it leaves the card on the board rather than
   taking it off. A writer emitting a stage the list does not name produces a

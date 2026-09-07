@@ -12,6 +12,7 @@ import {
   placedIn,
   reachOf,
   weeksCovered,
+  broughtBack,
 } from "./triage";
 
 const card = (over: Partial<Card> = {}): Card =>
@@ -306,5 +307,54 @@ describe("deferred", () => {
 
   it("says nothing of a card with no date at all — a week is not a deferral", () => {
     expect(deferred({}, "2026-09-03")).toBe(false);
+  });
+});
+
+// A card whose days ran out is drawn only on the Triage grid, in the week it
+// was owed in. Dragging it into the week the team is working is the gesture
+// that says "this is being done now", so it has to come back with days, or the
+// drag moves the column and nothing else — which is where nine process turns
+// sat on the production board, three of them a month past their week. Mirrors
+// boardservice.Place / daysRanOut.
+describe("brought back into the week being worked", () => {
+  const TODAY = "2026-09-09";
+  const WEEK = "2026-09-07";
+
+  it("re-dates a card whose days are all behind this week", () => {
+    expect(
+      broughtBack({ startDate: "2026-08-24", day: "2026-08-30" }, WEEK, TODAY),
+    ).toEqual({ startDate: TODAY, day: "2026-09-13" });
+  });
+
+  it("starts it TODAY, not on the week's Monday — a start before the sprint began joins the previous one", () => {
+    const got = broughtBack({ startDate: "2026-08-24", day: "2026-08-30" }, WEEK, TODAY);
+    expect(got?.startDate).toBe(TODAY);
+    expect(got?.startDate).not.toBe(WEEK);
+  });
+
+  it("leaves a range that still reaches this week alone", () => {
+    expect(
+      broughtBack({ startDate: "2026-08-31", day: "2026-09-09" }, WEEK, TODAY),
+    ).toBeNull();
+    // the boundary: a card whose last day IS the week's Monday still stands
+    expect(
+      broughtBack({ startDate: "2026-08-31", day: WEEK }, WEEK, TODAY),
+    ).toBeNull();
+  });
+
+  it("leaves a card with no days at all — that one joins the sprint instead", () => {
+    expect(broughtBack({}, WEEK, TODAY)).toBeNull();
+  });
+
+  it("never re-dates a project slot: its dates are its row", () => {
+    expect(
+      broughtBack({ startDate: "2026-08-24", day: "2026-08-30", epic: "Auth" }, WEEK, TODAY),
+    ).toBeNull();
+  });
+
+  it("says nothing about a week that is not the one being worked", () => {
+    expect(
+      broughtBack({ startDate: "2026-08-24", day: "2026-08-30" }, "2026-08-31", TODAY),
+    ).toBeNull();
   });
 });

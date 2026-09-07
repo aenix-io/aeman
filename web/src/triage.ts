@@ -46,6 +46,42 @@ export function needsTriage(
   return c.stage !== "done" && (c.progress ?? 0) < 100;
 }
 
+/** daysRanOut says a card's own days are all behind the given week: the last
+ *  day it stands on is earlier than that week's Monday. Such a card is on no
+ *  day board at all — the Triage grid is the only place it is still drawn,
+ *  standing in the week it was owed in.
+ *
+ *  A card with no days has none to run out (giving it the week the team is
+ *  working joins it to the sprint instead), and one still reaching into the
+ *  week is being worked on the days somebody chose. Mirrors
+ *  boardservice.daysRanOut. */
+export function daysRanOut(c: Pick<Card, "startDate" | "day">, week: string): boolean {
+  const last = c.day || c.startDate;
+  return !!last && last < week;
+}
+
+/** broughtBack is what a drag into the week being WORKED leaves on a card
+ *  whose days ran out: the days a card filed for this week would have — from
+ *  today (a start before the current sprint began would join the previous
+ *  one) through the end of the week. Null when the card keeps what it has.
+ *
+ *  Without this the drag only changed the column the card was drawn in: it
+ *  took the current week and stayed invisible everywhere the work is done.
+ *  Mirrors the same branch of boardservice.Place. */
+export function broughtBack(
+  c: Pick<Card, "startDate" | "day" | "epic" | "domain">,
+  week: string,
+  today: string,
+): { startDate: string; day: string } | null {
+  if (week !== mondayOf(today) || c.epic || isPersonalDomain(c.domain ?? "")) {
+    return null;
+  }
+  if (!daysRanOut(c, week)) {
+    return null;
+  }
+  return { startDate: today, day: addDays(week, 6) };
+}
+
 /** placedIn is the Monday of the column a card stands in — its week, and
  *  nothing else. Null means it stands in none: the strip holds it until
  *  somebody says when the work is due. Being on today's board is not that

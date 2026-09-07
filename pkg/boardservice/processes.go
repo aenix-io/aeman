@@ -678,7 +678,13 @@ func (s *Service) spawnDue(ctx context.Context, b board.Board, t board.Card) {
 // spawnIteration copies a task into one card of the week it is owed in.
 func (s *Service) spawnIteration(ctx context.Context, b board.Board, t board.Card, week string) error {
 	in := board.CreateInput{
-		Title:      TaskTitle(t),
+		Title: TaskTitle(t),
+		// PLANNED work: a process IS the plan, so a turn of it is never
+		// unplanned, critical or spare-capacity work. Filed with no zone at
+		// all it reached a day board in no band, and every client drew it in
+		// this one anyway through its own fallback — the board says so itself
+		// now, at the door the turn comes through.
+		Zone:       board.ZoneGray,
 		Week:       week,
 		Team:       t.Team,
 		Task:       t.ItemID,
