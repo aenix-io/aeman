@@ -2,13 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ProjectBoard } from "./ProjectBoard";
 import type { Board, Card, Provider } from "../providers/types";
+import { addDays, mondayOf, todayIso } from "../date";
 
 // The Project board draws its own grid — a table of weeks against epics — and
 // nothing else in the suite renders it. This is the one test that proves the
 // tree still comes out: the header row, the week labels, the cells and a
 // card's slot, in the grid the reader sees. It is markup only, not a browser:
 // no effect runs, so what it pins is the shape, not the gestures.
-const week = "2026-08-31";
+// THIS week's Monday, counted rather than named: the window opens two weeks
+// back from today, so a calendar date drifts out of the row it was written
+// for. This fixture named 2026-08-31 and the assertion below broke on the
+// Monday after, when that week slid from row 4 to row 3.
+const week = mondayOf(todayIso());
+// Friday of the NEXT week: the card reaches into a second row.
+const nextFriday = addDays(week, 11);
 
 // The board reads the reader's zoom and column widths as it mounts. There is
 // no browser here, so it gets an empty one and falls back to its defaults.
@@ -89,9 +96,9 @@ describe("the Project board's grid", () => {
   });
 
   it("stands a card in its own week, spanning the weeks it reaches", () => {
-    const html = draw(board({ cards: [card({ day: "2026-09-11" })] }));
-    // The header is row 1 and the window opens two weeks back, so the week of
-    // 2026-08-31 is row 4; the card ends in the week after, hence two rows.
+    const html = draw(board({ cards: [card({ day: nextFriday })] }));
+    // The header is row 1 and the window opens two weeks back, so THIS week
+    // is row 4; the card ends in the week after, hence two rows.
     expect(html).toContain('style="grid-column:2;grid-row:4 / span 2"');
     expect(html).toContain("A card in a column");
   });
