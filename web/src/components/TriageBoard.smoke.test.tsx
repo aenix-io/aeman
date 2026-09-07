@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TriageBoard } from "./TriageBoard";
 import type { Board, Card, Provider } from "../providers/types";
+import { addDays, mondayOf, todayIso } from "../date";
 
 // Triage reads down a person's column: every card is a plain box of one week,
 // they stand one under the next at the full column width, and the week grows
@@ -10,7 +11,12 @@ import type { Board, Card, Provider } from "../providers/types";
 // test that proves the tree comes out that way: markup only, so what it pins
 // is the shape, not the gestures.
 
-// 2026-08-31 is a Monday, and the grid opens on the week holding today.
+// Every date here counts from THIS week's Monday, because the grid opens on
+// the week holding today and draws no week before it. Written as calendar
+// dates, the fixture worked until the calendar left it behind: it named
+// 2026-08-31, and on the Monday after, four of these tests failed — the cards
+// sat in a week the board no longer draws, so a card of two weeks came out one
+// week long. A test of the shape must not expire.
 const store = new Map<string, string>();
 globalThis.localStorage = {
   getItem: (k: string) => store.get(k) ?? null,
@@ -23,7 +29,15 @@ globalThis.localStorage = {
   },
 } as Storage;
 
-const week = "2026-08-31";
+const week = mondayOf(todayIso());
+// Friday of this week: a card of ONE week.
+const thisFriday = addDays(week, 4);
+// Wednesday and Friday of the NEXT one: a card reaching into a second week.
+const nextWednesday = addDays(week, 9);
+const nextFriday = addDays(week, 11);
+// The two Mondays after this one — turns still to come, and deadlines.
+const nextWeek = addDays(week, 7);
+const weekAfter = addDays(week, 14);
 
 const card = (over: Partial<Card> = {}): Card =>
   ({
@@ -101,7 +115,7 @@ describe("the Triage board", () => {
   });
 
   it("draws a card of two weeks as two cards, each saying which it is", () => {
-    const html = draw([card({ title: "Two weeks of work", day: "2026-09-11" })]);
+    const html = draw([card({ title: "Two weeks of work", day: nextFriday })]);
     expect(html).toContain("(1/2)");
     expect(html).toContain("(2/2)");
     // One in this week's row and one in the next, each a box of one row: no
@@ -120,7 +134,7 @@ describe("the Triage board", () => {
     // A slot is a commitment made on the Project board and only passing
     // through this one: its week is that board's to say, so a zone stripe
     // would credit the decision to somebody who did not make it.
-    const html = draw([card({ epic: "Storage", day: "2026-09-04", zone: "red" })]);
+    const html = draw([card({ epic: "Storage", day: thisFriday, zone: "red" })]);
     expect(html).toContain("triage-slot-project");
     expect(html).not.toContain("triage-slot-zone-red");
   });
@@ -128,7 +142,7 @@ describe("the Triage board", () => {
   it("marks every week a stretched slot passes through", () => {
     // Split across its weeks, each box is the same commitment and wears the
     // same mark — one part carrying a zone stripe would read as two cards.
-    const html = draw([card({ epic: "Storage", day: "2026-09-09" })]);
+    const html = draw([card({ epic: "Storage", day: nextWednesday })]);
     expect(html.match(/triage-slot-project/g)).toHaveLength(2);
   });
 
@@ -179,13 +193,13 @@ describe("the Triage board", () => {
     // is in the reader's hand; a board at rest has nothing to say about it.
     // And the cell under a carried card is never tinted at all: the card is
     // already drawn where it would land, which says it once.
-    const html = draw([card({ title: "Two weeks of work", day: "2026-09-11" })]);
+    const html = draw([card({ title: "Two weeks of work", day: nextFriday })]);
     expect(html).not.toContain("triage-span");
     expect(html).not.toContain("project-cell-drag");
   });
 
   it("counts a card of two weeks against both of them", () => {
-    const html = draw([card({ day: "2026-09-11" })]);
+    const html = draw([card({ day: nextFriday })]);
     // The week's own count, beside its date, in the first two rows.
     expect(html.match(/class="triage-count">1</g)?.length).toBe(2);
   });
@@ -276,7 +290,7 @@ describe("the Triage board", () => {
                     team: "core",
                     assignee: "lexfrei",
                     history: [],
-                    due: ["2026-09-07", "2026-09-14"],
+                    due: [nextWeek, weekAfter],
                   },
                 ],
               },
@@ -314,7 +328,7 @@ describe("the Triage board", () => {
     // on the Project board — and only with the catch lifted, since the grip
     // changes that board's own dates. Everything else here is one week's
     // work, and a grip would say something about it nothing else would.
-    expect(draw([card({ epic: "Storage", day: "2026-09-04" })])).not.toContain(
+    expect(draw([card({ epic: "Storage", day: thisFriday })])).not.toContain(
       "triage-slot-resize",
     );
     expect(draw([card()])).not.toContain("triage-slot-resize");
@@ -322,7 +336,7 @@ describe("the Triage board", () => {
 
   it("keeps the × off a project card while the catch is closed", () => {
     // What the × does to one is the Project board's business too.
-    expect(draw([card({ epic: "Storage", day: "2026-09-04" })])).not.toContain(
+    expect(draw([card({ epic: "Storage", day: thisFriday })])).not.toContain(
       "card-action-delete",
     );
     expect(draw([card()])).toContain("card-action-delete");
@@ -331,7 +345,7 @@ describe("the Triage board", () => {
   it("offers a catch to lift, and starts with it closed", () => {
     // Never remembered: a guard that stays open is not a guard, so every
     // visit begins with a project card's weeks held still.
-    const html = draw([card({ epic: "Storage", day: "2026-09-04" })]);
+    const html = draw([card({ epic: "Storage", day: thisFriday })]);
     expect(html).toContain('class="triage-lock"');
     expect(html).toContain('aria-pressed="false"');
     expect(html).not.toContain("triage-lock-open");
@@ -419,8 +433,8 @@ describe("the Triage board", () => {
   // share a screen.
   it("says whose deadline the line is", () => {
     const html = draw([card()], [
-      { week: "2026-09-07", project: "cozystack" },
-      { week: "2026-09-14", project: "freedom" },
+      { week: nextWeek, project: "cozystack" },
+      { week: weekAfter, project: "freedom" },
     ]);
     expect(html).toContain("triage-deadline-label");
     expect(html).toContain("cozystack");
