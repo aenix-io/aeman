@@ -242,6 +242,7 @@ start: 2026-08-26
 day: 2026-08-28
 sprint: 2026-08-24
 week: 2026-08-24
+parked: false
 project: portal
 epic: Bugs
 parent: 01JB4K2E7QZMX3R8V0N5T9WYC1
@@ -269,6 +270,11 @@ Rules:
 - Empty fields are omitted on write (the example shows them for the
   schema). Unknown keys are preserved on rewrite — a newer server must
   not strip what an older one does not know.
+- `parked: true` puts the card on its TEAM's backlog — the third place a
+  card can be, beside a week and the Triage strip. Every team has one and
+  nothing declares it anywhere, which is what makes it safe: there is no
+  list to create, rename or remove, so nothing can be taken from under a
+  card. It is exclusive with `week`, at every door that sets either.
 - `zone` and `stage` are the domain keys (`red|yellow|green|gray`,
   `locked|review|recurrent|refuse`), not display names. Derived states
   (In Progress, Done-by-100%) are **not stored**, exactly as today — which

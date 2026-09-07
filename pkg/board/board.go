@@ -107,6 +107,11 @@ type Card struct {
 	// in on the Triage board. A Week AHEAD of the current one is a backlog
 	// placement — the card is on no day board until that Monday (B1).
 	Week string `json:"week,omitempty"`
+	// Parked says the card is on its team's SHELF rather than in the plan.
+	// EXCLUSIVE with Week — a card is on the shelf or in a week, never both,
+	// or the board draws the same work twice and counts it twice against the
+	// week. Read it through board.InBacklog.
+	Parked bool `json:"parked,omitempty"`
 	// Epic names the Project-board column this card belongs to ("" = none). An
 	// epic card's row is its Week; StartDate..Day span the weeks its slot
 	// covers when it stretches over more than one.
@@ -224,12 +229,16 @@ type CreateInput struct {
 	ReviewOf    string  `json:"reviewOf,omitempty"`
 	Parent      string  `json:"parent,omitempty"`
 	Week        string  `json:"week,omitempty"`
-	Epic        string  `json:"epic,omitempty"`
-	Project     string  `json:"project,omitempty"`
-	Process     string  `json:"process,omitempty"`
-	Task        string  `json:"task,omitempty"`
-	Recurrence  string  `json:"recurrence,omitempty"`
-	Paused      bool    `json:"paused,omitempty"`
+	// Parked puts the card straight on its team's SHELF: born there rather
+	// than born in the strip and moved, which is one commit instead of two
+	// and spares every reader the instant in between.
+	Parked     bool   `json:"parked,omitempty"`
+	Epic       string `json:"epic,omitempty"`
+	Project    string `json:"project,omitempty"`
+	Process    string `json:"process,omitempty"`
+	Task       string `json:"task,omitempty"`
+	Recurrence string `json:"recurrence,omitempty"`
+	Paused     bool   `json:"paused,omitempty"`
 	// Body is the draft's description, written with the create rather than
 	// after it: a card that appears without its text, then fills in a second
 	// later, reads as a card the board got wrong.

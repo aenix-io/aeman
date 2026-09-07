@@ -64,7 +64,16 @@ export function viewQueries(
     // The weeks ahead of the shown teams, from the current one: the
     // placed cards, the current sprint, the debts and the triage strip
     // (docs/design/triage.md). Never a snapshot — it is not a day board.
-    return [{ view: "triage", team, from: mondayOf(today), weeks: String(TRIAGE_WEEKS) }];
+    //
+    // The parked work rides along in a second selection, because a card on a
+    // list has no week and no window of weeks can reach it. It is fetched
+    // whether or not the drawer is open: the drawer says how much each list
+    // is holding, and a count that only becomes true after you open it is
+    // not a count you can plan around.
+    return [
+      { view: "triage", team, from: mondayOf(today), weeks: String(TRIAGE_WEEKS) },
+      { view: "backlog", team },
+    ];
   }
   return [{ view: "team", team, day, reviews: "true", ...snap }];
 }

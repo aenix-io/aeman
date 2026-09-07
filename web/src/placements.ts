@@ -7,6 +7,7 @@
 // optimistically.
 
 import { addDays } from "./date";
+import { parkable } from "./backlog";
 import { inPrimary, primaryDomain, rosterDomain, type DomainInfo, type RosterDomains } from "./domains";
 import type { Card, CardPatch, EpicRef } from "./providers/types";
 
@@ -245,10 +246,15 @@ export interface CardPlacements {
   processes?: string[];
   /** For a card in a column: where it may be mirrored to. */
   mirror?: ProjectTargets[];
+
   onAttachProject: (project: string, epic: string) => void;
   onAttachProcess: (process: string) => void;
   onMirror: (project: string, epic: string) => void;
   onUnmirror: (project: string, epic: string) => void;
+  /** Put the card on its own team's backlog. Absent on work another board
+   *  owns — a Project-board slot or a process turn, whose week is not this
+   *  board's to take away. */
+  onPark?: () => void;
 }
 
 /** placementTargets computes the attach/mirror/process targets for a card
@@ -362,6 +368,8 @@ export function makeCardPlacements(
     processDomains?: RosterDomains;
     projectDomains?: RosterDomains;
     domains?: readonly DomainInfo[];
+    teams?: string[];
+    teamDomains?: RosterDomains;
   },
   deps: PlacementDeps,
 ): CardPlacements {
@@ -374,6 +382,14 @@ export function makeCardPlacements(
   };
   return {
     ...targets,
+    // Parking is not a reassignment: the shelf is the card's own team's, and
+    // every team has one — so there is nothing to pick and nothing to check.
+    onPark: parkable(card)
+      ? () => {
+          deps.patchCard(card.itemId, { parked: true, week: undefined, assignees: [] });
+          call(deps.provider.patchCard(card.itemId, { parked: true }));
+        }
+      : undefined,
     onAttachProject: (project, epic) => {
       const patch: Partial<Card> = { project, epic };
       if (!card.startDate && card.week) {

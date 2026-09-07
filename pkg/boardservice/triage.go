@@ -58,6 +58,9 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 			return err
 		}
 		s.logEvent(ctx, b, card, board.EventWeek, card.Week, week)
+		if err := s.leaveShelf(ctx, b, card, week); err != nil {
+			return err
+		}
 		card.Week = week
 	}
 	// Placed ahead: off the day board. The dates would keep showing the

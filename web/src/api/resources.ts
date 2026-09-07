@@ -59,6 +59,7 @@ export interface CardResource {
     recurrence?: string;
     dates?: { start?: string; end?: string; sprint?: string };
     week?: string;
+    parked?: boolean;
     epic?: string;
     process?: string;
     task?: string;
@@ -241,6 +242,7 @@ export function resourceToCard(res: CardResource): Card {
     startDate: dates.start || undefined,
     sprintStart: dates.sprint || undefined,
     week: spec.week || undefined,
+    parked: spec.parked || undefined,
     epic: spec.epic || undefined,
     project: spec.project || undefined,
     mirrors: spec.mirrors?.length ? spec.mirrors : undefined,

@@ -838,6 +838,18 @@ func (mb *MultiBackend) SetWeek(ctx context.Context, bd board.Board, card board.
 	return be.SetWeek(ctx, bd, card, week)
 }
 
+// SetBacklog writes in the card's own domain: a list is the team's, and the
+// card is already in the repository its team names.
+func (mb *MultiBackend) SetBacklog(
+	ctx context.Context, bd board.Board, card board.Card, parked bool,
+) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetBacklog(ctx, bd, card, parked)
+}
+
 // SetTeam may move a team card to another domain.
 func (mb *MultiBackend) SetTeam(ctx context.Context, bd board.Board, card board.Card, team string) error {
 	if card.Title == board.SprintStateTitle && team != card.Team {
@@ -976,6 +988,7 @@ func (mb *MultiBackend) SetReviewRound(ctx context.Context, bd board.Board, card
 
 // SetSprintState writes the team's pointer where the team is declared; a
 // new team is declared in the primary.
+
 func (mb *MultiBackend) SetSprintState(ctx context.Context, bd board.Board, team, current, previous string) error {
 	s, err := mb.snapshot()
 	if err != nil {

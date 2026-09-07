@@ -189,8 +189,10 @@ export function asksFirst(
 /** RemoveChoice is one of the things an × can mean, and the dialog offers the
  *  card's own list of them (removeChoices). "keep" is the personal board's
  *  alone: it has no day's record to fall back on, so its × offers to leave
- *  the card on yesterday instead of destroying it. */
-export type RemoveChoice = "off-board" | "unassign" | "ungroup" | "keep";
+ *  the card on yesterday instead of destroying it. "backlog" is the answer
+ *  that destroys nothing: the work is kept, off the plan, on its team's
+ *  shelf. */
+export type RemoveChoice = "off-board" | "unassign" | "ungroup" | "keep" | "backlog";
 
 /** removeChoices is what the × may do to this card WHERE IT STANDS, most
  *  destructive first, and the × is drawn only where the list is not empty.
@@ -209,17 +211,31 @@ export type RemoveChoice = "off-board" | "unassign" | "ungroup" | "keep";
  *    and neither is this board's to destroy. Once already unassigned they
  *    have no × at all — an × that does nothing reads as a delete that failed.
  *  - A SUBTASK is its own case: the × takes it OUT OF THE GROUP when it has a
- *    column to be left in, and off the board when it has not. */
+ *    column to be left in, and off the board when it has not.
+ *  - And the BACKLOG stands under all of them, wherever the card could be
+ *    parked: the answer that destroys nothing. It is LAST because the list is
+ *    read most-destructive-first and, more to the point, because the × acting
+ *    unasked takes the first answer — a card made today at 0% is still
+ *    deleted without ceremony, as it always was, rather than quietly shelved.
+ *
+ *  Parking is not offered for work another board owns (a slot, a turn), for a
+ *  card already on the shelf, or for a SUBTASK or a REVIEW: those two follow
+ *  the card they belong to, and parking one alone would put it where nothing
+ *  draws it — out of sight of the very card it is part of. */
 export function removeChoices(
   c: RemovalHomes &
     Pick<RemovableCard, "progress" | "startDate" | "sprintStart" | "parent"> & {
       task?: string;
+      parked?: boolean;
+      reviewOf?: string;
     },
   ctx: RemovalContext,
 ): RemoveChoice[] {
   if (c.parent) {
     return gridRemoval(c, ctx) === "ungroup" ? ["ungroup"] : ["off-board"];
   }
+  const shelve: RemoveChoice[] =
+    !c.parked && !hasColumn(c) && !c.task && !c.reviewOf ? ["backlog"] : [];
   // Unassigned is where a card with NOBODY on it stands, and that — not its
   // dates — is what the option would change. A card already there was being
   // offered a move to the column it was in: the day grid draws a dated card
@@ -231,7 +247,7 @@ export function removeChoices(
   if (hasColumn(c) || c.task) {
     return unassign;
   }
-  return ["off-board", ...unassign];
+  return ["off-board", ...unassign, ...shelve];
 }
 
 /** offersRemoval reports whether the × is drawn at all: only where it has

@@ -14,7 +14,7 @@ import (
 // exactly what the UI renders (the Team grid, the Me day board, the Triage
 // weeks); the plain field selectors compose with no view.
 type Selector struct {
-	// View is "", "all", "team", "me", "personal", "triage" or "project". "" and "all" both list every
+	// View is "", "all", "team", "me", "personal", "triage", "backlog" or "project". "" and "all" both list every
 	// card (the HTTP/MCP layer defaults an unspecified view to the caller's "me").
 	View string
 	// Team is the team key for the team/triage views ("" = the no-team group).
@@ -107,7 +107,7 @@ func ParseSelector(q url.Values) (Selector, error) {
 		sel.Weeks = n
 	}
 	switch sel.View {
-	case "", "all", "team", "me", "personal", "project", "triage":
+	case "", "all", "team", "me", "personal", "project", "triage", "backlog":
 	default:
 		return Selector{}, fmt.Errorf("unknown view %q", sel.View)
 	}
@@ -182,6 +182,8 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 		}
 	case "triage":
 		base = triageCards(b, sel)
+	case "backlog":
+		base = backlogCards(b, sel)
 	default:
 		base = b.Cards
 	}
@@ -496,4 +498,28 @@ func contains(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// backlogCards is the view=backlog listing: the cards a team has PARKED on
+// its named lists, in the order each list is read — by hand first, then oldest
+// first, so a list nobody has arranged still answers "what has been sitting
+// here longest".
+//
+// It is a view of its own rather than a corner of the triage one because the
+// two answer different questions. The strip asks "when is this due"; a list
+// says "not now" and holds work that has no week at all, so a board drawing
+// the weeks has nowhere to put it. Filtering by `backlog` names one list;
+// leaving it empty gives every list the team has.
+func backlogCards(b board.Board, sel Selector) []board.Card {
+	var out []board.Card
+	for _, c := range b.Cards {
+		if c.Parent != "" || board.IsStateTitle(c.Title) || board.IsPersonalDomain(c.Domain) {
+			continue
+		}
+		if !board.InBacklog(c) || !teamInSet(c.Team, sel.Team) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return board.BacklogOrder(out)
 }

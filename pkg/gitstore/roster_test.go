@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // The roster — teams, projects, epics, deadlines, processes — is
@@ -167,5 +169,32 @@ func TestRosterKeepsUnknownKeys(t *testing.T) {
 	}
 	if !bytes.Contains(out, []byte("futureKey: keep me\n")) || !bytes.Contains(out, []byte("rank: a1\n")) {
 		t.Fatalf("rewrite lost something:\n%s", out)
+	}
+}
+
+// A card's own place on the shelf survives its file: a card that lost `parked`
+// would come back in the strip, asking again for a week somebody had already
+// answered.
+func TestAParkedCardRoundTripsThroughItsFile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		card board.Card
+	}{
+		{"on the shelf", board.Card{ItemID: "c1", Title: "A card", Team: "alpha", Parked: true}},
+		{"not parked at all", board.Card{ItemID: "c1", Title: "A card", Team: "alpha"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := EncodeCard(CardFile{Card: tc.card})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := DecodeCard(tc.card.ItemID, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Card.Parked != tc.card.Parked {
+				t.Fatalf("parked = %t, want %t", out.Card.Parked, tc.card.Parked)
+			}
+		})
 	}
 }

@@ -512,6 +512,9 @@ type createCardRequest struct {
 	// Week schedules the card for a WEEK (its Monday) instead of a day: no
 	// dates are set and no sprint is joined.
 	Week string `json:"week"`
+	// Parked puts the card straight on its team's SHELF. Like week, no dates
+	// are set and no sprint is joined — a parked card is on no day.
+	Parked bool `json:"parked"`
 	// Epic + Project file the card on the Project board, under the column that
 	// pair identifies. Its row is the week of dates.start — week is what
 	// anchors it when there are no dates — and dates may span weeks.
@@ -571,6 +574,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		Parent:         in.Parent,
 		StartNewSprint: in.StartNewSprint,
 		NoSprint:       in.NoSprint,
+		Parked:         in.Parked,
 	}
 	if len(in.Assignees) > 0 {
 		args.Assignee = in.Assignees[0]
@@ -610,7 +614,9 @@ type cardPatch struct {
 	Project *string     `json:"project"`
 	Dates   *datesPatch `json:"dates"`
 	// Week is the week the card is scheduled for ("" takes it off the weeks).
-	Week     *string `json:"week"`
+	Week *string `json:"week"`
+	// Parked puts the card on its team's shelf, or takes it off.
+	Parked   *bool   `json:"parked"`
 	ReviewOf *string `json:"reviewOf"`
 	// Parent groups the card as a subtask under another card ("" ungroups).
 	Parent *string `json:"parent"`
@@ -720,11 +726,8 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if p.Week != nil {
-		if err := svc.SetWeek(r.Context(), boardID, uid, *p.Week); err != nil {
-			s.apiError(w, r, err)
-			return
-		}
+	if !s.applyPlacementPatch(w, r, svc, boardID, uid, &p) {
+		return
 	}
 	if !s.applyGroupingPatch(w, r, svc, boardID, uid, &p) {
 		return
@@ -1942,6 +1945,29 @@ func decodeJSONAllowingEmpty(w http.ResponseWriter, r *http.Request, dst any) bo
 	return true
 }
 
+// applyPlacementPatch sets where the card WAITS: the week it is scheduled for
+// and the backlog list it is parked on. The two are one subject and exclusive
+// of each other — the service takes either off when the other is given — so
+// they are applied together, in the order they were sent.
+//
+// It reports whether the request may go on; a refusal has already answered.
+func (s *Server) applyPlacementPatch(w http.ResponseWriter, r *http.Request,
+	svc *boardservice.Service, boardID, uid string, p *cardPatch) bool {
+	if p.Week != nil {
+		if err := svc.SetWeek(r.Context(), boardID, uid, *p.Week); err != nil {
+			s.apiError(w, r, err)
+			return false
+		}
+	}
+	if p.Parked != nil {
+		if err := svc.SetBacklog(r.Context(), boardID, uid, *p.Parked); err != nil {
+			s.apiError(w, r, err)
+			return false
+		}
+	}
+	return true
+}
+
 // apiError maps service errors onto HTTP statuses.
 func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 	switch {
@@ -1978,6 +2004,11 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		// turn taken off the board, or a card unassigned into nowhere.
 		errors.Is(err, boardservice.ErrNotYoursToDestroy),
 		errors.Is(err, boardservice.ErrNowhereToLeaveIt),
+		// A list the team does not have, and work another board owns: both
+		// are rules refusing a change, not the forge failing.
+		errors.Is(err, boardservice.ErrNotYoursToPark),
+		// A list a team already has, and one still holding cards: both are
+		// rules refusing a change to the shelves themselves.
 		errors.Is(err, boardservice.ErrParentNotFound),
 		errors.Is(err, boardservice.ErrOpenSubtasks),
 		errors.Is(err, boardservice.ErrTeamInUse),

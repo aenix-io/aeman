@@ -129,6 +129,37 @@ func TestAPICreateCard(t *testing.T) {
 	}
 }
 
+// A card can be born ON THE SHELF, and the answer says so.
+//
+// The cache mints the created card itself — it hands out the id before the
+// write lands — so it builds a second copy of the card from the same input,
+// beside the one the store writes. That copy forgot `parked`: the file in git
+// was right and every reader was right after the next reload, but the answer
+// to the create, and the cache until then, said the card was in the strip. A
+// card that appears in the inbox it was explicitly kept out of is exactly the
+// confusion the third state exists to end.
+func TestAPICreateCanPutTheCardStraightOnTheBacklog(t *testing.T) {
+	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+		`{"title":"Some day","team":"alpha","zone":"planned","parked":true}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	c := decodeCard(t, rec)
+	if !c.Spec.Parked {
+		t.Fatalf("the card is on the shelf it was created on: %+v", c.Spec)
+	}
+	// And on no day: a parked card is on no day board, so it takes no dates
+	// and joins no sprint — the same nothing a card given only a week gets.
+	if c.Spec.Dates.Start != "" || c.Spec.Dates.End != "" || c.Spec.Dates.Sprint != "" {
+		t.Fatalf("dates = %+v; a parked card is on no day", c.Spec.Dates)
+	}
+	if c.Spec.Week != "" {
+		t.Fatalf("week = %q; a card is on the shelf or in a week, never both", c.Spec.Week)
+	}
+}
+
 // A person plans their own week like anybody else's, and the API says so.
 //
 // This door used to refuse it (403). The refusal was written for the Me

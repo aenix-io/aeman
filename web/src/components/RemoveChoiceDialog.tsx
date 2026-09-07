@@ -34,6 +34,12 @@ function say(choice: RemoveChoice, keepOn?: string | null) {
         note: "It stops being a subtask and stays where it is, in its own column.",
         danger: false,
       };
+    case "backlog":
+      return {
+        label: "Send it to the backlog",
+        note: "Off the plan, kept on its team's shelf — nothing is lost, and nobody is holding it.",
+        danger: false,
+      };
     case "keep":
       return {
         label: `Keep it on ${keepOn}`,

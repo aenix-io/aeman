@@ -801,6 +801,29 @@ export function Card({
                     +1 week
                   </button>
                 </div>
+                {/* The third answer to "when?", under the two that push the
+                    work a little further out: not this week at all. A lead
+                    reading the Team board is answering exactly that, and a
+                    shelf reachable only through a menu is a shelf that does
+                    not get used.
+                    Its own ROW, because it is not a third date step — and
+                    because three of these across a 196px menu left "+1 week"
+                    wrapping onto two lines. It goes on the card's own TEAM's
+                    backlog, the one every team has, which is what lets a
+                    single button mean something without naming a list
+                    somebody had to create first. */}
+                {placements?.onPark && (
+              <button
+                type="button"
+                className="card-stage-item"
+                onClick={() => {
+                  placements.onPark?.();
+                  setAssignOpen(false);
+                }}
+              >
+                Send to the backlog
+              </button>
+            )}
                 <RangeCalendar
                   start={startVal || null}
                   end={endVal || null}
@@ -968,6 +991,21 @@ export function Card({
                   setAssignOpen(false);
                 }}
               />
+            )}
+            {/* One action, not a menu: a card goes on its own team's shelf,
+                and every team has one. */}
+            {placements?.onPark && (
+              <button
+                type="button"
+                className="card-stage-item card-park-item"
+                onClick={() => {
+                  placements.onPark?.();
+                  setAssignOpen(false);
+                }}
+              >
+                <ShelfIcon />
+                Send to the backlog
+              </button>
             )}
             {placements?.mirror && (
               <PlacementMenu
@@ -1217,4 +1255,28 @@ function LinkKindIcon({ link }: { link: CardLink }) {
     );
   }
   return <LinkGlyph />;
+}
+
+/** ShelfIcon is the park button's mark: an arrow coming down onto a shelf.
+ *  Drawn rather than typed — the ↧ glyph renders as a stray tick at this size,
+ *  and a drawn mark takes the colour of the text around it in either theme. */
+function ShelfIcon() {
+  return (
+    <svg
+      className="card-move-park-icon"
+      viewBox="0 0 16 16"
+      width="11"
+      height="11"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 2.5v6.5" />
+      <path d="M5.25 6.5 8 9.25 10.75 6.5" />
+      <path d="M3 12.75h10" />
+    </svg>
+  );
 }

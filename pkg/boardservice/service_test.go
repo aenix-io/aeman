@@ -184,6 +184,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
+		Parked:  in.Parked,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
 		Paused:      in.Paused,
 		Description: in.Body,
@@ -382,6 +383,18 @@ func (f *fakeBackend) SetSprintStart(_ context.Context, _ board.Board, card boar
 	f.rec("SetSprintStart %s %s", card.ItemID, date)
 	if c := f.get(card.ItemID); c != nil {
 		c.SprintStart = date
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetBacklog(
+	_ context.Context, _ board.Board, card board.Card, parked bool,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetBacklog %s %t", card.ItemID, parked)
+	if c := f.get(card.ItemID); c != nil {
+		c.Parked = parked
 	}
 	return nil
 }

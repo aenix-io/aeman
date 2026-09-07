@@ -44,6 +44,7 @@ const (
 	EventDates           = "dates"
 	EventSprint          = "sprint"
 	EventWeek            = "week"
+	EventBacklog         = "backlog"
 	EventReviewRound     = "review-round"
 	EventParent          = "parent"
 	EventSubtask         = "subtask"

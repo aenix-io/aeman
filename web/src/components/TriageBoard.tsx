@@ -31,7 +31,9 @@ import {
   removableOnTriage,
 } from "../triage";
 import { asksFirst, freeSubtasks, removeChoices, type RemoveChoice } from "../removal";
+import { parkPatch, parkable, parked, parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
+import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
 import { isComplete } from "../stages";
@@ -58,6 +60,12 @@ const LS_WIDTHS = "aeman.triage.colWidths";
  *  the board — nothing on the server says one person comes before another —
  *  so it is this browser's, beside the widths. */
 const LS_PEOPLE = "aeman.triage.people";
+/** Whether the backlog pane is folded to its rail. Remembered, unlike the
+ *  catch: an open shelf is a way of working rather than a lifted guard, and a
+ *  team that triages out of its backlog wants it there every morning. Folded
+ *  until asked for, so the feature does not narrow a board nobody asked it
+ *  to — the rail carries the count, which is the invitation. */
+const LS_DRAWER = "aeman.triage.backlogCollapsed";
 
 /** How far the pointer must travel before a press on a card becomes a drag. */
 const DRAG_SLOP = 4;
@@ -155,6 +163,38 @@ export function TriageBoard({
 
   // The order the reader dragged the columns into, if they have.
   const [order, setOrder] = useState<string[] | null>(readPeopleOrder);
+
+  // The shelf beside the weeks, one per team on screen, and the cards
+  // standing on them. The parked cards ride in with the board (viewQueries
+  // asks for them beside the weeks), so the counts are true before the drawer
+  // is opened rather than after.
+  const [folded, setFolded] = useState(() => localStorage.getItem(LS_DRAWER) !== "0");
+  const toggleFold = useCallback(() => {
+    setFolded((f) => {
+      try {
+        localStorage.setItem(LS_DRAWER, f ? "0" : "1");
+      } catch {
+        // A browser that will not remember it is not a reason to refuse it.
+      }
+      return !f;
+    });
+  }, []);
+  const parkedCards = useMemo(
+    () => board.cards.filter((c) => parked(c) && teams.includes(c.team ?? "")),
+    [board.cards, teams],
+  );
+  /** Where in the drawer the pointer stands mid-drag — whose shelf, and the
+   *  place among its cards — from either side of the board: the drawer's own
+   *  drag and the grid's both report it here, so one preview covers both
+   *  directions. While it is set, the card in hand is drawn THERE and nowhere
+   *  else, the way a card carried across the grid leaves the cell it came
+   *  from. Null for work another board owns, so nothing lights up a target
+   *  that would come back as a refusal. */
+  const [overList, setOverList] = useState<Spot | null>(null);
+  /** A card carried out of the DRAWER. It is on no grid of its own — a parked
+   *  card has neither a week nor a place in the strip — so the board is lent
+   *  it for as long as the gesture lasts, and draws it where it would land. */
+  const [carried, setCarried] = useState<CardModel | null>(null);
   // The tasks whose turns are MEANT to pile up: with the catch lifted those
   // are the ones a turn may be carried out of its own cycle for (gripOf).
   const accumulating = useMemo(() => {
@@ -346,12 +386,16 @@ export function TriageBoard({
   const moveRef = useRef<typeof move>(null);
   const stretchRef = useRef<typeof stretch>(null);
 
-  const arm = useCallback((onMove: (e: PointerEvent) => void, onUp: () => void) => {
-    const up = () => {
+  // onUp is handed the pointer event that ENDED the gesture, because where a
+  // card is let go is not always somewhere the grid can name: the backlog
+  // drawer stands beside the weeks and a drop over it means something else
+  // entirely, which only the raw point can say.
+  const arm = useCallback((onMove: (e: PointerEvent) => void, onUp: (e: PointerEvent) => void) => {
+    const up = (e: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", cancel);
-      onUp();
+      onUp(e);
     };
     const cancel = () => {
       window.removeEventListener("pointermove", onMove);
@@ -388,12 +432,16 @@ export function TriageBoard({
         startDate: card.startDate,
         day: card.day,
         sprintStart: card.sprintStart,
+        parked: card.parked,
       };
       const to = who === NOBODY ? [] : [who];
       patchCard(card.itemId, (c) => ({
         week,
         triage: false,
         assignees: to,
+        // Giving a card a week takes it off its shelf — a card cannot be
+        // both parked and planned, and the server says so too (SetWeek).
+        parked: undefined,
         ...(week > thisWeek && !c.epic
           ? { startDate: undefined, day: undefined, sprintStart: undefined }
           : {}),
@@ -475,6 +523,91 @@ export function TriageBoard({
   );
 
 
+  // Parking a card on a list: it leaves the weeks, the strip and whoever was
+  // holding it, because a list is a shelf and nothing on a shelf is anybody's
+  // this week. The team rides along — a list belongs to a team, so sending a
+  // card to another team's list hands it to that team as well, which is what
+  // the server does with it (boardservice.SetBacklog applies the team first).
+  const park = useCallback(
+    (card: CardModel, team: string) => {
+      if (!parkable(card)) {
+        // Work another board owns. The drawer never lights it up, so this
+        // catches a drag that got there some other way rather than letting
+        // the server answer with a 422.
+        onError("A project card or a process turn cannot be parked");
+        return;
+      }
+      const before = {
+        parked: card.parked,
+        team: card.team,
+        zone: card.zone,
+        week: card.week,
+        assignees: card.assignees,
+        triage: card.triage,
+      };
+      // A drop on ANOTHER team's shelf hands the work to that team; the server
+      // applies the team first, so one request does both (backlog.parkPatch).
+      const shelved = parkPatch(card, team);
+      patchCard(card.itemId, { ...parkedLocally(), ...shelved });
+      void provider
+        .patchCard(card.itemId, shelved)
+        .then(addCard)
+        .catch(fail(card, before));
+    },
+    [provider, patchCard, addCard, fail, onError],
+  );
+
+  /** The ids of one shelf's cards, in the order the drawer draws them — which
+   *  is the board's own order, the same way a grid cell's is. */
+  const shelfOrder = useCallback(
+    (team: string): string[] =>
+      board.cards.filter((c) => parked(c) && (c.team ?? "") === team).map((c) => c.itemId),
+    [board.cards],
+  );
+
+  /** Putting a card down between two others on a shelf. The board's order is
+   *  global and a shelf is a slice of it, so the write names a NEIGHBOUR and
+   *  never a position — exactly as the grid's cells do. */
+  const reorderShelf = useCallback(
+    (card: CardModel, team: string, at: number) => {
+      const ids = orderWith(shelfOrder(team), card.itemId, at);
+      const onShelf = new Set(ids);
+      let i = 0;
+      reorderCards(board.cards.map((c) => (onShelf.has(c.itemId) ? ids[i++] : c.itemId)));
+      const anchor = anchorFor(ids, card.itemId);
+      if (!anchor) {
+        return;
+      }
+      const persist =
+        "after" in anchor
+          ? provider.moveCard(card.itemId, anchor.after)
+          : provider.moveCardBefore(card.itemId, anchor.before);
+      void persist.catch((err: Error) => {
+        onError(err.message);
+      });
+    },
+    [board.cards, shelfOrder, reorderCards, provider, onError],
+  );
+
+
+  // A card born ON the shelf, rather than born in the strip and moved: one
+  // commit, and no instant in between where it stands somewhere nobody put it.
+  // It lands at the top, like anything else sent to the backlog.
+  const addToShelf = useCallback(
+    (team: string, title: string) => {
+      // Planned work, like everything else on a shelf — the server would set
+      // it anyway, and saying it here keeps the card from flickering through
+      // another zone on the way.
+      void provider
+        .createCard({ title, team: team || null, zone: "gray", parked: true })
+        .then(addCard)
+        .catch((err: Error) => {
+          onError(err.message);
+        });
+    },
+    [provider, addCard, onError],
+  );
+
   // The × is the SAME × as everywhere else: the shared rule says what it
   // means for this card — the card goes back to its column, out of its
   // group, or off the board — and the person is asked only where the answer
@@ -496,6 +629,12 @@ export function TriageBoard({
   // that no longer exists.
   const doRemove = useCallback(
     (card: CardModel, choice: RemoveChoice) => {
+      // The answer that destroys nothing: the work is kept, off the plan, on
+      // its team's shelf.
+      if (choice === "backlog") {
+        park(card, card.team ?? "");
+        return;
+      }
       if (choice === "off-board") {
         for (const freed of freeSubtasks(board.cards, card.itemId)) {
           patchCard(freed.itemId, freed.patch);
@@ -511,7 +650,7 @@ export function TriageBoard({
           reload();
         });
     },
-    [board.cards, provider, patchCard, removeCard, onError, reload],
+    [board.cards, provider, patchCard, removeCard, onError, reload, park],
   );
 
   // Asked wherever the × DESTROYS something, and nowhere else: a card the ×
@@ -569,10 +708,21 @@ export function TriageBoard({
   const { slots, load } = useMemo(() => {
     const slots = new Map<string, Slot[]>();
     const load = new Map<string, number>();
+    // A card carried out of a LIST is drawn here for as long as the gesture
+    // lasts, so the reader can see where it would land — it belongs to no
+    // week and no strip, so without this the grid showed nothing at all and
+    // the card simply sat in the drawer while the pointer moved.
+    const ghost = carried && move && !overList ? [carried] : [];
     // A card nobody has dated stands in the first row — now — beside this
     // week's own work. It is one box of one week: there is no end date to
     // stretch it over, and it takes a week only once it has been given one.
-    for (const c of waiting) {
+    for (const c of [...waiting, ...ghost]) {
+      // Held over a LIST, the card has left the grid: it is drawn on the
+      // shelf it would land on instead, and leaving a copy behind here would
+      // say it lands in both places.
+      if (overList && move?.card.itemId === c.itemId) {
+        continue;
+      }
       const col = move?.card.itemId === c.itemId ? (people[move.col]?.key ?? whoOf(c)) : whoOf(c);
       const row = move?.card.itemId === c.itemId ? move.row : 0;
       const list = slots.get(col) ?? [];
@@ -593,6 +743,10 @@ export function TriageBoard({
       load.set(w, (load.get(w) ?? 0) + 1);
     }
     for (const c of placed) {
+      if (overList && move?.card.itemId === c.itemId) {
+        // Held over a list: drawn there, not here (see above).
+        continue;
+      }
       const at = extentOf(rowDates(c), weeks);
       if (!at) {
         continue;
@@ -685,7 +839,19 @@ export function TriageBoard({
     }
     packLanes(slots.values(), undefined, grid.rowFit);
     return { slots, load };
-  }, [placed, waiting, projected, rowDates, weeks, people, move, stretch, grid.rowFit]);
+  }, [
+    placed,
+    waiting,
+    projected,
+    rowDates,
+    weeks,
+    people,
+    move,
+    stretch,
+    carried,
+    overList,
+    grid.rowFit,
+  ]);
 
 
   const beginMove = useCallback(
@@ -760,13 +926,30 @@ export function TriageBoard({
         };
         moveRef.current = next;
         setMove(next);
+        // The drawer stands beside the grid and is a place to drop as much
+        // as a cell is; the card's preview stays in its column while the
+        // pointer is over it, so the shelf itself has to say it is the target.
+        const shelf = dropSpot(ev.clientX, ev.clientY);
+        setOverList(shelf && parkable(p.card) ? shelf : null);
       };
-      arm(onMove, () => {
+      arm(onMove, (ev) => {
         const m = moveRef.current;
         press.current = null;
         moveRef.current = null;
         setMove(null);
+        setOverList(null);
         if (!m) {
+          return;
+        }
+        // Let go over a shelf: the card is parked there instead of planned,
+        // and nothing else about the gesture matters — not the row it was
+        // dragged across, not the column it hovered over on the way. A shelf
+        // it may not go on takes nothing: the drop falls through to the grid,
+        // which is where the card visibly was.
+        const shelf = dropSpot(ev.clientX, ev.clientY);
+        if (shelf && parkable(m.card)) {
+          park(m.card, shelf.team);
+          reorderShelf(m.card, shelf.team, shelf.at);
           return;
         }
         const who = people[m.col]?.key ?? NOBODY;
@@ -792,12 +975,81 @@ export function TriageBoard({
       weeks,
       people,
       place,
+      park,
       assignTo,
       reorder,
       unlocked,
       accumulating,
     ],
   );
+
+  // The other direction: a card carried OUT of the drawer. It lands either on
+  // another list — a move between shelves — or on a cell, which is the whole
+  // triage gesture at once: who does it, and in which week.
+  const dropFromDrawer = useCallback(
+    (card: CardModel, x: number, y: number) => {
+      setOverList(null);
+      setCarried(null);
+      setMove(null);
+      const shelf = dropSpot(x, y);
+      if (shelf) {
+        // The shelf it was already on is a REORDER and nothing more; another
+        // team's is a move, and both end with the card in the place the
+        // pointer chose.
+        if (shelf.team !== (card.team ?? "")) {
+          park(card, shelf.team);
+        }
+        reorderShelf(card, shelf.team, shelf.at);
+        return;
+      }
+      const col = columnAt(x);
+      const row = rowAt(y);
+      // Both of those answer for a point that is nowhere near the grid —
+      // columnAt only fails sideways and rowAt clamps — so the grid itself
+      // has to confirm the card was let go ON it. Let go anywhere else, the
+      // reader said nothing and nothing is written.
+      const onGrid = !!document.elementFromPoint(x, y)?.closest(".project-board");
+      if (!onGrid || col === null || !weeks[row]) {
+        return;
+      }
+      place(card, weeks[row], people[col]?.key ?? NOBODY);
+    },
+    [columnAt, rowAt, weeks, people, place, park],
+  );
+
+  // While a card is carried out of a list, the board draws it where it would
+  // land: on the shelf under the pointer, or in the cell under it. Without
+  // this the card sat still in the drawer and the reader was aiming blind.
+  const dragOverFromDrawer = useCallback(
+    (card: CardModel, x: number, y: number) => {
+      setCarried(card);
+      const shelf = dropSpot(x, y);
+      if (shelf) {
+        setOverList(shelf);
+        setMove(null);
+        return;
+      }
+      setOverList(null);
+      const col = columnAt(x);
+      const onGrid = !!document.elementFromPoint(x, y)?.closest(".project-board");
+      if (!onGrid || col === null) {
+        // Over neither: nothing would land anywhere, and the board says so by
+        // drawing the card nowhere.
+        setMove(null);
+        return;
+      }
+      const spot = rowSpotAt(y);
+      const row = Math.max(0, Math.min(spot.row, weeks.length - 1));
+      setMove({ card, row, span: 1, col, at: Math.max(0, Math.round(spot.into)) });
+    },
+    [columnAt, rowSpotAt, weeks],
+  );
+
+  const dragEndFromDrawer = useCallback(() => {
+    setOverList(null);
+    setCarried(null);
+    setMove(null);
+  }, []);
 
   // Dragging a column header sideways puts the people in the order the
   // reader wants to read them in. The press must not start on the width
@@ -950,7 +1202,11 @@ export function TriageBoard({
           selectedKeys={teamFilter}
           onSelect={onSetFilter}
           domains={board.domains}
-          noneChip={board.cards.some((c) => !c.team) ? "No team" : undefined}
+          // Always, as on the Me board: the no-team group is a team like any
+          // other here — it has a backlog of its own and cards are assigned to
+          // it — and a chip that appears only when such a card happens to be
+          // loaded is one nobody can reach to filter BY.
+          noneChip="No team"
           canManage={false}
           onAdd={() => {}}
           onRemove={() => {}}
@@ -967,6 +1223,7 @@ export function TriageBoard({
         <ZoomControl zoom={grid.zoom} onChange={grid.setZoom} />
       </div>
 
+      <div className="triage-body">
       <WeekGrid
           grid={grid}
           columns={people}
@@ -1136,19 +1393,45 @@ export function TriageBoard({
                     {parts > 1 && <span className="triage-slot-part"> ({part + 1}/{parts})</span>}
                   </span>
                   {!slot.projected &&
-                    removableOnTriage(card, unlocked, choicesFor(card)) && (
+                    (parkable(card) ||
+                      removableOnTriage(card, unlocked, choicesFor(card))) && (
                     <span className="project-slot-actions">
-                      <button
-                        type="button"
-                        className="card-action card-action-delete"
-                        title={card.epic ? "Take off this board" : "Remove"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          remove(card);
-                        }}
-                      >
-                        ×
-                      </button>
+                      {removableOnTriage(card, unlocked, choicesFor(card)) && (
+                        <button
+                          type="button"
+                          className="card-action card-action-delete"
+                          title={card.epic ? "Take off this board" : "Remove"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            remove(card);
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                      {/* Not this week AT ALL, beside the × that takes the
+                          card off the board — the two answers a person has
+                          for work in front of them that is not being done,
+                          and the shelf must be as close to hand as the bin
+                          or it is the bin that gets used. It sits OUTSIDE
+                          the ×, at the card's own corner: the × has been in
+                          that spot on every board since there were boards,
+                          and moving it to make room would cost more than the
+                          new mark gains. */}
+                      {parkable(card) && (
+                        <button
+                          type="button"
+                          className="card-action triage-slot-park"
+                          title="Send to the team's backlog"
+                          aria-label="Send to the backlog"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            park(card, card.team ?? "");
+                          }}
+                        >
+                          <ShelfMark />
+                        </button>
+                      )}
                     </span>
                   )}
                   <span className="triage-slot-bar" aria-label={`${progress}%`}>
@@ -1261,6 +1544,23 @@ export function TriageBoard({
             ];
           })}
       </WeekGrid>
+        <BacklogDrawer
+          collapsed={folded}
+          onToggleCollapse={toggleFold}
+          teams={teams}
+          cards={parkedCards}
+          over={overList}
+          // Whichever side the gesture began on, the card in hand is the same
+          // one: the drawer draws it on the shelf under the pointer.
+          carried={carried ?? move?.card ?? null}
+          onAddCard={addToShelf}
+          onDrop={dropFromDrawer}
+          onDragOver={dragOverFromDrawer}
+          onDragEnd={dragEndFromDrawer}
+          onRemove={remove}
+          onOpenCard={onOpen}
+        />
+      </div>
       {asking && (
         <RemoveChoiceDialog
           title={asking.title}
@@ -1273,6 +1573,31 @@ export function TriageBoard({
         />
       )}
     </div>
+  );
+}
+
+/** ShelfMark is the park button's glyph: an arrow coming down onto a shelf.
+ *  Drawn rather than typed — at this size a text arrow renders as a stray
+ *  tick, and a drawn mark takes the colour of the × beside it in either
+ *  theme, which is what makes the pair read as one row of choices. */
+function ShelfMark() {
+  return (
+    <svg
+      className="triage-slot-park-glyph"
+      viewBox="0 0 16 16"
+      width="10"
+      height="10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 2.5v6.5" />
+      <path d="M5.25 6.5 8 9.25 10.75 6.5" />
+      <path d="M3 12.75h10" />
+    </svg>
   );
 }
 

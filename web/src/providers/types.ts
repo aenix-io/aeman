@@ -75,6 +75,11 @@ export interface Card {
   /** ISO date (yyyy-mm-dd) of the WEEK this card is scheduled for — the row
    *  it stands in on the Triage board. */
   week?: string;
+  /** On its team's SHELF rather than in the plan — a third place beside a
+   *  week and the strip: work somebody has read and put aside. Exclusive with
+   *  week; a parked card is on no day board. Every team has a backlog and
+   *  nothing declares it. */
+  parked?: boolean;
   /** The column this card is filed under: epic + project TOGETHER, since epic
    *  names repeat across projects. Its week is the row. */
   epic?: string;
@@ -133,6 +138,8 @@ export interface NewCardInput {
   day?: string | null;
   start?: string | null;
   week?: string | null;
+  /** Start the card on its team's backlog: no dates, no sprint, no week. */
+  parked?: boolean | null;
   epic?: string | null;
   project?: string | null;
   assigneeLogin?: string | null;
@@ -284,6 +291,8 @@ export interface CardPatch {
   dates?: { start?: string; end?: string; sprint?: string };
   /** The week the card is scheduled for ("" takes it off the Triage weeks). */
   week?: string;
+  /** Put the card on its team's backlog, or take it off. */
+  parked?: boolean;
   /** Re-file under a column ("" clears). Naming only the epic keeps the card
    *  inside its project; crossing projects names both halves. */
   epic?: string;

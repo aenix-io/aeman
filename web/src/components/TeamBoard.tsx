@@ -57,6 +57,7 @@ import {
   rosterOf,
   type CardPlacements,
 } from "../placements";
+import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -1117,6 +1118,16 @@ export function TeamBoard({
     if (!choice) {
       return;
     }
+    // The answer that destroys nothing: the work is kept, off the plan, on
+    // its team's shelf.
+    if (choice === "backlog") {
+      patchCard(card.itemId, parkedLocally());
+      void provider.patchCard(card.itemId, { parked: true }).catch((err: unknown) => {
+        onError(errMessage(err));
+        reload();
+      });
+      return;
+    }
     // A subtask with nowhere else to be has no sprint history of its own:
     // the × deletes it outright, gone from under its parent immediately.
     // One standing in a COLUMN is a different card (G57): the server
@@ -1659,7 +1670,11 @@ export function TeamBoard({
           onAdd={onAddTeam}
           onRemove={onRemoveTeam}
           onRename={onRenameTeam}
-          noneChip={board.cards.some((c) => !c.team) ? "No team" : undefined}
+          // Always, as on the Me board: the no-team group is a team like any
+          // other here — it has a backlog of its own and cards are assigned to
+          // it — and a chip that appears only when such a card happens to be
+          // loaded is one nobody can reach to filter BY.
+          noneChip="No team"
           canManage={false}
           onManage={() => setTeamsModalOpen(true)}
         />
