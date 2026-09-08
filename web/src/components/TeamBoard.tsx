@@ -61,6 +61,7 @@ import {
 } from "../placements";
 import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
+import { PersonLoad } from "./PersonLoad";
 
 interface TeamBoardProps {
   board: Board;
@@ -1102,6 +1103,15 @@ export function TeamBoard({
     });
   };
 
+  // A lead sets what a person gets through in a week; the board comes back
+  // with every column's number recomputed, so the reload is the answer.
+  const setCapacity = (login: string, points: number) => {
+    void provider
+      .setCapacity(login, points)
+      .then(() => reload())
+      .catch((err: unknown) => onError(errMessage(err)));
+  };
+
   const handleGridDelete = (card: CardModel, chosen?: RemoveChoice) => {
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
@@ -1887,6 +1897,13 @@ export function TeamBoard({
                       >
                         {displayName(engineer, names)}
                       </span>
+                      {/* Points carried against points a week — the whole
+                          number, whatever teams are on screen: the server
+                          counts it across every team (board.LoadNow). */}
+                      <PersonLoad
+                        member={board.members.find((m) => m.login === engineer)}
+                        onSetCapacity={(points) => setCapacity(engineer, points)}
+                      />
                     </>
                   )}
                 </header>

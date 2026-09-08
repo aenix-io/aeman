@@ -43,6 +43,8 @@ type Snapshot struct {
 type User struct {
 	Login    string
 	Personal string
+	// Capacity is the points a week a lead set; 0 = derive it.
+	Capacity int
 	Created  string
 }
 
@@ -258,7 +260,7 @@ func (l *loader) file(p string, data []byte) error {
 	case PathUser:
 		var f UserFile
 		if f, err = DecodeUser(data); err == nil {
-			l.s.Users = append(l.s.Users, User{Login: ids[0], Personal: f.Personal, Created: f.Created})
+			l.s.Users = append(l.s.Users, User{Login: ids[0], Personal: f.Personal, Capacity: f.Capacity, Created: f.Created})
 		}
 	default:
 		l.s.Unknown = append(l.s.Unknown, p)

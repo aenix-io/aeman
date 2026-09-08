@@ -1659,6 +1659,34 @@ func (b *storeBackend) SetProgress(ctx context.Context, bd board.Board, card boa
 	return nil
 }
 
+// SetPersonCapacity updates the cached roster in place and queues the write
+// of users/<login>.yaml — a lead typing a number on a sync sees it at once.
+func (b *storeBackend) SetPersonCapacity(ctx context.Context, bd board.Board, login string, points int) error {
+	set := func(target *board.Board) {
+		if target.People == nil {
+			target.People = map[string]board.Person{}
+		}
+		p := target.People[login]
+		p.Capacity = points
+		target.People[login] = p
+	}
+	e := b.store.entry(storeKey(bd.Board))
+	e.mu.Lock()
+	if e.loaded {
+		set(&e.board)
+	}
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key:   "capacity:" + login,
+		desc:  "set the capacity of " + login,
+		apply: set,
+		exec: func(ctx context.Context) error {
+			return b.inner.SetPersonCapacity(ctx, bd, login, points)
+		},
+	})
+	return nil
+}
+
 func (b *storeBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
 	b.mutateCard(ctx, bd, card.ItemID, "size", "size "+cardRef(card), func(c *board.Card) {
 		c.Size = size

@@ -315,6 +315,14 @@ type Member struct {
 	// not, so handing somebody a card without the whole number in front of
 	// you is a decision made in the dark (board.CarryingNow).
 	Carrying int `json:"carrying,omitempty"`
+	// Load is the same work WEIGHED — the points of what the person is
+	// carrying (board.LoadNow) — and Capacity the points a week they get
+	// through: the roster's number, or one derived from what they have been
+	// closing (CapacityDerived says which; board.CapacityOfPerson). A day
+	// board draws load/capacity beside the person and goes red past it.
+	Load            int  `json:"load,omitempty"`
+	Capacity        int  `json:"capacity,omitempty"`
+	CapacityDerived bool `json:"capacityDerived,omitempty"`
 }
 
 // DomainInfo is one readable domain of the visitor's board.
@@ -634,10 +642,14 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 		}
 	}
 	sortStrings(members)
-	carrying := board.CarryingNow(b, board.TodayIso())
+	today := board.TodayIso()
+	carrying := board.CarryingNow(b, today)
+	load := board.LoadNow(b, today)
 	people := make([]Member, 0, len(members))
 	for _, login := range members {
-		m := Member{Login: login, Carrying: carrying[login]}
+		capacity, derived := board.CapacityOfPerson(b, login, today)
+		m := Member{Login: login, Carrying: carrying[login], Load: load[login],
+			Capacity: capacity, CapacityDerived: derived}
 		if person != nil {
 			p := person(login)
 			m.Name, m.AvatarURL = p.Name, p.AvatarURL

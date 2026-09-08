@@ -49,6 +49,7 @@ import { Avatar } from "./Avatar";
 import { TeamChips } from "./TeamChips";
 import { WeekGrid } from "./WeekGrid";
 import { ZoomControl } from "./ZoomControl";
+import { PersonLoad } from "./PersonLoad";
 import { useWeekGrid } from "./useWeekGrid";
 
 // The column a card with no assignee stands in. An empty login is a real
@@ -413,6 +414,18 @@ export function TriageBoard({
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", cancel);
   }, []);
+
+  // A lead sets what a person gets through in a week; the board comes back
+  // with every column's number recomputed, so the reload is the answer.
+  const setCapacity = useCallback(
+    (login: string, points: number) => {
+      void provider
+        .setCapacity(login, points)
+        .then(() => reload())
+        .catch((err: Error) => onError(err.message));
+    },
+    [provider, reload, onError],
+  );
 
   const fail = useCallback(
     (card: CardModel, before: Partial<CardModel>) => (err: Error) => {
@@ -1289,6 +1302,10 @@ export function TriageBoard({
                       <span className="triage-person-all">/{carrying[p.key]}</span>
                     </span>
                   )}
+                  <PersonLoad
+                    member={board.members.find((m) => m.login === p.key)}
+                    onSetCapacity={(points) => setCapacity(p.key, points)}
+                  />
                 </>
               )}
               {/* The border is THIS column's grip: dragging it widens this

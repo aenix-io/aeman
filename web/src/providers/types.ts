@@ -409,6 +409,11 @@ export interface Provider {
    *  day it counts as done along with it. Refused (422) on work still going,
    *  and where there is no earlier sprint to send it to. */
   finishedEarlier(uid: string): Promise<Card>;
+  /** Set how many points a week a person gets through — the number the day
+   *  boards measure their load against; 0 takes a set number back so the
+   *  board derives one again. Answers the whole board: its members carry
+   *  the new load and capacity. */
+  setCapacity(login: string, points: number): Promise<Board>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.

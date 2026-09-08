@@ -141,7 +141,15 @@ export interface BoardResource {
     processes?: { name: string; project?: string }[];
     epics?: { name: string; project?: string; domain?: string }[];
     /** The roster; `name` is the display name, absent on a GitHub board. */
-    members?: { login: string; avatarUrl?: string; name?: string; carrying?: number }[];
+    members?: {
+      login: string;
+      avatarUrl?: string;
+      name?: string;
+      carrying?: number;
+      load?: number;
+      capacity?: number;
+      capacityDerived?: boolean;
+    }[];
     /** The repositories the board spans, primary first. */
     domains?: {
       name: string;

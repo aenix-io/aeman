@@ -75,6 +75,9 @@ export function boardMetadata(
       avatarUrl: m.avatarUrl || undefined,
       name: m.name || undefined,
       carrying: m.carrying || undefined,
+      load: m.load || undefined,
+      capacity: m.capacity || undefined,
+      capacityDerived: m.capacityDerived || undefined,
     })),
     // The repositories the board spans, primary first. An older server names
     // none; the UI then shows nothing of domains at all.
@@ -442,6 +445,11 @@ export const apiProvider: Provider = {
   async finishedEarlier(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom("POST", `/cards/${uid}/actions/finished-earlier`, {});
+  },
+
+  async setCapacity(login: string, points: number): Promise<Board> {
+    await api<BoardResource>("PATCH", `/people/${encodeURIComponent(login)}`, { capacity: points });
+    return this.loadBoard();
   },
 
   async untriageCard(uid: string): Promise<Card> {

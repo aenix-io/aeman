@@ -141,6 +141,12 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	}
 	b := board.NewBoardIn(f.b.Primary, cards)
 	b.Board = f.b.Board
+	if len(f.b.People) > 0 {
+		b.People = make(map[string]board.Person, len(f.b.People))
+		for login, p := range f.b.People {
+			b.People[login] = p
+		}
+	}
 	// The map is the caller's explicit word about a team's sprint, so it
 	// wins over a bare state card seeded beside it.
 	for team, st := range f.b.SprintStates {
@@ -334,6 +340,19 @@ func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.C
 		}
 		c.Progress = progress
 	}
+	return nil
+}
+
+func (f *fakeBackend) SetPersonCapacity(_ context.Context, _ board.Board, login string, points int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetPersonCapacity %s %d", login, points)
+	if f.b.People == nil {
+		f.b.People = map[string]board.Person{}
+	}
+	p := f.b.People[login]
+	p.Capacity = points
+	f.b.People[login] = p
 	return nil
 }
 

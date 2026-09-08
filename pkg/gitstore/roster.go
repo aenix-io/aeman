@@ -75,6 +75,9 @@ func UserPath(login string) string { return "users/" + login + ".yaml" }
 type UserFile struct {
 	// Personal is the URL of the person's personal repository.
 	Personal string
+	// Capacity is the points a week a lead set for this person; 0 = none set,
+	// the board derives one (board.CapacityOfPerson).
+	Capacity int
 	Created  string
 	Extra    []ExtraField
 }
@@ -246,6 +249,9 @@ func EncodeTeam(f TeamFile) ([]byte, error) {
 func EncodeUser(f UserFile) ([]byte, error) {
 	var w yamlWriter
 	w.str("personal", f.Personal)
+	if f.Capacity != 0 {
+		w.b.WriteString("capacity: " + strconv.Itoa(f.Capacity) + "\n")
+	}
 	w.str("created", f.Created)
 	return w.finish(f.Extra)
 }
@@ -257,6 +263,8 @@ func DecodeUser(data []byte) (UserFile, error) {
 		switch key {
 		case "personal":
 			f.Personal = val.Value
+		case "capacity":
+			f.Capacity, _ = strconv.Atoi(val.Value)
 		case "created":
 			f.Created = val.Value
 		default:

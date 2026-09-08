@@ -59,6 +59,10 @@ type Backend interface {
 	// SetSize writes what somebody said the card weighs (S, M, L, XL; ""
 	// clears it). The points are derived, never written.
 	SetSize(ctx context.Context, b board.Board, card board.Card, size board.SizeKey) error
+	// SetPersonCapacity records the points a week a lead set for a person
+	// (users/<login>.yaml in the primary); 0 takes it back and the board
+	// derives one again.
+	SetPersonCapacity(ctx context.Context, b board.Board, login string, points int) error
 	SetDay(ctx context.Context, b board.Board, card board.Card, day string) error
 	// SetDoneAt writes the board day a card counts as finished on. Normally
 	// SetProgress sets it as a side effect of reaching 100 — this is for the

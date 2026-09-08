@@ -1845,6 +1845,47 @@ func (s *Service) SetZone(ctx context.Context, boardID string, itemID string, zo
 // ErrUnknownSize is a size that is not S, M, L or XL.
 var ErrUnknownSize = errors.New("a size is S, M, L or XL")
 
+// ErrBadCapacity is a capacity that is not a number of points a week a
+// person could have: negative, or absurd.
+var ErrBadCapacity = errors.New("a capacity is 0 (derive it) to 999 points a week")
+
+// maxCapacity bounds what a lead can type: a thousand points a week is a
+// slip of the keyboard, not a person.
+const maxCapacity = 999
+
+// SetPersonCapacity records the points a week a lead set for a person — the
+// number the day boards measure their load against. Zero takes it back: the
+// board then derives one from what the person has been closing
+// (board.CapacityOfPerson), which is where most people's number comes from;
+// a lead sets one when they know better — a half week, a newcomer, somebody
+// covering for two.
+func (s *Service) SetPersonCapacity(ctx context.Context, boardID string, login string, points int) error {
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return fmt.Errorf("%w: a person is a login", ErrBadCapacity)
+	}
+	if points < 0 || points > maxCapacity {
+		return fmt.Errorf("%w: %d", ErrBadCapacity, points)
+	}
+	b, err := s.backend.LoadBoard(ctx, boardID)
+	if err != nil {
+		return err
+	}
+	if p, ok := b.People[login]; ok && p.Capacity == points {
+		return nil
+	}
+	if !hasPerson(b.People, login) && points == 0 {
+		return nil
+	}
+	return s.backend.SetPersonCapacity(ctx, b, login, points)
+}
+
+// hasPerson reports whether the roster has an entry for the login.
+func hasPerson(people map[string]board.Person, login string) bool {
+	_, has := people[login]
+	return has
+}
+
 // SetSize records what somebody said the card weighs — the decision made on a
 // daily sync, or by a sizing tool. Anything but the four letters is refused
 // rather than stored: a size nothing knows would weigh nothing and read as

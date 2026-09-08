@@ -793,6 +793,16 @@ func (mb *MultiBackend) SetZone(ctx context.Context, bd board.Board, card board.
 	return be.SetZone(ctx, bd, card, zone)
 }
 
+// SetPersonCapacity writes in the PRIMARY: people are the board's, not a
+// domain's, and users/<login>.yaml lives where the board is named.
+func (mb *MultiBackend) SetPersonCapacity(ctx context.Context, bd board.Board, login string, points int) error {
+	be, err := mb.backend(mb.primary())
+	if err != nil {
+		return err
+	}
+	return be.SetPersonCapacity(ctx, bd, login, points)
+}
+
 // SetSize writes in the card's domain.
 func (mb *MultiBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
 	be, err := mb.route(ctx, card)

@@ -328,6 +328,18 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	}
 	cards = append(cards, s.Cards...)
 	bd := board.NewBoardIn(primary, cards)
+	// The people the roster knows: users/<login>.yaml in the primary — a
+	// capacity a lead set travels here; the link to a personal repository
+	// is the server's business and stays in the snapshot.
+	for _, u := range s.Users {
+		if u.Capacity == 0 {
+			continue
+		}
+		if bd.People == nil {
+			bd.People = map[string]board.Person{}
+		}
+		bd.People[u.Login] = board.Person{Capacity: u.Capacity}
+	}
 	// The team's capacity rides its state, not a state card: the card only
 	// carries the sprint, and the number belongs beside it.
 	// The team's BACKLOG LISTS ride there too, for the same reason: they are
@@ -866,6 +878,35 @@ func (b *Backend) editTeam(ctx context.Context, op, p string, fn func(*TeamFile)
 		return err
 	}
 	return b.write(ctx, op, nil, p, out)
+}
+
+// editUser rewrites users/<login>.yaml, creating it when the person has no
+// file yet: a capacity is set for anyone on the board, personal repository
+// or not, and most people have none.
+func (b *Backend) editUser(ctx context.Context, op, login string, fn func(*UserFile)) error {
+	p := UserPath(login)
+	data, ok, err := b.read(ctx, p)
+	if err != nil {
+		return err
+	}
+	f := UserFile{Created: b.now().UTC().Format(time.RFC3339)}
+	if ok {
+		if f, err = DecodeUser(data); err != nil {
+			return err
+		}
+	}
+	fn(&f)
+	out, err := EncodeUser(f)
+	if err != nil {
+		return err
+	}
+	return b.write(ctx, op, nil, p, out)
+}
+
+// SetPersonCapacity records the points a week a lead set for a person (0
+// takes it back: the board derives one again).
+func (b *Backend) SetPersonCapacity(ctx context.Context, _ board.Board, login string, points int) error {
+	return b.editUser(ctx, "capacity", login, func(f *UserFile) { f.Capacity = points })
 }
 
 func (b *Backend) editProject(ctx context.Context, op, p string, fn func(*ProjectFile)) error {

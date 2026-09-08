@@ -78,6 +78,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/cards/{uid}/notes/{noteId}", s.handleDeleteNote)
 	mux.HandleFunc("GET /api/v1/sprints", s.handleListSprints)
 	mux.HandleFunc("PATCH /api/v1/sprints", s.handlePatchSprint)
+	mux.HandleFunc("PATCH /api/v1/people/{login}", s.handlePatchPerson)
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-over", s.handleCarryOver)
 	mux.HandleFunc("POST /api/v1/sprints/actions/reorder-teams", s.handleReorderTeams)
 	mux.HandleFunc("POST /api/v1/sprints/actions/delete-team", s.handleDeleteTeam)
@@ -1954,6 +1955,40 @@ func (s *Server) patchZoneAndSize(ctx context.Context, w http.ResponseWriter, r 
 	return true
 }
 
+// handlePatchPerson sets what the roster says about a person — for now their
+// capacity, the points a week the day boards measure their load against
+// (`{"capacity": 40}`; 0 takes a set number back so the board derives one).
+// It answers with the whole Board resource, whose members carry load and
+// capacity: that is what the client redraws.
+func (s *Server) handlePatchPerson(w http.ResponseWriter, r *http.Request) {
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Capacity *int `json:"capacity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if in.Capacity == nil {
+		writeJSONError(w, http.StatusBadRequest, "capacity is required (0 derives it again)")
+		return
+	}
+	ctx := r.Context()
+	if err := svc.SetPersonCapacity(ctx, boardID, r.PathValue("login"), *in.Capacity); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	b, err := svc.Board(ctx, boardID)
+	if err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apiserver.BoardResourceWithPeople(b, s.store.member))
+}
+
 // parseSize validates a size ("" clears): S, M, L or XL in any case; on
 // failure it writes the 400 and returns ok=false.
 func parseSize(w http.ResponseWriter, raw string) (board.SizeKey, bool) {
@@ -2081,6 +2116,7 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrWeekDerived),
 		errors.Is(err, boardservice.ErrNotAMonday),
 		errors.Is(err, boardservice.ErrUnknownSize),
+		errors.Is(err, boardservice.ErrBadCapacity),
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrTurnProcess),

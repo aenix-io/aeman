@@ -4910,6 +4910,53 @@ button.card-age {
   opacity: 0.6;
 }
 
+/* The number over a person's column: points carried against points a week.
+   Quiet while it fits; bright red past it — the one thing a daily sync is
+   there to notice. */
+.person-load {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 7px;
+  margin-left: 6px;
+  cursor: pointer;
+  flex: none;
+}
+
+.person-load:disabled {
+  cursor: default;
+}
+
+.person-load-full {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+.person-load-over,
+.person-load-over:hover {
+  color: #fff;
+  background: #d1242f;
+  border-color: #d1242f;
+}
+
+.person-load-input {
+  font: inherit;
+  font-size: 11px;
+  width: 52px;
+  margin-left: 6px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
 /* The size on the card's face: one letter in the corner, so a board read on
    a sync shows what is sized and what is not without opening anything. */
 .card-size {

@@ -1110,3 +1110,26 @@ func (h *server) deleteNote(ctx context.Context, _ *mcp.CallToolRequest, in dele
 	}
 	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
 }
+
+// --- People ------------------------------------------------------------------
+
+type setCapacityInput struct {
+	boardRef
+	Login    string `json:"login" jsonschema:"the person's login (required)"`
+	Capacity int    `json:"capacity" jsonschema:"points a week, 1..999; 0 takes a set number back so the board derives one again"`
+}
+
+func (h *server) setCapacity(ctx context.Context, _ *mcp.CallToolRequest, in setCapacityInput) (*mcp.CallToolResult, apiserver.BoardInfo, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.BoardInfo{}, err
+	}
+	if err := svc.SetPersonCapacity(ctx, boardID, in.Login, in.Capacity); err != nil {
+		return nil, apiserver.BoardInfo{}, err
+	}
+	b, err := svc.Board(ctx, boardID)
+	if err != nil {
+		return nil, apiserver.BoardInfo{}, err
+	}
+	return nil, apiserver.BoardResource(b), nil
+}

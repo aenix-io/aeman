@@ -304,6 +304,10 @@ type Board struct {
 	Cards []Card `json:"cards"`
 	// SprintStates maps each team key ("" = the no-team group) to its pointer.
 	SprintStates map[string]SprintState `json:"sprintStates"`
+	// People is what the roster says about each login — the primary
+	// repository's users/<login>.yaml: a capacity a lead set, when one is.
+	// A login absent here is a person the board only knows from cards.
+	People map[string]Person `json:"people,omitempty"`
 	// TeamOrder lists the SprintStates keys in board order — the position of
 	// each team's hidden sprint-state card on the project. That position IS
 	// the team order every client shares (reordering teams moves the card).
