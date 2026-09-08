@@ -150,3 +150,34 @@ func TestAnUmbrellaOfReviewsWeighsThemAsReviews(t *testing.T) {
 		t.Errorf("two unsized review children weigh %d, want 2", got)
 	}
 }
+
+// The storage is open — anything may commit to these repositories — so a
+// card can arrive carrying a size nothing knows: `size: large`, or the
+// lower-case `l` a writer copying the API's "any case on the way in" rule
+// would produce. It must read as UNSIZED and weigh the default, which is what
+// the storage contract promises. It weighed NOTHING instead: the scale is a
+// map, a miss is 0, and the check was "did somebody write something" rather
+// than "is what they wrote a size". A board of such cards told every person
+// their week was empty — the one thing DefaultSize exists to prevent.
+func TestASizeNothingKnowsReadsAsUnsized(t *testing.T) {
+	b := Board{Cards: []Card{
+		{ItemID: "junk", Size: SizeKey("large")},
+		{ItemID: "case", Size: SizeKey("l")},
+		{ItemID: "rev", ReviewOf: "orig", Size: SizeKey("HUGE")},
+		{ItemID: "good", Size: SizeL},
+	}}
+	for _, tc := range []struct {
+		id   string
+		want int
+	}{{"junk", 2}, {"case", 2}, {"rev", 1}, {"good", 4}} {
+		var c Card
+		for _, k := range b.Cards {
+			if k.ItemID == tc.id {
+				c = k
+			}
+		}
+		if got := PointsOf(b, c); got != tc.want {
+			t.Errorf("%s (size %q) weighs %d, want %d", tc.id, c.Size, got, tc.want)
+		}
+	}
+}

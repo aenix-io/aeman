@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -422,6 +424,28 @@ func TestAPIIndex(t *testing.T) {
 	}
 	if idx.Name != "aeman" || idx.Version != "test-1.2.3" || idx.MCP != "/mcp" || len(idx.Endpoints) == 0 {
 		t.Fatalf("index = %+v", idx)
+	}
+	// Every route the mux wires must be IN the catalog. It is the only
+	// machine-readable description of this surface, so a door missing from it
+	// is a door an agent cannot find — which is what happened to
+	// PATCH /people/{login}, wired and undocumented.
+	src, err := os.ReadFile("api.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]bool{}
+	for _, ep := range idx.Endpoints {
+		listed[ep.Method+" "+ep.Path] = true
+	}
+	wired := regexp.MustCompile(`mux\.HandleFunc\("([A-Z]+ /api/v1[^"]*)"`)
+	for _, m := range wired.FindAllStringSubmatch(string(src), -1) {
+		// The catalog does not list itself: it IS the answer to that route.
+		if m[1] == "GET /api/v1" {
+			continue
+		}
+		if !listed[m[1]] {
+			t.Errorf("route %q is wired and missing from the GET /api/v1 catalog", m[1])
+		}
 	}
 	for _, ep := range idx.Endpoints {
 		if ep.Path == "/api/v1/snapshot" {

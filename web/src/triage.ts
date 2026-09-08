@@ -117,6 +117,20 @@ export function placedIn(
   return null;
 }
 
+/** ordersWithinCell reports whether a card takes part in the manual ORDER of
+ *  the cell it falls in — which is to say, whether it is one of the boxes
+ *  stacked there.
+ *
+ *  A REVIEW is not: it is folded into the line at the cell's foot, or drawn
+ *  below every card once that line is opened. Counting it in the order made
+ *  the list and the boxes disagree — a drop aimed at the top of a cell wrote
+ *  "before" an id the reader could not see, since an overdue review sorts
+ *  first by pile rank, and the write shuffled the review itself along the
+ *  board's order for good measure. */
+export function ordersWithinCell(c: Pick<Card, "reviewOf">): boolean {
+  return !c.reviewOf;
+}
+
 /** pileRank is where a card stands in a week's pile — what a reader working
  *  down a column should meet first.
  *

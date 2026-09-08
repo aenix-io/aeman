@@ -1125,19 +1125,22 @@ type setTeamCapacityInput struct {
 	Capacity int    `json:"capacity" jsonschema:"points a week, 1..999; 0 takes a set number back, leaving the team with no number at all"`
 }
 
-func (h *server) setTeamCapacity(ctx context.Context, _ *mcp.CallToolRequest, in setTeamCapacityInput) (*mcp.CallToolResult, apiserver.BoardInfo, error) {
+// The answer is the TEAM's sprint resource, which is where a team's capacity
+// lives: the board resource has no per-team number on it, so answering with
+// one told the caller everything except what it had just set.
+func (h *server) setTeamCapacity(ctx context.Context, _ *mcp.CallToolRequest, in setTeamCapacityInput) (*mcp.CallToolResult, apiserver.Sprint, error) {
 	svc, boardID, err := h.ref(ctx, in.boardRef)
 	if err != nil {
-		return nil, apiserver.BoardInfo{}, err
+		return nil, apiserver.Sprint{}, err
 	}
 	if err := svc.SetTeamPoints(ctx, boardID, in.Team, in.Capacity); err != nil {
-		return nil, apiserver.BoardInfo{}, err
+		return nil, apiserver.Sprint{}, err
 	}
 	b, err := svc.Board(ctx, boardID)
 	if err != nil {
-		return nil, apiserver.BoardInfo{}, err
+		return nil, apiserver.Sprint{}, err
 	}
-	return nil, apiserver.BoardResource(b), nil
+	return nil, apiserver.SprintResourceOf(b, in.Team), nil
 }
 
 func (h *server) setCapacity(ctx context.Context, _ *mcp.CallToolRequest, in setCapacityInput) (*mcp.CallToolResult, apiserver.BoardInfo, error) {

@@ -114,7 +114,7 @@ These two actions are the board's own gesture, and they are **not** the same as 
 | `POST /api/v1/projects/actions/reorder-projects` | `{projects:[...]}` | Apply the shared project order. |
 | `POST /api/v1/projects/actions/rename` | `{project, to}` | Rename a project in place; its columns and their cards follow. |
 | `POST /api/v1/teams/actions/rename` | `{team, to}` | Rename a team in place: its declaration keeps its sprint pointer, and every card and process task that names it follows. A name another team has is refused (422); the no-team group cannot be renamed. |
-| `POST /api/v1/teams/actions/capacity` | `{team, points}` | Set the points a week the team gets through — the number the Triage board holds each week's scheduled points against. Stored in the team's own file beside its cards a week; 0 takes it back and the board derives none, outside 0..999 is **422**, an undeclared team is **404**. |
+| `POST /api/v1/teams/actions/capacity` | `{team, points}` | Set the points a week the team gets through — the number the Triage board holds each week's scheduled points against. Stored in the team's own file (`capacity: points:`); 0 takes it back and the board derives none. Outside 0..999 is **422**, and so is a team the board does not declare (`ErrTeamNotFound`, like every other unknown roster entry). |
 | `POST /api/v1/processes/actions/delete-process` | `{process}` | Delete an EMPTY process; 422 while it has tasks. |
 | `POST /api/v1/processes/actions/rename` | `{process, to}` | Rename a process; its tasks follow. |
 | `POST /api/v1/processes/actions/set-project` | `{process, project}` | Move a process to another project (`""` = the no-project bucket). |

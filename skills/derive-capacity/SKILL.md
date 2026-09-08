@@ -13,7 +13,7 @@ The board never derives it. It could, and this skill is that arithmetic — but 
 
 `doneAt` is only written from the day a board started keeping it. A window that is empty of RECORDS while being full of WORK produces a median far under the truth, and nothing on screen says so.
 
-1. `list_cards view=all stage=done` and read `status.doneAt` on every card. Find the earliest one.
+1. `list_cards view=all stage=done` and read `status.doneAt` on every card. Find the earliest one. (Done is DERIVED from progress, never stored on a card — the selector asks the board's own question, so this is the one place `stage=done` means anything.)
 2. Compare it against the four complete weeks before this one (Monday to Monday; this week never counts — it is not over).
 3. If the earliest `doneAt` is inside that window, the record does not cover it. **Say so first, in the answer, before any number**: how many complete weeks are actually covered, and that everything below is a floor, not a capacity. Two covered weeks is worth showing as "at least N"; less than two is not worth deriving at all — tell the lead to set the numbers from what they know and come back in a month.
 
@@ -47,13 +47,13 @@ For each number the lead confirmed: `set_capacity login=<login> capacity=<points
 
 ## A team's number
 
-A team has a capacity of its own — `set_team_capacity team=<key> capacity=<points a week>` — and the board derives it no more than it derives a person's. It is a different measurement from the cards-a-week limit beside it in the same file, not another view of it.
+A team has a capacity of its own — `set_team_capacity team=<key> capacity=<points a week>` — and the board derives it no more than it derives a person's. It is the whole of the team's `capacity:` block — the cards-a-week limit that used to sit beside it was removed (B7), so there is no second number to confuse it with.
 
 Work it out in three steps, and say which of them you had to guess at:
 
 1. **Add up the people.** The team's members and their capacities (`get_board` `metadata.members`), which you have just derived or which a lead has set.
 2. **Take only the share of each person the team actually has.** Somebody who works across teams is not wholly anyone's. Split them by where their OPEN work is — `list_cards view=all` grouped by `spec.team` for that person, weighed the same way — rather than by what they closed: the closed record is only as deep as `doneAt` goes, and one busy week can hand a person's whole number to a team they barely touched. Say the split out loud in the table; it is the part a lead is most likely to correct, because they know that somebody is on portal this month whatever the cards say.
-3. **Take off what arrives unplanned.** A week planned to the last point cannot absorb the work that turns up during it. Measure it: of the points the team closed in the window, the share that was in the yellow or red zones (`spec.zone`) — on the production board that was a third for the engineering teams and two fifths for the portal team. A team's plannable week is its capacity less that share. If the window is too thin to measure, say so and leave the number at the raw sum, flagged.
+3. **Take off what arrives unplanned.** A week planned to the last point cannot absorb the work that turns up during it. Measure it: of the points the team closed in the window, the share that arrived unasked or had to be done that day — `spec.zone` is `unplanned` or `urgent` on the wire (the board's own yellow and red; `planned` and `niceToHave` are the other two) — on the production board that was a third for the engineering teams and two fifths for the portal team. A team's plannable week is its capacity less that share. If the window is too thin to measure, say so and leave the number at the raw sum, flagged.
 
 The result is one number per team, shown to the lead and written back only where they agree.
 

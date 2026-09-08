@@ -414,3 +414,36 @@ func TestSizesAndCapacitiesNeedWriteAccessToo(t *testing.T) {
 		t.Fatalf("the refused size reached the closed card: %s", rec.Body.String())
 	}
 }
+
+// G17 for the LOAD announcement. The numbers beside a person are summed over
+// cards from every team, so the frame that carries them is built per set of
+// RIGHTS — and that path had no test at all: a visitor who cannot read a
+// domain must not learn its people, or how much they are carrying, from a
+// frame that follows somebody else's write.
+func TestTheLoadAnnouncementIsFilteredByDomain(t *testing.T) {
+	srv := twoDomainServer(t)
+	closedUID := cardUID(t, srv, "bob", "three-closed")
+	key := storeKey(srv.gitBoard())
+	resources := map[string]bool{"cards": true}
+	aliceSub, cancelA := srv.store.subscribeAs(key, "alice-tab", nil, resources, rightsOn([]string{"shared"}, nil))
+	defer cancelA()
+	bobSub, cancelB := srv.store.subscribeAs(key, "bob-tab", nil, resources, rightsOn([]string{"shared", "closed"}, nil))
+	defer cancelB()
+
+	// A size in the closed domain: the write alice may not see, on a card
+	// whose owner works only there.
+	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/cards/"+closedUID, `{"size":"XL"}`); rec.Code != http.StatusOK {
+		t.Fatalf("bob sizes the closed card: %d %s", rec.Code, rec.Body.String())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx)
+
+	if got := memberIn(awaitLoad(t, aliceSub.ch), "zoe"); got.Login != "" {
+		t.Fatalf("alice's load frame carries a person from a domain she cannot read: %+v", got)
+	}
+	got := memberIn(awaitLoad(t, bobSub.ch), "zoe")
+	if got.Login != "zoe" || got.Load != 8 {
+		t.Fatalf("bob's load frame = %+v, want zoe carrying the XL he just set", got)
+	}
+}

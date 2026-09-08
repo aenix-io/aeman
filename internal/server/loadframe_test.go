@@ -183,3 +183,33 @@ func TestASprintFrameCarriesTheTeamsCapacity(t *testing.T) {
 		t.Fatalf("the announced sprint lost its pointer: %+v", got.Spec)
 	}
 }
+
+// A capacity is not a card and not a sprint pointer, so the diff a full
+// reload runs — external edits, another replica's push, a queued write the
+// backend refused — noticed nothing about it, and every tab went on showing
+// a number the board no longer held. The reload announces the people now.
+func TestAReloadAnnouncesACapacityChangedElsewhere(t *testing.T) {
+	const uid = "01CARDRELOADCAP000000AAAAA"
+	srv := gitModeServer(t, seedOneCard(t, uid))
+	if rec := do(t, srv, http.MethodGet, "/api/v1/board", ""); rec.Code != http.StatusOK {
+		t.Fatalf("board: %d", rec.Code)
+	}
+	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef(nil)), "tab", nil,
+		map[string]bool{"cards": true})
+	defer cancel()
+
+	// A capacity that appears in the tree without this server writing it —
+	// what another replica's push looks like from here.
+	e := srv.store.entry(storeKey(srv.boardRef(nil)))
+	e.mu.Lock()
+	old := e.board
+	next := old
+	next.People = map[string]board.Person{"kvaps": {Capacity: 33}}
+	e.board = next
+	e.diffNotify(old)
+	e.mu.Unlock()
+
+	if got := memberIn(awaitLoad(t, sub.ch), "kvaps"); got.Capacity != 33 {
+		t.Fatalf("the announced member = %+v, want the capacity the reload brought in", got)
+	}
+}

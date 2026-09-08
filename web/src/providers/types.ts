@@ -413,13 +413,14 @@ export interface Provider {
   finishedEarlier(uid: string): Promise<Card>;
   /** Set how many points a week a person gets through — the number the day
    *  boards measure their load against; 0 takes it back, leaving them with
-   *  none. Answers the whole board: its members carry the new load and
-   *  capacity. */
-  setCapacity(login: string, points: number): Promise<Board>;
+   *  none. The caller reloads: these numbers are the server's, summed over
+   *  cards the caller may not be holding, so there is nothing to patch in
+   *  place and no second fetch to make here. */
+  setCapacity(login: string, points: number): Promise<void>;
   /** Set how many points a week a TEAM gets through — the number the Triage
    *  board holds each week's scheduled points against. A number of its own,
    *  not a sum of the team's people; 0 takes it back. */
-  setTeamCapacity(team: string, points: number): Promise<Board>;
+  setTeamCapacity(team: string, points: number): Promise<void>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.

@@ -467,7 +467,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Description: &description,
 		Team:        c.Team,
 		Zone:        SemanticZone(board.ZoneOf(c)),
-		Size:        string(c.Size),
+		Size:        sizeOut(c.Size),
 		Assignees:   append([]string{}, c.Assignees...),
 		Progress:    c.Progress,
 		Stage:       string(c.Stage),
@@ -565,6 +565,17 @@ func SprintResourceOf(b board.Board, team string) Sprint {
 		Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
 			Capacity: &SprintCapacity{Points: board.PointsAWeekOf(b, team)}},
 	}
+}
+
+// sizeOut is the size a card resource states: one of the four letters, or
+// nothing. The storage is open, so a card can carry a size nothing knows
+// (`size: large`); the board weighs such a card as unsized, and the API has
+// to say the same thing rather than echo a value its own PATCH would refuse.
+func sizeOut(s board.SizeKey) string {
+	if board.Points(s) > 0 {
+		return string(s)
+	}
+	return ""
 }
 
 // NoteResources maps a card's notes onto Note resources.

@@ -458,14 +458,12 @@ export const apiProvider: Provider = {
     return cardFrom("POST", `/cards/${uid}/actions/finished-earlier`, {});
   },
 
-  async setCapacity(login: string, points: number): Promise<Board> {
+  async setCapacity(login: string, points: number): Promise<void> {
     await api<BoardResource>("PATCH", `/people/${encodeURIComponent(login)}`, { capacity: points });
-    return this.loadBoard();
   },
 
-  async setTeamCapacity(team: string, points: number): Promise<Board> {
+  async setTeamCapacity(team: string, points: number): Promise<void> {
     await api<{ ok: boolean }>("POST", "/teams/actions/capacity", { team, points });
-    return this.loadBoard();
   },
 
   async untriageCard(uid: string): Promise<Card> {

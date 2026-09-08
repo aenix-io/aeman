@@ -968,6 +968,14 @@ func (e *boardEntry) diffNotify(old board.Board) {
 			e.sprintChanged("", team)
 		}
 	}
+	// The ROSTER's own numbers. A person's capacity is not a card and not a
+	// sprint pointer, so nothing above notices it: a capacity another replica
+	// wrote, or one this server queued and the backend then refused, left
+	// every tab showing the number that is no longer there. The Load frame
+	// carries them, and one is cheap next to the reload that just happened.
+	if !reflect.DeepEqual(old.People, e.board.People) {
+		e.loadBroadcast()
+	}
 	orderChanged := len(old.Cards) != len(e.board.Cards)
 	if !orderChanged {
 		for i := range e.board.Cards {

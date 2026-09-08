@@ -119,8 +119,16 @@ func pointsWith(kids map[string]int, c Card) int {
 // A review somebody DID size keeps the size they gave it: the default is a
 // guess about the usual, not a cap on the unusual.
 func weigh(c Card) int {
-	if c.Size != SizeNone {
-		return Points(c.Size)
+	// A size the SCALE knows, not merely a size somebody wrote. These
+	// repositories are open — anything may commit to them (plugin-impact.md)
+	// — so `size: large`, or the lower-case `l` a writer copying the API's
+	// "any case on the way in" rule produces, arrives here as written.
+	// Asking "is it non-empty" made those weigh NOTHING, since the scale is a
+	// map and a miss is zero: a board of them told every person their week
+	// was empty, which is the one thing the default exists to prevent. An
+	// unreadable size is no size.
+	if pts := Points(c.Size); pts > 0 {
+		return pts
 	}
 	if c.ReviewOf != "" {
 		return Points(SizeS)

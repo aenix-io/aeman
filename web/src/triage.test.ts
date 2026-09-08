@@ -13,6 +13,7 @@ import {
   reachOf,
   weeksCovered,
   broughtBack,
+  ordersWithinCell,
 } from "./triage";
 
 const card = (over: Partial<Card> = {}): Card =>
@@ -380,5 +381,17 @@ describe("where a review card stands", () => {
 
   it("leaves an ordinary dated card in no column: dates are not a week", () => {
     expect(placedIn({ startDate: "2026-07-23", day: "2026-07-23" } as Card)).toBeNull();
+  });
+});
+
+// A review is not one of the boxes stacked in a cell — it is folded into the
+// line at the cell's foot — so it takes no part in that cell's manual order.
+// Counting it made the list of ids and the boxes on screen disagree, and a
+// drop then wrote "before" a card the reader could not see.
+describe("what takes part in a cell's order", () => {
+  it("leaves review cards out, and everything else in", () => {
+    expect(ordersWithinCell({ reviewOf: "orig" } as Card)).toBe(false);
+    expect(ordersWithinCell({} as Card)).toBe(true);
+    expect(ordersWithinCell({ reviewOf: undefined } as Card)).toBe(true);
   });
 });

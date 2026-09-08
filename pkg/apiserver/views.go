@@ -192,8 +192,19 @@ func FilterCards(b board.Board, sel Selector) []board.Card {
 	}
 	out := make([]board.Card, 0, len(base))
 	for _, c := range base {
-		if sel.Stage != nil && string(c.Stage) != *sel.Stage {
-			continue
+		// "done" is not a stored stage — it is DERIVED from progress, so a
+		// card that is finished has no stage at all — and comparing it
+		// against the stored one asked for a file that says `stage: done`,
+		// which no door on this board writes. It is a value the tools
+		// advertise, so it has to ask the board's own question.
+		if sel.Stage != nil {
+			if *sel.Stage == string(board.StageDone) {
+				if !board.Complete(c.Stage, c.Progress) {
+					continue
+				}
+			} else if string(c.Stage) != *sel.Stage {
+				continue
+			}
 		}
 		if sel.Zone != nil && SemanticZone(board.ZoneOf(c)) != *sel.Zone {
 			continue

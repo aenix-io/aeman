@@ -86,6 +86,9 @@ describe("what moves when a pointer crosses a card", () => {
   // page; on a day board it was another glyph in a row already crowded, on a
   // card whose week was decided somewhere else.
   it("draws no size on a day board's card", () => {
-    expect(draw(card({ size: "L" } as Partial<Card>))).not.toContain("card-size");
+    // The chip's own class, not a name nothing renders: asserting the
+    // absence of a class that never existed passes whatever the card draws.
+    expect(draw(card({ size: "L" } as Partial<Card>))).not.toContain("size-chip");
+    expect(draw(card({ size: "L" } as Partial<Card>))).not.toContain(">L<");
   });
 });

@@ -28,6 +28,7 @@ import {
   byPile,
   gripOf,
   needsTriage,
+  ordersWithinCell,
   orderWith,
   placedIn,
   removableOnTriage,
@@ -477,11 +478,29 @@ export function TriageBoard({
   const [capEdit, setCapEdit] = useState<{ team: string; week: string } | null>(null);
   const [capMenu, setCapMenu] = useState(false);
   const capAnchor = useRef<HTMLElement | null>(null);
+  // What is being typed, per team, while it is being typed. The fields are
+  // CONTROLLED against this: an uncontrolled one keeps whatever it was born
+  // with, so a board that reloaded under it — anybody's write, including the
+  // one this field just made — would be overwritten by a stale number on the
+  // next blur.
+  const [capDraft, setCapDraft] = useState<Record<string, string>>({});
+  const capacityOf = useCallback(
+    (team: string) => board.sprintStates[team]?.capacity?.points ?? 0,
+    [board.sprintStates],
+  );
+  const capValue = useCallback(
+    (team: string) => capDraft[team] ?? (capacityOf(team) ? String(capacityOf(team)) : ""),
+    [capDraft, capacityOf],
+  );
   const setTeamCapacity = useCallback(
-    (team: string, points: number) => {
-      setCapEdit(null);
-      setCapMenu(false);
-      if (points === (board.sprintStates[team]?.capacity?.points ?? 0)) {
+    (team: string) => {
+      const raw = capDraft[team];
+      setCapDraft(({ [team]: _typed, ...rest }) => rest);
+      if (raw === undefined) {
+        return;
+      }
+      const points = raw.trim() === "" ? 0 : Number.parseInt(raw, 10);
+      if (Number.isNaN(points) || points < 0 || points > 999 || points === capacityOf(team)) {
         return;
       }
       void provider
@@ -489,7 +508,7 @@ export function TriageBoard({
         .then(() => reload())
         .catch((err: Error) => onError(err.message));
     },
-    [board.sprintStates, provider, reload, onError],
+    [capDraft, capacityOf, provider, reload, onError],
   );
 
   // Every chip on the board — in the grid and on the shelves — opens the
@@ -562,6 +581,9 @@ export function TriageBoard({
       const here: CardModel[] = [];
       for (const c of board.cards) {
         if (whoOf(c) !== who) {
+          continue;
+        }
+        if (!ordersWithinCell(c)) {
           continue;
         }
         const at = placedIn(c) ? extentOf(rowDates(c), weeks) : { row: 0, span: 1 };
@@ -957,7 +979,10 @@ export function TriageBoard({
         continue;
       }
       const col = whoOf(c);
-      const key = `${col}\u0000${at.row}`;
+      // Keyed by the WEEK, never by the row index: pressing "earlier weeks"
+      // pads the grid at the front and every row number shifts, which would
+      // fold a cell's reviews away under somebody's hands.
+      const key = `${col}\u0000${weeks[at.row]}`;
       const cell = byCell.get(key) ?? { col, row: at.row, cards: [] };
       cell.cards.push(c);
       byCell.set(key, cell);
@@ -1497,13 +1522,21 @@ export function TriageBoard({
                       max={999}
                       autoFocus
                       aria-label={`Points a week for ${capEdit.team || "no team"}`}
-                      defaultValue={board.sprintStates[capEdit.team]?.capacity?.points || ""}
+                      value={capValue(capEdit.team)}
                       onClick={(e) => e.stopPropagation()}
-                      onBlur={(e) => setTeamCapacity(capEdit.team, Number(e.target.value) || 0)}
+                      onChange={(e) =>
+                        setCapDraft((d) => ({ ...d, [capEdit.team]: e.target.value }))
+                      }
+                      onBlur={() => {
+                        setTeamCapacity(capEdit.team);
+                        setCapEdit(null);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
-                          setTeamCapacity(capEdit.team, Number(e.currentTarget.value) || 0);
+                          setTeamCapacity(capEdit.team);
+                          setCapEdit(null);
                         } else if (e.key === "Escape") {
+                          setCapDraft(({ [capEdit.team]: _typed, ...rest }) => rest);
                           setCapEdit(null);
                         }
                       }}
@@ -1860,6 +1893,9 @@ export function TriageBoard({
           <label key={t || "\u0000none"} className="triage-cap-row">
             <span className="card-stage-dot" style={{ background: teamColor(t) }} />
             <span className="triage-cap-team">{t || "No team"}</span>
+            {/* The menu STAYS OPEN as each row is filled: it is a list of
+                teams, and closing it on the first blur meant exactly one of
+                them could be answered per opening. */}
             <input
               className="triage-cap-input"
               type="number"
@@ -1867,18 +1903,15 @@ export function TriageBoard({
               max={999}
               placeholder="—"
               aria-label={`Points a week for ${t || "no team"}`}
-              defaultValue={board.sprintStates[t]?.capacity?.points || ""}
+              value={capValue(t)}
+              onChange={(e) => setCapDraft((d) => ({ ...d, [t]: e.target.value }))}
+              onBlur={() => setTeamCapacity(t)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  setTeamCapacity(t, Number(e.currentTarget.value) || 0);
+                  setTeamCapacity(t);
                 } else if (e.key === "Escape") {
+                  setCapDraft(({ [t]: _typed, ...rest }) => rest);
                   setCapMenu(false);
-                }
-              }}
-              onBlur={(e) => {
-                const n = Number(e.target.value) || 0;
-                if (n !== (board.sprintStates[t]?.capacity?.points ?? 0)) {
-                  setTeamCapacity(t, n);
                 }
               }}
             />
