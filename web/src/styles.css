@@ -3583,12 +3583,10 @@ button.card-age {
   opacity: 1;
 }
 
-/* The size on a Triage box: always on show, at the box's right edge — where
-   the Project board keeps its owner badge, so the hover actions (right: 23px)
-   land beside it rather than pushing it. An unsized box wears a faint dash
-   instead of a letter: the board still weighs it as M, and a sync is looking
-   for exactly these. */
-.triage-slot-size {
+/* What a card weighs, on its face: on a Triage box at the right edge — where
+   the Project board keeps its owner badge, so the hover actions land beside
+   it rather than pushing it — and on a backlog card beside its ×. */
+.size-chip {
   flex: none;
   position: relative;
   z-index: 4;
@@ -3608,7 +3606,7 @@ button.card-age {
   cursor: pointer;
 }
 
-.triage-slot-size:hover {
+.size-chip:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -3617,7 +3615,7 @@ button.card-age {
    COUNTED as, in an empty dashed chip rather than a solid one: the reader
    sees what the number over the person is made of, and the chip says at a
    glance that it is the board's assumption and not anybody's word. */
-.triage-slot-size-unset {
+.size-chip-unset {
   background: transparent;
   border-color: var(--line);
   border-style: dashed;
@@ -5237,6 +5235,13 @@ button.card-age {
    not even be clicked.) */
 .triage-slot .project-slot-actions {
   right: 28px;
+}
+
+/* On a shelf the chip stands between the title and the × — the × is
+   hover-only but keeps its place in the row, so nothing moves under a
+   pointer. */
+.backlog-card .size-chip {
+  margin-top: -1px;
 }
 
 /* The line at the foot of a cell: how many reviews stand in this person's

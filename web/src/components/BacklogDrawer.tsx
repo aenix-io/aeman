@@ -23,6 +23,7 @@ import { parked } from "../backlog";
 import { teamColor } from "../avatar";
 import { ZONES } from "../zones";
 import { AddCard } from "./AddCard";
+import { SizeChip } from "./SizeChip";
 
 /** How far the pointer must travel before a press becomes a drag. The board's
  *  own number — a press that stays put opens the card here too. */
@@ -200,6 +201,11 @@ interface BacklogDrawerProps {
    *  card a week is what brings it back, and that is a drag onto the grid. */
   onRemove: (card: CardModel) => void;
   onOpenCard: (card: CardModel) => void;
+  /** Open the board's size picker under a card's chip. A shelf is where work
+   *  is weighed up before it is given a week, so it is a place the letter has
+   *  to be settable — the drawer says how much each list is holding, and a
+   *  list of unsized cards says it in cards, not in work. */
+  onPickSize: (card: CardModel, anchor: HTMLElement) => void;
 }
 
 export function BacklogDrawer({
@@ -215,6 +221,7 @@ export function BacklogDrawer({
   onAddCard,
   onRemove,
   onOpenCard,
+  onPickSize,
 }: BacklogDrawerProps) {
   const [adding, setAdding] = useState<string | null>(null);
   const press = useRef<{ card: CardModel; x: number; y: number; moved: boolean } | null>(null);
@@ -391,6 +398,7 @@ export function BacklogDrawer({
                           style={{ borderLeftColor: zoneMark(c) }}
                         >
                           <span className="backlog-card-title">{c.title}</span>
+                          <SizeChip card={c} onPick={onPickSize} />
                           <button
                             type="button"
                             className="backlog-card-remove"

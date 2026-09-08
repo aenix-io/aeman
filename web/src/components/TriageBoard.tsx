@@ -38,7 +38,7 @@ import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
-import { SIZES, SIZE_ORDER, assumedSize, pointsOf } from "../size";
+import { SIZES, SIZE_ORDER, pointsOf } from "../size";
 import { isComplete } from "../stages";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
@@ -49,6 +49,7 @@ import { AddCard } from "./AddCard";
 import { Avatar } from "./Avatar";
 import { TeamChips } from "./TeamChips";
 import { Dropdown } from "./Dropdown";
+import { SizeChip } from "./SizeChip";
 import { WeekGrid } from "./WeekGrid";
 import { ZoomControl } from "./ZoomControl";
 import { PersonLoad } from "./PersonLoad";
@@ -468,6 +469,12 @@ export function TriageBoard({
   // element it hangs under, which is a different box each time.
   const [sizing, setSizing] = useState<CardModel | null>(null);
   const sizeAnchor = useRef<HTMLElement | null>(null);
+  // Every chip on the board — in the grid and on the shelves — opens the
+  // one menu, under whichever chip was pressed.
+  const openSizer = useCallback((card: CardModel, anchor: HTMLElement) => {
+    sizeAnchor.current = anchor;
+    setSizing((cur) => (cur?.itemId === card.itemId ? null : card));
+  }, []);
   const setSize = useCallback(
     (card: CardModel, size: SizeKey | "") => {
       setSizing(null);
@@ -1555,27 +1562,7 @@ export function TriageBoard({
                     onDoubleClick={() => onOpen(card)}
                   >
                     <span className="project-slot-title">{card.title}</span>
-                    <button
-                      type="button"
-                      className={`triage-slot-size${card.size ? "" : " triage-slot-size-unset"}`}
-                      title={
-                        card.size
-                          ? `${card.size} — ${SIZES[card.size].hint}. Click to change`
-                          : `Nobody has sized this: counted as ${assumedSize(card)} — ` +
-                            `${SIZES[assumedSize(card)].hint}. Click to say`
-                      }
-                      aria-label={
-                        card.size ? `Size ${card.size}` : `Unsized, counted as ${assumedSize(card)}`
-                      }
-                      onDoubleClick={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        sizeAnchor.current = e.currentTarget;
-                        setSizing(sizing?.itemId === card.itemId ? null : card);
-                      }}
-                    >
-                      {assumedSize(card)}
-                    </button>
+                    <SizeChip card={card} onPick={openSizer} />
                   </div>
                 );
               }
@@ -1621,41 +1608,11 @@ export function TriageBoard({
                     {parts > 1 && <span className="triage-slot-part"> ({part + 1}/{parts})</span>}
                   </span>
                   {/* What the box WEIGHS, always on show and one click from
-                      being changed. A card nobody sized wears the size it is
-                      COUNTED as — M, or S for a review — in an empty dashed
-                      chip rather than a solid one: the number over the person
-                      is made of that letter, and a dash said only that nobody
-                      had spoken while hiding what the board was doing about
-                      it. Dashed and quiet, it is still what a sync scans for,
-                      and it is not a claim anybody made. It stands at the
-                      slot's right edge, where the Project board keeps its
-                      owner badge, so the hover actions land beside it instead
-                      of moving it. A projected turn has no card behind it yet
-                      and nothing to size. */}
-                  {!slot.projected && (
-                    <button
-                      type="button"
-                      className={`triage-slot-size${card.size ? "" : " triage-slot-size-unset"}`}
-                      title={
-                        card.size
-                          ? `${card.size} — ${SIZES[card.size].hint}. Click to change`
-                          : `Nobody has sized this: counted as ${assumedSize(card)} — ` +
-                            `${SIZES[assumedSize(card)].hint}. Click to say`
-                      }
-                      aria-label={
-                        card.size ? `Size ${card.size}` : `Unsized, counted as ${assumedSize(card)}`
-                      }
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        sizeAnchor.current = e.currentTarget;
-                        setSizing(sizing?.itemId === card.itemId ? null : card);
-                      }}
-                    >
-                      {assumedSize(card)}
-                    </button>
-                  )}
+                      being changed. It stands at the slot's right edge, where
+                      the Project board keeps its owner badge, so the hover
+                      actions land beside it instead of moving it. A projected
+                      turn has no card behind it yet and nothing to size. */}
+                  {!slot.projected && <SizeChip card={card} onPick={openSizer} />}
                   {!slot.projected &&
                     (parkable(card) ||
                       removableOnTriage(card, unlocked, choicesFor(card))) && (
@@ -1823,6 +1780,7 @@ export function TriageBoard({
           onDragEnd={dragEndFromDrawer}
           onRemove={remove}
           onOpenCard={onOpen}
+          onPickSize={openSizer}
         />
       </div>
       {/* One menu for every box: it hangs under whichever badge was pressed,

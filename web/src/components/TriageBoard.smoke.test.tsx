@@ -456,14 +456,14 @@ describe("the Triage board", () => {
     // than a dash — that letter is what the number over the person is made
     // of — in an empty dashed chip, so it never reads as somebody's word.
     const bare = draw([card()]);
-    expect(bare).toContain("triage-slot-size triage-slot-size-unset");
+    expect(bare).toContain("size-chip size-chip-unset");
     expect(bare).toContain(">M</button>");
     expect(bare).toContain("Nobody has sized this: counted as M");
 
     const sized = draw([{ ...card(), size: "L" } as never]);
-    expect(sized).toContain('class="triage-slot-size"');
+    expect(sized).toContain('class="size-chip"');
     expect(sized).toContain(">L</button>");
-    expect(sized).not.toContain("triage-slot-size-unset");
+    expect(sized).not.toContain("size-chip-unset");
   });
 
   it("puts the week's points over the plannable, not beside it", () => {
