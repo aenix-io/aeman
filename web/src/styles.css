@@ -5024,20 +5024,30 @@ button.card-age {
 /* The number over a person's column: points carried against points a week.
    Quiet while it fits; bright red past it — the one thing a daily sync is
    there to notice. */
+/* Over a person's column: quiet figures, no box. A ring around a number
+   that is fine says nothing, and the header already carries an avatar and a
+   name — the reading is what a week is planned against, not a badge. The box
+   appears where it MEANS something: red when the plan does not fit, and an
+   outline under the pointer, which is how it still reads as a control. */
 .person-load {
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
   color: var(--muted);
   background: none;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 7px;
-  margin-left: 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 3px;
+  margin-left: 5px;
   cursor: pointer;
   flex: none;
+}
+
+.person-load:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--line);
 }
 
 .person-load:disabled {
@@ -5046,7 +5056,6 @@ button.card-age {
 
 .person-load-full {
   color: var(--fg);
-  border-color: var(--fg);
 }
 
 .person-load-over,
@@ -5095,10 +5104,10 @@ button.card-age {
 
 .person-load-input {
   font: inherit;
-  font-size: 11px;
-  width: 52px;
-  margin-left: 6px;
-  padding: 2px 4px;
+  font-size: 10px;
+  width: 44px;
+  margin-left: 5px;
+  padding: 1px 3px;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--bg);
