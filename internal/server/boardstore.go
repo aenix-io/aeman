@@ -779,6 +779,18 @@ type storeBackend struct {
 	// become local commits (one per request) and a background push sends
 	// them; nil for every other backend.
 	git *gitSync
+	// housekeeper is the service the TICK sweeps through, one instance for
+	// the life of the process: the title sweep remembers which references it
+	// has already asked the forge about, and a service built per tick would
+	// forget that every fifteen seconds and hammer a dead link forever.
+	housekeeper     *boardservice.Service
+	housekeeperOnce sync.Once
+}
+
+// sweeper is the long-lived service the tick's housekeeping runs through.
+func (b *storeBackend) sweeper() *boardservice.Service {
+	b.housekeeperOnce.Do(func() { b.housekeeper = boardservice.New(b) })
+	return b.housekeeper
 }
 
 var _ boardservice.Backend = (*storeBackend)(nil)

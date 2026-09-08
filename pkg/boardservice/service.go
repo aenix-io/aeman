@@ -100,6 +100,13 @@ var ErrNoteTooLong = fmt.Errorf("note is too long (max %d characters)", MaxNoteL
 // then applies it through the backend setters.
 type Service struct {
 	backend Backend
+	// titleTried is when the title sweep last asked the forge about a card,
+	// so a reference that will not resolve is not asked about every tick
+	// (ResolveOpenTitles). It holds only the cards still waiting, which is
+	// normally none. now is time.Now unless a test replaced it.
+	titleMu    sync.Mutex
+	titleTried map[string]time.Time
+	now        func() time.Time
 }
 
 // New builds a Service over a backend.
