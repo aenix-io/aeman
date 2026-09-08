@@ -4905,16 +4905,10 @@ button.card-age {
 
 /* The catch on a project card's weeks. Closed by default and never
    remembered: the next visit starts closed again. */
-/* The two board-wide switches, at the right edge with the scale rather than
-   among the board's own readings: they govern what the grid holds and the
-   reader reaches for them rarely. The REVIEWS toggle stands first and carries
-   the margin that pushes the pair right, so the catch keeps the edge. */
-.triage-reviews {
+.triage-lock {
+  /* At the right edge with the scale, not among the board's own readings:
+     it governs the cards, and the reader reaches for it rarely. */
   margin-left: auto;
-}
-
-.triage-lock,
-.triage-reviews {
   display: flex;
   align-items: center;
   color: var(--muted);
@@ -4927,8 +4921,7 @@ button.card-age {
   opacity: 0.55;
 }
 
-.triage-lock:hover,
-.triage-reviews:hover {
+.triage-lock:hover {
   opacity: 1;
   color: var(--fg);
   border-color: var(--line);
@@ -4941,17 +4934,8 @@ button.card-age {
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 
-/* Showing reviews, it says so plainly — this one adds cards to the board
-   rather than letting something loose, so it lights in the accent and not in
-   the danger colour. */
-.triage-reviews-on {
-  opacity: 1;
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-/* The switches have taken the space before them, so the scale sits against
-   them rather than being pushed out again. */
+/* The lock has taken the space before it, so the scale sits against it
+   rather than being pushed out again. */
 .triage .zoom-control {
   margin-left: 0;
 }
@@ -5116,29 +5100,6 @@ button.card-age {
   color: var(--fg);
 }
 
-/* The size on the card's face: one letter in the corner, so a board read on
-   a sync shows what is sized and what is not without opening anything. */
-/* The size on the card's face: a letter in the actions row, shaped like the
-   buttons beside it (the same 18px box as .card-action, the same small bold
-   label as the id copier) so the single 1px gap reads identically between
-   any two of them. It is a value, not a control — the sizing happens through
-   the API and the detail pane — so it is a span with no hit state. */
-.card-size {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 2px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  line-height: 1;
-  color: var(--muted);
-  user-select: none;
-}
-
 /* Somewhere to start a card, standing where the next one would: under the
    last of its cell, at the full width of the column, and no taller than the
    card it is about to become — the board is read down a column and a form
@@ -5276,6 +5237,54 @@ button.card-age {
    not even be clicked.) */
 .triage-slot .project-slot-actions {
   right: 28px;
+}
+
+/* The line at the foot of a cell: how many reviews stand in this person's
+   week. Not a card — it is as wide as the column and as quiet as it can be
+   while still being a control — and drawn under everything the week is
+   actually planning, because a review is not planned here. It stays while it
+   is open, as the way back. */
+.triage-reviews-line {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  border: 1px dashed var(--line);
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.triage-reviews-line:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.triage-reviews-line-open {
+  color: var(--fg);
+  border-style: solid;
+}
+
+/* A review the line has opened: somebody else's finished work being read, so
+   it is drawn as a card and behaves as none — nothing here plans it. */
+.triage-slot-review {
+  border-left-width: 1px;
+  border-style: dashed;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  cursor: default;
 }
 
 /* The gap between the boxes of one card while it is carried or stretched:

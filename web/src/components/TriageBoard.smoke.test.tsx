@@ -254,20 +254,34 @@ describe("the Triage board", () => {
     expect(html).not.toContain("project-slot triage-slot");
   });
 
-  it("keeps every review off the grid until the switch asks for them", () => {
-    // A review is not triage work — nobody is waiting on a week for it — and
-    // every open one standing in the columns would bury the weeks the grid
-    // exists to plan. But they ARE work in the reviewer's hands and count in
-    // the number over their name, and a review whose dates ran out is on no
-    // other board at all, so the toolbar carries a switch for them. Off to
-    // begin with, like the catch beside it. (What they weigh and where they
-    // then stand: size.test.ts and triage.test.ts.)
-    const withWeek = draw([card({ title: "Review of it", reviewOf: "c9" })]);
-    expect(withWeek).not.toContain("Review of it");
-    const dated = draw([card({ week: undefined, title: "Review of it", reviewOf: "c9" })]);
-    expect(dated).not.toContain("Review of it");
-    expect(withWeek).toContain('class="triage-reviews"');
-    expect(withWeek).toContain('aria-pressed="false"');
+  it("says on a line under a cell's cards how many reviews stand in it", () => {
+    // A review is not triage work — nobody is waiting on a week for it — so
+    // it is not among the cards. But it IS work in the reviewer's hands, it
+    // counts in the number over their name and in the week's points, and one
+    // whose dates ran out is on no other board at all. So its cell says so,
+    // and opens them where they belong: that person, that week. (What they
+    // weigh and where they stand: size.test.ts and triage.test.ts.)
+    const html = draw([
+      card({ title: "Real work", assignees: ["lexfrei"] }),
+      card({ title: "Review of it", reviewOf: "c9", assignees: ["lexfrei"] }),
+    ]);
+    expect(html).toContain("Real work");
+    expect(html).not.toContain("Review of it");
+    expect(html).toContain('class="triage-reviews-line"');
+    expect(html).toContain("+1 review<");
+    expect(html).toContain('aria-expanded="false"');
+    // The week counts what it costs whether or not the line is open: one
+    // unsized card at M and one unsized review at S.
+    expect(html).toContain('<span class="triage-points-load">3</span>');
+  });
+
+  it("counts several reviews in one line, and none where there are none", () => {
+    const two = draw([
+      card({ title: "Review A", reviewOf: "c9", assignees: ["lexfrei"] }),
+      card({ title: "Review B", reviewOf: "c8", assignees: ["lexfrei"] }),
+    ]);
+    expect(two).toContain("+2 reviews<");
+    expect(draw([card({ assignees: ["lexfrei"] })])).not.toContain("triage-reviews-line");
   });
 
   it("draws no card sent to review — it waits on a reviewer, not on a week", () => {

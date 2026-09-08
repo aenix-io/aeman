@@ -679,11 +679,6 @@ export function Card({
         )}
         {!stageVisible && stageControl}
         {/* --- from here on: always visible, and therefore rightmost --- */}
-        {card.size && (
-          <span className="card-size" title={`Size ${card.size}`}>
-            {card.size}
-          </span>
-        )}
         {localLinks.length > 0 && (
           <div className="card-links" ref={linksRef}>
             <button

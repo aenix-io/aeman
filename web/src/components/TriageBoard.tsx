@@ -111,6 +111,15 @@ interface Slot extends Laned {
    *  falls in is already spoken for, and a board that plans weeks ahead has
    *  to say so. */
   projected?: boolean;
+  /** The LINE under a cell's cards: the reviews standing in that cell, and
+   *  the key that opens them. `card` is the first of them, so the slot has
+   *  one like any other, and nothing but this line reads it. */
+  reviews?: CardModel[];
+  cell?: string;
+  /** A review card, drawn because its line is open. It is somebody else's
+   *  work being read: it cannot be moved into another week — it has no week
+   *  to write — and nothing on it can be planned. */
+  review?: boolean;
 }
 
 function whoOf(c: CardModel): string {
@@ -189,14 +198,24 @@ export function TriageBoard({
    *  card has neither a week nor a place in the strip — so the board is lent
    *  it for as long as the gesture lasts, and draws it where it would land. */
   const [carried, setCarried] = useState<CardModel | null>(null);
-  // Whether the REVIEW cards are drawn. Off to begin with, like the catch
-  // beside it: the grid is where weeks are planned, and every open review
-  // standing in the columns buries that. But they are real work in the
-  // reviewer's hands and count in the number over their name, so there has
-  // to be a way to see what that number is made of — and a review whose
-  // dates ran out is on no other board at all. Fetched either way
-  // (viewquery), so this costs a re-render and not a request.
-  const [showReviews, setShowReviews] = useState(false);
+  // Which cells have their reviews unfolded. A review is not triage work —
+  // nobody is waiting on a week for it — so it does not stand in the columns
+  // as a card. But it IS work in the reviewer's hands, it counts in the
+  // number over their name and in the week's points, and one whose dates ran
+  // out is on no other board at all. So each cell that has any says so on a
+  // line under its cards — "+2 reviews" — and opens them where they belong:
+  // that person, that week. Asked for in the fetch either way (viewquery),
+  // so opening one costs a re-render and not a request.
+  const [openReviews, setOpenReviews] = useState<ReadonlySet<string>>(new Set());
+  const toggleReviews = useCallback((cell: string) => {
+    setOpenReviews((open) => {
+      const next = new Set(open);
+      if (!next.delete(cell)) {
+        next.add(cell);
+      }
+      return next;
+    });
+  }, []);
   // The tasks whose turns are MEANT to pile up: with the catch lifted those
   // are the ones a turn may be carried out of its own cycle for (gripOf).
   const accumulating = useMemo(() => {
@@ -262,6 +281,22 @@ export function TriageBoard({
     return out;
   }, [board.cards, board.processes, teams]);
 
+  // The open reviews of the teams on screen. Kept apart from the cards
+  // because they are not planned here — a review stands in the week its own
+  // DATES fall in, on the line at the foot of its cell.
+  const reviewsHere = useMemo(
+    () =>
+      board.cards.filter(
+        (c) =>
+          c.reviewOf &&
+          teams.includes(c.team ?? "") &&
+          !c.parent &&
+          !isPersonalDomain(c.domain ?? "") &&
+          !isComplete(c),
+      ),
+    [board.cards, teams],
+  );
+
   // The cards of the teams on screen: the ones with a week, and the ones
   // nobody has dated, which stand in the first row alongside them.
   const { placed, waiting, people } = useMemo(() => {
@@ -272,7 +307,8 @@ export function TriageBoard({
       if (!teams.includes(c.team ?? "")) {
         continue;
       }
-      if (c.reviewOf && !showReviews) {
+      // A review stands on its cell's own line, not among the cards.
+      if (c.reviewOf) {
         continue;
       }
       const week = placedIn(c);
@@ -296,6 +332,11 @@ export function TriageBoard({
     for (const t of projected) {
       seen.add(t.who);
     }
+    // Somebody whose only work here is reviewing still has a column: the
+    // line at the foot of a cell has to have a cell to stand in.
+    for (const c of reviewsHere) {
+      seen.add(whoOf(c));
+    }
     const named = [...seen].filter((w) => w !== NOBODY).sort();
     const all = [NOBODY, ...named];
     const at = (k: string) => {
@@ -307,7 +348,7 @@ export function TriageBoard({
       waiting,
       people: (order ? [...all].sort((a, b) => at(a) - at(b)) : all).map((key) => ({ key })),
     };
-  }, [board.cards, teams, order, projected, showReviews]);
+  }, [board.cards, teams, order, projected, reviewsHere]);
 
 
   // Somewhere to start a card: a press on the empty part of a cell opens the
@@ -880,6 +921,40 @@ export function TriageBoard({
     for (const list of slots.values()) {
       list.sort(byPile((s) => ({ ...s.card, projected: s.projected })));
     }
+    // The reviews go in AFTER the pile is ordered, so the line stands under
+    // everything the week is actually planning — it is not one of the cards
+    // and takes no place among them. What it opens stands under the line.
+    // A week's numbers count the reviews whether or not the line is open: a
+    // week costs what it costs, and the line beside the total says where the
+    // rest of it is.
+    const bare = { span: 1, part: 0, parts: 1, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 };
+    const byCell = new Map<string, { col: string; row: number; cards: CardModel[] }>();
+    for (const c of reviewsHere) {
+      const at = extentOf(rowDates(c), weeks);
+      if (!at) {
+        continue;
+      }
+      const col = whoOf(c);
+      const key = `${col}\u0000${at.row}`;
+      const cell = byCell.get(key) ?? { col, row: at.row, cards: [] };
+      cell.cards.push(c);
+      byCell.set(key, cell);
+    }
+    for (const [key, cell] of byCell) {
+      const list = slots.get(cell.col) ?? [];
+      list.push({ ...bare, card: cell.cards[0], row: cell.row, reviews: cell.cards, cell: key });
+      if (openReviews.has(key)) {
+        for (const c of cell.cards) {
+          list.push({ ...bare, card: c, row: cell.row, review: true });
+        }
+      }
+      slots.set(cell.col, list);
+      const w = weeks[cell.row];
+      load.set(w, (load.get(w) ?? 0) + cell.cards.length);
+      for (const c of cell.cards) {
+        weigh(w, c);
+      }
+    }
     // While a card is under the pointer it is drawn WHERE IT WOULD LAND —
     // including where among its new neighbours — so what the reader sees is
     // the order they are choosing, not the one they started from. The stack
@@ -920,6 +995,8 @@ export function TriageBoard({
     carried,
     overList,
     grid.rowFit,
+    reviewsHere,
+    openReviews,
   ]);
 
 
@@ -1280,19 +1357,6 @@ export function TriageBoard({
           onAdd={() => {}}
           onRemove={() => {}}
         />
-        {/* What the number over a person is made of. A review is not triage
-            work and stands in no week of its own — it is drawn where its own
-            dates put it — so it is off by default and asked for. */}
-        <button
-          type="button"
-          className={`triage-reviews${showReviews ? " triage-reviews-on" : ""}`}
-          aria-pressed={showReviews}
-          onClick={() => setShowReviews(!showReviews)}
-          title={showReviews ? "Reviews shown" : "Reviews hidden"}
-          aria-label={showReviews ? "Hide review cards" : "Show review cards"}
-        >
-          <ReviewMark />
-        </button>
         <button
           type="button"
           className={`triage-lock${unlocked ? " triage-lock-open" : ""}`}
@@ -1443,6 +1507,85 @@ export function TriageBoard({
           {people.map((p, col) =>
             (slots.get(p.key) ?? []).map((slot) => {
               const { card, row, part, parts } = slot;
+              // The LINE at the foot of a cell: how many reviews stand in
+              // this person's week, and the press that shows them. It is not
+              // a card — nothing can be dragged onto or out of it — and it is
+              // drawn even while it is open, as the way back.
+              if (slot.reviews && slot.cell) {
+                const open = openReviews.has(slot.cell);
+                const n = slot.reviews.length;
+                return (
+                  <button
+                    type="button"
+                    key={`${p.key}/reviews/${row}`}
+                    className={`triage-reviews-line${open ? " triage-reviews-line-open" : ""}`}
+                    style={{
+                      gridColumn: col + 2,
+                      gridRow: row + 2,
+                      ...laneStyle(slot, grid.rowFit, grid.rowH),
+                    }}
+                    title={
+                      open
+                        ? "Hide the reviews standing in this week"
+                        : `${n} review${n === 1 ? "" : "s"} on this person this week — work in their hands, counted in the week's points`
+                    }
+                    aria-expanded={open}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleReviews(slot.cell as string);
+                    }}
+                  >
+                    {open ? "−" : "+"}
+                    {n} review{n === 1 ? "" : "s"}
+                  </button>
+                );
+              }
+              // A review under an open line. It is somebody else's finished
+              // work being read, so nothing here plans it: it cannot be
+              // dragged into another week (it has no week to write — the
+              // week belongs to the card it reviews), parked or taken off
+              // the board. Its title, what it weighs, and a double-click
+              // through to the card itself.
+              if (slot.review) {
+                return (
+                  <div
+                    key={`${p.key}/${card.itemId}/review`}
+                    className="project-slot triage-slot triage-slot-review"
+                    style={{
+                      gridColumn: col + 2,
+                      gridRow: row + 2,
+                      ...laneStyle(slot, grid.rowFit, grid.rowH),
+                    }}
+                    title={`${card.title} — a review in this week`}
+                    onDoubleClick={() => onOpen(card)}
+                  >
+                    <span className="project-slot-title">{card.title}</span>
+                    <button
+                      type="button"
+                      className={`triage-slot-size${card.size ? "" : " triage-slot-size-unset"}`}
+                      title={
+                        card.size
+                          ? `${card.size} — ${SIZES[card.size].hint}. Click to change`
+                          : `Nobody has sized this: counted as ${assumedSize(card)} — ` +
+                            `${SIZES[assumedSize(card)].hint}. Click to say`
+                      }
+                      aria-label={
+                        card.size ? `Size ${card.size}` : `Unsized, counted as ${assumedSize(card)}`
+                      }
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        sizeAnchor.current = e.currentTarget;
+                        setSizing(sizing?.itemId === card.itemId ? null : card);
+                      }}
+                    >
+                      {assumedSize(card)}
+                    </button>
+                  </div>
+                );
+              }
               const done = isComplete(card);
               const progress = done ? 100 : (card.progress ?? 0);
               // The stripe says where the card came FROM, and it is the same
@@ -1752,25 +1895,6 @@ function ShelfMark() {
 
 /** Padlock is the catch's own glyph — drawn rather than an emoji, so it takes
  *  the colour of the text around it and reads the same in either theme. */
-/** ReviewMark is the two bars a card on review already wears on its face
- *  (Card.tsx, the review stage), so the button says which cards it is about
- *  by drawing the mark those cards carry. */
-function ReviewMark() {
-  return (
-    <svg
-      className="triage-reviews-glyph"
-      viewBox="0 0 24 24"
-      width="12"
-      height="12"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <rect x="7" y="7" width="3.6" height="10" rx="1.4" />
-      <rect x="13.4" y="7" width="3.6" height="10" rx="1.4" />
-    </svg>
-  );
-}
-
 function Padlock({ open }: { open: boolean }) {
   return (
     <svg
