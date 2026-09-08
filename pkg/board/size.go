@@ -77,25 +77,37 @@ func PointsOf(b Board, c Card) int {
 	sum, has := 0, false
 	for _, k := range b.Cards {
 		if k.Parent == c.ItemID {
-			sum += weigh(k.Size)
+			sum += weigh(k)
 			has = true
 		}
 	}
 	if has {
 		return sum
 	}
-	return weigh(c.Size)
+	return weigh(c)
 }
 
-// weigh is one card's own weight: its size, or the default for an unsized
-// one. Every sum a board draws goes through it, so "unsized" costs the same
-// everywhere — in a person's load, in a week's plan and in the record a
-// capacity is derived from.
-func weigh(s SizeKey) int {
-	if s == SizeNone {
-		return Points(DefaultSize)
+// weigh is one card's own weight: its size, or — for an unsized one — what
+// its KIND usually costs. Every sum a board draws goes through it, so
+// "unsized" costs the same everywhere: in a person's load, in a week's plan
+// and in the record a capacity is read off.
+//
+// A REVIEW card unsized weighs S rather than the default. A review is
+// somebody reading finished work and saying yes or no; the sizing rubric
+// calls it S by definition, and it is the one kind of card the board creates
+// on its own, in bulk — one for every card sent to review. Weighing those as
+// M put two points on a reviewer for each thing they were asked to look at,
+// which on a board where nothing is sized is most of what their number was.
+// A review somebody DID size keeps the size they gave it: the default is a
+// guess about the usual, not a cap on the unusual.
+func weigh(c Card) int {
+	if c.Size != SizeNone {
+		return Points(c.Size)
 	}
-	return Points(s)
+	if c.ReviewOf != "" {
+		return Points(SizeS)
+	}
+	return Points(DefaultSize)
 }
 
 // LoadNow is CarryingNow in points: the same cards a person is carrying today

@@ -30,10 +30,18 @@ export function points(size: SizeKey | undefined | ""): number {
   return size ? SIZES[size].points : 0;
 }
 
-/** weigh is one card's own weight: its size, or the default when it has
- *  none. Mirrors board.weigh. */
-function weigh(size: SizeKey | undefined): number {
-  return points(size ?? DEFAULT_SIZE);
+/** weigh is one card's own weight: its size, or — unsized — what its KIND
+ *  usually costs. A REVIEW card weighs S: a review is somebody reading
+ *  finished work and saying yes or no, the rubric calls it S by definition,
+ *  and it is the one kind of card the board makes on its own, one for every
+ *  card sent to review — weighing those as M put two points on a reviewer for
+ *  each thing they were asked to look at. A review somebody DID size keeps
+ *  that size. Mirrors board.weigh. */
+function weigh(card: Pick<Card, "size" | "reviewOf">): number {
+  if (card.size) {
+    return points(card.size);
+  }
+  return points(card.reviewOf ? "S" : DEFAULT_SIZE);
 }
 
 /** sizeFromWire reads the letter the API sends; anything else is unsized. */
@@ -45,19 +53,20 @@ export function sizeFromWire(raw: string | undefined): SizeKey | undefined {
  *  subtasks — the sum of theirs. The umbrella rule, dynamic on purpose:
  *  umbrellas are not born as umbrellas, so the parent's estimate stands until
  *  its children exist and is replaced by them once they do, and the total
- *  never counts twice. An unsized card, parent or child, weighs the default.
+ *  never counts twice. An unsized card, parent or child, weighs what its kind
+ *  costs — the default, or S for a review.
  *  Mirrors board.PointsOf. */
 export function pointsOf(
-  cards: readonly Pick<Card, "itemId" | "parent" | "size">[],
-  card: Pick<Card, "itemId" | "size">,
+  cards: readonly Pick<Card, "itemId" | "parent" | "size" | "reviewOf">[],
+  card: Pick<Card, "itemId" | "size" | "reviewOf">,
 ): number {
   let sum = 0;
   let has = false;
   for (const k of cards) {
     if (k.parent === card.itemId) {
-      sum += weigh(k.size);
+      sum += weigh(k);
       has = true;
     }
   }
-  return has ? sum : weigh(card.size);
+  return has ? sum : weigh(card);
 }

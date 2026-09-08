@@ -302,10 +302,12 @@ func TestBoardResourceMembers(t *testing.T) {
 	// The roster carries how much each person is holding right now, across
 	// every team: a board is read through a filter and a person is not.
 	// Load and capacity ride beside it. Neither card is sized, so each weighs
-	// the default (M = 2 points); nobody has set either of them a capacity,
-	// so there is none — the board does not read one off its own record.
+	// what its kind costs unsized: lllamnyp's is a REVIEW and weighs S = 1,
+	// octocat's is ordinary and weighs the default M = 2. Nobody has set
+	// either of them a capacity, so there is none — the board does not read
+	// one off its own record.
 	want := []Member{
-		{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp", Carrying: 1, Load: 2},
+		{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp", Carrying: 1, Load: 1},
 		{Login: "octocat", AvatarURL: "https://cdn.example/octocat", Carrying: 1, Load: 2},
 	}
 	if !reflect.DeepEqual(with.Metadata.Members, want) {

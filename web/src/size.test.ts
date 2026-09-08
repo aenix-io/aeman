@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SIZE, points, pointsOf, sizeFromWire } from "./size";
+import type { Card } from "./providers/types";
 
 // The scale doubles at each step so a week of S-work and a week of L-work can
 // be compared at all. Mirrors board.Points and board.DefaultSize.
@@ -67,5 +68,32 @@ describe("pointsOf", () => {
   it("weighs a card with no children as itself, unsized as the default", () => {
     expect(pointsOf(cards, { itemId: "lone", size: "M" })).toBe(2);
     expect(pointsOf(cards, { itemId: "lone" })).toBe(2);
+  });
+});
+
+describe("what a review weighs", () => {
+  // Mirrors board.TestAnUnsizedReviewCardWeighsS. A review is somebody
+  // reading finished work and saying yes or no — S by the rubric — and the
+  // board makes one for every card sent to review, so weighing them as M put
+  // two points on a reviewer for each thing they were asked to look at.
+  it("weighs an unsized review as S and an unsized card as M", () => {
+    const review = { itemId: "r", reviewOf: "orig" } as Card;
+    const plain = { itemId: "c" } as Card;
+    expect(pointsOf([review, plain], review)).toBe(1);
+    expect(pointsOf([review, plain], plain)).toBe(2);
+  });
+
+  it("keeps a size somebody gave a review", () => {
+    const big = { itemId: "r", reviewOf: "orig", size: "L" } as Card;
+    expect(pointsOf([big], big)).toBe(4);
+  });
+
+  it("weighs review CHILDREN as reviews under the umbrella rule", () => {
+    const cards = [
+      { itemId: "p" },
+      { itemId: "k1", parent: "p", reviewOf: "x" },
+      { itemId: "k2", parent: "p", reviewOf: "y" },
+    ] as Card[];
+    expect(pointsOf(cards, cards[0])).toBe(2);
   });
 });

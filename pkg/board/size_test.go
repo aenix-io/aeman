@@ -111,3 +111,42 @@ func TestLoadNowWeighsWhatAPersonIsCarrying(t *testing.T) {
 		t.Errorf("tym83 carries the umbrella at its children's weight (2), got %d", got["tym83"])
 	}
 }
+
+// A REVIEW card that nobody sized weighs S, not the default M. A review is
+// somebody reading somebody else's finished work and saying yes or no — the
+// sizing rubric already calls it S by definition — and it is the one kind of
+// card that is created in bulk by the board itself, so weighing it as M put
+// two points on a reviewer for every card they were asked to look at. On a
+// board where nothing is sized that is the difference between "4 in hand"
+// and "8 in hand" for a person holding two reviews and two cards.
+func TestAnUnsizedReviewCardWeighsS(t *testing.T) {
+	b := Board{Cards: []Card{
+		{ItemID: "r", ReviewOf: "orig"},
+		{ItemID: "c"},
+		{ItemID: "big", ReviewOf: "orig2", Size: SizeL},
+	}}
+	if got := PointsOf(b, b.Cards[0]); got != 1 {
+		t.Errorf("an unsized review weighs %d, want 1", got)
+	}
+	if got := PointsOf(b, b.Cards[1]); got != 2 {
+		t.Errorf("an unsized ordinary card weighs %d, want the default 2", got)
+	}
+	// Said out loud, a size stands: a review somebody called L is L. The
+	// default is a guess about the usual, not a cap on the unusual.
+	if got := PointsOf(b, b.Cards[2]); got != 4 {
+		t.Errorf("a review sized L weighs %d, want 4", got)
+	}
+}
+
+// The umbrella rule weighs CHILDREN the same way: a parent whose subtasks are
+// reviews weighs one point each, not two.
+func TestAnUmbrellaOfReviewsWeighsThemAsReviews(t *testing.T) {
+	b := Board{Cards: []Card{
+		{ItemID: "p"},
+		{ItemID: "k1", Parent: "p", ReviewOf: "x"},
+		{ItemID: "k2", Parent: "p", ReviewOf: "y"},
+	}}
+	if got := PointsOf(b, b.Cards[0]); got != 2 {
+		t.Errorf("two unsized review children weigh %d, want 2", got)
+	}
+}

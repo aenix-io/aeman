@@ -18,7 +18,7 @@ This is judgement work, card by card. Never derive a size from the length of the
    - a person: `list_cards view=me user=<login>`;
    - a week on the Triage board: `list_cards view=triage team=<key>`, then keep the cards whose `status.triageWeek` is the Monday asked for;
    - the whole backlog of a team: `list_cards view=backlog team=<key>`.
-   Keep the cards with no `spec.size`, unless the lead asked to re-size everything. Skip review cards (`spec.reviewOf` set) — they are S by definition and the lead rarely wants them in the table — and skip process turns (`spec.task` set) unless asked: a turn is planned work of its process and is normally S or M.
+   Keep the cards with no `spec.size`, unless the lead asked to re-size everything. Skip review cards (`spec.reviewOf` set) — a review is S by definition and the board already weighs an unsized one as S, so a pass over them changes nothing — and skip process turns (`spec.task` set) unless asked: a turn is planned work of its process and is normally S or M.
 2. Read what you need. The listing is the board's row shape: title, team, zone, assignees, kind. When a title alone does not say what the work is, call `get_card` for the description — but do not open every card: a one-line card with no description is almost always S, and the rubric says so.
 3. Size every card by the rubric. Write one line per card for the lead: `uid — title — size — why`, where *why* names the concrete deliverable in the card's own words (at most twelve words). Cards you are unsure about, mark with `?` and say what would decide it.
 4. Show the table and STOP. Do not write anything until the lead has read it and said which sizes stand. They may change some; their word wins.
