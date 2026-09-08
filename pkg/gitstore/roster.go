@@ -236,8 +236,7 @@ func EncodeTeam(f TeamFile) ([]byte, error) {
 		for _, kv := range []struct {
 			k string
 			v int
-		}{{"week", f.Capacity.Week}, {"points", f.Capacity.Points},
-			{"client", f.Capacity.Client}, {"internal", f.Capacity.Internal}} {
+		}{{"points", f.Capacity.Points}} {
 			if kv.v != 0 {
 				w.b.WriteString("  " + kv.k + ": " + strconv.Itoa(kv.v) + "\n")
 			}
@@ -380,15 +379,8 @@ func DecodeTeam(data []byte) (TeamFile, error) {
 		case "capacity":
 			for i := 0; i+1 < len(val.Content); i += 2 {
 				n, _ := strconv.Atoi(val.Content[i+1].Value)
-				switch val.Content[i].Value {
-				case "week":
-					f.Capacity.Week = n
-				case "points":
+				if val.Content[i].Value == "points" {
 					f.Capacity.Points = n
-				case "client":
-					f.Capacity.Client = n
-				case "internal":
-					f.Capacity.Internal = n
 				}
 			}
 		default:

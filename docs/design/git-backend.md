@@ -189,12 +189,15 @@ it is a delete plus a create, named as such.
 
 ```
 board.yaml                         primary domain only: schema, title
-teams/<id>.yaml                    one team: name, rank, sprint pointers
+teams/<id>.yaml                    one team: name, rank, sprint pointers,
+                                   and the points a week somebody set for it
+                                   (`capacity: points:`; absent = no number,
+                                   and the board derives none — B20)
 users/<login>.yaml                 primary domain only, one person: the link
                                    to their personal repository (`personal`)
-                                   and/or the points a week a lead set for
-                                   them (`capacity`; absent = the board
-                                   derives one from the last four weeks, B19)
+                                   and/or the points a week somebody set for
+                                   them (`capacity`; absent = no number, and
+                                   the board derives none — B19)
 projects/<id>/project.yaml         one project: name, rank; a file with no
                                    `name` is the NO-PROJECT bucket, written
                                    on demand (`projects/_/project.yaml`)

@@ -5080,11 +5080,35 @@ button.card-age {
   border-color: #d1242f;
 }
 
+/* Every number a board takes is typed, never stepped: the native spinner is
+   two arrows the width of the field itself, and these fields are small enough
+   that the number they hold could not be read beside them. */
+.person-load-input,
+.teams-manage-cap-input,
+.triage-cap-input,
+.triage-points-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.person-load-input::-webkit-outer-spin-button,
+.person-load-input::-webkit-inner-spin-button,
+.teams-manage-cap-input::-webkit-outer-spin-button,
+.teams-manage-cap-input::-webkit-inner-spin-button,
+.triage-cap-input::-webkit-outer-spin-button,
+.triage-cap-input::-webkit-inner-spin-button,
+.triage-points-input::-webkit-outer-spin-button,
+.triage-points-input::-webkit-inner-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Typing a team's week in place of the number that measured it — offered
    only when ONE team is on screen, because otherwise there is no answer to
    whose week it is. */
 .triage-points-input {
-  width: 40px;
+  width: 32px;
   margin-top: 1px;
   padding: 0 2px;
   border: 1px solid var(--accent);

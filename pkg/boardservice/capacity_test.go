@@ -73,10 +73,6 @@ func TestALeadSetsATeamsPointsAWeek(t *testing.T) {
 	if got := f.b.SprintStates["alpha"].Capacity.Points; got != 40 {
 		t.Fatalf("points = %d, want 40", got)
 	}
-	// The cards-a-week limit beside it is untouched: different question.
-	if got := f.b.SprintStates["alpha"].Capacity.Week; got != 0 {
-		t.Fatalf("the card capacity moved to %d, and nobody asked it to", got)
-	}
 	f.log = nil
 	if err := svc.SetTeamPoints(ctx, "acme", "alpha", 40); err != nil {
 		t.Fatal(err)

@@ -109,15 +109,9 @@ export interface SprintResource {
   spec: {
     current?: string;
     previous?: string;
-    capacity?: {
-    week: number;
-    client: number;
-    internal: number;
-    derived: boolean;
-    /** The team's week in POINTS — a number somebody SET, never derived.
-     *  Mirrors board.PointsAWeekOf. */
-    points?: number;
-  };
+    /** What a week of the team's plan is weighed against, in POINTS: a number
+     *  somebody SET, never derived. Mirrors board.PointsAWeekOf. */
+    capacity?: { points?: number };
   };
 }
 

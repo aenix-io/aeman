@@ -172,17 +172,10 @@ export interface NewCardInput {
 export interface SprintState {
   current: string | null;
   previous: string | null;
-  /** The team's cards a week and the lanes' shares, for the Triage board;
-   *  derived from the last four weeks' done cards when the roster has no
-   *  number (docs/design/triage.md). */
+  /** What a week of the team's plan is weighed against: the POINTS a week it
+   *  gets through, a number somebody SET and never derived — absent when
+   *  nobody has said. Mirrors board.PointsAWeekOf. */
   capacity?: {
-    week: number;
-    client: number;
-    internal: number;
-    derived: boolean;
-    /** The team's week in POINTS — a number somebody SET, never derived, and
-     *  a different measurement from the cards a week beside it. Absent when
-     *  nobody has said. Mirrors board.PointsAWeekOf. */
     points?: number;
   };
 }

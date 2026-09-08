@@ -61,19 +61,18 @@ const (
 	ZoneRed    ZoneKey = "red"
 )
 
-// Capacity is a team's throughput and the shares of it the lanes may take:
-// Client is a ceiling, Internal a floor, both in percent.
+// Capacity is a team's throughput: the POINTS a week it gets through, which
+// is what a week of its plan is weighed against. Never derived — 0 means
+// nobody has said (PointsAWeekOf).
 //
-// There are two throughput numbers and they are different measurements, not
-// two views of one. Week is CARDS a week — the weekly plan's own limit, 0
-// meaning "derive it" (see CapacityOf). Points is POINTS a week, what the day
-// boards weigh a plan against, and it is never derived: 0 means nobody has
-// said (PointsAWeekOf).
+// It carried three more numbers once: a limit in CARDS a week, derived from
+// what the team had been finishing, and the shares of it that client and
+// internal work might take. Nothing ever wrote them — not one team file on
+// the production board had the block — and no client read them back: the bar
+// they were drawn for is long gone from the boards. A derived number nobody
+// looks at is a rule that can only rot.
 type Capacity struct {
-	Week     int `json:"week,omitempty"`
-	Points   int `json:"points,omitempty"`
-	Client   int `json:"client,omitempty"`
-	Internal int `json:"internal,omitempty"`
+	Points int `json:"points,omitempty"`
 }
 
 // Note is a dated work note attached to a card: an issue/PR comment, or a line

@@ -40,13 +40,12 @@ func TestAPersonsCapacityRoundTripsThroughTheirFile(t *testing.T) {
 	}
 }
 
-// A TEAM's points a week live beside its cards a week in the team file's
-// capacity block — two numbers, two measurements — and an unknown key in that
-// block is kept, like every other unknown key in the tree.
+// A TEAM's points a week are one line of its own file — the whole of its
+// capacity block, now that the derived cards-a-week limit beside it is gone.
 func TestATeamsPointsRoundTripThroughItsFile(t *testing.T) {
 	raw, err := EncodeTeam(TeamFile{
 		Name: "portal", Rank: "m", Created: "2026-01-01T00:00:00Z",
-		Capacity: board.Capacity{Week: 12, Points: 40, Client: 30},
+		Capacity: board.Capacity{Points: 40},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,15 +57,15 @@ func TestATeamsPointsRoundTripThroughItsFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.Capacity.Points != 40 || back.Capacity.Week != 12 || back.Capacity.Client != 30 {
-		t.Fatalf("capacity = %+v, want week 12, points 40, client 30", back.Capacity)
+	if back.Capacity.Points != 40 {
+		t.Fatalf("capacity = %+v, want 40 points a week", back.Capacity)
 	}
-	// Nobody has said: no key, and nothing to read back.
-	raw, err = EncodeTeam(TeamFile{Name: "cozy", Rank: "n", Capacity: board.Capacity{Week: 12}})
+	// Nobody has said: no block at all, and nothing to read back.
+	raw, err = EncodeTeam(TeamFile{Name: "cozy", Rank: "n"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "points:") {
-		t.Fatalf("an unset points must not be written:\n%s", raw)
+	if strings.Contains(string(raw), "capacity") {
+		t.Fatalf("an unset capacity must not be written:\n%s", raw)
 	}
 }

@@ -204,23 +204,15 @@ type SprintMetadata struct {
 type SprintSpec struct {
 	Current  string `json:"current,omitempty"`
 	Previous string `json:"previous,omitempty"`
-	// Capacity is the team's cards a week and the lanes' shares, for the
-	// Triage board — the roster's number, or one derived from the cards
-	// done in the last four weeks (Derived says which; B7).
+	// Capacity is what a week of the team's plan is weighed against.
 	Capacity *SprintCapacity `json:"capacity,omitempty"`
 }
 
-// SprintCapacity is a team's capacity as the API states it.
+// SprintCapacity is a team's capacity as the API states it: the POINTS a week
+// it gets through, a number somebody SET and never derived — absent when
+// nobody has said. The Triage board holds each week's scheduled points against
+// it.
 type SprintCapacity struct {
-	Week     int  `json:"week"`
-	Client   int  `json:"client"`
-	Internal int  `json:"internal"`
-	Derived  bool `json:"derived"`
-	// Points is the team's week in POINTS — what a week of its plan can be
-	// weighed against, and a number somebody SET, never derived: absent when
-	// nobody has said. The Triage board holds a week's scheduled points
-	// against it. It is a different measurement from Week, not another view
-	// of it: cards a week and points a week answer different questions.
 	Points int `json:"points,omitempty"`
 }
 
@@ -557,14 +549,11 @@ func SprintResources(b board.Board) []Sprint {
 	out := make([]Sprint, 0, len(teams))
 	for _, t := range teams {
 		st := b.SprintStates[t]
-		today := board.TodayIso()
-		cap, derived := board.CapacityOf(b, t, today)
 		out = append(out, Sprint{
 			Kind:     "Sprint",
 			Metadata: SprintMetadata{Team: t},
 			Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
-				Capacity: &SprintCapacity{Week: cap.Week, Client: cap.Client, Internal: cap.Internal, Derived: derived,
-					Points: board.PointsAWeekOf(b, t)}},
+				Capacity: &SprintCapacity{Points: board.PointsAWeekOf(b, t)}},
 		})
 	}
 	return out

@@ -48,8 +48,8 @@ func TestATeamWithNoNumberHasNone(t *testing.T) {
 	if got := PointsAWeekOf(b, "empty"); got != 0 {
 		t.Errorf("an empty team = %d, want 0", got)
 	}
-	b.SprintStates["empty"] = SprintState{Capacity: Capacity{Points: 0, Week: 12}}
-	if got := PointsAWeekOf(b, "empty"); got != 0 {
-		t.Errorf("a team with a CARD capacity but no points = %d, want 0 — they are different numbers", got)
+	b.SprintStates["empty"] = SprintState{Capacity: Capacity{Points: 7}}
+	if got := PointsAWeekOf(b, "empty"); got != 7 {
+		t.Errorf("a team with a number = %d, want the 7 somebody set", got)
 	}
 }
