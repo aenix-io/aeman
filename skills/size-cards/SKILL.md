@@ -24,7 +24,7 @@ This is judgement work, card by card. Never derive a size from the length of the
 4. Show the table and STOP. Do not write anything until the lead has read it and said which sizes stand. They may change some; their word wins.
 5. Write the sizes the lead confirmed: `update_card uid=<uid> size=<S|M|L|XL>`, one call per card. Report how many were written and the points total per person.
 
-If the lead wants a person's capacity set too, `set_capacity login=<login> capacity=<points a week>` does it; 0 hands the number back to the board, which derives one from the last four weeks.
+If the lead wants a person's capacity set too, `set_capacity login=<login> capacity=<points a week>` does it; 0 takes a number back, leaving the person with none — the board derives nothing. Working out what the number should be is the `derive-capacity` skill.
 
 ## The rubric
 

@@ -52,7 +52,6 @@ export function membersFrom(
     carrying: m.carrying || undefined,
     load: m.load || undefined,
     capacity: m.capacity || undefined,
-    capacityDerived: m.capacityDerived || undefined,
   }));
 }
 

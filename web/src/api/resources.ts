@@ -160,7 +160,6 @@ export interface BoardResource {
       carrying?: number;
       load?: number;
       capacity?: number;
-      capacityDerived?: boolean;
     }[];
     /** The repositories the board spans, primary first. */
     domains?: {

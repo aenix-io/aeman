@@ -1,10 +1,14 @@
 package board
 
+// capacityWeeks is how far back the window reaches that the reactive share
+// and the split of a person between teams are read over: the last four
+// complete weeks before this one.
+const capacityWeeks = 4
+
 // closedInWindow calls fn for every card of the team closed in the last
-// capacityWeeks complete weeks before today's — the window CapacityOf,
-// CapacityOfPerson and the reactive share all read. Subtasks ride their
-// parent (PointsOf weighs them there), state cards and review cards are
-// not the team's work.
+// capacityWeeks complete weeks before today's — the window CapacityOf and
+// the reactive share both read. Subtasks ride their parent (PointsOf weighs
+// them there), state cards and review cards are not the team's work.
 func closedInWindow(b Board, team, today string, fn func(Card)) {
 	monday := MondayOf(today)
 	from := AddDays(monday, -7*capacityWeeks)
@@ -67,8 +71,7 @@ func Plannable(pointsAWeek, reactiveShare int, known bool) int {
 func PointsAWeekOf(b Board, team, today string) (int, bool) {
 	total := 0
 	for login, share := range teamShares(b, today)[team] {
-		capacity, _ := CapacityOfPerson(b, login, today)
-		total += int(float64(capacity)*share + 0.5)
+		total += int(float64(CapacityOfPerson(b, login))*share + 0.5)
 	}
 	return total, true
 }

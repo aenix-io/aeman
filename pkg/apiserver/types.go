@@ -328,12 +328,11 @@ type Member struct {
 	Carrying int `json:"carrying,omitempty"`
 	// Load is the same work WEIGHED — the points of what the person is
 	// carrying (board.LoadNow) — and Capacity the points a week they get
-	// through: the roster's number, or one derived from what they have been
-	// closing (CapacityDerived says which; board.CapacityOfPerson). A day
-	// board draws load/capacity beside the person and goes red past it.
-	Load            int  `json:"load,omitempty"`
-	Capacity        int  `json:"capacity,omitempty"`
-	CapacityDerived bool `json:"capacityDerived,omitempty"`
+	// through: the roster's number, absent when nobody has set one
+	// (board.CapacityOfPerson). A day board draws load/capacity beside the
+	// person and goes red past it; with no capacity it draws the load alone.
+	Load     int `json:"load,omitempty"`
+	Capacity int `json:"capacity,omitempty"`
 }
 
 // DomainInfo is one readable domain of the visitor's board.
@@ -648,9 +647,8 @@ func MembersOf(b board.Board, person func(login string) Member) []Member {
 	load := board.LoadNow(b, today)
 	people := make([]Member, 0, len(logins))
 	for _, login := range logins {
-		capacity, derived := board.CapacityOfPerson(b, login, today)
 		m := Member{Login: login, Carrying: carrying[login], Load: load[login],
-			Capacity: capacity, CapacityDerived: derived}
+			Capacity: board.CapacityOfPerson(b, login)}
 		if person != nil {
 			p := person(login)
 			m.Name, m.AvatarURL = p.Name, p.AvatarURL

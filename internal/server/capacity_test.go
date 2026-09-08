@@ -35,7 +35,7 @@ func TestAPIPatchPersonSetsTheCapacityTheBoardMeasuresAgainst(t *testing.T) {
 			m = x
 		}
 	}
-	if m.Capacity != 40 || m.CapacityDerived || m.Load != 4 {
+	if m.Capacity != 40 || m.Load != 4 {
 		t.Fatalf("member = %+v, want capacity 40 (set), load 4", m)
 	}
 

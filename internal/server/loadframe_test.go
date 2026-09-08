@@ -124,7 +124,7 @@ func TestSettingACapacityAnnouncesIt(t *testing.T) {
 		t.Fatalf("capacity: %d %s", rec.Code, rec.Body.String())
 	}
 	m := memberIn(awaitLoad(t, sub.ch), "kvaps")
-	if m.Capacity != 40 || m.CapacityDerived {
+	if m.Capacity != 40 {
 		t.Fatalf("the announced member = %+v, want the set capacity 40", m)
 	}
 }

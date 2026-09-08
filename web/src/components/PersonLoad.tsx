@@ -1,9 +1,9 @@
-// The number over a person's column: the points they are carrying against
-// the points a week they get through — "21/40" — red past it. It is the same
-// on the Team and the Triage board and whole across every team whatever
-// filter the board is read through, because the server computes both
-// (metadata.members). Clicking it sets the capacity: a lead knows a person
-// is on a half week, or new, or covering for two.
+// The number over a person's column on the TRIAGE board: the points they are
+// carrying against the points a week they get through — "21/40" — red past
+// it, and the load alone while nobody has set a capacity. Whole across every
+// team whatever filter the board is read through, because the server computes
+// both (metadata.members). Clicking it sets the capacity: a lead knows a
+// person is on a half week, or new, or covering for two.
 import { useState } from "react";
 import type { Member } from "../users";
 import { loadLabel, loadState } from "../load";
@@ -22,8 +22,8 @@ export function PersonLoad({ member, onSetCapacity }: PersonLoadProps) {
   const state = loadState(load, capacity);
   const title =
     state === "unknown"
-      ? `${load} points carried; no capacity yet — click to set one`
-      : `${load} of ${capacity} points a week${member?.capacityDerived ? " (from the last four weeks; click to set)" : " (set; click to change, 0 derives it again)"}${state === "over" ? " — more than fits the week" : ""}`;
+      ? `${load} points carried; nobody has set a capacity — click to set one`
+      : `${load} of ${capacity} points a week (click to change, 0 takes it back)${state === "over" ? " — more than fits the week" : ""}`;
 
   const commit = () => {
     setEditing(false);

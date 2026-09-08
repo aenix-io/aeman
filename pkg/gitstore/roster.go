@@ -75,8 +75,8 @@ func UserPath(login string) string { return "users/" + login + ".yaml" }
 type UserFile struct {
 	// Personal is the URL of the person's personal repository.
 	Personal string
-	// Capacity is the points a week a lead set for this person; 0 = none set,
-	// the board derives one (board.CapacityOfPerson).
+	// Capacity is the points a week a lead set for this person; 0 = none
+	// set, and the board does not invent one (board.CapacityOfPerson).
 	Capacity int
 	Created  string
 	Extra    []ExtraField

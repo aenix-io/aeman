@@ -28,10 +28,10 @@ func TestMembersCarryLoadAndCapacity(t *testing.T) {
 	for _, m := range info.Metadata.Members {
 		byLogin[m.Login] = m
 	}
-	if m := byLogin["kvaps"]; m.Load != 6 || m.Capacity != 8 || !m.CapacityDerived {
-		t.Fatalf("kvaps: %+v — want load 6 (L+M open), capacity 8 derived from last week's XL", m)
+	if m := byLogin["kvaps"]; m.Load != 6 || m.Capacity != 0 {
+		t.Fatalf("kvaps: %+v — want load 6 (L+M open) and no capacity: a record is not one", m)
 	}
-	if m := byLogin["lead"]; m.Load != 1 || m.Capacity != 30 || m.CapacityDerived {
+	if m := byLogin["lead"]; m.Load != 1 || m.Capacity != 30 {
 		t.Fatalf("lead: %+v — want load 1 and the roster's 30", m)
 	}
 }

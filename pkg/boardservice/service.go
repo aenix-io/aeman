@@ -1847,18 +1847,19 @@ var ErrUnknownSize = errors.New("a size is S, M, L or XL")
 
 // ErrBadCapacity is a capacity that is not a number of points a week a
 // person could have: negative, or absurd.
-var ErrBadCapacity = errors.New("a capacity is 0 (derive it) to 999 points a week")
+var ErrBadCapacity = errors.New("a capacity is 0 (unset) to 999 points a week")
 
 // maxCapacity bounds what a lead can type: a thousand points a week is a
 // slip of the keyboard, not a person.
 const maxCapacity = 999
 
 // SetPersonCapacity records the points a week a lead set for a person — the
-// number the day boards measure their load against. Zero takes it back: the
-// board then derives one from what the person has been closing
-// (board.CapacityOfPerson), which is where most people's number comes from;
-// a lead sets one when they know better — a half week, a newcomer, somebody
-// covering for two.
+// number the day boards measure their load against. Zero takes it back, and
+// the board then has no number at all: it draws the load alone rather than
+// inventing a limit (board.CapacityOfPerson). Somebody has to say it —
+// a lead reading four weeks of the person's record with the derive-capacity
+// skill, or knowing better than the record does: a half week, a newcomer,
+// somebody covering for two.
 func (s *Service) SetPersonCapacity(ctx context.Context, boardID string, login string, points int) error {
 	login = strings.TrimSpace(login)
 	if login == "" {

@@ -19,11 +19,10 @@ export interface Member {
   carrying?: number;
   /** The same work WEIGHED — points of what the person is carrying (mirrors
    *  board.LoadNow) — and how many points a week they get through: the
-   *  roster's number, or one derived from what they have been closing
-   *  (capacityDerived). Mirrors board.CapacityOfPerson. */
+   *  roster's number, absent until somebody sets one. The board derives
+   *  nothing; the load is then shown alone. Mirrors board.CapacityOfPerson. */
   load?: number;
   capacity?: number;
-  capacityDerived?: boolean;
 }
 
 /** Avatars maps a login onto its avatar URL. */

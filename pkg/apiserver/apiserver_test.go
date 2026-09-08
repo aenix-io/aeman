@@ -302,12 +302,11 @@ func TestBoardResourceMembers(t *testing.T) {
 	// The roster carries how much each person is holding right now, across
 	// every team: a board is read through a filter and a person is not.
 	// Load and capacity ride beside it. Neither card is sized, so each weighs
-	// the default (M = 2 points); neither is closed, so there is no record to
-	// read a capacity off and it says so by being derived and 0 — "no
-	// history", not "no room".
+	// the default (M = 2 points); nobody has set either of them a capacity,
+	// so there is none — the board does not read one off its own record.
 	want := []Member{
-		{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp", Carrying: 1, Load: 2, CapacityDerived: true},
-		{Login: "octocat", AvatarURL: "https://cdn.example/octocat", Carrying: 1, Load: 2, CapacityDerived: true},
+		{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp", Carrying: 1, Load: 2},
+		{Login: "octocat", AvatarURL: "https://cdn.example/octocat", Carrying: 1, Load: 2},
 	}
 	if !reflect.DeepEqual(with.Metadata.Members, want) {
 		t.Fatalf("members with avatars = %+v", with.Metadata.Members)
