@@ -56,6 +56,9 @@ type Backend interface {
 	SetStage(ctx context.Context, b board.Board, card board.Card, stage board.StageKey) error
 	SetProgress(ctx context.Context, b board.Board, card board.Card, progress int) error
 	SetZone(ctx context.Context, b board.Board, card board.Card, zone board.ZoneKey) error
+	// SetSize writes what somebody said the card weighs (S, M, L, XL; ""
+	// clears it). The points are derived, never written.
+	SetSize(ctx context.Context, b board.Board, card board.Card, size board.SizeKey) error
 	SetDay(ctx context.Context, b board.Board, card board.Card, day string) error
 	// SetDoneAt writes the board day a card counts as finished on. Normally
 	// SetProgress sets it as a side effect of reaching 100 — this is for the

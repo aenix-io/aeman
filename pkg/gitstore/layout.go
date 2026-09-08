@@ -82,6 +82,7 @@ func EncodeCard(f CardFile) ([]byte, error) {
 	w("author", c.Author)
 	w("team", c.Team)
 	w("zone", string(c.Zone))
+	w("size", string(c.Size))
 	w("stage", string(c.Stage))
 	wi("progress", c.Progress)
 	wi("doneFrom", c.DoneFrom)
@@ -314,6 +315,8 @@ func setKnown(c *board.Card, key string, val *yaml.Node) bool {
 		}
 	case "zone":
 		c.Zone = board.ZoneKey(val.Value)
+	case "size":
+		c.Size = board.SizeKey(val.Value)
 	case "stage":
 		c.Stage = board.StageKey(val.Value)
 	case "plan":

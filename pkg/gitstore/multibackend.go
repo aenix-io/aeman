@@ -793,6 +793,15 @@ func (mb *MultiBackend) SetZone(ctx context.Context, bd board.Board, card board.
 	return be.SetZone(ctx, bd, card, zone)
 }
 
+// SetSize writes in the card's domain.
+func (mb *MultiBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetSize(ctx, bd, card, size)
+}
+
 // SetDay writes in the card's domain.
 func (mb *MultiBackend) SetDay(ctx context.Context, bd board.Board, card board.Card, day string) error {
 	be, err := mb.route(ctx, card)

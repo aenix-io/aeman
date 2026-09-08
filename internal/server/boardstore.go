@@ -1659,6 +1659,15 @@ func (b *storeBackend) SetProgress(ctx context.Context, bd board.Board, card boa
 	return nil
 }
 
+func (b *storeBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
+	b.mutateCard(ctx, bd, card.ItemID, "size", "size "+cardRef(card), func(c *board.Card) {
+		c.Size = size
+	}, func(ctx context.Context) error {
+		return b.inner.SetSize(ctx, bd, card, size)
+	})
+	return nil
+}
+
 func (b *storeBackend) SetZone(ctx context.Context, bd board.Board, card board.Card, zone board.ZoneKey) error {
 	b.mutateCard(ctx, bd, card.ItemID, "zone", "move "+cardRef(card)+" to another zone", func(c *board.Card) {
 		c.Zone = zone
@@ -2231,6 +2240,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		Team:        in.Team,
 		Week:        in.Week,
 		Parked:      in.Parked,
+		Size:        in.Size,
 		Epic:        in.Epic,
 		Project:     in.Project,
 		Process:     in.Process,

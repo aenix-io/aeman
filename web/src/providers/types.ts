@@ -11,6 +11,10 @@ import type { Member } from "../users";
 /** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
+/** SizeKey is what somebody said a card weighs: S, M, L or XL. The points
+ *  (1/2/4/8) are derived in size.ts, never stored. */
+export type SizeKey = "S" | "M" | "L" | "XL";
+
 /** StageKey is an explicit per-card status that recolours the progress bar. */
 export type StageKey = "locked" | "review" | "recurrent" | "refuse" | "done";
 
@@ -50,6 +54,10 @@ export interface Card {
    *  an older server, which means the primary. */
   domain?: string;
   zone?: ZoneKey;
+  /** What somebody said the card weighs — S, M, L or XL — set on a daily
+   *  sync or by a sizing tool. The points a board sums are derived from it
+   *  (size.ts), never stored. Absent = unsized. */
+  size?: SizeKey;
   /** Readiness, 0..100. */
   progress?: number;
   /** Explicit status (locked/review/done) driving the progress-bar colour. */
@@ -135,6 +143,7 @@ export interface Card {
 export interface NewCardInput {
   title: string;
   zone?: ZoneKey;
+  size?: SizeKey;
   day?: string | null;
   start?: string | null;
   week?: string | null;
@@ -284,6 +293,8 @@ export interface CardPatch {
   description?: string;
   team?: string;
   zone?: ZoneKey | "";
+  /** "" takes the size back. */
+  size?: SizeKey | "";
   assignees?: string[];
   progress?: number;
   /** "" clears the stage; "done" marks the card done (derived server-side). */

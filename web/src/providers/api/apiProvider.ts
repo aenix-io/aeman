@@ -219,6 +219,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
   if (patch.zone !== undefined) {
     body.zone = semanticZone(patch.zone);
   }
+  if (patch.size !== undefined) {
+    body.size = patch.size;
+  }
   if (patch.assignees !== undefined) {
     body.assignees = patch.assignees;
   }
@@ -324,6 +327,7 @@ export const apiProvider: Provider = {
       title: input.title,
       team: input.team ?? "",
       zone: semanticZone(input.zone),
+      size: input.size ?? "",
       assignees: input.assigneeLogin ? [input.assigneeLogin] : [],
       reviewOf: input.reviewOf ?? "",
       // A parent may still be an optimistic tmp id: wait for the real uid.

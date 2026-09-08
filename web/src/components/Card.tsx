@@ -632,6 +632,11 @@ export function Card({
           {domainBadge}
         </span>
       )}
+      {card.size && (
+        <span className="card-size" title={`Size ${card.size}`}>
+          {card.size}
+        </span>
+      )}
 
 
       <span className="card-actions" aria-hidden={false}>

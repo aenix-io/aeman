@@ -4870,6 +4870,60 @@ button.card-age {
   cursor: default;
 }
 
+/* The size chips: four letters, one lit. A row of small buttons rather than
+   a dropdown, because on a daily sync the size is set for card after card
+   and every extra click is paid thirty times. */
+.modal-size-chips {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.modal-size-chip {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  min-width: 24px;
+  padding: 3px 5px;
+  cursor: pointer;
+}
+
+.modal-size-chip:hover:not(:disabled) {
+  color: inherit;
+  border-color: currentColor;
+}
+
+.modal-size-chip-on,
+.modal-size-chip-on:hover:not(:disabled) {
+  color: var(--bg, #fff);
+  background: var(--fg, #1b2129);
+  border-color: var(--fg, #1b2129);
+}
+
+.modal-size-chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* The size on the card's face: one letter in the corner, so a board read on
+   a sync shows what is sized and what is not without opening anything. */
+.card-size {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 2px 4px;
+  margin-left: 4px;
+  flex: none;
+}
+
 /* Somewhere to start a card, standing where the next one would: under the
    last of its cell, at the full width of the column, and no taller than the
    card it is about to become — the board is read down a column and a form

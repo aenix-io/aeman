@@ -504,6 +504,7 @@ type createCardRequest struct {
 	Title     string   `json:"title"`
 	Team      string   `json:"team"`
 	Zone      string   `json:"zone"`
+	Size      string   `json:"size"`
 	Assignees []string `json:"assignees"`
 	Dates     struct {
 		Start  string `json:"start"`
@@ -561,9 +562,14 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	size, ok := parseSize(w, in.Size)
+	if !ok {
+		return
+	}
 	args := boardservice.CreateCardArgs{
 		Team:           in.Team,
 		Zone:           zone,
+		Size:           size,
 		Title:          in.Title,
 		Day:            in.Dates.End,
 		Start:          in.Dates.Start,
@@ -603,6 +609,7 @@ type cardPatch struct {
 	Description *string   `json:"description"`
 	Team        *string   `json:"team"`
 	Zone        *string   `json:"zone"`
+	Size        *string   `json:"size"`
 	Assignees   *[]string `json:"assignees"`
 	Progress    *int      `json:"progress"`
 	Stage       *string   `json:"stage"`
@@ -690,15 +697,8 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if p.Zone != nil {
-		zone, ok := parseZone(w, *p.Zone)
-		if !ok {
-			return
-		}
-		if err := svc.SetZone(ctx, boardID, uid, zone); err != nil {
-			s.apiError(w, r, err)
-			return
-		}
+	if !s.patchZoneAndSize(ctx, w, r, svc, boardID, uid, p) {
+		return
 	}
 	if p.Stage != nil {
 		stage, ok := parseStage(w, *p.Stage)
@@ -1926,6 +1926,45 @@ func parseZone(w http.ResponseWriter, name string) (board.ZoneKey, bool) {
 	return zone, true
 }
 
+// patchZoneAndSize applies the two "what kind of work is this" fields of a
+// patch — the zone and the size — and reports whether the patch may go on;
+// false means the response has been written.
+func (s *Server) patchZoneAndSize(ctx context.Context, w http.ResponseWriter, r *http.Request,
+	svc *boardservice.Service, boardID, uid string, p cardPatch) bool {
+	if p.Zone != nil {
+		zone, ok := parseZone(w, *p.Zone)
+		if !ok {
+			return false
+		}
+		if err := svc.SetZone(ctx, boardID, uid, zone); err != nil {
+			s.apiError(w, r, err)
+			return false
+		}
+	}
+	if p.Size != nil {
+		size, ok := parseSize(w, *p.Size)
+		if !ok {
+			return false
+		}
+		if err := svc.SetSize(ctx, boardID, uid, size); err != nil {
+			s.apiError(w, r, err)
+			return false
+		}
+	}
+	return true
+}
+
+// parseSize validates a size ("" clears): S, M, L or XL in any case; on
+// failure it writes the 400 and returns ok=false.
+func parseSize(w http.ResponseWriter, raw string) (board.SizeKey, bool) {
+	size, ok := board.ParseSize(raw)
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "unknown size (S, M, L, XL or empty)")
+		return "", false
+	}
+	return size, true
+}
+
 // parseStage validates a stage name ("" clears).
 func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
 	switch board.StageKey(name) {
@@ -2041,6 +2080,7 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProjectNotFound),
 		errors.Is(err, boardservice.ErrWeekDerived),
 		errors.Is(err, boardservice.ErrNotAMonday),
+		errors.Is(err, boardservice.ErrUnknownSize),
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrTurnProcess),

@@ -11,6 +11,7 @@ import type {
   StageKey,
   ZoneKey,
 } from "../providers/types";
+import { sizeFromWire } from "../size";
 
 // --- Zone vocabulary ---------------------------------------------------------
 
@@ -53,6 +54,7 @@ export interface CardResource {
     description?: string;
     team?: string;
     zone?: string;
+    size?: string;
     assignees?: string[];
     progress?: number;
     stage?: string;
@@ -243,6 +245,7 @@ export function resourceToCard(res: CardResource): Card {
     sprintStart: dates.sprint || undefined,
     week: spec.week || undefined,
     parked: spec.parked || undefined,
+    size: sizeFromWire(spec.size),
     epic: spec.epic || undefined,
     project: spec.project || undefined,
     mirrors: spec.mirrors?.length ? spec.mirrors : undefined,

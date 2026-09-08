@@ -64,12 +64,14 @@ type CardSpec struct {
 	// row shape) and always present, possibly empty, on a full resource.
 	// The distinction is the client's "loaded" marker: only nil means "go
 	// fetch the body", so an empty body never reads as a missing one.
-	Description *string  `json:"description,omitempty"`
-	Team        string   `json:"team,omitempty"`
-	Zone        string   `json:"zone,omitempty"`
-	Assignees   []string `json:"assignees"`
-	Progress    int      `json:"progress"`
-	Stage       string   `json:"stage,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Team        string  `json:"team,omitempty"`
+	Zone        string  `json:"zone,omitempty"`
+	// Size is what somebody said the card weighs: S, M, L or XL, or absent.
+	Size      string   `json:"size,omitempty"`
+	Assignees []string `json:"assignees"`
+	Progress  int      `json:"progress"`
+	Stage     string   `json:"stage,omitempty"`
 	// Recurrence, on a recurrent card, is its reseed cycle: "" = every
 	// sprint, "week" / "month" = once the interval has elapsed.
 	Recurrence string    `json:"recurrence,omitempty"`
@@ -460,6 +462,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Description: &description,
 		Team:        c.Team,
 		Zone:        SemanticZone(board.ZoneOf(c)),
+		Size:        string(c.Size),
 		Assignees:   append([]string{}, c.Assignees...),
 		Progress:    c.Progress,
 		Stage:       string(c.Stage),

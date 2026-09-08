@@ -1,0 +1,102 @@
+package board
+
+import "testing"
+
+// A card's SIZE is what somebody said it weighs — S, M, L or XL — and the
+// points are derived from it, never stored: the letter is the decision a
+// person makes on a daily sync, the number is what the board sums. The scale
+// doubles at each step (1/2/4/8) so that a week of S-work and a week of
+// L-work can be compared at all.
+func TestPointsFollowTheScale(t *testing.T) {
+	cases := map[SizeKey]int{SizeNone: 0, SizeS: 1, SizeM: 2, SizeL: 4, SizeXL: 8}
+	for size, want := range cases {
+		if got := Points(size); got != want {
+			t.Errorf("Points(%q) = %d, want %d", size, got, want)
+		}
+	}
+}
+
+// The letter comes from people and tools in whatever case they typed it;
+// anything that is not one of the four is refused rather than stored, since a
+// size nothing knows would weigh nothing and read as unsized.
+func TestParseSizeTakesTheFourLettersAndNothingElse(t *testing.T) {
+	accepted := []struct {
+		raw  string
+		want SizeKey
+	}{{"S", SizeS}, {"m", SizeM}, {" L ", SizeL}, {"xl", SizeXL}, {"XL", SizeXL}, {"", SizeNone}}
+	for _, c := range accepted {
+		got, ok := ParseSize(c.raw)
+		if !ok || got != c.want {
+			t.Errorf("ParseSize(%q) = %q,%v, want %q", c.raw, got, ok, c.want)
+		}
+	}
+	for _, raw := range []string{"XXL", "4", "large", "S/M"} {
+		if _, ok := ParseSize(raw); ok {
+			t.Errorf("ParseSize(%q) must refuse", raw)
+		}
+	}
+}
+
+// A card with SUBTASKS weighs what its children weigh — the umbrella rule.
+// Umbrellas are not born as umbrellas: forty percent get their first child
+// three days or more after creation, and nothing in a card's text predicts
+// it. So the rule is dynamic, the way a parent's progress already derives
+// from its subtasks: the parent's own size stands until children exist and
+// is replaced by their sum once they do, and the total never counts twice.
+// On the production history a parent's own estimate and its children's sum
+// agree (median ratio 1.0), which is what makes the swap safe.
+func TestAParentWithSubtasksWeighsWhatItsChildrenWeigh(t *testing.T) {
+	b := Board{Cards: []Card{
+		{ItemID: "p", Size: SizeL},
+		{ItemID: "k1", Parent: "p", Size: SizeM},
+		{ItemID: "k2", Parent: "p", Size: SizeS},
+		{ItemID: "k3", Parent: "p"}, // not sized yet: contributes nothing
+	}}
+	if got := PointsOf(b, b.Cards[0]); got != 3 {
+		t.Errorf("a parent with sized children weighs their sum, got %d want 3", got)
+	}
+	if got := PointsOf(b, b.Cards[1]); got != 2 {
+		t.Errorf("a child weighs its own size, got %d", got)
+	}
+}
+
+// Children nobody has sized yet do not erase the parent's estimate: a card
+// split a minute ago into three untitled subtasks still weighs what its
+// author said, until somebody sizes the pieces.
+func TestAParentKeepsItsOwnSizeUntilAChildIsSized(t *testing.T) {
+	b := Board{Cards: []Card{
+		{ItemID: "p", Size: SizeXL},
+		{ItemID: "k1", Parent: "p"},
+		{ItemID: "k2", Parent: "p"},
+	}}
+	if got := PointsOf(b, b.Cards[0]); got != 8 {
+		t.Errorf("unsized children leave the parent's size standing, got %d", got)
+	}
+}
+
+// LoadNow is CarryingNow in points: the same cards a person is carrying
+// today — theirs, open, not put off to a week ahead, subtasks riding their
+// parent — weighed instead of counted. A card nobody sized weighs nothing,
+// which is honest: the board cannot say what it does not know, and the
+// number beside a person should invite sizing rather than pretend.
+func TestLoadNowWeighsWhatAPersonIsCarrying(t *testing.T) {
+	today := "2026-09-08"
+	b := Board{Cards: []Card{
+		{ItemID: "a", Assignees: []string{"kvaps"}, Size: SizeL, SprintStart: today},
+		{ItemID: "b", Assignees: []string{"kvaps"}, Size: SizeM, Progress: 100},       // done: not carried
+		{ItemID: "c", Assignees: []string{"kvaps"}, Size: SizeXL, Week: "2026-09-21"}, // a week ahead: not today's
+		{ItemID: "d", Assignees: []string{"kvaps"}, SprintStart: today},               // unsized: weighs 0
+		{ItemID: "p", Assignees: []string{"tym83"}, Size: SizeXL, SprintStart: today},
+		{ItemID: "p1", Parent: "p", Assignees: []string{"tym83"}, Size: SizeS},
+		{ItemID: "p2", Parent: "p", Assignees: []string{"tym83"}, Size: SizeS},
+	}}
+	got := LoadNow(b, today)
+	if got["kvaps"] != 4 {
+		t.Errorf("kvaps carries 4 points (one L; done, ahead and unsized weigh nothing), got %d", got["kvaps"])
+	}
+	// The umbrella is one card carried once, at its children's weight — the
+	// subtasks ride it and are not counted again on their own.
+	if got["tym83"] != 2 {
+		t.Errorf("tym83 carries the umbrella at its children's weight (2), got %d", got["tym83"])
+	}
+}

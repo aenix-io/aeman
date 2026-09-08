@@ -211,8 +211,11 @@ func (s *Service) MeView(ctx context.Context, boardID string, user, day string) 
 // the team's first sprint only when it has none), true = always (re)start the
 // pointer on the day, false = same as auto (start one only when there is none).
 type CreateCardArgs struct {
-	Team     string
-	Zone     board.ZoneKey
+	Team string
+	Zone board.ZoneKey
+	// Size is what the card weighs, when the caller already knows (a sizing
+	// tool, a lead creating it on a sync); "" leaves it unsized.
+	Size     board.SizeKey
 	Title    string
 	Assignee string
 	Day      string
@@ -376,6 +379,7 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title: args.Title,
 		Zone:  args.Zone,
+		Size:  args.Size,
 		Day:   day,
 		Start: start,
 		// The week the caller asked for, when they asked for one: a card
@@ -468,6 +472,7 @@ func (s *Service) createWeekCard(ctx context.Context, b board.Board, args Create
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:    args.Title,
 		Zone:     args.Zone,
+		Size:     args.Size,
 		Week:     args.Week,
 		Assignee: args.Assignee,
 		Team:     args.Team,
@@ -531,6 +536,7 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:   args.Title,
 		Zone:    args.Zone,
+		Size:    args.Size,
 		Epic:    args.Epic,
 		Project: args.Project,
 		// Born parented and born LINKED, like the other create doors: a
@@ -1833,6 +1839,31 @@ func (s *Service) SetZone(ctx context.Context, boardID string, itemID string, zo
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventZone, string(card.Zone), string(zone))
+	return nil
+}
+
+// ErrUnknownSize is a size that is not S, M, L or XL.
+var ErrUnknownSize = errors.New("a size is S, M, L or XL")
+
+// SetSize records what somebody said the card weighs — the decision made on a
+// daily sync, or by a sizing tool. Anything but the four letters is refused
+// rather than stored: a size nothing knows would weigh nothing and read as
+// unsized, silently.
+func (s *Service) SetSize(ctx context.Context, boardID string, itemID string, size board.SizeKey) error {
+	if _, ok := board.ParseSize(string(size)); !ok || size != board.SizeKey(strings.ToUpper(string(size))) {
+		return fmt.Errorf("%w: %q", ErrUnknownSize, size)
+	}
+	b, card, err := s.loadCard(ctx, boardID, itemID)
+	if err != nil {
+		return err
+	}
+	if card.Size == size {
+		return nil
+	}
+	if err := s.backend.SetSize(ctx, b, card, size); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, card, board.EventSize, string(card.Size), string(size))
 	return nil
 }
 

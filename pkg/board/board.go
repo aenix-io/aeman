@@ -93,6 +93,10 @@ type Card struct {
 	// Team is the card's team label ("" = the no-team group).
 	Team string  `json:"team,omitempty"`
 	Zone ZoneKey `json:"zone,omitempty"`
+	// Size is what somebody said the card weighs — S, M, L or XL — set on a
+	// daily sync or by a sizing tool; "" is unsized. The points a board sums
+	// are derived from it (Points, PointsOf), never stored.
+	Size SizeKey `json:"size,omitempty"`
 	// Progress is the readiness percentage (0..100); 0 also stands for unset,
 	// matching the frontend's `progress ?? 0`.
 	Progress int      `json:"progress"`
@@ -221,6 +225,7 @@ type CreateInput struct {
 	Personal    bool    `json:"personal,omitempty"`
 	Title       string  `json:"title"`
 	Zone        ZoneKey `json:"zone,omitempty"`
+	Size        SizeKey `json:"size,omitempty"`
 	Day         string  `json:"day,omitempty"`
 	Start       string  `json:"start,omitempty"`
 	SprintStart string  `json:"sprintStart,omitempty"`

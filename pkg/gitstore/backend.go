@@ -463,7 +463,7 @@ func cardFromInput(in board.CreateInput, id, created, author string) board.Card 
 	c := board.Card{
 		ItemID: id, Title: in.Title, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Epic: in.Epic,
-		Parked:  in.Parked,
+		Parked: in.Parked, Size: in.Size,
 		Project: in.Project, Process: in.Process, Task: in.Task, Recurrence: in.Recurrence, Paused: in.Paused,
 		Description: in.Body, CreatedAt: created, Author: author,
 	}
@@ -1078,6 +1078,11 @@ func (b *Backend) SetDoneAt(ctx context.Context, _ board.Board, card board.Card,
 // SetZone sets or clears the zone.
 func (b *Backend) SetZone(ctx context.Context, _ board.Board, card board.Card, zone board.ZoneKey) error {
 	return b.editCard(ctx, "zone", card, func(f *CardFile) { f.Card.Zone = zone })
+}
+
+// SetSize sets or clears the size.
+func (b *Backend) SetSize(ctx context.Context, _ board.Board, card board.Card, size board.SizeKey) error {
+	return b.editCard(ctx, "size", card, func(f *CardFile) { f.Card.Size = size })
 }
 
 // SetLeftAt sets or clears the day a personal card was left behind on.

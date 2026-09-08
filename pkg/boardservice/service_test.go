@@ -184,7 +184,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
-		Parked:  in.Parked,
+		Parked: in.Parked, Size: in.Size,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
 		Paused:      in.Paused,
 		Description: in.Body,
@@ -333,6 +333,16 @@ func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.C
 			c.DoneAt = ""
 		}
 		c.Progress = progress
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetSize(_ context.Context, _ board.Board, card board.Card, size board.SizeKey) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetSize %s %s", card.ItemID, size)
+	if c := f.get(card.ItemID); c != nil {
+		c.Size = size
 	}
 	return nil
 }

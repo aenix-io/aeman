@@ -260,7 +260,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
-		Parked:  in.Parked,
+		Parked: in.Parked, Size: in.Size,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
 		Paused:      in.Paused,
 		Description: in.Body,
@@ -440,6 +440,17 @@ func (f *Backend) SetProgress(_ context.Context, _ board.Board, card board.Card,
 			c.DoneFrom = 0
 		}
 		c.Progress = progress
+	}
+	return nil
+}
+
+// SetSize sets a card's size.
+func (f *Backend) SetSize(_ context.Context, _ board.Board, card board.Card, size board.SizeKey) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetSize %s %s", card.ItemID, size)
+	if c := f.card(card.ItemID); c != nil {
+		c.Size = size
 	}
 	return nil
 }
