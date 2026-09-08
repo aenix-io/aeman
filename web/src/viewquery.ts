@@ -70,8 +70,22 @@ export function viewQueries(
     // whether or not the drawer is open: the drawer says how much each list
     // is holding, and a count that only becomes true after you open it is
     // not a count you can plan around.
+    //
+    // reviews=true because the board OFFERS to draw them (the reviews
+    // toggle): a review is not triage work — nobody is waiting on a week for
+    // it — but it is work in the reviewer's hands and counts in their load,
+    // and one whose dates ran out stood on no board at all. Asked for once
+    // and hidden client-side rather than re-fetched on the toggle, so
+    // pressing it costs nothing and the watch scope does not change under
+    // the board while it is being read.
     return [
-      { view: "triage", team, from: mondayOf(today), weeks: String(TRIAGE_WEEKS) },
+      {
+        view: "triage",
+        team,
+        from: mondayOf(today),
+        weeks: String(TRIAGE_WEEKS),
+        reviews: "true",
+      },
       { view: "backlog", team },
     ];
   }

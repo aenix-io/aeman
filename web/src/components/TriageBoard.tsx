@@ -189,6 +189,14 @@ export function TriageBoard({
    *  card has neither a week nor a place in the strip — so the board is lent
    *  it for as long as the gesture lasts, and draws it where it would land. */
   const [carried, setCarried] = useState<CardModel | null>(null);
+  // Whether the REVIEW cards are drawn. Off to begin with, like the catch
+  // beside it: the grid is where weeks are planned, and every open review
+  // standing in the columns buries that. But they are real work in the
+  // reviewer's hands and count in the number over their name, so there has
+  // to be a way to see what that number is made of — and a review whose
+  // dates ran out is on no other board at all. Fetched either way
+  // (viewquery), so this costs a re-render and not a request.
+  const [showReviews, setShowReviews] = useState(false);
   // The tasks whose turns are MEANT to pile up: with the catch lifted those
   // are the ones a turn may be carried out of its own cycle for (gripOf).
   const accumulating = useMemo(() => {
@@ -264,6 +272,9 @@ export function TriageBoard({
       if (!teams.includes(c.team ?? "")) {
         continue;
       }
+      if (c.reviewOf && !showReviews) {
+        continue;
+      }
       const week = placedIn(c);
       // What counts as waiting is what needsTriage says — the server's own
       // rule, so the two never disagree. A review and a subtask follow the
@@ -296,7 +307,7 @@ export function TriageBoard({
       waiting,
       people: (order ? [...all].sort((a, b) => at(a) - at(b)) : all).map((key) => ({ key })),
     };
-  }, [board.cards, teams, order, projected]);
+  }, [board.cards, teams, order, projected, showReviews]);
 
 
   // Somewhere to start a card: a press on the empty part of a cell opens the
@@ -1269,6 +1280,19 @@ export function TriageBoard({
           onAdd={() => {}}
           onRemove={() => {}}
         />
+        {/* What the number over a person is made of. A review is not triage
+            work and stands in no week of its own — it is drawn where its own
+            dates put it — so it is off by default and asked for. */}
+        <button
+          type="button"
+          className={`triage-reviews${showReviews ? " triage-reviews-on" : ""}`}
+          aria-pressed={showReviews}
+          onClick={() => setShowReviews(!showReviews)}
+          title={showReviews ? "Reviews shown" : "Reviews hidden"}
+          aria-label={showReviews ? "Hide review cards" : "Show review cards"}
+        >
+          <ReviewMark />
+        </button>
         <button
           type="button"
           className={`triage-lock${unlocked ? " triage-lock-open" : ""}`}
@@ -1720,6 +1744,25 @@ function ShelfMark() {
 
 /** Padlock is the catch's own glyph — drawn rather than an emoji, so it takes
  *  the colour of the text around it and reads the same in either theme. */
+/** ReviewMark is the two bars a card on review already wears on its face
+ *  (Card.tsx, the review stage), so the button says which cards it is about
+ *  by drawing the mark those cards carry. */
+function ReviewMark() {
+  return (
+    <svg
+      className="triage-reviews-glyph"
+      viewBox="0 0 24 24"
+      width="12"
+      height="12"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <rect x="7" y="7" width="3.6" height="10" rx="1.4" />
+      <rect x="13.4" y="7" width="3.6" height="10" rx="1.4" />
+    </svg>
+  );
+}
+
 function Padlock({ open }: { open: boolean }) {
   return (
     <svg

@@ -61,10 +61,13 @@ type Selector struct {
 	// Focus keeps only workable cards — the "what can I act on now" filter
 	// (drops done, on-review and locked). It mirrors the Me view's focus toggle.
 	Focus bool
-	// IncludeReviews appends each returned card's linked review card to a me/team
-	// view, so a client rendering the reviewer badge has it on hand without a
-	// second request. It is a UI convenience, off by default (agents listing a
-	// Me board do not want the review cards mixed in).
+	// IncludeReviews brings review cards into a view. On me/team it APPENDS
+	// each returned card's linked review, so a client rendering the reviewer
+	// badge has it on hand without a second request; on triage it KEEPS the
+	// review cards the grid otherwise leaves out, placed by their own dates
+	// (board.TriageWeekOf). One flag, one meaning — reviews ride along — and
+	// off by default in both: agents listing a Me board do not want them
+	// mixed in, and a grid full of open reviews is not a plan.
 	IncludeReviews bool
 }
 
@@ -453,6 +456,15 @@ func triageCards(b board.Board, sel Selector) []board.Card {
 	var out []board.Card
 	for _, c := range b.Cards {
 		if c.Parent != "" || board.IsStateTitle(c.Title) || board.IsPersonalDomain(c.Domain) {
+			continue
+		}
+		// A REVIEW rides along only when asked. It is not triage work —
+		// nobody is waiting on a week for it — but it is work in the
+		// reviewer's hands and counts in their load, so the board offers to
+		// draw it (TriageWeekOf places it by its own dates). Off by default:
+		// every open review standing in the columns would bury the weeks the
+		// grid exists to plan.
+		if c.ReviewOf != "" && !sel.IncludeReviews {
 			continue
 		}
 		if !teamInSet(c.Team, sel.Team) {

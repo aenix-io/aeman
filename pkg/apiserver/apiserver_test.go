@@ -259,6 +259,39 @@ func TestViewIncludeReviews(t *testing.T) {
 	}
 }
 
+// The TRIAGE view holds review cards only when asked. A review is not
+// triage work — nobody is waiting on a week for it — but it IS work in the
+// reviewer's hands and counts in their load, so the board offers to draw it
+// and needs it in the listing to do so. Off by default: the grid is where
+// weeks are planned, and every open review in the column would bury that.
+func TestTriageShowsReviewsOnlyWhenAsked(t *testing.T) {
+	today := board.TodayIso()
+	week := board.MondayOf(today)
+	b := board.Board{
+		Cards: []board.Card{
+			{ItemID: "plain", Team: "alpha", Assignees: []string{"bob"}, Week: week, Progress: 10},
+			{ItemID: "rev", Team: "alpha", Assignees: []string{"carol"}, ReviewOf: "plain",
+				StartDate: today, Day: today, Progress: 50},
+		},
+	}
+	has := func(sel Selector, id string) bool {
+		for _, c := range FilterCards(b, sel) {
+			if c.ItemID == id {
+				return true
+			}
+		}
+		return false
+	}
+	base := Selector{View: "triage", Team: "alpha", From: week, Weeks: 4}
+	if !has(base, "plain") || has(base, "rev") {
+		t.Fatal("the triage grid holds no review cards unless asked")
+	}
+	withRev := Selector{View: "triage", Team: "alpha", From: week, Weeks: 4, IncludeReviews: true}
+	if !has(withRev, "plain") || !has(withRev, "rev") {
+		t.Fatal("reviews=true must bring the review into the grid")
+	}
+}
+
 // view=team accepts a comma set: the Team board fetches every team it shows in
 // one request (union of the per-team grids).
 func TestTeamViewMultiTeam(t *testing.T) {

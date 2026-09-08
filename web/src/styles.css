@@ -3591,30 +3591,35 @@ button.card-age {
 .triage-slot-size {
   flex: none;
   position: relative;
-  z-index: 3;
-  min-width: 15px;
+  z-index: 4;
+  min-width: 17px;
   height: 15px;
-  padding: 0 2px;
-  border: none;
+  padding: 0 3px;
+  border: 1px solid transparent;
   border-radius: 4px;
-  background: transparent;
-  color: var(--muted);
+  background: var(--hover-overlay);
+  color: var(--fg);
   font: inherit;
   font-size: 10px;
   font-weight: 700;
-  line-height: 15px;
+  line-height: 13px;
   font-variant-numeric: tabular-nums;
   text-align: center;
   cursor: pointer;
 }
 
 .triage-slot-size:hover {
-  background: var(--hover-overlay);
-  color: var(--fg);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
+/* Nobody has said what this one weighs: an EMPTY slot, dashed, rather than a
+   faint letter. A blank that looks like a blank is what a sync scans for. */
 .triage-slot-size-unset {
-  opacity: 0.5;
+  background: transparent;
+  border-color: var(--line);
+  border-style: dashed;
+  color: var(--muted);
   font-weight: 600;
 }
 
@@ -4898,10 +4903,16 @@ button.card-age {
 
 /* The catch on a project card's weeks. Closed by default and never
    remembered: the next visit starts closed again. */
-.triage-lock {
-  /* At the right edge with the scale, not among the board's own readings:
-     it governs the cards, and the reader reaches for it rarely. */
+/* The two board-wide switches, at the right edge with the scale rather than
+   among the board's own readings: they govern what the grid holds and the
+   reader reaches for them rarely. The REVIEWS toggle stands first and carries
+   the margin that pushes the pair right, so the catch keeps the edge. */
+.triage-reviews {
   margin-left: auto;
+}
+
+.triage-lock,
+.triage-reviews {
   display: flex;
   align-items: center;
   color: var(--muted);
@@ -4914,7 +4925,8 @@ button.card-age {
   opacity: 0.55;
 }
 
-.triage-lock:hover {
+.triage-lock:hover,
+.triage-reviews:hover {
   opacity: 1;
   color: var(--fg);
   border-color: var(--line);
@@ -4927,8 +4939,17 @@ button.card-age {
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 
-/* The lock has taken the space before it, so the scale sits against it
-   rather than being pushed out again. */
+/* Showing reviews, it says so plainly — this one adds cards to the board
+   rather than letting something loose, so it lights in the accent and not in
+   the danger colour. */
+.triage-reviews-on {
+  opacity: 1;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* The switches have taken the space before them, so the scale sits against
+   them rather than being pushed out again. */
 .triage .zoom-control {
   margin-left: 0;
 }
@@ -5041,15 +5062,14 @@ button.card-age {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  line-height: 1.15;
-  font-size: 11px;
+  line-height: 1.05;
+  font-size: 9px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0 5px 1px;
-  margin-top: 2px;
+  border-radius: 4px;
+  padding: 1px 3px;
+  margin-top: 1px;
 }
 
 /* The capacity sits UNDER the load with a hairline between them: a fraction
@@ -5066,13 +5086,11 @@ button.card-age {
 
 .triage-points-full {
   color: var(--fg);
-  border-color: var(--fg);
 }
 
 .triage-points-over {
   color: #fff;
   background: #d1242f;
-  border-color: #d1242f;
 }
 
 .person-load-input {
@@ -5240,10 +5258,13 @@ button.card-age {
   pointer-events: auto;
 }
 
-/* A slot here carries no owner badge — the COLUMN is the owner — so the ×
-   has the right edge to itself and sits against it. */
+/* The right edge belongs to the SIZE, which is always on show; the × and the
+   shelf appear on hover and therefore stand beside it, never over it. (They
+   sat against the edge while the slot carried nothing permanent there, and
+   an invisible button over a visible one is still a button: the size could
+   not even be clicked.) */
 .triage-slot .project-slot-actions {
-  right: 4px;
+  right: 28px;
 }
 
 /* The gap between the boxes of one card while it is carried or stretched:

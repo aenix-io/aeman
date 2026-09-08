@@ -254,9 +254,20 @@ describe("the Triage board", () => {
     expect(html).not.toContain("project-slot triage-slot");
   });
 
-  it("keeps a review with a week on the board, where the work is", () => {
-    const html = draw([card({ title: "Review of it", reviewOf: "c9" })]);
-    expect(html).toContain("Review of it");
+  it("keeps every review off the grid until the switch asks for them", () => {
+    // A review is not triage work — nobody is waiting on a week for it — and
+    // every open one standing in the columns would bury the weeks the grid
+    // exists to plan. But they ARE work in the reviewer's hands and count in
+    // the number over their name, and a review whose dates ran out is on no
+    // other board at all, so the toolbar carries a switch for them. Off to
+    // begin with, like the catch beside it. (What they weigh and where they
+    // then stand: size.test.ts and triage.test.ts.)
+    const withWeek = draw([card({ title: "Review of it", reviewOf: "c9" })]);
+    expect(withWeek).not.toContain("Review of it");
+    const dated = draw([card({ week: undefined, title: "Review of it", reviewOf: "c9" })]);
+    expect(dated).not.toContain("Review of it");
+    expect(withWeek).toContain('class="triage-reviews"');
+    expect(withWeek).toContain('aria-pressed="false"');
   });
 
   it("draws no card sent to review — it waits on a reviewer, not on a week", () => {

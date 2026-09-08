@@ -168,3 +168,47 @@ func with(c Card, f func(*Card)) Card {
 	f(&c)
 	return c
 }
+
+// A REVIEW card has no week of its own — the week belongs to the card it
+// reviews — but it is real work in the reviewer's hands, and until now it
+// stood on no board at all once its dates ran out: not the day boards (the
+// dates are past), not the strip (nobody is waiting on a week for it), not
+// the grid (no week). It still counted in the reviewer's load, which is how
+// a person with two cards in front of them read as carrying four.
+//
+// So when a board asks to see reviews, a review stands in the week its own
+// DATES fall in — and one whose week has gone comes into the current column
+// by the same debt rule as everything else.
+func TestAReviewStandsInTheWeekItsDatesFallIn(t *testing.T) {
+	b := Board{}
+	today := "2026-09-08"
+	r := Card{ItemID: "r", ReviewOf: "orig", StartDate: "2026-07-23", Day: "2026-07-23"}
+	if got := TriageWeekOf(b, r, today); got != "2026-07-20" {
+		t.Errorf("a review's column = %q, want the Monday of its own dates", got)
+	}
+	// Its end date is what it is drawn by when it has no start — a review
+	// mirrors the day of the card it reviews and may carry either.
+	if got := TriageWeekOf(b, Card{ReviewOf: "o", Day: "2026-09-09"}, today); got != "2026-09-07" {
+		t.Errorf("a review dated only by its end = %q, want 2026-09-07", got)
+	}
+	// A week of its own — only a direct write to the repository makes one —
+	// still wins: it is the more explicit statement of the two.
+	withWeek := Card{ReviewOf: "o", Week: "2026-09-07", StartDate: "2026-07-23"}
+	if got := TriageWeekOf(b, withWeek, today); got != "2026-09-07" {
+		t.Errorf("a review carrying a week = %q, want that week", got)
+	}
+	// Nothing to place it by is no column: it is not invented from nothing.
+	if got := TriageWeekOf(b, Card{ReviewOf: "o"}, today); got != "" {
+		t.Errorf("an undated review = %q, want no column", got)
+	}
+	// And it is never in the STRIP. The strip asks its reader to say WHEN,
+	// and nobody is waiting on that for a review.
+	if NeedsTriage(b, r, today) {
+		t.Error("a review must not stand in the triage strip")
+	}
+	// An ordinary card is untouched: dates are not a week, and a card nobody
+	// gave a week to belongs in the strip, not in the column its day lands in.
+	if got := TriageWeekOf(b, Card{StartDate: "2026-07-23", Day: "2026-07-23"}, today); got != "" {
+		t.Errorf("an ordinary dated card = %q, want no column", got)
+	}
+}

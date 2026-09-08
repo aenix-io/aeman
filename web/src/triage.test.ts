@@ -358,3 +358,27 @@ describe("brought back into the week being worked", () => {
     ).toBeNull();
   });
 });
+
+// Mirrors board.TestAReviewStandsInTheWeekItsDatesFallIn. A review has no
+// week of its own — the week belongs to the card it reviews — but it is work
+// in the reviewer's hands and counts in their load, and drawn by nothing it
+// stood on no board at all once its dates ran out.
+describe("where a review card stands", () => {
+  it("stands in the week its own dates fall in", () => {
+    expect(placedIn({ reviewOf: "orig", startDate: "2026-07-23", day: "2026-07-23" } as Card)).toBe(
+      "2026-07-20",
+    );
+    expect(placedIn({ reviewOf: "orig", day: "2026-09-09" } as Card)).toBe("2026-09-07");
+  });
+
+  it("keeps a week of its own, and invents none from nothing", () => {
+    expect(placedIn({ reviewOf: "orig", week: "2026-09-07", startDate: "2026-07-23" } as Card)).toBe(
+      "2026-09-07",
+    );
+    expect(placedIn({ reviewOf: "orig" } as Card)).toBeNull();
+  });
+
+  it("leaves an ordinary dated card in no column: dates are not a week", () => {
+    expect(placedIn({ startDate: "2026-07-23", day: "2026-07-23" } as Card)).toBeNull();
+  });
+});

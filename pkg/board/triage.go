@@ -77,7 +77,26 @@ func TriageWeekOf(_ Board, c Card, _ string) string {
 	if InBacklog(c) {
 		return ""
 	}
-	return c.Week
+	if c.Week != "" {
+		return c.Week
+	}
+	// A REVIEW card has no week of its own — the week belongs to the card it
+	// reviews — and yet it is work in the reviewer's hands and counts in
+	// their load. Drawn by nothing, it stood on no board at all once its
+	// dates ran out: not a day board (they are past), not the strip (nobody
+	// is waiting on a week for it), not the grid (no week) — while still
+	// weighing on the number beside its reviewer's name. So it stands in the
+	// week its own DATES fall in, and one whose week has gone arrives in the
+	// current column by the same debt rule as everything else. Whether it is
+	// DRAWN is the board's own question (the reviews toggle); where it would
+	// stand is this one.
+	if c.ReviewOf != "" {
+		if c.StartDate != "" {
+			return MondayOf(c.StartDate)
+		}
+		return MondayOf(c.Day)
+	}
+	return ""
 }
 
 // WeeksCovered is every week a card occupies on the Triage board: the week
