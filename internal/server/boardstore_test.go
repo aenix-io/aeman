@@ -25,18 +25,26 @@ type frame struct {
 	Object json.RawMessage `json:"object"`
 }
 
+// readFrame takes the next frame off the subscription, skipping the people's
+// LOAD — an announcement that follows every write and is nobody's card, so a
+// test about which cards a scope holds must not read one as its answer.
 func readFrame(t *testing.T, sub *subscription) frame {
 	t.Helper()
-	select {
-	case data := <-sub.ch:
-		var f frame
-		if err := json.Unmarshal(data, &f); err != nil {
-			t.Fatalf("bad frame: %v (%s)", err, data)
+	for {
+		select {
+		case data := <-sub.ch:
+			var f frame
+			if err := json.Unmarshal(data, &f); err != nil {
+				t.Fatalf("bad frame: %v (%s)", err, data)
+			}
+			if f.Kind == "Load" {
+				continue
+			}
+			return f
+		default:
+			t.Fatal("no frame queued")
+			return frame{}
 		}
-		return f
-	default:
-		t.Fatal("no frame queued")
-		return frame{}
 	}
 }
 
@@ -60,12 +68,21 @@ func settled(t *testing.T, e *boardEntry) {
 	}
 }
 
+// noFrame asserts that nothing but the load announcement is queued: that one
+// follows every write and says nothing about a scope's membership.
 func noFrame(t *testing.T, sub *subscription) {
 	t.Helper()
-	select {
-	case data := <-sub.ch:
-		t.Fatalf("unexpected frame: %s", data)
-	default:
+	for {
+		select {
+		case data := <-sub.ch:
+			var f frame
+			if json.Unmarshal(data, &f) == nil && f.Kind == "Load" {
+				continue
+			}
+			t.Fatalf("unexpected frame: %s", data)
+		default:
+			return
+		}
 	}
 }
 

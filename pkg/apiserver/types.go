@@ -623,6 +623,43 @@ func BoardResourceWith(b board.Board, avatar func(login string) string) BoardInf
 	})
 }
 
+// MembersOf is the board's people with the numbers beside each: everyone who
+// is assigned anything, in login order, with what they are carrying (cards),
+// what it weighs (points) and how many points a week they get through.
+//
+// It is separate from the board resource because those numbers change on
+// every card write while the rest of the metadata — teams, columns,
+// processes — changes rarely: a watcher can be told the people alone, which
+// is a frame of a couple of kilobytes rather than the whole roster.
+func MembersOf(b board.Board, person func(login string) Member) []Member {
+	seen := map[string]bool{}
+	logins := []string{}
+	for _, c := range b.Cards {
+		for _, a := range c.Assignees {
+			if a != "" && !seen[a] {
+				seen[a] = true
+				logins = append(logins, a)
+			}
+		}
+	}
+	sortStrings(logins)
+	today := board.TodayIso()
+	carrying := board.CarryingNow(b, today)
+	load := board.LoadNow(b, today)
+	people := make([]Member, 0, len(logins))
+	for _, login := range logins {
+		capacity, derived := board.CapacityOfPerson(b, login, today)
+		m := Member{Login: login, Carrying: carrying[login], Load: load[login],
+			Capacity: capacity, CapacityDerived: derived}
+		if person != nil {
+			p := person(login)
+			m.Name, m.AvatarURL = p.Name, p.AvatarURL
+		}
+		people = append(people, m)
+	}
+	return people
+}
+
 // BoardResourceWithPeople is BoardResource with the members resolved by the
 // given hook — the forge's avatar and display name for a login (nil leaves
 // both empty). The hook's Login is ignored: the board's login is the identity.
@@ -646,31 +683,7 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 	}
 	sortStrings(rest)
 	teams = append(teams, rest...)
-	seen := map[string]bool{}
-	members := []string{}
-	for _, c := range b.Cards {
-		for _, a := range c.Assignees {
-			if a != "" && !seen[a] {
-				seen[a] = true
-				members = append(members, a)
-			}
-		}
-	}
-	sortStrings(members)
-	today := board.TodayIso()
-	carrying := board.CarryingNow(b, today)
-	load := board.LoadNow(b, today)
-	people := make([]Member, 0, len(members))
-	for _, login := range members {
-		capacity, derived := board.CapacityOfPerson(b, login, today)
-		m := Member{Login: login, Carrying: carrying[login], Load: load[login],
-			Capacity: capacity, CapacityDerived: derived}
-		if person != nil {
-			p := person(login)
-			m.Name, m.AvatarURL = p.Name, p.AvatarURL
-		}
-		people = append(people, m)
-	}
+	people := MembersOf(b, person)
 	return BoardInfo{
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,

@@ -169,6 +169,10 @@ type boardEntry struct {
 	// the whole board, so it is sent once for a burst of changes rather than
 	// once per card — see rosterBroadcast.
 	rosterDue bool
+	// loadDue is a people announcement waiting to go out: what each person is
+	// carrying and what it weighs. Coalesced like rosterDue and for the same
+	// reason — see loadBroadcast.
+	loadDue bool
 	// fanoutCost is how long the last fan-out took — what paces the next
 	// one (see fanoutDelay).
 	fanoutCost time.Duration
@@ -401,6 +405,12 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	if c.Task != "" {
 		e.rosterBroadcast()
 	}
+	// Every card write can move a number beside a person — its size, who it
+	// is on, whether it is still open, which week it waits in — and the
+	// numbers are summed over cards this watcher may never be sent. So the
+	// people are announced for the burst, whatever the change was: deciding
+	// here which writes matter would mean re-deriving the load to find out.
+	e.loadBroadcast()
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
 	var res apiserver.Card
@@ -1098,6 +1108,62 @@ type boardFrame struct {
 	Processes []apiserver.Process `json:"processes"`
 }
 
+// loadBroadcast tells every watcher that what the board's PEOPLE are holding
+// changed. Those numbers — cards carried, points carried, points a week — are
+// derived from the cards across EVERY team, so a client holding one view's
+// cards can neither compute them nor learn them from the card events it is
+// already receiving: a size set on a card the visitor is not looking at still
+// moves the number over its owner, and a card closed anywhere moves the
+// capacity read off the record.
+//
+// Coalesced exactly like rosterBroadcast, and for the same reason — a
+// carry-over moves hundreds of cards — but the frame carries only the people,
+// which is a couple of kilobytes rather than the whole roster with every
+// column and process in it.
+// The caller holds e.mu.
+func (e *boardEntry) loadBroadcast() {
+	if e.loadDue {
+		return
+	}
+	e.loadDue = true
+	time.AfterFunc(e.fanoutDelay(), e.flushLoad)
+}
+
+// loadFrame is what a Load frame carries: the roster's people, shaped exactly
+// as the board metadata's, so a client merges it in place.
+type loadFrame struct {
+	Members []apiserver.Member `json:"members"`
+}
+
+// flushLoad sends the announcement loadBroadcast promised: one frame per
+// distinct set of rights, since what a visitor may read decides which cards
+// count towards a person's numbers.
+func (e *boardEntry) flushLoad() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.loadDue {
+		return
+	}
+	e.loadDue = false
+	started := time.Now()
+	defer func() { e.noteFanout(time.Since(started)) }()
+	built := map[string][]byte{}
+	for sub := range e.watchers {
+		key := rightsKey(sub.rights)
+		data, ok := built[key]
+		if !ok {
+			raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Load",
+				Object: loadFrame{Members: apiserver.MembersOf(sub.view(e.board), e.member)}})
+			if err != nil {
+				continue
+			}
+			data = raw
+			built[key] = raw
+		}
+		sub.sendRaw(data)
+	}
+}
+
 func (e *boardEntry) syncBroadcast() {
 	frame := watchFrame{Type: "MODIFIED", Kind: "Sync", Object: map[string]string{
 		"loadedAt": e.loadedAt.UTC().Format(time.RFC3339),
@@ -1674,6 +1740,9 @@ func (b *storeBackend) SetPersonCapacity(ctx context.Context, bd board.Board, lo
 	e.mu.Lock()
 	if e.loaded {
 		set(&e.board)
+		// The number a person is measured against just moved, and it moved
+		// for every tab, not only the one that typed it.
+		e.loadBroadcast()
 	}
 	e.mu.Unlock()
 	b.enqueue(ctx, e, pendingOp{

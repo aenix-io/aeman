@@ -252,7 +252,7 @@ Clients follow the Kubernetes list/watch pattern:
 2. WATCH: `GET /api/v1/watch?client=<id>` — upgrade to a WebSocket; each text frame is one event:
 
 ```json
-{ "type": "ADDED" | "MODIFIED" | "DELETED", "kind": "Card" | "Sprint" | "Ordering", "object": { ... } }
+{ "type": "ADDED" | "MODIFIED" | "DELETED", "kind": "Card" | "Sprint" | "Ordering" | "Board" | "Load", "object": { ... } }
 ```
 
 Apply Card events by `metadata.uid`; Sprint events replace a team's pointer; an Ordering event carries the full uid list to re-sort by. On reconnect, re-list to reconcile. Frames about a domain the visitor cannot read are never sent.
@@ -262,6 +262,8 @@ The optional `client` id keys **echo suppression**: send the same value in the `
 **Scoped watch**: pass the same selector parameters as LIST (`view=`, `team=`, `stage=`, ...) and the subscription tracks that selection — a card entering it arrives as `ADDED` and one leaving it as `DELETED`, so a thin client can mirror a single view without knowing the board rules. Memberships are re-diffed when a sprint pointer moves and when the local day rolls over. `resources=cards,sprints,ordering` picks the kinds.
 
 Deciding what a scoped view holds means building that view, so it is decided **once for a burst of changes** rather than once per card: a request that moves a team's whole backlog is answered with one frame per card a moment (~25 ms, stretched on a board where the fan-out is expensive) after its writes. Unscoped subscriptions still receive each change as it lands.
+
+**Load frames**: what the board's PEOPLE are holding — `carrying`, `load`, `capacity`, `capacityDerived` — is summed over cards from every team, so a client holding one view's cards can neither compute it nor learn it from the card events it receives: a size set on a card the tab is not showing still moves the number over its owner. Every card write and every capacity write therefore announces the people as a `MODIFIED` frame of kind `Load` carrying `{members: [...]}` — the same shape as `metadata.members`, to be merged in place. Coalesced for a burst exactly as Board frames are, and sent apart from them because these numbers move on every write while the roster hardly ever does.
 
 **Board frames**: a change to the board's STRUCTURE — a project, a column, a deadline, a process or one of its tasks — cannot be expressed as a card event, so it arrives as a `MODIFIED` frame of kind `Board` carrying the whole board resource plus the process structure (apply it, no round trip needed). These frames are **coalesced**: one request that touches many cards announces the board once, a moment (~25 ms) after its changes, not once per card — a carry-over moving a team's whole backlog would otherwise repaint the board for every open tab hundreds of times over, and it did.
 

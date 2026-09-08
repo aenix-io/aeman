@@ -19,6 +19,7 @@ import {
   type SprintListResource,
 } from "../../api/resources";
 import { splitDayLogs, type DayLogEntry } from "../../daylog";
+import type { Member } from "../../users";
 import type {
   Board,
   Card,
@@ -35,6 +36,25 @@ import type {
   TaskInput,
   ZoneKey,
 } from "../types";
+
+/** membersFrom shapes the board's people: everyone assigned anything, with
+ *  what they carry (cards), what it weighs (points) and the points a week
+ *  they get through. Used by the board load AND by the Load watch frame,
+ *  which carries the same shape — those numbers move on every card write, so
+ *  they arrive on their own rather than with the whole roster. */
+export function membersFrom(
+  raw: BoardResource["metadata"]["members"],
+): Member[] {
+  return (raw ?? []).map((m) => ({
+    login: m.login,
+    avatarUrl: m.avatarUrl || undefined,
+    name: m.name || undefined,
+    carrying: m.carrying || undefined,
+    load: m.load || undefined,
+    capacity: m.capacity || undefined,
+    capacityDerived: m.capacityDerived || undefined,
+  }));
+}
 
 /** boardMetadata maps a board resource's metadata onto board state — used by
  *  loadBoard and by the Board watch frame alike, so a roster change arriving
@@ -70,15 +90,7 @@ export function boardMetadata(
       project: e.project ?? "",
       domain: e.domain || undefined,
     })),
-    members: (info.metadata.members ?? []).map((m) => ({
-      login: m.login,
-      avatarUrl: m.avatarUrl || undefined,
-      name: m.name || undefined,
-      carrying: m.carrying || undefined,
-      load: m.load || undefined,
-      capacity: m.capacity || undefined,
-      capacityDerived: m.capacityDerived || undefined,
-    })),
+    members: membersFrom(info.metadata.members),
     // The repositories the board spans, primary first. An older server names
     // none; the UI then shows nothing of domains at all.
     domains: (info.metadata.domains ?? []).map((d) => ({

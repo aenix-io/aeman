@@ -21,7 +21,7 @@ import { ProjectBoard } from "./components/ProjectBoard";
 import { ProcessBoard } from "./components/ProcessBoard";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
-import { boardMetadata, processesFrom, showingDay } from "./providers/api/apiProvider";
+import { boardMetadata, membersFrom, processesFrom, showingDay } from "./providers/api/apiProvider";
 import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
@@ -1053,6 +1053,17 @@ export function App() {
             ? { ...cur, ...boardMetadata(obj), processes: processesFrom(obj.processes) }
             : cur,
         );
+        return;
+      }
+      // What the board's PEOPLE are holding: cards carried, points carried,
+      // points a week. Derived from cards across every team, so this cannot
+      // be computed from the view's own cards — a size set on a card this tab
+      // is not showing still moves the number over its owner. It arrives
+      // apart from the roster because it moves on every write and the roster
+      // hardly ever does.
+      if (frame.kind === "Load" && frame.object) {
+        const obj = frame.object as { members?: BoardResource["metadata"]["members"] };
+        setBoard((cur) => (cur ? { ...cur, members: membersFrom(obj.members) } : cur));
         return;
       }
       // The write queue's depth: changes applied everywhere but not yet
