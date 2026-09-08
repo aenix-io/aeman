@@ -5247,10 +5247,14 @@ button.card-age {
    offering: the reviews take its place, and there is no way back, because
    folding them away again is not a state anybody stays in. */
 .triage-reviews-line {
-  position: absolute;
-  left: 3px;
-  right: 3px;
+  /* A grid item like the boxes above it, NOT an absolutely positioned one.
+     An abspos grid child resolves its auto end-lines to the grid's padding
+     edge rather than to the next line, so `grid-column: 5` reached from that
+     column to the right edge of the whole table — and the hover background
+     painted every person to its right. */
+  position: relative;
   z-index: 2;
+  margin: 0 3px;
   display: flex;
   align-items: center;
   padding: 0 6px;
