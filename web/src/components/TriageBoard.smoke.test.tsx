@@ -269,7 +269,9 @@ describe("the Triage board", () => {
     expect(html).not.toContain("Review of it");
     expect(html).toContain('class="triage-reviews-line"');
     expect(html).toContain("+1 review<");
-    expect(html).toContain('aria-expanded="false"');
+    // Plain text, like the add control on the day boards: it is not a card
+    // and must not be drawn as one.
+    expect(html).not.toContain("triage-reviews-line project-slot");
     // The week counts what it costs whether or not the line is open: one
     // unsized card at M and one unsized review at S.
     expect(html).toContain('<span class="triage-points-load">3</span>');

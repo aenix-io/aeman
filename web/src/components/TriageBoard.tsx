@@ -207,14 +207,8 @@ export function TriageBoard({
   // that person, that week. Asked for in the fetch either way (viewquery),
   // so opening one costs a re-render and not a request.
   const [openReviews, setOpenReviews] = useState<ReadonlySet<string>>(new Set());
-  const toggleReviews = useCallback((cell: string) => {
-    setOpenReviews((open) => {
-      const next = new Set(open);
-      if (!next.delete(cell)) {
-        next.add(cell);
-      }
-      return next;
-    });
+  const showReviewsIn = useCallback((cell: string) => {
+    setOpenReviews((open) => new Set(open).add(cell));
   }, []);
   // The tasks whose turns are MEANT to pile up: with the catch lifted those
   // are the ones a turn may be carried out of its own cycle for (gripOf).
@@ -942,11 +936,15 @@ export function TriageBoard({
     }
     for (const [key, cell] of byCell) {
       const list = slots.get(cell.col) ?? [];
-      list.push({ ...bare, card: cell.cards[0], row: cell.row, reviews: cell.cards, cell: key });
+      // Shown, the reviews replace the line that offered them: they say how
+      // many there are by being there, and a way to fold them back would be
+      // a control for a state nobody is in for long.
       if (openReviews.has(key)) {
         for (const c of cell.cards) {
           list.push({ ...bare, card: c, row: cell.row, review: true });
         }
+      } else {
+        list.push({ ...bare, card: cell.cards[0], row: cell.row, reviews: cell.cards, cell: key });
       }
       slots.set(cell.col, list);
       const w = weeks[cell.row];
@@ -1508,37 +1506,32 @@ export function TriageBoard({
             (slots.get(p.key) ?? []).map((slot) => {
               const { card, row, part, parts } = slot;
               // The LINE at the foot of a cell: how many reviews stand in
-              // this person's week, and the press that shows them. It is not
-              // a card — nothing can be dragged onto or out of it — and it is
-              // drawn even while it is open, as the way back.
+              // this person's week, and the press that shows them. Plain
+              // text, like the add control on the day boards — it is not a
+              // card and must not read as one. Pressed, it is replaced by
+              // what it was offering.
               if (slot.reviews && slot.cell) {
-                const open = openReviews.has(slot.cell);
                 const n = slot.reviews.length;
+                const cell = slot.cell;
                 return (
                   <button
                     type="button"
                     key={`${p.key}/reviews/${row}`}
-                    className={`triage-reviews-line${open ? " triage-reviews-line-open" : ""}`}
+                    className="triage-reviews-line"
                     style={{
                       gridColumn: col + 2,
                       gridRow: row + 2,
                       ...laneStyle(slot, grid.rowFit, grid.rowH),
                     }}
-                    title={
-                      open
-                        ? "Hide the reviews standing in this week"
-                        : `${n} review${n === 1 ? "" : "s"} on this person this week — work in their hands, counted in the week's points`
-                    }
-                    aria-expanded={open}
+                    title={`${n} review${n === 1 ? "" : "s"} on this person this week — work in their hands, counted in the week's points`}
                     onPointerDown={(e) => e.stopPropagation()}
                     onDoubleClick={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleReviews(slot.cell as string);
+                      showReviewsIn(cell);
                     }}
                   >
-                    {open ? "−" : "+"}
-                    {n} review{n === 1 ? "" : "s"}
+                    +{n} review{n === 1 ? "" : "s"}
                   </button>
                 );
               }
