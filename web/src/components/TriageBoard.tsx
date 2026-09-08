@@ -52,7 +52,7 @@ import { Dropdown } from "./Dropdown";
 import { WeekGrid } from "./WeekGrid";
 import { ZoomControl } from "./ZoomControl";
 import { PersonLoad } from "./PersonLoad";
-import { loadLabel, loadState, plannable } from "../load";
+import { loadState, plannable } from "../load";
 import { useWeekGrid } from "./useWeekGrid";
 
 // The column a card with no assignee stands in. An empty login is a real
@@ -1451,8 +1451,14 @@ export function TriageBoard({
               label: (
                 <>
                   <span className="project-week-date">{w === thisWeek ? "now" : weekLabel(w)}</span>
+                  {/* Stacked, not "220/20": the week column is as wide as a
+                      date and a pill that spells the fraction on one line
+                      grows out of it the moment either number reaches three
+                      digits. One number over the other, hairline between,
+                      reads the same and fits. */}
                   <span className={`triage-points triage-points-${state}`}>
-                    {loadLabel(pts, plannableWeek)}
+                    <span className="triage-points-load">{pts}</span>
+                    {!!plannableWeek && <span className="triage-points-cap">{plannableWeek}</span>}
                   </span>
                 </>
               ),
