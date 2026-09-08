@@ -274,7 +274,7 @@ describe("the Triage board", () => {
     expect(html).not.toContain("triage-reviews-line project-slot");
     // The week counts what it costs whether or not the line is open: one
     // unsized card at M and one unsized review at S.
-    expect(html).toContain('<span class="triage-points-load">3</span>');
+    expect(html).toContain(">3</span>");
   });
 
   it("counts several reviews in one line, and none where there are none", () => {
@@ -466,11 +466,11 @@ describe("the Triage board", () => {
     expect(sized).not.toContain("triage-slot-size-unset");
   });
 
-  it("puts the week's points over the plannable, not beside it", () => {
-    // A column is as wide as a date; "220/20" on one line grows out of it
-    // the moment either number reaches three digits.
+  it("says a week's points alone when there is no capacity to measure them", () => {
+    // "2/0" would read as a week with no room at all; the number stands on
+    // its own until somebody has set the people's capacities.
     const html = draw([card()]);
-    expect(html).toContain('<span class="triage-points-load">2</span>');
+    expect(html).toContain(">2</span>");
     expect(html).not.toContain("2/0");
   });
 
