@@ -2,70 +2,54 @@ package board
 
 import "testing"
 
-// A TEAM's capacity is its PEOPLE's, added up — not a number of its own and
-// not a reading of the team's own closed record. A team is the people in it,
-// so a person away is a team short by exactly what that person gets through,
-// and a lead who fixes one person's number moves the team's by the same
-// amount. Nothing has to be kept in step by hand.
+// A TEAM's capacity in POINTS is a number somebody set, exactly like a
+// person's. It was arithmetic once — the people's capacities added up, each
+// person split between their teams in proportion to what they had closed in
+// each over four weeks, the whole then cut by the share history said arrives
+// unplanned. Three derivations stacked on one record, and that record is
+// eleven days old on a real board: one busy week could hand a person's whole
+// number to one team. The same reason the person's own number stopped being
+// derived applies twice over here.
 //
-// A person split across teams is split by their RECORD: their capacity is
-// shared out in proportion to the points they closed in each team over the
-// same four weeks, so the shares add back up to the person and no team
-// counts the whole of somebody it only half has.
-func TestATeamsCapacityIsThePeopleInIt(t *testing.T) {
-	today := "2026-09-08" // Tuesday; the window is 08-10 .. 09-06
-	b := Board{
-		SprintStates: map[string]SprintState{"portal": {Current: today}, "cozy": {Current: today}},
-		People:       map[string]Person{"solo": {Capacity: 10}, "split": {Capacity: 20}},
-		Cards: []Card{
-			// solo works only for portal
-			{ItemID: "a", Team: "portal", Assignees: []string{"solo"}, Size: SizeM, Progress: 100, DoneAt: "2026-08-12"},
-			// split closed three quarters of their points in portal, a quarter in cozy
-			{ItemID: "b", Team: "portal", Assignees: []string{"split"}, Size: SizeL, Progress: 100, DoneAt: "2026-08-19"},
-			{ItemID: "c", Team: "portal", Assignees: []string{"split"}, Size: SizeM, Progress: 100, DoneAt: "2026-08-20"},
-			{ItemID: "d", Team: "cozy", Assignees: []string{"split"}, Size: SizeM, Progress: 100, DoneAt: "2026-08-21"},
-		},
-	}
-	// portal = solo's 10 + three quarters of split's 20 = 25
-	if got, derived := PointsAWeekOf(b, "portal", today); got != 25 || !derived {
-		t.Errorf("portal = %d (derived %v), want 25 — solo's 10 plus split's ¾ of 20", got, derived)
-	}
-	// cozy = the remaining quarter of split's 20
-	if got, _ := PointsAWeekOf(b, "cozy", today); got != 5 {
-		t.Errorf("cozy = %d, want 5 — split's ¼ of 20", got)
-	}
-	// The shares add back up to each person: nobody is counted twice.
-	portal, _ := PointsAWeekOf(b, "portal", today)
-	cozy, _ := PointsAWeekOf(b, "cozy", today)
-	if portal+cozy != 30 {
-		t.Errorf("the teams together = %d, want the people together (10+20)", portal+cozy)
-	}
-}
-
-// A person with no closed record in the window is not invisible: they are
-// carrying work for a team right now, and that team is the one their whole
-// capacity counts for. Without this a newcomer — whose capacity a lead has
-// just set BECAUSE there is no record — would add nothing to their team.
-func TestAPersonWithNoRecordCountsWhereTheyAreCarrying(t *testing.T) {
+// So the board stores the number and does no arithmetic. Working the number
+// OUT is the derive-capacity skill's job — it can say how thin the record it
+// used was, which the board never could.
+func TestATeamsPointsAWeekIsTheNumberSomebodySet(t *testing.T) {
 	today := "2026-09-08"
 	b := Board{
-		SprintStates: map[string]SprintState{"portal": {Current: today}},
-		People:       map[string]Person{"newbie": {Capacity: 8}},
+		SprintStates: map[string]SprintState{
+			"portal": {Current: today, Capacity: Capacity{Points: 40}},
+			"cozy":   {Current: today},
+		},
+		People: map[string]Person{"someone": {Capacity: 20}},
 		Cards: []Card{
-			{ItemID: "a", Team: "portal", Assignees: []string{"newbie"}, Size: SizeM, SprintStart: today},
+			// A long closed record in cozy changes nothing: a team's number is
+			// not read off its people, or off its own history.
+			{ItemID: "a", Team: "cozy", Assignees: []string{"someone"}, Size: SizeL, Progress: 100, DoneAt: "2026-08-19"},
+			{ItemID: "b", Team: "cozy", Assignees: []string{"someone"}, Size: SizeL, Progress: 100, DoneAt: "2026-08-26"},
 		},
 	}
-	if got, _ := PointsAWeekOf(b, "portal", today); got != 8 {
-		t.Errorf("portal = %d, want the newcomer's whole 8", got)
+	if got := PointsAWeekOf(b, "portal"); got != 40 {
+		t.Errorf("portal = %d, want the 40 somebody set", got)
+	}
+	if got := PointsAWeekOf(b, "cozy"); got != 0 {
+		t.Errorf("cozy = %d, want 0 — nobody has said, and the record is not an answer", got)
+	}
+	if got := PointsAWeekOf(b, "nosuchteam"); got != 0 {
+		t.Errorf("a team the board never heard of = %d, want 0", got)
 	}
 }
 
-// A team nobody works for is 0, and says so as DERIVED: the board knows of
-// no limit rather than a limit of none — the same answer a person with no
-// history gets, for the same reason.
-func TestATeamWithNobodyInItHasNoCapacity(t *testing.T) {
+// 0 is "nobody has said", which a client draws as the week's points ALONE —
+// "12", never "12/0", which would read as a week with no room at all. It is
+// the same rule the person's number follows, for the same reason.
+func TestATeamWithNoNumberHasNone(t *testing.T) {
 	b := Board{SprintStates: map[string]SprintState{"empty": {Current: "2026-09-08"}}}
-	if got, derived := PointsAWeekOf(b, "empty", "2026-09-08"); got != 0 || !derived {
-		t.Errorf("an empty team = %d (derived %v), want 0 derived", got, derived)
+	if got := PointsAWeekOf(b, "empty"); got != 0 {
+		t.Errorf("an empty team = %d, want 0", got)
+	}
+	b.SprintStates["empty"] = SprintState{Capacity: Capacity{Points: 0, Week: 12}}
+	if got := PointsAWeekOf(b, "empty"); got != 0 {
+		t.Errorf("a team with a CARD capacity but no points = %d, want 0 — they are different numbers", got)
 	}
 }

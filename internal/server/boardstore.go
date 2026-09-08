@@ -1756,6 +1756,40 @@ func (b *storeBackend) SetPersonCapacity(ctx context.Context, bd board.Board, lo
 	return nil
 }
 
+// SetTeamPoints updates the cached sprint state in place and queues the write
+// of the team's file: the number a week is measured against moves at once,
+// on every board that shows the team.
+func (b *storeBackend) SetTeamPoints(ctx context.Context, bd board.Board, team string, points int) error {
+	set := func(target *board.Board) {
+		if target.SprintStates == nil {
+			target.SprintStates = map[string]board.SprintState{}
+		}
+		st := target.SprintStates[team]
+		st.Capacity.Points = points
+		target.SprintStates[team] = st
+	}
+	e := b.store.entry(storeKey(bd.Board))
+	e.mu.Lock()
+	if e.loaded {
+		set(&e.board)
+		e.sprintChanged(clientIDFrom(ctx), team)
+	}
+	e.mu.Unlock()
+	label := team
+	if label == "" {
+		label = "no team"
+	}
+	b.enqueue(ctx, e, pendingOp{
+		key:   "team-capacity:" + team,
+		desc:  "set the capacity of «" + label + "»",
+		apply: set,
+		exec: func(ctx context.Context) error {
+			return b.inner.SetTeamPoints(ctx, bd, team, points)
+		},
+	})
+	return nil
+}
+
 func (b *storeBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
 	b.mutateCard(ctx, bd, card.ItemID, "size", "size "+cardRef(card), func(c *board.Card) {
 		c.Size = size

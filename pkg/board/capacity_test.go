@@ -40,20 +40,3 @@ func TestAPersonsCapacityIsTheRostersNumberAndNothingElse(t *testing.T) {
 		t.Errorf("a login the board never saw has capacity 0, got %d", got)
 	}
 }
-
-// A team's points a week are its people's numbers added up, so a team of
-// people nobody has sized has no capacity either — 0, not a guess from the
-// record its people happen to have left.
-func TestATeamOfUnsetPeopleHasNoCapacity(t *testing.T) {
-	b := Board{Cards: []Card{
-		{ItemID: "a", Team: "platform", Assignees: []string{"x"}, Size: SizeL, Progress: 100, DoneAt: "2026-08-11"},
-		{ItemID: "b", Team: "platform", Assignees: []string{"y"}, Size: SizeL, Progress: 100, DoneAt: "2026-08-18"},
-	}}
-	if got, _ := PointsAWeekOf(b, "platform", "2026-09-08"); got != 0 {
-		t.Errorf("points a week = %d, want 0 until somebody sets a number", got)
-	}
-	b.People = map[string]Person{"x": {Capacity: 20}}
-	if got, _ := PointsAWeekOf(b, "platform", "2026-09-08"); got != 20 {
-		t.Errorf("points a week = %d, want the one number that is set", got)
-	}
-}

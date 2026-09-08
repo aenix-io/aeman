@@ -1881,6 +1881,37 @@ func (s *Service) SetPersonCapacity(ctx context.Context, boardID string, login s
 	return s.backend.SetPersonCapacity(ctx, b, login, points)
 }
 
+// SetTeamPoints records the points a week a lead set for a TEAM — the number
+// a week of its plan is weighed against — in the team's own file, beside its
+// cards a week. Zero takes it back, and the board then knows of no limit for
+// that team rather than a limit of none.
+//
+// It is not the sum of the team's people, though that is where the answer
+// usually comes from. Working the sum out means splitting anybody who works
+// across teams by what they closed in each — and on a real board that record
+// is days old, so one busy week could hand a person's whole number to a team
+// they had barely touched, silently. The arithmetic, with the caveats it
+// needs, is the derive-capacity skill's; the board keeps what somebody
+// decided.
+func (s *Service) SetTeamPoints(ctx context.Context, boardID string, team string, points int) error {
+	team = strings.TrimSpace(team)
+	if points < 0 || points > maxCapacity {
+		return fmt.Errorf("%w: %d", ErrBadCapacity, points)
+	}
+	b, err := s.backend.LoadBoard(ctx, boardID)
+	if err != nil {
+		return err
+	}
+	st, ok := b.SprintStates[team]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrTeamNotFound, team)
+	}
+	if st.Capacity.Points == points {
+		return nil
+	}
+	return s.backend.SetTeamPoints(ctx, b, team, points)
+}
+
 // hasPerson reports whether the roster has an entry for the login.
 func hasPerson(people map[string]board.Person, login string) bool {
 	_, has := people[login]

@@ -803,6 +803,26 @@ func (mb *MultiBackend) SetPersonCapacity(ctx context.Context, bd board.Board, l
 	return be.SetPersonCapacity(ctx, bd, login, points)
 }
 
+// SetTeamPoints writes where the TEAM is declared: its capacity is one line
+// of the same file its sprint pointer lives in.
+func (mb *MultiBackend) SetTeamPoints(ctx context.Context, bd board.Board, team string, points int) error {
+	s, err := mb.snapshot()
+	if err != nil {
+		return err
+	}
+	d, ok := newResolver(s).teams[team]
+	if !ok {
+		if d, err = rosterDomain(board.DomainFrom(ctx)); err != nil {
+			return err
+		}
+	}
+	be, err := mb.backend(d)
+	if err != nil {
+		return err
+	}
+	return be.SetTeamPoints(ctx, bd, team, points)
+}
+
 // SetSize writes in the card's domain.
 func (mb *MultiBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
 	be, err := mb.route(ctx, card)

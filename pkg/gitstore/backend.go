@@ -904,9 +904,38 @@ func (b *Backend) editUser(ctx context.Context, op, login string, fn func(*UserF
 }
 
 // SetPersonCapacity records the points a week a lead set for a person (0
-// takes it back: the board derives one again).
+// takes it back: the board then has no number for them at all).
 func (b *Backend) SetPersonCapacity(ctx context.Context, _ board.Board, login string, points int) error {
 	return b.editUser(ctx, "capacity", login, func(f *UserFile) { f.Capacity = points })
+}
+
+// SetTeamPoints records the points a week a lead set for a team, in the team's
+// own file beside its cards a week (0 takes it back). The team must exist:
+// a capacity is said about something already declared.
+func (b *Backend) SetTeamPoints(ctx context.Context, _ board.Board, team string, points int) error {
+	s, err := b.snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	id := ""
+	for _, t := range s.Teams {
+		if t.Name == team {
+			id = t.ID
+			break
+		}
+	}
+	if id == "" {
+		if sc := scopeOf(ctx); sc != nil {
+			id = sc.teams[team]
+		}
+	}
+	if id == "" && team == "" {
+		id = "_"
+	}
+	if id == "" {
+		return fmt.Errorf("%w: %s", ErrNotFound, team)
+	}
+	return b.editTeam(ctx, "capacity", TeamPath(id), func(f *TeamFile) { f.Capacity.Points = points })
 }
 
 func (b *Backend) editProject(ctx context.Context, op, p string, fn func(*ProjectFile)) error {

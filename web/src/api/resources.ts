@@ -114,13 +114,9 @@ export interface SprintResource {
     client: number;
     internal: number;
     derived: boolean;
-    /** The week in POINTS and the share of them that arrive outside the plan
-     *  (yellow and red); reactiveKnown is false when nothing sized was closed
-     *  in the window. Mirrors board.PointsAWeekOf / board.ReactiveShareOf. */
+    /** The team's week in POINTS — a number somebody SET, never derived.
+     *  Mirrors board.PointsAWeekOf. */
     points?: number;
-    pointsDerived?: boolean;
-    reactive?: number;
-    reactiveKnown?: boolean;
   };
   };
 }

@@ -7,34 +7,37 @@ import (
 )
 
 // A team's sprint resource carries, beside the card count the capacity bar
-// always had, its week in POINTS and the share of them that arrive outside
-// the plan — the two numbers the Triage board needs to say how much of a
-// week can still be planned.
-func TestSprintCapacityCarriesPointsAndTheReactiveShare(t *testing.T) {
+// always had, its week in POINTS — the number somebody set for the team, and
+// the one the Triage board holds a week's scheduled points against.
+//
+// The two are different measurements, not two views of one, and the points
+// are never derived: a team whose number nobody has set carries none, whatever
+// its people have closed.
+func TestSprintCapacityCarriesTheTeamsPoints(t *testing.T) {
 	today := board.TodayIso()
 	lastWeek := board.AddDays(board.MondayOf(today), -3)
 	b := board.Board{
-		SprintStates: map[string]board.SprintState{"portal": {Current: today, ItemID: "s1"}},
-		People:       map[string]board.Person{"kvaps": {Capacity: 30}},
+		SprintStates: map[string]board.SprintState{
+			"portal": {Current: today, ItemID: "s1", Capacity: board.Capacity{Points: 30}},
+			"cozy":   {Current: today, ItemID: "s2"},
+		},
+		People: map[string]board.Person{"kvaps": {Capacity: 30}},
 		Cards: []board.Card{
-			{ItemID: "a", Team: "portal", Assignees: []string{"kvaps"}, Zone: board.ZoneGray,
-				Size: board.SizeXL, Progress: 100, DoneAt: lastWeek},
-			{ItemID: "b", Team: "portal", Assignees: []string{"kvaps"}, Zone: board.ZoneRed,
+			{ItemID: "a", Team: "cozy", Assignees: []string{"kvaps"}, Zone: board.ZoneGray,
 				Size: board.SizeXL, Progress: 100, DoneAt: lastWeek},
 		},
 	}
-	var cap *SprintCapacity
+	byTeam := map[string]*SprintCapacity{}
 	for _, s := range SprintResources(b) {
-		if s.Metadata.Team == "portal" {
-			cap = s.Spec.Capacity
-		}
+		byTeam[s.Metadata.Team] = s.Spec.Capacity
 	}
-	if cap == nil {
-		t.Fatal("no capacity on the sprint resource")
+	if cap := byTeam["portal"]; cap == nil || cap.Points != 30 {
+		t.Fatalf("portal = %+v, want the 30 points a week somebody set", cap)
 	}
-	// The team is one person, whose capacity a lead set to 30; half of what
-	// the team closed came in outside the plan.
-	if cap.Points != 30 || !cap.PointsDerived || cap.Reactive != 50 || !cap.ReactiveKnown {
-		t.Fatalf("capacity = %+v, want the person's 30 points a week, 50%% reactive (known)", *cap)
+	// A team with a person and a closed record, and no number: none. The
+	// arithmetic that used to fill this in lives in the derive-capacity skill,
+	// where how thin the record was can be said out loud.
+	if cap := byTeam["cozy"]; cap == nil || cap.Points != 0 {
+		t.Fatalf("cozy = %+v, want no points until somebody says", cap)
 	}
 }

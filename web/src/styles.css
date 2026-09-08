@@ -2711,6 +2711,37 @@ button.card-age {
   cursor: default;
 }
 
+/* What a week of this team's plan is weighed against, on the team's own row:
+   the board derives no such number, so this is where it is said. Blank means
+   nobody has, which every board draws as no limit rather than a limit of
+   none. */
+.teams-manage-cap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.teams-manage-cap-input {
+  width: 44px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.teams-manage-cap-unit {
+  font-size: 9px;
+  letter-spacing: 0.2px;
+}
+
 .teams-manage-del:hover:not(:disabled) {
   color: var(--danger);
   border-color: var(--danger);

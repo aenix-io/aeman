@@ -61,11 +61,17 @@ const (
 	ZoneRed    ZoneKey = "red"
 )
 
-// Capacity is a team's throughput in cards a week, and the shares of it the
-// lanes may take: Client is a ceiling, Internal a floor, both in percent.
-// Week 0 means "derive it" (see CapacityOf).
+// Capacity is a team's throughput and the shares of it the lanes may take:
+// Client is a ceiling, Internal a floor, both in percent.
+//
+// There are two throughput numbers and they are different measurements, not
+// two views of one. Week is CARDS a week — the weekly plan's own limit, 0
+// meaning "derive it" (see CapacityOf). Points is POINTS a week, what the day
+// boards weigh a plan against, and it is never derived: 0 means nobody has
+// said (PointsAWeekOf).
 type Capacity struct {
 	Week     int `json:"week,omitempty"`
+	Points   int `json:"points,omitempty"`
 	Client   int `json:"client,omitempty"`
 	Internal int `json:"internal,omitempty"`
 }

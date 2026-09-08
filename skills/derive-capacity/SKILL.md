@@ -25,7 +25,7 @@ Over the last four complete weeks, per person:
 
 - Take the cards with a `status.doneAt` in the window, on that person (`spec.assignees[0]` — the first assignee owns the card; a card is not counted twice).
 - Leave out: subtasks (`spec.parent` set — they are weighed on their parent), review cards (`spec.reviewOf`), the board's own state cards, and anything on a personal domain. This is the team's work, not everything that moved.
-- Weigh each card: S=1, M=2, L=4, XL=8, and a card with no size weighs M. An umbrella — a card with sized children — weighs its children, once, not itself.
+- Weigh each card: S=1, M=2, L=4, XL=8; a card with no size weighs M, and an unsized REVIEW card weighs S. An umbrella — a card with sized children — weighs its children, once, not itself.
 - Group by the Monday of `doneAt`. That gives up to four weekly totals.
 - **The capacity is the MEDIAN of the weeks the person closed something in.** Weeks with nothing closed are skipped, not counted as zero: a week off is not a slow week, and a number that remembers somebody's holiday is wrong the moment they come back. The median, not the mean, so one enormous week — an umbrella closed all at once — does not become the expectation.
 
@@ -45,7 +45,19 @@ For each number the lead confirmed: `set_capacity login=<login> capacity=<points
 
 `capacity=0` takes a number back — the board then draws that person's load alone, with nothing to measure it against. Use it when the lead says they no longer stand behind a number; never as a way of saying "recompute", because nothing recomputes.
 
-A team's capacity is not set anywhere: it is the sum of its people's, with somebody who works across two teams split between them in proportion to what they closed in each. So the way to fix a team's number is to fix a person's.
+## A team's number
+
+A team has a capacity of its own — `set_team_capacity team=<key> capacity=<points a week>` — and the board derives it no more than it derives a person's. It is a different measurement from the cards-a-week limit beside it in the same file, not another view of it.
+
+Work it out in three steps, and say which of them you had to guess at:
+
+1. **Add up the people.** The team's members and their capacities (`get_board` `metadata.members`), which you have just derived or which a lead has set.
+2. **Take only the share of each person the team actually has.** Somebody who works across teams is not wholly anyone's. Split them by where their OPEN work is — `list_cards view=all` grouped by `spec.team` for that person, weighed the same way — rather than by what they closed: the closed record is only as deep as `doneAt` goes, and one busy week can hand a person's whole number to a team they barely touched. Say the split out loud in the table; it is the part a lead is most likely to correct, because they know that somebody is on portal this month whatever the cards say.
+3. **Take off what arrives unplanned.** A week planned to the last point cannot absorb the work that turns up during it. Measure it: of the points the team closed in the window, the share that was in the yellow or red zones (`spec.zone`) — on the production board that was a third for the engineering teams and two fifths for the portal team. A team's plannable week is its capacity less that share. If the window is too thin to measure, say so and leave the number at the raw sum, flagged.
+
+The result is one number per team, shown to the lead and written back only where they agree.
+
+A person's number and their team's are not kept in step by the board: change somebody's capacity and no team's number moves. That is the price of both being somebody's word. Re-derive the teams when the people change.
 
 ## What this number is not
 

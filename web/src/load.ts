@@ -31,13 +31,3 @@ export function loadState(load: number, capacity: number | undefined): LoadState
 export function loadLabel(load: number, capacity: number | undefined): string {
   return capacity ? `${load}/${capacity}` : `${load}`;
 }
-
-/** plannable is what a team can put into a week: its points a week less
- *  the share that history says will arrive on its own; with no share known,
- *  the whole of it. Mirrors board.Plannable. */
-export function plannable(pointsAWeek: number, reactiveShare: number, known: boolean): number {
-  if (!known) {
-    return pointsAWeek;
-  }
-  return Math.floor((pointsAWeek * (100 - reactiveShare)) / 100);
-}

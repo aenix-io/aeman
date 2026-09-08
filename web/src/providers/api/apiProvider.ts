@@ -463,6 +463,11 @@ export const apiProvider: Provider = {
     return this.loadBoard();
   },
 
+  async setTeamCapacity(team: string, points: number): Promise<Board> {
+    await api<{ ok: boolean }>("POST", "/teams/actions/capacity", { team, points });
+    return this.loadBoard();
+  },
+
   async untriageCard(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom("POST", `/cards/${uid}/actions/untriage`, {});

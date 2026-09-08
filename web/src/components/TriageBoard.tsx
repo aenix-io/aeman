@@ -53,7 +53,7 @@ import { SizeChip } from "./SizeChip";
 import { WeekGrid } from "./WeekGrid";
 import { ZoomControl } from "./ZoomControl";
 import { PersonLoad } from "./PersonLoad";
-import { loadState, plannable } from "../load";
+import { loadState } from "../load";
 import { useWeekGrid } from "./useWeekGrid";
 
 // The column a card with no assignee stands in. An empty login is a real
@@ -793,15 +793,13 @@ export function TriageBoard({
   // every card here be a plain box of one row: the week's cards then stand
   // one under the next at the full column width, and the week grows to hold
   // them, rather than the column being sliced into slivers nobody can read.
-  // What the teams on screen can plan for a week: their points a week less
-  // the share history says arrives on its own (load.ts, mirroring
-  // board.Plannable). The number beside a week is what it carries against it.
+  // What the teams on screen can plan in a week: their own numbers, added up.
+  // Each is a number somebody SET for that team (board.PointsAWeekOf) — the
+  // board works nothing out, so a week is never measured against arithmetic
+  // nobody stands behind. 0 when none of them has one, which draws the week's
+  // points alone.
   const plannableWeek = useMemo(
-    () =>
-      teams.reduce((sum, t) => {
-        const cap = board.sprintStates[t]?.capacity;
-        return sum + plannable(cap?.points ?? 0, cap?.reactive ?? 0, cap?.reactiveKnown ?? false);
-      }, 0),
+    () => teams.reduce((sum, t) => sum + (board.sprintStates[t]?.capacity?.points ?? 0), 0),
     [board.sprintStates, teams],
   );
 

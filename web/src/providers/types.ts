@@ -180,13 +180,10 @@ export interface SprintState {
     client: number;
     internal: number;
     derived: boolean;
-    /** The week in POINTS and the share of them that arrive outside the plan
-     *  (yellow and red); reactiveKnown is false when nothing sized was closed
-     *  in the window. Mirrors board.PointsAWeekOf / board.ReactiveShareOf. */
+    /** The team's week in POINTS — a number somebody SET, never derived, and
+     *  a different measurement from the cards a week beside it. Absent when
+     *  nobody has said. Mirrors board.PointsAWeekOf. */
     points?: number;
-    pointsDerived?: boolean;
-    reactive?: number;
-    reactiveKnown?: boolean;
   };
 }
 
@@ -422,10 +419,14 @@ export interface Provider {
    *  and where there is no earlier sprint to send it to. */
   finishedEarlier(uid: string): Promise<Card>;
   /** Set how many points a week a person gets through — the number the day
-   *  boards measure their load against; 0 takes a set number back so the
-   *  board derives one again. Answers the whole board: its members carry
-   *  the new load and capacity. */
+   *  boards measure their load against; 0 takes it back, leaving them with
+   *  none. Answers the whole board: its members carry the new load and
+   *  capacity. */
   setCapacity(login: string, points: number): Promise<Board>;
+  /** Set how many points a week a TEAM gets through — the number the Triage
+   *  board holds each week's scheduled points against. A number of its own,
+   *  not a sum of the team's people; 0 takes it back. */
+  setTeamCapacity(team: string, points: number): Promise<Board>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.

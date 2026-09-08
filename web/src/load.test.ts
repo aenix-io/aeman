@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadLabel, loadState, plannable } from "./load";
+import { loadLabel, loadState } from "./load";
 
 // The number beside a person on a sync: what they carry against what they
 // get through, and red only when the plan does not fit. Mirrors the server's
@@ -34,18 +34,3 @@ describe("loadLabel", () => {
 });
 
 // What a team can plan for a week: capacity less the reactive share.
-// Mirrors board.Plannable.
-describe("plannable", () => {
-  it("leaves the capacity less the reactive share", () => {
-    expect(plannable(100, 40, true)).toBe(60);
-    expect(plannable(35, 30, true)).toBe(24);
-  });
-
-  it("leaves the whole capacity when no share is known", () => {
-    expect(plannable(100, 40, false)).toBe(100);
-  });
-
-  it("leaves nothing of nothing", () => {
-    expect(plannable(0, 40, true)).toBe(0);
-  });
-});

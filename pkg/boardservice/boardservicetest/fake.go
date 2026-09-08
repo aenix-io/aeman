@@ -466,6 +466,20 @@ func (f *Backend) SetPersonCapacity(_ context.Context, _ board.Board, login stri
 	return nil
 }
 
+// SetTeamPoints records a team's points a week in its sprint state.
+func (f *Backend) SetTeamPoints(_ context.Context, _ board.Board, team string, points int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTeamPoints %s %d", team, points)
+	if f.board.SprintStates == nil {
+		f.board.SprintStates = map[string]board.SprintState{}
+	}
+	st := f.board.SprintStates[team]
+	st.Capacity.Points = points
+	f.board.SprintStates[team] = st
+	return nil
+}
+
 // SetSize sets a card's size.
 func (f *Backend) SetSize(_ context.Context, _ board.Board, card board.Card, size board.SizeKey) error {
 	f.mu.Lock()

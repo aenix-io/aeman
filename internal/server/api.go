@@ -106,6 +106,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
 	mux.HandleFunc("POST /api/v1/projects/actions/rename", s.handleRenameProject)
 	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
+	mux.HandleFunc("POST /api/v1/teams/actions/capacity", s.handleSetTeamCapacity)
 	mux.HandleFunc("GET /api/v1/me/personal", s.handleGetPersonal)
 	mux.HandleFunc("PUT /api/v1/me/personal", s.handleLinkPersonal)
 	mux.HandleFunc("DELETE /api/v1/me/personal", s.handleUnlinkPersonal)
@@ -186,6 +187,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
 			{"POST", "/api/v1/projects/actions/rename", "Rename a project in place, columns and cards along with it ({project, to})"},
 			{"POST", "/api/v1/teams/actions/rename", "Rename a team in place, its cards and process tasks along with it ({team, to}); a name another team has is refused"},
+			{"POST", "/api/v1/teams/actions/capacity", "Set the points a week a team gets through ({team, points}); 0 takes the number back, and the board derives none"},
 			{"GET", "/api/v1/me/personal", "The caller's personal board: the repository linked as their own domain ({domain, url}), 404 when none"},
 			{"PUT", "/api/v1/me/personal", "Link a repository the caller can push to as their personal board ({url}); an empty repository is given a board. Personal cards: POST /cards with personal=true, GET /cards?view=personal"},
 			{"DELETE", "/api/v1/me/personal", "Unlink the caller's personal board; the repository is left as it is"},
@@ -1412,6 +1414,33 @@ func (s *Server) handleRenameTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(staleOK(r.Context()))
 	if err := svc.RenameTeam(r.Context(), boardID, in.Team, in.To); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleSetTeamCapacity records the points a week a team gets through — the
+// number a week of its plan is weighed against. It is somebody's judgement,
+// like a person's: the board works out nothing (board.PointsAWeekOf).
+func (s *Server) handleSetTeamCapacity(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Team   string `json:"team"`
+		Points *int   `json:"points"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if in.Points == nil {
+		http.Error(w, "points is required", http.StatusBadRequest)
+		return
+	}
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	if err := svc.SetTeamPoints(r.Context(), boardID, in.Team, *in.Points); err != nil {
 		s.apiError(w, r, err)
 		return
 	}

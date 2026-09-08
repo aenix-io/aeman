@@ -343,6 +343,19 @@ func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.C
 	return nil
 }
 
+func (f *fakeBackend) SetTeamPoints(_ context.Context, _ board.Board, team string, points int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTeamPoints %s %d", team, points)
+	if f.b.SprintStates == nil {
+		f.b.SprintStates = map[string]board.SprintState{}
+	}
+	st := f.b.SprintStates[team]
+	st.Capacity.Points = points
+	f.b.SprintStates[team] = st
+	return nil
+}
+
 func (f *fakeBackend) SetPersonCapacity(_ context.Context, _ board.Board, login string, points int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

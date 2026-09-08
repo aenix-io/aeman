@@ -63,6 +63,10 @@ type Backend interface {
 	// (users/<login>.yaml in the primary); 0 takes it back and the board
 	// derives one again.
 	SetPersonCapacity(ctx context.Context, b board.Board, login string, points int) error
+	// SetTeamPoints records the points a week a lead set for a TEAM — a
+	// number of its own, not a sum of its people: somebody works out what a
+	// team gets through and writes it down (board.PointsAWeekOf).
+	SetTeamPoints(ctx context.Context, b board.Board, team string, points int) error
 	SetDay(ctx context.Context, b board.Board, card board.Card, day string) error
 	// SetDoneAt writes the board day a card counts as finished on. Normally
 	// SetProgress sets it as a side effect of reaching 100 — this is for the
