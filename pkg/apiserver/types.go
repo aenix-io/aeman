@@ -216,6 +216,17 @@ type SprintCapacity struct {
 	Client   int  `json:"client"`
 	Internal int  `json:"internal"`
 	Derived  bool `json:"derived"`
+	// Points is the team's week in POINTS — the roster's number, or the
+	// points closed per complete week over the last four (PointsDerived) —
+	// and Reactive the percentage of those points that arrived outside the
+	// plan (yellow and red zones; ReactiveKnown is false when the team
+	// closed nothing sized in the window). What a week can be planned to is
+	// Points less that share (board.Plannable): the Triage board holds a
+	// week's scheduled points against it.
+	Points        int  `json:"points,omitempty"`
+	PointsDerived bool `json:"pointsDerived,omitempty"`
+	Reactive      int  `json:"reactive,omitempty"`
+	ReactiveKnown bool `json:"reactiveKnown,omitempty"`
 }
 
 // Note is a work note as an API resource, a subresource of a card.
@@ -552,12 +563,16 @@ func SprintResources(b board.Board) []Sprint {
 	out := make([]Sprint, 0, len(teams))
 	for _, t := range teams {
 		st := b.SprintStates[t]
-		cap, derived := board.CapacityOf(b, t, board.TodayIso())
+		today := board.TodayIso()
+		cap, derived := board.CapacityOf(b, t, today)
+		points, pointsDerived := board.PointsAWeekOf(b, t, today)
+		reactive, known := board.ReactiveShareOf(b, t, today)
 		out = append(out, Sprint{
 			Kind:     "Sprint",
 			Metadata: SprintMetadata{Team: t},
 			Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
-				Capacity: &SprintCapacity{Week: cap.Week, Client: cap.Client, Internal: cap.Internal, Derived: derived}},
+				Capacity: &SprintCapacity{Week: cap.Week, Client: cap.Client, Internal: cap.Internal, Derived: derived,
+					Points: points, PointsDerived: pointsDerived, Reactive: reactive, ReactiveKnown: known}},
 		})
 	}
 	return out

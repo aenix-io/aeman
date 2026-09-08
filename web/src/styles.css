@@ -4945,6 +4945,30 @@ button.card-age {
   border-color: #d1242f;
 }
 
+/* Beside each week of the Triage board: points scheduled against what the
+   teams on screen can plan. Same states as a person's number. */
+.triage-points {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-top: 2px;
+}
+
+.triage-points-full {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+.triage-points-over {
+  color: #fff;
+  background: #d1242f;
+  border-color: #d1242f;
+}
+
 .person-load-input {
   font: inherit;
   font-size: 11px;

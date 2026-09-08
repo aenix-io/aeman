@@ -4,6 +4,12 @@
 // numbers come from the server (metadata.members: board.LoadNow and
 // board.CapacityOfPerson), whole across every team whatever the filter.
 
+import type { Card } from "./providers/types";
+import { parked } from "./backlog";
+import { isComplete } from "./stages";
+import { pointsOf } from "./size";
+import { placedIn, weeksCovered } from "./triage";
+
 export type LoadState = "ok" | "full" | "over" | "unknown";
 
 /** loadState says how a person's load stands against their capacity.
@@ -29,4 +35,41 @@ export function loadState(load: number, capacity: number | undefined): LoadState
  *  capacity to measure against. */
 export function loadLabel(load: number, capacity: number | undefined): string {
   return capacity ? `${load}/${capacity}` : `${load}`;
+}
+
+/** plannable is what a team can put into a week: its points a week less
+ *  the share that history says will arrive on its own; with no share known,
+ *  the whole of it. Mirrors board.Plannable. */
+export function plannable(pointsAWeek: number, reactiveShare: number, known: boolean): number {
+  if (!known) {
+    return pointsAWeek;
+  }
+  return Math.floor((pointsAWeek * (100 - reactiveShare)) / 100);
+}
+
+/** weekPoints is what each week of the Triage board CARRIES in points, for
+ *  the teams on screen: every open card standing in a week — a card of
+ *  several weeks counting in each of them, like the card count does — and
+ *  the strip's cards in the first row, where the board draws them. Held
+ *  against `plannable` for the same teams, it says whether the week's plan
+ *  fits. Subtasks ride their parent (pointsOf weighs them there); a parked
+ *  card is on no week. */
+export function weekPoints(
+  cards: readonly Card[],
+  teams: readonly string[],
+  thisWeek: string,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const c of cards) {
+    if (c.parent || parked(c) || isComplete(c) || !teams.includes(c.team ?? "")) {
+      continue;
+    }
+    const weeks = weeksCovered(c);
+    const rows = weeks.length ? weeks : placedIn(c) ? [placedIn(c) as string] : [thisWeek];
+    const pts = pointsOf(cards, c);
+    for (const w of rows) {
+      out.set(w, (out.get(w) ?? 0) + pts);
+    }
+  }
+  return out;
 }

@@ -50,6 +50,7 @@ import { TeamChips } from "./TeamChips";
 import { WeekGrid } from "./WeekGrid";
 import { ZoomControl } from "./ZoomControl";
 import { PersonLoad } from "./PersonLoad";
+import { loadLabel, loadState, plannable, weekPoints } from "../load";
 import { useWeekGrid } from "./useWeekGrid";
 
 // The column a card with no assignee stands in. An empty login is a real
@@ -739,6 +740,20 @@ export function TriageBoard({
   // every card here be a plain box of one row: the week's cards then stand
   // one under the next at the full column width, and the week grows to hold
   // them, rather than the column being sliced into slivers nobody can read.
+  // What each week CARRIES in points for the teams on screen, and what those
+  // teams can plan for a week — their points a week less the share history
+  // says arrives on its own (load.ts, mirroring board.Plannable). The
+  // number beside a week is the first against the second.
+  const weekPts = useMemo(() => weekPoints(board.cards, teams, thisWeek), [board.cards, teams, thisWeek]);
+  const plannableWeek = useMemo(
+    () =>
+      teams.reduce((sum, t) => {
+        const cap = board.sprintStates[t]?.capacity;
+        return sum + plannable(cap?.points ?? 0, cap?.reactive ?? 0, cap?.reactiveKnown ?? false);
+      }, 0),
+    [board.sprintStates, teams],
+  );
+
   const { slots, load } = useMemo(() => {
     const slots = new Map<string, Slot[]>();
     const load = new Map<string, number>();
@@ -1338,12 +1353,15 @@ export function TriageBoard({
             // What the week carries, a card of several weeks counting in each
             // of them.
             const n = load.get(w) ?? 0;
+            const pts = weekPts.get(w) ?? 0;
+            const state = loadState(pts, plannableWeek);
             return {
-              title: `${n} cards`,
+              title: `${n} cards, ${pts} points${plannableWeek ? ` of ${plannableWeek} the teams on screen can plan a week` : ""}`,
               label: (
                 <>
                   <span className="project-week-date">{w === thisWeek ? "now" : weekLabel(w)}</span>
                   <span className="triage-count">{n}</span>
+                  <span className={`triage-points triage-points-${state}`}>{loadLabel(pts, plannableWeek)}</span>
                 </>
               ),
             };

@@ -109,7 +109,19 @@ export interface SprintResource {
   spec: {
     current?: string;
     previous?: string;
-    capacity?: { week: number; client: number; internal: number; derived: boolean };
+    capacity?: {
+    week: number;
+    client: number;
+    internal: number;
+    derived: boolean;
+    /** The week in POINTS and the share of them that arrive outside the plan
+     *  (yellow and red); reactiveKnown is false when nothing sized was closed
+     *  in the window. Mirrors board.PointsAWeekOf / board.ReactiveShareOf. */
+    points?: number;
+    pointsDerived?: boolean;
+    reactive?: number;
+    reactiveKnown?: boolean;
+  };
   };
 }
 
