@@ -5268,9 +5268,8 @@ button.card-age {
   right: 28px;
 }
 
-/* On a shelf the chip stands between the title and the × — the × is
-   hover-only but keeps its place in the row, so nothing moves under a
-   pointer. */
+/* On a shelf the chip stands at the row's right edge, outside the × — the ×
+   is hover-only, so it grows to the LEFT of the thing that is always there. */
 .backlog-card .size-chip {
   margin-top: -1px;
 }

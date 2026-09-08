@@ -398,7 +398,12 @@ export function BacklogDrawer({
                           style={{ borderLeftColor: zoneMark(c) }}
                         >
                           <span className="backlog-card-title">{c.title}</span>
-                          <SizeChip card={c} onPick={onPickSize} />
+                          {/* The × appears on hover and the size is always
+                              there, so the size sits OUTSIDE it, against the
+                              row's right edge: what is permanent keeps its
+                              place when a pointer crosses the card, and what
+                              comes and goes grows to the left of it. The same
+                              order the cards on every other board keep. */}
                           <button
                             type="button"
                             className="backlog-card-remove"
@@ -408,6 +413,7 @@ export function BacklogDrawer({
                           >
                             ×
                           </button>
+                          <SizeChip card={c} onPick={onPickSize} />
                         </div>
                       </div>
                     ))}
