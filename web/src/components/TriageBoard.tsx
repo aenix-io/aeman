@@ -18,7 +18,7 @@
 // open card from a week gone by stands in the first row. That is the weekly
 // plan's own rule (planShowsInWeekAt), and this board must not disagree.
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/types";
+import type { Board, Card as CardModel, Provider, SizeKey, ZoneKey } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
 import { justMade, noteMade } from "../justmade";
 import { addDays, mondayOf, todayIso } from "../date";
@@ -38,7 +38,7 @@ import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
-import { pointsOf } from "../size";
+import { SIZES, SIZE_ORDER, pointsOf } from "../size";
 import { isComplete } from "../stages";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
@@ -48,10 +48,11 @@ import { teamColor } from "../avatar";
 import { AddCard } from "./AddCard";
 import { Avatar } from "./Avatar";
 import { TeamChips } from "./TeamChips";
+import { Dropdown } from "./Dropdown";
 import { WeekGrid } from "./WeekGrid";
 import { ZoomControl } from "./ZoomControl";
 import { PersonLoad } from "./PersonLoad";
-import { loadLabel, loadState, plannable } from "../load";
+import { loadState, plannable } from "../load";
 import { useWeekGrid } from "./useWeekGrid";
 
 // The column a card with no assignee stands in. An empty login is a real
@@ -145,18 +146,6 @@ export function TriageBoard({
 }: TriageBoardProps) {
   const today = todayIso();
   const thisWeek = mondayOf(today);
-  // What each person is carrying altogether, whatever team it is in: the
-  // board is read through a filter and a person is not, so somebody with
-  // four cards here may have eleven, and the column says which.
-  const carrying = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const m of board.members) {
-      if (m.carrying) {
-        out[m.login] = m.carrying;
-      }
-    }
-    return out;
-  }, [board.members]);
   const teams = useMemo(() => teamFilter ?? roster, [teamFilter, roster]);
 
   // A project card's weeks belong to the Project board, and this board holds
@@ -310,17 +299,6 @@ export function TriageBoard({
   }, [board.cards, teams, order, projected]);
 
 
-  // What the reader can see of each person here, against what that person is
-  // holding altogether: the board is one team's slice and the count beside a
-  // name says how much of the whole it is.
-  const shown = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const c of [...placed, ...waiting]) {
-      out[whoOf(c)] = (out[whoOf(c)] ?? 0) + 1;
-    }
-    return out;
-  }, [placed, waiting]);
-
   // Somewhere to start a card: a press on the empty part of a cell opens the
   // form there, and what it creates lands in that week, in that person's
   // hands. The zone is the one thing the cell cannot say for itself.
@@ -435,6 +413,27 @@ export function TriageBoard({
       onError(err.message);
     },
     [patchCard, onError],
+  );
+
+  // Sizing on the board itself. This is where a week is read — the column of
+  // boxes against the number at its head — so it is where the answer to "that
+  // does not fit" is given, and walking to the card's own page for one letter
+  // is what stops anyone giving it. The card the menu is open for and the
+  // element it hangs under, which is a different box each time.
+  const [sizing, setSizing] = useState<CardModel | null>(null);
+  const sizeAnchor = useRef<HTMLElement | null>(null);
+  const setSize = useCallback(
+    (card: CardModel, size: SizeKey | "") => {
+      setSizing(null);
+      if ((card.size ?? "") === size) {
+        return;
+      }
+      patchCard(card.itemId, { size: size || undefined });
+      void provider
+        .patchCard(card.itemId, { size })
+        .catch(fail(card, { size: card.size }));
+    },
+    [patchCard, provider, fail],
   );
 
   // Placing a card: who first, then when. A card sent to a week ahead leaves
@@ -1318,15 +1317,6 @@ export function TriageBoard({
                 <>
                   <Avatar login={p.key} avatars={avatars} names={names} />
                   <span className="project-epic-name">{displayName(p.key, names)}</span>
-                  {!!carrying[p.key] && (
-                    <span
-                      className="triage-person-load"
-                      title={`${shown[p.key] ?? 0} on this board, ${carrying[p.key]} altogether in every team`}
-                    >
-                      {shown[p.key] ?? 0}
-                      <span className="triage-person-all">/{carrying[p.key]}</span>
-                    </span>
-                  )}
                   <PersonLoad
                     member={board.members.find((m) => m.login === p.key)}
                     onSetCapacity={(points) => setCapacity(p.key, points)}
@@ -1375,7 +1365,15 @@ export function TriageBoard({
               label: (
                 <>
                   <span className="project-week-date">{w === thisWeek ? "now" : weekLabel(w)}</span>
-                  <span className={`triage-points triage-points-${state}`}>{loadLabel(pts, plannableWeek)}</span>
+                  {/* Stacked, not "220/20": the week column is as wide as a
+                      date and a pill that spells the fraction on one line
+                      grows out of it the moment either number reaches three
+                      digits. One number over the other, hairline between,
+                      reads the same and fits. */}
+                  <span className={`triage-points triage-points-${state}`}>
+                    <span className="triage-points-load">{pts}</span>
+                    {!!plannableWeek && <span className="triage-points-cap">{plannableWeek}</span>}
+                  </span>
                 </>
               ),
             };
@@ -1462,6 +1460,34 @@ export function TriageBoard({
                     {card.title}
                     {parts > 1 && <span className="triage-slot-part"> ({part + 1}/{parts})</span>}
                   </span>
+                  {/* What the box WEIGHS, always on show — the unsized ones
+                      faint, because those are what a sync is looking for —
+                      and one click from being changed. It stands at the
+                      slot's right edge, where the Project board keeps its
+                      owner badge, so the hover actions land beside it
+                      instead of moving it. A projected turn has no card
+                      behind it yet and nothing to size. */}
+                  {!slot.projected && (
+                    <button
+                      type="button"
+                      className={`triage-slot-size${card.size ? "" : " triage-slot-size-unset"}`}
+                      title={
+                        card.size
+                          ? `${card.size} — ${SIZES[card.size].hint}. Click to change`
+                          : "No size — the board weighs it as M. Click to set one"
+                      }
+                      aria-label={card.size ? `Size ${card.size}` : "Set a size"}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        sizeAnchor.current = e.currentTarget;
+                        setSizing(sizing?.itemId === card.itemId ? null : card);
+                      }}
+                    >
+                      {card.size ?? "–"}
+                    </button>
+                  )}
                   {!slot.projected &&
                     (parkable(card) ||
                       removableOnTriage(card, unlocked, choicesFor(card))) && (
@@ -1631,6 +1657,27 @@ export function TriageBoard({
           onOpenCard={onOpen}
         />
       </div>
+      {/* One menu for every box: it hangs under whichever badge was pressed,
+          so the grid carries no menu of its own per card. */}
+      <Dropdown
+        open={!!sizing}
+        anchorRef={sizeAnchor}
+        onClose={() => setSizing(null)}
+        className="triage-size-menu"
+      >
+        {SIZE_ORDER.map((sz) => (
+          <button
+            key={sz}
+            type="button"
+            className={`triage-size-item${sizing?.size === sz ? " triage-size-item-on" : ""}`}
+            title={SIZES[sz].hint}
+            onClick={() => sizing && setSize(sizing, sizing.size === sz ? "" : sz)}
+          >
+            <span className="triage-size-key">{sz}</span>
+            <span className="triage-size-pts">{SIZES[sz].points}</span>
+          </button>
+        ))}
+      </Dropdown>
       {asking && (
         <RemoveChoiceDialog
           title={asking.title}

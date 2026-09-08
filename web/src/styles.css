@@ -3583,6 +3583,91 @@ button.card-age {
   opacity: 1;
 }
 
+/* The size on a Triage box: always on show, at the box's right edge — where
+   the Project board keeps its owner badge, so the hover actions (right: 23px)
+   land beside it rather than pushing it. An unsized box wears a faint dash
+   instead of a letter: the board still weighs it as M, and a sync is looking
+   for exactly these. */
+.triage-slot-size {
+  flex: none;
+  position: relative;
+  z-index: 3;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  cursor: pointer;
+}
+
+.triage-slot-size:hover {
+  background: var(--hover-overlay);
+  color: var(--fg);
+}
+
+.triage-slot-size-unset {
+  opacity: 0.5;
+  font-weight: 600;
+}
+
+/* Four letters, each with what it weighs: a menu narrow enough to open over
+   a box without covering the column beside it. */
+.triage-size-menu {
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px var(--elev-2);
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.triage-size-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 74px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.triage-size-item:hover {
+  background: var(--hover-overlay);
+}
+
+.triage-size-item-on {
+  background: var(--hover-overlay);
+  font-weight: 700;
+}
+
+.triage-size-key {
+  font-weight: 700;
+}
+
+.triage-size-pts {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The owner badge is always visible once a team is assigned. */
 .project-slot-team {
   flex: none;
@@ -4953,14 +5038,30 @@ button.card-age {
 /* Beside each week of the Triage board: points scheduled against what the
    teams on screen can plan. Same states as a person's number. */
 .triage-points {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 1px 6px;
+  border-radius: 8px;
+  padding: 0 5px 1px;
   margin-top: 2px;
+}
+
+/* The capacity sits UNDER the load with a hairline between them: a fraction
+   set the way a fraction is set, which is what keeps a three-digit week
+   inside a column only as wide as a date. */
+.triage-points-cap {
+  border-top: 1px solid currentColor;
+  padding-top: 1px;
+  margin-top: 1px;
+  opacity: 0.75;
+  align-self: stretch;
+  text-align: center;
 }
 
 .triage-points-full {
