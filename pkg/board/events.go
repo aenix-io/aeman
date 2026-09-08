@@ -38,6 +38,7 @@ const (
 	EventMirror          = "mirror"
 	EventProcess         = "process"
 	EventZone            = "zone"
+	EventSize            = "size"
 	EventReviewSent      = "review-sent"
 	EventReviewPassed    = "review-passed"
 	EventReviewerRemoved = "reviewer-removed"

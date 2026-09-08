@@ -75,6 +75,9 @@ func UserPath(login string) string { return "users/" + login + ".yaml" }
 type UserFile struct {
 	// Personal is the URL of the person's personal repository.
 	Personal string
+	// Capacity is the points a week a lead set for this person; 0 = none
+	// set, and the board does not invent one (board.CapacityOfPerson).
+	Capacity int
 	Created  string
 	Extra    []ExtraField
 }
@@ -138,7 +141,14 @@ type TeamFile struct {
 	Created  string
 	Sprint   SprintPointer
 	Capacity board.Capacity
-	Extra    []ExtraField
+	// CapacityExtra is everything in the `capacity:` mapping this server does
+	// not know: the old cards-a-week fields on a file written before they
+	// were removed, and whatever another writer put there. Extra keeps the
+	// unknown keys of the file's TOP level, and a known key whose value is a
+	// mapping needs the same promise one level down — without it, any write
+	// to a team file quietly ate the whole block.
+	CapacityExtra []ExtraField
+	Extra         []ExtraField
 }
 
 // ProjectFile is projects/<id>/project.yaml.
@@ -200,6 +210,24 @@ func (w *yamlWriter) flag(key string, val bool) {
 }
 
 // finish appends the unknown keys and returns the file.
+// nested writes unknown keys of a nested mapping, indented under the key that
+// holds them. The file is written by hand rather than marshalled whole, so
+// this is what keeping a promise one level down costs.
+func (w *yamlWriter) nested(xs []ExtraField) error {
+	for _, x := range xs {
+		out, err := yaml.Marshal(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: x.Key}, x.Value,
+		}})
+		if err != nil {
+			return fmt.Errorf("gitstore: encode capacity.%s: %w", x.Key, err)
+		}
+		for line := range strings.SplitSeq(strings.TrimRight(string(out), "\n"), "\n") {
+			w.b.WriteString("  " + line + "\n")
+		}
+	}
+	return nil
+}
+
 func (w *yamlWriter) finish(xs []ExtraField) ([]byte, error) {
 	for _, x := range xs {
 		out, err := yaml.Marshal(&yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{
@@ -228,15 +256,13 @@ func EncodeTeam(f TeamFile) ([]byte, error) {
 			w.b.WriteString("  previous: " + scalar(f.Sprint.Previous) + "\n")
 		}
 	}
-	if f.Capacity != (board.Capacity{}) {
+	if f.Capacity != (board.Capacity{}) || len(f.CapacityExtra) > 0 {
 		w.b.WriteString("capacity:\n")
-		for _, kv := range []struct {
-			k string
-			v int
-		}{{"week", f.Capacity.Week}, {"client", f.Capacity.Client}, {"internal", f.Capacity.Internal}} {
-			if kv.v != 0 {
-				w.b.WriteString("  " + kv.k + ": " + strconv.Itoa(kv.v) + "\n")
-			}
+		if f.Capacity.Points != 0 {
+			w.b.WriteString("  points: " + strconv.Itoa(f.Capacity.Points) + "\n")
+		}
+		if err := w.nested(f.CapacityExtra); err != nil {
+			return nil, err
 		}
 	}
 	return w.finish(f.Extra)
@@ -246,6 +272,9 @@ func EncodeTeam(f TeamFile) ([]byte, error) {
 func EncodeUser(f UserFile) ([]byte, error) {
 	var w yamlWriter
 	w.str("personal", f.Personal)
+	if f.Capacity != 0 {
+		w.b.WriteString("capacity: " + strconv.Itoa(f.Capacity) + "\n")
+	}
 	w.str("created", f.Created)
 	return w.finish(f.Extra)
 }
@@ -257,6 +286,8 @@ func DecodeUser(data []byte) (UserFile, error) {
 		switch key {
 		case "personal":
 			f.Personal = val.Value
+		case "capacity":
+			f.Capacity, _ = strconv.Atoi(val.Value)
 		case "created":
 			f.Created = val.Value
 		default:
@@ -370,15 +401,12 @@ func DecodeTeam(data []byte) (TeamFile, error) {
 			}
 		case "capacity":
 			for i := 0; i+1 < len(val.Content); i += 2 {
-				n, _ := strconv.Atoi(val.Content[i+1].Value)
-				switch val.Content[i].Value {
-				case "week":
-					f.Capacity.Week = n
-				case "client":
-					f.Capacity.Client = n
-				case "internal":
-					f.Capacity.Internal = n
+				if val.Content[i].Value == "points" {
+					f.Capacity.Points, _ = strconv.Atoi(val.Content[i+1].Value)
+					continue
 				}
+				f.CapacityExtra = append(f.CapacityExtra,
+					ExtraField{Key: val.Content[i].Value, Value: val.Content[i+1]})
 			}
 		default:
 			return false

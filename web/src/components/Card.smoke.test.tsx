@@ -62,3 +62,33 @@ describe("what a card's left stripe says", () => {
     expect(html).not.toContain("card-review");
   });
 });
+
+// The actions row has two lanes, and the ORDER between them is the contract:
+// everything that appears on hover comes first, so it grows to the left, and
+// the icons that are always there keep their place when a pointer crosses the
+// card.
+describe("what moves when a pointer crosses a card", () => {
+  const at = (html: string, cls: string) => html.indexOf(cls);
+
+  it("keeps the always-visible icons to the RIGHT of every hover-only control", () => {
+    const html = draw(
+      card({ stage: "review", linkRefs: [{ kind: "issue", url: "https://x/1" }] } as Partial<Card>),
+    );
+    // The hover lane: the id copier is always rendered (hidden by CSS), so
+    // its position in the markup is what decides whether it can push.
+    expect(at(html, "card-action-id")).toBeGreaterThan(-1);
+    expect(at(html, "card-links")).toBeGreaterThan(at(html, "card-action-id"));
+    expect(at(html, "card-links")).toBeLessThan(at(html, "card-status-btn"));
+  });
+
+  // The SIZE is not among them. It is read on the boards that plan a week —
+  // Triage, where it is on the face of every box — and set in the card's own
+  // page; on a day board it was another glyph in a row already crowded, on a
+  // card whose week was decided somewhere else.
+  it("draws no size on a day board's card", () => {
+    // The chip's own class, not a name nothing renders: asserting the
+    // absence of a class that never existed passes whatever the card draws.
+    expect(draw(card({ size: "L" } as Partial<Card>))).not.toContain("size-chip");
+    expect(draw(card({ size: "L" } as Partial<Card>))).not.toContain(">L<");
+  });
+});

@@ -11,6 +11,10 @@ import type { Member } from "../users";
 /** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
 export type ZoneKey = "gray" | "green" | "yellow" | "red";
 
+/** SizeKey is what somebody said a card weighs: S, M, L or XL. The points
+ *  (1/2/4/8) are derived in size.ts, never stored. */
+export type SizeKey = "S" | "M" | "L" | "XL";
+
 /** StageKey is an explicit per-card status that recolours the progress bar. */
 export type StageKey = "locked" | "review" | "recurrent" | "refuse" | "done";
 
@@ -50,6 +54,10 @@ export interface Card {
    *  an older server, which means the primary. */
   domain?: string;
   zone?: ZoneKey;
+  /** What somebody said the card weighs — S, M, L or XL — set on a daily
+   *  sync or by a sizing tool. The points a board sums are derived from it
+   *  (size.ts), never stored. Absent = unsized. */
+  size?: SizeKey;
   /** Readiness, 0..100. */
   progress?: number;
   /** Explicit status (locked/review/done) driving the progress-bar colour. */
@@ -135,6 +143,7 @@ export interface Card {
 export interface NewCardInput {
   title: string;
   zone?: ZoneKey;
+  size?: SizeKey;
   day?: string | null;
   start?: string | null;
   week?: string | null;
@@ -163,10 +172,12 @@ export interface NewCardInput {
 export interface SprintState {
   current: string | null;
   previous: string | null;
-  /** The team's cards a week and the lanes' shares, for the Triage board;
-   *  derived from the last four weeks' done cards when the roster has no
-   *  number (docs/design/triage.md). */
-  capacity?: { week: number; client: number; internal: number; derived: boolean };
+  /** What a week of the team's plan is weighed against: the POINTS a week it
+   *  gets through, a number somebody SET and never derived — absent when
+   *  nobody has said. Mirrors board.PointsAWeekOf. */
+  capacity?: {
+    points?: number;
+  };
 }
 
 
@@ -284,6 +295,8 @@ export interface CardPatch {
   description?: string;
   team?: string;
   zone?: ZoneKey | "";
+  /** "" takes the size back. */
+  size?: SizeKey | "";
   assignees?: string[];
   progress?: number;
   /** "" clears the stage; "done" marks the card done (derived server-side). */
@@ -398,6 +411,16 @@ export interface Provider {
    *  day it counts as done along with it. Refused (422) on work still going,
    *  and where there is no earlier sprint to send it to. */
   finishedEarlier(uid: string): Promise<Card>;
+  /** Set how many points a week a person gets through — the number the Triage
+   *  board measures their load against; 0 takes it back, leaving them with
+   *  none. The caller reloads: these numbers are the server's, summed over
+   *  cards the caller may not be holding, so there is nothing to patch in
+   *  place and no second fetch to make here. */
+  setCapacity(login: string, points: number): Promise<void>;
+  /** Set how many points a week a TEAM gets through — the number the Triage
+   *  board holds each week's scheduled points against. A number of its own,
+   *  not a sum of the team's people; 0 takes it back. */
+  setTeamCapacity(team: string, points: number): Promise<void>;
   /** Take a card out of every week — back to the triage strip. */
   untriageCard(uid: string): Promise<Card>;
   /** Advance a team's sprint to today and carry its unfinished cards forward.

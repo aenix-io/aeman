@@ -86,85 +86,51 @@ func TestPlacedAheadIsOffEveryDayBoardUntilItsMonday(t *testing.T) {
 	}
 }
 
-// B7. A team's capacity is what the board measures the week against, so it
-// has to be right when nobody has set it: it is read off the cards the team
-// FINISHED, from the tree alone, over the four complete weeks before this one.
-// The current week is never counted — it is not over, and counting it would
-// read a Monday as a slow week.
-func TestCapacityIsTheRostersNumberOrWhatTheTeamHasBeenDoing(t *testing.T) {
-	today := "2026-09-03" // Thursday; this week began 2026-08-31
-	done := func(id, day string) Card {
-		return Card{ItemID: id, Team: "alpha", Title: id, DoneAt: day}
-	}
-
-	t.Run("the roster's own number wins, and says it was not derived", func(t *testing.T) {
-		b := Board{
-			SprintStates: map[string]SprintState{"alpha": {Capacity: Capacity{Week: 12}}},
-			Cards:        []Card{done("a", "2026-08-24")},
-		}
-		got, derived := CapacityOf(b, "alpha", today)
-		if got.Week != 12 || derived {
-			t.Fatalf("CapacityOf = %+v, derived=%v; the roster's number is the answer", got, derived)
-		}
-	})
-
-	t.Run("with no number it averages the four complete weeks", func(t *testing.T) {
-		b := Board{Cards: []Card{
-			// Eight cards over the four weeks 08-03 … 08-30: two a week.
-			done("a", "2026-08-03"), done("b", "2026-08-07"),
-			done("c", "2026-08-10"), done("d", "2026-08-14"),
-			done("e", "2026-08-17"), done("f", "2026-08-21"),
-			done("g", "2026-08-24"), done("h", "2026-08-28"),
-			// This week is not over and is not counted.
-			done("i", "2026-08-31"), done("j", today),
-			// Older than the window, and another team's work.
-			done("old", "2026-07-01"),
-			{ItemID: "other", Team: "beta", Title: "other", DoneAt: "2026-08-24"},
-		}}
-		got, derived := CapacityOf(b, "alpha", today)
-		if got.Week != 2 || !derived {
-			t.Fatalf("CapacityOf = %+v, derived=%v; want 2 a week, derived", got, derived)
-		}
-	})
-
-	// A team a fortnight old is not a slow team: averaging its two weeks over
-	// four would halve a number nothing is wrong with.
-	t.Run("a short record averages over the weeks there are", func(t *testing.T) {
-		b := Board{Cards: []Card{
-			done("a", "2026-08-17"), done("b", "2026-08-19"),
-			done("c", "2026-08-24"), done("d", "2026-08-26"),
-		}}
-		got, derived := CapacityOf(b, "alpha", today)
-		if got.Week != 2 || !derived {
-			t.Fatalf("CapacityOf = %+v, derived=%v; want 2 over the two weeks it has", got, derived)
-		}
-	})
-
-	// Nothing finished, ever: the board does not know this team's pace, and a
-	// limit it invented would paint the week red on no evidence.
-	t.Run("a team with no record at all has no limit", func(t *testing.T) {
-		got, derived := CapacityOf(Board{}, "alpha", today)
-		if got.Week != 0 || !derived {
-			t.Fatalf("CapacityOf = %+v, derived=%v; want no limit", got, derived)
-		}
-		// The shares still come back, so a caller never divides by zero.
-		if got.Client != DefaultClientShare || got.Internal != DefaultInternalShare {
-			t.Fatalf("CapacityOf = %+v; the default shares stand", got)
-		}
-	})
-
-	// The window's edges, which decide which week a card counts towards: four
-	// weeks back is IN, this Monday is OUT.
-	t.Run("counts the window's first day and not its last", func(t *testing.T) {
-		b := Board{Cards: []Card{done("first", "2026-08-03"), done("this-week", "2026-08-31")}}
-		got, _ := CapacityOf(b, "alpha", today)
-		if got.Week != 1 {
-			t.Fatalf("CapacityOf = %+v; the card four weeks back counts, this week's does not", got)
-		}
-	})
-}
-
 func with(c Card, f func(*Card)) Card {
 	f(&c)
 	return c
+}
+
+// A REVIEW card has no week of its own — the week belongs to the card it
+// reviews — but it is real work in the reviewer's hands, and until now it
+// stood on no board at all once its dates ran out: not the day boards (the
+// dates are past), not the strip (nobody is waiting on a week for it), not
+// the grid (no week). It still counted in the reviewer's load, which is how
+// a person with two cards in front of them read as carrying four.
+//
+// So when a board asks to see reviews, a review stands in the week its own
+// DATES fall in — and one whose week has gone comes into the current column
+// by the same debt rule as everything else.
+func TestAReviewStandsInTheWeekItsDatesFallIn(t *testing.T) {
+	b := Board{}
+	today := "2026-09-08"
+	r := Card{ItemID: "r", ReviewOf: "orig", StartDate: "2026-07-23", Day: "2026-07-23"}
+	if got := TriageWeekOf(b, r, today); got != "2026-07-20" {
+		t.Errorf("a review's column = %q, want the Monday of its own dates", got)
+	}
+	// Its end date is what it is drawn by when it has no start — a review
+	// mirrors the day of the card it reviews and may carry either.
+	if got := TriageWeekOf(b, Card{ReviewOf: "o", Day: "2026-09-09"}, today); got != "2026-09-07" {
+		t.Errorf("a review dated only by its end = %q, want 2026-09-07", got)
+	}
+	// A week of its own — only a direct write to the repository makes one —
+	// still wins: it is the more explicit statement of the two.
+	withWeek := Card{ReviewOf: "o", Week: "2026-09-07", StartDate: "2026-07-23"}
+	if got := TriageWeekOf(b, withWeek, today); got != "2026-09-07" {
+		t.Errorf("a review carrying a week = %q, want that week", got)
+	}
+	// Nothing to place it by is no column: it is not invented from nothing.
+	if got := TriageWeekOf(b, Card{ReviewOf: "o"}, today); got != "" {
+		t.Errorf("an undated review = %q, want no column", got)
+	}
+	// And it is never in the STRIP. The strip asks its reader to say WHEN,
+	// and nobody is waiting on that for a review.
+	if NeedsTriage(b, r, today) {
+		t.Error("a review must not stand in the triage strip")
+	}
+	// An ordinary card is untouched: dates are not a week, and a card nobody
+	// gave a week to belongs in the strip, not in the column its day lands in.
+	if got := TriageWeekOf(b, Card{StartDate: "2026-07-23", Day: "2026-07-23"}, today); got != "" {
+		t.Errorf("an ordinary dated card = %q, want no column", got)
+	}
 }

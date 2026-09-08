@@ -20,6 +20,8 @@ import (
 	forgepkg "github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
+
+	"github.com/aenix-io/aeman/pkg/apiserver"
 )
 
 // A personal board end to end: a person links their own repository, the
@@ -644,4 +646,48 @@ type pushThrough struct {
 
 func (p pushThrough) canPush(ctx context.Context, token, repoURL string) (bool, error) {
 	return p.fa.canPush(ctx, token, repoURL)
+}
+
+// users/<login>.yaml holds more than a link: the points a week somebody set
+// for that person live in the same file, written through a different door.
+// Linking a personal board wrote the file from scratch, so it threw the
+// capacity away — silently, and with it the limit the person's load is
+// measured against. Every write to this file is a read-modify-write.
+func TestLinkingAPersonalBoardKeepsTheCapacity(t *testing.T) {
+	shared := gitRemoteN(t, "shared")
+	seedGitRemote(t, shared)
+	mine := gitRemoteN(t, "mine")
+	both := rightsOn([]string{"shared"}, []string{"shared"})
+	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": both}}, shared)
+
+	if rec := doAs(t, srv, "kvaps", http.MethodPatch, "/api/v1/people/kvaps", `{"capacity":40}`); rec.Code != http.StatusOK {
+		t.Fatalf("capacity: %d %s", rec.Code, rec.Body.String())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx)
+
+	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+mine.URL+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("link: %d %s", rec.Code, rec.Body.String())
+	}
+	capacityIs := func(want int) {
+		t.Helper()
+		rec := doAs(t, srv, "kvaps", http.MethodGet, "/api/v1/board", "")
+		var info apiserver.BoardInfo
+		if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range info.Metadata.Members {
+			if m.Login == "kvaps" && m.Capacity != want {
+				t.Fatalf("capacity = %d, want %d", m.Capacity, want)
+			}
+		}
+	}
+	capacityIs(40)
+	// And unlinking removes the LINK, not the person.
+	if rec := doAs(t, srv, "kvaps", http.MethodDelete, "/api/v1/me/personal", ""); rec.Code != http.StatusOK {
+		t.Fatalf("unlink: %d %s", rec.Code, rec.Body.String())
+	}
+	srv.store.waitDrained(ctx)
+	capacityIs(40)
 }

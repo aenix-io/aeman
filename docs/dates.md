@@ -28,7 +28,7 @@ Also:
   views. Set on create to the same day as `startDate` (a one-day range); the
   calendar's end field edits it.
 - **Week** (`week`, date) — the week the card is scheduled for (its Monday):
-  the column it stands in on the Triage board. A card in a Project-board
+  the column it stands in on the Triage board (a REVIEW card is the one exception: it has no week of its own — that belongs to the card it reviews — and stands in the week its own dates fall in). A card in a Project-board
   column has one too, derived from its start date — there it is the row.
 - Hidden per-team **`aeman:sprint-state`** card: `Sprint Start` = the team's
   **current** sprint date, `Start` = its **previous** sprint date. Read via
@@ -90,7 +90,7 @@ A card filed under a Project-board **column** (an epic) is not on the day grid u
 Beside the days, a card may carry a **week** — the Monday it is scheduled for, which is its column on the Triage board. It is a plainer answer than a date: "this is due that week", made before anybody says which day.
 
 - A card placed in a week **AHEAD** of this one is on **no day board at all** until its Monday comes — not the Team grid, not the Me board, not the carry-over's reckoning of what is being carried now. Scheduling work for a later week is precisely the act of taking it off today.
-- The week's own work stands on the **Team grid all week**: in its person's column, or in **Unassigned** when nobody has taken it. This is the same set the Triage board shows for that week — cards placed in it, Project slots covering it, process turns filed into it, and debts owed in an earlier week that are still open. It puts on the day grid what the weekly plan panel used to hold beside it, so a card scheduled for a week is not invisible until somebody gives it a day.
+- The week's own work stands on the **Team grid all week**: in its person's column, or in **Unassigned** when nobody has taken it. This is the same set the Triage board shows for that week — cards placed in it, Project slots covering it, process turns filed into it, and debts owed in an earlier week that are still open (the reviews the Triage board folds into each cell's own line stand by their own dates and are not part of this set). It puts on the day grid what the weekly plan panel used to hold beside it, so a card scheduled for a week is not invisible until somebody gives it a day.
 - The **Me view does not** draw that set. A person's board is the day's work, and a week is not a day: a card reaches it when it is dated, which is the moment somebody decided when it is actually being done.
 - A **deferred** card is not part of the week's set either. Deferring is the act of taking a card off the board until a later day, and its week says when the work is due, not that it should still be drawn today.
 

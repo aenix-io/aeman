@@ -77,7 +77,26 @@ func TriageWeekOf(_ Board, c Card, _ string) string {
 	if InBacklog(c) {
 		return ""
 	}
-	return c.Week
+	if c.Week != "" {
+		return c.Week
+	}
+	// A REVIEW card has no week of its own — the week belongs to the card it
+	// reviews — and yet it is work in the reviewer's hands and counts in
+	// their load. Drawn by nothing, it stood on no board at all once its
+	// dates ran out: not a day board (they are past), not the strip (nobody
+	// is waiting on a week for it), not the grid (no week) — while still
+	// weighing on the number beside its reviewer's name. So it stands in the
+	// week its own DATES fall in, and one whose week has gone arrives in the
+	// current column by the same debt rule as everything else. Whether it is
+	// DRAWN is the board's own question (the reviews toggle); where it would
+	// stand is this one.
+	if c.ReviewOf != "" {
+		if c.StartDate != "" {
+			return MondayOf(c.StartDate)
+		}
+		return MondayOf(c.Day)
+	}
+	return ""
 }
 
 // WeeksCovered is every week a card occupies on the Triage board: the week
@@ -98,60 +117,4 @@ func WeeksCovered(c Card) []string {
 		out = append(out, w)
 	}
 	return out
-}
-
-// Default lane shares, in percent of the week, for a team that set none.
-const (
-	DefaultClientShare   = 30
-	DefaultInternalShare = 10
-)
-
-// CapacityOf is the team's capacity: the roster's number when one is set,
-// otherwise derived from the cards done in the last four complete weeks —
-// read off doneAt, the tree alone (B7). The second result says it was
-// derived. A team with no number and no doneAt at all has no limit
-// (Week 0): nothing red until the board knows.
-func CapacityOf(b Board, team, today string) (Capacity, bool) {
-	cap := b.SprintStates[team].Capacity
-	if cap.Client == 0 {
-		cap.Client = DefaultClientShare
-	}
-	if cap.Internal == 0 {
-		cap.Internal = DefaultInternalShare
-	}
-	if cap.Week > 0 {
-		return cap, false
-	}
-	monday := MondayOf(today)
-	from := AddDays(monday, -28)
-	done, earliest := 0, ""
-	for _, c := range b.Cards {
-		if c.Team != team || c.DoneAt == "" || IsStateTitle(c.Title) {
-			continue
-		}
-		if earliest == "" || c.DoneAt < earliest {
-			earliest = c.DoneAt
-		}
-		if c.DoneAt >= from && c.DoneAt < monday {
-			done++
-		}
-	}
-	if earliest == "" {
-		return cap, true
-	}
-	// Fewer than four weeks of doneAt on the board: average over the
-	// complete weeks there are, one at least, rather than read a short
-	// record as a slow team.
-	weeks := 4
-	if earliest > from {
-		weeks = 0
-		for w := MondayOf(earliest); w < monday; w = AddDays(w, 7) {
-			weeks++
-		}
-		if weeks < 1 {
-			weeks = 1
-		}
-	}
-	cap.Week = (done + weeks - 1) / weeks
-	return cap, true
 }

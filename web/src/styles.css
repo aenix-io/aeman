@@ -1795,6 +1795,15 @@ button.card-age {
   align-items: center;
   gap: 1px;
   flex: none;
+  /* Every child here is an 18px box with its glyph centred, so it carries
+     about 2.5px of invisible padding on each side. What FOLLOWS the row —
+     the day counter, the review round — is bare text with none, so the last
+     box's padding reads as a gap twice the size of the ones inside the row.
+     The compensation belongs to the ROW, not to whichever icon happens to be
+     last: it used to sit on the status button, so the gap changed depending
+     on whether that button was showing, and the same size badge looked
+     correctly spaced beside a status icon and too far from a links hash. */
+  margin-right: -3px;
   /* Above the progress handle: at high percentages the handle sits right
      under these buttons, and its enlarged press target must never swallow a
      click meant for one of them. */
@@ -1834,10 +1843,6 @@ button.card-age {
 .card-stage {
   position: relative;
   display: inline-flex;
-  /* The status button sits last in the actions group, right before the day
-     counter; a small negative margin pulls its icon to the tight gap the
-     review/locked indicators read at (the 18px hit area is otherwise looser). */
-  margin-right: -3px;
 }
 
 /* Copy-id, delete, and the status flag (only on cards without a review/locked
@@ -2704,6 +2709,37 @@ button.card-age {
 .teams-manage-btn:disabled {
   opacity: 0.3;
   cursor: default;
+}
+
+/* What a week of this team's plan is weighed against, on the team's own row:
+   the board derives no such number, so this is where it is said. Blank means
+   nobody has, which every board draws as no limit rather than a limit of
+   none. */
+.teams-manage-cap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.teams-manage-cap-input {
+  width: 44px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.teams-manage-cap-unit {
+  font-size: 9px;
+  letter-spacing: 0.2px;
 }
 
 .teams-manage-del:hover:not(:disabled) {
@@ -3576,6 +3612,96 @@ button.card-age {
 
 .project-slot:hover .project-slot-actions {
   opacity: 1;
+}
+
+/* What a card weighs, on its face: on a Triage box at the right edge — where
+   the Project board keeps its owner badge, so the hover actions land beside
+   it rather than pushing it — and on a backlog card beside its ×. */
+.size-chip {
+  flex: none;
+  position: relative;
+  z-index: 4;
+  min-width: 17px;
+  height: 15px;
+  padding: 0 3px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--hover-overlay);
+  color: var(--fg);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  cursor: pointer;
+}
+
+.size-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Nobody has said what this one weighs, so the letter is the one it is
+   COUNTED as, in an empty dashed chip rather than a solid one: the reader
+   sees what the number over the person is made of, and the chip says at a
+   glance that it is the board's assumption and not anybody's word. */
+.size-chip-unset {
+  background: transparent;
+  border-color: var(--line);
+  border-style: dashed;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* Four letters, each with what it weighs: a menu narrow enough to open over
+   a box without covering the column beside it. */
+.triage-size-menu {
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px var(--elev-2);
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.triage-size-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 74px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.triage-size-item:hover {
+  background: var(--hover-overlay);
+}
+
+.triage-size-item-on {
+  background: var(--hover-overlay);
+  font-weight: 700;
+}
+
+.triage-size-key {
+  font-weight: 700;
+}
+
+.triage-size-pts {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* The owner badge is always visible once a team is assigned. */
@@ -4715,16 +4841,6 @@ button.card-age {
   flex: none;
 }
 
-/* What the person is carrying altogether, at the far end of their column's
-   header — the name has the room it needs, the number takes the corner. */
-.triage-person-load {
-  margin-left: auto;
-  flex: none;
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-
 .triage-person-none {
   font-size: 11px;
   color: var(--muted);
@@ -4739,12 +4855,6 @@ button.card-age {
   align-items: flex-start;
   justify-content: center;
   line-height: 1.15;
-}
-
-.triage-count {
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
 }
 
 /* A slot on this board carries a progress bar along its foot and a stripe
@@ -4868,6 +4978,241 @@ button.card-age {
 
 .modal-zone-btn:disabled {
   cursor: default;
+}
+
+/* The size chips: four letters, one lit. A row of small buttons rather than
+   a dropdown, because on a daily sync the size is set for card after card
+   and every extra click is paid thirty times. */
+.modal-size-chips {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.modal-size-chip {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  min-width: 24px;
+  padding: 3px 5px;
+  cursor: pointer;
+}
+
+.modal-size-chip:hover:not(:disabled) {
+  color: inherit;
+  border-color: currentColor;
+}
+
+.modal-size-chip-on,
+.modal-size-chip-on:hover:not(:disabled) {
+  color: var(--bg, #fff);
+  background: var(--fg, #1b2129);
+  border-color: var(--fg, #1b2129);
+}
+
+.modal-size-chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* The number over a person's column: points carried against points a week.
+   Quiet while it fits; bright red past it — the one thing a daily sync is
+   there to notice. */
+/* Over a person's column: quiet figures, no box. A ring around a number
+   that is fine says nothing, and the header already carries an avatar and a
+   name — the reading is what a week is planned against, not a badge. The box
+   appears where it MEANS something: red when the plan does not fit, and an
+   outline under the pointer, which is how it still reads as a control. */
+.person-load {
+  margin-left: auto;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 3px;
+  margin-left: 5px;
+  cursor: pointer;
+  flex: none;
+}
+
+.person-load:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--line);
+}
+
+.person-load:disabled {
+  cursor: default;
+}
+
+.person-load-full {
+  color: var(--fg);
+}
+
+.person-load-over,
+.person-load-over:hover {
+  color: #fff;
+  background: #d1242f;
+  border-color: #d1242f;
+}
+
+/* Every number a board takes is typed, never stepped: the native spinner is
+   two arrows the width of the field itself, and these fields are small enough
+   that the number they hold could not be read beside them. */
+.person-load-input,
+.teams-manage-cap-input,
+.triage-cap-input,
+.triage-points-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.person-load-input::-webkit-outer-spin-button,
+.person-load-input::-webkit-inner-spin-button,
+.teams-manage-cap-input::-webkit-outer-spin-button,
+.teams-manage-cap-input::-webkit-inner-spin-button,
+.triage-cap-input::-webkit-outer-spin-button,
+.triage-cap-input::-webkit-inner-spin-button,
+.triage-points-input::-webkit-outer-spin-button,
+.triage-points-input::-webkit-inner-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Typing a team's week in place of the number that measured it — offered
+   only when ONE team is on screen, because otherwise there is no answer to
+   whose week it is. */
+.triage-points-input {
+  width: 32px;
+  margin-top: 1px;
+  padding: 0 2px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Several teams on screen: the chip offers them, each with its own number —
+   the shape the Project board's weeks use for their deadlines. */
+.triage-cap-menu {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px var(--elev-2);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.triage-cap-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.triage-cap-row:hover {
+  background: var(--hover-overlay);
+}
+
+.triage-cap-team {
+  flex: 1;
+  min-width: 70px;
+}
+
+.triage-cap-input {
+  width: 46px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.triage-cap-unit {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.2px;
+}
+
+/* Beside each week of the Triage board: points scheduled against what the
+   teams on screen can plan. Same states as a person's number. */
+.triage-points {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  line-height: 1.05;
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 1px 3px;
+  margin-top: 1px;
+}
+
+/* The capacity sits UNDER the load with a hairline between them: a fraction
+   set the way a fraction is set, which is what keeps a three-digit week
+   inside a column only as wide as a date. */
+.triage-points-cap {
+  border-top: 1px solid currentColor;
+  padding-top: 1px;
+  margin-top: 1px;
+  opacity: 0.75;
+  align-self: stretch;
+  text-align: center;
+}
+
+.triage-points:hover {
+  color: var(--fg);
+  background: var(--hover-overlay-soft);
+}
+
+.triage-points-full {
+  color: var(--fg);
+}
+
+.triage-points-over {
+  color: #fff;
+  background: #d1242f;
+}
+
+.person-load-input {
+  font: inherit;
+  font-size: 10px;
+  width: 44px;
+  margin-left: 5px;
+  padding: 1px 3px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
 }
 
 /* Somewhere to start a card, standing where the next one would: under the
@@ -5000,10 +5345,69 @@ button.card-age {
   pointer-events: auto;
 }
 
-/* A slot here carries no owner badge — the COLUMN is the owner — so the ×
-   has the right edge to itself and sits against it. */
+/* The right edge belongs to the SIZE, which is always on show; the × and the
+   shelf appear on hover and therefore stand beside it, never over it. (They
+   sat against the edge while the slot carried nothing permanent there, and
+   an invisible button over a visible one is still a button: the size could
+   not even be clicked.) */
 .triage-slot .project-slot-actions {
-  right: 4px;
+  right: 28px;
+}
+
+/* On a shelf the chip stands at the row's right edge, outside the × — the ×
+   is hover-only, so it grows to the LEFT of the thing that is always there. */
+.backlog-card .size-chip {
+  margin-top: -1px;
+}
+
+/* The line at the foot of a cell: how many reviews stand in this person's
+   week. PLAIN TEXT, like the add control on the day boards — it is not a
+   card and drawing it as one said it was a thing standing in the week, which
+   is the very thing a review is not. It sits under everything the week is
+   actually planning, and pressing it hands the cell over to what it was
+   offering: the reviews take its place, and there is no way back, because
+   folding them away again is not a state anybody stays in. */
+.triage-reviews-line {
+  /* A grid item like the boxes above it, NOT an absolutely positioned one.
+     An abspos grid child resolves its auto end-lines to the grid's padding
+     edge rather than to the next line, so `grid-column: 5` reached from that
+     column to the right edge of the whole table — and the hover background
+     painted every person to its right. */
+  position: relative;
+  z-index: 2;
+  margin: 0 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.85;
+  overflow: hidden;
+}
+
+.triage-reviews-line:hover {
+  background: var(--hover-overlay-soft);
+  color: var(--fg);
+  opacity: 1;
+}
+
+/* A review the line has opened: somebody else's finished work being read, so
+   it is drawn as a card and behaves as none — nothing here plans it. */
+.triage-slot-review {
+  border-left-width: 1px;
+  border-style: dashed;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  cursor: default;
 }
 
 /* The gap between the boxes of one card while it is carried or stretched:

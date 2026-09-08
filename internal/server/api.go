@@ -47,7 +47,7 @@ import (
 //	PATCH  /api/v1/sprints                            set a team's pointer directly
 //	POST   /api/v1/sprints/actions/carry-over         advance a sprint, carry unfinished (dryRun)
 //	GET    /api/v1/ordering                           the board-level manual order
-//	GET    /api/v1/watch                              WebSocket stream (Card/Sprint/Ordering events)
+//	GET    /api/v1/watch                              WebSocket stream (Card/Sprint/Ordering/Board/Load events)
 func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1", s.handleAPIIndex)
 	mux.HandleFunc("GET /api/v1/board", s.handleGetBoard)
@@ -78,6 +78,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/cards/{uid}/notes/{noteId}", s.handleDeleteNote)
 	mux.HandleFunc("GET /api/v1/sprints", s.handleListSprints)
 	mux.HandleFunc("PATCH /api/v1/sprints", s.handlePatchSprint)
+	mux.HandleFunc("PATCH /api/v1/people/{login}", s.handlePatchPerson)
 	mux.HandleFunc("POST /api/v1/sprints/actions/carry-over", s.handleCarryOver)
 	mux.HandleFunc("POST /api/v1/sprints/actions/reorder-teams", s.handleReorderTeams)
 	mux.HandleFunc("POST /api/v1/sprints/actions/delete-team", s.handleDeleteTeam)
@@ -105,6 +106,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/projects/actions/reorder-projects", s.handleReorderProjects)
 	mux.HandleFunc("POST /api/v1/projects/actions/rename", s.handleRenameProject)
 	mux.HandleFunc("POST /api/v1/teams/actions/rename", s.handleRenameTeam)
+	mux.HandleFunc("POST /api/v1/teams/actions/capacity", s.handleSetTeamCapacity)
 	mux.HandleFunc("GET /api/v1/me/personal", s.handleGetPersonal)
 	mux.HandleFunc("PUT /api/v1/me/personal", s.handleLinkPersonal)
 	mux.HandleFunc("DELETE /api/v1/me/personal", s.handleUnlinkPersonal)
@@ -150,8 +152,15 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/cards/{uid}/actions/in-progress", "Move to the implicit In Progress status"},
 			{"POST", "/api/v1/cards/{uid}/actions/send-to-review", "Send to review ({reviewer, day}); reassigns if a review card exists"},
 			{"POST", "/api/v1/cards/{uid}/actions/remove-reviewer", "Delete the linked review card"},
+			{"POST", "/api/v1/cards/{uid}/actions/mirror", "Show the card in a second Project-board column ({project, epic}) — one card, one file, standing in both plans"},
+			{"POST", "/api/v1/cards/{uid}/actions/unmirror", "Take one mirror column away ({project, epic}); the home and everything else stay"},
+			{"POST", "/api/v1/cards/{uid}/actions/remove-from-project", "The Project board's × ({project, epic}): a mirror goes, a home hands its role to the first mirror, the last column takes the card off the plan"},
+			{"POST", "/api/v1/cards/{uid}/actions/place", "Put the card in a week of the Triage board ({week}, a Monday) — which is what triaging it means"},
+			{"POST", "/api/v1/cards/{uid}/actions/untriage", "Take the card's week away: it goes back to the triage strip, waiting for somebody to say when"},
+			{"POST", "/api/v1/cards/{uid}/actions/finished-earlier", "Move a card finished late into the sprint it was actually done in"},
 			{"GET", "/api/v1/cards/{uid}/links", "URLs from the card's description; GitHub issue/PR refs resolved with titles, listed first"},
 			{"GET", "/api/v1/cards/{uid}/log", "The card's activity feed: recorded events (stage/progress/review/week changes) and work notes, one chronological list"},
+			{"GET", "/api/v1/logs", "One day's feed for many cards at once ({day, uids}, at most 200) — what a day board shows, at a fraction of a log per card"},
 			{"GET", "/api/v1/cards/{uid}/notes", "The card's work notes"},
 			{"POST", "/api/v1/cards/{uid}/notes", "Append a work note ({text})"},
 			{"PATCH", "/api/v1/cards/{uid}/notes/{noteId}", "Edit a work note ({text})"},
@@ -185,6 +194,8 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/projects/actions/reorder-projects", "Apply the shared project order (body {projects:[...]})"},
 			{"POST", "/api/v1/projects/actions/rename", "Rename a project in place, columns and cards along with it ({project, to})"},
 			{"POST", "/api/v1/teams/actions/rename", "Rename a team in place, its cards and process tasks along with it ({team, to}); a name another team has is refused"},
+			{"POST", "/api/v1/teams/actions/capacity", "Set the points a week a team gets through ({team, points}); 0 takes the number back, and the board derives none"},
+			{"PATCH", "/api/v1/people/{login}", "Set the points a week a PERSON gets through ({capacity}); 0 takes the number back. Answers the whole Board resource, whose members carry load and capacity"},
 			{"GET", "/api/v1/me/personal", "The caller's personal board: the repository linked as their own domain ({domain, url}), 404 when none"},
 			{"PUT", "/api/v1/me/personal", "Link a repository the caller can push to as their personal board ({url}); an empty repository is given a board. Personal cards: POST /cards with personal=true, GET /cards?view=personal"},
 			{"DELETE", "/api/v1/me/personal", "Unlink the caller's personal board; the repository is left as it is"},
@@ -504,6 +515,7 @@ type createCardRequest struct {
 	Title     string   `json:"title"`
 	Team      string   `json:"team"`
 	Zone      string   `json:"zone"`
+	Size      string   `json:"size"`
 	Assignees []string `json:"assignees"`
 	Dates     struct {
 		Start  string `json:"start"`
@@ -561,9 +573,14 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	size, ok := parseSize(w, in.Size)
+	if !ok {
+		return
+	}
 	args := boardservice.CreateCardArgs{
 		Team:           in.Team,
 		Zone:           zone,
+		Size:           size,
 		Title:          in.Title,
 		Day:            in.Dates.End,
 		Start:          in.Dates.Start,
@@ -603,6 +620,7 @@ type cardPatch struct {
 	Description *string   `json:"description"`
 	Team        *string   `json:"team"`
 	Zone        *string   `json:"zone"`
+	Size        *string   `json:"size"`
 	Assignees   *[]string `json:"assignees"`
 	Progress    *int      `json:"progress"`
 	Stage       *string   `json:"stage"`
@@ -690,15 +708,8 @@ func (s *Server) handlePatchCard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if p.Zone != nil {
-		zone, ok := parseZone(w, *p.Zone)
-		if !ok {
-			return
-		}
-		if err := svc.SetZone(ctx, boardID, uid, zone); err != nil {
-			s.apiError(w, r, err)
-			return
-		}
+	if !s.patchZoneAndSize(ctx, w, r, svc, boardID, uid, p) {
+		return
 	}
 	if p.Stage != nil {
 		stage, ok := parseStage(w, *p.Stage)
@@ -1417,6 +1428,33 @@ func (s *Server) handleRenameTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleSetTeamCapacity records the points a week a team gets through — the
+// number a week of its plan is weighed against. It is somebody's judgement,
+// like a person's: the board works out nothing (board.PointsAWeekOf).
+func (s *Server) handleSetTeamCapacity(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Team   string `json:"team"`
+		Points *int   `json:"points"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if in.Points == nil {
+		http.Error(w, "points is required", http.StatusBadRequest)
+		return
+	}
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	r = r.WithContext(staleOK(r.Context()))
+	if err := svc.SetTeamPoints(r.Context(), boardID, in.Team, *in.Points); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // patchColumn re-files a card under a column — the (project, epic) pair.
 // Naming only the project keeps the column name the card is already under,
 // which is what moving a card between projects means.
@@ -1926,6 +1964,79 @@ func parseZone(w http.ResponseWriter, name string) (board.ZoneKey, bool) {
 	return zone, true
 }
 
+// patchZoneAndSize applies the two "what kind of work is this" fields of a
+// patch — the zone and the size — and reports whether the patch may go on;
+// false means the response has been written.
+func (s *Server) patchZoneAndSize(ctx context.Context, w http.ResponseWriter, r *http.Request,
+	svc *boardservice.Service, boardID, uid string, p cardPatch) bool {
+	if p.Zone != nil {
+		zone, ok := parseZone(w, *p.Zone)
+		if !ok {
+			return false
+		}
+		if err := svc.SetZone(ctx, boardID, uid, zone); err != nil {
+			s.apiError(w, r, err)
+			return false
+		}
+	}
+	if p.Size != nil {
+		size, ok := parseSize(w, *p.Size)
+		if !ok {
+			return false
+		}
+		if err := svc.SetSize(ctx, boardID, uid, size); err != nil {
+			s.apiError(w, r, err)
+			return false
+		}
+	}
+	return true
+}
+
+// handlePatchPerson sets what the roster says about a person — for now their
+// capacity, the points a week the Triage board measures their load against
+// (`{"capacity": 40}`; 0 takes a set number back so the board derives one).
+// It answers with the whole Board resource, whose members carry load and
+// capacity: that is what the client redraws.
+func (s *Server) handlePatchPerson(w http.ResponseWriter, r *http.Request) {
+	svc, boardID, ok := s.service(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Capacity *int `json:"capacity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if in.Capacity == nil {
+		writeJSONError(w, http.StatusBadRequest, "capacity is required (0 takes a set number back)")
+		return
+	}
+	ctx := r.Context()
+	if err := svc.SetPersonCapacity(ctx, boardID, r.PathValue("login"), *in.Capacity); err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	b, err := svc.Board(ctx, boardID)
+	if err != nil {
+		s.apiError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, apiserver.BoardResourceWithPeople(b, s.store.member))
+}
+
+// parseSize validates a size ("" clears): S, M, L or XL in any case; on
+// failure it writes the 400 and returns ok=false.
+func parseSize(w http.ResponseWriter, raw string) (board.SizeKey, bool) {
+	size, ok := board.ParseSize(raw)
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, "unknown size (S, M, L, XL or empty)")
+		return "", false
+	}
+	return size, true
+}
+
 // parseStage validates a stage name ("" clears).
 func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
 	switch board.StageKey(name) {
@@ -2041,6 +2152,8 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrProjectNotFound),
 		errors.Is(err, boardservice.ErrWeekDerived),
 		errors.Is(err, boardservice.ErrNotAMonday),
+		errors.Is(err, boardservice.ErrUnknownSize),
+		errors.Is(err, boardservice.ErrBadCapacity),
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrTurnProcess),

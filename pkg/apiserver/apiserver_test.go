@@ -259,6 +259,39 @@ func TestViewIncludeReviews(t *testing.T) {
 	}
 }
 
+// The TRIAGE view holds review cards only when asked. A review is not
+// triage work — nobody is waiting on a week for it — but it IS work in the
+// reviewer's hands and counts in their load, so the board offers to draw it
+// and needs it in the listing to do so. Off by default: the grid is where
+// weeks are planned, and every open review in the column would bury that.
+func TestTriageShowsReviewsOnlyWhenAsked(t *testing.T) {
+	today := board.TodayIso()
+	week := board.MondayOf(today)
+	b := board.Board{
+		Cards: []board.Card{
+			{ItemID: "plain", Team: "alpha", Assignees: []string{"bob"}, Week: week, Progress: 10},
+			{ItemID: "rev", Team: "alpha", Assignees: []string{"carol"}, ReviewOf: "plain",
+				StartDate: today, Day: today, Progress: 50},
+		},
+	}
+	has := func(sel Selector, id string) bool {
+		for _, c := range FilterCards(b, sel) {
+			if c.ItemID == id {
+				return true
+			}
+		}
+		return false
+	}
+	base := Selector{View: "triage", Team: "alpha", From: week, Weeks: 4}
+	if !has(base, "plain") || has(base, "rev") {
+		t.Fatal("the triage grid holds no review cards unless asked")
+	}
+	withRev := Selector{View: "triage", Team: "alpha", From: week, Weeks: 4, IncludeReviews: true}
+	if !has(withRev, "plain") || !has(withRev, "rev") {
+		t.Fatal("reviews=true must bring the review into the grid")
+	}
+}
+
 // view=team accepts a comma set: the Team board fetches every team it shows in
 // one request (union of the per-team grids).
 func TestTeamViewMultiTeam(t *testing.T) {
@@ -301,9 +334,14 @@ func TestBoardResourceMembers(t *testing.T) {
 	with := BoardResourceWith(b, func(login string) string { return "https://cdn.example/" + login })
 	// The roster carries how much each person is holding right now, across
 	// every team: a board is read through a filter and a person is not.
+	// Load and capacity ride beside it. Neither card is sized, so each weighs
+	// what its kind costs unsized: lllamnyp's is a REVIEW and weighs S = 1,
+	// octocat's is ordinary and weighs the default M = 2. Nobody has set
+	// either of them a capacity, so there is none — the board does not read
+	// one off its own record.
 	want := []Member{
-		{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp", Carrying: 1},
-		{Login: "octocat", AvatarURL: "https://cdn.example/octocat", Carrying: 1},
+		{Login: "lllamnyp", AvatarURL: "https://cdn.example/lllamnyp", Carrying: 1, Load: 1},
+		{Login: "octocat", AvatarURL: "https://cdn.example/octocat", Carrying: 1, Load: 2},
 	}
 	if !reflect.DeepEqual(with.Metadata.Members, want) {
 		t.Fatalf("members with avatars = %+v", with.Metadata.Members)

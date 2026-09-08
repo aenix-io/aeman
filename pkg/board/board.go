@@ -61,13 +61,18 @@ const (
 	ZoneRed    ZoneKey = "red"
 )
 
-// Capacity is a team's throughput in cards a week, and the shares of it the
-// lanes may take: Client is a ceiling, Internal a floor, both in percent.
-// Week 0 means "derive it" (see CapacityOf).
+// Capacity is a team's throughput: the POINTS a week it gets through, which
+// is what a week of its plan is weighed against. Never derived — 0 means
+// nobody has said (PointsAWeekOf).
+//
+// It carried three more numbers once: a limit in CARDS a week, derived from
+// what the team had been finishing, and the shares of it that client and
+// internal work might take. Nothing ever wrote them — not one team file on
+// the production board had the block — and no client read them back: the bar
+// they were drawn for is long gone from the boards. A derived number nobody
+// looks at is a rule that can only rot.
 type Capacity struct {
-	Week     int `json:"week,omitempty"`
-	Client   int `json:"client,omitempty"`
-	Internal int `json:"internal,omitempty"`
+	Points int `json:"points,omitempty"`
 }
 
 // Note is a dated work note attached to a card: an issue/PR comment, or a line
@@ -93,6 +98,10 @@ type Card struct {
 	// Team is the card's team label ("" = the no-team group).
 	Team string  `json:"team,omitempty"`
 	Zone ZoneKey `json:"zone,omitempty"`
+	// Size is what somebody said the card weighs — S, M, L or XL — set on a
+	// daily sync or by a sizing tool; "" is unsized. The points a board sums
+	// are derived from it (Points, PointsOf), never stored.
+	Size SizeKey `json:"size,omitempty"`
 	// Progress is the readiness percentage (0..100); 0 also stands for unset,
 	// matching the frontend's `progress ?? 0`.
 	Progress int      `json:"progress"`
@@ -221,6 +230,7 @@ type CreateInput struct {
 	Personal    bool    `json:"personal,omitempty"`
 	Title       string  `json:"title"`
 	Zone        ZoneKey `json:"zone,omitempty"`
+	Size        SizeKey `json:"size,omitempty"`
 	Day         string  `json:"day,omitempty"`
 	Start       string  `json:"start,omitempty"`
 	SprintStart string  `json:"sprintStart,omitempty"`
@@ -299,6 +309,10 @@ type Board struct {
 	Cards []Card `json:"cards"`
 	// SprintStates maps each team key ("" = the no-team group) to its pointer.
 	SprintStates map[string]SprintState `json:"sprintStates"`
+	// People is what the roster says about each login — the primary
+	// repository's users/<login>.yaml: a capacity a lead set, when one is.
+	// A login absent here is a person the board only knows from cards.
+	People map[string]Person `json:"people,omitempty"`
 	// TeamOrder lists the SprintStates keys in board order — the position of
 	// each team's hidden sprint-state card on the project. That position IS
 	// the team order every client shares (reordering teams moves the card).

@@ -97,6 +97,7 @@ func (s *Service) createPersonalCard(ctx context.Context, b board.Board, args Cr
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:    args.Title,
 		Zone:     args.Zone,
+		Size:     args.Size,
 		Day:      day,
 		Start:    start,
 		Assignee: actor,

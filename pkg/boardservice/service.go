@@ -211,8 +211,11 @@ func (s *Service) MeView(ctx context.Context, boardID string, user, day string) 
 // the team's first sprint only when it has none), true = always (re)start the
 // pointer on the day, false = same as auto (start one only when there is none).
 type CreateCardArgs struct {
-	Team     string
-	Zone     board.ZoneKey
+	Team string
+	Zone board.ZoneKey
+	// Size is what the card weighs, when the caller already knows (a sizing
+	// tool, a lead creating it on a sync); "" leaves it unsized.
+	Size     board.SizeKey
 	Title    string
 	Assignee string
 	Day      string
@@ -376,6 +379,7 @@ func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCar
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title: args.Title,
 		Zone:  args.Zone,
+		Size:  args.Size,
 		Day:   day,
 		Start: start,
 		// The week the caller asked for, when they asked for one: a card
@@ -468,6 +472,7 @@ func (s *Service) createWeekCard(ctx context.Context, b board.Board, args Create
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:    args.Title,
 		Zone:     args.Zone,
+		Size:     args.Size,
 		Week:     args.Week,
 		Assignee: args.Assignee,
 		Team:     args.Team,
@@ -531,6 +536,7 @@ func (s *Service) createEpicCard(ctx context.Context, b board.Board, args Create
 	card, err := s.backend.CreateCard(ctx, b, board.CreateInput{
 		Title:   args.Title,
 		Zone:    args.Zone,
+		Size:    args.Size,
 		Epic:    args.Epic,
 		Project: args.Project,
 		// Born parented and born LINKED, like the other create doors: a
@@ -785,8 +791,12 @@ func (s *Service) CarryOver(ctx context.Context, boardID string, team string, dr
 	// same title/description/team/zone/assignee at 0%, without the old notes.
 	for _, c := range reseed {
 		if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
-			Title:       c.Title,
-			Zone:        c.Zone,
+			Title: c.Title,
+			Zone:  c.Zone,
+			// What it weighs comes with it: a weekly card somebody sized L
+			// is L again next week, and dropping the size halved its owner's
+			// load every sprint until they set it a second time.
+			Size:        c.Size,
 			Day:         today,
 			Start:       today,
 			SprintStart: today,
@@ -1833,6 +1843,137 @@ func (s *Service) SetZone(ctx context.Context, boardID string, itemID string, zo
 		return err
 	}
 	s.logEvent(ctx, b, card, board.EventZone, string(card.Zone), string(zone))
+	return nil
+}
+
+// ErrUnknownSize is a size that is not S, M, L or XL.
+var ErrUnknownSize = errors.New("a size is S, M, L or XL")
+
+// ErrBadCapacity is a capacity that is not a number of points a week a
+// person could have: negative, or absurd.
+var ErrBadCapacity = errors.New("a capacity is 0 (unset) to 999 points a week")
+
+// maxCapacity bounds what a lead can type: a thousand points a week is a
+// slip of the keyboard, not a person.
+const maxCapacity = 999
+
+// SetPersonCapacity records the points a week a lead set for a person — the
+// number the Triage board measures their load against. Zero takes it back, and
+// the board then has no number at all: it draws the load alone rather than
+// inventing a limit (board.CapacityOfPerson). Somebody has to say it —
+// a lead reading four weeks of the person's record with the derive-capacity
+// skill, or knowing better than the record does: a half week, a newcomer,
+// somebody covering for two.
+func (s *Service) SetPersonCapacity(ctx context.Context, boardID string, login string, points int) error {
+	login = strings.TrimSpace(login)
+	if !isLogin(login) {
+		return fmt.Errorf("%w: %q is not a login", ErrBadCapacity, login)
+	}
+	if points < 0 || points > maxCapacity {
+		return fmt.Errorf("%w: %d", ErrBadCapacity, points)
+	}
+	b, err := s.backend.LoadBoard(ctx, boardID)
+	if err != nil {
+		return err
+	}
+	if p, ok := b.People[login]; ok && p.Capacity == points {
+		return nil
+	}
+	if !hasPerson(b.People, login) && points == 0 {
+		return nil
+	}
+	return s.backend.SetPersonCapacity(ctx, b, login, points)
+}
+
+// SetTeamPoints records the points a week a lead set for a TEAM — the number
+// a week of its plan is weighed against — in the team's own file, as the
+// whole of its capacity block. Zero takes it back, and the board knows no limit for
+// that team rather than a limit of none.
+//
+// It is not the sum of the team's people, though that is where the answer
+// usually comes from. Working the sum out means splitting anybody who works
+// across teams by what they closed in each — and on a real board that record
+// is days old, so one busy week could hand a person's whole number to a team
+// they had barely touched, silently. The arithmetic, with the caveats it
+// needs, is the derive-capacity skill's; the board keeps what somebody
+// decided.
+func (s *Service) SetTeamPoints(ctx context.Context, boardID string, team string, points int) error {
+	team = strings.TrimSpace(team)
+	if points < 0 || points > maxCapacity {
+		return fmt.Errorf("%w: %d", ErrBadCapacity, points)
+	}
+	b, err := s.backend.LoadBoard(ctx, boardID)
+	if err != nil {
+		return err
+	}
+	st, ok := b.SprintStates[team]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrTeamNotFound, team)
+	}
+	if st.Capacity.Points == points {
+		return nil
+	}
+	return s.backend.SetTeamPoints(ctx, b, team, points)
+}
+
+// isLogin reports whether a string could be somebody's login on a forge.
+//
+// This one value goes into a file PATH — users/<login>.yaml — and it is the
+// only one a request supplies that does: every other writer names its file by
+// a fresh ULID. Taken as given, `..` or a slash put a file somewhere else in
+// the repository that nothing on this board reads back, and a space or a
+// colon put one nowhere anybody would look. The board is deliberately NOT
+// asked whether it knows the person: a capacity set before somebody's first
+// card is the newcomer case a lead has every reason to want.
+func isLogin(s string) bool {
+	if s == "" || len(s) > 64 || strings.HasPrefix(s, ".") {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// hasPerson reports whether the roster has an entry for the login.
+func hasPerson(people map[string]board.Person, login string) bool {
+	_, has := people[login]
+	return has
+}
+
+// SetSize records what somebody said the card weighs — the decision made on a
+// daily sync, or by a sizing tool. Anything but the four letters is refused
+// rather than stored: a size nothing knows would weigh nothing and read as
+// unsized, silently.
+func (s *Service) SetSize(ctx context.Context, boardID string, itemID string, size board.SizeKey) error {
+	// Exactly one of the four letters, compared against what it PARSES to.
+	// The old guard compared it to its own upper-casing, which " L " passes
+	// — ParseSize trims and the comparison did not — so the raw string went
+	// on to the store and the file held a size the scale does not know: the
+	// card weighed nothing in every sum, which is the silent failure this
+	// refusal exists to prevent, arriving through the door meant to stop it.
+	// Normalising is the doors' job (REST and MCP parse first); this one
+	// takes the letter or refuses it.
+	parsed, ok := board.ParseSize(string(size))
+	if !ok || size != parsed {
+		return fmt.Errorf("%w: %q", ErrUnknownSize, size)
+	}
+	b, card, err := s.loadCard(ctx, boardID, itemID)
+	if err != nil {
+		return err
+	}
+	if card.Size == size {
+		return nil
+	}
+	if err := s.backend.SetSize(ctx, b, card, size); err != nil {
+		return err
+	}
+	s.logEvent(ctx, b, card, board.EventSize, string(card.Size), string(size))
 	return nil
 }
 

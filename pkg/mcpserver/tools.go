@@ -216,6 +216,7 @@ type createCardInput struct {
 	Title    string `json:"title" jsonschema:"card title (required)"`
 	Team     string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group. MUST be one of the board's EXISTING team keys — read them from get_board metadata.teams and map the user's wording onto an existing key, across languages and case ('маркетинг', 'the marketing team' -> existing 'marketing'). A value not in that list silently CREATES a new team with its own sprint pointer — a heavyweight, unusual action: only pass a new key when the user explicitly asks to create a new team"`
 	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave"`
+	Size     string `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h), M (half a day to a day), L (2–5 days) or XL (a week or more); summed as 1/2/4/8 points against each person's weekly capacity. Leave empty when you do not know — an unsized card is honest, a guessed one is not"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"GitHub login to assign"`
 	Start    string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today. A FUTURE day parks the card off the board until that day arrives — it is not shown in the current sprint meanwhile. Sprints are daily and created as they start, so no sprint covers a future day yet: the card deliberately joins NO sprint and the carry-over that reaches its day adopts it. That is the intended way to schedule work ahead; leave the sprint field alone"`
 	End      string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
@@ -242,9 +243,14 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
+	size, ok := board.ParseSize(in.Size)
+	if !ok {
+		return nil, apiserver.Card{}, fmt.Errorf("%w: %q (use S, M, L, XL or empty)", boardservice.ErrUnknownSize, in.Size)
+	}
 	card, err := svc.CreateCard(ctx, boardID, boardservice.CreateCardArgs{
 		Team:           in.Team,
 		Zone:           zone,
+		Size:           size,
 		Title:          in.Title,
 		Assignee:       in.Assignee,
 		Day:            in.End,
@@ -271,6 +277,7 @@ type updateCardInput struct {
 	Description *string `json:"description,omitempty" jsonschema:"the card's shared free-form body (what the whole team sees; live-syncs onto the linked review card) — the right place for review or handoff context, and for reference links: include related open PRs and issues in free form as FULL URLs or owner/repo#123 shorthands (encouraged — links are extracted from anywhere in the text, surfaced on the card, and GitHub refs resolve to live titles/states; read them back with list_links); empty clears it"`
 	Team        *string `json:"team,omitempty" jsonschema:"team to move to (joins its current sprint); empty is the no-team group. MUST be an EXISTING team key from get_board metadata.teams — map the user's wording onto an existing key, across languages and case; an unknown value silently CREATES a new team (heavyweight, unusual) — only on an explicit request for a brand-new team"`
 	Zone        *string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave; empty clears it"`
+	Size        *string `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h, one action in one place), M (half a day to a day, one deliverable in one component), L (2–5 days, several parts or people) or XL (a week or more, epic-shaped); empty clears it. The board sums sizes as 1/2/4/8 points against each person's weekly capacity, so size the work the card asks for, consistently — not the topic's importance"`
 	Assignee    *string `json:"assignee,omitempty" jsonschema:"GitHub login; empty unassigns"`
 	Progress    *int    `json:"progress,omitempty" jsonschema:"readiness percentage 0..100"`
 	Stage       *string `json:"stage,omitempty" jsonschema:"locked, review, recurrent, refuse or done; empty clears it. REFUSE is the answer of the person the card is on — 'I am not doing this' — and only they may set it (403 otherwise); it leaves the card on the board for their lead to answer. Clearing it is the answer, and anyone may."`
@@ -339,6 +346,15 @@ func (h *server) applyCardPatch(ctx context.Context, svc *boardservice.Service, 
 			return err
 		}
 		if err := svc.SetZone(ctx, boardID, in.UID, zone); err != nil {
+			return err
+		}
+	}
+	if in.Size != nil {
+		size, ok := board.ParseSize(*in.Size)
+		if !ok {
+			return fmt.Errorf("%w: %q (use S, M, L, XL or empty)", boardservice.ErrUnknownSize, *in.Size)
+		}
+		if err := svc.SetSize(ctx, boardID, in.UID, size); err != nil {
 			return err
 		}
 	}
@@ -1093,4 +1109,51 @@ func (h *server) deleteNote(ctx context.Context, _ *mcp.CallToolRequest, in dele
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "deleted", UID: in.UID}, nil
+}
+
+// --- People ------------------------------------------------------------------
+
+type setCapacityInput struct {
+	boardRef
+	Login    string `json:"login" jsonschema:"the person's login (required)"`
+	Capacity int    `json:"capacity" jsonschema:"points a week, 1..999; 0 takes a set number back, leaving the person with no number at all"`
+}
+
+type setTeamCapacityInput struct {
+	boardRef
+	Team     string `json:"team" jsonschema:"the team key; empty is the no-team group"`
+	Capacity int    `json:"capacity" jsonschema:"points a week, 1..999; 0 takes a set number back, leaving the team with no number at all"`
+}
+
+// The answer is the TEAM's sprint resource, which is where a team's capacity
+// lives: the board resource has no per-team number on it, so answering with
+// one told the caller everything except what it had just set.
+func (h *server) setTeamCapacity(ctx context.Context, _ *mcp.CallToolRequest, in setTeamCapacityInput) (*mcp.CallToolResult, apiserver.Sprint, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.Sprint{}, err
+	}
+	if err := svc.SetTeamPoints(ctx, boardID, in.Team, in.Capacity); err != nil {
+		return nil, apiserver.Sprint{}, err
+	}
+	b, err := svc.Board(ctx, boardID)
+	if err != nil {
+		return nil, apiserver.Sprint{}, err
+	}
+	return nil, apiserver.SprintResourceOf(b, in.Team), nil
+}
+
+func (h *server) setCapacity(ctx context.Context, _ *mcp.CallToolRequest, in setCapacityInput) (*mcp.CallToolResult, apiserver.BoardInfo, error) {
+	svc, boardID, err := h.ref(ctx, in.boardRef)
+	if err != nil {
+		return nil, apiserver.BoardInfo{}, err
+	}
+	if err := svc.SetPersonCapacity(ctx, boardID, in.Login, in.Capacity); err != nil {
+		return nil, apiserver.BoardInfo{}, err
+	}
+	b, err := svc.Board(ctx, boardID)
+	if err != nil {
+		return nil, apiserver.BoardInfo{}, err
+	}
+	return nil, apiserver.BoardResource(b), nil
 }

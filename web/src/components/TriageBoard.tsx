@@ -18,7 +18,7 @@
 // open card from a week gone by stands in the first row. That is the weekly
 // plan's own rule (planShowsInWeekAt), and this board must not disagree.
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { Board, Card as CardModel, Provider, ZoneKey } from "../providers/types";
+import type { Board, Card as CardModel, Provider, SizeKey, ZoneKey } from "../providers/types";
 import { registerPendingCard } from "../api/pending";
 import { justMade, noteMade } from "../justmade";
 import { addDays, mondayOf, todayIso } from "../date";
@@ -28,6 +28,7 @@ import {
   byPile,
   gripOf,
   needsTriage,
+  ordersWithinCell,
   orderWith,
   placedIn,
   removableOnTriage,
@@ -38,6 +39,7 @@ import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
+import { SIZES, SIZE_ORDER, pointsOf } from "../size";
 import { isComplete } from "../stages";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
@@ -47,8 +49,12 @@ import { teamColor } from "../avatar";
 import { AddCard } from "./AddCard";
 import { Avatar } from "./Avatar";
 import { TeamChips } from "./TeamChips";
+import { Dropdown } from "./Dropdown";
+import { SizeChip } from "./SizeChip";
 import { WeekGrid } from "./WeekGrid";
 import { ZoomControl } from "./ZoomControl";
+import { PersonLoad } from "./PersonLoad";
+import { loadState } from "../load";
 import { useWeekGrid } from "./useWeekGrid";
 
 // The column a card with no assignee stands in. An empty login is a real
@@ -107,6 +113,15 @@ interface Slot extends Laned {
    *  falls in is already spoken for, and a board that plans weeks ahead has
    *  to say so. */
   projected?: boolean;
+  /** The LINE under a cell's cards: the reviews standing in that cell, and
+   *  the key that opens them. `card` is the first of them, so the slot has
+   *  one like any other, and nothing but this line reads it. */
+  reviews?: CardModel[];
+  cell?: string;
+  /** A review card, drawn because its line is open. It is somebody else's
+   *  work being read: it cannot be moved into another week — it has no week
+   *  to write — and nothing on it can be planned. */
+  review?: boolean;
 }
 
 function whoOf(c: CardModel): string {
@@ -142,18 +157,6 @@ export function TriageBoard({
 }: TriageBoardProps) {
   const today = todayIso();
   const thisWeek = mondayOf(today);
-  // What each person is carrying altogether, whatever team it is in: the
-  // board is read through a filter and a person is not, so somebody with
-  // four cards here may have eleven, and the column says which.
-  const carrying = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const m of board.members) {
-      if (m.carrying) {
-        out[m.login] = m.carrying;
-      }
-    }
-    return out;
-  }, [board.members]);
   const teams = useMemo(() => teamFilter ?? roster, [teamFilter, roster]);
 
   // A project card's weeks belong to the Project board, and this board holds
@@ -197,6 +200,18 @@ export function TriageBoard({
    *  card has neither a week nor a place in the strip — so the board is lent
    *  it for as long as the gesture lasts, and draws it where it would land. */
   const [carried, setCarried] = useState<CardModel | null>(null);
+  // Which cells have their reviews unfolded. A review is not triage work —
+  // nobody is waiting on a week for it — so it does not stand in the columns
+  // as a card. But it IS work in the reviewer's hands, it counts in the
+  // number over their name and in the week's points, and one whose dates ran
+  // out is on no other board at all. So each cell that has any says so on a
+  // line under its cards — "+2 reviews" — and opens them where they belong:
+  // that person, that week. Asked for in the fetch either way (viewquery),
+  // so opening one costs a re-render and not a request.
+  const [openReviews, setOpenReviews] = useState<ReadonlySet<string>>(new Set());
+  const showReviewsIn = useCallback((cell: string) => {
+    setOpenReviews((open) => new Set(open).add(cell));
+  }, []);
   // The tasks whose turns are MEANT to pile up: with the catch lifted those
   // are the ones a turn may be carried out of its own cycle for (gripOf).
   const accumulating = useMemo(() => {
@@ -262,6 +277,22 @@ export function TriageBoard({
     return out;
   }, [board.cards, board.processes, teams]);
 
+  // The open reviews of the teams on screen. Kept apart from the cards
+  // because they are not planned here — a review stands in the week its own
+  // DATES fall in, on the line at the foot of its cell.
+  const reviewsHere = useMemo(
+    () =>
+      board.cards.filter(
+        (c) =>
+          c.reviewOf &&
+          teams.includes(c.team ?? "") &&
+          !c.parent &&
+          !isPersonalDomain(c.domain ?? "") &&
+          !isComplete(c),
+      ),
+    [board.cards, teams],
+  );
+
   // The cards of the teams on screen: the ones with a week, and the ones
   // nobody has dated, which stand in the first row alongside them.
   const { placed, waiting, people } = useMemo(() => {
@@ -270,6 +301,10 @@ export function TriageBoard({
     const seen = new Set<string>();
     for (const c of board.cards) {
       if (!teams.includes(c.team ?? "")) {
+        continue;
+      }
+      // A review stands on its cell's own line, not among the cards.
+      if (c.reviewOf) {
         continue;
       }
       const week = placedIn(c);
@@ -293,6 +328,11 @@ export function TriageBoard({
     for (const t of projected) {
       seen.add(t.who);
     }
+    // Somebody whose only work here is reviewing still has a column: the
+    // line at the foot of a cell has to have a cell to stand in.
+    for (const c of reviewsHere) {
+      seen.add(whoOf(c));
+    }
     const named = [...seen].filter((w) => w !== NOBODY).sort();
     const all = [NOBODY, ...named];
     const at = (k: string) => {
@@ -304,19 +344,8 @@ export function TriageBoard({
       waiting,
       people: (order ? [...all].sort((a, b) => at(a) - at(b)) : all).map((key) => ({ key })),
     };
-  }, [board.cards, teams, order, projected]);
+  }, [board.cards, teams, order, projected, reviewsHere]);
 
-
-  // What the reader can see of each person here, against what that person is
-  // holding altogether: the board is one team's slice and the count beside a
-  // name says how much of the whole it is.
-  const shown = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const c of [...placed, ...waiting]) {
-      out[whoOf(c)] = (out[whoOf(c)] ?? 0) + 1;
-    }
-    return out;
-  }, [placed, waiting]);
 
   // Somewhere to start a card: a press on the empty part of a cell opens the
   // form there, and what it creates lands in that week, in that person's
@@ -414,12 +443,92 @@ export function TriageBoard({
     window.addEventListener("pointercancel", cancel);
   }, []);
 
+  // A lead sets what a person gets through in a week; the board comes back
+  // with every column's number recomputed, so the reload is the answer.
+  const setCapacity = useCallback(
+    (login: string, points: number) => {
+      void provider
+        .setCapacity(login, points)
+        .then(() => reload())
+        .catch((err: Error) => onError(err.message));
+    },
+    [provider, reload, onError],
+  );
+
   const fail = useCallback(
     (card: CardModel, before: Partial<CardModel>) => (err: Error) => {
       patchCard(card.itemId, before);
       onError(err.message);
     },
     [patchCard, onError],
+  );
+
+  // Sizing on the board itself. This is where a week is read — the column of
+  // boxes against the number at its head — so it is where the answer to "that
+  // does not fit" is given, and walking to the card's own page for one letter
+  // is what stops anyone giving it. The card the menu is open for and the
+  // element it hangs under, which is a different box each time.
+  const [sizing, setSizing] = useState<CardModel | null>(null);
+  const sizeAnchor = useRef<HTMLElement | null>(null);
+  // Setting a TEAM's week, from the number beside the week it is measuring.
+  // Nothing derives it, so this is where a lead answers a red week: one team
+  // on screen and the number is typed in place; several and there is no
+  // answer to "whose week is this", so the chip opens a menu of them — the
+  // same shape the Project board's weeks use for their deadlines.
+  const [capEdit, setCapEdit] = useState<{ team: string; week: string } | null>(null);
+  const [capMenu, setCapMenu] = useState(false);
+  const capAnchor = useRef<HTMLElement | null>(null);
+  // What is being typed, per team, while it is being typed. The fields are
+  // CONTROLLED against this: an uncontrolled one keeps whatever it was born
+  // with, so a board that reloaded under it — anybody's write, including the
+  // one this field just made — would be overwritten by a stale number on the
+  // next blur.
+  const [capDraft, setCapDraft] = useState<Record<string, string>>({});
+  const capacityOf = useCallback(
+    (team: string) => board.sprintStates[team]?.capacity?.points ?? 0,
+    [board.sprintStates],
+  );
+  const capValue = useCallback(
+    (team: string) => capDraft[team] ?? (capacityOf(team) ? String(capacityOf(team)) : ""),
+    [capDraft, capacityOf],
+  );
+  const setTeamCapacity = useCallback(
+    (team: string) => {
+      const raw = capDraft[team];
+      setCapDraft(({ [team]: _typed, ...rest }) => rest);
+      if (raw === undefined) {
+        return;
+      }
+      const points = raw.trim() === "" ? 0 : Number.parseInt(raw, 10);
+      if (Number.isNaN(points) || points < 0 || points > 999 || points === capacityOf(team)) {
+        return;
+      }
+      void provider
+        .setTeamCapacity(team, points)
+        .then(() => reload())
+        .catch((err: Error) => onError(err.message));
+    },
+    [capDraft, capacityOf, provider, reload, onError],
+  );
+
+  // Every chip on the board — in the grid and on the shelves — opens the
+  // one menu, under whichever chip was pressed.
+  const openSizer = useCallback((card: CardModel, anchor: HTMLElement) => {
+    sizeAnchor.current = anchor;
+    setSizing((cur) => (cur?.itemId === card.itemId ? null : card));
+  }, []);
+  const setSize = useCallback(
+    (card: CardModel, size: SizeKey | "") => {
+      setSizing(null);
+      if ((card.size ?? "") === size) {
+        return;
+      }
+      patchCard(card.itemId, { size: size || undefined });
+      void provider
+        .patchCard(card.itemId, { size })
+        .catch(fail(card, { size: card.size }));
+    },
+    [patchCard, provider, fail],
   );
 
   // Placing a card: who first, then when. A card sent to a week ahead leaves
@@ -472,6 +581,9 @@ export function TriageBoard({
       const here: CardModel[] = [];
       for (const c of board.cards) {
         if (whoOf(c) !== who) {
+          continue;
+        }
+        if (!ordersWithinCell(c)) {
           continue;
         }
         const at = placedIn(c) ? extentOf(rowDates(c), weeks) : { row: 0, span: 1 };
@@ -726,9 +838,27 @@ export function TriageBoard({
   // every card here be a plain box of one row: the week's cards then stand
   // one under the next at the full column width, and the week grows to hold
   // them, rather than the column being sliced into slivers nobody can read.
-  const { slots, load } = useMemo(() => {
+  // What the teams on screen can plan in a week: their own numbers, added up.
+  // Each is a number somebody SET for that team (board.PointsAWeekOf) — the
+  // board works nothing out, so a week is never measured against arithmetic
+  // nobody stands behind. 0 when none of them has one, which draws the week's
+  // points alone.
+  const plannableWeek = useMemo(
+    () => teams.reduce((sum, t) => sum + (board.sprintStates[t]?.capacity?.points ?? 0), 0),
+    [board.sprintStates, teams],
+  );
+
+  const { slots, load, weekPts } = useMemo(() => {
     const slots = new Map<string, Slot[]>();
     const load = new Map<string, number>();
+    // What each week CARRIES, in points, counted over exactly the boxes the
+    // count above counts — a card of several weeks in each of them, the
+    // strip in the first row, a turn a process has not filed yet at the
+    // weight of an unsized card. Two numbers describing different sets is
+    // how a week comes to read "1 card, 0 points".
+    const weekPts = new Map<string, number>();
+    const weigh = (w: string, c: CardModel) =>
+      weekPts.set(w, (weekPts.get(w) ?? 0) + pointsOf(board.cards, c));
     // A card carried out of a LIST is drawn here for as long as the gesture
     // lasts, so the reader can see where it would land — it belongs to no
     // week and no strip, so without this the grid showed nothing at all and
@@ -762,6 +892,7 @@ export function TriageBoard({
       slots.set(col, list);
       const w = weeks[row];
       load.set(w, (load.get(w) ?? 0) + 1);
+      weigh(w, c);
     }
     for (const c of placed) {
       if (overList && move?.card.itemId === c.itemId) {
@@ -800,6 +931,7 @@ export function TriageBoard({
         });
         const w = weeks[row + i];
         load.set(w, (load.get(w) ?? 0) + 1);
+        weigh(w, c);
       }
       slots.set(col, list);
     }
@@ -824,6 +956,7 @@ export function TriageBoard({
       });
       slots.set(t.who, list);
       load.set(t.week, (load.get(t.week) ?? 0) + 1);
+      weigh(t.week, t.card);
     }
     // A week is read top down, so it is stacked in the order somebody
     // triaging wants to meet it: debts, the project's own work, then the
@@ -831,6 +964,47 @@ export function TriageBoard({
     // reader set by hand.
     for (const list of slots.values()) {
       list.sort(byPile((s) => ({ ...s.card, projected: s.projected })));
+    }
+    // The reviews go in AFTER the pile is ordered, so the line stands under
+    // everything the week is actually planning — it is not one of the cards
+    // and takes no place among them. What it opens stands under the line.
+    // A week's numbers count the reviews whether or not the line is open: a
+    // week costs what it costs, and the line beside the total says where the
+    // rest of it is.
+    const bare = { span: 1, part: 0, parts: 1, lane: 0, lanes: 1, width: 1, stack: 0, stacked: 1 };
+    const byCell = new Map<string, { col: string; row: number; cards: CardModel[] }>();
+    for (const c of reviewsHere) {
+      const at = extentOf(rowDates(c), weeks);
+      if (!at) {
+        continue;
+      }
+      const col = whoOf(c);
+      // Keyed by the WEEK, never by the row index: pressing "earlier weeks"
+      // pads the grid at the front and every row number shifts, which would
+      // fold a cell's reviews away under somebody's hands.
+      const key = `${col}\u0000${weeks[at.row]}`;
+      const cell = byCell.get(key) ?? { col, row: at.row, cards: [] };
+      cell.cards.push(c);
+      byCell.set(key, cell);
+    }
+    for (const [key, cell] of byCell) {
+      const list = slots.get(cell.col) ?? [];
+      // Shown, the reviews replace the line that offered them: they say how
+      // many there are by being there, and a way to fold them back would be
+      // a control for a state nobody is in for long.
+      if (openReviews.has(key)) {
+        for (const c of cell.cards) {
+          list.push({ ...bare, card: c, row: cell.row, review: true });
+        }
+      } else {
+        list.push({ ...bare, card: cell.cards[0], row: cell.row, reviews: cell.cards, cell: key });
+      }
+      slots.set(cell.col, list);
+      const w = weeks[cell.row];
+      load.set(w, (load.get(w) ?? 0) + cell.cards.length);
+      for (const c of cell.cards) {
+        weigh(w, c);
+      }
     }
     // While a card is under the pointer it is drawn WHERE IT WOULD LAND —
     // including where among its new neighbours — so what the reader sees is
@@ -859,7 +1033,7 @@ export function TriageBoard({
       }
     }
     packLanes(slots.values(), undefined, grid.rowFit);
-    return { slots, load };
+    return { slots, load, weekPts };
   }, [
     placed,
     waiting,
@@ -872,6 +1046,8 @@ export function TriageBoard({
     carried,
     overList,
     grid.rowFit,
+    reviewsHere,
+    openReviews,
   ]);
 
 
@@ -1280,15 +1456,10 @@ export function TriageBoard({
                 <>
                   <Avatar login={p.key} avatars={avatars} names={names} />
                   <span className="project-epic-name">{displayName(p.key, names)}</span>
-                  {!!carrying[p.key] && (
-                    <span
-                      className="triage-person-load"
-                      title={`${shown[p.key] ?? 0} on this board, ${carrying[p.key]} altogether in every team`}
-                    >
-                      {shown[p.key] ?? 0}
-                      <span className="triage-person-all">/{carrying[p.key]}</span>
-                    </span>
-                  )}
+                  <PersonLoad
+                    member={board.members.find((m) => m.login === p.key)}
+                    onSetCapacity={(points) => setCapacity(p.key, points)}
+                  />
                 </>
               )}
               {/* The border is THIS column's grip: dragging it widens this
@@ -1320,13 +1491,80 @@ export function TriageBoard({
           weekProps={(w) => {
             // What the week carries, a card of several weeks counting in each
             // of them.
+            // What the week carries is said in POINTS, not in cards: a week
+            // of thirty small things and a week of three large ones counted
+            // the same, which is the whole reason for a size. The card count
+            // stays in the tooltip, where it answers "how many things", not
+            // "how much work".
             const n = load.get(w) ?? 0;
+            const pts = weekPts.get(w) ?? 0;
+            const state = loadState(pts, plannableWeek);
             return {
-              title: `${n} cards`,
+              title: `${pts} points in ${n} card(s)${plannableWeek ? `, of ${plannableWeek} the teams on screen can plan a week` : ""}`,
               label: (
                 <>
                   <span className="project-week-date">{w === thisWeek ? "now" : weekLabel(w)}</span>
-                  <span className="triage-count">{n}</span>
+                  {/* Stacked, not "220/20": the week column is as wide as a
+                      date and a pill that spells the fraction on one line
+                      grows out of it the moment either number reaches three
+                      digits. One number over the other, hairline between,
+                      reads the same and fits.
+
+                      It is also the door to the number underneath: a red week
+                      is answered either by moving cards or by admitting the
+                      team's week is bigger than anybody wrote down, and the
+                      second answer should not need another screen. */}
+                  {capEdit?.week === w ? (
+                    <input
+                      className="triage-points-input"
+                      type="number"
+                      min={0}
+                      max={999}
+                      autoFocus
+                      aria-label={`Points a week for ${capEdit.team || "no team"}`}
+                      value={capValue(capEdit.team)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) =>
+                        setCapDraft((d) => ({ ...d, [capEdit.team]: e.target.value }))
+                      }
+                      onBlur={() => {
+                        setTeamCapacity(capEdit.team);
+                        setCapEdit(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          setTeamCapacity(capEdit.team);
+                          setCapEdit(null);
+                        } else if (e.key === "Escape") {
+                          setCapDraft(({ [capEdit.team]: _typed, ...rest }) => rest);
+                          setCapEdit(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className={`triage-points triage-points-${state}`}
+                      aria-label={`${pts} points scheduled${plannableWeek ? ` of ${plannableWeek}` : ""} in this week — click to set a team's points a week`}
+                      title={
+                        teams.length === 1
+                          ? `${plannableWeek || "no"} points a week for ${teams[0] || "no team"} — click to change`
+                          : "Click to set a team's points a week"
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        capAnchor.current = e.currentTarget;
+                        if (teams.length === 1) {
+                          setCapEdit({ team: teams[0], week: w });
+                        } else {
+                          setCapMenu((open) => !open);
+                        }
+                      }}
+                    >
+                      <span className="triage-points-load">{pts}</span>
+                      {!!plannableWeek && <span className="triage-points-cap">{plannableWeek}</span>}
+                    </button>
+                  )}
                 </>
               ),
             };
@@ -1372,6 +1610,60 @@ export function TriageBoard({
           {people.map((p, col) =>
             (slots.get(p.key) ?? []).map((slot) => {
               const { card, row, part, parts } = slot;
+              // The LINE at the foot of a cell: how many reviews stand in
+              // this person's week, and the press that shows them. Plain
+              // text, like the add control on the day boards — it is not a
+              // card and must not read as one. Pressed, it is replaced by
+              // what it was offering.
+              if (slot.reviews && slot.cell) {
+                const n = slot.reviews.length;
+                const cell = slot.cell;
+                return (
+                  <button
+                    type="button"
+                    key={`${p.key}/reviews/${row}`}
+                    className="triage-reviews-line"
+                    style={{
+                      gridColumn: col + 2,
+                      gridRow: row + 2,
+                      ...laneStyle(slot, grid.rowFit, grid.rowH),
+                    }}
+                    title={`${n} review${n === 1 ? "" : "s"} on this person this week — work in their hands, counted in the week's points`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      showReviewsIn(cell);
+                    }}
+                  >
+                    +{n} review{n === 1 ? "" : "s"}
+                  </button>
+                );
+              }
+              // A review under an open line. It is somebody else's finished
+              // work being read, so nothing here plans it: it cannot be
+              // dragged into another week (it has no week to write — the
+              // week belongs to the card it reviews), parked or taken off
+              // the board. Its title, what it weighs, and a double-click
+              // through to the card itself.
+              if (slot.review) {
+                return (
+                  <div
+                    key={`${p.key}/${card.itemId}/review`}
+                    className="project-slot triage-slot triage-slot-review"
+                    style={{
+                      gridColumn: col + 2,
+                      gridRow: row + 2,
+                      ...laneStyle(slot, grid.rowFit, grid.rowH),
+                    }}
+                    title={`${card.title} — a review in this week`}
+                    onDoubleClick={() => onOpen(card)}
+                  >
+                    <span className="project-slot-title">{card.title}</span>
+                    <SizeChip card={card} onPick={openSizer} />
+                  </div>
+                );
+              }
               const done = isComplete(card);
               const progress = done ? 100 : (card.progress ?? 0);
               // The stripe says where the card came FROM, and it is the same
@@ -1413,6 +1705,12 @@ export function TriageBoard({
                     {card.title}
                     {parts > 1 && <span className="triage-slot-part"> ({part + 1}/{parts})</span>}
                   </span>
+                  {/* What the box WEIGHS, always on show and one click from
+                      being changed. It stands at the slot's right edge, where
+                      the Project board keeps its owner badge, so the hover
+                      actions land beside it instead of moving it. A projected
+                      turn has no card behind it yet and nothing to size. */}
+                  {!slot.projected && <SizeChip card={card} onPick={openSizer} />}
                   {!slot.projected &&
                     (parkable(card) ||
                       removableOnTriage(card, unlocked, choicesFor(card))) && (
@@ -1580,8 +1878,69 @@ export function TriageBoard({
           onDragEnd={dragEndFromDrawer}
           onRemove={remove}
           onOpenCard={onOpen}
+          onPickSize={openSizer}
         />
       </div>
+      {/* Whose week is this? With several teams on screen the number over a
+          week is their numbers added up, and there is no single team to type
+          into — so the chip offers them, each with its own. */}
+      <Dropdown
+        open={capMenu}
+        anchorRef={capAnchor}
+        onClose={() => setCapMenu(false)}
+        className="triage-cap-menu"
+      >
+        {teams.map((t) => (
+          <label key={t || "\u0000none"} className="triage-cap-row">
+            <span className="card-stage-dot" style={{ background: teamColor(t) }} />
+            <span className="triage-cap-team">{t || "No team"}</span>
+            {/* The menu STAYS OPEN as each row is filled: it is a list of
+                teams, and closing it on the first blur meant exactly one of
+                them could be answered per opening. */}
+            <input
+              className="triage-cap-input"
+              type="number"
+              min={0}
+              max={999}
+              placeholder="—"
+              aria-label={`Points a week for ${t || "no team"}`}
+              value={capValue(t)}
+              onChange={(e) => setCapDraft((d) => ({ ...d, [t]: e.target.value }))}
+              onBlur={() => setTeamCapacity(t)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setTeamCapacity(t);
+                } else if (e.key === "Escape") {
+                  setCapDraft(({ [t]: _typed, ...rest }) => rest);
+                  setCapMenu(false);
+                }
+              }}
+            />
+            <span className="triage-cap-unit">pts/wk</span>
+          </label>
+        ))}
+      </Dropdown>
+      {/* One menu for every box: it hangs under whichever badge was pressed,
+          so the grid carries no menu of its own per card. */}
+      <Dropdown
+        open={!!sizing}
+        anchorRef={sizeAnchor}
+        onClose={() => setSizing(null)}
+        className="triage-size-menu"
+      >
+        {SIZE_ORDER.map((sz) => (
+          <button
+            key={sz}
+            type="button"
+            className={`triage-size-item${sizing?.size === sz ? " triage-size-item-on" : ""}`}
+            title={SIZES[sz].hint}
+            onClick={() => sizing && setSize(sizing, sizing.size === sz ? "" : sz)}
+          >
+            <span className="triage-size-key">{sz}</span>
+            <span className="triage-size-pts">{SIZES[sz].points}</span>
+          </button>
+        ))}
+      </Dropdown>
       {asking && (
         <RemoveChoiceDialog
           title={asking.title}

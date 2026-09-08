@@ -196,6 +196,14 @@ describe("the Triage window", () => {
     expect(q.weeks).toBe(String(TRIAGE_WEEKS));
   });
 
+  it("asks for the review cards too, and hides them on the board instead", () => {
+    // The board offers to draw reviews. Fetching them once and hiding them
+    // client-side is what makes the toggle instant — and keeps the watch
+    // scope from changing under a board that is being read.
+    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, false, TODAY);
+    expect(q.reviews).toBe("true");
+  });
+
   it("asks for the parked work as well — no week puts it in no window", () => {
     // A parked card has no week at all, so the weeks query cannot reach it
     // however wide the window is. The drawer is fetched beside the grid

@@ -137,6 +137,7 @@ func twoDomainServer(t *testing.T) *Server {
 		"bob":   rightsOn([]string{"shared", "closed"}, []string{"shared", "closed"}), // everything
 		"carol": rightsOn([]string{"closed"}, []string{"closed"}),                     // not the primary
 		"dave":  rightsOn([]string{"shared", "closed"}, []string{"shared"}),           // reads all, writes shared
+		"erin":  rightsOn([]string{"shared", "closed"}, []string{"closed"}),           // reads all, writes only the closed one
 	}}, shared, closed)
 }
 
@@ -358,5 +359,91 @@ func TestWatchFilteredByDomain(t *testing.T) {
 	srv.store.waitDrained(ctx)
 	if titles := cardTitles(drainFrames(t, aliceSub), "MODIFIED"); len(titles) != 1 || titles[0] != "one" {
 		t.Fatalf("alice's frames for a shared change = %v, want one", titles)
+	}
+}
+
+// G25 again, for the three writers that arrived with sizes and capacities.
+// They are not card FIELDS in the ordinary way — a size is, a person's
+// capacity is a roster file in the primary, a team's is the team's own file —
+// and every one of them was added to the backend without the visibility layer
+// overriding it, so Go promoted the unchecked method and a read-only
+// collaborator could write all three. The size is the sharpest: it feeds the
+// points a board sums into a person's load and a week's plan, so a visitor
+// who could only READ a repository could move numbers on every board that
+// shows it.
+func TestSizesAndCapacitiesNeedWriteAccessToo(t *testing.T) {
+	srv := twoDomainServer(t)
+	closedUID := cardUID(t, srv, "dave", "three-closed")
+	sharedUID := cardUID(t, srv, "dave", "one")
+
+	// dave writes the shared domain and only that.
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+closedUID, `{"size":"XL"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("dave sizes a closed card: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"size":"XL"}`); rec.Code != http.StatusOK {
+		t.Fatalf("dave sizes a shared card: %d %s", rec.Code, rec.Body.String())
+	}
+	// The team "portal" is declared in the shared domain, and so is the
+	// roster: dave may set both.
+	if rec := doAs(t, srv, "dave", http.MethodPost, "/api/v1/teams/actions/capacity", `{"team":"portal","points":40}`); rec.Code != http.StatusOK {
+		t.Fatalf("dave sets a shared team's capacity: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "dave", http.MethodPatch, "/api/v1/people/dave", `{"capacity":20}`); rec.Code != http.StatusOK {
+		t.Fatalf("dave sets a capacity in the primary: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// erin reads everything and writes only the CLOSED domain, so every one
+	// of the three is refused on the shared side — the roster included, which
+	// lives in the primary whatever else she can write.
+	if rec := doAs(t, srv, "erin", http.MethodPatch, "/api/v1/cards/"+sharedUID, `{"size":"S"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("erin sizes a shared card: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "erin", http.MethodPost, "/api/v1/teams/actions/capacity", `{"team":"portal","points":10}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("erin sets a shared team's capacity: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := doAs(t, srv, "erin", http.MethodPatch, "/api/v1/people/erin", `{"capacity":10}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("erin writes the primary's roster: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+
+	// And nothing was written behind the refusals.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx)
+	rec := doAs(t, srv, "bob", http.MethodGet, "/api/v1/cards/"+closedUID, "")
+	if strings.Contains(rec.Body.String(), `"XL"`) {
+		t.Fatalf("the refused size reached the closed card: %s", rec.Body.String())
+	}
+}
+
+// G17 for the LOAD announcement. The numbers beside a person are summed over
+// cards from every team, so the frame that carries them is built per set of
+// RIGHTS — and that path had no test at all: a visitor who cannot read a
+// domain must not learn its people, or how much they are carrying, from a
+// frame that follows somebody else's write.
+func TestTheLoadAnnouncementIsFilteredByDomain(t *testing.T) {
+	srv := twoDomainServer(t)
+	closedUID := cardUID(t, srv, "bob", "three-closed")
+	key := storeKey(srv.gitBoard())
+	resources := map[string]bool{"cards": true}
+	aliceSub, cancelA := srv.store.subscribeAs(key, "alice-tab", nil, resources, rightsOn([]string{"shared"}, nil))
+	defer cancelA()
+	bobSub, cancelB := srv.store.subscribeAs(key, "bob-tab", nil, resources, rightsOn([]string{"shared", "closed"}, nil))
+	defer cancelB()
+
+	// A size in the closed domain: the write alice may not see, on a card
+	// whose owner works only there.
+	if rec := doAs(t, srv, "bob", http.MethodPatch, "/api/v1/cards/"+closedUID, `{"size":"XL"}`); rec.Code != http.StatusOK {
+		t.Fatalf("bob sizes the closed card: %d %s", rec.Code, rec.Body.String())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx)
+
+	if got := memberIn(awaitLoad(t, aliceSub.ch), "zoe"); got.Login != "" {
+		t.Fatalf("alice's load frame carries a person from a domain she cannot read: %+v", got)
+	}
+	got := memberIn(awaitLoad(t, bobSub.ch), "zoe")
+	if got.Login != "zoe" || got.Load != 8 {
+		t.Fatalf("bob's load frame = %+v, want zoe carrying the XL he just set", got)
 	}
 }

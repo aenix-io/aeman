@@ -6,9 +6,11 @@ import type {
   CardLog,
   Note,
   Provider,
+  SizeKey,
   ZoneKey,
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
+import { SIZES, SIZE_ORDER } from "../size";
 import { Dropdown } from "./Dropdown";
 import { eventLabel } from "../eventlog";
 import { localDateIso } from "../date";
@@ -73,6 +75,18 @@ export function CardDetail({
     patchCard(card.itemId, { zone });
     void provider.patchCard(card.itemId, { zone }).catch((err: unknown) => {
       patchCard(card.itemId, { zone: before });
+      fail(err);
+    });
+  };
+
+  // What the card WEIGHS — the decision a daily sync makes so the person
+  // leaves with a plan that fits. The same letter again takes it back.
+  const setSize = (size: SizeKey) => {
+    const next: SizeKey | "" = size === card.size ? "" : size;
+    const before = card.size;
+    patchCard(card.itemId, { size: next || undefined });
+    void provider.patchCard(card.itemId, { size: next }).catch((err: unknown) => {
+      patchCard(card.itemId, { size: before });
       fail(err);
     });
   };
@@ -377,6 +391,27 @@ export function CardDetail({
                   </button>
                 ))}
               </Dropdown>
+            </span>
+            {/* What the card weighs. Four chips, one lit: the decision a daily
+                sync makes so the person leaves with a plan that fits their
+                week, and the number the board sums against their capacity. */}
+            <span className="modal-origin-item modal-size" title="What the card weighs">
+              <span className="modal-origin-kind">size</span>
+              <span className="modal-size-chips" role="group" aria-label="Size">
+                {SIZE_ORDER.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={`modal-size-chip${card.size === s ? " modal-size-chip-on" : ""}`}
+                    disabled={isRecord}
+                    aria-pressed={card.size === s}
+                    title={`${s} — ${SIZES[s].hint} (${SIZES[s].points} pt)`}
+                    onClick={() => setSize(s)}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </span>
             </span>
               {card.process && (
                 <span className="modal-origin-item" title="A turn of this process">

@@ -64,12 +64,14 @@ type CardSpec struct {
 	// row shape) and always present, possibly empty, on a full resource.
 	// The distinction is the client's "loaded" marker: only nil means "go
 	// fetch the body", so an empty body never reads as a missing one.
-	Description *string  `json:"description,omitempty"`
-	Team        string   `json:"team,omitempty"`
-	Zone        string   `json:"zone,omitempty"`
-	Assignees   []string `json:"assignees"`
-	Progress    int      `json:"progress"`
-	Stage       string   `json:"stage,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Team        string  `json:"team,omitempty"`
+	Zone        string  `json:"zone,omitempty"`
+	// Size is what somebody said the card weighs: S, M, L or XL, or absent.
+	Size      string   `json:"size,omitempty"`
+	Assignees []string `json:"assignees"`
+	Progress  int      `json:"progress"`
+	Stage     string   `json:"stage,omitempty"`
 	// Recurrence, on a recurrent card, is its reseed cycle: "" = every
 	// sprint, "week" / "month" = once the interval has elapsed.
 	Recurrence string    `json:"recurrence,omitempty"`
@@ -141,7 +143,8 @@ type CardStatus struct {
 	// it in a week and it is not being worked (B5).
 	Triage bool `json:"triage,omitempty"`
 	// TriageWeek is the Monday of the column the card stands in on the
-	// Triage board — its week. Absent means it stands in none: the strip
+	// Triage board: its week, or — for a review card, which has none of its
+	// own — the week its own dates fall in. Absent means it stands in none: the strip
 	// holds it until somebody says when the work is due (B5).
 	TriageWeek string `json:"triageWeek,omitempty"`
 	// Due is a RECURRENT card's weeks to come: the ones it comes round in
@@ -202,18 +205,16 @@ type SprintMetadata struct {
 type SprintSpec struct {
 	Current  string `json:"current,omitempty"`
 	Previous string `json:"previous,omitempty"`
-	// Capacity is the team's cards a week and the lanes' shares, for the
-	// Triage board — the roster's number, or one derived from the cards
-	// done in the last four weeks (Derived says which; B7).
+	// Capacity is what a week of the team's plan is weighed against.
 	Capacity *SprintCapacity `json:"capacity,omitempty"`
 }
 
-// SprintCapacity is a team's capacity as the API states it.
+// SprintCapacity is a team's capacity as the API states it: the POINTS a week
+// it gets through, a number somebody SET and never derived — absent when
+// nobody has said. The Triage board holds each week's scheduled points against
+// it.
 type SprintCapacity struct {
-	Week     int  `json:"week"`
-	Client   int  `json:"client"`
-	Internal int  `json:"internal"`
-	Derived  bool `json:"derived"`
+	Points int `json:"points,omitempty"`
 }
 
 // Note is a work note as an API resource, a subresource of a card.
@@ -313,6 +314,13 @@ type Member struct {
 	// not, so handing somebody a card without the whole number in front of
 	// you is a decision made in the dark (board.CarryingNow).
 	Carrying int `json:"carrying,omitempty"`
+	// Load is the same work WEIGHED — the points of what the person is
+	// carrying (board.LoadNow) — and Capacity the points a week they get
+	// through: the roster's number, absent when nobody has set one
+	// (board.CapacityOfPerson). A day board draws load/capacity beside the
+	// person and goes red past it; with no capacity it draws the load alone.
+	Load     int `json:"load,omitempty"`
+	Capacity int `json:"capacity,omitempty"`
 }
 
 // DomainInfo is one readable domain of the visitor's board.
@@ -460,6 +468,7 @@ func CardResource(b board.Board, c board.Card) Card {
 		Description: &description,
 		Team:        c.Team,
 		Zone:        SemanticZone(board.ZoneOf(c)),
+		Size:        sizeOut(c.Size),
 		Assignees:   append([]string{}, c.Assignees...),
 		Progress:    c.Progress,
 		Stage:       string(c.Stage),
@@ -540,16 +549,34 @@ func SprintResources(b board.Board) []Sprint {
 	sortStrings(teams)
 	out := make([]Sprint, 0, len(teams))
 	for _, t := range teams {
-		st := b.SprintStates[t]
-		cap, derived := board.CapacityOf(b, t, board.TodayIso())
-		out = append(out, Sprint{
-			Kind:     "Sprint",
-			Metadata: SprintMetadata{Team: t},
-			Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
-				Capacity: &SprintCapacity{Week: cap.Week, Client: cap.Client, Internal: cap.Internal, Derived: derived}},
-		})
+		out = append(out, SprintResourceOf(b, t))
 	}
 	return out
+}
+
+// SprintResourceOf shapes ONE team's sprint resource. The watch frame for a
+// team and the listing go through it together, so a frame cannot carry less
+// than the listing does — which is how a client that merges frames in place
+// came to lose the team's capacity every time a sprint pointer moved.
+func SprintResourceOf(b board.Board, team string) Sprint {
+	st := b.SprintStates[team]
+	return Sprint{
+		Kind:     "Sprint",
+		Metadata: SprintMetadata{Team: team},
+		Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
+			Capacity: &SprintCapacity{Points: board.PointsAWeekOf(b, team)}},
+	}
+}
+
+// sizeOut is the size a card resource states: one of the four letters, or
+// nothing. The storage is open, so a card can carry a size nothing knows
+// (`size: large`); the board weighs such a card as unsized, and the API has
+// to say the same thing rather than echo a value its own PATCH would refuse.
+func sizeOut(s board.SizeKey) string {
+	if board.Points(s) > 0 {
+		return string(s)
+	}
+	return ""
 }
 
 // NoteResources maps a card's notes onto Note resources.
@@ -597,6 +624,42 @@ func BoardResourceWith(b board.Board, avatar func(login string) string) BoardInf
 	})
 }
 
+// MembersOf is the board's people with the numbers beside each: everyone who
+// is assigned anything, in login order, with what they are carrying (cards),
+// what it weighs (points) and how many points a week they get through.
+//
+// It is separate from the board resource because those numbers change on
+// every card write while the rest of the metadata — teams, columns,
+// processes — changes rarely: a watcher can be told the people alone, which
+// is a frame of a couple of kilobytes rather than the whole roster.
+func MembersOf(b board.Board, person func(login string) Member) []Member {
+	seen := map[string]bool{}
+	logins := []string{}
+	for _, c := range b.Cards {
+		for _, a := range c.Assignees {
+			if a != "" && !seen[a] {
+				seen[a] = true
+				logins = append(logins, a)
+			}
+		}
+	}
+	sortStrings(logins)
+	today := board.TodayIso()
+	carrying := board.CarryingNow(b, today)
+	load := board.LoadNow(b, today)
+	people := make([]Member, 0, len(logins))
+	for _, login := range logins {
+		m := Member{Login: login, Carrying: carrying[login], Load: load[login],
+			Capacity: board.CapacityOfPerson(b, login)}
+		if person != nil {
+			p := person(login)
+			m.Name, m.AvatarURL = p.Name, p.AvatarURL
+		}
+		people = append(people, m)
+	}
+	return people
+}
+
 // BoardResourceWithPeople is BoardResource with the members resolved by the
 // given hook — the forge's avatar and display name for a login (nil leaves
 // both empty). The hook's Login is ignored: the board's login is the identity.
@@ -620,27 +683,7 @@ func BoardResourceWithPeople(b board.Board, person func(login string) Member) Bo
 	}
 	sortStrings(rest)
 	teams = append(teams, rest...)
-	seen := map[string]bool{}
-	members := []string{}
-	for _, c := range b.Cards {
-		for _, a := range c.Assignees {
-			if a != "" && !seen[a] {
-				seen[a] = true
-				members = append(members, a)
-			}
-		}
-	}
-	sortStrings(members)
-	carrying := board.CarryingNow(b, board.TodayIso())
-	people := make([]Member, 0, len(members))
-	for _, login := range members {
-		m := Member{Login: login, Carrying: carrying[login]}
-		if person != nil {
-			p := person(login)
-			m.Name, m.AvatarURL = p.Name, p.AvatarURL
-		}
-		people = append(people, m)
-	}
+	people := MembersOf(b, person)
 	return BoardInfo{
 		Kind: "Board",
 		Metadata: BoardMetadata{Title: b.Title, URL: b.URL, Teams: teams,

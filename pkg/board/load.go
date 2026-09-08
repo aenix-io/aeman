@@ -17,16 +17,23 @@ package board
 func CarryingNow(b Board, today string) map[string]int {
 	out := map[string]int{}
 	for _, c := range b.Cards {
-		if len(c.Assignees) == 0 || c.Assignees[0] == "" {
-			continue
+		if carriedNow(c, today) {
+			out[c.Assignees[0]]++
 		}
-		if c.Parent != "" || IsStateTitle(c.Title) || IsPersonalDomain(c.Domain) {
-			continue
-		}
-		if Complete(c.Stage, c.Progress) || PlacedAhead(c, today) {
-			continue
-		}
-		out[c.Assignees[0]]++
 	}
 	return out
+}
+
+// carriedNow is the one rule behind CarryingNow and LoadNow: whether a card
+// is on somebody's hands today. Counted or weighed, it has to be the same set
+// of cards, or the number beside a person and the points beside them would
+// describe two different days.
+func carriedNow(c Card, today string) bool {
+	if len(c.Assignees) == 0 || c.Assignees[0] == "" {
+		return false
+	}
+	if c.Parent != "" || IsStateTitle(c.Title) || IsPersonalDomain(c.Domain) {
+		return false
+	}
+	return !Complete(c.Stage, c.Progress) && !PlacedAhead(c, today)
 }

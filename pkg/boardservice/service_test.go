@@ -141,6 +141,12 @@ func (f *fakeBackend) LoadBoard(_ context.Context, _ string) (board.Board, error
 	}
 	b := board.NewBoardIn(f.b.Primary, cards)
 	b.Board = f.b.Board
+	if len(f.b.People) > 0 {
+		b.People = make(map[string]board.Person, len(f.b.People))
+		for login, p := range f.b.People {
+			b.People[login] = p
+		}
+	}
 	// The map is the caller's explicit word about a team's sprint, so it
 	// wins over a bare state card seeded beside it.
 	for team, st := range f.b.SprintStates {
@@ -184,7 +190,7 @@ func (f *fakeBackend) CreateCard(_ context.Context, _ board.Board, in board.Crea
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, StartDate: in.Start, Day: in.Day, SprintStart: in.SprintStart,
 		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
-		Parked:  in.Parked,
+		Parked: in.Parked, Size: in.Size,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
 		Paused:      in.Paused,
 		Description: in.Body,
@@ -333,6 +339,42 @@ func (f *fakeBackend) SetProgress(_ context.Context, _ board.Board, card board.C
 			c.DoneAt = ""
 		}
 		c.Progress = progress
+	}
+	return nil
+}
+
+func (f *fakeBackend) SetTeamPoints(_ context.Context, _ board.Board, team string, points int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTeamPoints %s %d", team, points)
+	if f.b.SprintStates == nil {
+		f.b.SprintStates = map[string]board.SprintState{}
+	}
+	st := f.b.SprintStates[team]
+	st.Capacity.Points = points
+	f.b.SprintStates[team] = st
+	return nil
+}
+
+func (f *fakeBackend) SetPersonCapacity(_ context.Context, _ board.Board, login string, points int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetPersonCapacity %s %d", login, points)
+	if f.b.People == nil {
+		f.b.People = map[string]board.Person{}
+	}
+	p := f.b.People[login]
+	p.Capacity = points
+	f.b.People[login] = p
+	return nil
+}
+
+func (f *fakeBackend) SetSize(_ context.Context, _ board.Board, card board.Card, size board.SizeKey) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetSize %s %s", card.ItemID, size)
+	if c := f.get(card.ItemID); c != nil {
+		c.Size = size
 	}
 	return nil
 }

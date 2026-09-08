@@ -11,6 +11,7 @@ import type {
   StageKey,
   ZoneKey,
 } from "../providers/types";
+import { sizeFromWire } from "../size";
 
 // --- Zone vocabulary ---------------------------------------------------------
 
@@ -53,6 +54,7 @@ export interface CardResource {
     description?: string;
     team?: string;
     zone?: string;
+    size?: string;
     assignees?: string[];
     progress?: number;
     stage?: string;
@@ -107,7 +109,9 @@ export interface SprintResource {
   spec: {
     current?: string;
     previous?: string;
-    capacity?: { week: number; client: number; internal: number; derived: boolean };
+    /** What a week of the team's plan is weighed against, in POINTS: a number
+     *  somebody SET, never derived. Mirrors board.PointsAWeekOf. */
+    capacity?: { points?: number };
   };
 }
 
@@ -139,7 +143,14 @@ export interface BoardResource {
     processes?: { name: string; project?: string }[];
     epics?: { name: string; project?: string; domain?: string }[];
     /** The roster; `name` is the display name, absent on a GitHub board. */
-    members?: { login: string; avatarUrl?: string; name?: string; carrying?: number }[];
+    members?: {
+      login: string;
+      avatarUrl?: string;
+      name?: string;
+      carrying?: number;
+      load?: number;
+      capacity?: number;
+    }[];
     /** The repositories the board spans, primary first. */
     domains?: {
       name: string;
@@ -243,6 +254,7 @@ export function resourceToCard(res: CardResource): Card {
     sprintStart: dates.sprint || undefined,
     week: spec.week || undefined,
     parked: spec.parked || undefined,
+    size: sizeFromWire(spec.size),
     epic: spec.epic || undefined,
     project: spec.project || undefined,
     mirrors: spec.mirrors?.length ? spec.mirrors : undefined,

@@ -90,12 +90,45 @@ export function broughtBack(
  *  A PARKED card stands in none either, week or no week: the two are
  *  exclusive, and a card carrying both — which only a direct write to the
  *  repository can now produce — would be drawn in the grid AND in the drawer.
- *  Mirrors board.TriageWeekOf, where the shelf wins for the same reason. */
-export function placedIn(c: Pick<Card, "week" | "parked">): string | null {
+ *  Mirrors board.TriageWeekOf, where the shelf wins for the same reason.
+ *
+ *  A REVIEW card is the one exception to "its week and nothing else": it has
+ *  no week to have, and stands where its own dates put it. */
+export function placedIn(
+  c: Pick<Card, "week" | "parked" | "reviewOf" | "startDate" | "day">,
+): string | null {
   if (parked(c)) {
     return null;
   }
-  return c.week || null;
+  if (c.week) {
+    return c.week;
+  }
+  // A REVIEW card has no week of its own — the week belongs to the card it
+  // reviews — and yet it is work in the reviewer's hands and counts in their
+  // load. Drawn by nothing it stood on no board at all once its dates ran
+  // out: not a day board (they are past), not the strip (nobody is waiting
+  // on a week for it), not the grid (no week). So it stands in the week its
+  // own DATES fall in. Whether it is DRAWN is the board's question — the
+  // reviews toggle; where it would stand is this one. Mirrors
+  // board.TriageWeekOf. */
+  if (c.reviewOf) {
+    return mondayOf(c.startDate || c.day || "") || null;
+  }
+  return null;
+}
+
+/** ordersWithinCell reports whether a card takes part in the manual ORDER of
+ *  the cell it falls in — which is to say, whether it is one of the boxes
+ *  stacked there.
+ *
+ *  A REVIEW is not: it is folded into the line at the cell's foot, or drawn
+ *  below every card once that line is opened. Counting it in the order made
+ *  the list and the boxes disagree — a drop aimed at the top of a cell wrote
+ *  "before" an id the reader could not see, since an overdue review sorts
+ *  first by pile rank, and the write shuffled the review itself along the
+ *  board's order for good measure. */
+export function ordersWithinCell(c: Pick<Card, "reviewOf">): boolean {
+  return !c.reviewOf;
 }
 
 /** pileRank is where a card stands in a week's pile — what a reader working

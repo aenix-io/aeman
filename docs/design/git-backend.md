@@ -189,7 +189,15 @@ it is a delete plus a create, named as such.
 
 ```
 board.yaml                         primary domain only: schema, title
-teams/<id>.yaml                    one team: name, rank, sprint pointers
+teams/<id>.yaml                    one team: name, rank, sprint pointers,
+                                   and the points a week somebody set for it
+                                   (`capacity: points:`; absent = no number,
+                                   and the board derives none — B20)
+users/<login>.yaml                 primary domain only, one person: the link
+                                   to their personal repository (`personal`)
+                                   and/or the points a week somebody set for
+                                   them (`capacity`; absent = no number, and
+                                   the board derives none — B19)
 projects/<id>/project.yaml         one project: name, rank; a file with no
                                    `name` is the NO-PROJECT bucket, written
                                    on demand (`projects/_/project.yaml`)
@@ -284,7 +292,18 @@ Rules:
   reads as `gray` (planned work), which is where every board draws it,
   while a card on no day keeps the empty zone as a state of its own
   (B15). A writer may therefore leave `zone` out; it says "planned" for
-  work on a day and "not yet asked" for work that is not. `refuse` is the answer of the person the card
+  work on a day and "not yet asked" for work that is not.
+- `size` is what somebody said the card weighs — `S`, `M`, `L` or `XL`,
+  upper-case — or absent. The points a board sums (1/2/4/8) are derived,
+  never written, and a card with subtasks weighs them rather than itself
+  (B18). A card with no `size` at all weighs M wherever a board sums
+  points — the default is applied on READ and never written into a file, so
+  a writer that does not size its cards produces the same board this server
+  would. A writer that does set a size writes one of the four
+  letters, UPPER-CASE. Anything else — `large`, or the lower-case `l` this
+  API accepts on its own way in — is not a size: it reads as unsized, weighs
+  the default, and the API states such a card's size as absent rather than
+  echoing a value its own PATCH would refuse. `refuse` is the answer of the person the card
   is on ("I am not doing this"); it stores like `locked` and `review`, its
   progress inside [10, 90], and it leaves the card on the board rather than
   taking it off. A writer emitting a stage the list does not name produces a

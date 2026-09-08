@@ -793,6 +793,45 @@ func (mb *MultiBackend) SetZone(ctx context.Context, bd board.Board, card board.
 	return be.SetZone(ctx, bd, card, zone)
 }
 
+// SetPersonCapacity writes in the PRIMARY: people are the board's, not a
+// domain's, and users/<login>.yaml lives where the board is named.
+func (mb *MultiBackend) SetPersonCapacity(ctx context.Context, bd board.Board, login string, points int) error {
+	be, err := mb.backend(mb.primary())
+	if err != nil {
+		return err
+	}
+	return be.SetPersonCapacity(ctx, bd, login, points)
+}
+
+// SetTeamPoints writes where the TEAM is declared: its capacity is one line
+// of the same file its sprint pointer lives in.
+func (mb *MultiBackend) SetTeamPoints(ctx context.Context, bd board.Board, team string, points int) error {
+	s, err := mb.snapshot()
+	if err != nil {
+		return err
+	}
+	d, ok := newResolver(s).teams[team]
+	if !ok {
+		if d, err = rosterDomain(board.DomainFrom(ctx)); err != nil {
+			return err
+		}
+	}
+	be, err := mb.backend(d)
+	if err != nil {
+		return err
+	}
+	return be.SetTeamPoints(ctx, bd, team, points)
+}
+
+// SetSize writes in the card's domain.
+func (mb *MultiBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
+	be, err := mb.route(ctx, card)
+	if err != nil {
+		return err
+	}
+	return be.SetSize(ctx, bd, card, size)
+}
+
 // SetDay writes in the card's domain.
 func (mb *MultiBackend) SetDay(ctx context.Context, bd board.Board, card board.Card, day string) error {
 	be, err := mb.route(ctx, card)

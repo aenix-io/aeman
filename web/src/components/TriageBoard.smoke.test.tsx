@@ -200,8 +200,10 @@ describe("the Triage board", () => {
 
   it("counts a card of two weeks against both of them", () => {
     const html = draw([card({ day: nextFriday })]);
-    // The week's own count, beside its date, in the first two rows.
-    expect(html.match(/class="triage-count">1</g)?.length).toBe(2);
+    // A week says what it CARRIES, in points, beside its date — two weeks of
+    // work is two weeks' worth, not one card filed early. The card here is
+    // unsized, so it weighs the default (M = 2) in each of the first two rows.
+    expect(html.match(/class="triage-points[^"]*">2</g)?.length).toBe(2);
   });
 
   it("says nothing of parts for a card that takes a single week", () => {
@@ -252,9 +254,36 @@ describe("the Triage board", () => {
     expect(html).not.toContain("project-slot triage-slot");
   });
 
-  it("keeps a review with a week on the board, where the work is", () => {
-    const html = draw([card({ title: "Review of it", reviewOf: "c9" })]);
-    expect(html).toContain("Review of it");
+  it("says on a line under a cell's cards how many reviews stand in it", () => {
+    // A review is not triage work — nobody is waiting on a week for it — so
+    // it is not among the cards. But it IS work in the reviewer's hands, it
+    // counts in the number over their name and in the week's points, and one
+    // whose dates ran out is on no other board at all. So its cell says so,
+    // and opens them where they belong: that person, that week. (What they
+    // weigh and where they stand: size.test.ts and triage.test.ts.)
+    const html = draw([
+      card({ title: "Real work", assignees: ["lexfrei"] }),
+      card({ title: "Review of it", reviewOf: "c9", assignees: ["lexfrei"] }),
+    ]);
+    expect(html).toContain("Real work");
+    expect(html).not.toContain("Review of it");
+    expect(html).toContain('class="triage-reviews-line"');
+    expect(html).toContain("+1 review<");
+    // Plain text, like the add control on the day boards: it is not a card
+    // and must not be drawn as one.
+    expect(html).not.toContain("triage-reviews-line project-slot");
+    // The week counts what it costs whether or not the line is open: one
+    // unsized card at M and one unsized review at S.
+    expect(html).toContain('<span class="triage-points-load">3</span>');
+  });
+
+  it("counts several reviews in one line, and none where there are none", () => {
+    const two = draw([
+      card({ title: "Review A", reviewOf: "c9", assignees: ["lexfrei"] }),
+      card({ title: "Review B", reviewOf: "c8", assignees: ["lexfrei"] }),
+    ]);
+    expect(two).toContain("+2 reviews<");
+    expect(draw([card({ assignees: ["lexfrei"] })])).not.toContain("triage-reviews-line");
   });
 
   it("draws no card sent to review — it waits on a reviewer, not on a week", () => {
@@ -319,8 +348,11 @@ describe("the Triage board", () => {
     expect(html).toContain("Rotate the keys");
     expect(html).toContain("grid-row:3");
     expect(html).toContain("grid-row:4");
-    // …and both weeks count it: the load beside their dates says 1.
-    expect(html.match(/class="triage-count">1</g)?.length).toBeGreaterThanOrEqual(2);
+    // …and both weeks count it: a turn nobody has filed yet is work those
+    // weeks are already spoken for, so it weighs like any unsized card (2)
+    // beside their dates. The points and the card count must describe the
+    // same set of boxes, or a week reads "1 card, 0 points".
+    expect(html.match(/class="triage-points[^"]*">2</g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it("offers no grip to stretch anything by, with the catch closed", () => {
@@ -351,15 +383,17 @@ describe("the Triage board", () => {
     expect(html).not.toContain("triage-lock-open");
   });
 
-  it("says beside a name how much that person is carrying altogether", () => {
+  it("says beside a name what that person is carrying, in points and nothing else", () => {
     // The board is read through a team filter and a person is not: the
-    // number is theirs across every team, and the server counts it.
+    // number is theirs across every team, and the server counts it. It is
+    // said ONCE, in points — a card count beside it answered "how many
+    // things", which is not the question a week that does not fit asks.
     const html = renderToStaticMarkup(
       <TriageBoard
         board={
           {
             ...board([card()]),
-            members: [{ login: "lexfrei", carrying: 11 }],
+            members: [{ login: "lexfrei", carrying: 11, load: 21, capacity: 40 }],
           } as unknown as Board
         }
         provider={{} as Provider}
@@ -378,10 +412,80 @@ describe("the Triage board", () => {
         onError={vi.fn()}
       />,
     );
-    // How much of the whole the reader is looking at: one card here, eleven
-    // in the person's hands altogether.
-    expect(html).toContain('class="triage-person-load"');
-    expect(html).toContain('1<span class="triage-person-all">/11</span>');
+    expect(html).toContain('class="person-load person-load-ok"');
+    expect(html).toContain(">21/40<");
+    // Said once, in points: the card count that used to sit beside it
+    // answered "how many things", which is not the question a week that does
+    // not fit asks.
+    expect(html).not.toContain("person-load-input");
+  });
+
+  it("shows a person's load alone when nobody has set a capacity", () => {
+    // Nothing is derived from the record any more, so most people have no
+    // number — and "21/0" would read as a person with no room at all.
+    const html = renderToStaticMarkup(
+      <TriageBoard
+        board={
+          {
+            ...board([card()]),
+            members: [{ login: "lexfrei", carrying: 11, load: 21 }],
+          } as unknown as Board
+        }
+        provider={{} as Provider}
+        roster={["core"]}
+        teamFilter={["core"]}
+        onSetFilter={vi.fn()}
+        avatars={{}}
+        names={{}}
+        patchCard={vi.fn()}
+        addCard={vi.fn()}
+        replaceCard={vi.fn()}
+        removeCard={vi.fn()}
+        reorderCards={vi.fn()}
+        reload={vi.fn()}
+        onOpen={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(html).toContain('class="person-load person-load-unknown"');
+    expect(html).toContain(">21<");
+    expect(html).not.toContain("21/0");
+  });
+
+  it("wears the size on every box — the one it is COUNTED as while nobody has said", () => {
+    // The board is where a week is read, so it is where the answer to "that
+    // does not fit" is given: the letter is always on show and one click from
+    // being changed. An unsized box wears the size it is WEIGHED as rather
+    // than a dash — that letter is what the number over the person is made
+    // of — in an empty dashed chip, so it never reads as somebody's word.
+    const bare = draw([card()]);
+    expect(bare).toContain("size-chip size-chip-unset");
+    expect(bare).toContain(">M</button>");
+    expect(bare).toContain("Nobody has sized this: counted as M");
+
+    const sized = draw([{ ...card(), size: "L" } as never]);
+    expect(sized).toContain('class="size-chip"');
+    expect(sized).toContain(">L</button>");
+    expect(sized).not.toContain("size-chip-unset");
+  });
+
+  it("makes the week's number the door to the team's own", () => {
+    // A red week is answered either by moving cards or by admitting the
+    // team's week is bigger than anybody wrote down, and the second answer
+    // should not need another screen. With ONE team on screen the number is
+    // typed in place; with several there is no answer to whose week it is,
+    // so the chip opens a menu of them.
+    const html = draw([card()]);
+    expect(html).toContain('<button type="button" class="triage-points');
+    expect(html).toContain("points a week for core — click to change");
+  });
+
+  it("puts the week's points over the plannable, not beside it", () => {
+    // A column is as wide as a date; "220/20" on one line grows out of it
+    // the moment either number reaches three digits.
+    const html = draw([card()]);
+    expect(html).toContain('<span class="triage-points-load">2</span>');
+    expect(html).not.toContain("2/0");
   });
 
   it("keeps half a card of room under the last one, to press on", () => {
@@ -392,7 +496,7 @@ describe("the Triage board", () => {
   });
 
   it("says nothing beside a name with nothing to say", () => {
-    expect(draw([card()])).not.toContain("triage-person-load");
+    expect(draw([card()])).not.toContain("/0<");
   });
 
   it("offers every column to be dragged into another place", () => {

@@ -230,6 +230,14 @@ func (f *Backend) LoadBoard(_ context.Context, _ string) (board.Board, error) {
 		}
 	}
 	b.Board = f.board.Board
+	// The roster's people ride along: a capacity SetPersonCapacity wrote
+	// must be what the next LoadBoard reads, or the service re-writes it.
+	if len(f.board.People) > 0 {
+		b.People = make(map[string]board.Person, len(f.board.People))
+		for login, p := range f.board.People {
+			b.People[login] = p
+		}
+	}
 	return b, nil
 }
 
@@ -260,7 +268,7 @@ func (f *Backend) CreateCard(_ context.Context, _ board.Board, in board.CreateIn
 		ItemID: fmt.Sprintf("new%d", f.nextID), Title: in.Title, Domain: in.Domain,
 		Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Week: in.Week, Epic: in.Epic, Project: in.Project, Team: in.Team, ReviewOf: in.ReviewOf,
-		Parked:  in.Parked,
+		Parked: in.Parked, Size: in.Size,
 		Process: in.Process, Task: in.Task, Recurrence: in.Recurrence,
 		Paused:      in.Paused,
 		Description: in.Body,
@@ -440,6 +448,45 @@ func (f *Backend) SetProgress(_ context.Context, _ board.Board, card board.Card,
 			c.DoneFrom = 0
 		}
 		c.Progress = progress
+	}
+	return nil
+}
+
+// SetPersonCapacity records a person's capacity in the roster.
+func (f *Backend) SetPersonCapacity(_ context.Context, _ board.Board, login string, points int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetPersonCapacity %s %d", login, points)
+	if f.board.People == nil {
+		f.board.People = map[string]board.Person{}
+	}
+	p := f.board.People[login]
+	p.Capacity = points
+	f.board.People[login] = p
+	return nil
+}
+
+// SetTeamPoints records a team's points a week in its sprint state.
+func (f *Backend) SetTeamPoints(_ context.Context, _ board.Board, team string, points int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetTeamPoints %s %d", team, points)
+	if f.board.SprintStates == nil {
+		f.board.SprintStates = map[string]board.SprintState{}
+	}
+	st := f.board.SprintStates[team]
+	st.Capacity.Points = points
+	f.board.SprintStates[team] = st
+	return nil
+}
+
+// SetSize sets a card's size.
+func (f *Backend) SetSize(_ context.Context, _ board.Board, card board.Card, size board.SizeKey) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rec("SetSize %s %s", card.ItemID, size)
+	if c := f.card(card.ItemID); c != nil {
+		c.Size = size
 	}
 	return nil
 }

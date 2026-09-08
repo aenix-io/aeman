@@ -328,6 +328,18 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	}
 	cards = append(cards, s.Cards...)
 	bd := board.NewBoardIn(primary, cards)
+	// The people the roster knows: users/<login>.yaml in the primary — a
+	// capacity a lead set travels here; the link to a personal repository
+	// is the server's business and stays in the snapshot.
+	for _, u := range s.Users {
+		if u.Capacity == 0 {
+			continue
+		}
+		if bd.People == nil {
+			bd.People = map[string]board.Person{}
+		}
+		bd.People[u.Login] = board.Person{Capacity: u.Capacity}
+	}
 	// The team's capacity rides its state, not a state card: the card only
 	// carries the sprint, and the number belongs beside it.
 	// The team's BACKLOG LISTS ride there too, for the same reason: they are
@@ -463,7 +475,7 @@ func cardFromInput(in board.CreateInput, id, created, author string) board.Card 
 	c := board.Card{
 		ItemID: id, Title: in.Title, Zone: in.Zone, Day: in.Day, StartDate: in.Start, SprintStart: in.SprintStart,
 		Team: in.Team, ReviewOf: in.ReviewOf, Parent: in.Parent, Week: in.Week, Epic: in.Epic,
-		Parked:  in.Parked,
+		Parked: in.Parked, Size: in.Size,
 		Project: in.Project, Process: in.Process, Task: in.Task, Recurrence: in.Recurrence, Paused: in.Paused,
 		Description: in.Body, CreatedAt: created, Author: author,
 	}
@@ -868,6 +880,64 @@ func (b *Backend) editTeam(ctx context.Context, op, p string, fn func(*TeamFile)
 	return b.write(ctx, op, nil, p, out)
 }
 
+// editUser rewrites users/<login>.yaml, creating it when the person has no
+// file yet: a capacity is set for anyone on the board, personal repository
+// or not, and most people have none.
+func (b *Backend) editUser(ctx context.Context, op, login string, fn func(*UserFile)) error {
+	p := UserPath(login)
+	data, ok, err := b.read(ctx, p)
+	if err != nil {
+		return err
+	}
+	f := UserFile{Created: b.now().UTC().Format(time.RFC3339)}
+	if ok {
+		if f, err = DecodeUser(data); err != nil {
+			return err
+		}
+	}
+	fn(&f)
+	out, err := EncodeUser(f)
+	if err != nil {
+		return err
+	}
+	return b.write(ctx, op, nil, p, out)
+}
+
+// SetPersonCapacity records the points a week a lead set for a person (0
+// takes it back: the board then has no number for them at all).
+func (b *Backend) SetPersonCapacity(ctx context.Context, _ board.Board, login string, points int) error {
+	return b.editUser(ctx, "capacity", login, func(f *UserFile) { f.Capacity = points })
+}
+
+// SetTeamPoints records the points a week a lead set for a team, in the team's
+// own file (0 takes it back). The team must exist:
+// a capacity is said about something already declared.
+func (b *Backend) SetTeamPoints(ctx context.Context, _ board.Board, team string, points int) error {
+	s, err := b.snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	id := ""
+	for _, t := range s.Teams {
+		if t.Name == team {
+			id = t.ID
+			break
+		}
+	}
+	if id == "" {
+		if sc := scopeOf(ctx); sc != nil {
+			id = sc.teams[team]
+		}
+	}
+	if id == "" && team == "" {
+		id = "_"
+	}
+	if id == "" {
+		return fmt.Errorf("%w: %s", ErrNotFound, team)
+	}
+	return b.editTeam(ctx, "capacity", TeamPath(id), func(f *TeamFile) { f.Capacity.Points = points })
+}
+
 func (b *Backend) editProject(ctx context.Context, op, p string, fn func(*ProjectFile)) error {
 	data, ok, err := b.read(ctx, p)
 	if err != nil {
@@ -1078,6 +1148,11 @@ func (b *Backend) SetDoneAt(ctx context.Context, _ board.Board, card board.Card,
 // SetZone sets or clears the zone.
 func (b *Backend) SetZone(ctx context.Context, _ board.Board, card board.Card, zone board.ZoneKey) error {
 	return b.editCard(ctx, "zone", card, func(f *CardFile) { f.Card.Zone = zone })
+}
+
+// SetSize sets or clears the size.
+func (b *Backend) SetSize(ctx context.Context, _ board.Board, card board.Card, size board.SizeKey) error {
+	return b.editCard(ctx, "size", card, func(f *CardFile) { f.Card.Size = size })
 }
 
 // SetLeftAt sets or clears the day a personal card was left behind on.

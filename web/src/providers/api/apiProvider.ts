@@ -19,6 +19,7 @@ import {
   type SprintListResource,
 } from "../../api/resources";
 import { splitDayLogs, type DayLogEntry } from "../../daylog";
+import type { Member } from "../../users";
 import type {
   Board,
   Card,
@@ -35,6 +36,24 @@ import type {
   TaskInput,
   ZoneKey,
 } from "../types";
+
+/** membersFrom shapes the board's people: everyone assigned anything, with
+ *  what they carry (cards), what it weighs (points) and the points a week
+ *  they get through. Used by the board load AND by the Load watch frame,
+ *  which carries the same shape — those numbers move on every card write, so
+ *  they arrive on their own rather than with the whole roster. */
+export function membersFrom(
+  raw: BoardResource["metadata"]["members"],
+): Member[] {
+  return (raw ?? []).map((m) => ({
+    login: m.login,
+    avatarUrl: m.avatarUrl || undefined,
+    name: m.name || undefined,
+    carrying: m.carrying || undefined,
+    load: m.load || undefined,
+    capacity: m.capacity || undefined,
+  }));
+}
 
 /** boardMetadata maps a board resource's metadata onto board state — used by
  *  loadBoard and by the Board watch frame alike, so a roster change arriving
@@ -70,12 +89,7 @@ export function boardMetadata(
       project: e.project ?? "",
       domain: e.domain || undefined,
     })),
-    members: (info.metadata.members ?? []).map((m) => ({
-      login: m.login,
-      avatarUrl: m.avatarUrl || undefined,
-      name: m.name || undefined,
-      carrying: m.carrying || undefined,
-    })),
+    members: membersFrom(info.metadata.members),
     // The repositories the board spans, primary first. An older server names
     // none; the UI then shows nothing of domains at all.
     domains: (info.metadata.domains ?? []).map((d) => ({
@@ -219,6 +233,9 @@ function patchBody(patch: CardPatch): Record<string, unknown> {
   if (patch.zone !== undefined) {
     body.zone = semanticZone(patch.zone);
   }
+  if (patch.size !== undefined) {
+    body.size = patch.size;
+  }
   if (patch.assignees !== undefined) {
     body.assignees = patch.assignees;
   }
@@ -324,6 +341,7 @@ export const apiProvider: Provider = {
       title: input.title,
       team: input.team ?? "",
       zone: semanticZone(input.zone),
+      size: input.size ?? "",
       assignees: input.assigneeLogin ? [input.assigneeLogin] : [],
       reviewOf: input.reviewOf ?? "",
       // A parent may still be an optimistic tmp id: wait for the real uid.
@@ -438,6 +456,14 @@ export const apiProvider: Provider = {
   async finishedEarlier(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
     return cardFrom("POST", `/cards/${uid}/actions/finished-earlier`, {});
+  },
+
+  async setCapacity(login: string, points: number): Promise<void> {
+    await api<BoardResource>("PATCH", `/people/${encodeURIComponent(login)}`, { capacity: points });
+  },
+
+  async setTeamCapacity(team: string, points: number): Promise<void> {
+    await api<{ ok: boolean }>("POST", "/teams/actions/capacity", { team, points });
   },
 
   async untriageCard(uid: string): Promise<Card> {

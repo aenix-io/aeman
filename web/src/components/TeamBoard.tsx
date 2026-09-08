@@ -1102,6 +1102,15 @@ export function TeamBoard({
     });
   };
 
+  // What a week of a team's plan is weighed against. The board derives
+  // nothing, so the answer comes back from the server and the reload is it.
+  const setTeamCapacity = (team: string, points: number) => {
+    void provider
+      .setTeamCapacity(team, points)
+      .then(() => reload())
+      .catch((err: unknown) => onError(errMessage(err)));
+  };
+
   const handleGridDelete = (card: CardModel, chosen?: RemoveChoice) => {
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
@@ -1911,6 +1920,10 @@ export function TeamBoard({
           onRename={onRenameTeam}
           onRemove={onRemoveTeam}
           onReorder={onReorderTeams}
+          capacities={Object.fromEntries(
+            Object.entries(board.sprintStates).map(([t, st]) => [t, st.capacity?.points ?? 0]),
+          )}
+          onSetCapacity={setTeamCapacity}
           onClose={() => setTeamsModalOpen(false)}
         />
       )}

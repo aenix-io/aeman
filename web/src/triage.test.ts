@@ -13,6 +13,7 @@ import {
   reachOf,
   weeksCovered,
   broughtBack,
+  ordersWithinCell,
 } from "./triage";
 
 const card = (over: Partial<Card> = {}): Card =>
@@ -356,5 +357,41 @@ describe("brought back into the week being worked", () => {
     expect(
       broughtBack({ startDate: "2026-08-24", day: "2026-08-30" }, "2026-08-31", TODAY),
     ).toBeNull();
+  });
+});
+
+// Mirrors board.TestAReviewStandsInTheWeekItsDatesFallIn. A review has no
+// week of its own — the week belongs to the card it reviews — but it is work
+// in the reviewer's hands and counts in their load, and drawn by nothing it
+// stood on no board at all once its dates ran out.
+describe("where a review card stands", () => {
+  it("stands in the week its own dates fall in", () => {
+    expect(placedIn({ reviewOf: "orig", startDate: "2026-07-23", day: "2026-07-23" } as Card)).toBe(
+      "2026-07-20",
+    );
+    expect(placedIn({ reviewOf: "orig", day: "2026-09-09" } as Card)).toBe("2026-09-07");
+  });
+
+  it("keeps a week of its own, and invents none from nothing", () => {
+    expect(placedIn({ reviewOf: "orig", week: "2026-09-07", startDate: "2026-07-23" } as Card)).toBe(
+      "2026-09-07",
+    );
+    expect(placedIn({ reviewOf: "orig" } as Card)).toBeNull();
+  });
+
+  it("leaves an ordinary dated card in no column: dates are not a week", () => {
+    expect(placedIn({ startDate: "2026-07-23", day: "2026-07-23" } as Card)).toBeNull();
+  });
+});
+
+// A review is not one of the boxes stacked in a cell — it is folded into the
+// line at the cell's foot — so it takes no part in that cell's manual order.
+// Counting it made the list of ids and the boxes on screen disagree, and a
+// drop then wrote "before" a card the reader could not see.
+describe("what takes part in a cell's order", () => {
+  it("leaves review cards out, and everything else in", () => {
+    expect(ordersWithinCell({ reviewOf: "orig" } as Card)).toBe(false);
+    expect(ordersWithinCell({} as Card)).toBe(true);
+    expect(ordersWithinCell({ reviewOf: undefined } as Card)).toBe(true);
   });
 });

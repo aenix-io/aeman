@@ -169,6 +169,10 @@ type boardEntry struct {
 	// the whole board, so it is sent once for a burst of changes rather than
 	// once per card — see rosterBroadcast.
 	rosterDue bool
+	// loadDue is a people announcement waiting to go out: what each person is
+	// carrying and what it weighs. Coalesced like rosterDue and for the same
+	// reason — see loadBroadcast.
+	loadDue bool
 	// fanoutCost is how long the last fan-out took — what paces the next
 	// one (see fanoutDelay).
 	fanoutCost time.Duration
@@ -401,6 +405,12 @@ func (e *boardEntry) cardChanged(origin string, c board.Card, verb string) {
 	if c.Task != "" {
 		e.rosterBroadcast()
 	}
+	// Every card write can move a number beside a person — its size, who it
+	// is on, whether it is still open, which week it waits in — and the
+	// numbers are summed over cards this watcher may never be sent. So the
+	// people are announced for the burst, whatever the change was: deciding
+	// here which writes matter would mean re-deriving the load to find out.
+	e.loadBroadcast()
 	// Built on demand: on a board whose tabs are all scoped — the ordinary
 	// case — a burst of changes must not pay for a resource nobody is sent.
 	var res apiserver.Card
@@ -528,11 +538,12 @@ func (e *boardEntry) reevaluate(origin string) {
 // cached pointer already updated.
 func (e *boardEntry) sprintChanged(origin, team string) {
 	st := e.board.SprintStates[team]
-	res := apiserver.Sprint{
-		Kind:     "Sprint",
-		Metadata: apiserver.SprintMetadata{Team: team},
-		Spec:     apiserver.SprintSpec{Current: st.Current, Previous: st.Previous},
-	}
+	// Shaped exactly as the listing shapes it: a client merges this frame
+	// into the state it holds, so a field the frame leaves out is a field the
+	// client LOSES. It used to leave out the capacity, and every carry-over
+	// therefore wiped the number every open Triage board measures its weeks
+	// against, until the next full reload.
+	res := apiserver.SprintResourceOf(e.board, team)
 	teamDomain := e.board.Domains[st.ItemID]
 	for sub := range e.watchers {
 		if !sub.resources["sprints"] || (origin != "" && sub.clientID == origin) || !sub.rights.canRead(teamDomain) {
@@ -957,6 +968,14 @@ func (e *boardEntry) diffNotify(old board.Board) {
 			e.sprintChanged("", team)
 		}
 	}
+	// The ROSTER's own numbers. A person's capacity is not a card and not a
+	// sprint pointer, so nothing above notices it: a capacity another replica
+	// wrote, or one this server queued and the backend then refused, left
+	// every tab showing the number that is no longer there. The Load frame
+	// carries them, and one is cheap next to the reload that just happened.
+	if !reflect.DeepEqual(old.People, e.board.People) {
+		e.loadBroadcast()
+	}
 	orderChanged := len(old.Cards) != len(e.board.Cards)
 	if !orderChanged {
 		for i := range e.board.Cards {
@@ -1096,6 +1115,62 @@ func rightsKey(r *domainRights) string {
 type boardFrame struct {
 	apiserver.BoardInfo
 	Processes []apiserver.Process `json:"processes"`
+}
+
+// loadBroadcast tells every watcher that what the board's PEOPLE are holding
+// changed. Those numbers — cards carried, points carried, points a week — are
+// derived from the cards across EVERY team, so a client holding one view's
+// cards can neither compute them nor learn them from the card events it is
+// already receiving: a size set on a card the visitor is not looking at still
+// moves the number over its owner, and a card closed anywhere moves the
+// capacity read off the record.
+//
+// Coalesced exactly like rosterBroadcast, and for the same reason — a
+// carry-over moves hundreds of cards — but the frame carries only the people,
+// which is a couple of kilobytes rather than the whole roster with every
+// column and process in it.
+// The caller holds e.mu.
+func (e *boardEntry) loadBroadcast() {
+	if e.loadDue {
+		return
+	}
+	e.loadDue = true
+	time.AfterFunc(e.fanoutDelay(), e.flushLoad)
+}
+
+// loadFrame is what a Load frame carries: the roster's people, shaped exactly
+// as the board metadata's, so a client merges it in place.
+type loadFrame struct {
+	Members []apiserver.Member `json:"members"`
+}
+
+// flushLoad sends the announcement loadBroadcast promised: one frame per
+// distinct set of rights, since what a visitor may read decides which cards
+// count towards a person's numbers.
+func (e *boardEntry) flushLoad() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.loadDue {
+		return
+	}
+	e.loadDue = false
+	started := time.Now()
+	defer func() { e.noteFanout(time.Since(started)) }()
+	built := map[string][]byte{}
+	for sub := range e.watchers {
+		key := rightsKey(sub.rights)
+		data, ok := built[key]
+		if !ok {
+			raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Load",
+				Object: loadFrame{Members: apiserver.MembersOf(sub.view(e.board), e.member)}})
+			if err != nil {
+				continue
+			}
+			data = raw
+			built[key] = raw
+		}
+		sub.sendRaw(data)
+	}
 }
 
 func (e *boardEntry) syncBroadcast() {
@@ -1655,6 +1730,80 @@ func (b *storeBackend) SetProgress(ctx context.Context, bd board.Board, card boa
 		c.Progress = progress
 	}, func(ctx context.Context) error {
 		return b.inner.SetProgress(ctx, bd, card, progress)
+	})
+	return nil
+}
+
+// SetPersonCapacity updates the cached roster in place and queues the write
+// of users/<login>.yaml — a lead typing a number on a sync sees it at once.
+func (b *storeBackend) SetPersonCapacity(ctx context.Context, bd board.Board, login string, points int) error {
+	set := func(target *board.Board) {
+		if target.People == nil {
+			target.People = map[string]board.Person{}
+		}
+		p := target.People[login]
+		p.Capacity = points
+		target.People[login] = p
+	}
+	e := b.store.entry(storeKey(bd.Board))
+	e.mu.Lock()
+	if e.loaded {
+		set(&e.board)
+		// The number a person is measured against just moved, and it moved
+		// for every tab, not only the one that typed it.
+		e.loadBroadcast()
+	}
+	e.mu.Unlock()
+	b.enqueue(ctx, e, pendingOp{
+		key:   "capacity:" + login,
+		desc:  "set the capacity of " + login,
+		apply: set,
+		exec: func(ctx context.Context) error {
+			return b.inner.SetPersonCapacity(ctx, bd, login, points)
+		},
+	})
+	return nil
+}
+
+// SetTeamPoints updates the cached sprint state in place and queues the write
+// of the team's file: the number a week is measured against moves at once,
+// on every board that shows the team.
+func (b *storeBackend) SetTeamPoints(ctx context.Context, bd board.Board, team string, points int) error {
+	set := func(target *board.Board) {
+		if target.SprintStates == nil {
+			target.SprintStates = map[string]board.SprintState{}
+		}
+		st := target.SprintStates[team]
+		st.Capacity.Points = points
+		target.SprintStates[team] = st
+	}
+	e := b.store.entry(storeKey(bd.Board))
+	e.mu.Lock()
+	if e.loaded {
+		set(&e.board)
+		e.sprintChanged(clientIDFrom(ctx), team)
+	}
+	e.mu.Unlock()
+	label := team
+	if label == "" {
+		label = "no team"
+	}
+	b.enqueue(ctx, e, pendingOp{
+		key:   "team-capacity:" + team,
+		desc:  "set the capacity of «" + label + "»",
+		apply: set,
+		exec: func(ctx context.Context) error {
+			return b.inner.SetTeamPoints(ctx, bd, team, points)
+		},
+	})
+	return nil
+}
+
+func (b *storeBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
+	b.mutateCard(ctx, bd, card.ItemID, "size", "size "+cardRef(card), func(c *board.Card) {
+		c.Size = size
+	}, func(ctx context.Context) error {
+		return b.inner.SetSize(ctx, bd, card, size)
 	})
 	return nil
 }
@@ -2231,6 +2380,7 @@ func cardFromInput(in board.CreateInput, itemID string) board.Card {
 		Team:        in.Team,
 		Week:        in.Week,
 		Parked:      in.Parked,
+		Size:        in.Size,
 		Epic:        in.Epic,
 		Project:     in.Project,
 		Process:     in.Process,

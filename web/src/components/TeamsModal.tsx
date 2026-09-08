@@ -34,6 +34,11 @@ interface TeamsModalProps {
   onRemove: (team: string) => void;
   onReorder: (ordered: string[]) => void;
   onClose: () => void;
+  /** Points a week per team, and how to change one. Teams only: the Project
+   *  board manages its projects through this same dialog, and a project has
+   *  no week to weigh. */
+  capacities?: Record<string, number>;
+  onSetCapacity?: (team: string, points: number) => void;
 }
 
 interface TeamRowProps {
@@ -45,6 +50,10 @@ interface TeamRowProps {
   onCommitEdit: () => void;
   onCancelEdit: () => void;
   onRemove: () => void;
+  /** The points a week this team gets through, and how to change it. Absent
+   *  where the dialog is managing something other than teams. */
+  capacity?: number;
+  onSetCapacity?: (points: number) => void;
 }
 
 /** A draggable team row inside the manage dialog. */
@@ -57,7 +66,23 @@ function TeamRow({
   onCommitEdit,
   onCancelEdit,
   onRemove,
+  capacity,
+  onSetCapacity,
 }: TeamRowProps) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (capacity ? String(capacity) : "");
+  const commitCapacity = () => {
+    const raw = draft;
+    setDraft(null);
+    if (raw === null) {
+      return;
+    }
+    const n = raw.trim() === "" ? 0 : Number.parseInt(raw, 10);
+    if (Number.isNaN(n) || n < 0 || n > 999 || n === (capacity ?? 0)) {
+      return;
+    }
+    onSetCapacity?.(n);
+  };
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: team });
   const style = {
@@ -105,6 +130,33 @@ function TeamRow({
           {team}
         </button>
       )}
+      {/* What a week of this team's plan is weighed against. A number
+          somebody sets — the board derives none — so it is asked for here,
+          beside the team's name, rather than guessed anywhere. Blank is
+          "nobody has said", which the boards draw as no limit at all. */}
+      {onSetCapacity && (
+        <label className="teams-manage-cap" title="Points a week this team gets through — what the Triage board holds each week's plan against. Blank: nobody has said">
+          <input
+            type="number"
+            className="teams-manage-cap-input"
+            min={0}
+            max={999}
+            placeholder="—"
+            aria-label={`Points a week for ${team}`}
+            value={shown}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitCapacity}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                commitCapacity();
+              } else if (e.key === "Escape") {
+                setDraft(null);
+              }
+            }}
+          />
+          <span className="teams-manage-cap-unit">pts/wk</span>
+        </label>
+      )}
       <button
         type="button"
         className="teams-manage-btn teams-manage-del"
@@ -128,6 +180,8 @@ export function TeamsModal({
   onRename,
   onRemove,
   onReorder,
+  capacities,
+  onSetCapacity,
   onClose,
 }: TeamsModalProps) {
   const [newName, setNewName] = useState("");
@@ -233,6 +287,10 @@ export function TeamsModal({
                     onCommitEdit={() => commitEdit(team)}
                     onCancelEdit={() => setEditing(null)}
                     onRemove={() => onRemove(team)}
+                    capacity={capacities?.[team]}
+                    onSetCapacity={
+                      onSetCapacity ? (points) => onSetCapacity(team, points) : undefined
+                    }
                   />
                 ))}
               </ul>
