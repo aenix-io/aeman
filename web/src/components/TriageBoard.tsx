@@ -38,6 +38,7 @@ import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
+import { pointsOf } from "../size";
 import { isComplete } from "../stages";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
@@ -50,7 +51,7 @@ import { TeamChips } from "./TeamChips";
 import { WeekGrid } from "./WeekGrid";
 import { ZoomControl } from "./ZoomControl";
 import { PersonLoad } from "./PersonLoad";
-import { loadLabel, loadState, plannable, weekPoints } from "../load";
+import { loadLabel, loadState, plannable } from "../load";
 import { useWeekGrid } from "./useWeekGrid";
 
 // The column a card with no assignee stands in. An empty login is a real
@@ -740,11 +741,9 @@ export function TriageBoard({
   // every card here be a plain box of one row: the week's cards then stand
   // one under the next at the full column width, and the week grows to hold
   // them, rather than the column being sliced into slivers nobody can read.
-  // What each week CARRIES in points for the teams on screen, and what those
-  // teams can plan for a week — their points a week less the share history
-  // says arrives on its own (load.ts, mirroring board.Plannable). The
-  // number beside a week is the first against the second.
-  const weekPts = useMemo(() => weekPoints(board.cards, teams, thisWeek), [board.cards, teams, thisWeek]);
+  // What the teams on screen can plan for a week: their points a week less
+  // the share history says arrives on its own (load.ts, mirroring
+  // board.Plannable). The number beside a week is what it carries against it.
   const plannableWeek = useMemo(
     () =>
       teams.reduce((sum, t) => {
@@ -754,9 +753,17 @@ export function TriageBoard({
     [board.sprintStates, teams],
   );
 
-  const { slots, load } = useMemo(() => {
+  const { slots, load, weekPts } = useMemo(() => {
     const slots = new Map<string, Slot[]>();
     const load = new Map<string, number>();
+    // What each week CARRIES, in points, counted over exactly the boxes the
+    // count above counts — a card of several weeks in each of them, the
+    // strip in the first row, a turn a process has not filed yet at the
+    // weight of an unsized card. Two numbers describing different sets is
+    // how a week comes to read "1 card, 0 points".
+    const weekPts = new Map<string, number>();
+    const weigh = (w: string, c: CardModel) =>
+      weekPts.set(w, (weekPts.get(w) ?? 0) + pointsOf(board.cards, c));
     // A card carried out of a LIST is drawn here for as long as the gesture
     // lasts, so the reader can see where it would land — it belongs to no
     // week and no strip, so without this the grid showed nothing at all and
@@ -790,6 +797,7 @@ export function TriageBoard({
       slots.set(col, list);
       const w = weeks[row];
       load.set(w, (load.get(w) ?? 0) + 1);
+      weigh(w, c);
     }
     for (const c of placed) {
       if (overList && move?.card.itemId === c.itemId) {
@@ -828,6 +836,7 @@ export function TriageBoard({
         });
         const w = weeks[row + i];
         load.set(w, (load.get(w) ?? 0) + 1);
+        weigh(w, c);
       }
       slots.set(col, list);
     }
@@ -852,6 +861,7 @@ export function TriageBoard({
       });
       slots.set(t.who, list);
       load.set(t.week, (load.get(t.week) ?? 0) + 1);
+      weigh(t.week, t.card);
     }
     // A week is read top down, so it is stacked in the order somebody
     // triaging wants to meet it: debts, the project's own work, then the
@@ -887,7 +897,7 @@ export function TriageBoard({
       }
     }
     packLanes(slots.values(), undefined, grid.rowFit);
-    return { slots, load };
+    return { slots, load, weekPts };
   }, [
     placed,
     waiting,
@@ -1352,15 +1362,19 @@ export function TriageBoard({
           weekProps={(w) => {
             // What the week carries, a card of several weeks counting in each
             // of them.
+            // What the week carries is said in POINTS, not in cards: a week
+            // of thirty small things and a week of three large ones counted
+            // the same, which is the whole reason for a size. The card count
+            // stays in the tooltip, where it answers "how many things", not
+            // "how much work".
             const n = load.get(w) ?? 0;
             const pts = weekPts.get(w) ?? 0;
             const state = loadState(pts, plannableWeek);
             return {
-              title: `${n} cards, ${pts} points${plannableWeek ? ` of ${plannableWeek} the teams on screen can plan a week` : ""}`,
+              title: `${pts} points in ${n} card(s)${plannableWeek ? `, of ${plannableWeek} the teams on screen can plan a week` : ""}`,
               label: (
                 <>
                   <span className="project-week-date">{w === thisWeek ? "now" : weekLabel(w)}</span>
-                  <span className="triage-count">{n}</span>
                   <span className={`triage-points triage-points-${state}`}>{loadLabel(pts, plannableWeek)}</span>
                 </>
               ),

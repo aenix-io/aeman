@@ -14,10 +14,26 @@ export const SIZES: Record<SizeKey, { points: number; hint: string }> = {
   XL: { points: 8, hint: "a week or more: epic-shaped, or an umbrella with subtasks" },
 };
 
-/** points is the weight of a size: 1, 2, 4, 8 — and 0 for a card nobody
- *  sized, which is honest: the board cannot say what it does not know. */
+/** DEFAULT_SIZE is what a card nobody has sized WEIGHS on a board.
+ *
+ *  Not nothing. A board that weighs unsized work as zero tells a person their
+ *  week is empty while they are drowning in it, and the number climbs as the
+ *  cards are sized — which reads as the sizing having caused the load. M is
+ *  the board's own middle: of 2194 sized cards 40% are S, 34% M, 23% L, 1%
+ *  XL, so the median card is M and the mean 2.14 points, and assuming M costs
+ *  less than any other guess. Mirrors board.DefaultSize. */
+export const DEFAULT_SIZE: SizeKey = "M";
+
+/** points is the weight of a size on the SCALE: 1, 2, 4, 8, and 0 for the
+ *  empty size. What a CARD weighs is pointsOf, which applies the default. */
 export function points(size: SizeKey | undefined | ""): number {
   return size ? SIZES[size].points : 0;
+}
+
+/** weigh is one card's own weight: its size, or the default when it has
+ *  none. Mirrors board.weigh. */
+function weigh(size: SizeKey | undefined): number {
+  return points(size ?? DEFAULT_SIZE);
 }
 
 /** sizeFromWire reads the letter the API sends; anything else is unsized. */
@@ -25,23 +41,23 @@ export function sizeFromWire(raw: string | undefined): SizeKey | undefined {
   return raw === "S" || raw === "M" || raw === "L" || raw === "XL" ? raw : undefined;
 }
 
-/** pointsOf is what a card WEIGHS on a board: its own size, or — when it
- *  has subtasks somebody has sized — the sum of theirs. The umbrella rule,
- *  dynamic on purpose: umbrellas are not born as umbrellas, so the parent's
- *  estimate stands until its children exist and is replaced by their sum
- *  once they do, and the total never counts twice. Children nobody sized
- *  yet leave the parent's own size standing. Mirrors board.PointsOf. */
+/** pointsOf is what a card WEIGHS on a board: its own size, or — once it has
+ *  subtasks — the sum of theirs. The umbrella rule, dynamic on purpose:
+ *  umbrellas are not born as umbrellas, so the parent's estimate stands until
+ *  its children exist and is replaced by them once they do, and the total
+ *  never counts twice. An unsized card, parent or child, weighs the default.
+ *  Mirrors board.PointsOf. */
 export function pointsOf(
   cards: readonly Pick<Card, "itemId" | "parent" | "size">[],
   card: Pick<Card, "itemId" | "size">,
 ): number {
   let sum = 0;
-  let sized = false;
+  let has = false;
   for (const k of cards) {
-    if (k.parent === card.itemId && k.size) {
-      sum += points(k.size);
-      sized = true;
+    if (k.parent === card.itemId) {
+      sum += weigh(k.size);
+      has = true;
     }
   }
-  return sized ? sum : points(card.size);
+  return has ? sum : weigh(card.size);
 }

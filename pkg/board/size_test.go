@@ -14,6 +14,15 @@ func TestPointsFollowTheScale(t *testing.T) {
 			t.Errorf("Points(%q) = %d, want %d", size, got, want)
 		}
 	}
+	// The empty size is 0 on the SCALE and M on a BOARD: what a card nobody
+	// sized weighs is a separate decision from what the letters mean, and
+	// every sum goes through PointsOf, which applies it.
+	if got := PointsOf(Board{}, Card{ItemID: "x"}); got != Points(DefaultSize) {
+		t.Errorf("an unsized card weighs %d, want the default %d", got, Points(DefaultSize))
+	}
+	if DefaultSize != SizeM {
+		t.Errorf("the default is %q; the board's own record makes M the middle card", DefaultSize)
+	}
 }
 
 // The letter comes from people and tools in whatever case they typed it;
@@ -50,49 +59,51 @@ func TestAParentWithSubtasksWeighsWhatItsChildrenWeigh(t *testing.T) {
 		{ItemID: "p", Size: SizeL},
 		{ItemID: "k1", Parent: "p", Size: SizeM},
 		{ItemID: "k2", Parent: "p", Size: SizeS},
-		{ItemID: "k3", Parent: "p"}, // not sized yet: contributes nothing
+		{ItemID: "k3", Parent: "p"}, // unsized: weighs the default, like any card
 	}}
-	if got := PointsOf(b, b.Cards[0]); got != 3 {
-		t.Errorf("a parent with sized children weighs their sum, got %d want 3", got)
+	if got := PointsOf(b, b.Cards[0]); got != 5 {
+		t.Errorf("a parent weighs its children (2+1+default 2), got %d want 5", got)
 	}
 	if got := PointsOf(b, b.Cards[1]); got != 2 {
 		t.Errorf("a child weighs its own size, got %d", got)
 	}
 }
 
-// Children nobody has sized yet do not erase the parent's estimate: a card
-// split a minute ago into three untitled subtasks still weighs what its
-// author said, until somebody sizes the pieces.
-func TestAParentKeepsItsOwnSizeUntilAChildIsSized(t *testing.T) {
+// Once a card HAS subtasks, they are what it weighs — sized or not. The
+// parent's own estimate described the whole of the work, and the pieces now
+// describe it instead; keeping the larger of the two would let a card weigh
+// its own guess plus its parts.
+func TestAParentWithSubtasksStopsWeighingItself(t *testing.T) {
 	b := Board{Cards: []Card{
 		{ItemID: "p", Size: SizeXL},
 		{ItemID: "k1", Parent: "p"},
 		{ItemID: "k2", Parent: "p"},
 	}}
-	if got := PointsOf(b, b.Cards[0]); got != 8 {
-		t.Errorf("unsized children leave the parent's size standing, got %d", got)
+	if got := PointsOf(b, b.Cards[0]); got != 4 {
+		t.Errorf("two unsized children weigh the default each (2+2), got %d", got)
 	}
 }
 
 // LoadNow is CarryingNow in points: the same cards a person is carrying
 // today — theirs, open, not put off to a week ahead, subtasks riding their
-// parent — weighed instead of counted. A card nobody sized weighs nothing,
-// which is honest: the board cannot say what it does not know, and the
-// number beside a person should invite sizing rather than pretend.
+// parent — weighed instead of counted. A card nobody sized weighs the
+// DEFAULT, so the number is honest on a board nobody has sized yet: weighing
+// unsized work as nothing would tell a person their week is empty while they
+// are drowning in it.
 func TestLoadNowWeighsWhatAPersonIsCarrying(t *testing.T) {
 	today := "2026-09-08"
 	b := Board{Cards: []Card{
 		{ItemID: "a", Assignees: []string{"kvaps"}, Size: SizeL, SprintStart: today},
 		{ItemID: "b", Assignees: []string{"kvaps"}, Size: SizeM, Progress: 100},       // done: not carried
 		{ItemID: "c", Assignees: []string{"kvaps"}, Size: SizeXL, Week: "2026-09-21"}, // a week ahead: not today's
-		{ItemID: "d", Assignees: []string{"kvaps"}, SprintStart: today},               // unsized: weighs 0
+		{ItemID: "d", Assignees: []string{"kvaps"}, SprintStart: today},               // unsized: weighs the default (M)
 		{ItemID: "p", Assignees: []string{"tym83"}, Size: SizeXL, SprintStart: today},
 		{ItemID: "p1", Parent: "p", Assignees: []string{"tym83"}, Size: SizeS},
 		{ItemID: "p2", Parent: "p", Assignees: []string{"tym83"}, Size: SizeS},
 	}}
 	got := LoadNow(b, today)
-	if got["kvaps"] != 4 {
-		t.Errorf("kvaps carries 4 points (one L; done, ahead and unsized weigh nothing), got %d", got["kvaps"])
+	if got["kvaps"] != 6 {
+		t.Errorf("kvaps carries 6 points (an L and an unsized card at the default; done and ahead weigh nothing), got %d", got["kvaps"])
 	}
 	// The umbrella is one card carried once, at its children's weight — the
 	// subtasks ride it and are not counted again on their own.

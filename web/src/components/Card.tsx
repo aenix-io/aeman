@@ -632,13 +632,12 @@ export function Card({
           {domainBadge}
         </span>
       )}
-      {card.size && (
-        <span className="card-size" title={`Size ${card.size}`}>
-          {card.size}
-        </span>
-      )}
-
-
+      {/* The actions row has two lanes, and the order between them is the
+          whole point: everything that appears ON HOVER comes first, so it
+          grows to the LEFT, and the icons that are always there — size,
+          links, an explicit stage — keep their place when a pointer crosses
+          the card. Anything added later belongs in one lane or the other by
+          that rule, never between them. */}
       <span className="card-actions" aria-hidden={false}>
         {!card.itemId.startsWith("tmp-") && (
           <button
@@ -679,6 +678,12 @@ export function Card({
           </button>
         )}
         {!stageVisible && stageControl}
+        {/* --- from here on: always visible, and therefore rightmost --- */}
+        {card.size && (
+          <span className="card-size" title={`Size ${card.size}`}>
+            {card.size}
+          </span>
+        )}
         {localLinks.length > 0 && (
           <div className="card-links" ref={linksRef}>
             <button

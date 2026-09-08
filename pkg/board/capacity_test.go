@@ -33,7 +33,8 @@ func TestAPersonsCapacityIsTheRostersNumberOrWhatTheyHaveBeenClosing(t *testing.
 			{ItemID: "z1", Assignees: []string{"kvaps"}, Size: SizeXL, Progress: 100, DoneAt: "2026-08-05"},
 			// the lead has a record too, and it loses to the roster's number
 			{ItemID: "l1", Assignees: []string{"lead"}, Size: SizeS, Progress: 100, DoneAt: "2026-08-20"},
-			// an unsized closed card is a week with a closure and nothing to weigh
+			// an UNSIZED closed card still weighs the default, so a week with a
+			// closure in it always has something to average
 			{ItemID: "n1", Assignees: []string{"newbie"}, Progress: 100, DoneAt: "2026-08-27"},
 		},
 	}
@@ -43,13 +44,15 @@ func TestAPersonsCapacityIsTheRostersNumberOrWhatTheyHaveBeenClosing(t *testing.
 	if got, derived := CapacityOfPerson(b, "lead", today); got != 30 || derived {
 		t.Errorf("lead: capacity = %d (derived %v), want the roster's 30", got, derived)
 	}
-	// Nothing to weigh is nothing to know: zero, and derived, so a client can
-	// show "no history" rather than a limit of none.
-	if got, derived := CapacityOfPerson(b, "newbie", today); got != 0 || !derived {
-		t.Errorf("newbie: capacity = %d (derived %v), want 0 and derived", got, derived)
+	// One closure of an unsized card is still a week worth two points: the
+	// default is what makes a board nobody has sized readable at all.
+	if got, derived := CapacityOfPerson(b, "newbie", today); got != 2 || !derived {
+		t.Errorf("newbie: capacity = %d (derived %v), want the default 2, derived", got, derived)
 	}
-	if got, _ := CapacityOfPerson(b, "nobody", today); got != 0 {
-		t.Errorf("a login the board never saw has capacity 0, got %d", got)
+	// Nothing closed at all is nothing to know: zero, and derived, so a client
+	// can show "no history" rather than a limit of none.
+	if got, derived := CapacityOfPerson(b, "nobody", today); got != 0 || !derived {
+		t.Errorf("a login the board never saw has capacity 0 derived, got %d (%v)", got, derived)
 	}
 }
 

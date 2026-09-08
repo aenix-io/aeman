@@ -24,10 +24,24 @@ const (
 // SizeOrder is the four sizes smallest first — the order a picker shows them.
 var SizeOrder = []SizeKey{SizeS, SizeM, SizeL, SizeXL}
 
+// DefaultSize is what a card nobody has sized WEIGHS on a board: M.
+//
+// Not zero. A board that weighs unsized work as nothing tells a person their
+// week is empty while they are drowning in it, and the number goes up as the
+// cards are sized — which reads as the sizing having caused the load. M is
+// the middle of the board's own record: of 2194 sized cards on the
+// production board 40% are S, 34% M, 23% L, 1% XL — the median card is M and
+// the mean is 2.14 points — and assuming M costs less than any other guess
+// (mean error 0.96 points against 1.14 for S and 1.97 for L). The cards most
+// likely to be left unsized, the ones with no description at all, average
+// 1.86 points, which is nearer M than S too.
+const DefaultSize = SizeM
+
 var points = map[SizeKey]int{SizeS: 1, SizeM: 2, SizeL: 4, SizeXL: 8}
 
-// Points is the weight of a size: 1, 2, 4, 8 — and 0 for a card nobody
-// sized, which is honest: the board cannot say what it does not know.
+// Points is the weight of a size on the scale: 1, 2, 4, 8, and 0 for the
+// empty size. It is the SCALE, not what a card weighs — an unsized card
+// weighs DefaultSize (PointsOf).
 func Points(s SizeKey) int { return points[s] }
 
 // ParseSize reads a size as people and tools type it — any case, stray
@@ -60,24 +74,36 @@ func ParseSize(raw string) (SizeKey, bool) {
 // its subtasks. The total never counts twice, and a card split a minute ago
 // into unsized pieces still weighs what its author said.
 func PointsOf(b Board, c Card) int {
-	sum, sized := 0, false
+	sum, has := 0, false
 	for _, k := range b.Cards {
-		if k.Parent == c.ItemID && k.Size != SizeNone {
-			sum += Points(k.Size)
-			sized = true
+		if k.Parent == c.ItemID {
+			sum += weigh(k.Size)
+			has = true
 		}
 	}
-	if sized {
+	if has {
 		return sum
 	}
-	return Points(c.Size)
+	return weigh(c.Size)
+}
+
+// weigh is one card's own weight: its size, or the default for an unsized
+// one. Every sum a board draws goes through it, so "unsized" costs the same
+// everywhere — in a person's load, in a week's plan and in the record a
+// capacity is derived from.
+func weigh(s SizeKey) int {
+	if s == SizeNone {
+		return Points(DefaultSize)
+	}
+	return Points(s)
 }
 
 // LoadNow is CarryingNow in points: the same cards a person is carrying today
 // — theirs, open, not put off to a week ahead, subtasks riding their parent
 // — weighed with PointsOf instead of counted. Like CarryingNow it ignores the
 // filter on purpose: a person is not read through one, and the number beside
-// their name has to be the whole of it.
+// their name has to be the whole of it. Unsized cards weigh the default, so
+// the number is honest on a board nobody has sized yet.
 func LoadNow(b Board, today string) map[string]int {
 	out := map[string]int{}
 	for _, c := range b.Cards {

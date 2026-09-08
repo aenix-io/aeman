@@ -49,26 +49,3 @@ func TestPlannableIsTheCapacityLessTheReactiveShare(t *testing.T) {
 		t.Errorf("no capacity leaves nothing, got %d", got)
 	}
 }
-
-// A team's weekly capacity in POINTS: the roster's number when one is set
-// (Capacity.Week, read as points once sizes exist), otherwise the points
-// closed per complete week over the last four, averaged like CapacityOf
-// counts cards — so the Triage board can hold a week's plan against it.
-func TestATeamsPointsAWeekAreReadOffWhatItCloses(t *testing.T) {
-	today := "2026-09-08"
-	b := Board{
-		SprintStates: map[string]SprintState{"portal": {Current: "2026-09-08"}, "fixed": {Current: "2026-09-08", Capacity: Capacity{Week: 50}}},
-		Cards: []Card{
-			{ItemID: "a", Team: "portal", Size: SizeL, Progress: 100, DoneAt: "2026-08-12"},  // 4
-			{ItemID: "b", Team: "portal", Size: SizeXL, Progress: 100, DoneAt: "2026-08-19"}, // 8
-			{ItemID: "c", Team: "portal", Size: SizeM, Progress: 100, DoneAt: "2026-08-27"},  // 2
-			{ItemID: "d", Team: "portal", Size: SizeM, Progress: 100, DoneAt: "2026-09-02"},  // 2 → 16 over 4 weeks = 4/week
-		},
-	}
-	if got, derived := PointsAWeekOf(b, "portal", today); got != 4 || !derived {
-		t.Errorf("portal: %d points a week (derived %v), want 4 derived", got, derived)
-	}
-	if got, derived := PointsAWeekOf(b, "fixed", today); got != 50 || derived {
-		t.Errorf("fixed: %d (derived %v), want the roster's 50", got, derived)
-	}
-}

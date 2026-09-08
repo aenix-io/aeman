@@ -7,6 +7,8 @@ description: Size the unsized cards of a team or a person on the aeman board —
 
 You size planning-board cards for a team lead: read each card, decide what it weighs by the rubric below, show the lead the table, and write the sizes back with `update_card`. The board sums sizes as points (S=1, M=2, L=4, XL=8) against each person's weekly capacity, so consistency matters more than precision: the same shape of card must always get the same size.
 
+Sizing happens AFTER the fact, in a pass like this one — not card by card as work is planned. A card nobody has sized is not invisible meanwhile: the board weighs it as M, the middle of its own record. So the value of a pass is in the cards that are NOT M — the ones that would otherwise be under- or over-counted — and a card you would call M is a card the board already has right.
+
 This is judgement work, card by card. Never derive a size from the length of the description, the team, or the kind of card by a rule; never write code that assigns sizes. Read the card and decide.
 
 ## Procedure
@@ -44,4 +46,4 @@ Rules of thumb:
 
 ## What the size is for
 
-On the daily sync the person's column shows "points carried / points a week" and goes red past it; on the weekly meeting each week of the Triage board shows "points scheduled / points the teams can plan". Both numbers are only as good as the sizes under them — an unsized card weighs nothing, which is why the lead runs this before planning, not after.
+On the daily sync the person's column shows "points carried / points a week" and goes red past it; on the weekly meeting each week of the Triage board shows "points scheduled / points the teams can plan". Both numbers are only as good as the sizes under them: an unsized card is counted as M, so a board nobody has sized still reads, but every S and every L it holds is counted wrong by a point or two — which is exactly what a pass fixes.

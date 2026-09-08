@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { points, pointsOf, sizeFromWire } from "./size";
+import { DEFAULT_SIZE, points, pointsOf, sizeFromWire } from "./size";
 
-// The scale doubles at each step so a week of S-work and a week of L-work
-// can be compared at all; a card nobody sized weighs nothing. Mirrors
-// board.Points.
+// The scale doubles at each step so a week of S-work and a week of L-work can
+// be compared at all. Mirrors board.Points and board.DefaultSize.
 describe("points", () => {
   it("follows the scale", () => {
     expect(points("S")).toBe(1);
@@ -12,9 +11,16 @@ describe("points", () => {
     expect(points("XL")).toBe(8);
   });
 
-  it("weighs an unsized card as nothing", () => {
+  it("is the scale, so the empty size is 0 on it", () => {
     expect(points(undefined)).toBe(0);
     expect(points("")).toBe(0);
+  });
+
+  // What a CARD weighs is another matter: unsized is M, the board's own
+  // middle. Weighing it as nothing would say a full week is an empty one.
+  it("weighs an unsized card as the default on a board", () => {
+    expect(DEFAULT_SIZE).toBe("M");
+    expect(pointsOf([], { itemId: "x" })).toBe(2);
   });
 });
 
@@ -46,20 +52,20 @@ describe("pointsOf", () => {
     { itemId: "q1", parent: "q" },
   ];
 
-  it("weighs a parent with sized children as their sum", () => {
-    expect(pointsOf(cards, cards[0])).toBe(3);
+  it("weighs a parent as its children, the unsized one at the default", () => {
+    expect(pointsOf(cards, cards[0])).toBe(2 + 1 + 2);
   });
 
   it("weighs a child as its own size", () => {
     expect(pointsOf(cards, cards[1])).toBe(2);
   });
 
-  it("keeps the parent's own size until a child is sized", () => {
-    expect(pointsOf(cards, cards[4])).toBe(8);
+  it("stops weighing itself once it has subtasks, sized or not", () => {
+    expect(pointsOf(cards, cards[4])).toBe(2);
   });
 
-  it("weighs a card with no children as itself", () => {
+  it("weighs a card with no children as itself, unsized as the default", () => {
     expect(pointsOf(cards, { itemId: "lone", size: "M" })).toBe(2);
-    expect(pointsOf(cards, { itemId: "lone" })).toBe(0);
+    expect(pointsOf(cards, { itemId: "lone" })).toBe(2);
   });
 });

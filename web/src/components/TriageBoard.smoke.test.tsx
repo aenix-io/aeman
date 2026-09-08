@@ -200,8 +200,10 @@ describe("the Triage board", () => {
 
   it("counts a card of two weeks against both of them", () => {
     const html = draw([card({ day: nextFriday })]);
-    // The week's own count, beside its date, in the first two rows.
-    expect(html.match(/class="triage-count">1</g)?.length).toBe(2);
+    // A week says what it CARRIES, in points, beside its date — two weeks of
+    // work is two weeks' worth, not one card filed early. The card here is
+    // unsized, so it weighs the default (M = 2) in each of the first two rows.
+    expect(html.match(/class="triage-points[^"]*">2</g)?.length).toBe(2);
   });
 
   it("says nothing of parts for a card that takes a single week", () => {
@@ -319,8 +321,11 @@ describe("the Triage board", () => {
     expect(html).toContain("Rotate the keys");
     expect(html).toContain("grid-row:3");
     expect(html).toContain("grid-row:4");
-    // …and both weeks count it: the load beside their dates says 1.
-    expect(html.match(/class="triage-count">1</g)?.length).toBeGreaterThanOrEqual(2);
+    // …and both weeks count it: a turn nobody has filed yet is work those
+    // weeks are already spoken for, so it weighs like any unsized card (2)
+    // beside their dates. The points and the card count must describe the
+    // same set of boxes, or a week reads "1 card, 0 points".
+    expect(html.match(/class="triage-points[^"]*">2</g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it("offers no grip to stretch anything by, with the catch closed", () => {

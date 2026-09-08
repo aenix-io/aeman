@@ -292,9 +292,12 @@ Rules:
   work on a day and "not yet asked" for work that is not.
 - `size` is what somebody said the card weighs — `S`, `M`, `L` or `XL`,
   upper-case — or absent. The points a board sums (1/2/4/8) are derived,
-  never written, and a card with subtasks that carry a size weighs their
-  sum rather than its own (B18). A writer that sets a size writes the
-  letter; anything else is not a size and reads as unsized. `refuse` is the answer of the person the card
+  never written, and a card with subtasks weighs them rather than itself
+  (B18). A card with no `size` at all weighs M wherever a board sums
+  points — the default is applied on READ and never written into a file, so
+  a writer that does not size its cards produces the same board this server
+  would. A writer that does set a size writes the letter; anything else is
+  not a size and reads as unsized. `refuse` is the answer of the person the card
   is on ("I am not doing this"); it stores like `locked` and `review`, its
   progress inside [10, 90], and it leaves the card on the board rather than
   taking it off. A writer emitting a stage the list does not name produces a

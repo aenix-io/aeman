@@ -1795,6 +1795,15 @@ button.card-age {
   align-items: center;
   gap: 1px;
   flex: none;
+  /* Every child here is an 18px box with its glyph centred, so it carries
+     about 2.5px of invisible padding on each side. What FOLLOWS the row —
+     the day counter, the review round — is bare text with none, so the last
+     box's padding reads as a gap twice the size of the ones inside the row.
+     The compensation belongs to the ROW, not to whichever icon happens to be
+     last: it used to sit on the status button, so the gap changed depending
+     on whether that button was showing, and the same size badge looked
+     correctly spaced beside a status icon and too far from a links hash. */
+  margin-right: -3px;
   /* Above the progress handle: at high percentages the handle sits right
      under these buttons, and its enlarged press target must never swallow a
      click meant for one of them. */
@@ -1834,10 +1843,6 @@ button.card-age {
 .card-stage {
   position: relative;
   display: inline-flex;
-  /* The status button sits last in the actions group, right before the day
-     counter; a small negative margin pulls its icon to the tight gap the
-     review/locked indicators read at (the 18px hit area is otherwise looser). */
-  margin-right: -3px;
 }
 
 /* Copy-id, delete, and the status flag (only on cards without a review/locked
@@ -4983,16 +4988,25 @@ button.card-age {
 
 /* The size on the card's face: one letter in the corner, so a board read on
    a sync shows what is sized and what is not without opening anything. */
+/* The size on the card's face: a letter in the actions row, shaped like the
+   buttons beside it (the same 18px box as .card-action, the same small bold
+   label as the id copier) so the single 1px gap reads identically between
+   any two of them. It is a value, not a control — the sizing happens through
+   the API and the detail pane — so it is a span with no hit state. */
 .card-size {
-  font-size: 10px;
-  font-weight: 600;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 2px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
   line-height: 1;
   color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  padding: 2px 4px;
-  margin-left: 4px;
-  flex: none;
+  user-select: none;
 }
 
 /* Somewhere to start a card, standing where the next one would: under the

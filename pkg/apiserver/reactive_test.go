@@ -15,9 +15,12 @@ func TestSprintCapacityCarriesPointsAndTheReactiveShare(t *testing.T) {
 	lastWeek := board.AddDays(board.MondayOf(today), -3)
 	b := board.Board{
 		SprintStates: map[string]board.SprintState{"portal": {Current: today, ItemID: "s1"}},
+		People:       map[string]board.Person{"kvaps": {Capacity: 30}},
 		Cards: []board.Card{
-			{ItemID: "a", Team: "portal", Zone: board.ZoneGray, Size: board.SizeXL, Progress: 100, DoneAt: lastWeek},
-			{ItemID: "b", Team: "portal", Zone: board.ZoneRed, Size: board.SizeXL, Progress: 100, DoneAt: lastWeek},
+			{ItemID: "a", Team: "portal", Assignees: []string{"kvaps"}, Zone: board.ZoneGray,
+				Size: board.SizeXL, Progress: 100, DoneAt: lastWeek},
+			{ItemID: "b", Team: "portal", Assignees: []string{"kvaps"}, Zone: board.ZoneRed,
+				Size: board.SizeXL, Progress: 100, DoneAt: lastWeek},
 		},
 	}
 	var cap *SprintCapacity
@@ -29,8 +32,9 @@ func TestSprintCapacityCarriesPointsAndTheReactiveShare(t *testing.T) {
 	if cap == nil {
 		t.Fatal("no capacity on the sprint resource")
 	}
-	// 16 points over four weeks = 4 a week; half of them reactive.
-	if cap.Points != 4 || !cap.PointsDerived || cap.Reactive != 50 || !cap.ReactiveKnown {
-		t.Fatalf("capacity = %+v, want 4 points a week (derived), 50%% reactive (known)", *cap)
+	// The team is one person, whose capacity a lead set to 30; half of what
+	// the team closed came in outside the plan.
+	if cap.Points != 30 || !cap.PointsDerived || cap.Reactive != 50 || !cap.ReactiveKnown {
+		t.Fatalf("capacity = %+v, want the person's 30 points a week, 50%% reactive (known)", *cap)
 	}
 }
