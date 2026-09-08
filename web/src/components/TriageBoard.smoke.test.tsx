@@ -433,15 +433,16 @@ describe("the Triage board", () => {
     expect(html).not.toContain("21/0");
   });
 
-  it("wears the size on every box, faint while nobody has said", () => {
+  it("wears the size on every box — the one it is COUNTED as while nobody has said", () => {
     // The board is where a week is read, so it is where the answer to "that
-    // does not fit" is given: the letter is always on show and one click
-    // from being changed, and an unsized box is faint because those are
-    // exactly what a sync is looking for.
+    // does not fit" is given: the letter is always on show and one click from
+    // being changed. An unsized box wears the size it is WEIGHED as rather
+    // than a dash — that letter is what the number over the person is made
+    // of — in an empty dashed chip, so it never reads as somebody's word.
     const bare = draw([card()]);
     expect(bare).toContain("triage-slot-size triage-slot-size-unset");
-    expect(bare).toContain(">–</button>");
-    expect(bare).toContain("No size — the board weighs it as M");
+    expect(bare).toContain(">M</button>");
+    expect(bare).toContain("Nobody has sized this: counted as M");
 
     const sized = draw([{ ...card(), size: "L" } as never]);
     expect(sized).toContain('class="triage-slot-size"');

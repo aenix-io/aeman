@@ -3613,14 +3613,16 @@ button.card-age {
   color: var(--accent);
 }
 
-/* Nobody has said what this one weighs: an EMPTY slot, dashed, rather than a
-   faint letter. A blank that looks like a blank is what a sync scans for. */
+/* Nobody has said what this one weighs, so the letter is the one it is
+   COUNTED as, in an empty dashed chip rather than a solid one: the reader
+   sees what the number over the person is made of, and the chip says at a
+   glance that it is the board's assumption and not anybody's word. */
 .triage-slot-size-unset {
   background: transparent;
   border-color: var(--line);
   border-style: dashed;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* Four letters, each with what it weighs: a menu narrow enough to open over

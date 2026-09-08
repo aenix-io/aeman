@@ -38,7 +38,7 @@ import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 import { BacklogDrawer, dropSpot, type Spot } from "./BacklogDrawer";
 import { isPersonalDomain } from "../domains";
 import { markOf } from "../placements";
-import { SIZES, SIZE_ORDER, pointsOf } from "../size";
+import { SIZES, SIZE_ORDER, assumedSize, pointsOf } from "../size";
 import { isComplete } from "../stages";
 import { displayName, type Avatars, type Names } from "../users";
 import { ZONES, ZONE_ORDER } from "../zones";
@@ -1484,13 +1484,18 @@ export function TriageBoard({
                     {card.title}
                     {parts > 1 && <span className="triage-slot-part"> ({part + 1}/{parts})</span>}
                   </span>
-                  {/* What the box WEIGHS, always on show — the unsized ones
-                      faint, because those are what a sync is looking for —
-                      and one click from being changed. It stands at the
+                  {/* What the box WEIGHS, always on show and one click from
+                      being changed. A card nobody sized wears the size it is
+                      COUNTED as — M, or S for a review — in an empty dashed
+                      chip rather than a solid one: the number over the person
+                      is made of that letter, and a dash said only that nobody
+                      had spoken while hiding what the board was doing about
+                      it. Dashed and quiet, it is still what a sync scans for,
+                      and it is not a claim anybody made. It stands at the
                       slot's right edge, where the Project board keeps its
-                      owner badge, so the hover actions land beside it
-                      instead of moving it. A projected turn has no card
-                      behind it yet and nothing to size. */}
+                      owner badge, so the hover actions land beside it instead
+                      of moving it. A projected turn has no card behind it yet
+                      and nothing to size. */}
                   {!slot.projected && (
                     <button
                       type="button"
@@ -1498,9 +1503,12 @@ export function TriageBoard({
                       title={
                         card.size
                           ? `${card.size} — ${SIZES[card.size].hint}. Click to change`
-                          : "No size — the board weighs it as M. Click to set one"
+                          : `Nobody has sized this: counted as ${assumedSize(card)} — ` +
+                            `${SIZES[assumedSize(card)].hint}. Click to say`
                       }
-                      aria-label={card.size ? `Size ${card.size}` : "Set a size"}
+                      aria-label={
+                        card.size ? `Size ${card.size}` : `Unsized, counted as ${assumedSize(card)}`
+                      }
                       onPointerDown={(e) => e.stopPropagation()}
                       onDoubleClick={(e) => e.stopPropagation()}
                       onClick={(e) => {
@@ -1509,7 +1517,7 @@ export function TriageBoard({
                         setSizing(sizing?.itemId === card.itemId ? null : card);
                       }}
                     >
-                      {card.size ?? "–"}
+                      {assumedSize(card)}
                     </button>
                   )}
                   {!slot.projected &&

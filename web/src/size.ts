@@ -30,18 +30,26 @@ export function points(size: SizeKey | undefined | ""): number {
   return size ? SIZES[size].points : 0;
 }
 
-/** weigh is one card's own weight: its size, or — unsized — what its KIND
- *  usually costs. A REVIEW card weighs S: a review is somebody reading
- *  finished work and saying yes or no, the rubric calls it S by definition,
- *  and it is the one kind of card the board makes on its own, one for every
- *  card sent to review — weighing those as M put two points on a reviewer for
- *  each thing they were asked to look at. A review somebody DID size keeps
- *  that size. Mirrors board.weigh. */
+/** assumedSize is the size a card is WEIGHED as: the one somebody gave it,
+ *  or — unsized — what its KIND costs. A REVIEW card is S: a review is
+ *  somebody reading finished work and saying yes or no, the rubric calls it
+ *  S by definition, and it is the one kind of card the board makes on its
+ *  own, one for every card sent to review — weighing those as M put two
+ *  points on a reviewer for each thing they were asked to look at. A review
+ *  somebody DID size keeps that size.
+ *
+ *  It is exported because a board SHOWS it: a badge reading "M" over a card
+ *  nobody sized says what the number beside the person is actually made of,
+ *  where a dash said only that nobody had spoken. Drawn differently from a
+ *  size somebody chose, or it would be a claim nobody made. Mirrors the kind
+ *  rule in board.weigh. */
+export function assumedSize(card: Pick<Card, "size" | "reviewOf">): SizeKey {
+  return card.size ?? (card.reviewOf ? "S" : DEFAULT_SIZE);
+}
+
+/** weigh is one card's own weight in points. Mirrors board.weigh. */
 function weigh(card: Pick<Card, "size" | "reviewOf">): number {
-  if (card.size) {
-    return points(card.size);
-  }
-  return points(card.reviewOf ? "S" : DEFAULT_SIZE);
+  return points(assumedSize(card));
 }
 
 /** sizeFromWire reads the letter the API sends; anything else is unsized. */

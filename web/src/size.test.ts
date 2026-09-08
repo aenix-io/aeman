@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SIZE, points, pointsOf, sizeFromWire } from "./size";
+import { DEFAULT_SIZE, assumedSize, points, pointsOf, sizeFromWire } from "./size";
 import type { Card } from "./providers/types";
 
 // The scale doubles at each step so a week of S-work and a week of L-work can
@@ -95,5 +95,20 @@ describe("what a review weighs", () => {
       { itemId: "k2", parent: "p", reviewOf: "y" },
     ] as Card[];
     expect(pointsOf(cards, cards[0])).toBe(2);
+  });
+});
+
+// A board SHOWS what an unsized card is counted as, rather than a dash: the
+// letter is what the number beside the person is made of.
+describe("assumedSize", () => {
+  it("is the size somebody gave, when they gave one", () => {
+    expect(assumedSize({ size: "XL" } as Card)).toBe("XL");
+    expect(assumedSize({ size: "S", reviewOf: "orig" } as Card)).toBe("S");
+    expect(assumedSize({ size: "L", reviewOf: "orig" } as Card)).toBe("L");
+  });
+
+  it("is the default for an unsized card, and S for an unsized review", () => {
+    expect(assumedSize({} as Card)).toBe(DEFAULT_SIZE);
+    expect(assumedSize({ reviewOf: "orig" } as Card)).toBe("S");
   });
 });
