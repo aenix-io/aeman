@@ -190,6 +190,11 @@ it is a delete plus a create, named as such.
 ```
 board.yaml                         primary domain only: schema, title
 teams/<id>.yaml                    one team: name, rank, sprint pointers
+users/<login>.yaml                 primary domain only, one person: the link
+                                   to their personal repository (`personal`)
+                                   and/or the points a week a lead set for
+                                   them (`capacity`; absent = the board
+                                   derives one from the last four weeks, B19)
 projects/<id>/project.yaml         one project: name, rank; a file with no
                                    `name` is the NO-PROJECT bucket, written
                                    on demand (`projects/_/project.yaml`)
@@ -284,7 +289,12 @@ Rules:
   reads as `gray` (planned work), which is where every board draws it,
   while a card on no day keeps the empty zone as a state of its own
   (B15). A writer may therefore leave `zone` out; it says "planned" for
-  work on a day and "not yet asked" for work that is not. `refuse` is the answer of the person the card
+  work on a day and "not yet asked" for work that is not.
+- `size` is what somebody said the card weighs — `S`, `M`, `L` or `XL`,
+  upper-case — or absent. The points a board sums (1/2/4/8) are derived,
+  never written, and a card with subtasks that carry a size weighs their
+  sum rather than its own (B18). A writer that sets a size writes the
+  letter; anything else is not a size and reads as unsized. `refuse` is the answer of the person the card
   is on ("I am not doing this"); it stores like `locked` and `review`, its
   progress inside [10, 90], and it leaves the card on the board rather than
   taking it off. A writer emitting a stage the list does not name produces a
