@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
@@ -67,5 +69,52 @@ func TestATeamsPointsRoundTripThroughItsFile(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "capacity") {
 		t.Fatalf("an unset capacity must not be written:\n%s", raw)
+	}
+}
+
+// The team file's `capacity:` block is a MAPPING, and the codec used to eat
+// it whole: everything in it that was not `points` disappeared on the next
+// write to that file — a rename, a sprint pointer, a backlog list, the
+// capacity itself. That takes the old `week`/`client`/`internal` with it (an
+// old replica's file, or a board this server has not touched since the
+// upgrade) and any key an outside writer put there, which the storage
+// contract promises to keep.
+func TestATeamFileKeepsCapacityKeysItDoesNotKnow(t *testing.T) {
+	raw := []byte("name: portal\nrank: b\ncreated: 2026-01-01T00:00:00Z\n" +
+		"capacity:\n  week: 12\n  points: 40\n  hours: 30\nmotto: ship it\n")
+	f, err := DecodeTeam(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Capacity.Points != 40 {
+		t.Fatalf("points = %d, want 40", f.Capacity.Points)
+	}
+	f.Capacity.Points = 25
+	out, err := EncodeTeam(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"points: 25", "week: 12", "hours: 30", "motto: ship it"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("the rewritten file lost %q:\n%s", want, out)
+		}
+	}
+	// And it still reads back as itself.
+	again, err := DecodeTeam(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Capacity.Points != 25 || again.Name != "portal" {
+		t.Fatalf("round trip = %+v", again)
+	}
+	// A file with only unknown capacity keys keeps the block rather than
+	// dropping it because the one key this server knows is zero.
+	bare, err := EncodeTeam(TeamFile{Name: "cozy", Rank: "c",
+		CapacityExtra: []ExtraField{{Key: "hours", Value: &yaml.Node{Kind: yaml.ScalarNode, Value: "30"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(bare), "hours: 30") {
+		t.Fatalf("an unknown-only capacity block was dropped:\n%s", bare)
 	}
 }

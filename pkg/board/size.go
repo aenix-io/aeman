@@ -74,33 +74,62 @@ func ParseSize(raw string) (SizeKey, bool) {
 // its subtasks. The total never counts twice, and a card split a minute ago
 // into unsized pieces still weighs what its author said.
 func PointsOf(b Board, c Card) int {
-	return pointsWith(childWeights(b), c)
+	return pointsWith(kidsOf(b), c)
 }
 
-// childWeights is what each parent's children weigh, in ONE pass over the
-// board. PointsOf scans every card to find one card's children, so weighing a
-// whole board through it is quadratic — and the server does exactly that, on
-// every card write, under the lock every read waits on: measured on this
-// board's own size, 45ms at 4000 cards and 184ms at 8000, against 0.16ms for
-// the card COUNT beside it. A caller weighing more than one card builds the
-// index once and weighs against it.
-func childWeights(b Board) map[string]int {
-	out := map[string]int{}
+// kidsOf is what each parent's children weigh, in ONE pass over the board:
+// all of them, and the ones still open. PointsOf scans every card to find one
+// card's children, so weighing a whole board through it is quadratic — and
+// the server does exactly that, on every card write, under the lock every
+// read waits on: measured on this board's own size, 45ms at 4000 cards and
+// 184ms at 8000, against 0.16ms for the card COUNT beside it. A caller
+// weighing more than one card builds the index once and weighs against it.
+func kidsOf(b Board) map[string]childSum {
+	out := map[string]childSum{}
 	for _, c := range b.Cards {
-		if c.Parent != "" {
-			out[c.Parent] += weigh(c)
+		if c.Parent == "" {
+			continue
 		}
+		k := out[c.Parent]
+		k.any = true
+		k.all += weigh(c)
+		if !Complete(c.Stage, c.Progress) {
+			k.open += weigh(c)
+		}
+		out[c.Parent] = k
 	}
 	return out
 }
 
-// pointsWith is PointsOf against a prepared index. Presence in the index is
-// what says a card HAS children — every card weighs at least one point, so a
-// parent's sum is never zero — and the umbrella rule then replaces the
-// parent's own size with it.
-func pointsWith(kids map[string]int, c Card) int {
-	if sum, has := kids[c.ItemID]; has {
-		return sum
+// childSum is one parent's children: what they all weigh, what the unfinished
+// ones weigh, and whether there are any. `any` is what decides the umbrella
+// rule — not a non-zero sum, since an umbrella whose children are all done
+// still has children and weighs nothing that is still in hand.
+type childSum struct {
+	any       bool
+	all, open int
+}
+
+// pointsWith is PointsOf against a prepared index: what the card WEIGHS,
+// every child counted.
+func pointsWith(kids map[string]childSum, c Card) int {
+	if k, has := kids[c.ItemID]; has && k.any {
+		return k.all
+	}
+	return weigh(c)
+}
+
+// carriedWith is what is still IN HAND: an umbrella weighs the children that
+// are not finished. The two questions differ — a week's points count work
+// finished in that week, because it used the week up; a person's load counts
+// what is left to do — and answering the second with the first made an
+// umbrella of four L subtasks with three done weigh sixteen points, against
+// four for the same work standing flat. An umbrella does not close itself
+// either, so its owner stood permanently over a capacity that was never the
+// problem.
+func carriedWith(kids map[string]childSum, c Card) int {
+	if k, has := kids[c.ItemID]; has && k.any {
+		return k.open
 	}
 	return weigh(c)
 }
@@ -143,13 +172,13 @@ func weigh(c Card) int {
 // their name has to be the whole of it. Unsized cards weigh the default, so
 // the number is honest on a board nobody has sized yet.
 func LoadNow(b Board, today string) map[string]int {
-	kids := childWeights(b)
+	kids := kidsOf(b)
 	out := map[string]int{}
 	for _, c := range b.Cards {
 		if !carriedNow(c, today) {
 			continue
 		}
-		out[c.Assignees[0]] += pointsWith(kids, c)
+		out[c.Assignees[0]] += carriedWith(kids, c)
 	}
 	return out
 }

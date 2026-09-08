@@ -43,7 +43,7 @@ type Snapshot struct {
 type User struct {
 	Login    string
 	Personal string
-	// Capacity is the points a week a lead set; 0 = derive it.
+	// Capacity is the points a week somebody set for this person; 0 = none.
 	Capacity int
 	Created  string
 }

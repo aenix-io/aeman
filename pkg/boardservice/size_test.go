@@ -82,3 +82,31 @@ func TestACardCanBeBornWithASize(t *testing.T) {
 		t.Fatalf("size at birth = %q, want L", got)
 	}
 }
+
+// A size with whitespace round it is not one of the four letters, and the
+// guard let it through: it compared the value to its own UPPER-CASING, and
+// " L " is its own upper-casing, while ParseSize — which trims — agreed the
+// string was fine. The raw " L " then reached the store, and a file holding
+// it weighs nothing in every sum, with no chip drawn on the card: the silent
+// failure this refusal exists to prevent, arriving through the door meant to
+// stop it. Normalising is the doors' job; this one takes the letter as it is.
+func TestASizeWithSpaceRoundItIsNotASize(t *testing.T) {
+	f := newFake([]board.Card{{ItemID: "c1", Title: "one", Size: board.SizeM}}, nil)
+	svc := New(f)
+	ctx := context.Background()
+
+	for _, bad := range []board.SizeKey{" L ", "L ", " ", "\tXL"} {
+		if err := svc.SetSize(ctx, "acme", "c1", bad); !errors.Is(err, ErrUnknownSize) {
+			t.Errorf("SetSize(%q) = %v, want ErrUnknownSize", bad, err)
+		}
+	}
+	if got := f.get("c1").Size; got != board.SizeM {
+		t.Fatalf("a refused size must leave the card as it was, got %q", got)
+	}
+	if err := svc.SetSize(ctx, "acme", "c1", board.SizeL); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get("c1").Size; got != board.SizeL {
+		t.Fatalf("the letter itself is stored, got %q", got)
+	}
+}

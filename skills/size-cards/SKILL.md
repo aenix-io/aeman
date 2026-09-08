@@ -46,4 +46,4 @@ Rules of thumb:
 
 ## What the size is for
 
-On the daily sync the person's column shows "points carried / points a week" and goes red past it; on the weekly meeting each week of the Triage board shows "points scheduled / points the teams can plan". Both numbers are only as good as the sizes under them: an unsized card is counted as M, so a board nobody has sized still reads, but every S and every L it holds is counted wrong by a point or two — which is exactly what a pass fixes.
+On the Triage board the person's column shows "points carried / points a week" and goes red past it; on the weekly meeting each week of the Triage board shows "points scheduled / points the teams can plan". Both numbers are only as good as the sizes under them: an unsized card is counted as M, so a board nobody has sized still reads, but every S and every L it holds is counted wrong by a point or two — which is exactly what a pass fixes.

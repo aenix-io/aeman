@@ -47,7 +47,7 @@ import (
 //	PATCH  /api/v1/sprints                            set a team's pointer directly
 //	POST   /api/v1/sprints/actions/carry-over         advance a sprint, carry unfinished (dryRun)
 //	GET    /api/v1/ordering                           the board-level manual order
-//	GET    /api/v1/watch                              WebSocket stream (Card/Sprint/Ordering events)
+//	GET    /api/v1/watch                              WebSocket stream (Card/Sprint/Ordering/Board/Load events)
 func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1", s.handleAPIIndex)
 	mux.HandleFunc("GET /api/v1/board", s.handleGetBoard)
@@ -1993,7 +1993,7 @@ func (s *Server) patchZoneAndSize(ctx context.Context, w http.ResponseWriter, r 
 }
 
 // handlePatchPerson sets what the roster says about a person — for now their
-// capacity, the points a week the day boards measure their load against
+// capacity, the points a week the Triage board measures their load against
 // (`{"capacity": 40}`; 0 takes a set number back so the board derives one).
 // It answers with the whole Board resource, whose members carry load and
 // capacity: that is what the client redraws.
@@ -2010,7 +2010,7 @@ func (s *Server) handlePatchPerson(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Capacity == nil {
-		writeJSONError(w, http.StatusBadRequest, "capacity is required (0 derives it again)")
+		writeJSONError(w, http.StatusBadRequest, "capacity is required (0 takes a set number back)")
 		return
 	}
 	ctx := r.Context()

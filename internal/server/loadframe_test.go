@@ -81,8 +81,8 @@ func seedOneCard(t *testing.T, uid string) gitstore.Remote {
 // — are summed over cards from EVERY team, so a tab holding one view's cards
 // can neither compute them nor learn them from the card events it is already
 // receiving: a size set on a card the tab is not showing still moves the
-// number over its owner, and a card closed anywhere moves the capacity read
-// off the record. So the server announces the PEOPLE, and a board somebody
+// number over its owner, and a card closed under an umbrella moves what its
+// owner is still carrying. So the server announces the PEOPLE, and a board somebody
 // has just re-sized reads correctly without a reload.
 //
 // It went the other way first: sizes and capacities were added, the number

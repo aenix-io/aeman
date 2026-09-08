@@ -299,8 +299,11 @@ Rules:
   (B18). A card with no `size` at all weighs M wherever a board sums
   points — the default is applied on READ and never written into a file, so
   a writer that does not size its cards produces the same board this server
-  would. A writer that does set a size writes the letter; anything else is
-  not a size and reads as unsized. `refuse` is the answer of the person the card
+  would. A writer that does set a size writes one of the four
+  letters, UPPER-CASE. Anything else — `large`, or the lower-case `l` this
+  API accepts on its own way in — is not a size: it reads as unsized, weighs
+  the default, and the API states such a card's size as absent rather than
+  echoing a value its own PATCH would refuse. `refuse` is the answer of the person the card
   is on ("I am not doing this"); it stores like `locked` and `review`, its
   progress inside [10, 90], and it leaves the card on the board rather than
   taking it off. A writer emitting a stage the list does not name produces a

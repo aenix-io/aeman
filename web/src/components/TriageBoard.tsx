@@ -1545,6 +1545,7 @@ export function TriageBoard({
                     <button
                       type="button"
                       className={`triage-points triage-points-${state}`}
+                      aria-label={`${pts} points scheduled${plannableWeek ? ` of ${plannableWeek}` : ""} in this week — click to set a team's points a week`}
                       title={
                         teams.length === 1
                           ? `${plannableWeek || "no"} points a week for ${teams[0] || "no team"} — click to change`

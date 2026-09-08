@@ -791,8 +791,12 @@ func (s *Service) CarryOver(ctx context.Context, boardID string, team string, dr
 	// same title/description/team/zone/assignee at 0%, without the old notes.
 	for _, c := range reseed {
 		if err := s.reseedRecurrent(ctx, b, c, board.CreateInput{
-			Title:       c.Title,
-			Zone:        c.Zone,
+			Title: c.Title,
+			Zone:  c.Zone,
+			// What it weighs comes with it: a weekly card somebody sized L
+			// is L again next week, and dropping the size halved its owner's
+			// load every sprint until they set it a second time.
+			Size:        c.Size,
 			Day:         today,
 			Start:       today,
 			SprintStart: today,
@@ -1854,7 +1858,7 @@ var ErrBadCapacity = errors.New("a capacity is 0 (unset) to 999 points a week")
 const maxCapacity = 999
 
 // SetPersonCapacity records the points a week a lead set for a person — the
-// number the day boards measure their load against. Zero takes it back, and
+// number the Triage board measures their load against. Zero takes it back, and
 // the board then has no number at all: it draws the load alone rather than
 // inventing a limit (board.CapacityOfPerson). Somebody has to say it —
 // a lead reading four weeks of the person's record with the derive-capacity
@@ -1862,8 +1866,8 @@ const maxCapacity = 999
 // somebody covering for two.
 func (s *Service) SetPersonCapacity(ctx context.Context, boardID string, login string, points int) error {
 	login = strings.TrimSpace(login)
-	if login == "" {
-		return fmt.Errorf("%w: a person is a login", ErrBadCapacity)
+	if !isLogin(login) {
+		return fmt.Errorf("%w: %q is not a login", ErrBadCapacity, login)
 	}
 	if points < 0 || points > maxCapacity {
 		return fmt.Errorf("%w: %d", ErrBadCapacity, points)
@@ -1882,8 +1886,8 @@ func (s *Service) SetPersonCapacity(ctx context.Context, boardID string, login s
 }
 
 // SetTeamPoints records the points a week a lead set for a TEAM — the number
-// a week of its plan is weighed against — in the team's own file, beside its
-// cards a week. Zero takes it back, and the board then knows of no limit for
+// a week of its plan is weighed against — in the team's own file, as the
+// whole of its capacity block. Zero takes it back, and the board knows no limit for
 // that team rather than a limit of none.
 //
 // It is not the sum of the team's people, though that is where the answer
@@ -1912,6 +1916,30 @@ func (s *Service) SetTeamPoints(ctx context.Context, boardID string, team string
 	return s.backend.SetTeamPoints(ctx, b, team, points)
 }
 
+// isLogin reports whether a string could be somebody's login on a forge.
+//
+// This one value goes into a file PATH — users/<login>.yaml — and it is the
+// only one a request supplies that does: every other writer names its file by
+// a fresh ULID. Taken as given, `..` or a slash put a file somewhere else in
+// the repository that nothing on this board reads back, and a space or a
+// colon put one nowhere anybody would look. The board is deliberately NOT
+// asked whether it knows the person: a capacity set before somebody's first
+// card is the newcomer case a lead has every reason to want.
+func isLogin(s string) bool {
+	if s == "" || len(s) > 64 || strings.HasPrefix(s, ".") {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // hasPerson reports whether the roster has an entry for the login.
 func hasPerson(people map[string]board.Person, login string) bool {
 	_, has := people[login]
@@ -1923,7 +1951,16 @@ func hasPerson(people map[string]board.Person, login string) bool {
 // rather than stored: a size nothing knows would weigh nothing and read as
 // unsized, silently.
 func (s *Service) SetSize(ctx context.Context, boardID string, itemID string, size board.SizeKey) error {
-	if _, ok := board.ParseSize(string(size)); !ok || size != board.SizeKey(strings.ToUpper(string(size))) {
+	// Exactly one of the four letters, compared against what it PARSES to.
+	// The old guard compared it to its own upper-casing, which " L " passes
+	// — ParseSize trims and the comparison did not — so the raw string went
+	// on to the store and the file held a size the scale does not know: the
+	// card weighed nothing in every sum, which is the silent failure this
+	// refusal exists to prevent, arriving through the door meant to stop it.
+	// Normalising is the doors' job (REST and MCP parse first); this one
+	// takes the letter or refuses it.
+	parsed, ok := board.ParseSize(string(size))
+	if !ok || size != parsed {
 		return fmt.Errorf("%w: %q", ErrUnknownSize, size)
 	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)

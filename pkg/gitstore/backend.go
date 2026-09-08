@@ -910,7 +910,7 @@ func (b *Backend) SetPersonCapacity(ctx context.Context, _ board.Board, login st
 }
 
 // SetTeamPoints records the points a week a lead set for a team, in the team's
-// own file beside its cards a week (0 takes it back). The team must exist:
+// own file (0 takes it back). The team must exist:
 // a capacity is said about something already declared.
 func (b *Backend) SetTeamPoints(ctx context.Context, _ board.Board, team string, points int) error {
 	s, err := b.snapshot(ctx)

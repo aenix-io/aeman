@@ -60,8 +60,10 @@ type Backend interface {
 	// clears it). The points are derived, never written.
 	SetSize(ctx context.Context, b board.Board, card board.Card, size board.SizeKey) error
 	// SetPersonCapacity records the points a week a lead set for a person
-	// (users/<login>.yaml in the primary); 0 takes it back and the board
-	// derives one again.
+	// (users/<login>.yaml in the primary); 0 takes it back, and the board
+	// derives nothing in its place. The file holds more than this — a link to
+	// the person's own repository, and whatever another writer put there —
+	// so an implementation READS it before writing.
 	SetPersonCapacity(ctx context.Context, b board.Board, login string, points int) error
 	// SetTeamPoints records the points a week a lead set for a TEAM — a
 	// number of its own, not a sum of its people: somebody works out what a

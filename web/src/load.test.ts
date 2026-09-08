@@ -32,5 +32,3 @@ describe("loadLabel", () => {
     expect(loadLabel(0, undefined)).toBe("0");
   });
 });
-
-// What a team can plan for a week: capacity less the reactive share.

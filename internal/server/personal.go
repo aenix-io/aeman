@@ -191,10 +191,21 @@ func (b *storeBackend) detachPersonal(ctx context.Context, name string) error {
 }
 
 // linkPersonal records the login's personal repository in the primary — one
-// commit by the person, pushed like any other — and unlinkPersonal removes it.
+// commit by the person, pushed like any other — and unlinkPersonal removes
+// the link.
+//
+// Both READ the file first. users/<login>.yaml holds more than a link now —
+// the points a week somebody set for that person, and whatever an external
+// writer put there — and writing it from scratch threw all of it away: link a
+// personal board and your capacity vanished, silently, along with the limit
+// your load was measured against. Unlinking removes the LINK, not the person.
 func (b *storeBackend) linkPersonal(ctx context.Context, login, url string) error {
-	now := time.Now().UTC()
-	data, err := gitstore.EncodeUser(gitstore.UserFile{Personal: url, Created: now.Format(time.RFC3339)})
+	f := b.readUserFile(login)
+	f.Personal = url
+	if f.Created == "" {
+		f.Created = time.Now().UTC().Format(time.RFC3339)
+	}
+	data, err := gitstore.EncodeUser(f)
 	if err != nil {
 		return err
 	}
@@ -202,7 +213,36 @@ func (b *storeBackend) linkPersonal(ctx context.Context, login, url string) erro
 }
 
 func (b *storeBackend) unlinkPersonal(ctx context.Context, login string) error {
-	return b.writeUserFile(ctx, login, nil, "unlink "+login+"'s personal board")
+	f := b.readUserFile(login)
+	f.Personal = ""
+	// Nothing left worth a file: the entry goes rather than lingering empty.
+	if f.Capacity == 0 && len(f.Extra) == 0 {
+		return b.writeUserFile(ctx, login, nil, "unlink "+login+"'s personal board")
+	}
+	data, err := gitstore.EncodeUser(f)
+	if err != nil {
+		return err
+	}
+	return b.writeUserFile(ctx, login, data, "unlink "+login+"'s personal board")
+}
+
+// readUserFile is the person's roster entry as it stands, or an empty one:
+// every write to it is a read-modify-write, because more than one door writes
+// this file and each of them owns exactly one of its keys.
+func (b *storeBackend) readUserFile(login string) gitstore.UserFile {
+	g := b.git
+	if g == nil {
+		return gitstore.UserFile{}
+	}
+	raw, err := g.primary().ReadFile(gitstore.UserPath(login))
+	if err != nil {
+		return gitstore.UserFile{}
+	}
+	f, err := gitstore.DecodeUser(raw)
+	if err != nil {
+		return gitstore.UserFile{}
+	}
+	return f
 }
 
 func (b *storeBackend) writeUserFile(ctx context.Context, login string, data []byte, summary string) error {

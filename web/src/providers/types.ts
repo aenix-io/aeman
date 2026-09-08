@@ -411,8 +411,8 @@ export interface Provider {
    *  day it counts as done along with it. Refused (422) on work still going,
    *  and where there is no earlier sprint to send it to. */
   finishedEarlier(uid: string): Promise<Card>;
-  /** Set how many points a week a person gets through — the number the day
-   *  boards measure their load against; 0 takes it back, leaving them with
+  /** Set how many points a week a person gets through — the number the Triage
+   *  board measures their load against; 0 takes it back, leaving them with
    *  none. The caller reloads: these numbers are the server's, summed over
    *  cards the caller may not be holding, so there is nothing to patch in
    *  place and no second fetch to make here. */

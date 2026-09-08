@@ -62,6 +62,9 @@ export function PersonLoad({ member, onSetCapacity }: PersonLoadProps) {
       type="button"
       className={`person-load person-load-${state}`}
       title={title}
+      // The button's content is bare digits, so a screen reader would read
+      // "21/40, button" and say nothing about what the numbers are.
+      aria-label={title}
       disabled={!onSetCapacity}
       onClick={(e) => {
         e.stopPropagation();

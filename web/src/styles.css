@@ -4841,16 +4841,6 @@ button.card-age {
   flex: none;
 }
 
-/* What the person is carrying altogether, at the far end of their column's
-   header — the name has the room it needs, the number takes the corner. */
-.triage-person-load {
-  margin-left: auto;
-  flex: none;
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-
 .triage-person-none {
   font-size: 11px;
   color: var(--muted);
@@ -4865,12 +4855,6 @@ button.card-age {
   align-items: flex-start;
   justify-content: center;
   line-height: 1.15;
-}
-
-.triage-count {
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
 }
 
 /* A slot on this board carries a progress bar along its foot and a stripe
@@ -5045,6 +5029,7 @@ button.card-age {
    appears where it MEANS something: red when the plan does not fit, and an
    outline under the pointer, which is how it still reads as a control. */
 .person-load {
+  margin-left: auto;
   font: inherit;
   font-size: 10px;
   font-weight: 600;

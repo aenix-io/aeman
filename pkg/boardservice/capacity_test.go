@@ -3,6 +3,7 @@ package boardservice
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -56,9 +57,8 @@ func TestALeadSetsAPersonsCapacityAndZeroTakesItBack(t *testing.T) {
 	}
 }
 
-// A TEAM's points a week are set the same way, in the team's own file beside
-// its cards a week. They are two different measurements and neither is read
-// off the other: a team is not the sum of its people here, because working
+// A TEAM's points a week are set the same way, in the team's own file. It is
+// not read off its people: working
 // that sum out means splitting people between teams by a record eleven days
 // deep — which is the derive-capacity skill's job, where the record's own
 // thinness can be said out loud.
@@ -95,6 +95,33 @@ func TestALeadSetsATeamsPointsAWeek(t *testing.T) {
 	for _, bad := range []int{-1, 1000} {
 		if err := svc.SetTeamPoints(ctx, "acme", "alpha", bad); !errors.Is(err, ErrBadCapacity) {
 			t.Errorf("points %d: err = %v, want ErrBadCapacity", bad, err)
+		}
+	}
+}
+
+// A login goes into a file PATH — users/<login>.yaml — and it is the only
+// value a request supplies that does: every other writer names its file by a
+// fresh ULID. It was taken as given, so `..` or a slash in it produced a file
+// somewhere else in the repository that nothing on this board can read back,
+// and a login with a space or a colon produced one nothing would ever look
+// for. A capacity may still be set for somebody the board has never seen —
+// that is the newcomer a lead sizes before their first card — but it has to
+// be a name that could be one.
+func TestACapacityIsSetForALoginThatCouldBeOne(t *testing.T) {
+	f := newFake(nil, nil)
+	svc := New(f)
+	ctx := context.Background()
+
+	for _, bad := range []string{"../etc/passwd", "a/b", "with space", ".hidden", "", strings.Repeat("x", 100)} {
+		if err := svc.SetPersonCapacity(ctx, "acme", bad, 10); !errors.Is(err, ErrBadCapacity) {
+			t.Errorf("SetPersonCapacity(%q) = %v, want ErrBadCapacity", bad, err)
+		}
+	}
+	// A newcomer the board has never seen is still a person: forge logins
+	// carry dashes, dots and digits.
+	for _, ok := range []string{"kvaps", "Julia-psps", "vsop78", "a.b_c"} {
+		if err := svc.SetPersonCapacity(ctx, "acme", ok, 10); err != nil {
+			t.Errorf("SetPersonCapacity(%q) = %v", ok, err)
 		}
 	}
 }

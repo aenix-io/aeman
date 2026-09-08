@@ -143,7 +143,8 @@ type CardStatus struct {
 	// it in a week and it is not being worked (B5).
 	Triage bool `json:"triage,omitempty"`
 	// TriageWeek is the Monday of the column the card stands in on the
-	// Triage board — its week. Absent means it stands in none: the strip
+	// Triage board: its week, or — for a review card, which has none of its
+	// own — the week its own dates fall in. Absent means it stands in none: the strip
 	// holds it until somebody says when the work is due (B5).
 	TriageWeek string `json:"triageWeek,omitempty"`
 	// Due is a RECURRENT card's weeks to come: the ones it comes round in

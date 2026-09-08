@@ -414,7 +414,10 @@ describe("the Triage board", () => {
     );
     expect(html).toContain('class="person-load person-load-ok"');
     expect(html).toContain(">21/40<");
-    expect(html).not.toContain("triage-person-load");
+    // Said once, in points: the card count that used to sit beside it
+    // answered "how many things", which is not the question a week that does
+    // not fit asks.
+    expect(html).not.toContain("person-load-input");
   });
 
   it("shows a person's load alone when nobody has set a capacity", () => {
@@ -493,7 +496,7 @@ describe("the Triage board", () => {
   });
 
   it("says nothing beside a name with nothing to say", () => {
-    expect(draw([card()])).not.toContain("triage-person-load");
+    expect(draw([card()])).not.toContain("/0<");
   });
 
   it("offers every column to be dragged into another place", () => {
