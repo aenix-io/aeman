@@ -128,3 +128,58 @@ func TestSettingACapacityAnnouncesIt(t *testing.T) {
 		t.Fatalf("the announced member = %+v, want the set capacity 40", m)
 	}
 }
+
+// awaitSprint reads a subscription until a Sprint frame for the team arrives.
+func awaitSprint(t *testing.T, ch <-chan []byte, team string) apiserver.Sprint {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case data := <-ch:
+			var frame struct {
+				Kind   string           `json:"kind"`
+				Object apiserver.Sprint `json:"object"`
+			}
+			if json.Unmarshal(data, &frame) == nil && frame.Kind == "Sprint" &&
+				frame.Object.Metadata.Team == team {
+				return frame.Object
+			}
+		case <-deadline:
+			t.Fatalf("no Sprint frame for %q", team)
+		}
+	}
+}
+
+// A watch frame is MERGED into the state a client holds, so a field the frame
+// leaves out is a field the client LOSES. The Sprint frame used to carry the
+// pointers alone, which meant every carry-over — every sprint pointer move —
+// silently wiped the capacity each open Triage board measures its weeks
+// against, until somebody reloaded the page. The frame is shaped by the same
+// function as the listing now, so it cannot say less than the listing does.
+func TestASprintFrameCarriesTheTeamsCapacity(t *testing.T) {
+	const uid = "01CARDSPRINTCAP000000AAAAA"
+	srv := gitModeServer(t, seedOneCard(t, uid))
+	if rec := do(t, srv, http.MethodGet, "/api/v1/board", ""); rec.Code != http.StatusOK {
+		t.Fatalf("board: %d", rec.Code)
+	}
+	sub, cancel := srv.store.subscribe(storeKey(srv.boardRef(nil)), "tab", nil,
+		map[string]bool{"sprints": true})
+	defer cancel()
+
+	if rec := do(t, srv, http.MethodPost, "/api/v1/teams/actions/capacity",
+		`{"team":"portal","points":40}`); rec.Code != http.StatusOK {
+		t.Fatalf("capacity: %d %s", rec.Code, rec.Body.String())
+	}
+	got := awaitSprint(t, sub.ch, "portal")
+	// Both halves, in one frame: the capacity that was just set, and the
+	// pointers the frame used to carry alone. Either missing is a field the
+	// client that merges this frame would lose — which is what happened to
+	// the capacity on every carry-over, since that goes through this same
+	// announcement.
+	if got.Spec.Capacity == nil || got.Spec.Capacity.Points != 40 {
+		t.Fatalf("the announced sprint = %+v, want the team's 40 points a week", got.Spec)
+	}
+	if got.Spec.Current == "" {
+		t.Fatalf("the announced sprint lost its pointer: %+v", got.Spec)
+	}
+}

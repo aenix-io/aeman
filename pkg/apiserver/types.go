@@ -548,15 +548,23 @@ func SprintResources(b board.Board) []Sprint {
 	sortStrings(teams)
 	out := make([]Sprint, 0, len(teams))
 	for _, t := range teams {
-		st := b.SprintStates[t]
-		out = append(out, Sprint{
-			Kind:     "Sprint",
-			Metadata: SprintMetadata{Team: t},
-			Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
-				Capacity: &SprintCapacity{Points: board.PointsAWeekOf(b, t)}},
-		})
+		out = append(out, SprintResourceOf(b, t))
 	}
 	return out
+}
+
+// SprintResourceOf shapes ONE team's sprint resource. The watch frame for a
+// team and the listing go through it together, so a frame cannot carry less
+// than the listing does — which is how a client that merges frames in place
+// came to lose the team's capacity every time a sprint pointer moved.
+func SprintResourceOf(b board.Board, team string) Sprint {
+	st := b.SprintStates[team]
+	return Sprint{
+		Kind:     "Sprint",
+		Metadata: SprintMetadata{Team: team},
+		Spec: SprintSpec{Current: st.Current, Previous: st.Previous,
+			Capacity: &SprintCapacity{Points: board.PointsAWeekOf(b, team)}},
+	}
 }
 
 // NoteResources maps a card's notes onto Note resources.

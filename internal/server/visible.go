@@ -480,3 +480,46 @@ func (v *visibleBackend) SetSprintState(ctx context.Context, bd board.Board, tea
 	}
 	return v.Backend.SetSprintState(ctx, bd, team, current, previous)
 }
+
+// SetSize writes the card's own file, so it needs the card's domain like
+// every other field of a card. It was missed when the size landed, and the
+// omission was not cosmetic: a size is what a board sums into a person's
+// load and a week's plan, so a visitor who could only READ a repository
+// could move numbers on every board that shows it.
+func (v *visibleBackend) SetSize(ctx context.Context, bd board.Board, card board.Card, size board.SizeKey) error {
+	if err := v.write(ctx, bd, card); err != nil {
+		return err
+	}
+	return v.Backend.SetSize(ctx, bd, card, size)
+}
+
+// SetPersonCapacity writes users/<login>.yaml, which lives in the PRIMARY
+// domain: people are the board's, not a domain's. So the right it needs is
+// the right to write the primary, whatever else the visitor can read.
+func (v *visibleBackend) SetPersonCapacity(ctx context.Context, bd board.Board, login string, points int) error {
+	if r := rightsFrom(ctx); r != nil && !r.canWrite(v.primary) {
+		return boardservice.ErrForbidden
+	}
+	return v.Backend.SetPersonCapacity(ctx, bd, login, points)
+}
+
+// SetTeamPoints writes the team's own file, in the team's domain — the same
+// file and the same right as its sprint pointer.
+func (v *visibleBackend) SetTeamPoints(ctx context.Context, bd board.Board, team string, points int) error {
+	if r := rightsFrom(ctx); r != nil {
+		whole, err := v.full(ctx, bd)
+		if err != nil {
+			return err
+		}
+		d, ok := board.Resolver(whole, v.primary).TeamDomain(team)
+		if !ok {
+			if d, err = v.chosen(ctx, ""); err != nil {
+				return err
+			}
+		}
+		if !r.canWrite(d) {
+			return boardservice.ErrForbidden
+		}
+	}
+	return v.Backend.SetTeamPoints(ctx, bd, team, points)
+}

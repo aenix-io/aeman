@@ -74,14 +74,32 @@ func ParseSize(raw string) (SizeKey, bool) {
 // its subtasks. The total never counts twice, and a card split a minute ago
 // into unsized pieces still weighs what its author said.
 func PointsOf(b Board, c Card) int {
-	sum, has := 0, false
-	for _, k := range b.Cards {
-		if k.Parent == c.ItemID {
-			sum += weigh(k)
-			has = true
+	return pointsWith(childWeights(b), c)
+}
+
+// childWeights is what each parent's children weigh, in ONE pass over the
+// board. PointsOf scans every card to find one card's children, so weighing a
+// whole board through it is quadratic — and the server does exactly that, on
+// every card write, under the lock every read waits on: measured on this
+// board's own size, 45ms at 4000 cards and 184ms at 8000, against 0.16ms for
+// the card COUNT beside it. A caller weighing more than one card builds the
+// index once and weighs against it.
+func childWeights(b Board) map[string]int {
+	out := map[string]int{}
+	for _, c := range b.Cards {
+		if c.Parent != "" {
+			out[c.Parent] += weigh(c)
 		}
 	}
-	if has {
+	return out
+}
+
+// pointsWith is PointsOf against a prepared index. Presence in the index is
+// what says a card HAS children — every card weighs at least one point, so a
+// parent's sum is never zero — and the umbrella rule then replaces the
+// parent's own size with it.
+func pointsWith(kids map[string]int, c Card) int {
+	if sum, has := kids[c.ItemID]; has {
 		return sum
 	}
 	return weigh(c)
@@ -117,12 +135,13 @@ func weigh(c Card) int {
 // their name has to be the whole of it. Unsized cards weigh the default, so
 // the number is honest on a board nobody has sized yet.
 func LoadNow(b Board, today string) map[string]int {
+	kids := childWeights(b)
 	out := map[string]int{}
 	for _, c := range b.Cards {
 		if !carriedNow(c, today) {
 			continue
 		}
-		out[c.Assignees[0]] += PointsOf(b, c)
+		out[c.Assignees[0]] += pointsWith(kids, c)
 	}
 	return out
 }

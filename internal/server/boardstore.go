@@ -538,11 +538,12 @@ func (e *boardEntry) reevaluate(origin string) {
 // cached pointer already updated.
 func (e *boardEntry) sprintChanged(origin, team string) {
 	st := e.board.SprintStates[team]
-	res := apiserver.Sprint{
-		Kind:     "Sprint",
-		Metadata: apiserver.SprintMetadata{Team: team},
-		Spec:     apiserver.SprintSpec{Current: st.Current, Previous: st.Previous},
-	}
+	// Shaped exactly as the listing shapes it: a client merges this frame
+	// into the state it holds, so a field the frame leaves out is a field the
+	// client LOSES. It used to leave out the capacity, and every carry-over
+	// therefore wiped the number every open Triage board measures its weeks
+	// against, until the next full reload.
+	res := apiserver.SprintResourceOf(e.board, team)
 	teamDomain := e.board.Domains[st.ItemID]
 	for sub := range e.watchers {
 		if !sub.resources["sprints"] || (origin != "" && sub.clientID == origin) || !sub.rights.canRead(teamDomain) {
