@@ -469,6 +469,29 @@ export function TriageBoard({
   // element it hangs under, which is a different box each time.
   const [sizing, setSizing] = useState<CardModel | null>(null);
   const sizeAnchor = useRef<HTMLElement | null>(null);
+  // Setting a TEAM's week, from the number beside the week it is measuring.
+  // Nothing derives it, so this is where a lead answers a red week: one team
+  // on screen and the number is typed in place; several and there is no
+  // answer to "whose week is this", so the chip opens a menu of them — the
+  // same shape the Project board's weeks use for their deadlines.
+  const [capEdit, setCapEdit] = useState<{ team: string; week: string } | null>(null);
+  const [capMenu, setCapMenu] = useState(false);
+  const capAnchor = useRef<HTMLElement | null>(null);
+  const setTeamCapacity = useCallback(
+    (team: string, points: number) => {
+      setCapEdit(null);
+      setCapMenu(false);
+      if (points === (board.sprintStates[team]?.capacity?.points ?? 0)) {
+        return;
+      }
+      void provider
+        .setTeamCapacity(team, points)
+        .then(() => reload())
+        .catch((err: Error) => onError(err.message));
+    },
+    [board.sprintStates, provider, reload, onError],
+  );
+
   // Every chip on the board — in the grid and on the shelves — opens the
   // one menu, under whichever chip was pressed.
   const openSizer = useCallback((card: CardModel, anchor: HTMLElement) => {
@@ -1460,11 +1483,54 @@ export function TriageBoard({
                       date and a pill that spells the fraction on one line
                       grows out of it the moment either number reaches three
                       digits. One number over the other, hairline between,
-                      reads the same and fits. */}
-                  <span className={`triage-points triage-points-${state}`}>
-                    <span className="triage-points-load">{pts}</span>
-                    {!!plannableWeek && <span className="triage-points-cap">{plannableWeek}</span>}
-                  </span>
+                      reads the same and fits.
+
+                      It is also the door to the number underneath: a red week
+                      is answered either by moving cards or by admitting the
+                      team's week is bigger than anybody wrote down, and the
+                      second answer should not need another screen. */}
+                  {capEdit?.week === w ? (
+                    <input
+                      className="triage-points-input"
+                      type="number"
+                      min={0}
+                      max={999}
+                      autoFocus
+                      aria-label={`Points a week for ${capEdit.team || "no team"}`}
+                      defaultValue={board.sprintStates[capEdit.team]?.capacity?.points || ""}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => setTeamCapacity(capEdit.team, Number(e.target.value) || 0)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          setTeamCapacity(capEdit.team, Number(e.currentTarget.value) || 0);
+                        } else if (e.key === "Escape") {
+                          setCapEdit(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className={`triage-points triage-points-${state}`}
+                      title={
+                        teams.length === 1
+                          ? `${plannableWeek || "no"} points a week for ${teams[0] || "no team"} — click to change`
+                          : "Click to set a team's points a week"
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        capAnchor.current = e.currentTarget;
+                        if (teams.length === 1) {
+                          setCapEdit({ team: teams[0], week: w });
+                        } else {
+                          setCapMenu((open) => !open);
+                        }
+                      }}
+                    >
+                      <span className="triage-points-load">{pts}</span>
+                      {!!plannableWeek && <span className="triage-points-cap">{plannableWeek}</span>}
+                    </button>
+                  )}
                 </>
               ),
             };
@@ -1781,6 +1847,45 @@ export function TriageBoard({
           onPickSize={openSizer}
         />
       </div>
+      {/* Whose week is this? With several teams on screen the number over a
+          week is their numbers added up, and there is no single team to type
+          into — so the chip offers them, each with its own. */}
+      <Dropdown
+        open={capMenu}
+        anchorRef={capAnchor}
+        onClose={() => setCapMenu(false)}
+        className="triage-cap-menu"
+      >
+        {teams.map((t) => (
+          <label key={t || "\u0000none"} className="triage-cap-row">
+            <span className="card-stage-dot" style={{ background: teamColor(t) }} />
+            <span className="triage-cap-team">{t || "No team"}</span>
+            <input
+              className="triage-cap-input"
+              type="number"
+              min={0}
+              max={999}
+              placeholder="—"
+              aria-label={`Points a week for ${t || "no team"}`}
+              defaultValue={board.sprintStates[t]?.capacity?.points || ""}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setTeamCapacity(t, Number(e.currentTarget.value) || 0);
+                } else if (e.key === "Escape") {
+                  setCapMenu(false);
+                }
+              }}
+              onBlur={(e) => {
+                const n = Number(e.target.value) || 0;
+                if (n !== (board.sprintStates[t]?.capacity?.points ?? 0)) {
+                  setTeamCapacity(t, n);
+                }
+              }}
+            />
+            <span className="triage-cap-unit">pts/wk</span>
+          </label>
+        ))}
+      </Dropdown>
       {/* One menu for every box: it hangs under whichever badge was pressed,
           so the grid carries no menu of its own per card. */}
       <Dropdown

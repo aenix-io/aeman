@@ -5080,12 +5080,84 @@ button.card-age {
   border-color: #d1242f;
 }
 
+/* Typing a team's week in place of the number that measured it — offered
+   only when ONE team is on screen, because otherwise there is no answer to
+   whose week it is. */
+.triage-points-input {
+  width: 40px;
+  margin-top: 1px;
+  padding: 0 2px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Several teams on screen: the chip offers them, each with its own number —
+   the shape the Project board's weeks use for their deadlines. */
+.triage-cap-menu {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px var(--elev-2);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.triage-cap-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.triage-cap-row:hover {
+  background: var(--hover-overlay);
+}
+
+.triage-cap-team {
+  flex: 1;
+  min-width: 70px;
+}
+
+.triage-cap-input {
+  width: 46px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.triage-cap-unit {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.2px;
+}
+
 /* Beside each week of the Triage board: points scheduled against what the
    teams on screen can plan. Same states as a person's number. */
 .triage-points {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
   line-height: 1.05;
   font-size: 9px;
   font-weight: 600;
@@ -5106,6 +5178,11 @@ button.card-age {
   opacity: 0.75;
   align-self: stretch;
   text-align: center;
+}
+
+.triage-points:hover {
+  color: var(--fg);
+  background: var(--hover-overlay-soft);
 }
 
 .triage-points-full {

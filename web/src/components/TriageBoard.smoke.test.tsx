@@ -466,6 +466,17 @@ describe("the Triage board", () => {
     expect(sized).not.toContain("size-chip-unset");
   });
 
+  it("makes the week's number the door to the team's own", () => {
+    // A red week is answered either by moving cards or by admitting the
+    // team's week is bigger than anybody wrote down, and the second answer
+    // should not need another screen. With ONE team on screen the number is
+    // typed in place; with several there is no answer to whose week it is,
+    // so the chip opens a menu of them.
+    const html = draw([card()]);
+    expect(html).toContain('<button type="button" class="triage-points');
+    expect(html).toContain("points a week for core — click to change");
+  });
+
   it("puts the week's points over the plannable, not beside it", () => {
     // A column is as wide as a date; "220/20" on one line grows out of it
     // the moment either number reaches three digits.
