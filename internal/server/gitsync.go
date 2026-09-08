@@ -536,6 +536,7 @@ func (b *storeBackend) tick(ctx context.Context, key string) error {
 	if err := b.syncNow(ctx, key); err != nil {
 		return err
 	}
+	b.sweepTitles(ctx, key)
 	n, err := b.sweepDue(ctx, key)
 	if err != nil {
 		return fmt.Errorf("sweep: %w", err)
@@ -546,6 +547,31 @@ func (b *storeBackend) tick(ctx context.Context, key string) error {
 	b.git.log.Info("process turns filed", "board", key, "turns", n)
 	b.store.waitDrained(ctx)
 	return b.syncNow(ctx, key)
+}
+
+// sweepTitles finishes the create-by-URL cards whose background resolve never
+// landed — the process was restarted, the forge was slow, the storer could not
+// write — by asking the forge again and renaming what it can. It is
+// housekeeping: it never fails a tick, and what it cannot resolve is left as
+// the readable fallback and said out loud, which is the part that was missing
+// (the create's own resolve fails in silence, so five cards wore "Issue:
+// owner/repo#N" for a week with nothing anywhere to say why).
+func (b *storeBackend) sweepTitles(ctx context.Context, key string) {
+	e := b.store.entry(key)
+	e.mu.Lock()
+	boardID, loaded := e.board.Board, e.loaded
+	e.mu.Unlock()
+	if !loaded {
+		return // nobody has asked for this board yet
+	}
+	sctx := withAction(ctx, gitstore.NewID(time.Now()), "titles")
+	done, waiting, err := b.sweeper().ResolveOpenTitles(sctx, boardID)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		b.git.log.Warn("resolve titles", "board", key, "err", err)
+	}
+	if done > 0 || waiting > 0 {
+		b.git.log.Info("card titles resolved", "board", key, "renamed", done, "waiting", waiting)
+	}
 }
 
 // sweepDue files the current week's due turns through the store, as the
