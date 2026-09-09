@@ -73,6 +73,11 @@ interface TeamBoardProps {
   asOf?: string;
 
   onSelectDate: (day: string) => void;
+  /** A carry-over the APP asked for, rather than the button: somebody reached
+   *  into a day that is over, and the board answers by leaving the record for
+   *  today and offering that team its new sprint (App.leaveTheRecord). The
+   *  `at` stamp is what makes a repeat ask a second time. */
+  carryRequest?: { team: string | null; at: number };
   /** Avatars by login (the board roster). */
   avatars: Avatars;
   /** Display names by login (the board roster); a login without one is shown
@@ -126,6 +131,7 @@ export function TeamBoard({
   selectedDate,
   asOf,
   onSelectDate,
+  carryRequest,
   avatars,
   names,
   roster,
@@ -1540,7 +1546,7 @@ export function TeamBoard({
   // the previous) and pull its unfinished cards forward — one server action; a
   // dry run feeds the confirm count. Always advances, even with nothing to
   // carry. `team` is null for the no-team group.
-  const startSprint = async (team: string | null) => {
+  const startSprint = async (team: string | null, asked = false) => {
     setSprintMenuOpen(false);
     const label = team ?? "no team";
     const old = currentSprint(board, team);
@@ -1548,9 +1554,13 @@ export function TeamBoard({
     // Idempotent: if the sprint is already today's, do not re-advance — that would
     // overwrite the previous sprint, making previous = current = today. Still land
     // on today, so pressing Carry over always brings the current sprint into view.
+    // Nothing is SAID when the app asked rather than the reader: they pressed
+    // nothing, and being told their sprint is fine is not an answer to that.
     if (old === today) {
       onSelectDate(today);
-      onError(`«${label}» is already on today's sprint.`);
+      if (!asked) {
+        onError(`«${label}» is already on today's sprint.`);
+      }
       return;
     }
     let rep: CarryReport;
@@ -1600,6 +1610,19 @@ export function TeamBoard({
     onSelectDate(today);
     reload();
   };
+
+  // A carry the APP asked for (somebody reached into a day that is over).
+  // Once per stamp: the same request must not re-fire on every render, and a
+  // second reach into the past must ask again.
+  const carryAsked = useRef(0);
+  useEffect(() => {
+    if (!carryRequest || carryRequest.at === carryAsked.current) {
+      return;
+    }
+    carryAsked.current = carryRequest.at;
+    void startSprint(carryRequest.team, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carryRequest]);
 
   return (
     <div className="team">

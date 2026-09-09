@@ -47,10 +47,13 @@ import { applyAppearance, persistAppearance, readAppearance, type Appearance } f
 // would settle on the indicator anyway.
 const waitingAfterMs = 300;
 
-// SNAPSHOT_FROZEN is what a write attempt on a past day says. The day is
-// over: its board is a picture, and today's board is one click away.
-const SNAPSHOT_FROZEN =
-  "This is the board as it was that day — go back to today to change anything.";
+// Reaching into a day that is OVER is answered with the board the reader was
+// after, not with a sentence: the day leaves the record for today, and the
+// team whose card was touched is offered its carry-over — a lead reaching
+// into a past day is usually a lead whose sprint has not been closed yet.
+// The write itself is still refused (it was aimed at a picture), and nothing
+// is said, because a banner explaining a thing that already happened is
+// noise.
 
 type ViewMode = "me" | "team" | "triage" | "project" | "process";
 
@@ -532,6 +535,25 @@ export function App() {
     }
     return ids;
   }, [board?.cards]);
+  const liveBoard = useRef(board);
+  liveBoard.current = board;
+  // Leaving the record: the day jumps to today, and the team of the card that
+  // was reached for is offered its carry-over (the Team board runs the same
+  // flow its button does, confirm and all, and says nothing when the sprint
+  // is already today). Returns the message the refused call carries — none.
+  const [carryRequest, setCarryRequest] = useState<{
+    team: string | null;
+    at: number;
+  }>();
+  const leaveTheRecord = useCallback((uid: string): string => {
+    setSelectedDate(todayIso());
+    const card = liveBoard.current?.cards.find((c) => c.itemId === uid);
+    if (card) {
+      setCarryRequest({ team: card.team ?? null, at: Date.now() });
+    }
+    return "";
+  }, []);
+
   // The watch handler and the provider are built once; they read the current
   // records through a ref rather than closing over them.
   const recordsRef = useRef(records);
@@ -548,8 +570,9 @@ export function App() {
         // server asks of such a write, and the same one the add boxes are
         // hidden by. Three doors, one rule.
         () => snapshotRef.current,
-        SNAPSHOT_FROZEN,
+        (uid) => leaveTheRecord(uid),
       ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [onSignedOut],
   );
 
@@ -1591,6 +1614,7 @@ export function App() {
             selectedDate={selectedDate}
             asOf={asOf ?? undefined}
             onSelectDate={setSelectedDate}
+            carryRequest={carryRequest}
             provider={provider}
             me={config?.login ?? ""}
             avatars={avatars}

@@ -35,10 +35,33 @@ function spyProvider(): { provider: Provider; calls: string[] } {
 
 // "old" is a card of a team whose sprint has moved on: a record of that
 // evening. "live" is a card of a team still inside that sprint.
+// The refusal calls back with the uid it refused, and what comes back is the
+// message. In the app that callback is what LEAVES the record — the day jumps
+// to today and the team is offered its carry — and it answers with no message
+// at all; here it answers with one, so the refusals stay legible.
+const asked: string[] = [];
 const guard = (p: Provider, hasRecords = true) =>
-  frozenProvider(p, (uid) => uid === "old", () => hasRecords, REASON);
+  frozenProvider(
+    p,
+    (uid) => uid === "old",
+    () => hasRecords,
+    (uid) => {
+      asked.push(uid);
+      return REASON;
+    },
+  );
 
 describe("frozenProvider", () => {
+  it("hands the refused card's uid to the callback", async () => {
+    const { provider } = spyProvider();
+    asked.length = 0;
+    await expect(guard(provider).patchCard("old", {})).rejects.toThrow(REASON);
+    // A write that names no card is refused for the whole board, and says so
+    // with an empty uid: there is no one card to leave the record for.
+    await expect(guard(provider).carryOver("portal")).rejects.toThrow(REASON);
+    expect(asked).toEqual(["old", ""]);
+  });
+
   it("lets the board read what it needs", async () => {
     const { provider, calls } = spyProvider();
     const frozen = guard(provider);
