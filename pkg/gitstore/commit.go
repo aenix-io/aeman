@@ -202,9 +202,20 @@ func (r *Repo) asOfStart(at time.Time, head plumbing.Hash, horizon string) (star
 			best = e
 		}
 	}
-	if best != nil {
-		start = best.hash
+	if best == nil {
+		return start, nil
 	}
+	// "The board had not begun" is remembered as ok with a ZERO hash, and it
+	// ANSWERS every earlier moment: no commit at or before that one means
+	// none at or before this one either. It is not a place to walk from —
+	// taken for one, the walk opened a zero hash and got "object not found",
+	// which is how a day before a board's first commit answered 502 (and
+	// LoadAsOfDay poisoned itself with it inside a single request: it reads
+	// the day's own tree first, then asks for the day before).
+	if best.hash.IsZero() {
+		return start, best
+	}
+	start = best.hash
 	return start, nil
 }
 

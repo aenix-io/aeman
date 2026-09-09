@@ -129,3 +129,46 @@ func TestABoardAsOfADayBeyondTheHorizonIsRefused(t *testing.T) {
 		t.Fatalf("the boundary's own day: ok=%v err=%v", ok, err)
 	}
 }
+
+// A day BEFORE the board's first commit is an answer, not an error: the
+// board existed and was empty. Asking for one twice must not turn it into a
+// failure — and it did, inside a single request.
+//
+// "The board had not begun" is remembered as ok with a ZERO hash, and the
+// memo that says where a walk should start took any ok entry above the
+// moment asked for as a place to start walking from. A zero hash is not a
+// place: the walk opened it and got "object not found". LoadAsOfDay poisons
+// itself this way — it reads the day's own tree first (which files the zero
+// entry) and then asks for the day before it — so every day at or before a
+// board's first commit answered 502. On the production board that is one
+// click of the day arrow from a team whose sprint stands in June.
+func TestADayBeforeTheBoardBeganIsAnEmptyBoardNotAnError(t *testing.T) {
+	r := newRepo(t)
+	p, err := CardPath("01CARD00000000000BEGAN0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	when, err := time.Parse(time.RFC3339, "2026-08-01T09:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Commit(Action{Name: "write", Summary: "the board begins", At: when},
+		[]FileWrite{{Path: p, Data: []byte("---\ntitle: the first card\nteam: portal\nprogress: 0\nrank: a\ncreated: 2026-08-01T09:00:00Z\n---\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	// One request: the day's own tree, then the day before it.
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-07-19"), endOf(t, "2026-07-20"))
+	if err != nil {
+		t.Fatalf("a day before the board began: %v", err)
+	}
+	if !ok {
+		t.Fatal("the board existed and was empty, which is an answer")
+	}
+	if len(s.Cards) != 0 {
+		t.Fatalf("nothing had been written yet, got %d cards", len(s.Cards))
+	}
+	// And again, in the other order, for the memo's sake.
+	if _, ok, err := LoadAsOf(r, endOf(t, "2026-07-10")); err != nil || !ok {
+		t.Fatalf("an earlier day still answers: ok=%v err=%v", ok, err)
+	}
+}
