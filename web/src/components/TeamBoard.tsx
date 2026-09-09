@@ -242,6 +242,12 @@ export function TeamBoard({
         if (c.startDate && c.startDate > selectedDate) {
           return false;
         }
+        // The day a SPRINT began shows that sprint's own work, whatever has
+        // become of it since: it is the view a team opens to read the sprint
+        // it is in, and the day navigator's jump lands on it.
+        if (c.sprintStart === selectedDate) {
+          return true;
+        }
         return !isComplete(c) || finishedOn(c) === selectedDate;
       }),
     [inFilter, selectedDate],

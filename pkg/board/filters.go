@@ -14,6 +14,10 @@ import "slices"
 // open or was finished on that very day — a card finished yesterday belongs to
 // yesterday, and a board that keeps it is a board nobody can read.
 //
+// One day answers differently, and deliberately: the day a SPRINT BEGAN shows
+// that sprint's own work whatever has become of it since. That is the view a
+// team opens to read the sprint it is in, and the day navigator jumps to it.
+//
 // That is the whole rule. It used to be seven, layered: the week's own work,
 // the sprint's start day, the card's own scheduled day, the range between its
 // dates, the days of sprints it had passed through, and two special cases for
@@ -37,6 +41,16 @@ func TeamGrid(b Board, team, day string) []Card {
 			continue
 		}
 		if c.StartDate != "" && c.StartDate > day {
+			continue
+		}
+		// The day a sprint BEGAN shows that sprint's own work, whatever has
+		// become of it since. It is not another way of asking what is in hand
+		// — it is the view a team opens to read the sprint it is in, and the
+		// one they open it on: the day navigator's jump lands here. Dropping
+		// it made the board answer differently depending on which day you
+		// arrived at, which is the confusion this rule set out to end.
+		if c.SprintStart == day {
+			out = append(out, c)
 			continue
 		}
 		if Complete(c.Stage, c.Progress) && finishedOn(c) != day {

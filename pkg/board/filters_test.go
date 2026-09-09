@@ -27,6 +27,10 @@ func gridBoard() Board {
 		{ItemID: "Adebt", Team: "A", Week: "2026-06-08", StartDate: "2026-06-08"},
 		// Finished on the 22nd: that day keeps it, and no other.
 		{ItemID: "Adone", Team: "A", StartDate: "2026-06-01", Progress: 100, DoneAt: "2026-06-22"},
+		// Finished long after the sprint it belongs to: its sprint's day
+		// still shows it, and no other day does.
+		{ItemID: "Alate", Team: "A", StartDate: "2026-06-01", SprintStart: "2026-06-15",
+			Progress: 100, DoneAt: "2026-07-20"},
 		// Parked on a list: not planned at all, so on no day board.
 		{ItemID: "Aparked", Team: "A", StartDate: "2026-06-01", Parked: true},
 		// A subtask rides with its parent and is never placed on its own.
@@ -53,6 +57,8 @@ func TestTeamGrid(t *testing.T) {
 	}{
 		{"in hand: open work, and the debt of a week gone by", "A", "2026-06-23",
 			[]string{"A1", "Adebt"}},
+		{"a sprint's day shows work finished long after it", "A", "2026-06-15",
+			[]string{"A1", "Adebt", "Alate"}},
 		{"the day it was finished keeps it", "A", "2026-06-22",
 			[]string{"A1", "Adebt", "Adone"}},
 		{"a card put off arrives on its day, and the finished one is gone", "A", "2026-07-02",
@@ -62,6 +68,11 @@ func TestTeamGrid(t *testing.T) {
 		{"and stands on the board from that Monday on", "A", "2026-07-06",
 			[]string{"A1", "Aahead", "Adeferred", "Adebt"}},
 		{"before any of it exists, nothing is in hand", "A", "2026-05-01", []string{}},
+		// The day a sprint began shows that sprint's work, whatever has
+		// become of it since: A1 and Adone both carry the 06-22 sprint, and
+		// Adone was finished that day in any case.
+		{"a sprint's own day shows its work", "A", "2026-06-22",
+			[]string{"A1", "Adebt", "Adone"}},
 		{"another team is isolated", "B", "2026-06-23", []string{"B1"}},
 		{"the no-team group is a team like any other", "", "2026-06-23", []string{"N1"}},
 	}

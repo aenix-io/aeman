@@ -2716,9 +2716,18 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // and their answer to it is the refused stage. A card on somebody else is
 // the lead's to remove, and a SUBTASK is a piece of its parent rather than
 // work assigned to anyone.
+//
+// A REVIEW card is the third exception, and it was missing: it exists only
+// because somebody sent their card to this person, it is the artefact of that
+// asking rather than work planned for them, and "I am not doing this" — the
+// answer this rule points at — is not an answer to a review. Without it the
+// reviewer could not remove the card, could not refuse it, and clearing the
+// original's stage left it standing: a card on their board with nothing they
+// could do about it at all.
 func removingSomebodyElsesCard(ctx context.Context, card board.Card) error {
 	actor := board.ActorFrom(ctx)
-	if actor == "" || card.Parent != "" || card.Author == "" || card.Author == actor {
+	if actor == "" || card.Parent != "" || card.ReviewOf != "" ||
+		card.Author == "" || card.Author == actor {
 		return nil
 	}
 	if !slices.Contains(card.Assignees, actor) {
