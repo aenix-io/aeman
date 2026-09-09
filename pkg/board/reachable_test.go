@@ -115,3 +115,27 @@ func TestAProcessTaskIsReachable(t *testing.T) {
 		t.Fatal("a process task lives on the Process tab")
 	}
 }
+
+// A PARKED card is on a board — the backlog drawer, which is the whole point
+// of parking — and the day boards deliberately do not draw it. Nothing in
+// Reachable said so, and that was a rounding error while the day rule lost
+// cards by the dozen: the migration's cleanup had real strays to find. It is
+// not a rounding error now that the day rule loses nothing, because a cleanup
+// DELETES what this list hands it, and a shelf is the one thing left on it.
+func TestAParkedCardIsOnTheShelfWhichIsABoard(t *testing.T) {
+	const today = "2026-09-09"
+	b := NewBoard([]Card{
+		{ItemID: "st", Title: SprintStateTitle, Team: "portal", SprintStart: today, StartDate: today},
+		{ItemID: "shelved", Team: "portal", Parked: true, Progress: 30, Assignees: []string{"kvaps"}},
+		{ItemID: "shelved-list", Team: "portal", Parked: true, Progress: 0, Assignees: []string{"bob"}},
+	})
+	got := Reachable(b, today)
+	for _, id := range []string{"shelved", "shelved-list"} {
+		if !got[id] {
+			t.Errorf("%s is on its team's shelf, and Reachable calls it lost", id)
+		}
+	}
+	if lost := Unreachable(b, today); len(lost) != 0 {
+		t.Errorf("nothing here is lost, got %v", ids(lost))
+	}
+}

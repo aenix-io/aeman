@@ -104,22 +104,53 @@ func LoadAsOfDay(r *Repo, from, to time.Time) (Snapshot, bool, error) {
 	for _, c := range s.Cards {
 		held[c.ItemID] = true
 	}
-	gone, err := cardsRemovedBetween(r, from, to, held)
+	day, touched, err := commitsOfDay(r, from, to)
+	if err != nil {
+		return Snapshot{}, false, err
+	}
+	gone, err := cardsRemovedBetween(r, from, day, touched, held)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
 	s.Cards = append(s.Cards, gone...)
+	markFinishedInDay(s.Cards, touched, to.In(board.Location()).Format(dayLayout))
 	return s, true, nil
+}
+
+// dayLayout is the yyyy-mm-dd a card records a finished day in.
+const dayLayout = "2006-01-02"
+
+// markFinishedInDay says which of the day's cards were FINISHED on it, for
+// the ones whose writer did not say so themselves.
+//
+// A day board draws finished work on the day it was finished and no other,
+// and reads that day off the card's own doneAt (board.TeamGrid). The field is
+// young and these repositories are open, so a card closed before it existed —
+// or by any other tool — carries none, and the domain, which sees only the
+// card, can do no better than guess a day out of the card's PLAN. Here there
+// is evidence instead: this day's commits name the cards they touched, so a
+// card that is done in the day's tree and was written during the day was
+// finished during the day.
+//
+// What the card says wins, and a day it did not touch is not its business:
+// without that second half every day would claim every finished card the
+// tree still carries, which is the opposite of what the rule is for.
+func markFinishedInDay(cards []board.Card, touched map[string]int, day string) {
+	for i, c := range cards {
+		if c.DoneAt != "" || !board.Complete(c.Stage, c.Progress) {
+			continue
+		}
+		if _, named := touched[c.ItemID]; !named {
+			continue
+		}
+		cards[i].DoneAt = day
+	}
 }
 
 // cardsRemovedBetween reads every card that stood on the day and is not on
 // its last tree — the ones the day removed — in the state each was in when it
 // went. `held` is what the day ended with.
-func cardsRemovedBetween(r *Repo, from, to time.Time, held map[string]bool) ([]board.Card, error) {
-	day, touched, err := commitsOfDay(r, from, to)
-	if err != nil {
-		return nil, err
-	}
+func cardsRemovedBetween(r *Repo, from time.Time, day []*object.Commit, touched map[string]int, held map[string]bool) ([]board.Card, error) {
 	// What the day BEGAN with: a writer that leaves no trailers still shows
 	// up here, as a card present at the start and absent at the end. Only the
 	// IDS are wanted, and a card's id is in its path — so the day's first tree

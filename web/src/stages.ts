@@ -70,13 +70,46 @@ export function clampProgress(stage: StageKey | undefined | null, value: number)
 
 /** isComplete mirrors board.Complete: a card is finished when it has an explicit
  *  done stage, or is 100% with no stage, or is a recurrent card at 100%. */
-/** finishedOn is the day a finished card belongs to: the day it was recorded
- *  as done, or — for a card finished by another writer, or before that field
- *  existed — its own end date, then its start. A card with no dates at all is
- *  left alone: nothing says when it was finished, so nothing may say it was
- *  not the day being looked at. Mirrors board.finishedOn. */
-export function finishedOn(c: Partial<Pick<Card, "doneAt" | "day" | "startDate">>): string {
-  return c.doneAt || c.day || c.startDate || "";
+/** deferredPast reports a card put off to a day later than the one given: it is
+ *  off the board until that day arrives. Mirrors board.deferredPast. */
+export function deferredPast(c: Partial<Card>, day: string): boolean {
+  return !!c.startDate && c.startDate > day;
+}
+
+/** finishedOn reports whether a FINISHED card belongs to the day being looked at:
+ *  the day it RECORDED being finished on, and no other. It guessed at first —
+ *  doneAt, else the card's end date, else its start — and a card stretched three
+ *  weeks ahead and closed today then stood on a day three weeks out, as though it
+ *  had been finished then. A plan is not a record.
+ *
+ *  Nothing is lost by refusing to guess: a day already gone is served as a
+ *  snapshot of the board's history, and there the day's own commits say what they
+ *  finished. Mirrors board.finishedOn. */
+export function finishedOn(c: Partial<Card>, day: string): boolean {
+  return !!c.doneAt && c.doneAt === day;
+}
+
+/** doneAtAfter is the `doneAt` a patch leaves on a card, derived here exactly as
+ *  the server writes it (P6): the board day the card reached done, cleared when it
+ *  drops below. Only a patch that touches the stage or the bar can change it.
+ *
+ *  The optimistic copy has to carry it, because a day board draws finished work by
+ *  `doneAt` and nothing else (finishedOn): a card marked done without one is
+ *  complete, belongs to no day, and VANISHES from the board between the click and
+ *  the server's answer. */
+export function doneAtAfter(
+  before: Partial<Card>,
+  patch: Partial<Card>,
+  today: string,
+): string | undefined {
+  if (patch.progress === undefined && patch.stage === undefined) {
+    return before.doneAt;
+  }
+  const after = { ...before, ...patch };
+  if (!isComplete(after)) {
+    return undefined;
+  }
+  return after.doneAt || today;
 }
 
 export function isComplete(card: { stage?: StageKey; progress?: number }): boolean {

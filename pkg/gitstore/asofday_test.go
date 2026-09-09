@@ -221,3 +221,113 @@ func TestADayGivesBackWhatAToolRemovedWithoutSayingSo(t *testing.T) {
 	}
 	t.Fatal("the day began with the card and ended without it: the day gives it back")
 }
+
+// A day says which of its cards were FINISHED on it, and it can, because the
+// day's commits name the cards they touched. The board draws finished work
+// on the day it was finished and no other, and reads that day off the card's
+// own doneAt — a young field these open repositories cannot count on. Where
+// the domain would have to guess from the card's plan, the history KNOWS: a
+// card that is done in the day's tree and was written during the day was
+// finished during the day.
+//
+// A card already done before the day and untouched by it is not the day's,
+// and stays unmarked — otherwise every day would end up claiming every
+// finished card the tree still carries.
+func TestADayNamesTheWorkItFinished(t *testing.T) {
+	r := newRepo(t)
+	const (
+		closed = "01CARD0000000000000CLOSED1"
+		before = "01CARD0000000000000BEFORE1"
+		open   = "01CARD00000000000000OPEN01"
+	)
+	path := func(id string) string {
+		p, err := CardPath(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// No doneAt anywhere: a writer that does not keep the field, which is
+	// every writer that closed a card before it existed.
+	card := func(id string, progress int) FileWrite {
+		return FileWrite{Path: path(id), Data: []byte(
+			"---\ntitle: card\nteam: portal\nstart: 2026-08-20\nday: 2026-09-30\nprogress: " +
+				strconv.Itoa(progress) + "\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")}
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	commit := func(iso string, ids []string, writes ...FileWrite) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: ids,
+			Summary: "w", At: at(iso)}, writes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("2026-08-19T09:00:00Z", []string{closed, before, open},
+		card(closed, 30), card(before, 100), card(open, 30))
+	commit("2026-08-20T16:00:00Z", []string{closed, open}, card(closed, 100), card(open, 60))
+	commit("2026-08-21T10:00:00Z", []string{open}, card(open, 90))
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-19"), endOf(t, "2026-08-20"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	done := map[string]string{}
+	for _, c := range s.Cards {
+		done[c.ItemID] = c.DoneAt
+	}
+	if done[closed] != "2026-08-20" {
+		t.Errorf("a card finished on the day carries that day, got %q", done[closed])
+	}
+	if done[before] != "" {
+		t.Errorf("a day claims no work it did not touch, got %q", done[before])
+	}
+	if done[open] != "" {
+		t.Errorf("open work is not finished work, got %q", done[open])
+	}
+}
+
+// What the card SAYS wins: a writer that recorded the day is the evidence,
+// and a day that overwrote it would move finished work onto itself — the
+// card closed on Tuesday and edited on Wednesday would read as Wednesday's.
+func TestADayLeavesARecordedDayAlone(t *testing.T) {
+	r := newRepo(t)
+	const id = "01CARD000000000000RECORD01"
+	p, err := CardPath(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	commit := func(iso, body string) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: []string{id},
+			Summary: "w", At: at(iso)}, []FileWrite{{Path: p, Data: []byte(body)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("2026-08-19T09:00:00Z", "---\ntitle: a card\nteam: portal\nstart: 2026-08-19\nprogress: 100\ndoneAt: 2026-08-19\nrank: a\ncreated: 2026-08-19T09:00:00Z\n---\n")
+	// The next day touches it — a note, a rank, anything — without reopening it.
+	commit("2026-08-20T12:00:00Z", "---\ntitle: a card, retitled\nteam: portal\nstart: 2026-08-19\nprogress: 100\ndoneAt: 2026-08-19\nrank: b\ncreated: 2026-08-19T09:00:00Z\n---\n")
+	commit("2026-08-21T09:00:00Z", "---\ntitle: a card, retitled\nteam: portal\nstart: 2026-08-19\nprogress: 100\ndoneAt: 2026-08-19\nrank: c\ncreated: 2026-08-19T09:00:00Z\n---\n")
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-19"), endOf(t, "2026-08-20"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	for _, c := range s.Cards {
+		if c.ItemID == id && c.DoneAt != "2026-08-19" {
+			t.Fatalf("the day the card records is the day it keeps, got %q", c.DoneAt)
+		}
+	}
+}

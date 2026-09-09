@@ -36,6 +36,7 @@ import { queryString, snapshotDay, viewQueries, watchQueries } from "./viewquery
 import { frozenProvider } from "./providers/frozen";
 import { PersonalDialog } from "./components/PersonalDialog";
 import { todayIso, setBoardTimezone } from "./date";
+import { doneAtAfter } from "./stages";
 import { mergeNotes } from "./notes";
 import { nameConflict } from "./names";
 import { AppearanceMenu } from "./components/AppearanceMenu";
@@ -886,7 +887,15 @@ export function App() {
             return c;
           }
           changed = true;
-          return { ...c, ...p };
+          const next = { ...c, ...p };
+          // The day a card reached done goes with it, exactly as the server
+          // writes it (P6). A day board draws finished work by that day and no
+          // other, so an optimistic copy without it is a card that vanishes
+          // between the click and the answer.
+          if (!("doneAt" in p)) {
+            next.doneAt = doneAtAfter(c, p, todayIso());
+          }
+          return next;
         });
         return changed ? { ...cur, cards } : cur;
       });

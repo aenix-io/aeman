@@ -21,16 +21,22 @@ func gridBoard() Board {
 		{ItemID: "A1", Team: "A", StartDate: "2026-06-01", SprintStart: "2026-06-22"},
 		// Planned into a later week: on no day board until its Monday (B1).
 		{ItemID: "Aahead", Team: "A", Week: "2026-07-06"},
-		// Put off to a later day: gone from the board until that day comes.
-		{ItemID: "Adeferred", Team: "A", StartDate: "2026-07-02", SprintStart: "2026-06-22"},
+		// Put off to a later day — far enough ahead that it is deferred
+		// whenever this test runs: gone from the board, and out of the
+		// sprint in progress, until that day comes.
+		{ItemID: "Adeferred", Team: "A", StartDate: "2999-07-02", SprintStart: "2026-06-22"},
 		// A week gone by and still open — a debt, and still in hand.
 		{ItemID: "Adebt", Team: "A", Week: "2026-06-08", StartDate: "2026-06-08"},
 		// Finished on the 22nd: that day keeps it, and no other.
 		{ItemID: "Adone", Team: "A", StartDate: "2026-06-01", Progress: 100, DoneAt: "2026-06-22"},
-		// Finished long after the sprint it belongs to: its sprint's day
-		// still shows it, and no other day does.
+		// Finished in a sprint gone by: it belongs to the day it was finished
+		// on, and its own sprint's day does NOT bring it back — that day
+		// shows the sprint's OPEN work.
 		{ItemID: "Alate", Team: "A", StartDate: "2026-06-01", SprintStart: "2026-06-15",
 			Progress: 100, DoneAt: "2026-07-20"},
+		// Nobody has said when: no week, no dates, no sprint. This is the
+		// Triage strip, and a day board never draws it.
+		{ItemID: "Astrip", Team: "A"},
 		// Parked on a list: not planned at all, so on no day board.
 		{ItemID: "Aparked", Team: "A", StartDate: "2026-06-01", Parked: true},
 		// A subtask rides with its parent and is never placed on its own.
@@ -57,16 +63,18 @@ func TestTeamGrid(t *testing.T) {
 	}{
 		{"in hand: open work, and the debt of a week gone by", "A", "2026-06-23",
 			[]string{"A1", "Adebt"}},
-		{"a sprint's day shows work finished long after it", "A", "2026-06-15",
-			[]string{"A1", "Adebt", "Alate"}},
+		{"a sprint's day shows its OPEN work, not what was finished elsewhere",
+			"A", "2026-06-15", []string{"A1", "Adebt"}},
+		{"and the day it was finished on holds it", "A", "2026-07-20",
+			[]string{"A1", "Aahead", "Adebt", "Alate"}},
 		{"the day it was finished keeps it", "A", "2026-06-22",
 			[]string{"A1", "Adebt", "Adone"}},
-		{"a card put off arrives on its day, and the finished one is gone", "A", "2026-07-02",
-			[]string{"A1", "Adeferred", "Adebt"}},
-		{"a week ahead is on no day board until its Monday", "A", "2026-07-05",
-			[]string{"A1", "Adeferred", "Adebt"}},
-		{"and stands on the board from that Monday on", "A", "2026-07-06",
+		{"a card put off arrives on its day, and the finished one is gone", "A", "2999-07-02",
 			[]string{"A1", "Aahead", "Adeferred", "Adebt"}},
+		{"a week ahead is on no day board until its Monday", "A", "2026-07-05",
+			[]string{"A1", "Adebt"}},
+		{"and stands on the board from that Monday on", "A", "2026-07-06",
+			[]string{"A1", "Aahead", "Adebt"}},
 		{"before any of it exists, nothing is in hand", "A", "2026-05-01", []string{}},
 		// The day a sprint began shows that sprint's work, whatever has
 		// become of it since: A1 and Adone both carry the 06-22 sprint, and
@@ -332,4 +340,71 @@ func slicesContains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// Finished work belongs to the day it RECORDS being finished on (doneAt),
+// and to no other day at all. That is what keeps yesterday's finished work
+// off today's board, and it is the whole rule — there is no second one.
+//
+// It used to guess when the card said nothing: doneAt, else the card's end
+// date, else its start. Both fallbacks read a PLAN as if it were evidence,
+// and a card stretched three weeks ahead and closed today stood on a day
+// three weeks out, as though it had been finished then, and on none of the
+// days it was actually worked.
+//
+// Nothing is lost by refusing to guess, because a card whose writer said
+// nothing is not left to this rule: a day already gone is served as a
+// snapshot of the tree at that day's last commit, and the day's own commits
+// name the cards they touched — so the history says which of them were
+// finished on it and fills the field in (gitstore.markFinishedInDay). What
+// reaches here unrecorded was closed on no day this board can name, and
+// there is no day AHEAD on which somebody finished it.
+func TestAFinishedCardBelongsToTheDayItRecords(t *testing.T) {
+	b := NewBoard([]Card{
+		{ItemID: "recorded", Team: "t", StartDate: "2026-09-01", Day: "2026-09-20",
+			Progress: 100, DoneAt: "2026-09-03"},
+		{ItemID: "unrecorded", Team: "t", StartDate: "2026-09-01", Day: "2026-09-20", Progress: 100},
+		{ItemID: "one-day", Team: "t", StartDate: "2026-09-02", Progress: 100},
+		// Open, and stretched over the same span: the rule is about FINISHED
+		// work, and everything else still stands across its dates.
+		{ItemID: "open", Team: "t", StartDate: "2026-09-01", Day: "2026-09-20", Progress: 40},
+	})
+	shows := func(id, day string) bool {
+		for _, c := range TeamGrid(b, "t", day) {
+			if c.ItemID == id {
+				return true
+			}
+		}
+		return false
+	}
+	// Recorded: its own day, and nothing else — not the days of its span.
+	if !shows("recorded", "2026-09-03") {
+		t.Error("the day it recorded must hold it")
+	}
+	for _, day := range []string{"2026-09-01", "2026-09-10", "2026-09-20"} {
+		if shows("recorded", day) {
+			t.Errorf("a card that says when it was finished stands on no other day (%s)", day)
+		}
+	}
+	// Unrecorded: on no day. Never invented onto one at the far end of a plan.
+	for _, day := range []string{"2026-09-01", "2026-09-03", "2026-09-10", "2026-09-20"} {
+		if shows("unrecorded", day) {
+			t.Errorf("a card that says nothing is put on no day by guesswork (%s)", day)
+		}
+	}
+	if shows("one-day", "2026-09-02") || shows("one-day", "2026-09-03") {
+		t.Error("one date is a plan, not a record of being finished")
+	}
+	// And the same span, open, stands from the day it was due to begin and
+	// does not stop at the day it was due to end: work that ran over is the
+	// work most in need of being looked at, and a board that dropped it was
+	// how a card scheduled for last Tuesday left every view at once.
+	for _, day := range []string{"2026-09-01", "2026-09-10", "2026-09-20", "2026-09-21"} {
+		if !shows("open", day) {
+			t.Errorf("open work stands from its start on (%s)", day)
+		}
+	}
+	if shows("open", "2026-08-31") {
+		t.Error("but not before the day it was put off to")
+	}
 }

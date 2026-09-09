@@ -25,7 +25,7 @@ import type {
   ZoneKey,
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
-import { clampProgress, clampsProgress, finishedOn } from "../stages";
+import { clampProgress, clampsProgress, deferredPast, finishedOn } from "../stages";
 import { todayIso, addDays, localDateIso, mondayOf } from "../date";
 import { currentSprint, previousSprint, sprintForDate } from "../sprint";
 import { teamColor } from "../avatar";
@@ -223,32 +223,43 @@ export function TeamBoard({
   // put off to later. Mirrors board.TeamGrid.
   //
   // A card is in hand when it is not a subtask (those render nested under
-  // their parent), is not parked on a list, has not been planned into a week
-  // after this day's, has not been deferred past it, and is either open or
-  // was finished on that very day — a card finished yesterday belongs to
-  // yesterday. That is the whole rule; it used to be seven layered ones, and
-  // between them they put work nobody was doing on the day while dropping a
-  // card scheduled for last Tuesday and never finished, which no rule
-  // reached any more.
+  // their parent), is not parked on a list, somebody has said WHEN it is for,
+  // it has not been planned into a week after this day's, it has not been
+  // deferred past it, and it is either open or was finished on that very day
+  // — a card finished yesterday belongs to yesterday. That is the whole rule;
+  // it used to be seven layered ones, and between them they put work nobody
+  // was doing on the day while dropping a card scheduled for last Tuesday and
+  // never finished, which no rule reached any more.
   const filteredCards = useMemo(
     () =>
       inFilter.filter((c) => {
         if (c.parent || parked(c)) {
           return false;
         }
+        // Somebody has to have said WHEN: a week, a date or a sprint. A card
+        // with none of the three is the Triage strip — an inbox, not a day's
+        // work — and drawing it here would land the inbox in every column.
+        if (!c.week && !c.startDate && !c.day && !c.sprintStart) {
+          return false;
+        }
         if (c.week && c.week > mondayOf(selectedDate)) {
           return false;
         }
-        if (c.startDate && c.startDate > selectedDate) {
+        // Finished work belongs to the day it recorded, and to no other.
+        if (isComplete(c) && !finishedOn(c, selectedDate)) {
           return false;
         }
-        // The day a SPRINT began shows that sprint's own work, whatever has
-        // become of it since: it is the view a team opens to read the sprint
-        // it is in, and the day navigator's jump lands on it.
-        if (c.sprintStart === selectedDate) {
+        // The day a SPRINT began shows that sprint's own open work, ALL of it:
+        // most of a sprint is created inside it, and a day that only showed
+        // what existed on the Monday would show almost none of the work by
+        // Wednesday. Above the deferral gate for that reason — and a card put
+        // off past TODAY is still gone, because deferring is the act of taking
+        // it out of the sprint in progress.
+        if (c.sprintStart === selectedDate && !deferredPast(c, todayIso())) {
           return true;
         }
-        return !isComplete(c) || finishedOn(c) === selectedDate;
+        // Put off to a later day: gone until that day comes.
+        return !deferredPast(c, selectedDate);
       }),
     [inFilter, selectedDate],
   );

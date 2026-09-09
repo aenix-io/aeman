@@ -6,17 +6,23 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
+
+	"github.com/aenix-io/aeman/pkg/board"
 )
 
 // day is a board day's last moment in UTC — what "the board on the 21st"
 // means when the question is asked of the history.
+// endOf is a board day's last moment, the way every caller of LoadAsOfDay
+// builds it: in the BOARD's time zone, not the test's. A day snapshot names
+// the day it is of, so a helper that cut the day in UTC put a two-hour band
+// of the evening into the next day and nothing here would have said so.
 func endOf(t *testing.T, iso string) time.Time {
 	t.Helper()
-	d, err := time.Parse("2006-01-02", iso)
+	end, err := board.EndOfDay(iso)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return d.Add(24*time.Hour - time.Nanosecond)
+	return end
 }
 
 // Going back a day on the board must show what the board SHOWED that day,

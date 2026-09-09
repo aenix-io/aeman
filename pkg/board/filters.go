@@ -8,15 +8,18 @@ import "slices"
 // it mirrors filteredCards in TeamBoard.tsx.
 //
 // A card is in hand on a day when it is this team's, is not a subtask (those
-// ride with their parent), is not parked on a list, has not been planned into
-// a week AFTER that day's (B1: a card placed in a week ahead is on no day
-// board until its Monday), has not been deferred past that day, and is either
-// open or was finished on that very day — a card finished yesterday belongs to
-// yesterday, and a board that keeps it is a board nobody can read.
+// ride with their parent), is not parked on a list, somebody has said WHEN it
+// is for (a week, a date or a sprint — a card with none of the three is the
+// Triage strip, which is an inbox rather than a day's work), has not been
+// planned into a week AFTER that day's (B1: a card placed in a week ahead is
+// on no day board until its Monday), has not been deferred past that day, and
+// is either open or was finished on that very day — a card finished yesterday
+// belongs to yesterday, and a board that keeps it is a board nobody can read.
 //
 // One day answers differently, and deliberately: the day a SPRINT BEGAN shows
-// that sprint's own work whatever has become of it since. That is the view a
-// team opens to read the sprint it is in, and the day navigator jumps to it.
+// that sprint's own work whatever has become of it since, deferrals aside.
+// That is the view a team opens to read the sprint it is in, and the day the
+// navigator jumps to.
 //
 // That is the whole rule. It used to be seven, layered: the week's own work,
 // the sprint's start day, the card's own scheduled day, the range between its
@@ -29,31 +32,54 @@ import "slices"
 //
 // Looking BACK is not this function's job: a day already past is answered
 // from the board's history, as it was (the snapshot path). Looking forward
-// works here, because the two gates it applies are both relative to the day
-// asked about — a card deferred to Thursday is in hand on Thursday.
+// works here, because every gate it applies is relative to the day asked
+// about — a card deferred to Thursday is in hand on Thursday.
 func TeamGrid(b Board, team, day string) []Card {
+	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
 		if c.Parent != "" || c.Team != team || InBacklog(c) {
 			continue
 		}
+		// Somebody has to have said WHEN, one way or another: a week, a date,
+		// or a sprint. A card with none of the three is the Triage strip —
+		// "nobody has said" — and the strip is the one thing a day board must
+		// not draw, or the inbox lands in everybody's column and stays there
+		// for good. It is also the only bound this rule has on how far back
+		// or forward a card reaches.
+		if c.Week == "" && c.StartDate == "" && c.Day == "" && c.SprintStart == "" {
+			continue
+		}
 		if c.Week != "" && c.Week > MondayOf(day) {
 			continue
 		}
-		if c.StartDate != "" && c.StartDate > day {
+
+		// Finished work belongs to the day it was finished on, and to no
+		// other. Below this gate, not above it: a card finished in a sprint
+		// gone by was standing on THIS sprint's day, which is the "work
+		// nobody was doing appeared on the day" this rule set out to end.
+		if Complete(c.Stage, c.Progress) && !finishedOn(c, day) {
 			continue
 		}
-		// The day a sprint BEGAN shows that sprint's own work, whatever has
-		// become of it since. It is not another way of asking what is in hand
-		// — it is the view a team opens to read the sprint it is in, and the
-		// one they open it on: the day navigator's jump lands here. Dropping
-		// it made the board answer differently depending on which day you
-		// arrived at, which is the confusion this rule set out to end.
-		if c.SprintStart == day {
+		// The day a sprint BEGAN shows that sprint's own OPEN work — ALL of
+		// it, including the cards that appeared after the sprint started.
+		// Most of a sprint is created inside it: a card typed on the Tuesday
+		// of a sprint that opened on Monday is the sprint's work, and a day
+		// that only showed what existed on the Monday would show almost none
+		// of it by Wednesday. So this stands ABOVE the gate on the card's own
+		// start date, which is about when work is due to begin rather than
+		// which sprint it belongs to.
+		//
+		// A card DEFERRED past today is the exception, and it is the one the
+		// gate below cannot make: deferring is the act of taking a card out
+		// of the sprint in progress, so it must leave that day at once —
+		// pushed to next month, it is nobody's sprint work meanwhile.
+		if c.SprintStart == day && !deferredPast(c, today) {
 			out = append(out, c)
 			continue
 		}
-		if Complete(c.Stage, c.Progress) && finishedOn(c) != day {
+		// Put off to a later day: gone from the board until that day comes.
+		if deferredPast(c, day) {
 			continue
 		}
 		out = append(out, c)
@@ -61,23 +87,31 @@ func TeamGrid(b Board, team, day string) []Card {
 	return out
 }
 
-// finishedOn is the day a finished card belongs to. doneAt is the record and
-// is what the board writes — but it is a young field, and these repositories
-// are open: a card finished by any other writer, or before the field existed,
-// carries none. Falling back to the card's own dates is what keeps such a
-// card on the day somebody worked it rather than dropping it out of every
-// day at once, and a card with no dates at all is left alone: nothing says
-// when it was finished, so nothing may say it was not that day.
-func finishedOn(c Card) string {
-	switch {
-	case c.DoneAt != "":
-		return c.DoneAt
-	case c.Day != "":
-		return c.Day
-	default:
-		return c.StartDate
-	}
-}
+// deferredPast reports a card put off to a day later than the one given: it
+// is off the board until that day arrives.
+func deferredPast(c Card, day string) bool { return c.StartDate != "" && c.StartDate > day }
+
+// finishedOn reports whether a FINISHED card belongs to the day being looked
+// at: the day it RECORDED being finished on (doneAt), and no other.
+//
+// It guessed at first — doneAt, else the card's end date, else its start — so
+// that work closed before the field existed would land somewhere. Both
+// fallbacks are a PLAN rather than evidence, and the guess showed it: a card
+// stretched three weeks ahead and closed today stood on a day three weeks
+// out, as though it had been finished then, and on none of the days it was
+// actually worked.
+//
+// Nothing is lost by refusing to guess, because this rule answers only TODAY
+// and the days ahead. Every day already gone is served as a SNAPSHOT of the
+// tree at that day's last commit (snapshotDay: a me/team day before today is
+// always asked for that way, unless the team is still inside that sprint) —
+// and there the question is not guessed at either: the day's commits name the
+// cards they touched, so a card that is done in the day's tree and was
+// written during the day is filled in as finished then
+// (gitstore.markFinishedInDay). What reaches HERE with nothing recorded was
+// closed on no day this board can name, and there is no day ahead on which
+// somebody finished it.
+func finishedOn(c Card, day string) bool { return c.DoneAt == day }
 
 // MeView returns the cards on the personal day board for a user on a given day:
 // the user's cards (user = "" means everyone) that belong to the sprint that was
