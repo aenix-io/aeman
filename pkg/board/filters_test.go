@@ -531,6 +531,9 @@ func TestTheSprintsOwnDayIsTheWholeSprint(t *testing.T) {
 		{ItemID: "later", Team: "T", SprintStart: opened, StartDate: AddDays(today, 3), Day: AddDays(today, 3)},
 		// Planned into a week to come: the same answer, by the other door.
 		{ItemID: "nextweek", Team: "T", SprintStart: opened, Week: AddDays(MondayOf(today), 7)},
+		// Put off to today — yesterday's "send it to tomorrow", the morning
+		// after. Not deferred any more, so the sprint has it back.
+		{ItemID: "arrived", Team: "T", SprintStart: opened, StartDate: today, Day: today},
 	})
 	on := func(day string) map[string]bool {
 		out := map[string]bool{}
@@ -550,6 +553,16 @@ func TestTheSprintsOwnDayIsTheWholeSprint(t *testing.T) {
 		if sprint[id] {
 			t.Errorf("%s was put off and is not this sprint's work any more: %v", id, sprint)
 		}
+	}
+
+	// A card put off to TODAY is not put off any more, and the sprint's day
+	// has it back. That is what the lead sees the next morning: send a card
+	// to tomorrow and it leaves the sprint for the rest of the day, and when
+	// tomorrow comes it is in the sprint again — the sprint is still running,
+	// and the card is in play again. Sending it further out is how it stays
+	// away for longer.
+	if !on(opened)["arrived"] {
+		t.Error("a card whose day has come is back in the sprint")
 	}
 
 	// The card sent to tomorrow arrives tomorrow, and the one sent three days

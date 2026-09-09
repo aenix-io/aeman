@@ -8,17 +8,23 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// A review card is the REVIEWER's to close.
+// A review card can be taken off the board, and the guard must not stand in
+// the way.
 //
 // The × refuses a card somebody else made and this person is only carrying —
 // work planned for them is not theirs to take off the board, and their answer
 // to it is the refused stage. A review card is neither of those things: it
 // exists only because somebody sent their card to this person, it is the
 // artefact of that asking, and "I am not doing this" is not an answer to a
-// review. So the reviewer could not remove it, could not refuse it, and
-// clearing the ORIGINAL's stage left it standing too — a card on their board
-// with nothing at all they could do about it.
-func TestAReviewerMayCloseTheirOwnReviewCard(t *testing.T) {
+// review. The guard shielded it all the same, and a LEAD who happened to be
+// the reviewer — which is most reviews — could not take it off the Team
+// board at all.
+//
+// Where that × is offered is the client's answer and it differs by board: the
+// TEAM board draws one on every card, and the ME board draws none here
+// (meboard.mayRemove — a review is authored by whoever sent it). This is the
+// server's half: it refuses nobody.
+func TestAReviewCardIsNotShieldedFromTheCross(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "orig", Title: "the work", Author: "ivan", Assignees: []string{"ivan"},
 			Team: "t", Progress: 90, Stage: board.StageReview},

@@ -2276,11 +2276,13 @@ func (s *Service) sendToReview(ctx context.Context, b board.Board, card board.Ca
 	if day == "" {
 		day = board.TodayIso()
 	}
+	// A review lands in the UNPLANNED zone unless the caller says otherwise.
+	// For the reviewer it is work that turned up during their day — nobody
+	// planned it into their week — and the original's band says where the
+	// WORK stood, not where the asking belongs: inheriting it put a red
+	// review on somebody's board because the card being reviewed was urgent.
 	if zone == "" {
-		zone = card.Zone
-	}
-	if zone == "" {
-		zone = board.ZoneGray
+		zone = board.ZoneYellow
 	}
 	// A review card belongs to the SAME sprint as the card it reviews, not
 	// merely the team's current pointer — otherwise a card being reviewed in an

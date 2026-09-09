@@ -942,9 +942,12 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	if in.Title != "review: ship it" || in.Assignee != "carol" || in.ReviewOf != "orig" {
 		t.Fatalf("review create input = %+v", in)
 	}
-	// Without an explicit zone the review card inherits the original's (the
-	// Team board's behaviour).
-	if in.Zone != board.ZoneRed || in.Team != "alpha" || in.Start != day || in.SprintStart != "2026-06-20" {
+	// A review lands in the UNPLANNED zone whatever the original wore. For
+	// the reviewer it is work that turned up during their day — nobody
+	// planned it into their week — and the original's own band says where
+	// the WORK stood, not where the asking belongs. It used to inherit the
+	// original's zone, so a red card put a red review on somebody's board.
+	if in.Zone != board.ZoneYellow || in.Team != "alpha" || in.Start != day || in.SprintStart != "2026-06-20" {
 		t.Fatalf("review create input = %+v", in)
 	}
 	if rev.ReviewOf != "orig" {
@@ -956,15 +959,15 @@ func TestSendToReviewCreatesLinkedCardAndStagesOriginal(t *testing.T) {
 	}
 }
 
-// The Me board sends the review card to the reviewer's unplanned zone
-// explicitly: for the reviewer it is work that popped up during the day.
+// A caller may still say where the review goes, and is obeyed: the default
+// is a default, not a rule about what a reviewer may be given.
 func TestSendToReviewWithExplicitZone(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "orig", Title: "ship it", Team: "alpha", Zone: board.ZoneRed}},
 		map[string]board.SprintState{"alpha": {Current: "2026-06-20"}})
-	if _, err := f2svc(f).SendToReview(ctx, "acme", "orig", "carol", "2026-06-25", board.ZoneYellow); err != nil {
+	if _, err := f2svc(f).SendToReview(ctx, "acme", "orig", "carol", "2026-06-25", board.ZoneGreen); err != nil {
 		t.Fatal(err)
 	}
-	if f.creates[0].Zone != board.ZoneYellow {
+	if f.creates[0].Zone != board.ZoneGreen {
 		t.Fatalf("review create input = %+v", f.creates[0])
 	}
 }
