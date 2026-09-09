@@ -231,6 +231,32 @@ describe("weeksCovered", () => {
   });
 });
 
+// Work that was DONE in a week is that week's work, planned or not. A card
+// closed without ever being given a week stood in no column and in no strip —
+// the strip is work still to be LOOKED at — so the board showed it nowhere at
+// all. Mirrors board.TriageWeekOf.
+describe("finished work nobody placed", () => {
+  it("stands in the week it was finished in", () => {
+    expect(
+      placedIn(card({ progress: 100, doneAt: "2026-09-09", startDate: "2026-09-09" })),
+    ).toBe("2026-09-07");
+  });
+
+  it("leaves open work in the strip, where it is asked about", () => {
+    expect(placedIn(card({ progress: 40, startDate: "2026-09-09" }))).toBeNull();
+  });
+
+  it("keeps the week somebody gave it", () => {
+    expect(placedIn(card({ week: "2026-08-31", progress: 100, doneAt: "2026-09-09" }))).toBe(
+      "2026-08-31",
+    );
+  });
+
+  it("places nothing by a day nobody recorded", () => {
+    expect(placedIn(card({ progress: 100, startDate: "2026-09-09" }))).toBeNull();
+  });
+});
+
 // A card placed in a week AHEAD is on no day board until its Monday: that is
 // what makes the backlog a regulator rather than a list.
 describe("placed ahead", () => {

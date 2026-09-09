@@ -7,6 +7,7 @@ import type { Card } from "./providers/types";
 import { addDays, mondayOf } from "./date";
 import { parked } from "./backlog";
 import { isPersonalDomain } from "./domains";
+import { isComplete } from "./stages";
 
 /** needsTriage reports whether nobody has said WHEN the card's work is due:
  *  an open card of its own, with no week. The week is the whole of the
@@ -95,7 +96,10 @@ export function broughtBack(
  *  A REVIEW card is the one exception to "its week and nothing else": it has
  *  no week to have, and stands where its own dates put it. */
 export function placedIn(
-  c: Pick<Card, "week" | "parked" | "reviewOf" | "startDate" | "day">,
+  c: Pick<
+    Card,
+    "week" | "parked" | "reviewOf" | "startDate" | "day" | "doneAt" | "progress" | "stage"
+  >,
 ): string | null {
   if (parked(c)) {
     return null;
@@ -113,6 +117,13 @@ export function placedIn(
   // board.TriageWeekOf. */
   if (c.reviewOf) {
     return mondayOf(c.startDate || c.day || "") || null;
+  }
+  // Work that was DONE in a week is that week's work, planned or not: a card
+  // closed without ever being given a week stood in no column and in no strip
+  // (the strip is work still to be looked at), so the board showed it nowhere
+  // at all. Mirrors board.TriageWeekOf.
+  if (c.doneAt && isComplete(c)) {
+    return mondayOf(c.doneAt);
   }
   return null;
 }

@@ -76,6 +76,18 @@ func TriageWeekOf(_ Board, c Card, _ string) string {
 		}
 		return MondayOf(c.Day)
 	}
+	// WORK THAT WAS DONE IN A WEEK IS THAT WEEK'S WORK, planned or not. A
+	// card closed without ever being given a week stood in no column and in
+	// no strip — the strip is work still to be LOOKED at, and this work is
+	// finished — so the board showed it nowhere at all and a lead reading the
+	// week saw less than the week had done. It stands in the week it was
+	// finished in: that is where the reader looks for it, and it is the week
+	// whose points it is part of, exactly as a finished card WITH a week
+	// already is. One finished long ago falls outside the window like
+	// anything else of its week rather than piling into the current one.
+	if Complete(c.Stage, c.Progress) && c.DoneAt != "" {
+		return MondayOf(c.DoneAt)
+	}
 	return ""
 }
 

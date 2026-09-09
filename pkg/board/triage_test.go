@@ -134,3 +134,51 @@ func TestAReviewStandsInTheWeekItsDatesFallIn(t *testing.T) {
 		t.Errorf("an ordinary dated card = %q, want no column", got)
 	}
 }
+
+// WORK THAT WAS DONE IN A WEEK IS THAT WEEK'S WORK, whether or not anybody
+// planned it. A card closed today without ever being given a week stood in no
+// column and in no strip — the strip is for work still to be looked at, and
+// this work is finished — so it was on the Triage board nowhere at all, and a
+// lead reading the week saw less than the week had done.
+//
+// It stands in the week it was FINISHED in. That is where the reader is
+// looking for it, it is the week whose points it is part of (a finished card
+// WITH a week already counts there), and a card finished long ago falls
+// outside the window like anything else of that week rather than piling into
+// the current one.
+func TestFinishedWorkNobodyPlannedStandsInTheWeekItWasDoneIn(t *testing.T) {
+	var b Board
+	done := Card{ItemID: "done", Team: "t", Progress: 100, DoneAt: "2026-09-09",
+		StartDate: "2026-09-09", Day: "2026-09-09"}
+	if got := TriageWeekOf(b, done, "2026-09-09"); got != "2026-09-07" {
+		t.Errorf("the week it was finished in = %q, want its Monday", got)
+	}
+	// Still open, still unplaced: the strip, which is where it is asked
+	// about — no week is invented for work nobody has looked at.
+	open := done
+	open.Progress, open.DoneAt = 40, ""
+	if got := TriageWeekOf(b, open, "2026-09-09"); got != "" {
+		t.Errorf("open work nobody placed stands in no column, got %q", got)
+	}
+	if !NeedsTriage(b, open, "2026-09-09") {
+		t.Error("and it is in the strip")
+	}
+	// A week somebody DID give it wins: the plan is what they said, and the
+	// day it was finished does not move the card out of it.
+	placed := done
+	placed.Week = "2026-08-31"
+	if got := TriageWeekOf(b, placed, "2026-09-09"); got != "2026-08-31" {
+		t.Errorf("the week somebody gave it = %q", got)
+	}
+	// Finished work is never in the strip, placed or not.
+	if NeedsTriage(b, done, "2026-09-09") {
+		t.Error("finished work is not waiting to be looked at")
+	}
+	// And a card that recorded no day is where it always was: nowhere. There
+	// is nothing to place it by.
+	silent := done
+	silent.DoneAt = ""
+	if got := TriageWeekOf(b, silent, "2026-09-09"); got != "" {
+		t.Errorf("nothing says which week finished it, got %q", got)
+	}
+}
