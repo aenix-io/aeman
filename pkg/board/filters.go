@@ -16,13 +16,12 @@ import "slices"
 // is either open or was finished on that very day — a card finished yesterday
 // belongs to yesterday, and a board that keeps it is a board nobody can read.
 //
-// One day answers differently, and deliberately: on the day a SPRINT BEGAN,
-// the sprint's own work does not have to have arrived yet — a card created
-// inside the sprint stands on its first day too. It is NOT an exemption from
-// the gates above it: work planned into a later week still waits for that
-// week, and finished work still belongs to the day it was finished on. So
-// that day shows the sprint's work that is in hand, which is the view a team
-// opens to read the sprint it is in, and the day the navigator jumps to.
+// One day answers differently, and deliberately: the day a SPRINT BEGAN is
+// the whole sprint. A lead opens it every few mornings and goes through it
+// with the team, so it holds the work the sprint opened with, the work typed
+// into it since, and the work already closed — not only what is still in
+// hand. What still leaves that day is what was taken OUT of the sprint: work
+// deferred past today, and work planned into a week still to come.
 //
 // That is the whole rule. It used to be seven, layered: the week's own work,
 // the sprint's start day, the card's own scheduled day, the range between its
@@ -57,29 +56,31 @@ func TeamGrid(b Board, team, day string) []Card {
 			continue
 		}
 
-		// Finished work belongs to the day it was finished on, and to no
-		// other. Below this gate, not above it: a card finished in a sprint
-		// gone by was standing on THIS sprint's day, which is the "work
-		// nobody was doing appeared on the day" this rule set out to end.
-		if Complete(c.Stage, c.Progress) && !finishedOn(c, day) {
-			continue
-		}
-		// The day a sprint BEGAN also holds the work created INSIDE it, which
-		// is most of a sprint: a card typed on the Tuesday of a sprint that
-		// opened on Monday is that sprint's work, and a day that only showed
-		// what existed on the Monday would show almost none of it by
-		// Wednesday. That is what this clause adds, and all it adds — it
-		// stands above the gate on the card's own START DATE, which is about
-		// when work is due to begin rather than which sprint it belongs to,
-		// and BELOW the gates on the week and on being finished, which this
-		// day is no more exempt from than any other.
+		// THE SPRINT'S OWN DAY IS THE WHOLE SPRINT. Every few mornings a lead
+		// opens the day the sprint began — the "current sprint" jump lands
+		// there — and goes through it with the team, so that day must hold
+		// everything the sprint has been: the work it opened with, the work
+		// typed into it on its second and third days (most of a sprint is
+		// created inside it), and the work already CLOSED. Hence this clause
+		// stands above BOTH the gate on the card's own start date and the
+		// gate on being finished — a day that showed only what is still open
+		// answered "what is left", which is not the question the meeting
+		// asks.
 		//
-		// A card DEFERRED past today is the exception, and it is the one the
-		// gate below cannot make: deferring is the act of taking a card out
-		// of the sprint in progress, so it must leave that day at once —
-		// pushed to next month, it is nobody's sprint work meanwhile.
+		// Two things still leave that day. Work planned into a week still to
+		// come never reached it (the gate above). And work somebody DEFERRED
+		// past today goes at once: deferring is the act of taking a card out
+		// of the sprint in progress — sent to tomorrow it leaves today's
+		// sprint and arrives tomorrow; sent three days out, the sprint that
+		// opens tomorrow starts without it.
 		if c.SprintStart == day && !deferredPast(c, today) {
 			out = append(out, c)
+			continue
+		}
+		// Finished work belongs to the day it was finished on, and to no
+		// other: a card finished yesterday belongs to yesterday, and a board
+		// that keeps it is a board nobody can read.
+		if Complete(c.Stage, c.Progress) && !finishedOn(c, day) {
 			continue
 		}
 		// Put off to a later day: gone from the board until that day comes.

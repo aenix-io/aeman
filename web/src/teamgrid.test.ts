@@ -46,7 +46,7 @@ describe("inHandOn", () => {
     expect(inHandOn(silent, DAY, TODAY)).toBe(false);
   });
 
-  it("does not bring finished work back on its sprint's own day", () => {
+  it("gives a sprint's own day the whole sprint, closed work included", () => {
     // Read from a day after the work was closed, as anybody actually would:
     // a card is never finished on a day still to come.
     const now = "2026-07-25";
@@ -56,8 +56,25 @@ describe("inHandOn", () => {
       progress: 100,
       doneAt: "2026-07-20",
     });
-    expect(inHandOn(late, "2026-06-15", now)).toBe(false);
+    // Its sprint's day holds it — that is the day the lead reads the sprint on
+    // — and so does the day it was actually closed. No other day does.
+    expect(inHandOn(late, "2026-06-15", now)).toBe(true);
     expect(inHandOn(late, "2026-07-20", now)).toBe(true);
+    expect(inHandOn(late, "2026-06-16", now)).toBe(false);
+  });
+
+  it("lets a deferred card out of the sprint's day at once", () => {
+    // Sent to tomorrow: gone from today's sprint, arriving tomorrow. Sent
+    // three days out: the sprint that opens tomorrow starts without it.
+    const now = "2026-09-09";
+    const opened = "2026-09-07";
+    const soon = card({ sprintStart: opened, startDate: "2026-09-10", day: "2026-09-10" });
+    const later = card({ sprintStart: opened, startDate: "2026-09-12", day: "2026-09-12" });
+    expect(inHandOn(soon, opened, now)).toBe(false);
+    expect(inHandOn(later, opened, now)).toBe(false);
+    expect(inHandOn(soon, "2026-09-10", now)).toBe(true);
+    expect(inHandOn(later, "2026-09-10", now)).toBe(false);
+    expect(inHandOn(later, "2026-09-12", now)).toBe(true);
   });
 
   it("holds a card put off until the day it was put off to", () => {

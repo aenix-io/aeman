@@ -16,7 +16,8 @@ import type { Card } from "./providers/types";
  *  their parent), is not parked on a list, somebody has said WHEN it is for,
  *  it was not planned into a week after this day's, it is open or was
  *  finished on that very day, it was not deferred past the day, and — for a
- *  day still to come — somebody actually planned it for that day.
+ *  day still to come — somebody actually planned it for that day. The day a
+ *  SPRINT began answers for the whole sprint instead, closed work included.
  *
  *  That is the whole rule. It used to be seven layered ones, and between them
  *  they put work nobody was doing on the day while dropping a card scheduled
@@ -37,18 +38,19 @@ export function inHandOn(c: Partial<Card>, day: string, today: string): boolean 
   if (c.week && c.week > mondayOf(day)) {
     return false;
   }
+  // THE SPRINT'S OWN DAY IS THE WHOLE SPRINT. A lead opens the day the sprint
+  // began every few mornings and goes through it with the team, so it holds
+  // the work the sprint opened with, the work typed into it since (most of a
+  // sprint is created inside it) and the work already CLOSED — above both the
+  // start-date gate and the finished gate for that reason. What still leaves
+  // it is what was taken OUT of the sprint: a card deferred past TODAY goes at
+  // once, and one planned into a week to come never reached it.
+  if (c.sprintStart === day && !deferredPast(c, today)) {
+    return true;
+  }
   // Finished work belongs to the day it recorded, and to no other.
   if (isComplete(c) && !finishedOn(c, day)) {
     return false;
-  }
-  // The day a SPRINT began shows that sprint's own open work, ALL of it: most
-  // of a sprint is created inside it, and a day that only showed what existed
-  // on the Monday would show almost none of the work by Wednesday. Above the
-  // deferral gate for that reason — and a card put off past TODAY is still
-  // gone, because deferring is the act of taking it out of the sprint in
-  // progress.
-  if (c.sprintStart === day && !deferredPast(c, today)) {
-    return true;
   }
   // Put off to a later day: gone until that day comes.
   if (deferredPast(c, day)) {

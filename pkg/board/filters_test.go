@@ -30,8 +30,7 @@ func gridBoard() Board {
 		// Finished on the 22nd: that day keeps it, and no other.
 		{ItemID: "Adone", Team: "A", StartDate: "2026-06-01", Progress: 100, DoneAt: "2026-06-22"},
 		// Finished in a sprint gone by: it belongs to the day it was finished
-		// on, and its own sprint's day does NOT bring it back — that day
-		// shows the sprint's OPEN work.
+		// on — and to its own sprint's day, which is the whole sprint.
 		{ItemID: "Alate", Team: "A", StartDate: "2026-06-01", SprintStart: "2026-06-15",
 			Progress: 100, DoneAt: "2026-07-20"},
 		// Nobody has said when: no week, no dates, no sprint. This is the
@@ -63,8 +62,11 @@ func TestTeamGrid(t *testing.T) {
 	}{
 		{"in hand: open work, and the debt of a week gone by", "A", "2026-06-23",
 			[]string{"A1", "Adebt"}},
-		{"a sprint's day shows its OPEN work, not what was finished elsewhere",
-			"A", "2026-06-15", []string{"A1", "Adebt"}},
+		// The sprint's own day is the whole sprint: Alate belongs to the
+		// 06-15 sprint and was finished a month later, and the meeting that
+		// reads that day is asking exactly what became of it.
+		{"a sprint's day shows its sprint, closed work included",
+			"A", "2026-06-15", []string{"A1", "Adebt", "Alate"}},
 		{"and the day it was finished on holds it", "A", "2026-07-20",
 			[]string{"A1", "Aahead", "Adebt", "Alate"}},
 		{"the day it was finished keeps it", "A", "2026-06-22",
@@ -496,5 +498,74 @@ func TestATomorrowIsAPlanAndTodayIsAState(t *testing.T) {
 	// This week's card does not reach into next week either.
 	if on(nextWeek)["thisweek"] {
 		t.Error("a card placed in THIS week is not planned for the next one")
+	}
+}
+
+// THE SPRINT'S OWN DAY IS THE WHOLE SPRINT. Every few mornings a lead opens
+// the day the sprint began — the "current sprint" jump lands there — and goes
+// through it with the team. That view has to hold everything the sprint has
+// been: the work it opened with, the work typed into it on its second and
+// third days, and the work already CLOSED. A day that showed only what is
+// still open answered "what is left", which is not the question the meeting
+// asks.
+//
+// Two things still leave that day, and they are the same two everywhere: work
+// somebody put off past today, and work planned into a week still to come.
+// Deferring is the act of taking a card out of the sprint in progress — send
+// it to tomorrow and it goes from today's sprint at once and arrives
+// tomorrow; send it three days out and the sprint that opens tomorrow starts
+// without it.
+func TestTheSprintsOwnDayIsTheWholeSprint(t *testing.T) {
+	today := TodayIso()
+	opened := AddDays(today, -2) // the sprint began the day before yesterday
+	b := NewBoard([]Card{
+		{ItemID: "fromtheoff", Team: "T", SprintStart: opened, StartDate: opened},
+		// Typed into the sprint on its second day.
+		{ItemID: "midsprint", Team: "T", SprintStart: opened, StartDate: AddDays(today, -1)},
+		// Closed yesterday, inside the sprint: the meeting is about this too.
+		{ItemID: "closed", Team: "T", SprintStart: opened, StartDate: opened,
+			Progress: 100, DoneAt: AddDays(today, -1)},
+		// Put off to tomorrow: out of the sprint from the moment it was.
+		{ItemID: "tomorrow", Team: "T", SprintStart: opened, StartDate: AddDays(today, 1), Day: AddDays(today, 1)},
+		// Put off three days: the sprint that opens tomorrow starts without it.
+		{ItemID: "later", Team: "T", SprintStart: opened, StartDate: AddDays(today, 3), Day: AddDays(today, 3)},
+		// Planned into a week to come: the same answer, by the other door.
+		{ItemID: "nextweek", Team: "T", SprintStart: opened, Week: AddDays(MondayOf(today), 7)},
+	})
+	on := func(day string) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range TeamGrid(b, "T", day) {
+			out[c.ItemID] = true
+		}
+		return out
+	}
+
+	sprint := on(opened)
+	for _, id := range []string{"fromtheoff", "midsprint", "closed"} {
+		if !sprint[id] {
+			t.Errorf("the sprint's day is the whole sprint, and %s is part of it: %v", id, sprint)
+		}
+	}
+	for _, id := range []string{"tomorrow", "later", "nextweek"} {
+		if sprint[id] {
+			t.Errorf("%s was put off and is not this sprint's work any more: %v", id, sprint)
+		}
+	}
+
+	// The card sent to tomorrow arrives tomorrow, and the one sent three days
+	// out waits for its own day — so a sprint opened tomorrow starts without it.
+	if !on(AddDays(today, 1))["tomorrow"] {
+		t.Error("a card sent to tomorrow shows tomorrow")
+	}
+	if on(AddDays(today, 1))["later"] {
+		t.Error("and the one sent further out does not")
+	}
+	if !on(AddDays(today, 3))["later"] {
+		t.Error("it arrives on the day it was sent to")
+	}
+	// And TODAY is still what is in hand: the closed card belongs to the day
+	// it was closed on, not to every day after it.
+	if on(today)["closed"] {
+		t.Error("finished work does not follow the team around; it stays on its day")
 	}
 }
