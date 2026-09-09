@@ -78,11 +78,11 @@ The Team board answers ONE question: what are these people working on that day? 
 
 That is the whole rule, and every card meets it the same way. It replaced seven layered ones — the week's own work, the sprint's start day, the card's own scheduled day, the range between its dates, the days of sprints it had passed through, and two special cases for deferral — which between them managed both halves of being wrong: work nobody was doing appeared on the day, and a card scheduled for last Tuesday and never finished fell off the board entirely, because no rule reached it any more.
 
-Three consequences are worth saying out loud:
+Four consequences are worth saying out loud:
 
 - **Open work does not stop when its plan does.** A card's end date says when the work was due to finish, not when it leaves the board: past that day it goes on standing there until somebody finishes it or puts it off. Work that ran over is the work most in need of being looked at.
 - **Today is a state, a day ahead is a plan.** The rule above holds up to today. A day still to COME shows only what somebody actually put on it: a card whose own dates reach that day, or one placed in the week that day belongs to. Today's unfinished work is today's problem, not tomorrow's plan — without that bound every open card stood on every future day, and a month out was simply the team's whole backlog. The **Me view is deliberately the other way**: a person's own board keeps showing everything of theirs that is not closed, whichever day they look at.
-- **The day a SPRINT began is the whole sprint.** Every few mornings a lead opens that day — the "current sprint" jump lands there — and goes through it with the team, so it holds everything the sprint has been: the work it opened with, the work typed into it on its second and third days (most of a sprint is created inside it), and the work already **closed**. A day that showed only what is still open answers "what is left", which is not the question that meeting asks. Two things still leave it, and both are the act of taking a card OUT of the sprint: work planned into a week still to come, and work **deferred past today** — sent to tomorrow, a card leaves today's sprint at once and arrives tomorrow; sent three days out, the sprint that opens tomorrow starts without it.
+- **The day a SPRINT began is the whole sprint.** Every few mornings a lead opens that day — the "current sprint" jump lands there — and goes through it with the team, so it holds everything the sprint has been: the work it opened with, the work typed into it on its second and third days (most of a sprint is created inside it), and the work already **closed**. A day that showed only what is still open answers "what is left", which is not the question that meeting asks. Two things still leave it, and both are the act of taking a card OUT of the sprint: work planned into a week still to come, and work **deferred past today** — sent to tomorrow, a card leaves today's sprint at once and arrives tomorrow; sent three days out, the sprint that opens tomorrow starts without it. Deferring is a hold, not a removal: the card is out of the sprint only while its day has not come, and the morning it arrives it is in the sprint again.
 - **Finished work belongs to the day it recorded** (`doneAt`) and to no other. A card whose writer recorded nothing stands on no day here — nothing is guessed out of its dates, which are a plan rather than a record. Nothing is lost by that, because a day already gone is not answered by this rule at all: it is served as a snapshot, and there the day's own commits say what they finished (below).
 
 A card filed under a Project-board **column** (an epic) is not on the day grid until it joins a sprint: its multi-week span would smear across every day it covers, and the column is where it is shown meanwhile. A card that merely carries a project NAME has no column — the Project board renders columns by epic — so it is an ordinary dated card and shows like one. The Me view draws the same line, with one exception: a slot someone owns shows on that person's own board, because then it is their work.
@@ -157,12 +157,17 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - The per-card control pushes **`startDate`** forward — counting from **today**
   (or from the card's already-deferred slot, so presses stack): `+N` sets
   `startDate = max(today, startDate) + N`. The card **stays in its sprint**
-  (`sprintStart` untouched), so its past sprint day keeps showing it.
+  (`sprintStart` untouched), so the day its own day comes it is back in that
+  sprint — deferring is a hold, not a removal.
 - A card **created today** (0d) has no history worth keeping: deferring it
   relocates it fully — `sprintStart` moves to the new day too (and a stale end
   date is pulled along), so it leaves the current sprint entirely.
 - While `startDate > today` the card is hidden between today and that day in Me
-  and Team; it shows on its new day, and its past sprint day keeps it in Team.
+  and Team — **its sprint's own day included**, because deferring is the act of
+  taking a card out of the sprint in progress. It shows again from its new day
+  on, and the sprint's day has it back then too. A day already gone still holds
+  it as it stood: that day is served from the history (the snapshot), which is
+  where "where the card came from" now lives.
 - Carry Over still sweeps a deferred card's sprint forward (its `sprintStart` is
   in the past), but the future `startDate` keeps hiding it until its day comes.
 
@@ -304,10 +309,12 @@ everywhere says nothing where it matters.
    `activeSprint(team, day) <= sprintStart`, gated by `startDate <= selectedDate`,
    so a carried-over card stays visible in the previous sprint it came from.
 3. **Team shows what is in hand on the day** — one rule, applied to every card
-   (see Team view), with the day a sprint began as the single deliberate
-   exception. The seven layered rules this replaced, `sprintStart` and
-   `startDate` days among them, are gone.
+   (see Team view), with two deliberate asymmetries: the day a SPRINT began is
+   the whole sprint, closed work included, and a day AHEAD of today is a plan
+   rather than a state. The seven layered rules this replaced, `sprintStart`
+   and `startDate` days among them, are gone.
 4. **Defer moves `startDate` counting from today** and keeps the card in its
-   sprint, so the past sprint day never loses it; the **calendar** is a real
-   move (`startDate = sprintStart = start`, `day = end`).
+   sprint, so the card is back in it the day it arrives; while it waits it is
+   off every live day board, its sprint's own day included. The **calendar** is
+   a real move (`startDate = sprintStart = start`, `day = end`).
 5. The existing telemetry card is left as-is (the owner will move it).
