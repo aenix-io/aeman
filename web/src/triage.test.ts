@@ -7,7 +7,6 @@ import {
   needsTriage,
   orderWith,
   pileRank,
-  inWeek,
   placedAhead,
   placedIn,
   reachOf,
@@ -229,47 +228,6 @@ describe("weeksCovered", () => {
   it("covers nothing at all without a week", () => {
     expect(weeksCovered(card({ day: "2026-09-11" }))).toEqual([]);
     expect(reachOf(card())).toBe("");
-  });
-});
-
-// The week's own work — what its column holds on Triage, and what the Team
-// board's grid carries all week so a card placed in a week is not invisible
-// until somebody gives it a day. Mirrors board.InWeek; a rule kept on one
-// side only is how the boards drifted before.
-describe("the week's own work", () => {
-  const TODAY = "2026-09-03"; // a Thursday
-  const THIS = "2026-08-31";
-  const NEXT = "2026-09-07";
-  const LAST = "2026-08-24";
-
-  it("is the card placed in that week", () => {
-    expect(inWeek(card({ week: THIS }), THIS, TODAY)).toBe(true);
-    expect(inWeek(card({ week: NEXT }), THIS, TODAY)).toBe(false);
-  });
-
-  it("is every week a stretched card covers", () => {
-    const long = card({ week: THIS, day: "2026-09-11" });
-    expect(inWeek(long, THIS, TODAY)).toBe(true);
-    expect(inWeek(long, NEXT, TODAY)).toBe(true);
-    expect(inWeek(long, LAST, TODAY)).toBe(false);
-  });
-
-  it("carries a DEBT into the current week, and nowhere else", () => {
-    const debt = card({ week: LAST, overdue: true });
-    expect(inWeek(debt, THIS, TODAY)).toBe(true);
-    // Not onto some other week: a debt is settled where the work is now.
-    expect(inWeek(debt, NEXT, TODAY)).toBe(false);
-    // And it does not leave the week it was owed in.
-    expect(inWeek(debt, LAST, TODAY)).toBe(true);
-  });
-
-  it("leaves a card of an earlier week that is NOT overdue where it was", () => {
-    // Finished in its week, or otherwise not owed: nothing to carry forward.
-    expect(inWeek(card({ week: LAST }), THIS, TODAY)).toBe(false);
-  });
-
-  it("is nothing at all for a card nobody placed", () => {
-    expect(inWeek(card({ day: "2026-09-04" }), THIS, TODAY)).toBe(false);
   });
 });
 

@@ -36,21 +36,6 @@ func DueDate(c Card) string {
 	return ""
 }
 
-// Owed reports whether a card that came from a plan is still open past the
-// day it was owed by. It is derived, never stored — the card's own dates are
-// the truth, and a flag beside them would be one more thing to drift.
-//
-// It is what keeps a card VISIBLE: a debt owed in a week gone by stands in
-// the current week's column beside that week's work (InWeek), instead of
-// disappearing the moment its week passes.
-func Owed(c Card, today string) bool {
-	if Complete(c.Stage, c.Progress) {
-		return false
-	}
-	due := DueDate(c)
-	return due != "" && due < today
-}
-
 // Overdue reports whether a card has broken a promise somebody else is
 // holding — which is what the mark means, and why only two kinds of card can
 // carry it: a Project-board SLOT, owed by the end date its row was drawn to,
@@ -62,10 +47,19 @@ func Owed(c Card, today string) bool {
 // week is that board's own planning, and planning is what the next sync
 // redoes — so calling it late for being open on Monday paints most of a
 // normal board red, and a mark that is everywhere says nothing where it
-// matters. Such a card is still OWED, and still stands in the current week.
+// matters. Such a card is not marked and is not hidden either: a week gone by
+// holds its own record, and the day boards go on drawing the work until it is
+// finished (TeamGrid holds back the weeks AHEAD, never the ones behind).
+//
+// It is derived, never stored — the card's own dates are the truth, and a
+// flag beside them would be one more thing to drift.
 func Overdue(c Card, today string) bool {
 	if c.Epic == "" && c.Task == "" {
 		return false
 	}
-	return Owed(c, today)
+	if Complete(c.Stage, c.Progress) {
+		return false
+	}
+	due := DueDate(c)
+	return due != "" && due < today
 }
