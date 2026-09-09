@@ -395,3 +395,27 @@ describe("what takes part in a cell's order", () => {
     expect(ordersWithinCell({ reviewOf: undefined } as Card)).toBe(true);
   });
 });
+
+// The reading order of a week's pile is about DEBTS — a card whose day has
+// passed and is still open — while the late MARK is about a promise made on
+// another board (board.Owed vs board.Overdue). They part company on the
+// ordinary card: it is a debt in the current week's column and it is not
+// painted late, so the pile must not read the mark to find it.
+describe("a debt reads first, whether or not it is marked late", () => {
+  const THIS = "2026-09-07";
+  it("puts a card owed in an earlier week at the top", () => {
+    const debt = card({ week: "2026-08-31", zone: "green" });
+    expect(pileRank(debt, THIS)).toBe(0);
+    // Without a week to compare against, it is just its zone again.
+    expect(pileRank(debt)).toBeGreaterThan(0);
+  });
+
+  it("leaves this week's own work in its zone order", () => {
+    expect(pileRank(card({ week: THIS, zone: "red" }), THIS)).toBeGreaterThan(0);
+    expect(pileRank(card({ week: "2026-09-14", zone: "red" }), THIS)).toBeGreaterThan(0);
+  });
+
+  it("still puts a card the server marked late first", () => {
+    expect(pileRank(card({ overdue: true, week: THIS, zone: "green" }), THIS)).toBe(0);
+  });
+});

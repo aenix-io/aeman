@@ -63,10 +63,10 @@ func TestAStretchedCardIsOwedByTheEndOfItsReach(t *testing.T) {
 		t.Fatalf("a stretched card is owed by the end of its reach: %q, want %q", got, later)
 	}
 	// And it is not late until then.
-	if Overdue(Card{Week: monday, Day: later}, "2026-09-18") {
-		t.Fatal("a card stretched into the week after next is not late in between")
+	if Owed(Card{Week: monday, Day: later}, "2026-09-18") {
+		t.Fatal("a card stretched into the week after next is not owed in between")
 	}
-	if !Overdue(Card{Week: monday, Day: later}, "2026-09-28") {
+	if !Owed(Card{Week: monday, Day: later}, "2026-09-28") {
 		t.Fatal("past its reach it is")
 	}
 }

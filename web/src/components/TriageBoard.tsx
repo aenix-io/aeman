@@ -593,7 +593,7 @@ export function TriageBoard({
       }
       // Sorted the way the reader sees it, or the place they aimed at is not
       // the place the write would mean.
-      return here.sort(byPile((c) => c)).map((c) => c.itemId);
+      return here.sort(byPile((c) => c, thisWeek)).map((c) => c.itemId);
     },
     [board.cards, weeks, rowDates],
   );
@@ -963,7 +963,7 @@ export function TriageBoard({
     // zones. Cards of one rank keep the board's order, which is the order a
     // reader set by hand.
     for (const list of slots.values()) {
-      list.sort(byPile((s) => ({ ...s.card, projected: s.projected })));
+      list.sort(byPile((s) => ({ ...s.card, projected: s.projected }), thisWeek));
     }
     // The reviews go in AFTER the pile is ordered, so the line stands under
     // everything the week is actually planning — it is not one of the cards

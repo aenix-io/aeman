@@ -144,9 +144,16 @@ export function ordersWithinCell(c: Pick<Card, "reviewOf">): boolean {
  *  Cards of the same rank keep the order the board holds them in, so the
  *  order somebody set by hand still means something among its peers. */
 export function pileRank(
-  c: Pick<Card, "overdue" | "epic" | "zone" | "task"> & { projected?: boolean },
+  c: Pick<Card, "overdue" | "epic" | "zone" | "task" | "week"> & { projected?: boolean },
+  thisWeek?: string,
 ): number {
-  if (c.overdue) {
+  // A DEBT first: its day has passed and it is still open. That is not the
+  // same question as OVERDUE, which is a promise made on another board and
+  // is the only thing that paints a card late (board.Owed vs board.Overdue)
+  // — but for the reading order of a week's pile it is the right one, since
+  // a card owed in a week gone by is what somebody triaging must meet first
+  // whoever gave it its week.
+  if (c.overdue || (thisWeek && c.week && c.week < thisWeek)) {
     return 0;
   }
   if (c.epic) {
@@ -173,9 +180,10 @@ export function pileRank(
 
 /** byPile sorts a cell's cards into that order, leaving equals as they were. */
 export function byPile<T>(
-  of: (item: T) => Pick<Card, "overdue" | "epic" | "zone"> & { projected?: boolean },
+  of: (item: T) => Pick<Card, "overdue" | "epic" | "zone" | "week"> & { projected?: boolean },
+  thisWeek?: string,
 ) {
-  return (a: T, b: T) => pileRank(of(a)) - pileRank(of(b));
+  return (a: T, b: T) => pileRank(of(a), thisWeek) - pileRank(of(b), thisWeek);
 }
 
 /** orderWith is a cell's order once `id` has been dropped at place `at`.

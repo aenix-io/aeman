@@ -60,7 +60,10 @@ func InWeek(c Card, week, today string) bool {
 			return true
 		}
 	}
-	return week == MondayOf(today) && c.Week < week && Overdue(c, today)
+	// OWED, not overdue: what keeps a card in the current week is that its
+	// day has passed and it is still open, whoever made the promise. Only a
+	// commitment from another board reads as LATE (Overdue).
+	return week == MondayOf(today) && c.Week < week && Owed(c, today)
 }
 
 // TriageWeekOf is the Monday of the column a card stands in on the Triage
