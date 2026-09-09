@@ -446,11 +446,30 @@ func actionName(method, path string) string {
 // actionMiddleware stamps a mutating /api/v1 request with its action: a
 // fresh id and the route's name. In git mode every write the request makes
 // joins that one commit.
-func actionMiddleware(next http.Handler) http.Handler {
+//
+// It also HOLDS the queue's worker for the length of the request. The worker
+// starts on the first write and takes every op behind it that shares the
+// action — so when it outran the request it found the queue momentarily
+// empty, closed the group and committed again for the rest: a carry-over of
+// twelve cards became two commits instead of one, on a loaded machine and
+// never on a quiet one. Every commit moves the tip and costs the next write a
+// fresh read of the whole board, which is what one-request-one-commit is for.
+//
+// Held means "not started yet", never "paused mid-flight": a request enqueues
+// and returns, and the worker is kicked the moment it does. Only requests
+// hold — the sweep and the title pass stamp actions of their own and drain as
+// they always did, which is what keeps a hold from waiting on a caller that
+// is itself waiting for the queue.
+func (s *Server) actionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1") {
 			if name := actionName(r.Method, r.URL.Path); name != "" {
-				r = r.WithContext(withAction(r.Context(), gitstore.NewID(time.Now()), name))
+				id := gitstore.NewID(time.Now())
+				r = r.WithContext(withAction(r.Context(), id, name))
+				if s.gitBE != nil {
+					s.gitBE.holdAction(id)
+					defer s.gitBE.releaseAction(id)
+				}
 			}
 		}
 		next.ServeHTTP(w, r)

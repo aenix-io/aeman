@@ -796,6 +796,11 @@ type storeBackend struct {
 	// forget that every fifteen seconds and hammer a dead link forever.
 	housekeeper     *boardservice.Service
 	housekeeperOnce sync.Once
+	// held are the requests still making their writes: the queue keeps their
+	// ops and starts no worker until the request returns, so an action does
+	// not get split across two commits (holdAction).
+	heldMu sync.Mutex
+	held   map[string]*heldAction
 }
 
 // sweeper is the long-lived service the tick's housekeeping runs through.

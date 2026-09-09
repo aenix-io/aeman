@@ -554,3 +554,67 @@ func TestSprintStateWriteResolvesLive(t *testing.T) {
 		t.Fatalf("sprint write = %v, want the LIVE card s1-new", writes)
 	}
 }
+
+// A REQUEST'S WRITES WAIT FOR THE REQUEST. The queue's worker starts on the
+// first write and takes every op behind it that shares the action, so if it
+// outruns the request it finds the queue momentarily empty, closes the group
+// and commits again for the rest — a carry-over of twelve cards became two
+// commits instead of one, on a loaded machine and never on a quiet one. Every
+// commit moves the tip and costs the next write a fresh read of the whole
+// board, which is what one-request-one-commit is for.
+//
+// So the HTTP action middleware HOLDS the queue for the length of the
+// request: the ops pile up, no worker starts, and releasing it starts one.
+// Held means "not started yet", never "paused mid-flight".
+func TestARequestsWritesWaitForTheRequest(t *testing.T) {
+	inner := &wbBackend{board: watchBoard()}
+	store := newBoardStore()
+	be := &storeBackend{inner: inner, store: store}
+	bd, err := be.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "01ACTIONHELD00000000000001"
+	ctx := withAction(context.Background(), id, "carry-over")
+	be.holdAction(id)
+
+	if err := be.SetProgress(ctx, bd, bd.Cards[0], 80); err != nil {
+		t.Fatal(err)
+	}
+	e := store.entry("acme")
+	// Queued and waiting: the request is still making its writes.
+	e.mu.Lock()
+	pending, draining := len(e.pending), e.draining
+	e.mu.Unlock()
+	if pending != 1 || draining {
+		t.Fatalf("pending = %d, draining = %v; want the write queued and no worker yet", pending, draining)
+	}
+	// Nothing reached the backend while the hold stood.
+	if _, progress := inner.counts(); progress != 0 {
+		t.Fatalf("upstream calls while held = %d, want none", progress)
+	}
+
+	// The request returns: the worker starts and the queue empties.
+	be.releaseAction(id)
+	waitFor(t, "queue drain", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.unsynced() == 0
+	})
+	if _, progress := inner.counts(); progress != 1 {
+		t.Fatalf("upstream SetProgress calls = %d, want 1", progress)
+	}
+
+	// A writer that holds nothing — the sweep, the title pass, MCP — drains
+	// as it always did, which is what keeps a hold from waiting on a caller
+	// that is itself waiting for the queue.
+	if err := be.SetProgress(withAction(context.Background(), "01OTHERACTION0000000000001", "sweep"),
+		bd, bd.Cards[0], 60); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "unheld drain", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.unsynced() == 0
+	})
+}

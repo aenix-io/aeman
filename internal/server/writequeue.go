@@ -105,11 +105,87 @@ func (b *storeBackend) enqueue(ctx context.Context, e *boardEntry, op pendingOp)
 		e.pending = append(e.pending, op)
 		e.queueChanged()
 	}
-	starting := !e.draining
-	e.draining = true
+	// A request's writes wait for the request. The worker takes every queued
+	// op that shares the action and commits them together, so starting it
+	// mid-request splits one action across two commits — see holdAction.
+	starting := !e.draining && !b.actionHeld(op.action.ID)
+	if starting {
+		e.draining = true
+	}
 	e.mu.Unlock()
 	if starting {
 		go b.drain(bctx, e)
+	}
+	if !starting {
+		b.rememberHeld(op.action.ID, bctx, e)
+	}
+}
+
+// holdAction says a request is still making its writes: the queue keeps them
+// and starts no worker until releaseAction. Only the HTTP action middleware
+// holds; every other writer (the sweep, the title pass, MCP) drains at once,
+// as it always did.
+func (b *storeBackend) holdAction(id string) {
+	if id == "" {
+		return
+	}
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	if b.held == nil {
+		b.held = map[string]*heldAction{}
+	}
+	b.held[id] = &heldAction{}
+}
+
+// actionHeld reports a request still making its writes.
+func (b *storeBackend) actionHeld(id string) bool {
+	if id == "" {
+		return false
+	}
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	_, ok := b.held[id]
+	return ok
+}
+
+// rememberHeld notes the board a held action queued into, so releasing it
+// starts that board's worker.
+func (b *storeBackend) rememberHeld(id string, ctx context.Context, e *boardEntry) {
+	b.heldMu.Lock()
+	defer b.heldMu.Unlock()
+	h, ok := b.held[id]
+	if !ok {
+		return
+	}
+	if h.entries == nil {
+		h.entries = map[*boardEntry]context.Context{}
+	}
+	h.entries[e] = ctx
+}
+
+// releaseAction ends the hold and starts the worker on every board the
+// request wrote to. A request that wrote nothing releases nothing.
+func (b *storeBackend) releaseAction(id string) {
+	if id == "" {
+		return
+	}
+	b.heldMu.Lock()
+	h, ok := b.held[id]
+	delete(b.held, id)
+	b.heldMu.Unlock()
+	if !ok {
+		return
+	}
+	for e, ctx := range h.entries {
+		e.mu.Lock()
+		starting := !e.draining && len(e.pending) > 0
+		if starting {
+			e.draining = true
+		}
+		e.mu.Unlock()
+		if starting {
+			go b.drain(ctx, e)
+		}
 	}
 }
 
