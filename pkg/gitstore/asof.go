@@ -123,7 +123,12 @@ func LoadAsOfDay(r *Repo, from, to time.Time) (Snapshot, bool, error) {
 		return Snapshot{}, false, err
 	}
 	s.Cards = append(s.Cards, gone...)
-	if err := markFinishedInDay(r, opening, s.Cards, touched, to.In(board.Location()).Format(dayLayout)); err != nil {
+	morning, known, err := morningOf(r, day)
+	if err != nil {
+		return Snapshot{}, false, err
+	}
+	if err := markFinishedInDay(r, morning, known, s.Cards, touched,
+		to.In(board.Location()).Format(dayLayout)); err != nil {
 		return Snapshot{}, false, err
 	}
 	return s, true, nil
@@ -154,7 +159,14 @@ const dayLayout = "2006-01-02"
 // The names are still what makes it cheap: only a card the day WROTE can have
 // changed in it, so the opening tree is opened for those alone — a handful,
 // where the tree holds thousands. What the card says itself always wins.
-func markFinishedInDay(r *Repo, opening plumbing.Hash, cards []board.Card, touched map[string]int, day string) error {
+//
+// `known` is whether the morning can be seen at all (morningOf). Where it
+// cannot, the day claims nothing: "I do not know when this was closed" is a
+// true answer and an invented day is not.
+func markFinishedInDay(r *Repo, morning plumbing.Hash, known bool, cards []board.Card, touched map[string]int, day string) error {
+	if !known {
+		return nil
+	}
 	var open *object.Tree
 	for i, c := range cards {
 		if c.DoneAt != "" || !board.Complete(c.Stage, c.Progress) {
@@ -163,29 +175,61 @@ func markFinishedInDay(r *Repo, opening plumbing.Hash, cards []board.Card, touch
 		if _, named := touched[c.ItemID]; !named {
 			continue
 		}
-		// Before the board's first commit, or behind the horizon: there is no
-		// morning to compare against, and everything the day holds began in
-		// it.
-		if !opening.IsZero() {
-			if open == nil {
-				t, err := treeAt(r, opening)
-				if err != nil {
-					return err
-				}
-				open = t
-			}
-			was, found, err := cardInTree(open, c.ItemID)
+		if open == nil {
+			t, err := treeAt(r, morning)
 			if err != nil {
 				return err
 			}
-			// Already finished when the day began: the day only touched it.
-			if found && board.Complete(was.Stage, was.Progress) {
-				continue
-			}
+			open = t
+		}
+		was, found, err := cardInTree(open, c.ItemID)
+		if err != nil {
+			return err
+		}
+		// Already finished when the day began: the day only touched it.
+		if found && board.Complete(was.Stage, was.Progress) {
+			continue
 		}
 		cards[i].DoneAt = day
 	}
 	return nil
+}
+
+// morningOf is the commit whose tree the day OPENED with: the one before the
+// day's own first commit. ok is false when there is no such tree to see —
+// then nothing may be said about when work was finished.
+//
+// The day's own commits answer this, rather than a second walk back through
+// the history: the commit before the day's first IS the newest commit at or
+// before the day began, by construction.
+//
+// Two edges, and they are not the same edge. When the day's first commit is
+// the BOARD's first, its own tree is the morning: there is nothing before it
+// to see, and a migrated board's first commit already holds a full board, so
+// "nothing came before" must not be read as "nothing existed" — that reading
+// stamped every finished card the board was imported with. When the day's
+// first commit is the clone's shallow BOUNDARY, its parent exists and is not
+// here: the morning is behind the horizon, and the day says nothing. Reading
+// those two as one put the broken rule back on exactly one day of every
+// board — and that day moves forward with the horizon, so the next rank
+// rebalance to land on it would bring back the eight hundred cards this rule
+// exists to stop claiming.
+func morningOf(r *Repo, day []*object.Commit) (plumbing.Hash, bool, error) {
+	if len(day) == 0 {
+		return plumbing.ZeroHash, false, nil
+	}
+	first := day[len(day)-1]
+	if first.NumParents() == 0 {
+		return first.Hash, true, nil
+	}
+	shallow, err := r.shallows()
+	if err != nil {
+		return plumbing.ZeroHash, false, err
+	}
+	if shallow[first.Hash] {
+		return plumbing.ZeroHash, false, nil
+	}
+	return first.ParentHashes[0], true, nil
 }
 
 // treeAt is a commit's tree.
