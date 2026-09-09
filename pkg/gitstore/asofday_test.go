@@ -331,3 +331,71 @@ func TestADayLeavesARecordedDayAlone(t *testing.T) {
 		}
 	}
 }
+
+// A commit NAMES the cards it touched, and a commit can touch a card without
+// finishing it — which is why the day looks at what CHANGED and not at the
+// list of names.
+//
+// Two ordinary actions name cards by the hundred. A rank REBALANCE renumbers
+// the whole board: one such commit on the production board named 2471 cards,
+// a 66KB trailer, and an ordinary drag is what makes them. A CARRY-OVER names
+// every card it moves into the new sprint. A day that read the trailer alone
+// stamped every finished card either of them passed over as finished THAT
+// DAY: 1712 of them on one production day, and the day board then said a team
+// of five had closed 800 cards between the morning and the evening.
+func TestADayDoesNotClaimWorkItOnlyTouched(t *testing.T) {
+	r := newRepo(t)
+	const (
+		closed = "01CARD000000000000CLOSED02"
+		older  = "01CARD0000000000000OLDER01"
+	)
+	path := func(id string) string {
+		p, err := CardPath(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// No doneAt anywhere, and a rank the rebalance rewrites.
+	card := func(id string, progress int, rank string) FileWrite {
+		return FileWrite{Path: path(id), Data: []byte(
+			"---\ntitle: card\nteam: portal\nstart: 2026-08-19\nprogress: " +
+				strconv.Itoa(progress) + "\nrank: " + rank + "\ncreated: 2026-08-19T09:00:00Z\n---\n")}
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	commit := func(iso string, ids []string, writes ...FileWrite) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: ids,
+			Summary: "w", At: at(iso)}, writes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Before the day: one card open, one already finished long ago.
+	commit("2026-08-19T09:00:00Z", []string{closed, older}, card(closed, 30, "a"), card(older, 100, "b"))
+	// The day itself: real work on one card, and a rebalance that names both.
+	commit("2026-08-20T10:00:00Z", []string{closed}, card(closed, 100, "a"))
+	commit("2026-08-20T16:00:00Z", []string{closed, older},
+		card(closed, 100, "m"), card(older, 100, "n"))
+	commit("2026-08-21T09:00:00Z", []string{closed}, card(closed, 100, "p"))
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-19"), endOf(t, "2026-08-20"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	done := map[string]string{}
+	for _, c := range s.Cards {
+		done[c.ItemID] = c.DoneAt
+	}
+	if done[closed] != "2026-08-20" {
+		t.Errorf("the card the day actually finished carries the day, got %q", done[closed])
+	}
+	if done[older] != "" {
+		t.Errorf("a card the day only shuffled was finished before it, got %q", done[older])
+	}
+}

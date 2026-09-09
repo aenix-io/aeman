@@ -108,12 +108,24 @@ func LoadAsOfDay(r *Repo, from, to time.Time) (Snapshot, bool, error) {
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	gone, err := cardsRemovedBetween(r, from, day, touched, held)
+	// What the day BEGAN with, read once: both the cards it removed and the
+	// work it finished are differences against that tree.
+	began, hadBegun, err := commitAsOf(r, from)
+	if err != nil {
+		return Snapshot{}, false, err
+	}
+	opening := plumbing.ZeroHash
+	if hadBegun {
+		opening = began
+	}
+	gone, err := cardsRemovedBetween(r, opening, day, touched, held)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
 	s.Cards = append(s.Cards, gone...)
-	markFinishedInDay(s.Cards, touched, to.In(board.Location()).Format(dayLayout))
+	if err := markFinishedInDay(r, opening, s.Cards, touched, to.In(board.Location()).Format(dayLayout)); err != nil {
+		return Snapshot{}, false, err
+	}
 	return s, true, nil
 }
 
@@ -128,14 +140,22 @@ const dayLayout = "2006-01-02"
 // young and these repositories are open, so a card closed before it existed —
 // or by any other tool — carries none, and the domain, which sees only the
 // card, can do no better than guess a day out of the card's PLAN. Here there
-// is evidence instead: this day's commits name the cards they touched, so a
-// card that is done in the day's tree and was written during the day was
-// finished during the day.
+// is evidence instead: the day OPENED with the card unfinished and CLOSED
+// with it done, so the work was finished inside it.
 //
-// What the card says wins, and a day it did not touch is not its business:
-// without that second half every day would claim every finished card the
-// tree still carries, which is the opposite of what the rule is for.
-func markFinishedInDay(cards []board.Card, touched map[string]int, day string) {
+// The evidence is that change and not the day's list of names. A commit names
+// what it touched, and two ordinary actions touch cards by the hundred
+// without finishing any of them: a rank REBALANCE renumbers the whole board
+// (one such commit on the production board named 2471 cards) and a
+// CARRY-OVER names every card it moves. Reading the names alone stamped 1712
+// cards on one production day, and the day board then said a team had closed
+// eight hundred of them between the morning and the evening.
+//
+// The names are still what makes it cheap: only a card the day WROTE can have
+// changed in it, so the opening tree is opened for those alone — a handful,
+// where the tree holds thousands. What the card says itself always wins.
+func markFinishedInDay(r *Repo, opening plumbing.Hash, cards []board.Card, touched map[string]int, day string) error {
+	var open *object.Tree
 	for i, c := range cards {
 		if c.DoneAt != "" || !board.Complete(c.Stage, c.Progress) {
 			continue
@@ -143,25 +163,76 @@ func markFinishedInDay(cards []board.Card, touched map[string]int, day string) {
 		if _, named := touched[c.ItemID]; !named {
 			continue
 		}
+		// Before the board's first commit, or behind the horizon: there is no
+		// morning to compare against, and everything the day holds began in
+		// it.
+		if !opening.IsZero() {
+			if open == nil {
+				t, err := treeAt(r, opening)
+				if err != nil {
+					return err
+				}
+				open = t
+			}
+			was, found, err := cardInTree(open, c.ItemID)
+			if err != nil {
+				return err
+			}
+			// Already finished when the day began: the day only touched it.
+			if found && board.Complete(was.Stage, was.Progress) {
+				continue
+			}
+		}
 		cards[i].DoneAt = day
 	}
+	return nil
+}
+
+// treeAt is a commit's tree.
+func treeAt(r *Repo, h plumbing.Hash) (*object.Tree, error) {
+	c, err := object.GetCommit(r.s, h)
+	if err != nil {
+		return nil, err
+	}
+	return c.Tree()
+}
+
+// cardInTree reads one card from a tree already in hand.
+func cardInTree(t *object.Tree, id string) (board.Card, bool, error) {
+	p, err := CardPath(id)
+	if err != nil {
+		return board.Card{}, false, err
+	}
+	f, err := t.File(p)
+	if err != nil {
+		if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
+			return board.Card{}, false, nil
+		}
+		return board.Card{}, false, err
+	}
+	data, err := f.Contents()
+	if err != nil {
+		return board.Card{}, false, err
+	}
+	card, err := DecodeCard(id, []byte(data))
+	if err != nil {
+		return board.Card{}, false, nil //nolint:nilerr // not a card anyone saw
+	}
+	return card.Card, true, nil
 }
 
 // cardsRemovedBetween reads every card that stood on the day and is not on
 // its last tree — the ones the day removed — in the state each was in when it
 // went. `held` is what the day ended with.
-func cardsRemovedBetween(r *Repo, from time.Time, day []*object.Commit, touched map[string]int, held map[string]bool) ([]board.Card, error) {
+func cardsRemovedBetween(r *Repo, began plumbing.Hash, day []*object.Commit, touched map[string]int, held map[string]bool) ([]board.Card, error) {
 	// What the day BEGAN with: a writer that leaves no trailers still shows
 	// up here, as a card present at the start and absent at the end. Only the
 	// IDS are wanted, and a card's id is in its path — so the day's first tree
 	// is listed, not parsed: reading 2400 card files to learn which ones exist
 	// cost more than the rest of the day put together.
-	began, ok, err := commitAsOf(r, from)
-	if err != nil {
-		return nil, err
-	}
 	start := map[string]bool{}
-	if ok && !began.IsZero() {
+	var err error
+	if !began.IsZero() {
 		start, err = cardIDsAt(r, began)
 		if err != nil {
 			return nil, err
