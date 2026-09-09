@@ -1,25 +1,15 @@
 # Writing a board's repositories directly
 
-A board is files in git, so a tool can drive one **without this server** — committing to the repositories itself. This document is what such a writer has to know. It was written when the storage moved from GitHub Projects v2 to git repositories, which invalidated every `gh api graphql` write path against project items, fields and draft bodies: there is no project any more, only files. Its other reader is whoever changes these rules — what is listed here is what a direct writer will get wrong if the rules move and this page does not.
+A board is files in git, so a tool can drive one **without this server** — committing to the repositories itself. This page is the contract such a writer has to keep. The design behind it, and the reasoning for every shape here, is [git-backend.md](git-backend.md); the rules are pinned by [behavior-matrix.md](behavior-matrix.md) and the API surface is in [../api.md](../api.md). Its other reader is whoever CHANGES these rules: what is listed here is what a direct writer gets wrong if a rule moves and this page does not.
 
-Everything below is final for this PR series and pinned by tests (`docs/design/behavior-matrix.md`, rows G1–G26, M1–M5); the API surface it lands with is in `docs/api.md`.
+Everything else a writer needs is already written down elsewhere and is not repeated here: the dates, visibility, clamps, carry-over and review rules are in [../dates.md](../dates.md) and the matrix, and a personal board's own rules in [personal-board.md](personal-board.md).
 
-## What is gone
+## The layout
 
-- The GitHub Project, its fields, single-select options and option ids. Nothing on a board is a GraphQL node any more.
-- `PVTI_…` item ids. Cards, teams, projects, columns, deadlines, processes and tasks have **ULIDs** (26 Crockford-base32 characters). The migration kept the old item id in a card's `github:` front-matter key. The API and MCP tools accept a legacy `PVTI_` uid for one major version by looking it up through that key (matrix M5) — a convenience for old links, not something to build on: new state must name ULIDs.
-- The draft-issue body as the note/event log. Notes live in the card file; **events are commits** — there is no event line to append.
-- Issue and PR cards. A card that was an issue is a draft card with `link: <url>`; the issue itself is untouched.
-- The `Status` field. Done and In Progress were never stored; they are derived (progress 100 with no stage; progress in (0, 100) with no stage).
-
-## What a board is now
-
-A board is one or more git repositories (**domains**), listed in order; the first is the **primary** and is what "" names. The server clones them shallow (`--depth 1`), reads the tree, and commits every action. A plugin that writes directly must clone (or fetch) the repository, edit files, commit with the trailers below, and push — the server picks pushed commits up on its fetch tick (15 s default) and re-applies its own unpushed commits over them field by field.
-
-Repository layout (schema 1; `board.yaml` says `schema: 1`, a newer number is refused by older servers):
+Schema 1 (`board.yaml` says `schema: 1`; a newer number is refused by older servers). One repository is a **domain**; a board is one or more, the first being the primary.
 
 ```
-board.yaml                         # schema, title (primary only counts)
+board.yaml                         # schema, title (primary only)
 teams/<ulid>.yaml                  # one team; teams/_.yaml is the no-team group (primary only)
 projects/<ulid>/project.yaml       # a project
 projects/<pid>/epics/<ulid>.yaml   # a column of that project
@@ -31,7 +21,7 @@ users/<login>.yaml                 # a person's link to their personal repositor
 .aeman/migration.yaml              # written once by aeman migrate
 ```
 
-The path never encodes mutable state: renaming, re-zoning, re-teaming or moving a card in the order keeps its path. Empty directories do not exist (git); a delete removes the file.
+The path never encodes mutable state: renaming, re-zoning, re-teaming or moving a card in the order keeps its path. Empty directories do not exist (git); a delete removes the file. A writer clones (or fetches) the repository, edits files, commits with the trailers below and pushes; the server picks pushed commits up on its fetch tick (15 s default) and re-applies its own unpushed commits over them field by field.
 
 ## File formats
 
@@ -69,7 +59,7 @@ Same shape as a card. Its `title` field is the marker `aeman:process-task`; the 
 
 ### Roster files (YAML)
 
-- `teams/<id>.yaml`: `name`, `rank`, `created`, `sprint: {current, previous}` (dates). `teams/_.yaml` has no `name`. The NO-PROJECT bucket is the same shape one level down: its columns hang under a project file with **no `name`** — `projects/_/project.yaml` by convention, though any nameless project file is read as the bucket. This server writes it on demand, when the first column is filed outside every project or an existing column is unbound into the bucket; a writer adding such a column must create or reuse one.
+- `teams/<id>.yaml`: `name`, `rank`, `created`, `sprint: {current, previous}` (dates) and `capacity: {points: N}` — the points a week somebody SET for the team; absent means nobody has, and no board derives one (B20). Unknown keys under `capacity:` are preserved. `teams/_.yaml` has no `name`. The NO-PROJECT bucket is the same shape one level down: its columns hang under a project file with **no `name`** — `projects/_/project.yaml` by convention, though any nameless project file is read as the bucket. This server writes it on demand, when the first column is filed outside every project or an existing column is unbound into the bucket; a writer adding such a column must create or reuse one.
 - `projects/<id>/project.yaml`: `name`, `rank`, `created`.
 - `projects/<pid>/epics/<id>.yaml`: `name`, `rank`, `created`. Column names are unique within a project.
 - `projects/<pid>/deadlines/<id>.yaml`: `week`, `created`. One deadline per project per week.
@@ -106,6 +96,8 @@ Aeman-Moved-To: <domain>        # on the source commit of a move
 
 Author = the actor (email from the server's `--author-email` template); committer = the server identity. A commit that changes nothing is not made. The card's activity feed **is** this history: every field change in a commit is one event with the commit's actor and time; a creation or deletion is one event; a move is the fields it changed. A plugin that writes without trailers still produces a correct feed (the diff says what changed) but without `Aeman-Actor` the event is attributed to the commit author.
 
+**A day is read by COMMITTER time.** "The board as of that evening" is the newest commit whose committer time is at or before it, walked along first parents — so a commit must be stamped with the moment it is WRITTEN, not with the moment its content was authored. A replay (a rejected push re-applied) keeps the original author and takes a fresh committer time, as git's own rebase does. A writer pushing a commit back-dated in its committer field silently makes the record of that day read from another day's tree, with no error anywhere.
+
 ## Domains
 
 A card's domain (repository) is never chosen per card; it follows one rule, linked cards first (G14):
@@ -120,42 +112,19 @@ Teams, projects and processes are declared in the domain the **caller** picks (A
 
 ### Personal domains
 
-`users/<login>.yaml` in the primary (`personal: <url>`, `created`) links a person to a repository of their own, served as the domain `~<login>` to that person alone (P1–P5). A plugin must treat such a repository as **pinned**: a card in it stays there whatever its `team:` or `project:` say — the home rule above does not apply — and a card whose `parent`/`reviewOf` is there belongs there too. Writing to someone's personal repository means holding their credential; the server never uses its own for it.
+`users/<login>.yaml` in the primary (`personal: <url>`, `created`, and `capacity: N` — the points a week somebody set for the person, absent meaning nobody has, B19) links a person to a repository of their own, served as the domain `~<login>` to that person alone (P1–P5). A plugin must treat such a repository as **pinned**: a card in it stays there whatever its `team:` or `project:` say — the home rule above does not apply — and a card whose `parent`/`reviewOf` is there belongs there too. Writing to someone's personal repository means holding their credential; the server never uses its own for it.
 
 A personal board holds **cards only** (P9): no `teams/`, `projects/` or `processes/` entry belongs in one, and the server refuses a request to declare any there. A plugin writing a roster file into a personal repository produces something the board can never show.
 
 A personal board has no carry-over, so **the reader turns its day over** (P7): a plugin listing the owner's personal board must first reseed every recurrent card (`stage: recurrent`, progress 100) whose cycle is due — a fresh card with the same title, zone and body, progress 0, `stage: recurrent`, the same `recurrence`, assigned to the owner, `start`/`day` = today — exactly as the server does, or the two will disagree on what the board holds. The turn is always as of the real today, whatever day is being looked at. The default cycle (`recurrence` empty) means **every day** there: due when `doneAt` is before today; `week`/`month` (and `2weeks`/`quarter`) are due when that much has passed since the card's `start` **and** `doneAt` is before today. Never reseed a card finished today, a card without `doneAt`, or one that already has a fresh copy (a recurrent card of the same title with a later `start` in the same repository). Done cards are hidden from the view the next day, never deleted. The view also holds back a card whose `start` is past the day of the read — planning there is dates alone (P8): the calendar and the defer move a personal card's `start`/`day` as on a team card, but write **no `sprintStart`**; a plugin re-dating a personal card must leave it sprint-less too. The × on a personal card is not a delete when the card has been worked on (P9): a card with progress above 0 that did not `start` today gets **`leftAt: <yesterday>`** — a new card field — on itself and on its subtasks, and the view holds a left card on its `leftAt` day and before, not after; an untouched card, or one that started today, is deleted. Re-dating a left card clears `leftAt` (on the subtasks too). A plugin removing or re-dating personal cards must follow the same rule, or a card the server would keep as history vanishes — or one it would hide keeps showing.
 
-**The grid × DELETES a team card** (P10). It used to demote — `start`, `day` and `sprint` moved to the previous sprint's start, with `leftAt: <today>` written beside them so a record of that day could give the card back. It does not any more: a card left alive in a sprint two behind is on no live board and no carry-over ever takes it, which is how the production board came to hold three hundred open cards nobody could see. The × now removes the card's file, together with the files of the subtasks that were pieces of it (a subtask standing in a column of its own is freed into that column instead). The day's record is what keeps the card: reading a day gives the tree that day ended with PLUS every card file the day's own commits deleted, each from the commit that deleted it. A plugin doing this by hand deletes the file — writing `leftAt` on a team card is neither needed nor read. Cards demoted by older versions still carry the mark, and a record still gives those back by it.
-
-**A day is read by COMMITTER time.** "The board as of that evening" is the newest commit whose committer time is at or before it, walked along first parents — so a commit must be stamped with the moment it is WRITTEN, not with the moment its content was authored. A replay (a rejected push re-applied) keeps the original author and takes a fresh committer time, as git's own rebase does. A writer pushing a commit back-dated in its committer field silently makes the record of that day read from another day's tree, with no error anywhere.
-
 ### Moves
 
 A write that changes what the rule evaluates to is a **move**: the file is created in the new domain first — with `movedFrom: <old domain>`, `movedAt: <time>` and the `Aeman-Moved-From` trailer — then deleted in the old one (`Aeman-Moved-To`), same id, same `Aeman-Action-Id` (G22). A move cascades to the card's review card and subtasks. A card present in two domains is the copy whose `movedFrom` names the other; the other is a ghost that maintenance removes once the destination has landed.
 
-## Behaviour the plugin used to replicate
+## The × on a team card
 
-Unchanged rules (dates, visibility, clamps, carry-over, review linkage, processes) are the same as before — see `docs/dates.md` and the D/S/A rows of the matrix. What changed is only **where they are written**:
-
-- Carry-over: rewrite the team's `sprint` pointer and every carried card's dates in one commit (`Aeman-Action: carry-over`); a team already on today's sprint makes no commit; a team with nothing to carry still advances the pointer (G4).
-- Sending to review: create the review card (`reviewOf`, the original's team, no project) in the original's domain and set the original's `stage: review`.
-- Notes: append a `- <ulid> [ts] author — text` line under `## Notes`.
-- Events: none to write. Set the fields; the commit is the event. For a change the diff cannot express (a review sent to someone, a reviewer removed), add an `Aeman-Change` trailer.
-
-## The smart remove (A1/A2/W2)
-
-The × no longer "never deletes". It empties the WORKING AREA — assignee, sprint AND dates cleared (a slot keeps its dates) — and the card lands wherever it still belongs: the WEEK it is scheduled for, or a Project-board column. The week counts only while the card is in the working area: one that is nothing but its week has no second home to be handed to, so the × removes it. A card with nowhere else to be is **deleted**, whatever it carries — the UI asks first when there is progress or a linked review card to lose; subtasks are freed into standalone cards. A SUBTASK is its own case: with no column it is deleted (it has no sprint history of its own), and with a column it is taken OUT OF THE GROUP and left there — unless that column belongs to its PARENT's repository, which the pull-out leaves, in which case the column is dropped and the card answered like any other columnless one. And a card is a subtask or a card of its own week, never both — a writer must not give a card both a `parent` and a `week`, since grouping hands the week to the parent (the server refuses the pair on a create). A plugin replicating the old rule would refuse a delete that now happens. A plugin driving `remove_card` should ask its user before removing a worked card from its last home.
-
-## The API surface that changed with it
-
-For a plugin that talks to a running server (REST or MCP) instead of the repository:
-
-- **Board addressing.** A server serves one board — its configured repositories. The `owner` + `board` query parameters are gone (and ignored if sent); MCP tools take no `owner`/`board` (an optional `board` name is accepted and ignored under the server's lock). Breaking for any caller that addressed boards.
-- **Card fields.** `metadata.contentId`, `isDraft`, `url`, `number`, `repository` left the card resource; `metadata` is `{uid, author, createdAt}`. `status.domain` names the repository the card lives in.
-- **Members.** `GET /board` `metadata.members` is `[{login, avatarUrl}]`; `metadata.domains` lists the visitor's readable domains, primary first, each with a `writable` flag and the logins that can read it.
-- **Log.** `GET /cards/{uid}/log` carries `truncatedBefore` when the loaded history is cut by the clone's horizon; events come from the commits, so a change made by a direct git write shows up too.
-- **Domain choice.** `POST /projects`, `POST /processes` and `PATCH /sprints` take an optional `domain`; the MCP `add_project`, `add_process` and the team declaration take the same argument.
+**The grid × DELETES a team card** (P10). It used to demote — `start`, `day` and `sprint` moved to the previous sprint's start, with `leftAt: <today>` written beside them so a record of that day could give the card back. It does not any more: a card left alive in a sprint two behind is on no live board and no carry-over ever takes it, which is how the production board came to hold three hundred open cards nobody could see. The × now removes the card's file, together with the files of the subtasks that were pieces of it (a subtask standing in a column of its own is freed into that column instead). The day's record is what keeps the card: reading a day gives the tree that day ended with PLUS every card file the day's own commits deleted, each from the commit that deleted it. A plugin doing this by hand deletes the file — writing `leftAt` on a team card is neither needed nor read. Cards demoted by older versions still carry the mark, and a record still gives those back by it.
 
 ## The team/project pair (G46)
 
@@ -164,11 +133,3 @@ A card's team and its project must be declared in the SAME repository. The domai
 A plugin writing the repositories directly must refuse it too, or it will produce cards this server would never create: a founders card sitting in the shared repository under a founders team name, visible to everyone the shared repository is visible to. The check is local — resolve the team's and the project's declaring repository and compare — and a name no roster declares yet is not a conflict, since it is declared in the card's own repository on the way.
 
 Over the API the two maps are served for exactly this: `GET /board` `metadata.teamDomains` and `metadata.projectDomains` name the repository an entry was declared in — a server spanning several repositories names every entry, the primary's included, so read them as names rather than as "absent means primary", so a client narrows its pickers instead of offering a pair the server rejects.
-
-## What the plugin docs must change
-
-`model.md`: replace the Projects v2 field/option model with the file formats above; state the domain rule and the move protocol; state that a card's team and project must live in one repository (G46); state that events are commits.
-
-`reference.md`: replace every `gh api graphql` recipe with the git equivalent (clone/fetch, edit the file, commit with trailers, push) or with the aeman API/MCP call; replace `PVTI_` ids with ULIDs; document the rank rules and the iteration id derivation; document the board addressing once it lands.
-
-Bump the plugin's version (major).
