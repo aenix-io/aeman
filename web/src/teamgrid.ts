@@ -3,7 +3,7 @@
 // — the rule is the server's, the optimistic UI has to give the same answer
 // before the server has spoken, and a copy sitting inside a component is a
 // copy nothing tests. This one had drifted twice before it was a file.
-import { mondayOf } from "./date";
+import { activeOnDay, mondayOf } from "./date";
 import { parked } from "./backlog";
 import { deferredPast, finishedOn, isComplete } from "./stages";
 import type { Card } from "./providers/types";
@@ -15,7 +15,8 @@ import type { Card } from "./providers/types";
  *  A card is in hand when it is not a subtask (those render nested under
  *  their parent), is not parked on a list, somebody has said WHEN it is for,
  *  it was not planned into a week after this day's, it is open or was
- *  finished on that very day, and it was not deferred past the day.
+ *  finished on that very day, it was not deferred past the day, and — for a
+ *  day still to come — somebody actually planned it for that day.
  *
  *  That is the whole rule. It used to be seven layered ones, and between them
  *  they put work nobody was doing on the day while dropping a card scheduled
@@ -50,5 +51,26 @@ export function inHandOn(c: Partial<Card>, day: string, today: string): boolean 
     return true;
   }
   // Put off to a later day: gone until that day comes.
-  return !deferredPast(c, day);
+  if (deferredPast(c, day)) {
+    return false;
+  }
+  // A day still to COME is a plan, not a state (see plannedFor).
+  return day <= today || plannedFor(c, day);
+}
+
+/** plannedFor reports whether somebody put the card on a day: its own dates
+ *  reach that day, or it was placed in the week the day belongs to.
+ *
+ *  Asked of the days AHEAD only, and that asymmetry is the point. TODAY is
+ *  what is in hand — a card planned for last Tuesday and still open stands
+ *  there, because work that ran over is the work most in need of being looked
+ *  at. TOMORROW is a plan: it holds what somebody actually put there, and
+ *  today's unfinished work is today's problem. Without the bound every open
+ *  card stood on every future day, so a month out was simply the team's whole
+ *  backlog. Mirrors board.plannedFor. */
+export function plannedFor(c: Partial<Card>, day: string): boolean {
+  if (c.week && c.week === mondayOf(day)) {
+    return true;
+  }
+  return activeOnDay(c.startDate, c.day, day);
 }

@@ -86,6 +86,10 @@ func TeamGrid(b Board, team, day string) []Card {
 		if deferredPast(c, day) {
 			continue
 		}
+		// A day still to COME is a plan, not a state (see plannedFor).
+		if day > today && !plannedFor(c, day) {
+			continue
+		}
 		out = append(out, c)
 	}
 	return out
@@ -94,6 +98,26 @@ func TeamGrid(b Board, team, day string) []Card {
 // deferredPast reports a card put off to a day later than the one given: it
 // is off the board until that day arrives.
 func deferredPast(c Card, day string) bool { return c.StartDate != "" && c.StartDate > day }
+
+// plannedFor reports whether somebody put the card on a day: its own dates
+// reach that day, or it was placed in the week the day belongs to.
+//
+// It is asked of the days AHEAD only, and that asymmetry is the point. TODAY
+// is "what is in hand": a card planned for last Tuesday and still open stands
+// there, because work that ran over is the work most in need of being looked
+// at. TOMORROW is a plan — it holds what somebody actually put there, and
+// today's unfinished work is today's problem rather than tomorrow's plan.
+//
+// Without the bound the day board had no forgetting at all: every open card
+// stood on every future day, so a month out was simply the team's whole
+// backlog (122 of 122 open cards on one production board), and "what is
+// planned for tomorrow" could not be read anywhere.
+func plannedFor(c Card, day string) bool {
+	if c.Week != "" && c.Week == MondayOf(day) {
+		return true
+	}
+	return ActiveOnDay(c.StartDate, c.Day, day)
+}
 
 // finishedOn reports whether a FINISHED card belongs to the day being looked
 // at: the day it RECORDED being finished on (doneAt), and no other.

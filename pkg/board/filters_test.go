@@ -69,8 +69,10 @@ func TestTeamGrid(t *testing.T) {
 			[]string{"A1", "Aahead", "Adebt", "Alate"}},
 		{"the day it was finished keeps it", "A", "2026-06-22",
 			[]string{"A1", "Adebt", "Adone"}},
-		{"a card put off arrives on its day, and the finished one is gone", "A", "2999-07-02",
-			[]string{"A1", "Aahead", "Adeferred", "Adebt"}},
+		// A day far ahead is a PLAN: it holds what somebody put on it, and
+		// nothing else — today's open work is today's business.
+		{"a card put off arrives on its day, and nothing else does", "A", "2999-07-02",
+			[]string{"Adeferred"}},
 		{"a week ahead is on no day board until its Monday", "A", "2026-07-05",
 			[]string{"A1", "Adebt"}},
 		{"and stands on the board from that Monday on", "A", "2026-07-06",
@@ -215,27 +217,35 @@ func TestTeamGridShowsASlotOnceItsWeekHasCome(t *testing.T) {
 // A slot stands on the day grid from the week it starts in, and stays there
 // while it is open — past the end of its span it is a debt, which is the one
 // thing nobody should be able to lose sight of. Before its week it is the
-// Project board's business alone (B1).
+// Project board's business alone (B1), and after TODAY it is a plan again:
+// a day still to come holds what was put there, not what is still owed.
 func TestTeamGridShowsASlotFromItsWeekUntilItIsDone(t *testing.T) {
+	today := TodayIso()
+	week := MondayOf(today)
 	b := NewBoardIn("acme", []Card{
 		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
-			StartDate: "2026-09-01", Day: "2026-09-18"},
+			StartDate: AddDays(week, -14), Day: AddDays(today, -1)},
 	})
-	b.SprintStates = map[string]SprintState{"t": {Current: "2026-09-01"}}
-	// Its own weeks, and the weeks after: still open, still in hand.
-	for _, day := range []string{"2026-09-03", "2026-09-07", "2026-09-14", "2026-09-22"} {
+	b.SprintStates = map[string]SprintState{"t": {Current: AddDays(week, -14)}}
+	// Inside its span, and past the end of it: still open, still in hand.
+	for _, day := range []string{AddDays(week, -14), AddDays(week, -7), AddDays(today, -1), today} {
 		if got := TeamGrid(b, "t", day); len(got) != 1 {
 			t.Fatalf("TeamGrid(%s) = %d card(s); an open slot whose week has come is in hand", day, len(got))
 		}
 	}
 	// Before its week it is not.
-	if got := TeamGrid(b, "t", "2026-08-26"); len(got) != 0 {
-		t.Fatalf("TeamGrid(2026-08-26) = %d card(s); a week ahead is on no day board", len(got))
+	if got := TeamGrid(b, "t", AddDays(week, -21)); len(got) != 0 {
+		t.Fatalf("TeamGrid(%s) = %d card(s); a week ahead is on no day board", AddDays(week, -21), len(got))
+	}
+	// And a day still to come is a plan: the debt is today's business, not
+	// tomorrow's — nothing reaches that day any more.
+	if got := TeamGrid(b, "t", AddDays(today, 1)); len(got) != 0 {
+		t.Fatalf("TeamGrid(tomorrow) = %d card(s); a debt stands on today, not on a day nobody planned it for", len(got))
 	}
 	// Finished, it belongs to the day it was finished on.
 	b.Cards[0].Progress = 100
-	b.Cards[0].DoneAt = "2026-09-16"
-	if got := TeamGrid(b, "t", "2026-09-16"); len(got) != 1 {
+	b.Cards[0].DoneAt = AddDays(today, -1)
+	if got := TeamGrid(b, "t", AddDays(today, -1)); len(got) != 1 {
 		t.Fatal("the day it was finished keeps it")
 	}
 	if got := TeamGrid(b, "t", "2026-09-17"); len(got) != 0 {
@@ -316,11 +326,13 @@ func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
 		t.Fatalf("grid = %v, want %v", got, want)
 	}
 
-	// Looking a week ahead: what is in hand THEN. The debt is still open, so
-	// it is still in hand; the card placed in that week has arrived.
+	// Looking a week ahead: what is PLANNED for then, which is the card
+	// placed in that week and nothing else. This week's work — the debt
+	// included — is this week's business; a day still to come holds what
+	// somebody put there, or "tomorrow" means the whole backlog.
 	next := AddDays(today, 7)
-	if got := ids(TeamGrid(b, "t", next)); !reflect.DeepEqual(got, []string{"placed", "slot", "turn", "debt", "ahead"}) {
-		t.Fatalf("a week ahead = %v, want this week's work still open plus the card placed in it", got)
+	if got := ids(TeamGrid(b, "t", next)); !reflect.DeepEqual(got, []string{"ahead"}) {
+		t.Fatalf("a week ahead = %v, want the card placed in that week alone", got)
 	}
 	// Finished, the debt belongs to the day it was finished on and no other.
 	for i := range b.Cards {
@@ -328,8 +340,8 @@ func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
 			b.Cards[i].Progress, b.Cards[i].DoneAt = 100, today
 		}
 	}
-	if got := ids(TeamGrid(b, "t", next)); slicesContains(got, "debt") {
-		t.Fatalf("work finished on another day is not in hand today: %v", got)
+	if got := ids(TeamGrid(b, "t", AddDays(today, -1))); slicesContains(got, "debt") {
+		t.Fatalf("work finished today is not in hand yesterday: %v", got)
 	}
 }
 
@@ -365,9 +377,6 @@ func TestAFinishedCardBelongsToTheDayItRecords(t *testing.T) {
 			Progress: 100, DoneAt: "2026-09-03"},
 		{ItemID: "unrecorded", Team: "t", StartDate: "2026-09-01", Day: "2026-09-20", Progress: 100},
 		{ItemID: "one-day", Team: "t", StartDate: "2026-09-02", Progress: 100},
-		// Open, and stretched over the same span: the rule is about FINISHED
-		// work, and everything else still stands across its dates.
-		{ItemID: "open", Team: "t", StartDate: "2026-09-01", Day: "2026-09-20", Progress: 40},
 	})
 	shows := func(id, day string) bool {
 		for _, c := range TeamGrid(b, "t", day) {
@@ -395,16 +404,97 @@ func TestAFinishedCardBelongsToTheDayItRecords(t *testing.T) {
 	if shows("one-day", "2026-09-02") || shows("one-day", "2026-09-03") {
 		t.Error("one date is a plan, not a record of being finished")
 	}
-	// And the same span, open, stands from the day it was due to begin and
-	// does not stop at the day it was due to end: work that ran over is the
-	// work most in need of being looked at, and a board that dropped it was
-	// how a card scheduled for last Tuesday left every view at once.
-	for _, day := range []string{"2026-09-01", "2026-09-10", "2026-09-20", "2026-09-21"} {
-		if !shows("open", day) {
+	// And open work does not stop at the day it was due to end: work that ran
+	// over is the work most in need of being looked at, and a board that
+	// dropped it was how a card scheduled for last Tuesday left every view at
+	// once. Said of TODAY — a day still to come is a plan (plannedFor), so
+	// this card is dated against the real clock rather than the fixed days
+	// above.
+	today := TodayIso()
+	b = NewBoard([]Card{{ItemID: "ranover", Team: "t",
+		StartDate: AddDays(today, -10), Day: AddDays(today, -2)}})
+	for _, day := range []string{AddDays(today, -10), AddDays(today, -2), today} {
+		if !shows("ranover", day) {
 			t.Errorf("open work stands from its start on (%s)", day)
 		}
 	}
-	if shows("open", "2026-08-31") {
+	if shows("ranover", AddDays(today, -11)) {
 		t.Error("but not before the day it was put off to")
+	}
+}
+
+// Looking FORWARD, the Team board answers a different question. TODAY is
+// "what is in hand": open work stands there whatever its plan said, because
+// work that ran over is the work most in need of being looked at. A day still
+// to COME is a plan, not a state — it holds what somebody has actually put
+// there, and nothing else.
+//
+// Without that bound the day board had no forgetting at all: every open card
+// of a team stood on every future day, so "tomorrow" stopped meaning tomorrow
+// and a month out was simply the whole backlog (122 of a team's 122 open
+// cards on one production board).
+func TestATomorrowIsAPlanAndTodayIsAState(t *testing.T) {
+	today := TodayIso()
+	tomorrow := AddDays(today, 1)
+	nextWeek := AddDays(MondayOf(today), 7)
+	lastWeek := AddDays(MondayOf(today), -7)
+
+	b := NewBoard([]Card{
+		// Open, planned for a day gone by: in hand TODAY, and on no day ahead.
+		{ItemID: "ranover", Team: "T", StartDate: AddDays(today, -3), Day: AddDays(today, -3)},
+		// A debt of a week gone by, with no dates: the same answer.
+		{ItemID: "debt", Team: "T", Week: lastWeek},
+		// Its span reaches tomorrow: planned for it.
+		{ItemID: "spans", Team: "T", StartDate: AddDays(today, -1), Day: tomorrow},
+		// Planned for the day itself.
+		{ItemID: "onthatday", Team: "T", StartDate: tomorrow, Day: tomorrow},
+		// Placed in next week: on next week's days, and not before.
+		{ItemID: "nextweek", Team: "T", Week: nextWeek},
+		// This week's work with no dates of its own: this week's days hold it.
+		{ItemID: "thisweek", Team: "T", Week: MondayOf(today)},
+	})
+	on := func(day string) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range TeamGrid(b, "T", day) {
+			out[c.ItemID] = true
+		}
+		return out
+	}
+
+	now := on(today)
+	for _, id := range []string{"ranover", "debt", "spans", "thisweek"} {
+		if !now[id] {
+			t.Errorf("today is what is in hand, and %s is: %v", id, now)
+		}
+	}
+	if now["onthatday"] || now["nextweek"] {
+		t.Errorf("work planned for a later day is not in hand today: %v", now)
+	}
+
+	next := on(tomorrow)
+	for _, id := range []string{"spans", "onthatday"} {
+		if !next[id] {
+			t.Errorf("%s is planned for tomorrow and belongs there: %v", id, next)
+		}
+	}
+	for _, id := range []string{"ranover", "debt"} {
+		if next[id] {
+			t.Errorf("%s is today's problem, not tomorrow's plan: %v", id, next)
+		}
+	}
+
+	// A week ahead arrives on its own Monday and stands through its days.
+	if on(nextWeek)["nextweek"] == false {
+		t.Error("a card placed in next week stands on the days of that week")
+	}
+	if on(AddDays(nextWeek, 2))["nextweek"] == false {
+		t.Error("including its Wednesday")
+	}
+	if on(AddDays(nextWeek, 7))["nextweek"] {
+		t.Error("and not on the week after it")
+	}
+	// This week's card does not reach into next week either.
+	if on(nextWeek)["thisweek"] {
+		t.Error("a card placed in THIS week is not planned for the next one")
 	}
 }
