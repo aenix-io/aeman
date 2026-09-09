@@ -16,10 +16,13 @@ import "slices"
 // is either open or was finished on that very day — a card finished yesterday
 // belongs to yesterday, and a board that keeps it is a board nobody can read.
 //
-// One day answers differently, and deliberately: the day a SPRINT BEGAN shows
-// that sprint's own work whatever has become of it since, deferrals aside.
-// That is the view a team opens to read the sprint it is in, and the day the
-// navigator jumps to.
+// One day answers differently, and deliberately: on the day a SPRINT BEGAN,
+// the sprint's own work does not have to have arrived yet — a card created
+// inside the sprint stands on its first day too. It is NOT an exemption from
+// the gates above it: work planned into a later week still waits for that
+// week, and finished work still belongs to the day it was finished on. So
+// that day shows the sprint's work that is in hand, which is the view a team
+// opens to read the sprint it is in, and the day the navigator jumps to.
 //
 // That is the whole rule. It used to be seven, layered: the week's own work,
 // the sprint's start day, the card's own scheduled day, the range between its
@@ -61,14 +64,15 @@ func TeamGrid(b Board, team, day string) []Card {
 		if Complete(c.Stage, c.Progress) && !finishedOn(c, day) {
 			continue
 		}
-		// The day a sprint BEGAN shows that sprint's own OPEN work — ALL of
-		// it, including the cards that appeared after the sprint started.
-		// Most of a sprint is created inside it: a card typed on the Tuesday
-		// of a sprint that opened on Monday is the sprint's work, and a day
-		// that only showed what existed on the Monday would show almost none
-		// of it by Wednesday. So this stands ABOVE the gate on the card's own
-		// start date, which is about when work is due to begin rather than
-		// which sprint it belongs to.
+		// The day a sprint BEGAN also holds the work created INSIDE it, which
+		// is most of a sprint: a card typed on the Tuesday of a sprint that
+		// opened on Monday is that sprint's work, and a day that only showed
+		// what existed on the Monday would show almost none of it by
+		// Wednesday. That is what this clause adds, and all it adds — it
+		// stands above the gate on the card's own START DATE, which is about
+		// when work is due to begin rather than which sprint it belongs to,
+		// and BELOW the gates on the week and on being finished, which this
+		// day is no more exempt from than any other.
 		//
 		// A card DEFERRED past today is the exception, and it is the one the
 		// gate below cannot make: deferring is the act of taking a card out

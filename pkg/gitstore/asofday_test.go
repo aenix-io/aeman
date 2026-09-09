@@ -6,7 +6,28 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/memory"
 )
+
+// cut throws away what lies behind a shallow boundary, the way a clone made
+// with --depth does: the boundary commit keeps naming its parent, and the
+// parent object is gone.
+func cut(t *testing.T, r *Repo, boundary plumbing.Hash) {
+	t.Helper()
+	st, ok := r.Storer().(*memory.Storage)
+	if !ok {
+		t.Fatalf("this helper wants the memory storer, got %T", r.Storer())
+	}
+	c, err := object.GetCommit(r.Storer(), boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range c.ParentHashes {
+		delete(st.Objects, h)
+		delete(st.Commits, h)
+	}
+}
 
 // A day is everything that STOOD on it, not the state of the tree at
 // midnight. The × takes a finished card off the board — the file goes — so a
@@ -451,6 +472,11 @@ func TestTheBoundaryDayClaimsNothingItCannotSee(t *testing.T) {
 	if err := r.Storer().SetShallow([]plumbing.Hash{boundary}); err != nil {
 		t.Fatal(err)
 	}
+	// A real shallow clone does not HOLD what is behind the boundary, and
+	// that is the whole difficulty: the boundary commit still names its
+	// parent, and the object is not here. A repository that merely says it is
+	// shallow while keeping every object tests the easy half.
+	cut(t, r, boundary)
 
 	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-19"), endOf(t, "2026-08-20"))
 	if err != nil || !ok {

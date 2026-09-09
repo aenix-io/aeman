@@ -390,6 +390,14 @@ func cardAt(r *Repo, h plumbing.Hash, id string) (board.Card, bool, error) {
 // every commit says which cards it touched (the Aeman-Cards trailer), so the
 // ones that left are found without opening a single tree.
 func commitsOfDay(r *Repo, from, to time.Time) ([]*object.Commit, map[string]int, error) {
+	// A shallow clone does not HOLD what is behind its boundary, and the
+	// boundary commit names a parent all the same. Walking into it is an
+	// "object not found" — which is how the OLDEST day of the window, the one
+	// the day arrow reaches on the second click, failed to open at all.
+	shallow, err := r.shallows()
+	if err != nil {
+		return nil, nil, err
+	}
 	var day []*object.Commit
 	touched := map[string]int{}
 	h := r.Head()
@@ -409,7 +417,7 @@ func commitsOfDay(r *Repo, from, to time.Time) ([]*object.Commit, map[string]int
 			}
 			day = append(day, c)
 		}
-		if c.NumParents() == 0 {
+		if c.NumParents() == 0 || shallow[c.Hash] {
 			break
 		}
 		h = c.ParentHashes[0]
