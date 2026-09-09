@@ -36,10 +36,27 @@ func DueDate(c Card) string {
 	return ""
 }
 
-// Overdue reports whether a card from a plan is still open past the day it
-// was owed by. It is derived, never stored — the card's own dates are the
-// truth, and a flag beside them would be one more thing to drift.
+// Overdue reports whether a card has broken a promise somebody else is
+// holding — which is what the mark means, and why only two kinds of card can
+// carry it: a Project-board SLOT, owed by the end date its row was drawn to,
+// and a process TURN, owed by the end of the week its process filed it into.
+// Both are commitments made on another board, by somebody who is not the
+// person the card sits on.
+//
+// A card scheduled into a week on the Triage board is not one of those. Its
+// week is that board's own planning, and planning is what the next sync
+// redoes — so calling it late for being open on Monday paints most of a
+// normal board red, and a mark that is everywhere says nothing where it
+// matters. Such a card is not marked and is not hidden either: a week gone by
+// holds its own record, and the day boards go on drawing the work until it is
+// finished (TeamGrid holds back the weeks AHEAD, never the ones behind).
+//
+// It is derived, never stored — the card's own dates are the truth, and a
+// flag beside them would be one more thing to drift.
 func Overdue(c Card, today string) bool {
+	if c.Epic == "" && c.Task == "" {
+		return false
+	}
 	if Complete(c.Stage, c.Progress) {
 		return false
 	}

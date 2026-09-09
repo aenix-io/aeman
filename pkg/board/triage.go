@@ -43,26 +43,6 @@ func NeedsTriage(_ Board, c Card, _ string) bool {
 	return !Complete(c.Stage, c.Progress)
 }
 
-// InWeek reports whether the card is the given week's own work: any of the
-// weeks it covers (its own through the week its end date reaches), or — in
-// the CURRENT week — a DEBT owed in an earlier one, which stands beside that
-// week's work without leaving the week it was owed in.
-//
-// It is what a week's column holds on the Triage board, and what the Team
-// board's grid carries all week: a card placed in a week is not invisible
-// until somebody gives it a day.
-func InWeek(c Card, week, today string) bool {
-	if c.Week == "" {
-		return false
-	}
-	for _, w := range WeeksCovered(c) {
-		if w == week {
-			return true
-		}
-	}
-	return week == MondayOf(today) && c.Week < week && Overdue(c, today)
-}
-
 // TriageWeekOf is the Monday of the column a card stands in on the Triage
 // board — its week, and nothing else. A card with no week stands in no
 // column: it is in the strip, waiting for someone to say when.
@@ -95,6 +75,19 @@ func TriageWeekOf(_ Board, c Card, _ string) string {
 			return MondayOf(c.StartDate)
 		}
 		return MondayOf(c.Day)
+	}
+	// WORK THAT WAS DONE IN A WEEK IS THAT WEEK'S WORK, planned or not. A
+	// card closed without ever being given a week stood in no column and in
+	// no strip — the strip is work still to be LOOKED at, and this work is
+	// finished — so the board showed it nowhere at all and a lead reading the
+	// week saw less than the week had done. It stands in the week it was
+	// finished in: that is where the reader looks for it. The board draws it
+	// on the cell's own "+N done" line rather than among the cards being
+	// planned, and counts it in neither of the week's numbers (B5). One
+	// finished long ago falls outside the window like anything else of its
+	// week rather than piling into the current one.
+	if Complete(c.Stage, c.Progress) && c.DoneAt != "" {
+		return MondayOf(c.DoneAt)
 	}
 	return ""
 }

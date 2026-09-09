@@ -7,6 +7,11 @@
 // the boards' twenty-odd handlers: a handler that forgot would write today's
 // board from a view of the past — the card would jump to its live state and
 // the day's picture would be quietly wrong.
+//
+// What the reader gets instead of a refusal is the board they were reaching
+// for: the day leaves the record for TODAY, and the team whose card was
+// touched is offered its carry-over, since a lead reaching into a day that is
+// over is usually a lead whose sprint has not been closed yet.
 
 import type { Provider } from "./types";
 
@@ -63,11 +68,20 @@ const CARD_WRITES = new Set([
  * whether the view holds any at all, which is what guards the writes that
  * name no card.
  */
+/** onFrozen is called when a write is refused, with the uid of the card it
+ *  named (empty for a write that names none). What it returns is the message
+ *  the caller sees; "" says nothing at all.
+ *
+ *  It is a CALLBACK and not a message because the answer to "this day is
+ *  over" is an action, not a sentence: the board leaves the record for today,
+ *  where the work can actually be done. The write itself is still refused —
+ *  it was aimed at a picture of the past, and replaying it onto today's board
+ *  is the very thing this guard exists to prevent. */
 export function frozenProvider(
   inner: Provider,
   isRecord: (uid: string) => boolean,
   anyRecord: () => boolean,
-  reason: string,
+  onFrozen: (uid: string) => string,
 ): Provider {
   return new Proxy(inner, {
     get(target, prop, receiver) {
@@ -87,12 +101,12 @@ export function frozenProvider(
         return (...args: unknown[]) => {
           const uid = typeof args[0] === "string" ? args[0] : "";
           return isRecord(uid)
-            ? Promise.reject(new Error(reason))
+            ? Promise.reject(new Error(onFrozen(uid)))
             : call(...args);
         };
       }
       return anyRecord()
-        ? () => Promise.reject(new Error(reason))
+        ? () => Promise.reject(new Error(onFrozen("")))
         : call;
     },
   }) as Provider;

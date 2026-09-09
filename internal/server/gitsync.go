@@ -132,6 +132,12 @@ func newGitBackend(store *boardStore, domains []gitDomain, opts gitOptions) *sto
 type actionCtxKey struct{}
 
 // actionRef is what a request is, for the commit it becomes.
+// heldAction is a request still making its writes: the boards it queued into,
+// so releasing it starts their workers (holdAction).
+type heldAction struct {
+	entries map[*boardEntry]context.Context
+}
+
 type actionRef struct {
 	ID   string
 	Name string

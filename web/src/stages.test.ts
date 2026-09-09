@@ -10,6 +10,9 @@ import {
   isComplete,
   isInProgress,
   isWorkable,
+  deferredPast,
+  doneAtAfter,
+  finishedOn,
 } from "./stages";
 import type { StageKey } from "./providers/types";
 
@@ -129,5 +132,67 @@ describe("what work can be picked up", () => {
 
   it("includes ordinary work, finished or not", () => {
     expect(isWorkable({ stage: undefined, progress: 40 })).toBe(true);
+  });
+});
+
+// Putting a card off is saying "not now": it leaves the board and comes back on
+// the day it was put off to. Mirrors board.deferredPast.
+describe("deferredPast", () => {
+  it("holds a card back until its day arrives", () => {
+    expect(deferredPast({ startDate: "2026-09-10" }, "2026-09-08")).toBe(true);
+    expect(deferredPast({ startDate: "2026-09-10" }, "2026-09-10")).toBe(false);
+    expect(deferredPast({ startDate: "2026-09-10" }, "2026-09-11")).toBe(false);
+  });
+
+  it("says nothing about a card nobody dated", () => {
+    expect(deferredPast({}, "2026-09-08")).toBe(false);
+  });
+});
+
+// A finished card belongs to the day it RECORDED being finished on, and a day
+// board draws it there and nowhere else. It used to fall back to the card's own
+// dates when nothing was recorded, which read a plan as evidence: a card
+// stretched three weeks out stood on a day three weeks out, as though it had been
+// finished then. Mirrors board.finishedOn.
+describe("finishedOn", () => {
+  it("is the day the board recorded, and only that day", () => {
+    expect(finishedOn({ doneAt: "2026-09-08" }, "2026-09-08")).toBe(true);
+    expect(finishedOn({ doneAt: "2026-09-08" }, "2026-09-01")).toBe(false);
+  });
+
+  it("never guesses one out of the card's plan", () => {
+    expect(finishedOn({ day: "2026-09-01", startDate: "2026-08-25" }, "2026-09-01")).toBe(false);
+    expect(finishedOn({ startDate: "2026-08-25" }, "2026-08-25")).toBe(false);
+    expect(finishedOn({}, "2026-09-01")).toBe(false);
+  });
+});
+
+// A card marked done must not blink out of the board while the server is
+// answering. The day board draws finished work by the day it recorded and no
+// other, so the optimistic copy carries that day the moment the bar reaches 100 —
+// and gives it back when the card is reopened. Mirrors P6.
+describe("doneAtAfter", () => {
+  const TODAY = "2026-09-09";
+
+  it("stamps the day a card reaches done", () => {
+    expect(doneAtAfter({ progress: 40 }, { progress: 100 }, TODAY)).toBe(TODAY);
+    expect(doneAtAfter({ progress: 40 }, { stage: "done" }, TODAY)).toBe(TODAY);
+  });
+
+  it("keeps the day the card already recorded", () => {
+    expect(doneAtAfter({ progress: 100, doneAt: "2026-09-01" }, { stage: "done" }, TODAY)).toBe(
+      "2026-09-01",
+    );
+  });
+
+  it("clears it when the work is reopened", () => {
+    expect(doneAtAfter({ progress: 100, doneAt: TODAY }, { progress: 60 }, TODAY)).toBeUndefined();
+  });
+
+  it("leaves it alone when the patch is about something else", () => {
+    expect(doneAtAfter({ progress: 100, doneAt: "2026-09-01" }, { title: "renamed" }, TODAY)).toBe(
+      "2026-09-01",
+    );
+    expect(doneAtAfter({ progress: 40 }, { title: "renamed" }, TODAY)).toBeUndefined();
   });
 });

@@ -7,7 +7,6 @@ import {
   needsTriage,
   orderWith,
   pileRank,
-  inWeek,
   placedAhead,
   placedIn,
   reachOf,
@@ -232,44 +231,29 @@ describe("weeksCovered", () => {
   });
 });
 
-// The week's own work — what its column holds on Triage, and what the Team
-// board's grid carries all week so a card placed in a week is not invisible
-// until somebody gives it a day. Mirrors board.InWeek; a rule kept on one
-// side only is how the boards drifted before.
-describe("the week's own work", () => {
-  const TODAY = "2026-09-03"; // a Thursday
-  const THIS = "2026-08-31";
-  const NEXT = "2026-09-07";
-  const LAST = "2026-08-24";
-
-  it("is the card placed in that week", () => {
-    expect(inWeek(card({ week: THIS }), THIS, TODAY)).toBe(true);
-    expect(inWeek(card({ week: NEXT }), THIS, TODAY)).toBe(false);
+// Work that was DONE in a week is that week's work, planned or not. A card
+// closed without ever being given a week stood in no column and in no strip —
+// the strip is work still to be LOOKED at — so the board showed it nowhere at
+// all. Mirrors board.TriageWeekOf.
+describe("finished work nobody placed", () => {
+  it("stands in the week it was finished in", () => {
+    expect(
+      placedIn(card({ progress: 100, doneAt: "2026-09-09", startDate: "2026-09-09" })),
+    ).toBe("2026-09-07");
   });
 
-  it("is every week a stretched card covers", () => {
-    const long = card({ week: THIS, day: "2026-09-11" });
-    expect(inWeek(long, THIS, TODAY)).toBe(true);
-    expect(inWeek(long, NEXT, TODAY)).toBe(true);
-    expect(inWeek(long, LAST, TODAY)).toBe(false);
+  it("leaves open work in the strip, where it is asked about", () => {
+    expect(placedIn(card({ progress: 40, startDate: "2026-09-09" }))).toBeNull();
   });
 
-  it("carries a DEBT into the current week, and nowhere else", () => {
-    const debt = card({ week: LAST, overdue: true });
-    expect(inWeek(debt, THIS, TODAY)).toBe(true);
-    // Not onto some other week: a debt is settled where the work is now.
-    expect(inWeek(debt, NEXT, TODAY)).toBe(false);
-    // And it does not leave the week it was owed in.
-    expect(inWeek(debt, LAST, TODAY)).toBe(true);
+  it("keeps the week somebody gave it", () => {
+    expect(placedIn(card({ week: "2026-08-31", progress: 100, doneAt: "2026-09-09" }))).toBe(
+      "2026-08-31",
+    );
   });
 
-  it("leaves a card of an earlier week that is NOT overdue where it was", () => {
-    // Finished in its week, or otherwise not owed: nothing to carry forward.
-    expect(inWeek(card({ week: LAST }), THIS, TODAY)).toBe(false);
-  });
-
-  it("is nothing at all for a card nobody placed", () => {
-    expect(inWeek(card({ day: "2026-09-04" }), THIS, TODAY)).toBe(false);
+  it("places nothing by a day nobody recorded", () => {
+    expect(placedIn(card({ progress: 100, startDate: "2026-09-09" }))).toBeNull();
   });
 });
 
@@ -393,5 +377,29 @@ describe("what takes part in a cell's order", () => {
     expect(ordersWithinCell({ reviewOf: "orig" } as Card)).toBe(false);
     expect(ordersWithinCell({} as Card)).toBe(true);
     expect(ordersWithinCell({ reviewOf: undefined } as Card)).toBe(true);
+  });
+});
+
+// The reading order of a week's pile is about DEBTS — a card whose day has
+// passed and is still open — while the late MARK is about a promise made on
+// another board (board.Owed vs board.Overdue). They part company on the
+// ordinary card: it is a debt in the current week's column and it is not
+// painted late, so the pile must not read the mark to find it.
+describe("a debt reads first, whether or not it is marked late", () => {
+  const THIS = "2026-09-07";
+  it("puts a card owed in an earlier week at the top", () => {
+    const debt = card({ week: "2026-08-31", zone: "green" });
+    expect(pileRank(debt, THIS)).toBe(0);
+    // Without a week to compare against, it is just its zone again.
+    expect(pileRank(debt)).toBeGreaterThan(0);
+  });
+
+  it("leaves this week's own work in its zone order", () => {
+    expect(pileRank(card({ week: THIS, zone: "red" }), THIS)).toBeGreaterThan(0);
+    expect(pileRank(card({ week: "2026-09-14", zone: "red" }), THIS)).toBeGreaterThan(0);
+  });
+
+  it("still puts a card the server marked late first", () => {
+    expect(pileRank(card({ overdue: true, week: THIS, zone: "green" }), THIS)).toBe(0);
   });
 });

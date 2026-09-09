@@ -1,34 +1,17 @@
 import { optimisticTitle } from "../links";
-import {
-  Fragment,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  type Ref,
-} from "react";
+import { Fragment, type CSSProperties, type ReactNode, type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelPendingCard,
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
 import { justMade } from "../justmade";
-import type {
-  Board,
-  Card as CardModel,
-  CardPatch,
-  CarryReport,
-  Provider,
-  StageKey,
-  ZoneKey,
-} from "../providers/types";
+import type { Board, Card as CardModel, CardPatch, CarryReport, Provider, SprintState, StageKey, ZoneKey } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
-import { clampProgress, clampsProgress } from "../stages";
-import { todayIso, addDays, localDateIso, mondayOf } from "../date";
-import { deferred, inWeek, placedAhead } from "../triage";
-import { activeSprint, currentSprint, previousSprint, sprintForDate } from "../sprint";
+import { clampProgress, clampsProgress, isComplete } from "../stages";
+import { inHandOn } from "../teamgrid";
+import { todayIso, addDays, localDateIso } from "../date";
+import { currentSprint, dayIsOverFor, previousSprint, sprintForDate } from "../sprint";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -68,11 +51,15 @@ interface TeamBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
-  /** The moment this board is a RECORD of (a past day answered as it stood),
-   *  empty on a live board. What it holds cannot be added to. */
-  asOf?: string;
-
   onSelectDate: (day: string) => void;
+  /** The sprint pointers as they stand TODAY (a record's own are that day's).
+   *  What decides, per team, whether the day being read is theirs to add to. */
+  liveSprints: Record<string, SprintState>;
+  /** A carry-over the APP asked for, rather than the button: somebody reached
+   *  into a day that is over, and the board answers by leaving the record for
+   *  today and offering that team its new sprint (App.leaveTheRecord). The
+   *  `at` stamp is what makes a repeat ask a second time. */
+  carryRequest?: { team: string | null; at: number };
   /** Avatars by login (the board roster). */
   avatars: Avatars;
   /** Display names by login (the board roster); a login without one is shown
@@ -118,21 +105,15 @@ const errMessage = (err: unknown) =>
 // resurrect a phantom copy).
 const isGone = (err: unknown) => errMessage(err).includes("card not found");
 
-// isComplete mirrors board.Complete: an explicit done, or 100% with no stage
-// (derived done) or on the recurrent stage (a finished recurrent card stays
-// behind — Carry Over/Week reseed a fresh copy instead of dragging it).
-const isComplete = (c: CardModel) =>
-  c.stage === "done" ||
-  ((!c.stage || c.stage === "recurrent") && (c.progress ?? 0) >= 100);
-
 /** TeamBoard is the team as a people × zones grid for one day, filtered by team. */
 export function TeamBoard({
   board,
   provider,
   me,
   selectedDate,
-  asOf,
   onSelectDate,
+  liveSprints,
+  carryRequest,
   avatars,
   names,
   roster,
@@ -206,100 +187,19 @@ export function TeamBoard({
   const passesFilter = (card: CardModel): boolean =>
     teamFilter === null || teamFilter.includes(card.team ?? "");
 
-  // Cards passing the team filter (the scope before applying the sprint).
-  // A day that ENDED offers nothing to add: a card created there would land
-  // on TODAY's board, which is not what the person looking at that day
-  // means. The server refuses such a create outright — it cannot tell which
-  // team the box belonged to — so the boxes go whenever the board is being
-  // read as a record at all, not only where a record card happens to sit.
-  const holdsRecords = !!asOf;
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [board.cards, teamFilter],
   );
 
-  // The Team grid places a card on its effective day: its sprint (sprintStart)
-  // once materialized, but its scheduled day (startDate) while that is still in the
-  // future. So a materialized card sits on its sprint's start date (including ones
-  // created on later days), and a deferred card shows on its own future day,
-  // rejoining the sprint day once today catches up.
+  // What the people are WORKING ON on the day being looked at, and nothing
+  // else — the same set the Triage board shows for that day, less anything
+  // put off to later. The rule itself is teamgrid.inHandOn, which mirrors
+  // board.TeamGrid.
   const filteredCards = useMemo(
-    () =>
-      inFilter.filter((c) => {
-        // Subtasks render nested under their parent, never as grid rows.
-        if (c.parent) {
-          return false;
-        }
-        const today = todayIso();
-        // A card placed in a week ahead is on no day board until its Monday.
-        if (placedAhead(c, today)) {
-          return false;
-        }
-        // The WEEK's own work stands on the grid all week — in its person's
-        // column, or in Unassigned when nobody has taken it. This is the set
-        // the Triage board shows for that week, and what the weekly panel
-        // used to hold beside the grid (mirrors board.TeamGrid).
-        //
-        // A DEFERRED card is not part of it: deferring is the act of taking a
-        // card off the board until a later day, and its week says when the
-        // work is due, not that it should still be drawn today. The rule
-        // below says the same about the days.
-        if (!deferred(c, today) && inWeek(c, mondayOf(selectedDate), today)) {
-          return true;
-        }
-        // A Project slot with no week of this one's own lives on the Project
-        // board until it joins a sprint — its multi-week dates would
-        // otherwise put it in the day grid for every day it spans.
-        if (c.epic && !c.sprintStart) {
-          return false;
-        }
-        // A card with an end date spans a range: it shows on every day from its
-        // start through its end (the calendar sets start…end).
-        const inRange =
-          !!c.startDate &&
-          !!c.day &&
-          c.day >= c.startDate &&
-          selectedDate >= c.startDate &&
-          selectedDate <= c.day;
-        // A deferred / future-scheduled card (startDate past today) lives on
-        // its own day (or range), and a CLOSED sprint's day keeps it as
-        // history; it is hidden everywhere else until that day arrives. The
-        // team's CURRENT sprint is never history: deferring is precisely the
-        // act of taking the card out of the sprint in progress, so it must
-        // leave that day at once (mirrors board.TeamGrid).
-        if (deferred(c, today)) {
-          const pastSprintDay =
-            !!c.sprintStart &&
-            selectedDate === c.sprintStart &&
-            c.sprintStart < today &&
-            c.sprintStart !== currentSprint(board, c.team ?? null);
-          return selectedDate === c.startDate || inRange || pastSprintDay;
-        }
-        if (c.sprintStart === selectedDate) {
-          return true;
-        }
-        // A materialized card also shows on its scheduled day (and through its
-        // range when it has an end date), so a card created on a later day of
-        // its sprint appears both on the sprint's start day and on its own days.
-        if (inRange || (c.startDate && c.startDate === selectedDate)) {
-          return true;
-        }
-        // A card also shows on a sprint day it passed through — a sprint-pointer
-        // day S (current or previous) with origin <= S < sprintStart — so
-        // carried-over and deferred cards keep their sprint history.
-        const ss = c.sprintStart;
-        if (!ss) {
-          return false;
-        }
-        const teamKey = c.team ?? null;
-        const origin = activeSprint(board, teamKey, c.startDate ?? ss);
-        return [
-          currentSprint(board, teamKey),
-          previousSprint(board, teamKey),
-        ].some((s) => !!s && selectedDate === s && s < ss && origin <= s);
-      }),
-    [inFilter, selectedDate, board],
+    () => inFilter.filter((c) => inHandOn(c, selectedDate, todayIso())),
+    [inFilter, selectedDate],
   );
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me
@@ -382,6 +282,27 @@ export function TeamBoard({
         : roster,
     [teamFilter, roster],
   );
+
+  // A day that ENDED offers nothing to add: a card created there would land
+  // on TODAY's board, which is not what the person looking at that day means.
+  // The question is asked PER TEAM, the way the server asks it: while a
+  // sprint is open its days are still that team's to work — the lead reading
+  // the day it began adds a card there, which is where the standup is — and
+  // only a team the day is over for loses its box. Taking the boxes off the
+  // whole screen because one team had settled is what this replaced.
+  const dayOverFor = useCallback(
+    (team: string | null) => dayIsOverFor(liveSprints, team, selectedDate),
+    [liveSprints, selectedDate],
+  );
+  // The teams a create may still name here — what the picker offers, so a
+  // pick cannot land on a create the server refuses.
+  const addTeams = useMemo(
+    () => pickerTeams.filter((t) => !dayOverFor(t || null)),
+    [pickerTeams, dayOverFor],
+  );
+  // Nothing anywhere can be added to when every team on screen has settled.
+  const holdsRecords =
+    forcedTeam === undefined ? addTeams.length === 0 : dayOverFor(forcedTeam);
 
   // "No team" is offered only when the no-team group is actually displayed
   // on the board — a card created into a hidden group would just vanish.
@@ -1621,7 +1542,7 @@ export function TeamBoard({
   // the previous) and pull its unfinished cards forward — one server action; a
   // dry run feeds the confirm count. Always advances, even with nothing to
   // carry. `team` is null for the no-team group.
-  const startSprint = async (team: string | null) => {
+  const startSprint = async (team: string | null, asked = false) => {
     setSprintMenuOpen(false);
     const label = team ?? "no team";
     const old = currentSprint(board, team);
@@ -1629,9 +1550,13 @@ export function TeamBoard({
     // Idempotent: if the sprint is already today's, do not re-advance — that would
     // overwrite the previous sprint, making previous = current = today. Still land
     // on today, so pressing Carry over always brings the current sprint into view.
+    // Nothing is SAID when the app asked rather than the reader: they pressed
+    // nothing, and being told their sprint is fine is not an answer to that.
     if (old === today) {
       onSelectDate(today);
-      onError(`«${label}» is already on today's sprint.`);
+      if (!asked) {
+        onError(`«${label}» is already on today's sprint.`);
+      }
       return;
     }
     let rep: CarryReport;
@@ -1681,6 +1606,19 @@ export function TeamBoard({
     onSelectDate(today);
     reload();
   };
+
+  // A carry the APP asked for (somebody reached into a day that is over).
+  // Once per stamp: the same request must not re-fire on every render, and a
+  // second reach into the past must ask again.
+  const carryAsked = useRef(0);
+  useEffect(() => {
+    if (!carryRequest || carryRequest.at === carryAsked.current) {
+      return;
+    }
+    carryAsked.current = carryRequest.at;
+    void startSprint(carryRequest.team, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carryRequest]);
 
   return (
     <div className="team">
@@ -1842,7 +1780,7 @@ export function TeamBoard({
                   {body}
                   <AddCard
                     hidden={holdsRecords}
-                    teams={forcedTeam === undefined ? pickerTeams : undefined}
+                    teams={forcedTeam === undefined ? addTeams : undefined}
                     forcedTeam={forcedTeam}
                     allowNoTeam={pickerNoTeam}
                     onCreate={(title, team) =>

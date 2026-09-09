@@ -129,4 +129,29 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 	if code := patch(settled, `{"description":"from today"}`, ""); code != http.StatusOK {
 		t.Fatalf("an ordinary write answered %d", code)
 	}
+
+	// A CREATE names its team, so it is judged by that team like everything
+	// else. WHILE A SPRINT IS OPEN its days are still the team's to work: a
+	// lead reading the day the sprint began, or any day of it, adds a card
+	// there — that is where the standup is. Only a team the day is OVER for
+	// is refused, and until this was per-team one settled team took the add
+	// boxes off the whole screen.
+	create := func(team, asOf string) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/cards",
+			strings.NewReader(`{"title":"typed on the sprint's day","team":"`+team+`","zone":"planned","dates":{"start":"2026-08-20","end":"2026-08-20"}}`))
+		req.Header.Set("Content-Type", "application/json")
+		if asOf != "" {
+			req.Header.Set("X-Aeman-As-Of", asOf)
+		}
+		rec := httptest.NewRecorder()
+		srv.handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := create("backoffice", "2026-08-20"); code != http.StatusCreated {
+		t.Fatalf("a create on a day of the team's OPEN sprint answered %d, want 201", code)
+	}
+	if code := create("portal", "2026-08-20"); code != http.StatusConflict {
+		t.Fatalf("a create on a day that team has moved past answered %d, want 409", code)
+	}
 }

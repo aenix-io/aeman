@@ -163,13 +163,18 @@ func TestCreateCardUnderEpic(t *testing.T) {
 		t.Fatal("an unknown epic must be refused on create")
 	}
 
-	// And the day boards do not smear its multi-week span.
+	// A slot stands on the day board from the week it starts in, sprint or no
+	// sprint — the day board shows what is in hand, and a slot whose week has
+	// come is. Before that week it is the Project board's alone.
 	b, err := svc.Board(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := board.TeamGrid(b, "", "2026-09-15"); len(got) != 0 {
-		t.Fatalf("a sprint-less epic card must stay off the day grid, got %+v", got)
+	if got := board.TeamGrid(b, "", "2026-09-15"); len(got) != 1 {
+		t.Fatalf("a slot whose week has come stands on the day grid, got %+v", got)
+	}
+	if got := board.TeamGrid(b, "", "2026-09-07"); len(got) != 0 {
+		t.Fatalf("and not before it, got %+v", got)
 	}
 }
 

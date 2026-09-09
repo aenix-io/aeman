@@ -58,6 +58,15 @@ describe("what the × may remove on the Me board", () => {
     expect(mayRemove({ author: me }, me)).toBe(false);
   });
 
+  // A REVIEW card is somebody else's asking, and the × on it belongs to the
+  // Team board, where a lead takes work off the plan. Here it is not drawn:
+  // the review card is authored by whoever sent it, so the rule above already
+  // covers it — pinned because the server no longer refuses that delete, and
+  // the two boards must still answer differently.
+  it("leaves a review card to the Team board", () => {
+    expect(mayRemove({ author: "lllamnyp", zone: ADD_ZONE }, me)).toBe(false);
+  });
+
   it("leaves a card whose author nothing records", () => {
     // An old card, or one written straight into the repository: unattributed
     // work is not this person's to destroy.

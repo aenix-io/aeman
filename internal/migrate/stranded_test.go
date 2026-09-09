@@ -51,11 +51,13 @@ func TestTheMigrationTakesStrandedCardsOffTheBoard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rep.Stranded) != 2 {
-		t.Fatalf("stranded = %v, want the card and the subtask riding it", rep.Stranded)
-	}
-	if !strings.Contains(rep.String(), "on no board") {
-		t.Fatalf("the report must say it in words:\n%s", rep.String())
+	// Nothing is stranded any more, and that is the fix rather than the
+	// failure: a day board shows what is open and not put off, so the July
+	// card its own team never carried over is in somebody's hands and on
+	// their board. The step stays as the net it always was — it just has
+	// nothing left to catch on a board built by this server.
+	if len(rep.Stranded) != 0 {
+		t.Fatalf("stranded = %v, want none: open work is reachable now", rep.Stranded)
 	}
 
 	r := clone(t, remote)
@@ -71,33 +73,12 @@ func TestTheMigrationTakesStrandedCardsOffTheBoard(t *testing.T) {
 		}
 		return p
 	}
-	gone := path("PVTI_stray")
-	if _, err := r.ReadFile(gone); err == nil {
-		t.Fatal("the stranded card is off the board")
-	}
-	kid := path("PVTI_kid")
-	if _, err := r.ReadFile(kid); err == nil {
-		t.Fatal("and so is the subtask that rode it — it was on no board either")
-	}
-	if _, err := r.ReadFile(path("PVTI_live")); err != nil {
-		t.Fatalf("today's card is untouched: %v", err)
-	}
-
-	// The history keeps what the board no longer holds: the commit before the
-	// cleanup still has the card, so a record of its day shows it.
-	head, err := r.CommitObject(r.Head())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(head.Message, "on no board") {
-		t.Fatalf("the cleanup is a commit of its own:\n%s", head.Message)
-	}
-	parent, err := head.Parent(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := parent.File(gone); err != nil {
-		t.Fatalf("the commit before it still holds the card: %v", err)
+	// Every card arrives, the July one included: it is open work, and the
+	// board it lands on shows open work.
+	for _, old := range []string{"PVTI_live", "PVTI_stray", "PVTI_kid"} {
+		if _, err := r.ReadFile(path(old)); err != nil {
+			t.Fatalf("%s must arrive on the board: %v", old, err)
+		}
 	}
 }
 

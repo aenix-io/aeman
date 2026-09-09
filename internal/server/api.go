@@ -573,6 +573,22 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Made from a past day: judged by the team the card is being added to,
+	// which the guard could not read (recordWriteGuard). A team still inside
+	// that sprint is still working those days — the lead reading the day the
+	// sprint began adds a card there — and only a team the day is OVER for is
+	// refused.
+	if day := asOfDay(r.Context()); day != "" {
+		if bd, err := svc.Board(r.Context(), boardID); err == nil && board.TeamsPast(bd, day)[in.Team] {
+			team := in.Team
+			if team == "" {
+				team = "no team"
+			}
+			writeJSONError(w, http.StatusConflict,
+				"the board of "+day+" is a record for «"+team+"»: that day is over for them, so nothing can be added to it from there")
+			return
+		}
+	}
 	size, ok := parseSize(w, in.Size)
 	if !ok {
 		return

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { sprintForDate } from "./sprint";
-import type { Board } from "./providers/types";
+import { dayIsOverFor, sprintForDate } from "./sprint";
+import type { Board, SprintState } from "./providers/types";
 
 // The board this rule reads: one team, its two tracked sprints.
 const board = {
@@ -39,5 +39,36 @@ describe("sprintForDate", () => {
 
   it("clears the sprint when the dates are cleared", () => {
     expect(sprintForDate(board, "portal", "", today)).toBe(null);
+  });
+});
+
+// A day is a RECORD for one team and live for the next, and the add boxes ask
+// it per team: while a sprint is open, every day of it is still that team's to
+// add to. Mirrors board.TeamsPast.
+describe("dayIsOverFor", () => {
+  const live = {
+    portal: { current: "2026-09-09", previous: "2026-09-08" },
+    backoffice: { current: "2026-09-07", previous: "2026-09-02" },
+    "": { current: "2026-09-09" },
+  } as unknown as Record<string, SprintState>;
+
+  it("is over for a team whose sprint has moved past the day", () => {
+    expect(dayIsOverFor(live, "portal", "2026-09-08")).toBe(true);
+  });
+
+  it("is NOT over while the team is still inside that sprint", () => {
+    // backoffice opened this sprint on the 7th: the 7th and the 8th are days
+    // of a sprint still running, and a card can be added on either.
+    expect(dayIsOverFor(live, "backoffice", "2026-09-07")).toBe(false);
+    expect(dayIsOverFor(live, "backoffice", "2026-09-08")).toBe(false);
+  });
+
+  it("answers for the no-team group like any other team", () => {
+    expect(dayIsOverFor(live, null, "2026-09-08")).toBe(true);
+    expect(dayIsOverFor(live, null, "2026-09-09")).toBe(false);
+  });
+
+  it("says nothing about a team with no sprint at all", () => {
+    expect(dayIsOverFor(live, "sales", "2026-01-01")).toBe(false);
   });
 });

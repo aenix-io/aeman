@@ -30,60 +30,66 @@ func TestReachableIsEveryCardABoardStillShows(t *testing.T) {
 		// Done, and so off the board on purpose.
 		{ItemID: "done", Team: "portal", Progress: 100, SprintStart: "2026-07-06", StartDate: "2026-07-06"},
 
-		// Stranded: open, in a sprint two behind, nothing else holding it.
-		{ItemID: "stray", Team: "portal", Progress: 90, SprintStart: "2026-07-31",
+		// Open, in a sprint two behind, nothing else holding it — and the
+		// Team board reaches it all the same now: it is open, it was not put
+		// off and it is in no week ahead, so it is in somebody's hands. That
+		// is what the day board's rule became, and it is why a card whose
+		// days ran out can no longer be lost.
+		{ItemID: "old", Team: "portal", Progress: 90, SprintStart: "2026-07-31",
 			StartDate: "2026-07-31", Day: "2026-07-31", Assignees: []string{"kvaps"}},
-		// Stranded with no dates at all — nothing places it anywhere.
+		// The same, with no dates at all.
 		{ItemID: "dateless", Team: "portal", Progress: 30},
-		// A subtask of a stranded card is stranded with it; one riding a card
-		// that IS on a board is reachable through it.
-		{ItemID: "kid-of-stray", Team: "portal", Parent: "stray"},
+		{ItemID: "kid-of-old", Team: "portal", Parent: "old"},
 		{ItemID: "kid-of-today", Team: "portal", Parent: "today"},
-		// A review card follows its original the same way.
-		{ItemID: "review-of-stray", Team: "portal", ReviewOf: "stray"},
+		{ItemID: "review-of-old", Team: "portal", ReviewOf: "old"},
 		{ItemID: "review-of-today", Team: "portal", ReviewOf: "today"},
 	})
 	got := Reachable(b, today)
 
 	for _, id := range []string{"today", "yesterday", "deferred", "slot", "week", "done",
-		"kid-of-today", "review-of-today"} {
+		"kid-of-today", "review-of-today", "old", "dateless", "kid-of-old", "review-of-old"} {
 		if !got[id] {
 			t.Errorf("%s is on a board someone can open, and Reachable says it is not", id)
 		}
 	}
-	for _, id := range []string{"stray", "dateless", "kid-of-stray", "review-of-stray"} {
-		if got[id] {
-			t.Errorf("%s is on no board at all, and Reachable counts it as reachable", id)
-		}
+	// Nothing here is on no board, and that is the point: a day board shows
+	// what is open and not put off, so the shape of card this whole rule was
+	// written to find — stranded by a × into a sprint nobody opens — cannot
+	// be made any more.
+	if lost := Unreachable(b, today); len(lost) != 0 {
+		t.Errorf("nothing should be unreachable now, got %v", ids(lost))
 	}
 }
 
-// A day is opened FOR A TEAM. One team's sprint pointer left behind in June
-// does not make another team's card of that day reachable: nobody opens the
-// portal board on the day the sales pointer happens to name. Reading every
-// team's days as one set spared exactly the cards this rule exists to find —
-// «[P1] Ответить роману по ТС», sprint 2026-06-29, survived a cleanup because
-// sales still pointed at that day.
-func TestAStaleTeamsDayDoesNotSaveAnotherTeamsCard(t *testing.T) {
+// A day board no longer reads a card's SPRINT to decide whether to draw it,
+// so the trap this rule was written for is gone: a card could be stranded in
+// a sprint nobody opens, and whether anybody found it depended on which team's
+// pointer happened to name that day. («[P1] Ответить роману по ТС», sprint
+// 2026-06-29, survived a cleanup because sales still pointed at that day.)
+// Open work is in hand whatever sprint it sits in, on its own team's board and
+// on no other.
+func TestATeamsBoardHoldsItsOwnOpenWorkWhateverSprintItSitsIn(t *testing.T) {
 	const today, cur, prev = "2026-09-02", "2026-09-01", "2026-08-31"
 	const june = "2026-06-29"
 	b := NewBoard([]Card{
 		{ItemID: "st-portal", Title: SprintStateTitle, Team: "portal", SprintStart: cur, StartDate: prev},
-		// A team nobody has carried over since June.
 		{ItemID: "st-sales", Title: SprintStateTitle, Team: "sales", SprintStart: "2026-07-06", StartDate: june},
 
-		// The portal card of that June day: on no board anyone opens.
-		{ItemID: "stray", Team: "portal", Progress: 90, SprintStart: june, StartDate: june, Day: june},
-		// The sales card of the same day IS reachable: that is its own team's
-		// previous sprint, and the sales board still shows it.
-		{ItemID: "theirs", Team: "sales", Progress: 20, SprintStart: june, StartDate: june, Day: june},
+		{ItemID: "old-portal", Team: "portal", Progress: 90, SprintStart: june, StartDate: june, Day: june},
+		{ItemID: "old-sales", Team: "sales", Progress: 20, SprintStart: june, StartDate: june, Day: june},
 	})
 	got := Reachable(b, today)
-	if got["stray"] {
-		t.Error("a portal card of a June day is on no portal board — another team's pointer is not a day anyone opens for it")
+	for _, id := range []string{"old-portal", "old-sales"} {
+		if !got[id] {
+			t.Errorf("%s is open and put off to nothing: it is in somebody's hands", id)
+		}
 	}
-	if !got["theirs"] {
-		t.Error("the sales card stands on its own team's previous sprint day")
+	// And each stands on its OWN team's board, not the other's.
+	if ids(TeamGrid(b, "portal", today))[0] != "old-portal" {
+		t.Error("portal's board holds portal's card")
+	}
+	if got := ids(TeamGrid(b, "sales", today)); len(got) != 1 || got[0] != "old-sales" {
+		t.Errorf("sales' board = %v, want its own card alone", got)
 	}
 }
 
@@ -107,5 +113,29 @@ func TestAProcessTaskIsReachable(t *testing.T) {
 	})
 	if !Reachable(b, "2026-09-02")["task"] {
 		t.Fatal("a process task lives on the Process tab")
+	}
+}
+
+// A PARKED card is on a board — the backlog drawer, which is the whole point
+// of parking — and the day boards deliberately do not draw it. Nothing in
+// Reachable said so, and that was a rounding error while the day rule lost
+// cards by the dozen: the migration's cleanup had real strays to find. It is
+// not a rounding error now that the day rule loses nothing, because a cleanup
+// DELETES what this list hands it, and a shelf is the one thing left on it.
+func TestAParkedCardIsOnTheShelfWhichIsABoard(t *testing.T) {
+	const today = "2026-09-09"
+	b := NewBoard([]Card{
+		{ItemID: "st", Title: SprintStateTitle, Team: "portal", SprintStart: today, StartDate: today},
+		{ItemID: "shelved", Team: "portal", Parked: true, Progress: 30, Assignees: []string{"kvaps"}},
+		{ItemID: "shelved-list", Team: "portal", Parked: true, Progress: 0, Assignees: []string{"bob"}},
+	})
+	got := Reachable(b, today)
+	for _, id := range []string{"shelved", "shelved-list"} {
+		if !got[id] {
+			t.Errorf("%s is on its team's shelf, and Reachable calls it lost", id)
+		}
+	}
+	if lost := Unreachable(b, today); len(lost) != 0 {
+		t.Errorf("nothing here is lost, got %v", ids(lost))
 	}
 }

@@ -104,33 +104,179 @@ func LoadAsOfDay(r *Repo, from, to time.Time) (Snapshot, bool, error) {
 	for _, c := range s.Cards {
 		held[c.ItemID] = true
 	}
-	gone, err := cardsRemovedBetween(r, from, to, held)
+	day, touched, err := commitsOfDay(r, from, to)
+	if err != nil {
+		return Snapshot{}, false, err
+	}
+	// What the day BEGAN with, read once: both the cards it removed and the
+	// work it finished are differences against that tree.
+	began, hadBegun, err := commitAsOf(r, from)
+	if err != nil {
+		return Snapshot{}, false, err
+	}
+	opening := plumbing.ZeroHash
+	if hadBegun {
+		opening = began
+	}
+	gone, err := cardsRemovedBetween(r, opening, day, touched, held)
 	if err != nil {
 		return Snapshot{}, false, err
 	}
 	s.Cards = append(s.Cards, gone...)
+	morning, known, err := morningOf(r, day)
+	if err != nil {
+		return Snapshot{}, false, err
+	}
+	if err := markFinishedInDay(r, morning, known, s.Cards, touched,
+		to.In(board.Location()).Format(dayLayout)); err != nil {
+		return Snapshot{}, false, err
+	}
 	return s, true, nil
+}
+
+// dayLayout is the yyyy-mm-dd a card records a finished day in.
+const dayLayout = "2006-01-02"
+
+// markFinishedInDay says which of the day's cards were FINISHED on it, for
+// the ones whose writer did not say so themselves.
+//
+// A day board draws finished work on the day it was finished and no other,
+// and reads that day off the card's own doneAt (board.TeamGrid). The field is
+// young and these repositories are open, so a card closed before it existed —
+// or by any other tool — carries none, and the domain, which sees only the
+// card, can do no better than guess a day out of the card's PLAN. Here there
+// is evidence instead: the day OPENED with the card unfinished and CLOSED
+// with it done, so the work was finished inside it.
+//
+// The evidence is that change and not the day's list of names. A commit names
+// what it touched, and two ordinary actions touch cards by the hundred
+// without finishing any of them: a rank REBALANCE renumbers the whole board
+// (one such commit on the production board named 2471 cards) and a
+// CARRY-OVER names every card it moves. Reading the names alone stamped 1712
+// cards on one production day, and the day board then said a team had closed
+// eight hundred of them between the morning and the evening.
+//
+// The names are still what makes it cheap: only a card the day WROTE can have
+// changed in it, so the opening tree is opened for those alone — a handful,
+// where the tree holds thousands. What the card says itself always wins.
+//
+// `known` is whether the morning can be seen at all (morningOf). Where it
+// cannot, the day claims nothing: "I do not know when this was closed" is a
+// true answer and an invented day is not.
+func markFinishedInDay(r *Repo, morning plumbing.Hash, known bool, cards []board.Card, touched map[string]int, day string) error {
+	if !known {
+		return nil
+	}
+	var open *object.Tree
+	for i, c := range cards {
+		if c.DoneAt != "" || !board.Complete(c.Stage, c.Progress) {
+			continue
+		}
+		if _, named := touched[c.ItemID]; !named {
+			continue
+		}
+		if open == nil {
+			t, err := treeAt(r, morning)
+			if err != nil {
+				return err
+			}
+			open = t
+		}
+		was, found, err := cardInTree(open, c.ItemID)
+		if err != nil {
+			return err
+		}
+		// Already finished when the day began: the day only touched it.
+		if found && board.Complete(was.Stage, was.Progress) {
+			continue
+		}
+		cards[i].DoneAt = day
+	}
+	return nil
+}
+
+// morningOf is the commit whose tree the day OPENED with: the one before the
+// day's own first commit. ok is false when there is no such tree to see —
+// then nothing may be said about when work was finished.
+//
+// The day's own commits answer this, rather than a second walk back through
+// the history: the commit before the day's first IS the newest commit at or
+// before the day began, by construction.
+//
+// Two edges, and they are not the same edge. When the day's first commit is
+// the BOARD's first, its own tree is the morning: there is nothing before it
+// to see, and a migrated board's first commit already holds a full board, so
+// "nothing came before" must not be read as "nothing existed" — that reading
+// stamped every finished card the board was imported with. When the day's
+// first commit is the clone's shallow BOUNDARY, its parent exists and is not
+// here: the morning is behind the horizon, and the day says nothing. Reading
+// those two as one put the broken rule back on exactly one day of every
+// board — and that day moves forward with the horizon, so the next rank
+// rebalance to land on it would bring back the eight hundred cards this rule
+// exists to stop claiming.
+func morningOf(r *Repo, day []*object.Commit) (plumbing.Hash, bool, error) {
+	if len(day) == 0 {
+		return plumbing.ZeroHash, false, nil
+	}
+	first := day[len(day)-1]
+	if first.NumParents() == 0 {
+		return first.Hash, true, nil
+	}
+	shallow, err := r.shallows()
+	if err != nil {
+		return plumbing.ZeroHash, false, err
+	}
+	if shallow[first.Hash] {
+		return plumbing.ZeroHash, false, nil
+	}
+	return first.ParentHashes[0], true, nil
+}
+
+// treeAt is a commit's tree.
+func treeAt(r *Repo, h plumbing.Hash) (*object.Tree, error) {
+	c, err := object.GetCommit(r.s, h)
+	if err != nil {
+		return nil, err
+	}
+	return c.Tree()
+}
+
+// cardInTree reads one card from a tree already in hand.
+func cardInTree(t *object.Tree, id string) (board.Card, bool, error) {
+	p, err := CardPath(id)
+	if err != nil {
+		return board.Card{}, false, err
+	}
+	f, err := t.File(p)
+	if err != nil {
+		if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
+			return board.Card{}, false, nil
+		}
+		return board.Card{}, false, err
+	}
+	data, err := f.Contents()
+	if err != nil {
+		return board.Card{}, false, err
+	}
+	card, err := DecodeCard(id, []byte(data))
+	if err != nil {
+		return board.Card{}, false, nil //nolint:nilerr // not a card anyone saw
+	}
+	return card.Card, true, nil
 }
 
 // cardsRemovedBetween reads every card that stood on the day and is not on
 // its last tree — the ones the day removed — in the state each was in when it
 // went. `held` is what the day ended with.
-func cardsRemovedBetween(r *Repo, from, to time.Time, held map[string]bool) ([]board.Card, error) {
-	day, touched, err := commitsOfDay(r, from, to)
-	if err != nil {
-		return nil, err
-	}
+func cardsRemovedBetween(r *Repo, began plumbing.Hash, day []*object.Commit, touched map[string]int, held map[string]bool) ([]board.Card, error) {
 	// What the day BEGAN with: a writer that leaves no trailers still shows
 	// up here, as a card present at the start and absent at the end. Only the
 	// IDS are wanted, and a card's id is in its path — so the day's first tree
 	// is listed, not parsed: reading 2400 card files to learn which ones exist
 	// cost more than the rest of the day put together.
-	began, ok, err := commitAsOf(r, from)
-	if err != nil {
-		return nil, err
-	}
 	start := map[string]bool{}
-	if ok && !began.IsZero() {
+	var err error
+	if !began.IsZero() {
 		start, err = cardIDsAt(r, began)
 		if err != nil {
 			return nil, err
@@ -244,6 +390,14 @@ func cardAt(r *Repo, h plumbing.Hash, id string) (board.Card, bool, error) {
 // every commit says which cards it touched (the Aeman-Cards trailer), so the
 // ones that left are found without opening a single tree.
 func commitsOfDay(r *Repo, from, to time.Time) ([]*object.Commit, map[string]int, error) {
+	// A shallow clone does not HOLD what is behind its boundary, and the
+	// boundary commit names a parent all the same. Walking into it is an
+	// "object not found" — which is how the OLDEST day of the window, the one
+	// the day arrow reaches on the second click, failed to open at all.
+	shallow, err := r.shallows()
+	if err != nil {
+		return nil, nil, err
+	}
 	var day []*object.Commit
 	touched := map[string]int{}
 	h := r.Head()
@@ -263,7 +417,7 @@ func commitsOfDay(r *Repo, from, to time.Time) ([]*object.Commit, map[string]int
 			}
 			day = append(day, c)
 		}
-		if c.NumParents() == 0 {
+		if c.NumParents() == 0 || shallow[c.Hash] {
 			break
 		}
 		h = c.ParentHashes[0]

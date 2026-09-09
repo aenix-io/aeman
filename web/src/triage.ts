@@ -7,6 +7,7 @@ import type { Card } from "./providers/types";
 import { addDays, mondayOf } from "./date";
 import { parked } from "./backlog";
 import { isPersonalDomain } from "./domains";
+import { isComplete } from "./stages";
 
 /** needsTriage reports whether nobody has said WHEN the card's work is due:
  *  an open card of its own, with no week. The week is the whole of the
@@ -95,7 +96,10 @@ export function broughtBack(
  *  A REVIEW card is the one exception to "its week and nothing else": it has
  *  no week to have, and stands where its own dates put it. */
 export function placedIn(
-  c: Pick<Card, "week" | "parked" | "reviewOf" | "startDate" | "day">,
+  c: Pick<
+    Card,
+    "week" | "parked" | "reviewOf" | "startDate" | "day" | "doneAt" | "progress" | "stage"
+  >,
 ): string | null {
   if (parked(c)) {
     return null;
@@ -113,6 +117,15 @@ export function placedIn(
   // board.TriageWeekOf. */
   if (c.reviewOf) {
     return mondayOf(c.startDate || c.day || "") || null;
+  }
+  // Work that was DONE in a week is that week's work, planned or not: a card
+  // closed without ever being given a week stood in no column and in no strip
+  // (the strip is work still to be looked at), so the board showed it nowhere
+  // at all. Where the cell DRAWS it is the board's question — the "+N done"
+  // line at its foot — and this is the week it stands in. Mirrors
+  // board.TriageWeekOf.
+  if (c.doneAt && isComplete(c)) {
+    return mondayOf(c.doneAt);
   }
   return null;
 }
@@ -144,9 +157,16 @@ export function ordersWithinCell(c: Pick<Card, "reviewOf">): boolean {
  *  Cards of the same rank keep the order the board holds them in, so the
  *  order somebody set by hand still means something among its peers. */
 export function pileRank(
-  c: Pick<Card, "overdue" | "epic" | "zone" | "task"> & { projected?: boolean },
+  c: Pick<Card, "overdue" | "epic" | "zone" | "task" | "week"> & { projected?: boolean },
+  thisWeek?: string,
 ): number {
-  if (c.overdue) {
+  // A DEBT first: its day has passed and it is still open. That is not the
+  // same question as OVERDUE, which is a promise made on another board and
+  // is the only thing that paints a card late (board.Owed vs board.Overdue)
+  // — but for the reading order of a week's pile it is the right one, since
+  // a card owed in a week gone by is what somebody triaging must meet first
+  // whoever gave it its week.
+  if (c.overdue || (thisWeek && c.week && c.week < thisWeek)) {
     return 0;
   }
   if (c.epic) {
@@ -173,9 +193,10 @@ export function pileRank(
 
 /** byPile sorts a cell's cards into that order, leaving equals as they were. */
 export function byPile<T>(
-  of: (item: T) => Pick<Card, "overdue" | "epic" | "zone"> & { projected?: boolean },
+  of: (item: T) => Pick<Card, "overdue" | "epic" | "zone" | "week"> & { projected?: boolean },
+  thisWeek?: string,
 ) {
-  return (a: T, b: T) => pileRank(of(a)) - pileRank(of(b));
+  return (a: T, b: T) => pileRank(of(a), thisWeek) - pileRank(of(b), thisWeek);
 }
 
 /** orderWith is a cell's order once `id` has been dropped at place `at`.
@@ -228,30 +249,6 @@ export function weeksCovered(c: Pick<Card, "week" | "day">): string[] {
  *  the backlog a regulator rather than a list. Mirrors board.PlacedAhead. */
 export function placedAhead(c: Pick<Card, "week">, today: string): boolean {
   return !!c.week && c.week > mondayOf(today);
-}
-
-/** inWeek reports whether the card is the given week's own work: any of the
- *  weeks it covers, or — in the CURRENT week — a DEBT owed in an earlier one,
- *  which stands beside that week's work without leaving the week it was owed
- *  in. It is what a week's column holds here and what the Team board's grid
- *  carries all week, so a card placed in a week is not invisible until
- *  somebody gives it a day. Mirrors board.InWeek.
- *
- *  The debt is the card's own `overdue`, which the server derives: a client
- *  re-deriving it from dates would answer differently the moment the two
- *  drifted. */
-export function inWeek(
-  c: Pick<Card, "week" | "day" | "overdue">,
-  week: string,
-  today: string,
-): boolean {
-  if (!c.week) {
-    return false;
-  }
-  if (weeksCovered(c).includes(week)) {
-    return true;
-  }
-  return week === mondayOf(today) && c.week < week && !!c.overdue;
 }
 
 /** reachOf is the last week a card reaches — its own when it was never

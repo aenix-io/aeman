@@ -4,7 +4,30 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/memory"
 )
+
+// cut throws away what lies behind a shallow boundary, the way a clone made
+// with --depth does: the boundary commit keeps naming its parent, and the
+// parent object is gone.
+func cut(t *testing.T, r *Repo, boundary plumbing.Hash) {
+	t.Helper()
+	st, ok := r.Storer().(*memory.Storage)
+	if !ok {
+		t.Fatalf("this helper wants the memory storer, got %T", r.Storer())
+	}
+	c, err := object.GetCommit(r.Storer(), boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range c.ParentHashes {
+		delete(st.Objects, h)
+		delete(st.Commits, h)
+	}
+}
 
 // A day is everything that STOOD on it, not the state of the tree at
 // midnight. The × takes a finished card off the board — the file goes — so a
@@ -220,4 +243,356 @@ func TestADayGivesBackWhatAToolRemovedWithoutSayingSo(t *testing.T) {
 		}
 	}
 	t.Fatal("the day began with the card and ended without it: the day gives it back")
+}
+
+// A day says which of its cards were FINISHED on it, and it can, because the
+// day's commits name the cards they touched. The board draws finished work
+// on the day it was finished and no other, and reads that day off the card's
+// own doneAt — a young field these open repositories cannot count on. Where
+// the domain would have to guess from the card's plan, the history KNOWS: a
+// card that is done in the day's tree and was written during the day was
+// finished during the day.
+//
+// A card already done before the day and untouched by it is not the day's,
+// and stays unmarked — otherwise every day would end up claiming every
+// finished card the tree still carries.
+func TestADayNamesTheWorkItFinished(t *testing.T) {
+	r := newRepo(t)
+	const (
+		closed = "01CARD0000000000000CLOSED1"
+		before = "01CARD0000000000000BEFORE1"
+		open   = "01CARD00000000000000OPEN01"
+	)
+	path := func(id string) string {
+		p, err := CardPath(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// No doneAt anywhere: a writer that does not keep the field, which is
+	// every writer that closed a card before it existed.
+	card := func(id string, progress int) FileWrite {
+		return FileWrite{Path: path(id), Data: []byte(
+			"---\ntitle: card\nteam: portal\nstart: 2026-08-20\nday: 2026-09-30\nprogress: " +
+				strconv.Itoa(progress) + "\nrank: a\ncreated: 2026-08-20T09:00:00Z\n---\n")}
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	commit := func(iso string, ids []string, writes ...FileWrite) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: ids,
+			Summary: "w", At: at(iso)}, writes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("2026-08-19T09:00:00Z", []string{closed, before, open},
+		card(closed, 30), card(before, 100), card(open, 30))
+	commit("2026-08-20T16:00:00Z", []string{closed, open}, card(closed, 100), card(open, 60))
+	commit("2026-08-21T10:00:00Z", []string{open}, card(open, 90))
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-19"), endOf(t, "2026-08-20"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	done := map[string]string{}
+	for _, c := range s.Cards {
+		done[c.ItemID] = c.DoneAt
+	}
+	if done[closed] != "2026-08-20" {
+		t.Errorf("a card finished on the day carries that day, got %q", done[closed])
+	}
+	if done[before] != "" {
+		t.Errorf("a day claims no work it did not touch, got %q", done[before])
+	}
+	if done[open] != "" {
+		t.Errorf("open work is not finished work, got %q", done[open])
+	}
+}
+
+// What the card SAYS wins: a writer that recorded the day is the evidence,
+// and a day that overwrote it would move finished work onto itself — the
+// card closed on Tuesday and edited on Wednesday would read as Wednesday's.
+func TestADayLeavesARecordedDayAlone(t *testing.T) {
+	r := newRepo(t)
+	const id = "01CARD000000000000RECORD01"
+	p, err := CardPath(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	commit := func(iso, body string) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: []string{id},
+			Summary: "w", At: at(iso)}, []FileWrite{{Path: p, Data: []byte(body)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("2026-08-19T09:00:00Z", "---\ntitle: a card\nteam: portal\nstart: 2026-08-19\nprogress: 100\ndoneAt: 2026-08-19\nrank: a\ncreated: 2026-08-19T09:00:00Z\n---\n")
+	// The next day touches it — a note, a rank, anything — without reopening it.
+	commit("2026-08-20T12:00:00Z", "---\ntitle: a card, retitled\nteam: portal\nstart: 2026-08-19\nprogress: 100\ndoneAt: 2026-08-19\nrank: b\ncreated: 2026-08-19T09:00:00Z\n---\n")
+	commit("2026-08-21T09:00:00Z", "---\ntitle: a card, retitled\nteam: portal\nstart: 2026-08-19\nprogress: 100\ndoneAt: 2026-08-19\nrank: c\ncreated: 2026-08-19T09:00:00Z\n---\n")
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-19"), endOf(t, "2026-08-20"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	for _, c := range s.Cards {
+		if c.ItemID == id && c.DoneAt != "2026-08-19" {
+			t.Fatalf("the day the card records is the day it keeps, got %q", c.DoneAt)
+		}
+	}
+}
+
+// A commit NAMES the cards it touched, and a commit can touch a card without
+// finishing it — which is why the day looks at what CHANGED and not at the
+// list of names.
+//
+// Two ordinary actions name cards by the hundred. A rank REBALANCE renumbers
+// the whole board: one such commit on the production board named 2471 cards,
+// a 66KB trailer, and an ordinary drag is what makes them. A CARRY-OVER names
+// every card it moves into the new sprint. A day that read the trailer alone
+// stamped every finished card either of them passed over as finished THAT
+// DAY: 1712 of them on one production day, and the day board then said a team
+// of five had closed 800 cards between the morning and the evening.
+func TestADayDoesNotClaimWorkItOnlyTouched(t *testing.T) {
+	r := newRepo(t)
+	const (
+		closed = "01CARD000000000000CLOSED02"
+		older  = "01CARD0000000000000OLDER01"
+	)
+	path := func(id string) string {
+		p, err := CardPath(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// No doneAt anywhere, and a rank the rebalance rewrites.
+	card := func(id string, progress int, rank string) FileWrite {
+		return FileWrite{Path: path(id), Data: []byte(
+			"---\ntitle: card\nteam: portal\nstart: 2026-08-19\nprogress: " +
+				strconv.Itoa(progress) + "\nrank: " + rank + "\ncreated: 2026-08-19T09:00:00Z\n---\n")}
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	commit := func(iso string, ids []string, writes ...FileWrite) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: ids,
+			Summary: "w", At: at(iso)}, writes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Before the day: one card open, one already finished long ago.
+	commit("2026-08-19T09:00:00Z", []string{closed, older}, card(closed, 30, "a"), card(older, 100, "b"))
+	// The day itself: real work on one card, and a rebalance that names both.
+	commit("2026-08-20T10:00:00Z", []string{closed}, card(closed, 100, "a"))
+	commit("2026-08-20T16:00:00Z", []string{closed, older},
+		card(closed, 100, "m"), card(older, 100, "n"))
+	commit("2026-08-21T09:00:00Z", []string{closed}, card(closed, 100, "p"))
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-19"), endOf(t, "2026-08-20"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	done := map[string]string{}
+	for _, c := range s.Cards {
+		done[c.ItemID] = c.DoneAt
+	}
+	if done[closed] != "2026-08-20" {
+		t.Errorf("the card the day actually finished carries the day, got %q", done[closed])
+	}
+	if done[older] != "" {
+		t.Errorf("a card the day only shuffled was finished before it, got %q", done[older])
+	}
+}
+
+// The BOUNDARY day of a shallow clone has no morning: what the day began
+// with is behind the horizon, so nothing can say whether a card was already
+// finished when it opened. The day answers — it is the oldest state we hold —
+// but it claims no work: "I do not know when this was closed" is the true
+// answer, and an invented day is not.
+//
+// A day BEFORE the board's first commit is the other thing entirely: the
+// board existed and was empty, so everything the day holds began in it, and
+// the day may say so. Reading both as "no tree to compare against" put the
+// broken rule back on exactly one day of every board — and that day moves
+// forward with the horizon, so the next rank rebalance to land on it would
+// bring back the eight hundred cards this rule was fixed to stop claiming.
+func TestTheBoundaryDayClaimsNothingItCannotSee(t *testing.T) {
+	r := newRepo(t)
+	const id = "01CARD000000000000EDGE0001"
+	p, err := CardPath(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	// No doneAt: a writer that does not keep the field. The rank moves with
+	// every write, because a commit that changes nothing is no commit — and
+	// a card only SHUFFLED is exactly what the boundary day must not claim.
+	write := func(iso string, progress int, rank string) plumbing.Hash {
+		t.Helper()
+		h, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: []string{id},
+			Summary: "w", At: at(iso)}, []FileWrite{{Path: p, Data: []byte(
+			"---\ntitle: a card\nteam: portal\nstart: 2026-08-01\nprogress: " +
+				strconv.Itoa(progress) + "\nrank: " + rank + "\ncreated: 2026-08-01T09:00:00Z\n---\n")}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	// Finished long before the clone's boundary, then merely touched on the
+	// boundary day and after it.
+	write("2026-08-01T09:00:00Z", 30, "a")
+	write("2026-08-02T09:00:00Z", 100, "b")
+	boundary := write("2026-08-20T09:00:00Z", 100, "m")
+	write("2026-08-25T09:00:00Z", 100, "p")
+	if err := r.Storer().SetShallow([]plumbing.Hash{boundary}); err != nil {
+		t.Fatal(err)
+	}
+	// A real shallow clone does not HOLD what is behind the boundary, and
+	// that is the whole difficulty: the boundary commit still names its
+	// parent, and the object is not here. A repository that merely says it is
+	// shallow while keeping every object tests the easy half.
+	cut(t, r, boundary)
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-08-19"), endOf(t, "2026-08-20"))
+	if err != nil || !ok {
+		t.Fatalf("the boundary's own day is the oldest state we hold: ok=%v err=%v", ok, err)
+	}
+	for _, c := range s.Cards {
+		if c.ItemID == id && c.DoneAt != "" {
+			t.Fatalf("the day cannot see its own morning and must claim nothing, got %q", c.DoneAt)
+		}
+	}
+}
+
+// The board's FIRST day may claim what it holds: there was no board before
+// it, so every finished card in its tree was finished inside it. That is the
+// case the boundary day is not, and the two must not be read as one.
+func TestTheBoardsFirstDayClaimsItsOwnWork(t *testing.T) {
+	r := newRepo(t)
+	const id = "01CARD00000000000FIRST0001"
+	p, err := CardPath(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	commit := func(iso string, progress int, rank string) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: []string{id},
+			Summary: "w", At: at(iso)}, []FileWrite{{Path: p, Data: []byte(
+			"---\ntitle: a card\nteam: portal\nstart: 2026-08-01\nprogress: " +
+				strconv.Itoa(progress) + "\nrank: " + rank + "\ncreated: 2026-08-01T09:00:00Z\n---\n")}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("2026-08-01T09:00:00Z", 40, "a")
+	commit("2026-08-01T17:00:00Z", 100, "a")
+	commit("2026-08-02T09:00:00Z", 100, "b")
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-07-31"), endOf(t, "2026-08-01"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	for _, c := range s.Cards {
+		if c.ItemID == id && c.DoneAt != "2026-08-01" {
+			t.Fatalf("the board began that day, so the work was finished in it, got %q", c.DoneAt)
+		}
+	}
+}
+
+// A board that was IMPORTED begins with a full board in its first commit: the
+// migration writes every card at once, finished work included. "Nothing came
+// before this commit" is therefore not "nothing existed", and the board's
+// first day may not claim the finished work it was handed — the day's own
+// first commit is the morning it opened with.
+//
+// This is what the production board looks like: its history starts at the
+// migration, and the first day of it touched hundreds of already-finished
+// cards.
+func TestAnImportedBoardsFirstDayClaimsNoWorkItWasHanded(t *testing.T) {
+	r := newRepo(t)
+	const (
+		imported = "01CARD0000000000IMPORTED01"
+		worked   = "01CARD00000000000WORKED001"
+	)
+	path := func(id string) string {
+		p, err := CardPath(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	card := func(id string, progress int, rank string) FileWrite {
+		return FileWrite{Path: path(id), Data: []byte(
+			"---\ntitle: card\nteam: portal\nstart: 2026-07-06\nprogress: " +
+				strconv.Itoa(progress) + "\nrank: " + rank + "\ncreated: 2026-06-01T09:00:00Z\n---\n")}
+	}
+	at := func(iso string) time.Time {
+		when, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return when
+	}
+	commit := func(iso string, ids []string, writes ...FileWrite) {
+		t.Helper()
+		if _, err := r.Commit(Action{Name: "write", Actor: "kvaps", Cards: ids,
+			Summary: "w", At: at(iso)}, writes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The migration: everything at once, one card long finished, one open.
+	commit("2026-07-06T08:00:00Z", []string{imported, worked},
+		card(imported, 100, "a"), card(worked, 30, "b"))
+	// The same day's work: the open one is finished, and a rebalance shuffles
+	// both — which is what names the imported card in a commit of the day.
+	commit("2026-07-06T15:00:00Z", []string{worked}, card(worked, 100, "b"))
+	commit("2026-07-06T18:00:00Z", []string{imported, worked},
+		card(imported, 100, "m"), card(worked, 100, "n"))
+	commit("2026-07-07T09:00:00Z", []string{worked}, card(worked, 100, "p"))
+
+	s, ok, err := LoadAsOfDay(r, endOf(t, "2026-07-05"), endOf(t, "2026-07-06"))
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	done := map[string]string{}
+	for _, c := range s.Cards {
+		done[c.ItemID] = c.DoneAt
+	}
+	if done[worked] != "2026-07-06" {
+		t.Errorf("the card the day finished carries the day, got %q", done[worked])
+	}
+	if done[imported] != "" {
+		t.Errorf("the board was handed this one finished; the day did not do it, got %q", done[imported])
+	}
 }

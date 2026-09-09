@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -176,7 +177,24 @@ func TestDataDirLockCreatesTheDirAndReusesTheFile(t *testing.T) {
 // ends: t.TempDir has to delete that directory, and on Windows an open
 // handle makes the removal retry and then fail the test. Call it after the
 // t.TempDir that made the directory, so this cleanup runs before that one.
+//
+// It also WAITS FOR THE WRITE QUEUE first. A request is answered from the
+// cache and the commit for it is written afterwards by the queue's worker, so
+// a test that asserts on the answer ends while its clone is still being
+// written to — and t.TempDir removing the directory under that worker fails
+// the test with "directory not empty", about a test with nothing wrong in it.
+// It is a race, so it appears on a loaded machine and not on a quiet one: CI
+// found it, twelve local runs did not.
 func releaseDataDir(t *testing.T, srv *Server) {
 	t.Helper()
-	t.Cleanup(func() { _ = srv.Close() })
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		// Not an assertion: a test may end with work deliberately stuck in the
+		// queue (a backend that refuses), and that is its business.
+		if left := srv.store.waitDrained(ctx); left > 0 {
+			t.Logf("the write queue still held %d write(s) when the test ended", left)
+		}
+		_ = srv.Close()
+	})
 }

@@ -44,6 +44,15 @@ func Reachable(b Board, today string) map[string]bool {
 		// A Project-board column, and the weekly plan.
 		case c.Epic != "":
 		case c.Week != "":
+		// The Triage board's STRIP: nobody has said when, which is a thing to
+		// be looked at rather than a thing that is lost — the strip is the
+		// inbox, and it is the one place such a card is meant to stand.
+		case NeedsTriage(b, c, today):
+		// A team's SHELF, which is a board — the whole point of parking is
+		// that the card waits somewhere a person opens. The day boards
+		// deliberately do not draw it, so nothing else here would name it,
+		// and this list is handed to a cleanup that DELETES what it is given.
+		case InBacklog(c):
 		// Planned for a day still to come: it arrives on its own.
 		case c.StartDate > today:
 		// Done is off the board on purpose.
@@ -85,6 +94,16 @@ func Unreachable(b Board, today string) []Card {
 	seen := Reachable(b, today)
 	var out []Card
 	for _, c := range b.Cards {
+		// FINISHED work is not lost work. A day board draws a finished card
+		// on the day it was finished and no other, so one whose doneAt was
+		// never written — every card completed before the field existed —
+		// stands on no day. That makes it unreachable in the letter and
+		// nothing at all in the spirit: this list exists to find OPEN work
+		// nobody can get to, and a cleanup fed the other kind would take a
+		// board's whole history off it.
+		if Complete(c.Stage, c.Progress) {
+			continue
+		}
 		if !seen[c.ItemID] {
 			out = append(out, c)
 		}

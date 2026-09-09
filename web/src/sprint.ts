@@ -1,5 +1,5 @@
 import { todayIso } from "./date";
-import type { Board } from "./providers/types";
+import type { Board, SprintState } from "./providers/types";
 
 /** currentSprint returns a team's current sprint start from its sprint pointer
  * (null when the team has no sprint yet). team = null is the no-team group. */
@@ -60,4 +60,23 @@ export function sprintForDate(
     return null;
   }
   return activeSprint(board, team, day) || currentSprint(board, team) || day;
+}
+
+/** dayIsOverFor reports that a day is a RECORD for one team: their sprint has
+ *  moved past it, so what they showed that day is a picture and nothing can be
+ *  added to it. A team still INSIDE that sprint is not among them — the sprint
+ *  lays itself out on its own day and the team works it from there, so every
+ *  day of an open sprint is still theirs to add to. Mirrors board.TeamsPast,
+ *  per team.
+ *
+ *  It must be asked of the LIVE pointers: a past day is served as a record
+ *  whose own pointers are that day's, so the board in hand would answer that
+ *  every day is current. */
+export function dayIsOverFor(
+  live: Record<string, SprintState>,
+  team: string | null,
+  day: string,
+): boolean {
+  const current = live[team ?? ""]?.current;
+  return !!current && current > day;
 }

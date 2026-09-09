@@ -139,3 +139,39 @@ func TestReopeningInPlaceMovesNothing(t *testing.T) {
 		t.Fatalf("it was already in this sprint: %+v", c)
 	}
 }
+
+// The lead's answer has to be FINDABLE, or it is not an answer. Carry Over
+// pulls the unfinished forward; the lead spots one that was actually done and
+// nobody moved the bar, sets it to 100 and takes it off today's board — and
+// the × asks whether to delete it or leave it finished in the sprint it was
+// done in. Choosing the second must put the card where that sprint can be
+// read: on the day the sprint began, which is the day the lead opens.
+//
+// This pins the loop the fields alone do not: FinishedEarlier writes them,
+// and the day board draws by them.
+func TestWorkSentBackStandsOnThatSprintsDay(t *testing.T) {
+	f := finishedBoard()
+	if err := New(f).FinishedEarlier(ctx, "acme", "late"); err != nil {
+		t.Fatal(err)
+	}
+	// The board the way every reader gets it, sprint pointers and all.
+	b, err := f.LoadBoard(ctx, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	on := func(day string) bool {
+		for _, c := range board.TeamGrid(b, "alpha", day) {
+			if c.ItemID == "late" {
+				return true
+			}
+		}
+		return false
+	}
+	if !on("2026-08-17") {
+		t.Error("the sprint it was done in must show it — that is what the answer meant")
+	}
+	// And it is off the sprint it was pulled into, which is the other half.
+	if on("2026-08-24") {
+		t.Error("the sprint it was carried into no longer counts it")
+	}
+}

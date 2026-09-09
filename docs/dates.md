@@ -6,9 +6,12 @@ send-to-next-day. The date logic is subtle — **keep this file in sync with the
 code** whenever the rules change.
 
 Code that implements these rules:
-- Frontend: `web/src/components/{TeamBoard,MeBoard,Card}.tsx`, `web/src/date.ts`,
-  `web/src/sprint.ts`.
-- Go: `pkg/board/{filters,date,sprint}.go`, `pkg/boardservice/service.go`.
+- Frontend: `web/src/teamgrid.ts` (the Team board's own rule), plus
+  `web/src/components/{TeamBoard,MeBoard,Card}.tsx`, `web/src/date.ts`,
+  `web/src/sprint.ts`, `web/src/stages.ts` (`finishedOn`, `deferredPast`,
+  `doneAtAfter`).
+- Go: `pkg/board/{filters,date,sprint}.go`, `pkg/boardservice/service.go`,
+  `pkg/gitstore/asof.go` (the day a snapshot says its work was finished on).
 
 ## Two dates per card
 
@@ -71,27 +74,27 @@ today while the card stays in its sprint). A "**next sprint**" create has **no
 
 ### Team view — a card's days (`selectedDate`)
 
+The Team board answers ONE question: what are these people working on that day? A card is in hand on a day when it is that team's, is **not a subtask** (a subtask rides with its parent), is **not parked** on a team's backlog, **somebody has said when it is for** — a week, a date or a sprint, since a card with none of the three is in the Triage strip, which is an inbox rather than a day's work — was **not planned into a week after that day's**, is **open or was finished on that very day** (`doneAt`; a card finished yesterday belongs to yesterday), and was **not deferred past that day**.
+
+That is the whole rule, and every card meets it the same way. It replaced seven layered ones — the week's own work, the sprint's start day, the card's own scheduled day, the range between its dates, the days of sprints it had passed through, and two special cases for deferral — which between them managed both halves of being wrong: work nobody was doing appeared on the day, and a card scheduled for last Tuesday and never finished fell off the board entirely, because no rule reached it any more.
+
+Four consequences are worth saying out loud:
+
+- **Open work does not stop when its plan does.** A card's end date says when the work was due to finish, not when it leaves the board: past that day it goes on standing there until somebody finishes it or puts it off. Work that ran over is the work most in need of being looked at.
+- **Today is a state, a day ahead is a plan.** The rule above holds up to today. A day still to COME shows only what somebody actually put on it: a card whose own dates reach that day, or one placed in the week that day belongs to. Today's unfinished work is today's problem, not tomorrow's plan — without that bound every open card stood on every future day, and a month out was simply the team's whole backlog. The **Me view is deliberately the other way**: a person's own board keeps showing everything of theirs that is not closed, whichever day they look at.
+- **The day a SPRINT began is the whole sprint.** Every few mornings a lead opens that day — the "current sprint" jump lands there — and goes through it with the team, so it holds everything the sprint has been: the work it opened with, the work typed into it on its second and third days (most of a sprint is created inside it), and the work already **closed**. A day that showed only what is still open answers "what is left", which is not the question that meeting asks. Two things still leave it, and both are the act of taking a card OUT of the sprint: work planned into a week still to come, and work **deferred past today** — sent to tomorrow, a card leaves today's sprint at once and arrives tomorrow; sent three days out, the sprint that opens tomorrow starts without it. Deferring is a hold, not a removal: the card is out of the sprint only while its day has not come, and the morning it arrives it is in the sprint again.
+- **Finished work belongs to the day it recorded** (`doneAt`) and to no other. A card whose writer recorded nothing stands on no day here — nothing is guessed out of its dates, which are a plan rather than a record. Nothing is lost by that, because a day already gone is not answered by this rule at all: it is served as a snapshot, and there the day's own commits say what they finished (below).
+
 A card filed under a Project-board **column** (an epic) is not on the day grid until it joins a sprint: its multi-week span would smear across every day it covers, and the column is where it is shown meanwhile. A card that merely carries a project NAME has no column — the Project board renders columns by epic — so it is an ordinary dated card and shows like one. The Me view draws the same line, with one exception: a slot someone owns shows on that person's own board, because then it is their work.
-- A **materialized** card (`startDate <= today`) shows on its sprint's start day
-  (`sprintStart`) **and** on its own scheduled day (`startDate`) — so a card
-  created on a later day of the sprint appears both on the sprint day (where the
-  team lead sees the whole sprint at once) and on the day it was actually created.
-- It **also** shows on every **sprint day it passed through**: a sprint-pointer
-  day `S` (the team's current or previous sprint) with
-  `activeSprint(team, startDate) <= S < sprintStart` — so navigating back shows
-  each sprint complete, carried-over and deferred cards included.
-- A **deferred / future-scheduled** card (`startDate > today`) shows on its own
-  future day, and its **past sprint day keeps it** (`sprintStart < today`) — so
-  deferring never erases where the card came from. It is hidden everywhere else
-  until its day arrives, then it materializes back into the rules above.
 
 ### The week a card is scheduled for
 
 Beside the days, a card may carry a **week** — the Monday it is scheduled for, which is its column on the Triage board. It is a plainer answer than a date: "this is due that week", made before anybody says which day.
 
 - A card placed in a week **AHEAD** of this one is on **no day board at all** until its Monday comes — not the Team grid, not the Me board, not the carry-over's reckoning of what is being carried now. Scheduling work for a later week is precisely the act of taking it off today.
-- The week's own work stands on the **Team grid all week**: in its person's column, or in **Unassigned** when nobody has taken it. This is the same set the Triage board shows for that week — cards placed in it, Project slots covering it, process turns filed into it, and debts owed in an earlier week that are still open (the reviews the Triage board folds into each cell's own line stand by their own dates and are not part of this set). It puts on the day grid what the weekly plan panel used to hold beside it, so a card scheduled for a week is not invisible until somebody gives it a day.
-- The **Me view does not** draw that set. A person's board is the day's work, and a week is not a day: a card reaches it when it is dated, which is the moment somebody decided when it is actually being done.
+- A card whose week has **arrived** stands on the **Team grid**: in its person's column, or in **Unassigned** when nobody has taken it. It puts on the day grid what the weekly plan panel used to hold beside it, so a card scheduled for a week is not invisible until somebody gives it a day. It keeps standing there after its week passes, for as long as it is open — the week gate holds back the weeks AHEAD, never the ones behind — so a debt does not fall off the board when the week it was owed in ends.
+- On the **Triage board** a card stands in the row of its own week — with one deliberate exception: a **debt** (owed in a week gone by, still open) is drawn in the CURRENT week's row, because that is where it is owed now. It keeps the week it was given: only the row moves, so the week stays the record of what was missed and a failed write rolls back to the truth.
+- The **Me view does not** draw a card by its week at all. A person's board is the day's work, and a week is not a day: a card reaches it when it is dated, which is the moment somebody decided when it is actually being done.
 - A **deferred** card is not part of the week's set either. Deferring is the act of taking a card off the board until a later day, and its week says when the work is due, not that it should still be drawn today.
 
 A week is a **Monday** everywhere it is written — the board's own drag, the patch that sets one, the create that files a card straight into one. Any other day is refused (422): a Triage column is a Monday, so a card whose week is a Thursday would stand in no column, appear in no strip, and be findable only by its uid.
@@ -102,9 +105,10 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 
 - **Whether a day is over is each TEAM's own answer**, not the calendar's. A sprint lays itself out on its own day — that is where the lead works it from, and where a card created today lands (its `sprintStart` may be days old) — so a team still inside that sprint keeps the live board, while a team whose sprint has moved past the day shows what it held that evening. One day, one screen, two moments: on a board of several teams the columns of the settled teams are records and the rest is today's work, and each card says which it is (`status.asOf`). A team whose sprint has stood since July therefore keeps every day since July live for itself alone — that sprint IS open, and Carry Over is what closes it.
 - Only a **past** day, and only the day boards (Me, Team). Today is still happening, tomorrow has not, and the Project and Process boards are not day boards.
-- A record is not a workspace, and it looks like one: flat and grey, with no control on it, and the detail pane opens it read-only. It does not drag; a write to it is refused in the browser AND by the server (409 on `X-Aeman-As-Of`), so a UI path that forgets fails loudly instead of writing today's board from a picture; today's traffic is not applied over it. The live cards beside it stay entirely workable.
+- A record is not a workspace, and it looks like one: flat and grey, with no control on it, and the detail pane opens it read-only. It does not drag; a write to it is refused in the browser AND by the server (409 on `X-Aeman-As-Of`), so a UI path that forgets never writes today's board from a picture; today's traffic is not applied over it. The live cards beside it stay entirely workable, and so is ADDING to a team whose sprint is still open: every day of an open sprint is that team's to add to — the day it began included — and only a team the day is over for loses its add box. **Reaching for it anyway takes you off it**: the day jumps to today and the team whose card was touched is offered its carry-over (the same confirm the button shows, quiet when that sprint is already today) — a lead reaching into a day that is over usually has a sprint that was never closed. The write is not replayed onto today: it was aimed at a picture of the past.
 - **A day gives back what the × took off it.** The × on a team card DELETES it — the file goes — and the day it stood on holds it all the same, in the state it went in: the record of a day is the tree that day ended with **plus every card the day itself removed**, read from the commit that removed it. Today's board is unchanged: taking the card off today is exactly what the × is for. (The × used to DEMOTE a worked card into the previous sprint instead, and the record then gave it back by `leftAt`, the day it was taken off. Cards demoted before this shipped are still where that left them — alive in an old sprint — and are still given back by that mark; nothing writes it on a team card any more.)
 - The record carries that day's **sprint pointers** with its cards — the view rules place a card by its team's pointer. The **roster** (projects, columns, processes, deadlines) stays today's: a column created since shows on the record of an older day.
+- **A day says which of its cards were finished on it.** A day board draws finished work on the day it recorded (`doneAt`) and no other — and the record of a day can supply that day where the card's own writer did not: the day **opened** with the card unfinished and **closed** with it done, so the work was finished inside it. It is filled in on the way out of the history, never stored, and what the card says itself always wins. The evidence is that change and not the day's list of names — a commit names what it touched, and a rank rebalance or a carry-over touches cards by the hundred without finishing any of them. A day whose own morning cannot be seen — the boundary day of a clone whose history is cut — claims nothing: "I do not know when this was closed" is a true answer where an invented day is not.
 - The history has an edge. The server keeps a horizon (`--history`, two weeks by default) and deepens on demand up to `--history-max` (a year); a day behind that is refused (410) rather than answered with the oldest state at hand.
 
 ### Me view — a personal day (`selectedDate`)
@@ -153,12 +157,17 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - The per-card control pushes **`startDate`** forward — counting from **today**
   (or from the card's already-deferred slot, so presses stack): `+N` sets
   `startDate = max(today, startDate) + N`. The card **stays in its sprint**
-  (`sprintStart` untouched), so its past sprint day keeps showing it.
+  (`sprintStart` untouched), so the day its own day comes it is back in that
+  sprint — deferring is a hold, not a removal.
 - A card **created today** (0d) has no history worth keeping: deferring it
   relocates it fully — `sprintStart` moves to the new day too (and a stale end
   date is pulled along), so it leaves the current sprint entirely.
 - While `startDate > today` the card is hidden between today and that day in Me
-  and Team; it shows on its new day, and its past sprint day keeps it in Team.
+  and Team — **its sprint's own day included**, because deferring is the act of
+  taking a card out of the sprint in progress. It shows again from its new day
+  on, and the sprint's day has it back then too. A day already gone still holds
+  it as it stood: that day is served from the history (the snapshot), which is
+  where "where the card came from" now lives.
 - Carry Over still sweeps a deferred card's sprint forward (its `sprintStart` is
   in the past), but the future `startDate` keeps hiding it until its day comes.
 
@@ -187,8 +196,17 @@ rewrites a schedule someone chose.
 ### When work is owed
 
 A card's due date is its own kind's clock (`board.DueDate`), and a card still
-open past it is a **debt** — marked overdue wherever it is drawn, and never
-moved: the week it was owed in is the record of what was missed.
+open past it is a **debt**. A debt is never moved: the week it was owed in is
+the record of what was missed, and the day boards go on drawing the work until
+it is finished.
+
+The overdue **mark** is narrower than the debt. Only a Project-board slot and a
+process turn wear it (`board.Overdue`), because only they carry a promise
+somebody ELSE is holding — a row drawn to an end date on another board, a turn
+a process filed. A week the Triage board gave a card is that board's own
+planning, and planning is what the next sync redoes: marking it late for still
+being open on Monday paints most of a normal board red, and a mark that is
+everywhere says nothing where it matters.
 
 - a Project-board **slot** is owed by its end date;
 - a process **turn** by the end of the week it was filed in;
@@ -290,11 +308,13 @@ moved: the week it was owed in is the record of what was missed.
 2. **Me by the sprints a card spans on the viewed day** —
    `activeSprint(team, day) <= sprintStart`, gated by `startDate <= selectedDate`,
    so a carried-over card stays visible in the previous sprint it came from.
-3. **Team shows a materialized card on both its days** — its sprint's start day
-   (`sprintStart`) and its own scheduled day (`startDate`); a future-deferred card
-   only on its own day; plus the previous sprint's start day when the card was
-   carried over from there.
+3. **Team shows what is in hand on the day** — one rule, applied to every card
+   (see Team view), with two deliberate asymmetries: the day a SPRINT began is
+   the whole sprint, closed work included, and a day AHEAD of today is a plan
+   rather than a state. The seven layered rules this replaced, `sprintStart`
+   and `startDate` days among them, are gone.
 4. **Defer moves `startDate` counting from today** and keeps the card in its
-   sprint, so the past sprint day never loses it; the **calendar** is a real
-   move (`startDate = sprintStart = start`, `day = end`).
+   sprint, so the card is back in it the day it arrives; while it waits it is
+   off every live day board, its sprint's own day included. The **calendar** is
+   a real move (`startDate = sprintStart = start`, `day = end`).
 5. The existing telemetry card is left as-is (the owner will move it).
