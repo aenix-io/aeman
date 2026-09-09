@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -52,16 +53,26 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 		// question the day's board is built with (board.IsRecord), or the two
 		// answer differently: a personal card, which belongs to no team and
 		// no sprint, would be live on screen and refused here the moment the
-		// no-team GROUP carried over. A write that names no card (a create, a
-		// carry-over) cannot be judged that way, and a view holding records
-		// is no place to make one from.
+		// no-team GROUP carried over.
 		if uid := cardOfPath(r.URL.Path); uid != "" {
 			card, ok := findCardByID(bd, uid)
 			if !ok || !board.IsRecord(card, past) {
 				next.ServeHTTP(w, r)
 				return
 			}
+		} else if isCreate(r) {
+			// A CREATE names its team in the body, so it is judged by that
+			// team where the body is already parsed (handleCreateCard). While
+			// a sprint is OPEN its days are the team's to work — the lead
+			// reading the day it began adds a card there, which is where the
+			// standup is — and refusing every create because SOME team on the
+			// screen had settled took the add boxes off the whole board.
+			next.ServeHTTP(w, r.WithContext(withAsOf(r.Context(), day)))
+			return
 		}
+		// A write that names no card and no team (a carry-over, a roster
+		// change) cannot be judged that way, and a view holding records is no
+		// place to make one from.
 		writeJSONError(w, http.StatusConflict,
 			"the board of "+day+" is a record: that day is over for this card's team, so it cannot be changed from there")
 	})
@@ -99,4 +110,24 @@ func findCardByID(b board.Board, uid string) (board.Card, bool) {
 		}
 	}
 	return board.Card{}, false
+}
+
+// isCreate reports the one card-less write that names a team: POST /cards.
+func isCreate(r *http.Request) bool {
+	return r.Method == http.MethodPost && r.URL.Path == "/api/v1/cards"
+}
+
+// asOfCtxKey carries the day a create was made from to the handler that knows
+// its team.
+type asOfCtxKey struct{}
+
+func withAsOf(ctx context.Context, day string) context.Context {
+	return context.WithValue(ctx, asOfCtxKey{}, day)
+}
+
+// AsOfDay is the past day a request was made from, or "" — set only where the
+// guard could not judge the write itself.
+func asOfDay(ctx context.Context) string {
+	day, _ := ctx.Value(asOfCtxKey{}).(string)
+	return day
 }

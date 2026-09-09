@@ -1,34 +1,17 @@
 import { optimisticTitle } from "../links";
-import {
-  Fragment,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  type Ref,
-} from "react";
+import { Fragment, type CSSProperties, type ReactNode, type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelPendingCard,
   consumePendingCancel,
   registerPendingCard,
 } from "../api/pending";
 import { justMade } from "../justmade";
-import type {
-  Board,
-  Card as CardModel,
-  CardPatch,
-  CarryReport,
-  Provider,
-  StageKey,
-  ZoneKey,
-} from "../providers/types";
+import type { Board, Card as CardModel, CardPatch, CarryReport, Provider, SprintState, StageKey, ZoneKey } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
 import { clampProgress, clampsProgress, isComplete } from "../stages";
 import { inHandOn } from "../teamgrid";
 import { todayIso, addDays, localDateIso } from "../date";
-import { currentSprint, previousSprint, sprintForDate } from "../sprint";
+import { currentSprint, dayIsOverFor, previousSprint, sprintForDate } from "../sprint";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -68,11 +51,10 @@ interface TeamBoardProps {
   me: string;
   /** Viewed day, owned by the App (drives the lazy view fetch + scoped watch). */
   selectedDate: string;
-  /** The moment this board is a RECORD of (a past day answered as it stood),
-   *  empty on a live board. What it holds cannot be added to. */
-  asOf?: string;
-
   onSelectDate: (day: string) => void;
+  /** The sprint pointers as they stand TODAY (a record's own are that day's).
+   *  What decides, per team, whether the day being read is theirs to add to. */
+  liveSprints: Record<string, SprintState>;
   /** A carry-over the APP asked for, rather than the button: somebody reached
    *  into a day that is over, and the board answers by leaving the record for
    *  today and offering that team its new sprint (App.leaveTheRecord). The
@@ -129,8 +111,8 @@ export function TeamBoard({
   provider,
   me,
   selectedDate,
-  asOf,
   onSelectDate,
+  liveSprints,
   carryRequest,
   avatars,
   names,
@@ -205,13 +187,6 @@ export function TeamBoard({
   const passesFilter = (card: CardModel): boolean =>
     teamFilter === null || teamFilter.includes(card.team ?? "");
 
-  // Cards passing the team filter (the scope before applying the sprint).
-  // A day that ENDED offers nothing to add: a card created there would land
-  // on TODAY's board, which is not what the person looking at that day
-  // means. The server refuses such a create outright — it cannot tell which
-  // team the box belonged to — so the boxes go whenever the board is being
-  // read as a record at all, not only where a record card happens to sit.
-  const holdsRecords = !!asOf;
   const inFilter = useMemo(
     () => board.cards.filter((c) => passesFilter(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -307,6 +282,27 @@ export function TeamBoard({
         : roster,
     [teamFilter, roster],
   );
+
+  // A day that ENDED offers nothing to add: a card created there would land
+  // on TODAY's board, which is not what the person looking at that day means.
+  // The question is asked PER TEAM, the way the server asks it: while a
+  // sprint is open its days are still that team's to work — the lead reading
+  // the day it began adds a card there, which is where the standup is — and
+  // only a team the day is over for loses its box. Taking the boxes off the
+  // whole screen because one team had settled is what this replaced.
+  const dayOverFor = useCallback(
+    (team: string | null) => dayIsOverFor(liveSprints, team, selectedDate),
+    [liveSprints, selectedDate],
+  );
+  // The teams a create may still name here — what the picker offers, so a
+  // pick cannot land on a create the server refuses.
+  const addTeams = useMemo(
+    () => pickerTeams.filter((t) => !dayOverFor(t || null)),
+    [pickerTeams, dayOverFor],
+  );
+  // Nothing anywhere can be added to when every team on screen has settled.
+  const holdsRecords =
+    forcedTeam === undefined ? addTeams.length === 0 : dayOverFor(forcedTeam);
 
   // "No team" is offered only when the no-team group is actually displayed
   // on the board — a card created into a hidden group would just vanish.
@@ -1784,7 +1780,7 @@ export function TeamBoard({
                   {body}
                   <AddCard
                     hidden={holdsRecords}
-                    teams={forcedTeam === undefined ? pickerTeams : undefined}
+                    teams={forcedTeam === undefined ? addTeams : undefined}
                     forcedTeam={forcedTeam}
                     allowNoTeam={pickerNoTeam}
                     onCreate={(title, team) =>

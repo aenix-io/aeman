@@ -1612,8 +1612,8 @@ export function App() {
           <TeamBoard
             board={board}
             selectedDate={selectedDate}
-            asOf={asOf ?? undefined}
             onSelectDate={setSelectedDate}
+            liveSprints={liveSprints}
             carryRequest={carryRequest}
             provider={provider}
             me={config?.login ?? ""}
