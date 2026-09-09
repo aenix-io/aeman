@@ -122,6 +122,14 @@ interface Slot extends Laned {
    *  work being read: it cannot be moved into another week — it has no week
    *  to write — and nothing on it can be planned. */
   review?: boolean;
+  /** The LINE under a cell's cards for the work that is DONE in it, and the
+   *  key that opens them — the same shape as `reviews`. A week's grid is for
+   *  planning, so finished work does not stand among the cards being planned
+   *  and is not in the week's numbers; it is still the week's own work, and
+   *  a week that showed none of it read as if nothing had happened. */
+  done?: CardModel[];
+  /** A finished card, drawn because its line is open. */
+  finished?: boolean;
 }
 
 function whoOf(c: CardModel): string {
@@ -212,6 +220,10 @@ export function TriageBoard({
   const showReviewsIn = useCallback((cell: string) => {
     setOpenReviews((open) => new Set(open).add(cell));
   }, []);
+  const [openDone, setOpenDone] = useState<ReadonlySet<string>>(new Set());
+  const showDoneIn = useCallback((cell: string) => {
+    setOpenDone((open) => new Set(open).add(cell));
+  }, []);
   // The tasks whose turns are MEANT to pile up: with the catch lifted those
   // are the ones a turn may be carried out of its own cycle for (gripOf).
   const accumulating = useMemo(() => {
@@ -289,6 +301,27 @@ export function TriageBoard({
           !c.parent &&
           !isPersonalDomain(c.domain ?? "") &&
           !isComplete(c),
+      ),
+    [board.cards, teams],
+  );
+
+  // The FINISHED work of the teams on screen. Kept apart from the cards for
+  // the same reason the reviews are: the grid plans a week, and finished work
+  // is not being planned — it stands on the line at the foot of its cell. It
+  // is still the week's own work, though, and a board that showed none of it
+  // read as if the week had done nothing: a card closed today, and one closed
+  // without ever being given a week (TriageWeekOf places it by the day it was
+  // finished), were both simply gone.
+  const doneHere = useMemo(
+    () =>
+      board.cards.filter(
+        (c) =>
+          isComplete(c) &&
+          !c.reviewOf &&
+          !c.parent &&
+          teams.includes(c.team ?? "") &&
+          !isPersonalDomain(c.domain ?? "") &&
+          !!placedIn(c),
       ),
     [board.cards, teams],
   );
@@ -1006,6 +1039,38 @@ export function TriageBoard({
         weigh(w, c);
       }
     }
+    // The DONE line, built exactly as the reviews line above it and counted
+    // in neither number: the week's cards and points are what still has to
+    // fit, which is the question the capacity beside them answers, and it is
+    // the same set the number beside a person's name counts (board.LoadNow).
+    const doneCells = new Map<string, { col: string; row: number; cards: CardModel[] }>();
+    for (const c of doneHere) {
+      // NOT rowDates: a week gone by reads as this one only for a DEBT —
+      // work still owed is owed now. Finished work is owed to nobody and
+      // belongs to the week it was done in, so a card closed last week stays
+      // in last week's cell and is off the grid until the reader scrolls back
+      // to it.
+      const at = extentOf({ week: placedIn(c) ?? "", day: c.day }, weeks);
+      if (!at) {
+        continue;
+      }
+      const col = whoOf(c);
+      const key = `${col}\u0000${weeks[at.row]}`;
+      const cell = doneCells.get(key) ?? { col, row: at.row, cards: [] };
+      cell.cards.push(c);
+      doneCells.set(key, cell);
+    }
+    for (const [key, cell] of doneCells) {
+      const list = slots.get(cell.col) ?? [];
+      if (openDone.has(key)) {
+        for (const c of cell.cards) {
+          list.push({ ...bare, card: c, row: cell.row, finished: true });
+        }
+      } else {
+        list.push({ ...bare, card: cell.cards[0], row: cell.row, done: cell.cards, cell: key });
+      }
+      slots.set(cell.col, list);
+    }
     // While a card is under the pointer it is drawn WHERE IT WOULD LAND —
     // including where among its new neighbours — so what the reader sees is
     // the order they are choosing, not the one they started from. The stack
@@ -1048,6 +1113,8 @@ export function TriageBoard({
     grid.rowFit,
     reviewsHere,
     openReviews,
+    doneHere,
+    openDone,
   ]);
 
 
@@ -1638,6 +1705,56 @@ export function TriageBoard({
                   >
                     +{n} review{n === 1 ? "" : "s"}
                   </button>
+                );
+              }
+              // The DONE line: how much of this person's week is already
+              // finished. Plain text like the reviews line under it, and in
+              // neither of the week's numbers — the week counts what still
+              // has to fit. Pressed, it is replaced by the cards themselves.
+              if (slot.done && slot.cell) {
+                const n = slot.done.length;
+                const cell = slot.cell;
+                return (
+                  <button
+                    type="button"
+                    key={`${p.key}/done/${row}`}
+                    className="triage-done-line"
+                    style={{
+                      gridColumn: col + 2,
+                      gridRow: row + 2,
+                      ...laneStyle(slot, grid.rowFit, grid.rowH),
+                    }}
+                    title={`${n} card${n === 1 ? "" : "s"} this person finished in this week — done work, so not in the week's points`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      showDoneIn(cell);
+                    }}
+                  >
+                    +{n} done
+                  </button>
+                );
+              }
+              // A finished card under an open line. It is a record of the
+              // week rather than work in it: nothing here plans it, and a
+              // double-click opens the card itself.
+              if (slot.finished) {
+                return (
+                  <div
+                    key={`${p.key}/${card.itemId}/done`}
+                    className="project-slot triage-slot triage-slot-done"
+                    style={{
+                      gridColumn: col + 2,
+                      gridRow: row + 2,
+                      ...laneStyle(slot, grid.rowFit, grid.rowH),
+                    }}
+                    title={`${card.title} — finished in this week`}
+                    onDoubleClick={() => onOpen(card)}
+                  >
+                    <span className="project-slot-title">{card.title}</span>
+                    <SizeChip card={card} onPick={openSizer} />
+                  </div>
                 );
               }
               // A review under an open line. It is somebody else's finished

@@ -121,7 +121,9 @@ export function placedIn(
   // Work that was DONE in a week is that week's work, planned or not: a card
   // closed without ever being given a week stood in no column and in no strip
   // (the strip is work still to be looked at), so the board showed it nowhere
-  // at all. Mirrors board.TriageWeekOf.
+  // at all. Where the cell DRAWS it is the board's question — the "+N done"
+  // line at its foot — and this is the week it stands in. Mirrors
+  // board.TriageWeekOf.
   if (c.doneAt && isComplete(c)) {
     return mondayOf(c.doneAt);
   }

@@ -5367,6 +5367,10 @@ button.card-age {
    actually planning, and pressing it hands the cell over to what it was
    offering: the reviews take its place, and there is no way back, because
    folding them away again is not a state anybody stays in. */
+/* The DONE line reads exactly like the reviews line under it — plain text at
+   the foot of a cell, not a card — because it is the same offer: here is the
+   rest of what this week holds. */
+.triage-done-line,
 .triage-reviews-line {
   /* A grid item like the boxes above it, NOT an absolutely positioned one.
      An abspos grid child resolves its auto end-lines to the grid's padding
@@ -5393,14 +5397,17 @@ button.card-age {
   overflow: hidden;
 }
 
+.triage-done-line:hover,
 .triage-reviews-line:hover {
   background: var(--hover-overlay-soft);
   color: var(--fg);
   opacity: 1;
 }
 
-/* A review the line has opened: somebody else's finished work being read, so
-   it is drawn as a card and behaves as none — nothing here plans it. */
+/* A card the line has opened — a review, or work already finished: a record
+   of the week rather than work in it, so it is drawn as a card and behaves as
+   none. Nothing here plans it. */
+.triage-slot-done,
 .triage-slot-review {
   border-left-width: 1px;
   border-style: dashed;
@@ -5408,6 +5415,11 @@ button.card-age {
   box-shadow: none;
   color: var(--muted);
   cursor: default;
+}
+
+/* Done work says so on its face, the way a finished card does everywhere. */
+.triage-slot-done .project-slot-title {
+  text-decoration: line-through;
 }
 
 /* The gap between the boxes of one card while it is carried or stretched:
