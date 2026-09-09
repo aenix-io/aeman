@@ -14,34 +14,36 @@ func ids(cards []Card) []string {
 }
 
 func gridBoard() Board {
-	// TeamGrid places a card on its effective day: sprintStart once materialized
-	// (startDate <= TodayIso()), else the future startDate. To stay independent of
-	// the wall clock, materialized cards carry a startDate far in the past (always
-	// <= today) and the deferred card one far in the future (always > today).
+	// The Team board's rule is a function of the DAY asked about and nothing
+	// else — no wall clock — so these cards can be dated plainly.
 	return NewBoard([]Card{
-		// Team A: a materialized card — effective day is its sprint, 06-22.
-		{ItemID: "A1", Team: "A", StartDate: "2000-01-01", SprintStart: "2026-06-22"},
-		// Team A: a deferred card sharing the same sprint — its effective day is the
-		// future startDate (2999-12-31), not the sprint day.
-		{ItemID: "Afuture", Team: "A", StartDate: "2999-12-31", SprintStart: "2026-06-22"},
-		// Team A: a materialized card on a different sprint day.
-		{ItemID: "Aother", Team: "A", StartDate: "2000-01-01", SprintStart: "2026-06-26"},
-		// Team A: created on a later day of the 06-22 sprint — shows on both days.
-		{ItemID: "Alater", Team: "A", StartDate: "2026-06-24", SprintStart: "2026-06-22"},
-		// Team A: deferred — its scheduled day pushed into the far future while it
-		// stays in the 06-22 sprint. Hidden between today and that day; its past
-		// sprint day and its future slot stay visible.
-		{ItemID: "Adeferred", Team: "A", StartDate: "2999-12-30", SprintStart: "2026-06-22"},
-		// Team A: a ranged card (start…end) — shows on every day of 06-27..06-29.
-		{ItemID: "Aspan", Team: "A", StartDate: "2026-06-27", Day: "2026-06-29", SprintStart: "2026-06-22"},
-		{ItemID: "B1", Team: "B", StartDate: "2000-01-01", SprintStart: "2026-06-22"},
-		{ItemID: "N1", Team: "", StartDate: "2000-01-01", SprintStart: "2026-06-20"},
-		// Team A's sprint pointers: current = 06-26, previous = 06-22. Cards also
-		// show on pointer days their sprint passed through (carried / deferred).
+		// In hand: open, scheduled before the day, nothing put off.
+		{ItemID: "A1", Team: "A", StartDate: "2026-06-01", SprintStart: "2026-06-22"},
+		// Planned into a later week: on no day board until its Monday (B1).
+		{ItemID: "Aahead", Team: "A", Week: "2026-07-06"},
+		// Put off to a later day: gone from the board until that day comes.
+		{ItemID: "Adeferred", Team: "A", StartDate: "2026-07-02", SprintStart: "2026-06-22"},
+		// A week gone by and still open — a debt, and still in hand.
+		{ItemID: "Adebt", Team: "A", Week: "2026-06-08", StartDate: "2026-06-08"},
+		// Finished on the 22nd: that day keeps it, and no other.
+		{ItemID: "Adone", Team: "A", StartDate: "2026-06-01", Progress: 100, DoneAt: "2026-06-22"},
+		// Parked on a list: not planned at all, so on no day board.
+		{ItemID: "Aparked", Team: "A", StartDate: "2026-06-01", Parked: true},
+		// A subtask rides with its parent and is never placed on its own.
+		{ItemID: "Akid", Team: "A", Parent: "A1", StartDate: "2026-06-01"},
+		{ItemID: "B1", Team: "B", StartDate: "2026-06-01"},
+		{ItemID: "N1", Team: "", StartDate: "2026-06-01"},
 		{ItemID: "Astate", Team: "A", Title: SprintStateTitle, SprintStart: "2026-06-26", StartDate: "2026-06-22"},
 	})
 }
 
+// The Team board shows what people are working on, on the day asked about:
+// open work in hand, less what was put off to a later day or a later week.
+// It used to answer through seven layered rules — the week's work, the
+// sprint's day, the card's own day, the range between its dates, the days of
+// sprints it had passed through — which put work nobody was doing on the
+// board and, at the same time, dropped a card scheduled for last Tuesday and
+// never finished, because no rule reached it any more.
 func TestTeamGrid(t *testing.T) {
 	b := gridBoard()
 	cases := []struct {
@@ -49,19 +51,19 @@ func TestTeamGrid(t *testing.T) {
 		team, day string
 		want      []string
 	}{
-		{"a sprint day keeps all its cards, deferred ones included", "A", "2026-06-22", []string{"A1", "Afuture", "Aother", "Alater", "Adeferred", "Aspan"}},
-		{"future-scheduled card shows on its own future day", "A", "2999-12-31", []string{"Afuture"}},
-		{"another sprint day shows its own card", "A", "2026-06-26", []string{"Aother"}},
-		{"a later-created card also shows on its scheduled day", "A", "2026-06-24", []string{"Alater"}},
-		{"a deferred card is hidden between today and its scheduled day", "A", "2998-01-01", []string{}},
-		{"a deferred card shows on its new scheduled day", "A", "2999-12-30", []string{"Adeferred"}},
-		{"a ranged card shows on its start day", "A", "2026-06-27", []string{"Aspan"}},
-		{"a ranged card shows mid-range", "A", "2026-06-28", []string{"Aspan"}},
-		{"a ranged card shows on its end day", "A", "2026-06-29", []string{"Aspan"}},
-		{"a ranged card is gone after its end day", "A", "2026-06-30", []string{}},
-		{"a day with no card is empty", "A", "2026-06-23", []string{}},
-		{"other team is isolated", "B", "2026-06-22", []string{"B1"}},
-		{"no-team group", "", "2026-06-20", []string{"N1"}},
+		{"in hand: open work, and the debt of a week gone by", "A", "2026-06-23",
+			[]string{"A1", "Adebt"}},
+		{"the day it was finished keeps it", "A", "2026-06-22",
+			[]string{"A1", "Adebt", "Adone"}},
+		{"a card put off arrives on its day, and the finished one is gone", "A", "2026-07-02",
+			[]string{"A1", "Adeferred", "Adebt"}},
+		{"a week ahead is on no day board until its Monday", "A", "2026-07-05",
+			[]string{"A1", "Adeferred", "Adebt"}},
+		{"and stands on the board from that Monday on", "A", "2026-07-06",
+			[]string{"A1", "Aahead", "Adeferred", "Adebt"}},
+		{"before any of it exists, nothing is in hand", "A", "2026-05-01", []string{}},
+		{"another team is isolated", "B", "2026-06-23", []string{"B1"}},
+		{"the no-team group is a team like any other", "", "2026-06-23", []string{"N1"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -152,7 +154,10 @@ func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
 		t.Fatalf("deferred card must show on its own future day, got %+v", got)
 	}
 
-	// The same card bound to a CLOSED sprint keeps that day as history.
+	// A day already past is not reconstructed from the card's dates at all:
+	// the board answers it from its own history, as it stood. So the sprint a
+	// card used to be in decides nothing here — which is what stopped work
+	// nobody was doing that day from appearing on it.
 	past := deferred
 	past.SprintStart = previous
 	hist := Board{
@@ -161,62 +166,61 @@ func TestTeamGridDeferredLeavesCurrentSprint(t *testing.T) {
 			"alpha": {Current: current, Previous: previous},
 		},
 	}
-	if got := TeamGrid(hist, "alpha", previous); len(got) != 1 {
-		t.Fatalf("a closed sprint's day must keep the card as history, got %+v", got)
+	if got := TeamGrid(hist, "alpha", previous); len(got) != 0 {
+		t.Fatalf("a card put off to a later day is on no earlier day either, got %+v", got)
 	}
 }
 
-// A slot lives on the Project board until it joins a sprint: its column
-// holds it, so the day grid does not. A card carrying only a project name
-// has no column — the Project board renders columns by epic — so hiding it
-// here would leave it on no board at all; it shows by its dates like any
-// other card, and its project name is a label it happens to wear.
-func TestTeamGridHidesASlotButNotACardThatOnlyNamesAProject(t *testing.T) {
-	today := TodayIso()
-	b := Board{
-		Cards: []Card{
-			{ItemID: "slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today},
-			{ItemID: "project-only", Team: "t", Project: "P", StartDate: today, Day: today},
-			{ItemID: "slot-in-sprint", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today, SprintStart: today},
-		},
-		SprintStates: map[string]SprintState{"t": {Current: today}},
-	}
-	got := []string{}
-	for _, c := range TeamGrid(b, "t", today) {
-		got = append(got, c.ItemID)
-	}
-	if len(got) != 2 || got[0] != "project-only" || got[1] != "slot-in-sprint" {
-		t.Fatalf("grid = %v; want the project-only card and the slot that joined a sprint", got)
-	}
-}
-
-// A slot's week reaches the day grid, and reaches no further.
+// A slot is on the day board once its week has come, like everything else.
 //
-// The test above hands TeamGrid a hand-made Board, and a hand-made Board has
-// no derived week: NewBoardIn gives every slot with a start date the week of
-// that date (a slot's row IS its start date's week). So on a REAL board a
-// sprint-less slot is not simply hidden — it stands in the weeks it covers,
-// which is the set the Triage board shows and what the Unassigned column is
-// for. The gate above still holds everywhere else: outside those weeks the
-// slot is the Project board's business alone.
-func TestTeamGridShowsASlotInTheWeeksItCoversAndNowhereElse(t *testing.T) {
+// It used to be held back until it joined a sprint — the Project board's
+// column was said to hold it meanwhile — but the Team board is now the same
+// set the Triage board shows for the week, and a slot whose week has arrived
+// is in that set. A card carrying only a PROJECT name is not a slot at all
+// (the Project board renders columns by epic, so it has no column) and shows
+// like any other card.
+func TestTeamGridShowsASlotOnceItsWeekHasCome(t *testing.T) {
+	today := TodayIso()
+	b := NewBoardIn("acme", []Card{
+		{ItemID: "slot", Team: "t", Epic: "E", Project: "P", StartDate: today, Day: today},
+		{ItemID: "project-only", Team: "t", Project: "P", StartDate: today, Day: today},
+		{ItemID: "later", Team: "t", Epic: "E", Project: "P",
+			StartDate: AddDays(MondayOf(today), 21), Day: AddDays(MondayOf(today), 25)},
+	})
+	got := ids(TeamGrid(b, "t", today))
+	if !reflect.DeepEqual(got, []string{"slot", "project-only"}) {
+		t.Fatalf("grid = %v; want this week's slot and the project-only card, and not the slot three weeks out", got)
+	}
+}
+
+// A slot stands on the day grid from the week it starts in, and stays there
+// while it is open — past the end of its span it is a debt, which is the one
+// thing nobody should be able to lose sight of. Before its week it is the
+// Project board's business alone (B1).
+func TestTeamGridShowsASlotFromItsWeekUntilItIsDone(t *testing.T) {
 	b := NewBoardIn("acme", []Card{
 		{ItemID: "slot", Team: "t", Epic: "E", Project: "P",
 			StartDate: "2026-09-01", Day: "2026-09-18"},
 	})
 	b.SprintStates = map[string]SprintState{"t": {Current: "2026-09-01"}}
-	// Every week the slot covers: the week of its start through the week its
-	// end reaches.
-	for _, day := range []string{"2026-09-03", "2026-09-07", "2026-09-14"} {
+	// Its own weeks, and the weeks after: still open, still in hand.
+	for _, day := range []string{"2026-09-03", "2026-09-07", "2026-09-14", "2026-09-22"} {
 		if got := TeamGrid(b, "t", day); len(got) != 1 {
-			t.Fatalf("TeamGrid(%s) = %d card(s); the week's own work stands in it", day, len(got))
+			t.Fatalf("TeamGrid(%s) = %d card(s); an open slot whose week has come is in hand", day, len(got))
 		}
 	}
-	// And the weeks around them, where it is the Project board's business.
-	for _, day := range []string{"2026-08-26", "2026-09-22"} {
-		if got := TeamGrid(b, "t", day); len(got) != 0 {
-			t.Fatalf("TeamGrid(%s) = %d card(s); outside its weeks a sprint-less slot stays off the grid", day, len(got))
-		}
+	// Before its week it is not.
+	if got := TeamGrid(b, "t", "2026-08-26"); len(got) != 0 {
+		t.Fatalf("TeamGrid(2026-08-26) = %d card(s); a week ahead is on no day board", len(got))
+	}
+	// Finished, it belongs to the day it was finished on.
+	b.Cards[0].Progress = 100
+	b.Cards[0].DoneAt = "2026-09-16"
+	if got := TeamGrid(b, "t", "2026-09-16"); len(got) != 1 {
+		t.Fatal("the day it was finished keeps it")
+	}
+	if got := TeamGrid(b, "t", "2026-09-17"); len(got) != 0 {
+		t.Fatal("and the next day does not")
 	}
 }
 
@@ -293,11 +297,20 @@ func TestTeamGridCarriesTheWeeksOwnWork(t *testing.T) {
 		t.Fatalf("grid = %v, want %v", got, want)
 	}
 
-	// A week that is not the one being looked at carries only its own: a debt
-	// is shown beside the CURRENT week's work, not on some other week's day.
+	// Looking a week ahead: what is in hand THEN. The debt is still open, so
+	// it is still in hand; the card placed in that week has arrived.
 	next := AddDays(today, 7)
+	if got := ids(TeamGrid(b, "t", next)); !reflect.DeepEqual(got, []string{"placed", "slot", "turn", "debt", "ahead"}) {
+		t.Fatalf("a week ahead = %v, want this week's work still open plus the card placed in it", got)
+	}
+	// Finished, the debt belongs to the day it was finished on and no other.
+	for i := range b.Cards {
+		if b.Cards[i].ItemID == "debt" {
+			b.Cards[i].Progress, b.Cards[i].DoneAt = 100, today
+		}
+	}
 	if got := ids(TeamGrid(b, "t", next)); slicesContains(got, "debt") {
-		t.Fatalf("a debt belongs to the current week's day, not %s: %v", next, got)
+		t.Fatalf("work finished on another day is not in hand today: %v", got)
 	}
 }
 

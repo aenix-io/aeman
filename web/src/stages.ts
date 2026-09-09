@@ -1,4 +1,4 @@
-import type { StageKey } from "./providers/types";
+import type { Card, StageKey } from "./providers/types";
 
 export type { StageKey };
 
@@ -70,6 +70,15 @@ export function clampProgress(stage: StageKey | undefined | null, value: number)
 
 /** isComplete mirrors board.Complete: a card is finished when it has an explicit
  *  done stage, or is 100% with no stage, or is a recurrent card at 100%. */
+/** finishedOn is the day a finished card belongs to: the day it was recorded
+ *  as done, or — for a card finished by another writer, or before that field
+ *  existed — its own end date, then its start. A card with no dates at all is
+ *  left alone: nothing says when it was finished, so nothing may say it was
+ *  not the day being looked at. Mirrors board.finishedOn. */
+export function finishedOn(c: Partial<Pick<Card, "doneAt" | "day" | "startDate">>): string {
+  return c.doneAt || c.day || c.startDate || "";
+}
+
 export function isComplete(card: { stage?: StageKey; progress?: number }): boolean {
   if (card.stage === "done") {
     return true;

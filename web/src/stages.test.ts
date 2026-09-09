@@ -10,6 +10,7 @@ import {
   isComplete,
   isInProgress,
   isWorkable,
+  finishedOn,
 } from "./stages";
 import type { StageKey } from "./providers/types";
 
@@ -129,5 +130,25 @@ describe("what work can be picked up", () => {
 
   it("includes ordinary work, finished or not", () => {
     expect(isWorkable({ stage: undefined, progress: 40 })).toBe(true);
+  });
+});
+
+// A finished card belongs to the day it was finished on, and a day board draws
+// it there and nowhere else. doneAt is the record — but these repositories are
+// open, so a card finished by another writer, or before that field existed,
+// carries none, and hiding it from every day at once is not an answer.
+// Mirrors board.finishedOn.
+describe("finishedOn", () => {
+  it("is the day the board recorded", () => {
+    expect(finishedOn({ doneAt: "2026-09-08", day: "2026-09-01" })).toBe("2026-09-08");
+  });
+
+  it("falls back to the card's own end date, then its start", () => {
+    expect(finishedOn({ day: "2026-09-01", startDate: "2026-08-25" })).toBe("2026-09-01");
+    expect(finishedOn({ startDate: "2026-08-25" })).toBe("2026-08-25");
+  });
+
+  it("says nothing about a card that carries no dates at all", () => {
+    expect(finishedOn({})).toBe("");
   });
 });

@@ -25,10 +25,9 @@ import type {
   ZoneKey,
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
-import { clampProgress, clampsProgress } from "../stages";
+import { clampProgress, clampsProgress, finishedOn } from "../stages";
 import { todayIso, addDays, localDateIso, mondayOf } from "../date";
-import { deferred, inWeek, placedAhead } from "../triage";
-import { activeSprint, currentSprint, previousSprint, sprintForDate } from "../sprint";
+import { currentSprint, previousSprint, sprintForDate } from "../sprint";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
@@ -59,7 +58,7 @@ import {
   rosterOf,
   type CardPlacements,
 } from "../placements";
-import { parkedLocally } from "../backlog";
+import { parked, parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -219,87 +218,33 @@ export function TeamBoard({
     [board.cards, teamFilter],
   );
 
-  // The Team grid places a card on its effective day: its sprint (sprintStart)
-  // once materialized, but its scheduled day (startDate) while that is still in the
-  // future. So a materialized card sits on its sprint's start date (including ones
-  // created on later days), and a deferred card shows on its own future day,
-  // rejoining the sprint day once today catches up.
+  // What the people are WORKING ON on the day being looked at, and nothing
+  // else — the same set the Triage board shows for that day, less anything
+  // put off to later. Mirrors board.TeamGrid.
+  //
+  // A card is in hand when it is not a subtask (those render nested under
+  // their parent), is not parked on a list, has not been planned into a week
+  // after this day's, has not been deferred past it, and is either open or
+  // was finished on that very day — a card finished yesterday belongs to
+  // yesterday. That is the whole rule; it used to be seven layered ones, and
+  // between them they put work nobody was doing on the day while dropping a
+  // card scheduled for last Tuesday and never finished, which no rule
+  // reached any more.
   const filteredCards = useMemo(
     () =>
       inFilter.filter((c) => {
-        // Subtasks render nested under their parent, never as grid rows.
-        if (c.parent) {
+        if (c.parent || parked(c)) {
           return false;
         }
-        const today = todayIso();
-        // A card placed in a week ahead is on no day board until its Monday.
-        if (placedAhead(c, today)) {
+        if (c.week && c.week > mondayOf(selectedDate)) {
           return false;
         }
-        // The WEEK's own work stands on the grid all week — in its person's
-        // column, or in Unassigned when nobody has taken it. This is the set
-        // the Triage board shows for that week, and what the weekly panel
-        // used to hold beside the grid (mirrors board.TeamGrid).
-        //
-        // A DEFERRED card is not part of it: deferring is the act of taking a
-        // card off the board until a later day, and its week says when the
-        // work is due, not that it should still be drawn today. The rule
-        // below says the same about the days.
-        if (!deferred(c, today) && inWeek(c, mondayOf(selectedDate), today)) {
-          return true;
-        }
-        // A Project slot with no week of this one's own lives on the Project
-        // board until it joins a sprint — its multi-week dates would
-        // otherwise put it in the day grid for every day it spans.
-        if (c.epic && !c.sprintStart) {
+        if (c.startDate && c.startDate > selectedDate) {
           return false;
         }
-        // A card with an end date spans a range: it shows on every day from its
-        // start through its end (the calendar sets start…end).
-        const inRange =
-          !!c.startDate &&
-          !!c.day &&
-          c.day >= c.startDate &&
-          selectedDate >= c.startDate &&
-          selectedDate <= c.day;
-        // A deferred / future-scheduled card (startDate past today) lives on
-        // its own day (or range), and a CLOSED sprint's day keeps it as
-        // history; it is hidden everywhere else until that day arrives. The
-        // team's CURRENT sprint is never history: deferring is precisely the
-        // act of taking the card out of the sprint in progress, so it must
-        // leave that day at once (mirrors board.TeamGrid).
-        if (deferred(c, today)) {
-          const pastSprintDay =
-            !!c.sprintStart &&
-            selectedDate === c.sprintStart &&
-            c.sprintStart < today &&
-            c.sprintStart !== currentSprint(board, c.team ?? null);
-          return selectedDate === c.startDate || inRange || pastSprintDay;
-        }
-        if (c.sprintStart === selectedDate) {
-          return true;
-        }
-        // A materialized card also shows on its scheduled day (and through its
-        // range when it has an end date), so a card created on a later day of
-        // its sprint appears both on the sprint's start day and on its own days.
-        if (inRange || (c.startDate && c.startDate === selectedDate)) {
-          return true;
-        }
-        // A card also shows on a sprint day it passed through — a sprint-pointer
-        // day S (current or previous) with origin <= S < sprintStart — so
-        // carried-over and deferred cards keep their sprint history.
-        const ss = c.sprintStart;
-        if (!ss) {
-          return false;
-        }
-        const teamKey = c.team ?? null;
-        const origin = activeSprint(board, teamKey, c.startDate ?? ss);
-        return [
-          currentSprint(board, teamKey),
-          previousSprint(board, teamKey),
-        ].some((s) => !!s && selectedDate === s && s < ss && origin <= s);
+        return !isComplete(c) || finishedOn(c) === selectedDate;
       }),
-    [inFilter, selectedDate, board],
+    [inFilter, selectedDate],
   );
 
   // Columns are PEOPLE: the distinct assignees among the filtered cards (me

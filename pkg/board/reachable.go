@@ -85,6 +85,16 @@ func Unreachable(b Board, today string) []Card {
 	seen := Reachable(b, today)
 	var out []Card
 	for _, c := range b.Cards {
+		// FINISHED work is not lost work. A day board draws a finished card
+		// on the day it was finished and no other, so one whose doneAt was
+		// never written — every card completed before the field existed —
+		// stands on no day. That makes it unreachable in the letter and
+		// nothing at all in the spirit: this list exists to find OPEN work
+		// nobody can get to, and a cleanup fed the other kind would take a
+		// board's whole history off it.
+		if Complete(c.Stage, c.Progress) {
+			continue
+		}
 		if !seen[c.ItemID] {
 			out = append(out, c)
 		}

@@ -2,110 +2,67 @@ package board
 
 import "slices"
 
-// TeamGrid returns the cards shown on the Team board's people×zones grid for a
-// single team on a given day: cards matching the team filter ("" = the no-team
-// group) shown on the viewed day. A materialized card (startDate <= today) shows
-// on its sprint's start day AND on its own scheduled day, so a card created on a
-// later day of the sprint appears on both; a deferred card (future startDate)
-// shows on its own future day only, rejoining the sprint day once today catches
-// up. It mirrors filteredCards in TeamBoard.tsx.
+// TeamGrid returns the cards on the Team board for one team on a given day:
+// what the people are WORKING ON then, and nothing else. It is the Triage
+// board's own "now" column for that day, less anything put off to later, and
+// it mirrors filteredCards in TeamBoard.tsx.
+//
+// A card is in hand on a day when it is this team's, is not a subtask (those
+// ride with their parent), is not parked on a list, has not been planned into
+// a week AFTER that day's (B1: a card placed in a week ahead is on no day
+// board until its Monday), has not been deferred past that day, and is either
+// open or was finished on that very day — a card finished yesterday belongs to
+// yesterday, and a board that keeps it is a board nobody can read.
+//
+// That is the whole rule. It used to be seven, layered: the week's own work,
+// the sprint's start day, the card's own scheduled day, the range between its
+// dates, the days of sprints it had passed through, and two special cases for
+// deferral. Every one of them was a different reason for a card to be drawn,
+// and between them they managed both halves of being wrong — work nobody was
+// doing appeared on the day, while a card scheduled for last Tuesday and
+// never finished fell off the board entirely, since no rule reached it any
+// more. A day board answers one question, so it asks one.
+//
+// Looking BACK is not this function's job: a day already past is answered
+// from the board's history, as it was (the snapshot path). Looking forward
+// works here, because the two gates it applies are both relative to the day
+// asked about — a card deferred to Thursday is in hand on Thursday.
 func TeamGrid(b Board, team, day string) []Card {
-	today := TodayIso()
 	out := []Card{}
 	for _, c := range b.Cards {
-		// Subtasks are never placed on their own: they ride with their parent
-		// (the API layer appends the children of every delivered parent).
-		if c.Parent != "" {
+		if c.Parent != "" || c.Team != team || InBacklog(c) {
 			continue
 		}
-		if c.Team != team {
+		if c.Week != "" && c.Week > MondayOf(day) {
 			continue
 		}
-		// A card placed in a week ahead is in the backlog, not on any day,
-		// until its Monday (B1).
-		if PlacedAhead(c, today) {
+		if c.StartDate != "" && c.StartDate > day {
 			continue
 		}
-		// A card parked on a BACKLOG is not planned at all, so it is on no
-		// day board — the same answer a week ahead gets, for the same reason.
-		if InBacklog(c) {
+		if Complete(c.Stage, c.Progress) && finishedOn(c) != day {
 			continue
 		}
-		// The WEEK's own work stands on the grid all week — in its person's
-		// column, or in Unassigned when nobody has taken it. This is the set
-		// the Triage board shows for that week: what the weekly panel used
-		// to hold beside the grid, now in the grid itself, so a card placed
-		// in a week is not invisible until somebody gives it a day. A slot
-		// covering the week is part of that set, which is why this stands
-		// above the epic gate rather than below it.
-		//
-		// A DEFERRED card is not, though. Deferring is the act of taking a
-		// card off the board until a later day, and its week says when the
-		// work is due, not that it should still be drawn today: a card pushed
-		// a month out went on standing in this week's grid, on a board the
-		// person had just cleared it from. The rule below says the same thing
-		// about the days; this says it about the week.
-		if !deferred(c, today) && InWeek(c, MondayOf(day), today) {
-			out = append(out, c)
-			continue
-		}
-		// An epic card lives on the Project board until it joins a sprint (see
-		// MeView) — its multi-week span must not smear across the day grid.
-		// The COLUMN is what keeps it there, and a column needs the epic
-		// side: a card carrying only a project name is on no Project board
-		// (ProjectBoard.tsx renders columns by the epic), so hiding it here
-		// would leave it nowhere at all.
-		if c.Epic != "" && c.SprintStart == "" {
-			continue
-		}
-		// A card with an end date spans a range: it shows on every day from its
-		// start through its end (the calendar sets start…end).
-		inRange := c.StartDate != "" && c.Day != "" && c.Day >= c.StartDate &&
-			day >= c.StartDate && day <= c.Day
-		// A deferred / future-scheduled card (startDate past today) lives on its
-		// own day (or range), and a CLOSED sprint's day keeps it as history; it
-		// is hidden everywhere else until that day arrives. The team's CURRENT
-		// sprint is never history: deferring a card is precisely the act of
-		// taking it out of the sprint in progress, so it must leave that day at
-		// once — even when the sprint opened days ago (no carry-over since).
-		if deferred(c, today) {
-			pastSprintDay := c.SprintStart != "" && day == c.SprintStart &&
-				c.SprintStart < today && c.SprintStart != CurrentSprint(b, c.Team)
-			if day == c.StartDate || inRange || pastSprintDay {
-				out = append(out, c)
-			}
-			continue
-		}
-		if c.SprintStart != "" && c.SprintStart == day {
-			out = append(out, c)
-			continue
-		}
-		// A materialized card also shows on its scheduled day (and through its
-		// range when it has an end date), so a card created on a later day of its
-		// sprint appears both on the sprint's start day and on its own days.
-		if inRange || (c.StartDate != "" && c.StartDate == day) {
-			out = append(out, c)
-			continue
-		}
-		// A card also shows on a sprint day it passed through — a sprint-pointer
-		// day S (current or previous) with origin <= S < sprintStart — so
-		// carried-over and deferred cards keep their sprint history.
-		if c.SprintStart == "" {
-			continue
-		}
-		start := c.StartDate
-		if start == "" {
-			start = c.SprintStart
-		}
-		origin := ActiveSprint(b, team, start)
-		for _, s := range []string{CurrentSprint(b, team), PreviousSprint(b, team)} {
-			if s != "" && day == s && s < c.SprintStart && origin <= s {
-				out = append(out, c)
-				break
-			}
-		}
+		out = append(out, c)
 	}
 	return out
+}
+
+// finishedOn is the day a finished card belongs to. doneAt is the record and
+// is what the board writes — but it is a young field, and these repositories
+// are open: a card finished by any other writer, or before the field existed,
+// carries none. Falling back to the card's own dates is what keeps such a
+// card on the day somebody worked it rather than dropping it out of every
+// day at once, and a card with no dates at all is left alone: nothing says
+// when it was finished, so nothing may say it was not that day.
+func finishedOn(c Card) string {
+	switch {
+	case c.DoneAt != "":
+		return c.DoneAt
+	case c.Day != "":
+		return c.Day
+	default:
+		return c.StartDate
+	}
 }
 
 // MeView returns the cards on the personal day board for a user on a given day:
@@ -191,13 +148,4 @@ func childAssigned(b Board, itemID, user string) bool {
 		}
 	}
 	return false
-}
-
-// deferred reports that a card has been scheduled AWAY from today: its start
-// date is still to come. Such a card lives on that day (and through its range)
-// and is hidden everywhere else until the day arrives — on the day grid, and
-// equally in the week it is due in, which is where it went on being drawn
-// after somebody had deliberately taken it off today's board.
-func deferred(c Card, today string) bool {
-	return c.StartDate != "" && c.StartDate > today
 }

@@ -25,10 +25,13 @@ func testBoard() board.Board {
 				StartDate: "2026-01-10", SprintStart: "2026-01-10"},
 			{ItemID: "p1", Title: "plan it", Team: "alpha",
 				Week: "2026-01-05", Progress: 50},
+			// Finished work belongs to the day it was finished on, so a
+			// finished card carries the day it was finished (doneAt); the
+			// day board asks for nothing else about it.
 			{ItemID: "p2", Title: "recurring", Team: "alpha",
-				Week: "2026-01-05", Stage: board.StageRecurrent, Progress: 100},
+				Week: "2026-01-05", Stage: board.StageRecurrent, Progress: 100, DoneAt: "2026-01-10"},
 			{ItemID: "z1", Title: "done thing", Team: "alpha", Zone: board.ZoneGreen,
-				Progress: 100, StartDate: "2026-01-10", SprintStart: "2026-01-10"},
+				Progress: 100, StartDate: "2026-01-10", SprintStart: "2026-01-10", DoneAt: "2026-01-10"},
 		},
 		SprintStates: map[string]board.SprintState{
 			"alpha": {Current: "2026-01-10", Previous: "2026-01-03"},
@@ -108,9 +111,9 @@ func TestListSelectors(t *testing.T) {
 		}
 		return out
 	}
-	// p1 and p2 are the week's own work: placed in the week the viewed day
-	// falls in, they stand on the grid all week (in Unassigned, nobody having
-	// taken them) the way the weekly panel used to hold them beside it.
+	// p1 and p2 are the week's own work, placed in the week the viewed day
+	// falls in; z1 was finished on that day. The board shows what is in hand
+	// then, and what was finished then.
 	if !reflect.DeepEqual(ids(team), []string{"c1", "rev", "p1", "p2", "z1"}) {
 		t.Fatalf("team view = %v", ids(team))
 	}

@@ -124,14 +124,23 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 		t.Fatalf("the 20th = %+v", items)
 	}
 
-	// Without the flag the day is a lens on TODAY's board, as it always was:
-	// the card reads 100%, and no moment is claimed.
+	// Without the flag the day is a lens on TODAY's board — and today's board
+	// says this card is FINISHED, on the day it was finished (its own end
+	// date, 08-26, since the writer that closed it recorded no doneAt). The
+	// 21st was not that day, so the live listing is empty: a day gone by is
+	// asked for as a SNAPSHOT, which is what the two calls above do and what
+	// the client does on its own.
 	items, asOf, _ = read("view=team&team=portal&day=2026-08-21")
-	if len(items) != 1 || items[0].Spec.Progress != 100 {
-		t.Fatalf("the live listing = %+v", items)
+	if len(items) != 0 {
+		t.Fatalf("the live listing = %+v, want nothing: the card is done and this is not the day it was done", items)
 	}
 	if asOf != "" {
 		t.Fatalf("a live listing claims no moment, got %q", asOf)
+	}
+	// Its own end day does hold it, done.
+	items, _, _ = read("view=team&team=portal&day=2026-08-26")
+	if len(items) != 1 || items[0].Spec.Progress != 100 {
+		t.Fatalf("the day it was finished on = %+v", items)
 	}
 
 	// The BOARD of that day comes with it: the sprint pointers (and the
