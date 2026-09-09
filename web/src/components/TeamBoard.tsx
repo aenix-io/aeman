@@ -25,8 +25,9 @@ import type {
   ZoneKey,
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
-import { clampProgress, clampsProgress, deferredPast, finishedOn } from "../stages";
-import { todayIso, addDays, localDateIso, mondayOf } from "../date";
+import { clampProgress, clampsProgress, isComplete } from "../stages";
+import { inHandOn } from "../teamgrid";
+import { todayIso, addDays, localDateIso } from "../date";
 import { currentSprint, previousSprint, sprintForDate } from "../sprint";
 import { teamColor } from "../avatar";
 import { displayName, type Avatars, type Names } from "../users";
@@ -58,7 +59,7 @@ import {
   rosterOf,
   type CardPlacements,
 } from "../placements";
-import { parked, parkedLocally } from "../backlog";
+import { parkedLocally } from "../backlog";
 import { RemoveChoiceDialog } from "./RemoveChoiceDialog";
 
 interface TeamBoardProps {
@@ -116,13 +117,6 @@ const errMessage = (err: unknown) =>
 // server, so an optimistic removal must NOT be rolled back (re-adding it would
 // resurrect a phantom copy).
 const isGone = (err: unknown) => errMessage(err).includes("card not found");
-
-// isComplete mirrors board.Complete: an explicit done, or 100% with no stage
-// (derived done) or on the recurrent stage (a finished recurrent card stays
-// behind — Carry Over/Week reseed a fresh copy instead of dragging it).
-const isComplete = (c: CardModel) =>
-  c.stage === "done" ||
-  ((!c.stage || c.stage === "recurrent") && (c.progress ?? 0) >= 100);
 
 /** TeamBoard is the team as a people × zones grid for one day, filtered by team. */
 export function TeamBoard({
@@ -220,47 +214,10 @@ export function TeamBoard({
 
   // What the people are WORKING ON on the day being looked at, and nothing
   // else — the same set the Triage board shows for that day, less anything
-  // put off to later. Mirrors board.TeamGrid.
-  //
-  // A card is in hand when it is not a subtask (those render nested under
-  // their parent), is not parked on a list, somebody has said WHEN it is for,
-  // it has not been planned into a week after this day's, it has not been
-  // deferred past it, and it is either open or was finished on that very day
-  // — a card finished yesterday belongs to yesterday. That is the whole rule;
-  // it used to be seven layered ones, and between them they put work nobody
-  // was doing on the day while dropping a card scheduled for last Tuesday and
-  // never finished, which no rule reached any more.
+  // put off to later. The rule itself is teamgrid.inHandOn, which mirrors
+  // board.TeamGrid.
   const filteredCards = useMemo(
-    () =>
-      inFilter.filter((c) => {
-        if (c.parent || parked(c)) {
-          return false;
-        }
-        // Somebody has to have said WHEN: a week, a date or a sprint. A card
-        // with none of the three is the Triage strip — an inbox, not a day's
-        // work — and drawing it here would land the inbox in every column.
-        if (!c.week && !c.startDate && !c.day && !c.sprintStart) {
-          return false;
-        }
-        if (c.week && c.week > mondayOf(selectedDate)) {
-          return false;
-        }
-        // Finished work belongs to the day it recorded, and to no other.
-        if (isComplete(c) && !finishedOn(c, selectedDate)) {
-          return false;
-        }
-        // The day a SPRINT began shows that sprint's own open work, ALL of it:
-        // most of a sprint is created inside it, and a day that only showed
-        // what existed on the Monday would show almost none of the work by
-        // Wednesday. Above the deferral gate for that reason — and a card put
-        // off past TODAY is still gone, because deferring is the act of taking
-        // it out of the sprint in progress.
-        if (c.sprintStart === selectedDate && !deferredPast(c, todayIso())) {
-          return true;
-        }
-        // Put off to a later day: gone until that day comes.
-        return !deferredPast(c, selectedDate);
-      }),
+    () => inFilter.filter((c) => inHandOn(c, selectedDate, todayIso())),
     [inFilter, selectedDate],
   );
 

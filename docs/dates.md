@@ -6,7 +6,8 @@ send-to-next-day. The date logic is subtle — **keep this file in sync with the
 code** whenever the rules change.
 
 Code that implements these rules:
-- Frontend: `web/src/components/{TeamBoard,MeBoard,Card}.tsx`, `web/src/date.ts`,
+- Frontend: `web/src/teamgrid.ts` (the Team board's own rule), plus
+  `web/src/components/{TeamBoard,MeBoard,Card}.tsx`, `web/src/date.ts`,
   `web/src/sprint.ts`, `web/src/stages.ts` (`finishedOn`, `deferredPast`,
   `doneAtAfter`).
 - Go: `pkg/board/{filters,date,sprint}.go`, `pkg/boardservice/service.go`,
