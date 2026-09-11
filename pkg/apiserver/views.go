@@ -10,6 +10,11 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
+// maxTriageWeeks is the furthest the Triage window reaches — the cap a
+// listing may ask for, and the window a GESTURE is judged against when its
+// caller named none.
+const maxTriageWeeks = 26
+
 // Selector scopes a card LIST or watch subscription. View selectors reproduce
 // exactly what the UI renders (the Team grid, the Me day board, the Triage
 // weeks); the plain field selectors compose with no view.
@@ -104,8 +109,8 @@ func ParseSelector(q url.Values) (Selector, error) {
 	}
 	if w := q.Get("weeks"); w != "" {
 		n, err := strconv.Atoi(w)
-		if err != nil || n < 1 || n > 26 {
-			return Selector{}, fmt.Errorf("weeks %q: want 1..26", w)
+		if err != nil || n < 1 || n > maxTriageWeeks {
+			return Selector{}, fmt.Errorf("weeks %q: want 1..%d", w, maxTriageWeeks)
 		}
 		sel.Weeks = n
 	}
@@ -581,6 +586,15 @@ func backlogCards(b board.Board, sel Selector) []board.Card {
 // work off today's board is the point of half these gestures, and a gate on
 // the result would forbid exactly the ones that move it.
 func Drawn(b board.Board, sel Selector, uid string) bool {
+	// A caller that named no WINDOW is asking about the board, not about a
+	// screenful of it. The Triage listing defaults to six weeks because that
+	// is what a grid opens with — the SPA asks for nine and says so — and a
+	// gate that quietly kept the six would refuse a gesture on a card
+	// scheduled further out than the default, which is a card the board
+	// plainly draws. Debts from before the window are already in.
+	if sel.View == string(board.ViewTriage) && sel.Weeks == 0 {
+		sel.Weeks = maxTriageWeeks
+	}
 	for _, c := range FilterCards(b, sel) {
 		if c.ItemID == uid {
 			return true

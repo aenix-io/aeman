@@ -128,7 +128,7 @@ A write that changes what the rule evaluates to is a **move**: the file is creat
 
 ## A turn's week (G66)
 
-A process iteration's `week` belongs to the OCCURRENCE it is a turn of: the weeks from the one its task came due in through the week before the next due date. A turn written outside that stands where the NEXT turn belongs, and the projection that asks whether an occurrence has a turn then answers wrongly for both — the same process reads as running twice in one cycle and not at all in the other. Two exceptions: a task with `accumulate` piles its turns up and bounds none of them, and a turn whose occurrence is already past may be brought forward into the CURRENT week (its days ran out, so it is drawn on no day board, and this is the only way back). A task with no calendar at all (per-sprint recurrence) has no occurrence, and its turn does not move in time.
+A process iteration's `week` belongs to the OCCURRENCE it is a turn of: the weeks from the one its task came due in through the week before the next due date. A turn written outside that stands where the NEXT turn belongs, and the projection that asks whether an occurrence has a turn then answers wrongly for both — the same process reads as running twice in one cycle and not at all in the other. Two exceptions: a task with `accumulate` piles its turns up and bounds none of them, and a turn whose occurrence is already past may be brought forward into the CURRENT week (its days ran out, so it is drawn on no day board, and this is the only way back). A task with no calendar at all (per-sprint recurrence) has no occurrence, and its turn does not move in time once it stands in a week; a turn with no week yet is in no occurrence and nothing bounds it.
 
 ## The team/project pair (G46)
 

@@ -99,10 +99,10 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 }
 
 // listCardsInput is a card LIST selector: an optional view plus plain field
-// filters, mirroring GET /api/v1/cards.
+// filters, mirroring GET /api/v1/views/{view}/cards.
 type listCardsInput struct {
 	boardRef
-	View     string `json:"view,omitempty" jsonschema:"view to scope to: team, me, personal (your own personal board), triage, backlog or project; empty lists every card. backlog lists the work a team has PARKED on its named lists — read but not planned — which is on no day board and in no week"`
+	View     string `json:"view,omitempty" jsonschema:"the board to list: team, me, personal (your own personal board), triage, backlog or project — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists the work a team has PARKED on its named lists — read but not planned — which is on no day board and in no week"`
 	Team     string `json:"team,omitempty" jsonschema:"team key for the team/triage views; on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
@@ -221,25 +221,23 @@ type createCardInput struct {
 	boardRef
 	Title    string `json:"title" jsonschema:"card title (required)"`
 	Team     string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group. MUST be one of the board's EXISTING team keys — read them from get_board metadata.teams and map the user's wording onto an existing key, across languages and case ('маркетинг', 'the marketing team' -> existing 'marketing'). A value not in that list silently CREATES a new team with its own sprint pointer — a heavyweight, unusual action: only pass a new key when the user explicitly asks to create a new team"`
-	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave"`
+	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave. The Me board (the default) adds work as UNPLANNED and refuses the other three: something that came up today is unplanned by definition, and the other bands are the plan. To file work in a band of the plan — an urgent card, planned work for the week — use view=team and name the assignee (that is what a person does on the team's grid, including for themselves); a subtask takes its parent's band whatever board it is typed on"`
 	Size     string `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h), M (half a day to a day), L (2–5 days) or XL (a week or more); summed as 1/2/4/8 points against each person's weekly capacity. Leave empty when you do not know — an unsized card is honest, a guessed one is not"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"GitHub login to assign"`
 	Start    string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today. A FUTURE day parks the card off the board until that day arrives — it is not shown in the current sprint meanwhile. Sprints are daily and created as they start, so no sprint covers a future day yet: the card deliberately joins NO sprint and the carry-over that reaches its day adopts it. That is the intended way to schedule work ahead; leave the sprint field alone"`
 	End      string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
 	Sprint   string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
-	Week     string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. This is how work is put on the Triage board. A card filed under an epic ignores it — the slot's row is the week of its start date"`
-	Epic     string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
+	Week     string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. Pass view=triage with it — that is the board a week card belongs to, and every other board refuses a week. A card filed under an epic ignores it — the slot's row is the week of its start date"`
+	Epic     string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
 	Project  string `json:"project,omitempty" jsonschema:"the project half of the column named by epic (columns are the (project, epic) pair — epic names repeat across projects)"`
 	ReviewOf string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
 	// running sprint, else start one today), true to force a new sprint today,
 	// false to force-join the current sprint.
 	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
-	// Personal files the card on the caller's personal board — their own
-	// repository, seen by them alone — instead of the team board.
 	// View is the BOARD the card is typed into, which is what makes it the
 	// kind of card it is; each board refuses the fields it does not own.
-	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid: the same card for the team, landing in the UNASSIGNED column unless you name an assignee — say this when you are filing work for somebody other than the person you are acting for), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project), personal (your own linked repository, for you alone: no team, no column, no plan band). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
+	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project), personal (your own linked repository, for you alone: no team, no column, no plan band). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
 	Parent string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep). A card cannot be both a subtask and scheduled for a week of its own: naming a parent and a week together is refused, since grouping hands a subtask's week to its parent"`
 }
 

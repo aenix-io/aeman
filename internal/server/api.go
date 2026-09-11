@@ -25,12 +25,17 @@ import (
 //
 //	GET    /api/v1                                    public route catalog (no auth)
 //	GET    /api/v1/board                              board identity + team roster
-//	GET    /api/v1/cards                              LIST cards (selectors: view/team/day/user/stage/zone/assignee)
-//	POST   /api/v1/cards                              create a card
+//	GET    /api/v1/views                              the boards a caller may open, and what each draws
+//	GET    /api/v1/views/{view}/cards                 LIST what that board draws (team/day/user/stage/zone/assignee narrow it)
+//	POST   /api/v1/views/{view}/cards                 create the card that board makes
+//	GET    /api/v1/views/{view}/watch                 WebSocket stream of that board (Card/Sprint/Ordering/Board/Load)
+//	POST   /api/v1/views/{view}/cards/{uid}/actions/remove            the board's ×
+//	POST   /api/v1/views/{view}/cards/{uid}/actions/place             the Triage board's drop into a week
+//	POST   /api/v1/views/{view}/cards/{uid}/actions/untriage          back to the strip
+//	POST   /api/v1/views/{view}/cards/{uid}/actions/finished-earlier  a day board's "done in the sprint before"
 //	GET    /api/v1/cards/{uid}                        one card
 //	PATCH  /api/v1/cards/{uid}                        edit spec fields (admission applies the rules)
 //	DELETE /api/v1/cards/{uid}                        hard delete (cascades to the review card)
-//	POST   /api/v1/cards/{uid}/actions/remove         the smart ×
 //	POST   /api/v1/cards/{uid}/actions/move           reorder after another card
 //	POST   /api/v1/cards/{uid}/actions/defer          push the scheduled day N days ahead
 //	POST   /api/v1/cards/{uid}/actions/in-progress    move to the implicit In Progress
@@ -39,6 +44,7 @@ import (
 //	POST   /api/v1/cards/{uid}/actions/remove-reviewer delete the linked review card
 //	GET    /api/v1/cards/{uid}/links                  links from the description (GitHub refs resolved)
 //	GET    /api/v1/cards/{uid}/log                    unified activity feed (events + notes)
+//	GET    /api/v1/logs                               one day's feed for many cards at once
 //	GET    /api/v1/cards/{uid}/notes                  the card's work notes
 //	POST   /api/v1/cards/{uid}/notes                  append a note
 //	PATCH  /api/v1/cards/{uid}/notes/{noteId}         edit a note
@@ -46,8 +52,9 @@ import (
 //	GET    /api/v1/sprints                            per-team sprint pointers
 //	PATCH  /api/v1/sprints                            set a team's pointer directly
 //	POST   /api/v1/sprints/actions/carry-over         advance a sprint, carry unfinished (dryRun)
-//	GET    /api/v1/ordering                           the board-level manual order
-//	GET    /api/v1/watch                              WebSocket stream (Card/Sprint/Ordering/Board/Load events)
+//
+// The BOARD a caller is standing on is a path segment; the card keeps its own
+// address (docs/design/view-scoped-api.md).
 func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1", s.handleAPIIndex)
 	mux.HandleFunc("GET /api/v1/board", s.handleGetBoard)
@@ -203,7 +210,7 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/teams/actions/capacity", "Set the points a week a team gets through ({team, points}); 0 takes the number back, and the board derives none"},
 			{"PATCH", "/api/v1/people/{login}", "Set the points a week a PERSON gets through ({capacity}); 0 takes the number back. Answers the whole Board resource, whose members carry load and capacity"},
 			{"GET", "/api/v1/me/personal", "The caller's personal board: the repository linked as their own domain ({domain, url}), 404 when none"},
-			{"PUT", "/api/v1/me/personal", "Link a repository the caller can push to as their personal board ({url}); an empty repository is given a board. Personal cards: POST /cards with personal=true, GET /cards?view=personal"},
+			{"PUT", "/api/v1/me/personal", "Link a repository the caller can push to as their personal board ({url}); an empty repository is given a board. Personal cards: POST /api/v1/views/personal/cards, GET /api/v1/views/personal/cards"},
 			{"DELETE", "/api/v1/me/personal", "Unlink the caller's personal board; the repository is left as it is"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
 		},
@@ -455,7 +462,14 @@ func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boar
 	// ignored elsewhere rather than refused: /board and /sprints carry no
 	// board segment at all, and every reader of them is a day board asking
 	// for its own moment.
-	if view := r.PathValue("view"); !asked || (view != "" && !board.HasRecords(view)) {
+	// The board a read belongs to: the path segment where there is one, else
+	// the query — /board and /sprints have no segment and are asked for a
+	// day by the board that is open, which says which view it is.
+	view := r.PathValue("view")
+	if view == "" {
+		view = q.Get("view")
+	}
+	if !asked || (view != "" && !board.HasRecords(view)) {
 		day = ""
 	}
 	bd, records, at, err := svc.BoardOfDay(r.Context(), boardID, day)
@@ -825,19 +839,21 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil && r.ContentLength != 0 && !decodeJSONAllowingEmpty(w, r, &in) {
 		return
 	}
+	intent := boardservice.RemoveIntent(in.Intent)
+	switch intent {
+	case boardservice.RemoveAuto, boardservice.Unassign, boardservice.OffBoard:
+	default:
+		// Before the gate: an intent the × does not have is answered by
+		// reading the body, not by building the board's listing first.
+		writeJSONError(w, http.StatusBadRequest,
+			"unknown intent (use unassign, off-board, or leave it out)")
+		return
+	}
 	view, ok := s.viewOf(w, r)
 	if !ok {
 		return
 	}
 	if !s.gestureOn(w, r, view, boardservice.GestureRemove) {
-		return
-	}
-	intent := boardservice.RemoveIntent(in.Intent)
-	switch intent {
-	case boardservice.RemoveAuto, boardservice.Unassign, boardservice.OffBoard:
-	default:
-		writeJSONError(w, http.StatusBadRequest,
-			"unknown intent (use unassign, off-board, or leave it out)")
 		return
 	}
 	svc, boardID, ok := s.service(w, r)

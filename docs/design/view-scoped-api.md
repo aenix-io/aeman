@@ -101,7 +101,7 @@ The board's structure: the roster and the pointers, one per board, owned by no v
 /api/v1/board            /api/v1/sprints          /api/v1/people/{login}
 /api/v1/teams/…          /api/v1/projects/…       /api/v1/epics/…
 /api/v1/processes/…      /api/v1/processes/tasks/…  /api/v1/deadlines/…
-/api/v1/me/personal      /api/v1/presence         /api/v1/healthz
+/api/v1/me/personal      /api/v1/presence         /api/healthz
 ```
 
 These are the cluster-scoped half of the analogy, and it holds better here than the namespace half does: a team's sprint pointer is not a thing you see one of per board.

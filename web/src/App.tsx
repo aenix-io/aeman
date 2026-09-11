@@ -642,7 +642,12 @@ export function App() {
   // selector minus what only a listing needs, so the server judges a press
   // against exactly the board the person is looking at.
   const standingKey = useMemo(() => {
-    const { reviews: _reviews, snapshot: _snapshot, ...scope } = activeQueries[0] ?? {};
+    // `reviews` stays: it is part of what the board DREW, and the gate the
+    // server applies to a gesture is the listing itself — asked without it,
+    // the two would answer differently about a review card the board is
+    // showing. Only `snapshot` goes, and only because a write from a past
+    // day is refused before any of this (recordWriteGuard).
+    const { snapshot: _snapshot, ...scope } = activeQueries[0] ?? {};
     return queryString(scope);
   }, [activeQueries]);
   useEffect(() => {

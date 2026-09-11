@@ -2343,7 +2343,17 @@ func (s *Service) SendToReview(ctx context.Context, boardID string, itemID, revi
 		if err := s.ReassignReviewer(ctx, boardID, itemID, reviewer, day, zone); err != nil {
 			return board.Card{}, err
 		}
-		review, ok := findReviewCard(b, card.ItemID)
+		// Read the board AGAIN: the reassign does not edit the old review
+		// card in place. A reviewer who had already worked on it keeps their
+		// card — it is unlinked and a fresh one is made for the new reviewer
+		// — and a finished one is reactivated with its progress reset. The
+		// board loaded before the write still holds the old card, so
+		// answering from it hands the caller the reviewer they just replaced.
+		after, err := s.backend.LoadBoard(ctx, boardID)
+		if err != nil {
+			return board.Card{}, err
+		}
+		review, ok := findReviewCard(after, card.ItemID)
 		if !ok {
 			return board.Card{}, ErrCardNotFound
 		}
@@ -2650,6 +2660,12 @@ func (s *Service) setTeamOne(ctx context.Context, b board.Board, card board.Card
 
 // Rename changes a card's title. It mirrors handleRename in TeamBoard.tsx.
 func (s *Service) Rename(ctx context.Context, boardID string, itemID, title string) error {
+	// Nothing on a board can be called nothing — the create has always said
+	// so, and a rename is the same statement made later. A card renamed to
+	// nothing is a blank row on every board that draws it.
+	if strings.TrimSpace(title) == "" {
+		return ErrEmptyTitle
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -2711,6 +2727,12 @@ func findNote(card board.Card, noteID string) (board.Note, bool) {
 func (s *Service) EditNote(ctx context.Context, boardID string, itemID, noteID, text string) error {
 	if utf8.RuneCountInString(text) > MaxNoteLen {
 		return ErrNoteTooLong
+	}
+	// A note emptied by an edit is a DELETE wearing another gesture's name:
+	// the thread keeps an entry with an author, a time and nothing said. The
+	// delete is the door for that, and it says what it does.
+	if strings.TrimSpace(text) == "" {
+		return ErrEmptyNote
 	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {

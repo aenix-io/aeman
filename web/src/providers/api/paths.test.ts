@@ -52,10 +52,14 @@ describe("the board in the address", () => {
   // listing used — that is what lets the server say "this card is not on that
   // board" instead of acting on a card the person cannot see.
   it("makes a gesture through the board that is open", async () => {
-    standingOn("day=2026-09-11&view=me");
+    standingOn("day=2026-09-11&reviews=true&view=me");
     await apiProvider.removeCard("c1", "unassign");
     expect(calls[0].method).toBe("POST");
-    expect(calls[0].url).toBe("/api/v1/views/me/cards/c1/actions/remove?day=2026-09-11");
+    // The scope is the LISTING's, reviews and all: the server judges the
+    // press against the board as it was drawn.
+    expect(calls[0].url).toBe(
+      "/api/v1/views/me/cards/c1/actions/remove?day=2026-09-11&reviews=true",
+    );
     expect(calls[0].body).toEqual({ intent: "unassign" });
   });
 

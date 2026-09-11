@@ -363,7 +363,7 @@ export interface Provider {
    *  the pointers and the roster are of the same moment as that day's cards —
    *  the view rules compare a card's sprint against them. */
   loadBoard(query?: Record<string, string>): Promise<Board>;
-  /** The cards of one view (GET /cards with a selector), so the UI loads only
+  /** The cards of one view (GET /views/{view}/cards), so the UI loads only
    *  the active board — Me by default, a team's grid on demand. */
   listCards(query: Record<string, string>): Promise<CardListing>;
 

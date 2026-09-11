@@ -298,7 +298,8 @@ type BoardMetadata struct {
 	// to a process of its own repository, so the picker needs to know.
 	ProcessDomains map[string]string `json:"processDomains,omitempty"`
 	// Personal is the visitor's own repository when they linked one: the
-	// personal board lives there (view=personal, create with personal=true).
+	// personal board lives there (the `personal` view: listed and created at
+	// /api/v1/views/personal/cards).
 	Personal *PersonalInfo `json:"personal,omitempty"`
 }
 

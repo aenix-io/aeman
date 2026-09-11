@@ -51,10 +51,74 @@ func TestTheServiceHoldsTheRulesTheHandlerHeld(t *testing.T) {
 		}
 	})
 
+	// The same rule from the other side, which the sentinels' own words
+	// already claimed: a RENAME with nothing to call the card by leaves it
+	// nameless on every board, and an edit that empties a note is a delete
+	// wearing another gesture's name.
+	t.Run("a rename needs a title", func(t *testing.T) {
+		f := seed()
+		if err := f2svc(f).Rename(ctx, "acme", "c1", "   "); !errors.Is(err, ErrEmptyTitle) {
+			t.Fatalf("renaming a card to nothing = %v, want ErrEmptyTitle", err)
+		}
+		if got := f.get("c1").Title; got != "the work" {
+			t.Fatalf("a refused rename still wrote %q", got)
+		}
+	})
+
+	t.Run("an edit needs words too", func(t *testing.T) {
+		f := seed()
+		svc := f2svc(f)
+		if err := svc.AddNote(ctx, "acme", "c1", "a note"); err != nil {
+			t.Fatal(err)
+		}
+		// The fake records the write rather than keeping the thread, so the
+		// note is put on the card by hand: the rule under test is the TEXT,
+		// which is read before the note is even looked up.
+		f.get("c1").Notes = []board.Note{{ID: "n1", Body: "a note", Author: "kvaps"}}
+		if err := svc.EditNote(ctx, "acme", "c1", "n1", "  "); !errors.Is(err, ErrEmptyNote) {
+			t.Fatalf("emptying a note by editing it = %v, want ErrEmptyNote", err)
+		}
+		if err := svc.EditNote(ctx, "acme", "c1", "n1", "said something"); err != nil {
+			t.Fatalf("an edit with words = %v, want it taken", err)
+		}
+	})
+
 	t.Run("a note needs words", func(t *testing.T) {
 		f := seed()
 		if err := f2svc(f).AddNote(ctx, "acme", "c1", "   "); err == nil {
 			t.Fatal("an empty note was filed")
+		}
+	})
+
+	// And the card it answers with is the review that now EXISTS. Reassigning
+	// does not edit the old review card in place: a reviewer who has already
+	// worked on it keeps their card (it is unlinked and a fresh one is made
+	// for the new reviewer), and a finished one is reactivated with its
+	// progress reset. Answering from the board as it stood BEFORE the write
+	// hands the caller the old card — the one with the old reviewer still on
+	// it — and an agent reads "the reviewer is still Bob" from a call that
+	// just moved the review to Carol.
+	t.Run("and answers with the review that now exists", func(t *testing.T) {
+		f := seed()
+		svc := f2svc(f)
+		first, err := svc.SendToReview(ctx, "acme", "c1", "carol", "2026-09-11", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Carol starts on it: her card is hers to keep, so the reassign makes
+		// a new one for dave rather than moving hers.
+		if err := svc.SetProgress(ctx, "acme", first.ItemID, 40); err != nil {
+			t.Fatal(err)
+		}
+		second, err := svc.SendToReview(ctx, "acme", "c1", "dave", "2026-09-11", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if second.ItemID == first.ItemID {
+			t.Fatalf("the answer is carol's old card (%s); dave's is a new one", second.ItemID)
+		}
+		if len(second.Assignees) != 1 || second.Assignees[0] != "dave" {
+			t.Fatalf("the answer names %v, want the new reviewer", second.Assignees)
 		}
 	})
 

@@ -16,7 +16,7 @@ import (
 // scopedQueryKeys are the query parameters that narrow a watch on the escape
 // hatch into a scoped subscription (membership deltas) instead of a raw board
 // stream. Every named board is scoped by the board itself.
-var scopedQueryKeys = []string{"team", "day", "user", "week", "stage", "zone", "assignee"}
+var scopedQueryKeys = []string{"team", "day", "user", "stage", "zone", "assignee"}
 
 // anyOf reports whether the query carries any of the keys.
 func anyOf(q url.Values, keys []string) bool {
@@ -29,7 +29,7 @@ func anyOf(q url.Values, keys []string) bool {
 }
 
 // handleWatch streams board change events over a WebSocket, Kubernetes-watch
-// style: the client LISTs (GET /cards), then applies the ADDED / MODIFIED /
+// style: the client LISTs (GET /api/v1/views/{view}/cards), then applies the ADDED / MODIFIED /
 // DELETED frames it receives here. Each frame carries a full resource:
 //
 //	{ "type": "MODIFIED", "kind": "Card" | "Sprint" | "Ordering", "object": {...} }
@@ -158,6 +158,3 @@ func writeWSMessage(ctx context.Context, conn *websocket.Conn, data []byte) erro
 	defer cancel()
 	return conn.Write(wctx, websocket.MessageText, data)
 }
-
-// unusedBoardImport keeps the board import until list handlers land here.
-var _ = board.TodayIso

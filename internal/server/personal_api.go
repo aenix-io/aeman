@@ -13,7 +13,7 @@ import (
 
 // The personal board's own endpoints: what the visitor linked, linking a
 // repository, unlinking it. Cards on the personal board go through the
-// ordinary card endpoints (POST /cards with personal=true, ?view=personal).
+// personal board's own endpoints (POST and GET /api/v1/views/personal/cards).
 
 // personalOf is the visitor's linked repository, or ok = false.
 func (s *Server) personalOf(r *http.Request) (login string, info apiserver.PersonalInfo, ok bool) {
