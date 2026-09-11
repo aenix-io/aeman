@@ -395,7 +395,7 @@ func TestActionNameFromRoute(t *testing.T) {
 		{http.MethodPost, "/api/v1/epics/actions/rename"}:             "rename",
 		{http.MethodPost, "/api/v1/projects"}:                         "add-project",
 		{http.MethodPost, "/api/v1/processes/tasks"}:                  "add-task",
-		{http.MethodGet, "/api/v1/cards"}:                             "",
+		{http.MethodGet, "/api/v1/views/team/cards"}:                  "",
 	}
 	for in, want := range cases {
 		if got := actionName(in[0], in[1]); got != want {

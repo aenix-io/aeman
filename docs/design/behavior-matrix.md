@@ -115,7 +115,10 @@ drift from today's behaviour.
 ## Old → new coverage audit
 
 Every surface of the pre-redesign API, checked off against its replacement.
-Done after the cutover so nothing silently dropped.
+Done after the cutover so nothing silently dropped. It is a record of THAT
+cutover and is not kept current: the card collection has since moved under the
+board a caller is standing on (G67), so read the New column as "the resource
+that replaced it", not as a route.
 
 ### HTTP endpoints (35 old → new)
 

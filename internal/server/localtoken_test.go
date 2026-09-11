@@ -120,7 +120,7 @@ func TestTheRequestsTokenAndLoginComeFromOneSource(t *testing.T) {
 	releaseDataDir(t, srv)
 	srv.gitBE.git.pushDelay = 0
 
-	tok, login, err := srv.tokenForRequest(httptest.NewRequest(http.MethodGet, "/api/v1/cards", nil))
+	tok, login, err := srv.tokenForRequest(httptest.NewRequest(http.MethodGet, "/api/v1/views/all/cards", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,9 +225,9 @@ func TestAnUnreachableForgeIsNotAMissingToken(t *testing.T) {
 
 	// And the board still reads.
 	rec = httptest.NewRecorder()
-	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cards", nil))
+	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/views/all/cards", nil))
 	if rec.Code == http.StatusUnauthorized {
-		t.Fatalf("GET /api/v1/cards = 401 %s; a forge outage must not take the board down", rec.Body.String())
+		t.Fatalf("listing the board = 401 %s; a forge outage must not take the board down", rec.Body.String())
 	}
 }
 
