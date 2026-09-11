@@ -23,12 +23,16 @@ describe("sprintForDate", () => {
     expect(sprintForDate(board, "portal", "2026-09-10", today)).toBe(null);
   });
 
-  it("takes the day's own sprint while the team can still reach it", () => {
+  it("keeps the team's current sprint for a day inside it", () => {
     expect(sprintForDate(board, "portal", "2026-09-02", today)).toBe("2026-09-02");
-    expect(sprintForDate(board, "portal", "2026-09-01", today)).toBe("2026-09-01");
   });
 
-  it("keeps the team's current sprint for a day older than its reach", () => {
+  // The PREVIOUS sprint has closed, and a carry-over moves the closing
+  // sprint's own cards and nothing older — so a card re-dated into it would
+  // never be picked up again: drawn while it stayed open, gone from the
+  // team's board the moment somebody finished it.
+  it("does not park a card in a sprint that closed, however near", () => {
+    expect(sprintForDate(board, "portal", "2026-09-01", today)).toBe("2026-09-02");
     expect(sprintForDate(board, "portal", "2026-08-24", today)).toBe("2026-09-02");
     expect(sprintForDate(board, "portal", "2026-06-29", today)).toBe("2026-09-02");
   });

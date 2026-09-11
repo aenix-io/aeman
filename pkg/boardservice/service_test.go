@@ -1226,7 +1226,23 @@ func TestDeferSameDayKeepsLaterEnd(t *testing.T) {
 
 // --- Calendar set-dates (matrix D11): handleSetDates semantics ---------------
 
-func TestSetDatesJoinsSprintActiveOnStart(t *testing.T) {
+// A DATE IN THE PAST DOES NOT PARK THE CARD IN A SPRINT THAT CLOSED. The
+// calendar used to read the sprint that was ACTIVE on the start day, so a
+// date falling inside the previous sprint moved the card into it — and the
+// previous sprint is closed: a carry-over moves the closing sprint's own
+// cards and nothing older, so no carry-over would ever pick that card up
+// again. While it stayed open the day boards still drew it (open work stands
+// on its days), and the moment somebody finished it, it belonged to the day
+// it recorded and to a sprint nobody opens — off the team's board with the
+// work done and no trace on the current sprint.
+//
+// The same reasoning was already applied one window further out, for a date
+// older than any tracked sprint (TestSetDatesBeforeTrackedSprintsKeepsTheTeamsCurrentOne),
+// and stopped one sprint short of where it had to.
+//
+// So the dates are the person's — they go back exactly as asked — and the
+// sprint is where the work STANDS, which is the team's current one.
+func TestSetDatesIntoAClosedSprintKeepsTheTeamsCurrentOne(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: "2026-01-05",
 		SprintStart: "2026-01-05", Day: "2026-01-05"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
@@ -1234,9 +1250,12 @@ func TestSetDatesJoinsSprintActiveOnStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := f.get("c1")
-	// 01-04 falls inside the previous sprint [01-03, 01-10) — the card joins it.
-	if c.StartDate != "2026-01-04" || c.SprintStart != "2026-01-03" || c.Day != "2026-01-06" {
-		t.Fatalf("card = %+v", c)
+	if c.StartDate != "2026-01-04" || c.Day != "2026-01-06" {
+		t.Fatalf("the dates are the person's: %+v", c)
+	}
+	// 01-04 falls inside the PREVIOUS sprint [01-03, 01-10), which has closed.
+	if c.SprintStart != "2026-01-10" {
+		t.Fatalf("sprint = %q, want the team's current one", c.SprintStart)
 	}
 }
 
