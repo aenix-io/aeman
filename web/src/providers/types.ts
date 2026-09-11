@@ -316,8 +316,6 @@ export interface CardPatch {
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
   parent?: string;
-  /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
-  reviewRound?: number;
   /** Recurrent card's reseed cycle: "" = every sprint, "week" | "month". */
   recurrence?: string;
 }
