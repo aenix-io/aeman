@@ -58,7 +58,7 @@ That is also why PATCH and DELETE stay off the view. Patching a field is not a g
 
 `process` is not here: the Process board draws structure (processes and their tasks), which is view-less below, and the cards it shows are `project`'s.
 
-`GET /api/v1/views` answers with the list a caller may open, each with the selectors it takes and requires — so a client (or an agent) can discover the surface instead of being told it in a description.
+`GET /api/v1/views` answers with the list a caller may open, each with the GESTURES it draws — so a client (or an agent) can discover the surface instead of being told it in a description.
 
 ## What the view does to a write
 
@@ -68,12 +68,12 @@ Three things, in the order they bite.
 
 | create in | the card that comes out | refused |
 | --- | --- | --- |
-| `me` | on the caller, `day` (today by default), the team's current sprint | `epic`, `parked`, `personal` |
-| `team` | on `team=`, `day`, that team's current sprint; `assignee` optional (the Unassigned column) | `epic`, `parked`, `personal` |
+| `me` | on the caller, `day` (today by default), the team's current sprint, in the UNPLANNED band (a subtask takes its parent's instead) | `epic`, `parked`, `personal`, `week`, any other band |
+| `team` | on `team=`, `day`, that team's current sprint, in any band; `assignee` optional (the Unassigned column) | `epic`, `parked`, `personal`, `week` |
 | `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `personal`, `epic`, and a `day` in any other week |
-| `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, `day`, `epic` |
-| `project` | a slot under `epic` (+`project`): its row is the week of `dates.start`, no sprint | `parked`, `personal`, `team`-only fields |
-| `personal` | in the caller's own repository: no team, no column, no band | `team`, `epic`, `week`, `parked` |
+| `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, a `day`, `epic`, `personal` |
+| `project` | a slot under `epic` (+`project`): its row is the week of `dates.start`, no sprint | `parked`, `personal` |
+| `personal` | in the caller's own repository: no team and no column, in the unplanned band, keeping the days it was planned for | `team`, `epic`, `week`, `parked`, any other band |
 | `all` | exactly what the fields say, as today | nothing |
 
 `personal` and `parked` stop being flags: each was a board wearing a field's clothes, and the board is now in the address. `noSprint` stays a field of the `me` and `team` creates, because it is a real question the board asks — the dialog that offers "this sprint" or "the next one" when a card is typed for a day ahead — and a question is not a board.
@@ -82,7 +82,7 @@ Three things, in the order they bite.
 
 | gesture | offered by | means |
 | --- | --- | --- |
-| `remove` | `me`, `team`, `triage`, `project`, `backlog`, `personal` | the ×, with the intents that board offers (`removal.ts` already decides this per board; the view is how it says so) |
+| `remove` | every board (`all` included, as all four are) | the ×, with the intents that board offers (`removal.ts` already decides this per board; the view is how it says so) |
 | `place` | `triage` | give the card a week |
 | `untriage` | `triage` | take the week back, into the strip |
 | `finished-earlier` | `me`, `team` | work done in the sprint before this one, marked done now |

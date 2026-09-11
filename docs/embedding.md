@@ -101,6 +101,27 @@ A tool that edits the repository directly (a plugin driving `git` itself) must r
 
 ## Contract changes in this line
 
+**`Service.Remove` also takes a `board.View`** — the BOARD the × was made from
+(`/api/v1/views/{view}/cards/{uid}/actions/remove` over HTTP). It is a compile
+break with a rule behind it: `board.ViewMe` gets the NARROW × the Me board
+draws (only a card this person authored and still standing in the unplanned
+band; a subtask and a personal card are exempt), and every other value keeps
+the wide one. An embedder with no board to stand on passes `board.ViewAll`,
+which is the escape hatch and refuses nothing.
+
+**`Service.CreateInView(ctx, boardID, view, args)`** is the create beside it:
+the board says what the card MEANS (the Me board files it on the caller, in
+the unplanned band; a Triage week gives it a week and no day; the drawer parks
+it; a Project column makes it a slot; the personal board files it in the
+caller's own repository) and refuses the fields it does not own
+(`ErrNotOnThisBoard`, `ErrViewNeedsField`). `CreateCard` is unchanged and
+takes anything, which is what an embedder with no board keeps using.
+
+Beside them: `board.View` with `KnownView`/`Views`/`Panes`,
+`boardservice.Offers`/`Gestures` (which board draws which gesture) and
+`apiserver.Drawn` (whether a board draws a given card — the question a
+view-scoped gesture asks before it acts).
+
 **`Service.Remove` takes a `RemoveIntent`.** The × asks which of two things is
 meant and the request carries the answer: `boardservice.Unassign` empties the
 working area and leaves the card in the week or column that still holds it,
@@ -117,7 +138,7 @@ silently degrades to `RemoveAuto`. Pass one of the three named values.
 
 `pkg/board` lost `MirrorAllowed` and gained `ColumnDomain` and `Followers`. The removal is the point of the change, not collateral: `MirrorAllowed` compared two PROJECTS' repositories, and a project name may be declared in two repositories with its columns merged under one entry, so it answered for the wrong thing — and answered "no" for every column of no project. `ColumnDomain(b, project, epic)` asks the column itself, which is what the server asks wherever a placement is judged. `Followers(b, id)` lists the cards whose file moves with one — its subtasks and its review card, transitively — for a caller that needs to know what a re-file drags along.
 
-Added in the same line: `board.Board.Primary` (the repository a board's own entries belong to), `board.NewBoardIn` (the assembly, told that name — its own rules ask "the same repository?" while it runs), `board.HomeDomain` (which repository holds a card, in that one namespace), `board.FileDomain` (where a card's FILE is, in the same namespace — the question a rule about the references written IN the file asks), `board.ColumnDomain`, `board.Followers`, `board.InProject` (a card stands in a project through its home pair OR any mirror — what the `?view=project&project=` listing answers by), `boardservice.ErrSubtaskWeek`, `apiserver.EpicRef.Domain` and `boardservicetest.Backend.InRepository`.
+Added in the same line: `board.Board.Primary` (the repository a board's own entries belong to), `board.NewBoardIn` (the assembly, told that name — its own rules ask "the same repository?" while it runs), `board.HomeDomain` (which repository holds a card, in that one namespace), `board.FileDomain` (where a card's FILE is, in the same namespace — the question a rule about the references written IN the file asks), `board.ColumnDomain`, `board.Followers`, `board.InProject` (a card stands in a project through its home pair OR any mirror — what the `/views/project/cards?project=` listing answers by), `boardservice.ErrSubtaskWeek`, `apiserver.EpicRef.Domain` and `boardservicetest.Backend.InRepository`.
 
 **Reading a past day is opt-in for a backend.** `boardservice.AsOfReader` — one method, `LoadBoardAsOf(ctx, boardID, at) (board.Board, bool, error)` — is what `Service.BoardAsOf` looks for; storage that keeps history implements it (both gitstore backends do, by reading the tree at the last commit before that moment), and storage that holds only the present simply does not. `ok=false` means the moment is behind what the storage still holds, which the service reports as `ErrHistoryTruncated`; a backend that does not implement the interface at all yields `ErrNoHistory`. Neither is an error your writes have to handle: a board with no history just has no past days (G60).
 

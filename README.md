@@ -40,7 +40,7 @@ Beside the day boards sits **Triage**: the weeks laid out side by side, a column
 │                                              │        │  (GitHub, GitLab, …) │
 │  embedded SPA ───► REST /api/v1 ──┐          │  push  │                      │
 │       ▲                           │  board   ┼───────►│  cards/…/<id>.md     │
-│       └──── WS /api/v1/watch ◄────┤  service │  fetch │  teams/<id>.yaml     │
+│       └──── WS /api/v1/views/… ◄──┤  service │  fetch │  teams/<id>.yaml     │
 │                                   │  + cache ◄────────┼  projects/…          │
 │  AI agents ───► MCP (stdio, /mcp)─┘  + clone │        │  one commit/action   │
 └──────────────────────────────────────────────┘        └──────────────────────┘
