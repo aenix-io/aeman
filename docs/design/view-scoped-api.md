@@ -147,6 +147,12 @@ A plugin writing the repositories directly is unaffected: it writes files, not H
 - **`me` and `personal` are two boards on one screen**, and the Triage grid and its drawer likewise. They stay two listings — two repositories with two rights on one side, two questions on the other — and `board.Panes` is what says a gesture made on the screen counts either. A single view with a flag would have made the drawer's × a Triage card's ×, which it is not.
 - **`team` still takes a set** (`team=platform,marketing`), because a lead with three teams opens all three; a gesture that names none is judged on the card's own team.
 
+## What it costs
+
+The gate is a listing: `apiserver.Drawn` runs the board's own filter and stops at the card. Measured on a production-shaped board of 2500 cards (four teams, fifteen people, a fifth of them subtasks, the card looked for last): the **me** pane 8 ms, **team** 1.8 ms, **triage** 0.67 ms, **personal** 0.06 ms. The Me pane is quadratic — `MeView` asks `childAssigned` per unmatched top-level card — so it is 30 ms at 5000 cards and 136 ms at 10000.
+
+It is paid once per gesture, and only by `remove` and `finished-earlier`, the two the Me board draws: the pane loop stops at the first board that draws the card, and `me` comes first. Beside it sits a git commit. The same walk is already on a hotter path — every scoped watch re-runs `FilterCards` per change event (`internal/server/boardstore.go`), which every open Me tab pays on every card write — so if the curve ever bites, the fix belongs in `MeView` (a parent→assignees index instead of the scan), where the watch gets it too. Not worth restructuring the gate for.
+
 ## Open
 
 - **The gate's scope is as generous as the listing's defaults.** A gesture that names no day is judged against today, one that names no team against the card's own. That is deliberate — the point is the board, not the parameters — but it means a caller can be vague and still act. If that turns out to be too loose in practice, the tightening is to require what the listing required.

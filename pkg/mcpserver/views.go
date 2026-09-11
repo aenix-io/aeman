@@ -67,7 +67,11 @@ func (h *server) gestureOn(ctx context.Context, svc *boardservice.Service, board
 			sel.User = login
 		}
 	}
-	if sel.Team == "" {
+	// The card's own team, but only where the LISTING names one (team,
+	// triage, backlog): the Me, personal and Project boards list every team,
+	// so filling it there would ask a stricter question than the board
+	// answered — see internal/server/views.go, namesATeam.
+	if sel.Team == "" && (view == board.ViewTeam || view == board.ViewTriage || view == board.ViewBacklog) {
 		for _, c := range b.Cards {
 			if c.ItemID == uid {
 				sel.Team = c.Team

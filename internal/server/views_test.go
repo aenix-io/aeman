@@ -146,6 +146,31 @@ func TestACreateMeansWhatTheBoardMeansByIt(t *testing.T) {
 	}
 }
 
+// A SUBTASK rides on its parent in the Me listing, and the gate must ask the
+// listing's own question or it refuses what the board draws: the Me board
+// lists every team, so judging the press on the CARD's team drops a parent of
+// another team out of the listing and the child with it. The boards whose
+// listing does name a team keep the fill.
+func TestTheGateAsksTheListingsOwnQuestionAboutTeams(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "parent", Title: "the work", Team: "alpha", Assignees: []string{"bob"},
+			StartDate: today, Day: today, SprintStart: today},
+		// A mismatch no gesture produces — grouping forces the parent's team
+		// — but `aeman migrate` and a direct git write both can, and the gate
+		// must not be the thing that refuses what the board is drawing.
+		{ItemID: "step", Title: "a step", Team: "beta", Parent: "parent", Assignees: []string{"bob"},
+			StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}, "beta": {Current: today, ItemID: "s2"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/me/cards/step/actions/remove",
+		`{"intent":"off-board"}`); rec.Code == http.StatusNotFound {
+		t.Fatalf("the × on a subtask the Me board draws answered 404: %s", rec.Body.String())
+	}
+}
+
 // The catalog, so a client reads the surface instead of being told it.
 func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
