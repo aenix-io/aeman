@@ -1,6 +1,6 @@
 # The view is where the caller stands
 
-Status: **proposed**. The rules it names are implemented; the routes are not yet.
+Status: **implemented** (G67). The routes, the create defaults, the gate and the MCP arguments all landed together; what is written below is what the server does.
 
 This is the second half of what [api-redesign.md](api-redesign.md) set out to do. That one made the API a resource API — objects with a schema, LIST and WATCH, actions as explicit verbs — and it landed. What it did not finish is the sentence right under its goals: *the API surface mirrors what the user sees*. It does not, quite. A person opens a BOARD and presses something on it; an agent sends a card with fields on it and hopes the fields add up to the same thing.
 
@@ -20,12 +20,11 @@ The fix is not more fields. It is to put the board in the address.
 GET    /api/v1/views                                  the boards this caller may open
 GET    /api/v1/views/{view}/cards?…                   LIST, scoped to that board
 GET    /api/v1/views/{view}/watch?…                   WATCH, the same scope
-GET    /api/v1/views/{view}/logs?day=&uids=           one day's feed for the cards it draws
 POST   /api/v1/views/{view}/cards                     create — what a card MEANS on that board
 POST   /api/v1/views/{view}/cards/{uid}/actions/{g}   a board GESTURE: remove, place, untriage, finished-earlier
 ```
 
-and, unchanged, the card addressed as itself:
+and, unchanged, the card addressed as itself (the day feed, `GET /api/v1/logs?day=&uids=`, stays with it: the uids are given, so no board narrows it):
 
 ```
 GET|PATCH|DELETE /api/v1/cards/{uid}                  the object, one uid, one canonical address
@@ -111,13 +110,17 @@ These are the cluster-scoped half of the analogy, and it holds better here than 
 
 ## MCP
 
-Every card tool takes `view`, with the same values, the same defaults and the same refusals. `list_cards` keeps its selectors under it. The default stays `me`, resolved server-side, because that is where everyone works and an agent that says nothing should act on its own cards and nobody else's.
+`create_card` takes `view` and means by it what the HTTP door means (default `team` — the tool's own behaviour before this, a card on the team for a day). `list_cards` keeps `view` as the selector it already was, defaulting to the caller's Me board.
 
-The tools the boards have and MCP does not are added in the same pass, since "what the UI can do" is the list MCP is measured against: `finished_earlier`, `untriage`, `reorder_teams`, `reorder_epics`, `delete_team`, `set_sprint_state`, `list_day_logs`, the personal trio (`link_personal`, `unlink_personal`, `get_personal`), and the sprint pointers in `get_board`. The parameter gaps go with them: `send_to_review.zone`, `create_card`'s parent and its view-shaped fields, `list_cards`'s `reviews`, `from` and `weeks`.
+The GESTURES take one too, and here the default is the escape hatch, deliberately: an agent is not standing anywhere. It reaches a card by uid — from a listing, from a title search — and making it work out which board draws that card would be friction with no safety in it, since the rules that matter (whose card it is, what the × may do to it) live in the service and answer every caller alike. Naming a board is how an agent ASKS to be held to one, and then it is refused exactly as the SPA would be.
+
+The tools the boards have and MCP did not are added in the same pass, since "what the UI can do" is the list MCP is measured against: `place_card`, `untriage_card`, `finished_earlier`, `reorder_teams`, `reorder_epics`, `delete_team`, `set_sprint_state`, `list_day_logs`, and `list_sprints` — when each team's sprint began, which every date rule is reckoned against and nothing answered. The parameter gaps go with them: `send_to_review`'s zone, `create_card`'s parent, `list_cards`'s `reviews`, `from` and `weeks`.
+
+One gap stays open, and it is structural rather than an oversight: **linking a personal repository** (`GET`/`PUT`/`DELETE /api/v1/me/personal`) is the server's, not the service's — it checks the URL, asks the forge whether the visitor can push to it, commits the link and attaches the clone with the visitor's own credential. An MCP server holding a board backend has none of that. An agent can read and write a personal board (`view: personal`); linking one stays a thing its owner does in the UI.
 
 ## The frontend
 
-`apiProvider` becomes a factory over the view — `apiProvider(view)` — and `App.tsx` memoises one per active board, which it already tracks. Every call site keeps its shape; the path gains a prefix. The boards then stop deciding what their × means and what their add-box fills in, because the view they are already in says both.
+`apiProvider` learns which board is open the way it already learns which DAY is open — a setter the App calls as the view changes (`standingOn`, beside `showingDay`), carrying the listing's own selector. Listings and the watch address the board they name (`viewquery.viewPath`, one function for both); a create names the board its add-box belongs to (`views.createView`); a gesture goes through the board that is open. The boards then stop deciding what their × means and what their add-box fills in, because the view they are already in says both.
 
 This is also the point of the exercise for the SPA, not just for agents: `removal.ts` and the add-box defaults are the frontend's copies of rules the server now holds. They stay as the optimistic patch — the board has to draw the outcome before the answer comes back — but they stop being the only place the rule is written.
 
@@ -139,7 +142,11 @@ Everything that calls the old card collection, which is the SPA and MCP — both
 
 A plugin writing the repositories directly is unaffected: it writes files, not HTTP.
 
+## Settled on the way in
+
+- **`me` and `personal` are two boards on one screen**, and the Triage grid and its drawer likewise. They stay two listings — two repositories with two rights on one side, two questions on the other — and `board.Panes` is what says a gesture made on the screen counts either. A single view with a flag would have made the drawer's × a Triage card's ×, which it is not.
+- **`team` still takes a set** (`team=platform,marketing`), because a lead with three teams opens all three; a gesture that names none is judged on the card's own team.
+
 ## Open
 
-- **Should `team` default to every team the caller can read**, or require `team=`? The grid takes a set today, and a lead with three teams opens all three.
-- **`me` and `personal` are two boards on one screen** (the personal column stands beside the Me day). Two views, two requests — as it is today — or one view with a `personal=true` selector? Two reads better: they are two repositories with two rights, and the column is absent for anyone without one.
+- **The gate's scope is as generous as the listing's defaults.** A gesture that names no day is judged against today, one that names no team against the card's own. That is deliberate — the point is the board, not the parameters — but it means a caller can be vague and still act. If that turns out to be too loose in practice, the tightening is to require what the listing required.
