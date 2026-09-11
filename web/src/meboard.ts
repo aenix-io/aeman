@@ -53,9 +53,17 @@ export function acceptsNewCard(zone: ZoneKey): boolean {
 export function mayRemove(
   c: { author?: string; parent?: string; zone?: ZoneKey },
   me: string | undefined,
+  viewingAs = false,
 ): boolean {
   if (c.parent) {
     return true;
+  }
+  if (viewingAs) {
+    // Standing on somebody's day is not being them. The × is judged by who
+    // is MAKING it — the server asks the same (ErrNotYoursToRemove), and
+    // impersonation never reaches the wire — so offering it here on the
+    // other person's own cards was offering a 403.
+    return false;
   }
   return !!me && c.author === me && c.zone === ADD_ZONE;
 }

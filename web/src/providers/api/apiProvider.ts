@@ -354,12 +354,17 @@ export const apiProvider: Provider = {
     // in the rest and refuses the fields that board does not own (views.ts).
     const into = `/views/${createView(input, viewOf(standing) as ViewName)}/cards`;
     if (input.personal) {
-      // A personal card carries nothing of the day board — no team, dates,
-      // column or week (the server refuses them beside `personal`); it files
-      // the card in the visitor's own repository and assigns it to them.
+      // A personal card carries none of the TEAM board's coordinates — no
+      // team, column or week, which that board refuses — but it does carry
+      // DAYS: planning there is dates alone (P8), so a card added while the
+      // board is flipped to tomorrow belongs to tomorrow. They used to be
+      // dropped here, and the card landed on today instead.
       return cardFrom("POST", into, {
         title: input.title,
         zone: semanticZone(input.zone),
+        ...(input.start || input.day
+          ? { dates: { start: input.start ?? "", end: input.day ?? "" } }
+          : {}),
       });
     }
     const body: Record<string, unknown> = {

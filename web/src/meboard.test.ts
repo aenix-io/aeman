@@ -39,6 +39,14 @@ describe("what the × may remove on the Me board", () => {
     expect(mayRemove(mine, me)).toBe(true);
   });
 
+  // Standing on somebody's day is not being them: the server judges an × by
+  // who is MAKING it, and impersonation never reaches the wire, so an × drawn
+  // while viewing as another person is an × that answers 403.
+  it("draws none at all while viewing as somebody else", () => {
+    expect(mayRemove(mine, me, true)).toBe(false);
+    expect(mayRemove({ author: "carol", zone: "yellow" }, me, true)).toBe(false);
+  });
+
   it("leaves a card somebody else created", () => {
     expect(mayRemove({ ...mine, author: "lllamnyp" }, me)).toBe(false);
   });

@@ -783,18 +783,13 @@ export function TriageBoard({
   // that no longer exists.
   const doRemove = useCallback(
     (card: CardModel, choice: RemoveChoice) => {
-      // Work finished in the sprint before this one, and only marked done
-      // now: the card goes back to where the work happened.
-      if (choice === "finished-earlier") {
-        void provider
-          .finishedEarlier(card.itemId)
-          .then(addCard)
-          .catch((err: Error) => {
-            onError(err.message);
-            reload();
-          });
-        return;
-      }
+      // "Finished in the sprint before this one" is a DAY board's answer and
+      // is not among the ones this board can be given: it needs a complete
+      // card (removal.removeChoices), and this grid draws none — a card at
+      // 100% is dropped from the placed slots and from the strip alike. The
+      // server says the same, since a gesture belongs to the board that draws
+      // it (boardservice.Offers), so an arm for it here would be a call that
+      // could only ever be answered 404.
       // The answer that destroys nothing: the work is kept, off the plan, on
       // its team's shelf.
       if (choice === "backlog") {
