@@ -16,13 +16,19 @@ export type ViewName =
   | "personal"
   | "all";
 
-/** createView is the board a create belongs to, read off what the add-box
- *  filled in. Every board of the app calls one provider method, so the shape
- *  IS the board: a personal card comes from the personal column, a parked one
- *  from the drawer, a week card from a Triage cell, a column card from the
- *  Project grid. Everything else is a day board's card, and the Me board's own
- *  add-box says so by naming its person (the server fills the caller in
- *  either way, so `team` is the safe reading for a card typed for somebody). */
+/** createView is the board a create belongs to: the one the reader is STANDING
+ *  on, unless what the add-box filled in names another. A personal card comes
+ *  from the personal column, a parked one from the drawer, a week card from a
+ *  Triage cell, a column card from the Project grid — those say their own
+ *  board whatever is open behind them. Everything else is a day card, and
+ *  which day board it was typed into is the thing only the open view knows:
+ *  the Me board and the Team grid send the same shape, and they do not mean
+ *  the same thing (the Me board adds work as unplanned and files it on the
+ *  reader; the grid plans, and files into Unassigned).
+ *
+ *  Reading the SHAPE alone sent the Me board's own add form to the team's
+ *  grid, where the server cannot tell the two apart — so the one rule that
+ *  separates them held for agents and not for the board it was written on. */
 export function createView(input: {
   personal?: boolean | null;
   parked?: boolean | null;
@@ -30,7 +36,7 @@ export function createView(input: {
   epic?: string | null;
   start?: string | null;
   day?: string | null;
-}): ViewName {
+}, standing?: ViewName): ViewName {
   if (input.personal) {
     return "personal";
   }
@@ -48,5 +54,5 @@ export function createView(input: {
   if (input.week) {
     return "triage";
   }
-  return "team";
+  return standing === "me" ? "me" : "team";
 }

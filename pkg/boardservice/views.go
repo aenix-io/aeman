@@ -213,6 +213,14 @@ func Gestures(view board.View) []Gesture {
 // is a card-level gesture, made from any board — so this is about where work
 // is FILED, not about where it may stand.
 func addsUnplanned(view board.View, args *CreateCardArgs) error {
+	// A SUBTASK is not the board's add form: it is a piece of the card it
+	// hangs under and takes that card's band, which is what the subtask form
+	// under a planned parent passes (MeBoard.tsx). Holding it to the
+	// unplanned band would mean a piece of planned work could not be written
+	// down on the board the work is being done from.
+	if args.Parent != "" {
+		return nil
+	}
 	if args.Zone == board.ZoneNone {
 		args.Zone = board.ZoneYellow
 		return nil

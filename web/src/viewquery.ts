@@ -156,17 +156,20 @@ export function queryString(q: Record<string, string>): string {
  *  answering "all" is what the bare collection used to do minus the guessing.
  */
 export function viewPath(query: string, kind: "cards" | "watch"): string {
-  let view = "all";
-  const rest: string[] = [];
+  const rest = query
+    .split("&")
+    .filter((part) => part && !part.startsWith("view="));
+  return `/views/${viewOf(query)}/${kind}${rest.length > 0 ? `?${rest.join("&")}` : ""}`;
+}
+
+/** viewOf is the BOARD a serialised selector names — the segment viewPath
+ *  puts in the path, and the answer to "which board is open" for everything
+ *  else that has to know (a create belongs to the board it was typed into). */
+export function viewOf(query: string): string {
   for (const part of query.split("&")) {
-    if (!part) {
-      continue;
-    }
     if (part.startsWith("view=")) {
-      view = decodeURIComponent(part.slice("view=".length));
-    } else {
-      rest.push(part);
+      return decodeURIComponent(part.slice("view=".length));
     }
   }
-  return `/views/${view}/${kind}${rest.length > 0 ? `?${rest.join("&")}` : ""}`;
+  return "all";
 }

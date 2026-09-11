@@ -158,6 +158,22 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
+	// A SUBTASK is not the add form: it is a piece of the card it hangs under
+	// and takes that card's band. The subtask form is drawn under every card
+	// on the board, planned ones included.
+	t.Run("a subtask takes its parent's band, not the board's", func(t *testing.T) {
+		f := seed()
+		parent, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTeam,
+			CreateCardArgs{Title: "the work", Team: "alpha", Zone: board.ZoneGray})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f2svc(f).CreateInView(ctx, "acme", board.ViewMe,
+			CreateCardArgs{Title: "a step", Team: "alpha", Zone: board.ZoneGray, Parent: parent.ItemID}); err != nil {
+			t.Fatalf("a subtask of planned work, typed on the Me board = %v, want it taken", err)
+		}
+	})
+
 	// The personal column stands beside the Me day and shares its add form, so
 	// it shares the band. The LEAD's grid is where the other three are typed:
 	// planning is what that board is for.

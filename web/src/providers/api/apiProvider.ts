@@ -19,8 +19,8 @@ import {
   type SprintListResource,
 } from "../../api/resources";
 import { splitDayLogs, type DayLogEntry } from "../../daylog";
-import { viewPath } from "../../viewquery";
-import { createView } from "../../views";
+import { viewOf, viewPath } from "../../viewquery";
+import { createView, type ViewName } from "../../views";
 import type { Member } from "../../users";
 import type {
   Board,
@@ -352,7 +352,7 @@ export const apiProvider: Provider = {
   async createCard(input: NewCardInput): Promise<Card> {
     // The board the card was typed into says what it means — the server fills
     // in the rest and refuses the fields that board does not own (views.ts).
-    const into = `/views/${createView(input)}/cards`;
+    const into = `/views/${createView(input, viewOf(standing) as ViewName)}/cards`;
     if (input.personal) {
       // A personal card carries nothing of the day board — no team, dates,
       // column or week (the server refuses them beside `personal`); it files
