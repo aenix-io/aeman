@@ -27,10 +27,13 @@ import (
 // card could be made in the unplanned zone and moved with a zone patch a
 // moment later, which is two steps and no refusal.
 //
-// What remains is the Me board's own offer: its add form appears in the
-// unplanned zone only (web/src/meboard.ts, acceptsNewCard). That is a
-// statement about what that board is for, and it belongs where the board is
-// drawn rather than in a rule every caller meets.
+// What remains HERE is the raw create, which takes any zone from anyone. The
+// Me board's own offer — its add form appears in the unplanned zone only
+// (web/src/meboard.ts, acceptsNewCard) — is a statement about what that board
+// is for, and it is held one layer up, where the board asking is known:
+// CreateInView, `view=me` (TestEachBoardCreatesItsOwnKindOfCard). That is the
+// difference the old refusal did not have: it could not tell the Me board's
+// add form from the lead's grid, so it refused both.
 func TestAPersonMayPlanTheirOwnWork(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
