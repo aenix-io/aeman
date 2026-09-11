@@ -582,3 +582,63 @@ func TestTheSprintsOwnDayIsTheWholeSprint(t *testing.T) {
 		t.Error("finished work does not follow the team around; it stays on its day")
 	}
 }
+
+// THE SPRINT'S OWN DAY KEEPS THE WORK IT FINISHED. A lead agreed a card into
+// this sprint, somebody did it, and the day the sprint began — the day the
+// "current sprint" jump lands on — goes on holding it, done. That day is the
+// sprint's page: it answers "what has this sprint been", not "what is left".
+//
+// Every OTHER day of the sprint answers the other question, and that is why
+// the rule stops here: today is what is in hand. A card finished on Tuesday
+// standing on Wednesday and Thursday of the same sprint is the "work nobody
+// is doing appeared on the day" the day rule set out to end.
+func TestASprintsOwnDayKeepsTheWorkItFinished(t *testing.T) {
+	today := TodayIso()
+	opened := AddDays(today, -2) // the sprint began the day before yesterday
+	before := AddDays(today, -5) // and one before it, now closed
+	b := NewBoard([]Card{
+		{ItemID: "st", Title: SprintStateTitle, Team: "T", SprintStart: opened, StartDate: before},
+		// This sprint's work, closed on its second day: overdue when it was
+		// taken, which is exactly the card a lead asks about.
+		{ItemID: "closed", Team: "T", SprintStart: opened,
+			StartDate: AddDays(today, -9), Day: AddDays(today, -9),
+			Progress: 100, DoneAt: AddDays(today, -1)},
+		// Still going, same sprint.
+		{ItemID: "open", Team: "T", SprintStart: opened, StartDate: opened},
+		// Closed in the sprint BEFORE this one: its own day keeps it.
+		{ItemID: "older", Team: "T", SprintStart: before, StartDate: before,
+			Progress: 100, DoneAt: AddDays(today, -4)},
+	})
+	b.SprintStates = map[string]SprintState{"T": {Current: opened, Previous: before, ItemID: "st"}}
+	on := func(day string) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range TeamGrid(b, "T", day) {
+			out[c.ItemID] = true
+		}
+		return out
+	}
+
+	// The sprint's own day holds its work, finished included.
+	sprint := on(opened)
+	if !sprint["closed"] {
+		t.Errorf("the sprint's day keeps what the sprint finished: %v", sprint)
+	}
+	if !sprint["open"] {
+		t.Errorf("and what it is still doing: %v", sprint)
+	}
+	// Today is what is IN HAND: the finished card is not dragged along.
+	if on(today)["closed"] {
+		t.Error("finished work does not follow the sprint around; today is what is in hand")
+	}
+	// It is still reachable on the day it was finished, as every finished card is.
+	if !on(AddDays(today, -1))["closed"] {
+		t.Error("the day it was finished on keeps it")
+	}
+	// Each sprint's day answers for its own sprint, and only that.
+	if !on(before)["older"] {
+		t.Error("a closed sprint's day is the record of that sprint")
+	}
+	if on(opened)["older"] {
+		t.Error("and it is not adopted by the sprint that followed")
+	}
+}

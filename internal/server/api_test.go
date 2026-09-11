@@ -238,8 +238,10 @@ func TestAPIPatchDatesRunsCalendarRule(t *testing.T) {
 	rec := do(t, srv, http.MethodPatch, "/api/v1/cards/c1",
 		`{"dates":{"start":"2026-06-14","end":"2026-06-16"}}`)
 	c := decodeCard(t, rec)
-	// 06-14 is inside the previous sprint [06-13, 06-20): the card joins it.
-	if c.Spec.Dates.Start != "2026-06-14" || c.Spec.Dates.Sprint != "2026-06-13" || c.Spec.Dates.End != "2026-06-16" {
+	// 06-14 is inside the previous sprint [06-13, 06-20) — which has closed, so
+	// the card keeps the team's CURRENT sprint and only its dates go back: a
+	// card parked in a closed sprint is one no carry-over reaches again.
+	if c.Spec.Dates.Start != "2026-06-14" || c.Spec.Dates.Sprint != "2026-06-20" || c.Spec.Dates.End != "2026-06-16" {
 		t.Fatalf("dates = %+v", c.Spec.Dates)
 	}
 }

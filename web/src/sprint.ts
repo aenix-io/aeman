@@ -59,7 +59,13 @@ export function sprintForDate(
   if (day > today) {
     return null;
   }
-  return activeSprint(board, team, day) || currentSprint(board, team) || day;
+  // A day already gone takes the team's CURRENT sprint, never the one that
+  // was active back then: that sprint has closed, and a carry-over moves the
+  // closing sprint's own cards and nothing older, so a card parked in a
+  // closed sprint is never picked up again — drawn while it stays open, gone
+  // from the team's board the moment it is finished. Mirrors
+  // boardservice.SetDates.
+  return currentSprint(board, team) || day;
 }
 
 /** dayIsOverFor reports that a day is a RECORD for one team: their sprint has

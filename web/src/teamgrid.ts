@@ -38,14 +38,13 @@ export function inHandOn(c: Partial<Card>, day: string, today: string): boolean 
   if (c.week && c.week > mondayOf(day)) {
     return false;
   }
-  // THE SPRINT'S OWN DAY IS THE WHOLE SPRINT. A lead opens the day the sprint
-  // began every few mornings and goes through it with the team, so it holds
-  // the work the sprint opened with, the work typed into it since (most of a
-  // sprint is created inside it) and the work already CLOSED — above both the
-  // start-date gate and the finished gate for that reason. What still leaves
-  // it is what was taken OUT of the sprint: a card deferred past TODAY goes at
-  // once, and one planned into a week to come never reached it.
-  if (c.sprintStart === day && !deferredPast(c, today)) {
+  // THE SPRINT'S OWN DAY IS THE WHOLE SPRINT: the day it began holds the work
+  // it opened with, the work typed into it since and the work already CLOSED —
+  // above both the start-date gate and the finished gate for that reason. What
+  // still leaves it is what was taken OUT of the sprint: a card deferred past
+  // TODAY goes at once, and one planned into a week to come never reached it.
+  // Mirrors board.inSprintOn.
+  if (inSprintOn(c, day) && !deferredPast(c, today)) {
     return true;
   }
   // Finished work belongs to the day it recorded, and to no other.
@@ -75,4 +74,15 @@ export function plannedFor(c: Partial<Card>, day: string): boolean {
     return true;
   }
   return activeOnDay(c.startDate, c.day, day);
+}
+
+/** inSprintOn reports that a day answers for the card's SPRINT, which is what
+ *  makes that day hold the sprint's work whatever has become of it, finished
+ *  included. ONE day does: the day the sprint BEGAN — its own page, the one
+ *  the "current sprint" jump lands on. Deliberately not every day of a running
+ *  sprint: today is what is in HAND, and a card finished on Tuesday standing
+ *  on Wednesday too is the thing the day rule set out to end. Mirrors
+ *  board.inSprintOn. */
+export function inSprintOn(c: Partial<Card>, day: string): boolean {
+  return !!c.sprintStart && c.sprintStart === day;
 }

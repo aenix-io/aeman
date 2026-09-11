@@ -291,15 +291,20 @@ everywhere says nothing where it matters.
 - The date picker on a card moves its **real dates**: `startDate = start` and
   `day = end` — a genuine relocation (no history kept, unlike defer). The card
   then shows on **every day of the range** `[start, end]`.
-- `sprintStart` becomes the sprint that was **active on the start day**
-  (`activeSprint(team, start)`) — a start inside the current or previous sprint
-  joins it. A start **older than the team can reach** keeps the team's
-  **current** sprint instead: the dates are the person's to choose, but a
-  sprint that closed is drawn by no board and moved by no carry-over, so a card
-  pinned to one left the board entirely (three did in one working day). Only a
-  team with no sprint pointer at all falls back to the start day itself, which
-  seeds its first. A **future** start parks the card sprint-less until the
-  carry-over that reaches its day adopts it.
+- `sprintStart` becomes the team's **current** sprint for any start in the
+  past, whatever sprint was active back then. The dates are the person's to
+  choose and go back exactly as asked; the sprint is where the work **stands**.
+  A closed sprint is one the process cannot reach: a carry-over moves the
+  closing sprint's own cards and nothing older, so a card parked in a closed
+  sprint is never picked up again — it goes on being drawn while it stays
+  **open**, and leaves the team's board the moment somebody finishes it, with
+  the work done and no trace on the sprint they are working. This was already
+  the rule for a start older than any tracked sprint (three cards went that way
+  in one working day); it used to stop one sprint short, so a start falling
+  inside the **previous** sprint joined that one, which had closed just the
+  same. Only a team with no sprint pointer at all falls back to the start day
+  itself, which seeds its first. A **future** start parks the card sprint-less
+  until the carry-over that reaches its day adopts it.
 
 ## Resolved open questions
 

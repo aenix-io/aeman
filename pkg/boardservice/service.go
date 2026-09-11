@@ -971,19 +971,23 @@ func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, e
 		if start > board.TodayIso() {
 			sprint = ""
 		} else {
-			sprint = board.ActiveSprint(b, c.Team, start)
-			if sprint == "" {
-				// The day is older than the team can reach: its sprints have
-				// moved past it. Pinning the card to a sprint STARTING there
-				// pins it to one that closed — the day grid draws the current
-				// and the previous, the Me board gates on them, and a
-				// carry-over moves only the closing sprint's own cards — so
-				// the card was on no board at all, findable by id alone.
-				// Three went that way in one working day on the production
-				// board. The dates are the person's to choose; the sprint is
-				// where the work stands, which is the team's current one.
-				sprint = board.CurrentSprint(b, c.Team)
-			}
+			// A day already gone puts the card in the team's CURRENT sprint,
+			// never in the sprint that was active back then. That sprint has
+			// closed, and a card in a closed sprint is a card the process
+			// cannot reach: a carry-over moves the closing sprint's own cards
+			// and nothing older, so nothing would ever pick it up again. It
+			// went on being drawn while it stayed OPEN — open work stands on
+			// its days — and the moment somebody finished it, it belonged to
+			// the day it recorded and to a sprint nobody opens: off the
+			// team's board with the work done and no trace on the sprint they
+			// are working.
+			//
+			// The rule already said this for a day older than any tracked
+			// sprint (three cards went that way in one working day on the
+			// production board); it stopped one sprint short. The dates are
+			// the person's to choose — they go back exactly as asked — and
+			// the sprint is where the work STANDS.
+			sprint = board.CurrentSprint(b, c.Team)
 			if sprint == "" {
 				// A team with no sprint pointer at all: the day seeds it.
 				sprint = start

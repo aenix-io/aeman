@@ -37,10 +37,16 @@ func TestADateIntoThePastKeepsTheCardOnTheBoard(t *testing.T) {
 	}
 }
 
-// A day the team can still reach keeps the rule it always had: the sprint
-// active on that day, so re-dating inside the current or previous sprint puts
-// the card where that day belongs.
-func TestADateInsideTheTeamsReachTakesThatDaysSprint(t *testing.T) {
+// The PREVIOUS sprint is a closed sprint too, and re-dating into it does not
+// put the card there either. It used to: the day fell inside the previous
+// sprint's window, so the card joined that sprint — where no carry-over would
+// reach it again, because a carry-over moves the closing sprint's own cards
+// and nothing older. The card went on being drawn while it stayed open, and
+// left the team's board the moment it was finished.
+//
+// One window further out this was already the rule (the test above). This is
+// the same reasoning, one sprint nearer.
+func TestADateInsideTheClosedPreviousSprintKeepsTheCurrentOne(t *testing.T) {
 	const cur, prev = "2026-09-02", "2026-09-01"
 	f := newFake([]board.Card{
 		{ItemID: "c1", Team: "portal", SprintStart: cur, StartDate: cur, Day: cur},
@@ -49,8 +55,12 @@ func TestADateInsideTheTeamsReachTakesThatDaysSprint(t *testing.T) {
 	if err := f2svc(f).SetDates(context.Background(), "acme", "c1", prev, prev); err != nil {
 		t.Fatal(err)
 	}
-	if c := f.get("c1"); c.SprintStart != prev {
-		t.Fatalf("sprint = %q, want the previous sprint %q that day belongs to", c.SprintStart, prev)
+	c := f.get("c1")
+	if c.StartDate != prev || c.Day != prev {
+		t.Fatalf("the dates are the person's: %+v", c)
+	}
+	if c.SprintStart != cur {
+		t.Fatalf("sprint = %q, want the team's current %q — the previous sprint has closed", c.SprintStart, cur)
 	}
 }
 
