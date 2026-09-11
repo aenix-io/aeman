@@ -35,6 +35,24 @@ func connect(t *testing.T, cfg Config, backend boardservice.Backend) *mcp.Client
 	return cs
 }
 
+// toolDescription is what an AGENT is told about a tool: the description the
+// server advertises over the wire, read the way a client reads it.
+func toolDescription(t *testing.T, name string) string {
+	t.Helper()
+	cs := connect(t, Config{}, boardservicetest.New(nil, nil))
+	tools, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == name {
+			return tool.Description
+		}
+	}
+	t.Fatalf("no tool named %q", name)
+	return ""
+}
+
 func textOf(res *mcp.CallToolResult) string {
 	var sb strings.Builder
 	for _, c := range res.Content {
@@ -388,5 +406,36 @@ func TestMCPListCardsRowsAndTitleFilter(t *testing.T) {
 	card := textOf(call(t, cs, "get_card", map[string]any{"uid": "c1"}))
 	if !strings.Contains(card, "long body") {
 		t.Fatalf("get_card is the detail pane, body missing: %s", card)
+	}
+}
+
+// A TOOL DESCRIPTION IS A PROMISE TO AN AGENT, and an agent has no other way
+// to learn the rules: it cannot read the board's code or try a gesture to see
+// what happens. So a description that names a refusal must name one the
+// server actually makes.
+//
+// create_card promised a 403 for filing work for YOURSELF in a planned zone.
+// The service stopped refusing that on 2026-09-03 (S11): the Team and Triage
+// grids send the same create, so the guard refused the boards whose whole
+// purpose is planning, and it protected nothing anyway — the same card could
+// be made unplanned and moved with a zone patch. The description was left
+// behind, so an agent creating an urgent card for its own user read its own
+// success as a hole in the server and reported it as one.
+//
+// This test does not read the prose; it holds the two ends together. If the
+// refusal comes back, TestAPersonMayPlanTheirOwnWork fails and the sentence
+// can return with it.
+func TestCreateCardDescribesNoRefusalTheServerDoesNotMake(t *testing.T) {
+	desc := toolDescription(t, "create_card")
+	for _, gone := range []string{"403", "unplanned work", "refused (403)"} {
+		if strings.Contains(desc, gone) {
+			t.Errorf("create_card still promises %q; the service has not refused that since S11", gone)
+		}
+	}
+	// remove_card's own refusal IS still made (ErrNotYoursToRemove), so its
+	// description keeps saying so — the check above must not be read as "no
+	// tool may mention a refusal".
+	if !strings.Contains(toolDescription(t, "remove_card"), "403") {
+		t.Error("remove_card stopped naming the refusal the service still makes")
 	}
 }
