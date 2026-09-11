@@ -89,12 +89,12 @@ func TestPersonalBoardLinkCreateListUnlink(t *testing.T) {
 
 	// A personal card: created into the personal domain, listed by view=personal,
 	// invisible to anyone else even on view=all.
-	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/cards", `{"title":"read the paper","zone":"unplanned","personal":true}`)
+	rec = doAs(t, srv, "kvaps", "POST", "/api/v1/views/personal/cards", `{"title":"read the paper","zone":"unplanned"}`)
 	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"domain":"~kvaps"`) {
 		t.Fatalf("create personal: %d %s", rec.Code, rec.Body.String())
 	}
 	count := func(login, query string) int {
-		rec := doAs(t, srv, login, "GET", "/api/v1/cards?"+query, "")
+		rec := doAs(t, srv, login, "GET", cardsPath(query), "")
 		var list struct{ Items []json.RawMessage }
 		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 			t.Fatalf("%s %s: %d %s", login, query, rec.Code, rec.Body.String())
@@ -107,14 +107,14 @@ func TestPersonalBoardLinkCreateListUnlink(t *testing.T) {
 	if n := count("bob", "view=personal"); n != 0 {
 		t.Fatalf("bob's personal view has %d cards, want none", n)
 	}
-	if rec := doAs(t, srv, "bob", "GET", "/api/v1/cards?view=all", ""); strings.Contains(rec.Body.String(), "read the paper") {
+	if rec := doAs(t, srv, "bob", "GET", "/api/v1/views/all/cards", ""); strings.Contains(rec.Body.String(), "read the paper") {
 		t.Fatal("bob sees kvaps's personal card on view=all")
 	}
-	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=all", ""); !strings.Contains(rec.Body.String(), "read the paper") {
+	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/views/all/cards", ""); !strings.Contains(rec.Body.String(), "read the paper") {
 		t.Fatal("kvaps does not see their own personal card on view=all")
 	}
 	// A team on a personal card is refused: it is not a team board card.
-	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards", `{"title":"x","team":"portal","personal":true}`); rec.Code != http.StatusUnprocessableEntity {
+	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/views/personal/cards", `{"title":"x","team":"portal"}`); rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("personal with a team: %d %s", rec.Code, rec.Body.String())
 	}
 	// The card went to the personal repository.
@@ -189,7 +189,7 @@ func TestPersonalViewReseedsARecurrentCardTheNextDay(t *testing.T) {
 		Progress          int
 	}
 	list := func(day string) []row {
-		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal&day="+day, "")
+		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/views/personal/cards?day="+day, "")
 		var l struct {
 			Items []struct {
 				Metadata struct{ UID string }
@@ -274,7 +274,7 @@ func TestRemovingAWorkedPersonalCardLeavesItOnYesterday(t *testing.T) {
 	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{"kvaps": both}}, shared)
 
 	uids := func(day string) []string {
-		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal&day="+day, "")
+		rec := doAs(t, srv, "kvaps", "GET", "/api/v1/views/personal/cards?day="+day, "")
 		var l struct {
 			Items []struct{ Metadata struct{ UID string } }
 		}
@@ -290,7 +290,7 @@ func TestRemovingAWorkedPersonalCardLeavesItOnYesterday(t *testing.T) {
 	if got := uids(today); len(got) != 2 {
 		t.Fatalf("before: %v", got)
 	}
-	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+worked+"/actions/remove", `{}`); rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
+	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/views/personal/cards/"+worked+"/actions/remove", `{}`); rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
 		t.Fatalf("remove worked: %d %s", rec.Code, rec.Body.String())
 	}
 	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+worked, "")
@@ -303,7 +303,7 @@ func TestRemovingAWorkedPersonalCardLeavesItOnYesterday(t *testing.T) {
 	if got := uids(yesterday); !slices.Contains(got, worked) {
 		t.Fatalf("yesterday after ×: %v (want the left-behind card there)", got)
 	}
-	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+untouched+"/actions/remove", `{}`); rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
+	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/views/personal/cards/"+untouched+"/actions/remove", `{}`); rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
 		t.Fatalf("remove untouched: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards/"+untouched, ""); rec.Code != http.StatusNotFound {
@@ -338,11 +338,11 @@ func TestPersonalBoardIsAttachedWhenTheOwnerReturns(t *testing.T) {
 		"kvaps": rightsOn([]string{"shared"}, []string{"shared"}),
 		"bob":   rightsOn([]string{"shared"}, []string{"shared"}),
 	}}, shared)
-	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal", "")
+	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/views/personal/cards", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "my note") {
 		t.Fatalf("the returning owner's personal view: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doAs(t, srv, "bob", "GET", "/api/v1/cards?view=all", ""); strings.Contains(rec.Body.String(), "my note") {
+	if rec := doAs(t, srv, "bob", "GET", "/api/v1/views/all/cards", ""); strings.Contains(rec.Body.String(), "my note") {
 		t.Fatal("bob sees a personal card")
 	}
 }
@@ -366,13 +366,13 @@ func TestPersonalBoardRelinkSwitchesRepositories(t *testing.T) {
 	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+first.URL+`"}`); rec.Code != http.StatusOK {
 		t.Fatalf("link first: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal", ""); !strings.Contains(rec.Body.String(), "from the first") {
+	if rec := doAs(t, srv, "kvaps", "GET", "/api/v1/views/personal/cards", ""); !strings.Contains(rec.Body.String(), "from the first") {
 		t.Fatalf("first repository not served: %s", rec.Body.String())
 	}
 	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+second.URL+`"}`); rec.Code != http.StatusOK {
 		t.Fatalf("link second: %d %s", rec.Code, rec.Body.String())
 	}
-	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/cards?view=personal", "")
+	rec := doAs(t, srv, "kvaps", "GET", "/api/v1/views/personal/cards", "")
 	if !strings.Contains(rec.Body.String(), "from the second") || strings.Contains(rec.Body.String(), "from the first") {
 		t.Fatalf("after relinking the personal view must be the second repository's: %s", rec.Body.String())
 	}
@@ -493,7 +493,7 @@ func TestAPersonalRepositoryTheServerCannotReachIsExplainedOnce(t *testing.T) {
 	}
 
 	// And the person is told what is actually wrong, where they meet it.
-	rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards", `{"title":"mine","personal":true,"zone":"planned"}`)
+	rec := doAs(t, srv, "kvaps", "POST", "/api/v1/views/personal/cards", `{"title":"mine","zone":"planned"}`)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("personal create: %d %s, want 403", rec.Code, rec.Body.String())
 	}

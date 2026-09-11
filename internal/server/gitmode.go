@@ -426,6 +426,13 @@ func actionName(method, path string) string {
 	}
 	rest := strings.TrimPrefix(path, "/api/v1/")
 	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	// The BOARD a write was made from is a path segment, and it names the
+	// caller's place rather than the thing being written: a create is a
+	// create whichever board it was typed into, so the segment is stepped
+	// over (/views/{view}/cards → cards).
+	if len(parts) >= 3 && parts[0] == "views" {
+		parts = parts[2:]
+	}
 	verb := map[string]string{http.MethodPost: "create", http.MethodPatch: "update", http.MethodDelete: "delete"}[method]
 	if verb == "" {
 		verb = "write"

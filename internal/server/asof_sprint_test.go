@@ -68,7 +68,7 @@ func TestADayInsideTheRunningSprintStaysLive(t *testing.T) {
 
 	read := func(query string) (progress int, asOf string) {
 		t.Helper()
-		rec := do(t, srv, http.MethodGet, "/api/v1/cards?"+query, "")
+		rec := do(t, srv, http.MethodGet, cardsPath(query), "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: %d %s", query, rec.Code, rec.Body.String())
 		}

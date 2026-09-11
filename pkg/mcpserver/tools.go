@@ -99,10 +99,10 @@ func (h *server) getBoard(ctx context.Context, _ *mcp.CallToolRequest, in boardR
 }
 
 // listCardsInput is a card LIST selector: an optional view plus plain field
-// filters, mirroring GET /api/v1/cards.
+// filters, mirroring GET /api/v1/views/{view}/cards.
 type listCardsInput struct {
 	boardRef
-	View     string `json:"view,omitempty" jsonschema:"view to scope to: team, me, personal (your own personal board), triage, backlog or project; empty lists every card. backlog lists the work a team has PARKED on its named lists — read but not planned — which is on no day board and in no week"`
+	View     string `json:"view,omitempty" jsonschema:"the board to list: team, me, personal (your own personal board), triage, backlog or project — or all for every card. Empty is your own Me board, which is where everyone works. backlog lists the work a team has PARKED on its named lists — read but not planned — which is on no day board and in no week"`
 	Team     string `json:"team,omitempty" jsonschema:"team key for the team/triage views; on the me view a comma-separated set filters to those teams; empty is the no-team group / no filter"`
 	Day      string `json:"day,omitempty" jsonschema:"viewed day as yyyy-mm-dd for the team/me views; defaults to today"`
 	User     string `json:"user,omitempty" jsonschema:"GitHub login for the me view; empty is everyone"`
@@ -113,6 +113,9 @@ type listCardsInput struct {
 	Focus    bool   `json:"focus,omitempty" jsonschema:"keep only cards workable right now — drops done, on-review and locked; use this to show what can be picked up and worked on here and now"`
 	Title    string `json:"title,omitempty" jsonschema:"case-insensitive substring filter on the card title — the cheap way to resolve a title someone mentioned to its uid: one call, a handful of rows"`
 	Full     bool   `json:"full,omitempty" jsonschema:"include each card's full description in the listing. Default false: a listing is the board's row view — title, team, zone, assignees, progress, stage, dates, link refs — and card bodies come from get_card. Set only when genuinely reading many descriptions at once (bulk analysis), not to inspect one card"`
+	Reviews  bool   `json:"reviews,omitempty" jsonschema:"include each card's linked REVIEW card beside it (the me and team views). A review is somebody's work too — it counts in the reviewer's load — and without this it is on no listing you asked for"`
+	From     string `json:"from,omitempty" jsonschema:"the first week of the triage view, its Monday as yyyy-mm-dd; the current week by default"`
+	Weeks    int    `json:"weeks,omitempty" jsonschema:"how many weeks of the triage view to return, counting from the first (1..26, six by default). A card scheduled past the window is in the answer of no listing, which is how work disappears"`
 	Snapshot bool   `json:"snapshot,omitempty" jsonschema:"read a PAST day as it stood rather than today's cards filtered by that day: every field is the day's own, so a card finished since reads unfinished and one created since is absent. Needs day set to a past day; the board's history answers it, and a day it no longer reaches is an error rather than a wrong answer"`
 }
 
@@ -122,11 +125,14 @@ func (h *server) listCards(ctx context.Context, _ *mcp.CallToolRequest, in listC
 		return nil, apiserver.CardList{}, err
 	}
 	sel := apiserver.Selector{View: in.View, Team: in.Team, Day: in.Day, User: in.User,
-		Project: in.Project, Assignee: in.Assignee, Focus: in.Focus}
-	switch sel.View {
-	case "", "all", "team", "me", "personal", "project", "triage", "backlog":
-	default:
-		return nil, apiserver.CardList{}, fmt.Errorf("unknown view %q (use all, team, me, personal, project or triage)", sel.View)
+		Project: in.Project, Assignee: in.Assignee, Focus: in.Focus,
+		IncludeReviews: in.Reviews, From: in.From, Weeks: in.Weeks}
+	if sel.Weeks < 0 || sel.Weeks > 26 {
+		return nil, apiserver.CardList{}, fmt.Errorf("weeks %d: want 1..26", sel.Weeks)
+	}
+	if sel.View != "" && !board.KnownView(sel.View) {
+		return nil, apiserver.CardList{}, fmt.Errorf("%w: %q (use all, team, me, personal, project, triage or backlog)",
+			boardservice.ErrNoSuchView, sel.View)
 	}
 	// An unspecified view defaults to the caller's personal Me board (their own
 	// cards); Team is the lead view and view=all is the whole board. "Who am I"
@@ -215,23 +221,24 @@ type createCardInput struct {
 	boardRef
 	Title    string `json:"title" jsonschema:"card title (required)"`
 	Team     string `json:"team,omitempty" jsonschema:"team the card joins; empty is the no-team group. MUST be one of the board's EXISTING team keys — read them from get_board metadata.teams and map the user's wording onto an existing key, across languages and case ('маркетинг', 'the marketing team' -> existing 'marketing'). A value not in that list silently CREATES a new team with its own sprint pointer — a heavyweight, unusual action: only pass a new key when the user explicitly asks to create a new team"`
-	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave"`
+	Zone     string `json:"zone,omitempty" jsonschema:"semantic zone: urgent, unplanned, planned or niceToHave. The Me board (the default) adds work as UNPLANNED and refuses the other three: something that came up today is unplanned by definition, and the other bands are the plan. To file work in a band of the plan — an urgent card, planned work for the week — use view=team and name the assignee (that is what a person does on the team's grid, including for themselves); a subtask takes its parent's band whatever board it is typed on"`
 	Size     string `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h), M (half a day to a day), L (2–5 days) or XL (a week or more); summed as 1/2/4/8 points against each person's weekly capacity. Leave empty when you do not know — an unsized card is honest, a guessed one is not"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"GitHub login to assign"`
 	Start    string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd; defaults to end, else today. A FUTURE day parks the card off the board until that day arrives — it is not shown in the current sprint meanwhile. Sprints are daily and created as they start, so no sprint covers a future day yet: the card deliberately joins NO sprint and the carry-over that reaches its day adopts it. That is the intended way to schedule work ahead; leave the sprint field alone"`
 	End      string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; defaults to start, else today"`
 	Sprint   string `json:"sprint,omitempty" jsonschema:"sprint start day the card joins; defaults to the team's current sprint"`
-	Week     string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. This is how work is put on the Triage board. A card filed under an epic ignores it — the slot's row is the week of its start date"`
-	Epic     string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
+	Week     string `json:"week,omitempty" jsonschema:"schedule the card for a WEEK instead of a day: the week's Monday as yyyy-mm-dd, and no dates are set. Pass view=triage with it — that is the board a week card belongs to, and every other board refuses a week. A card filed under an epic ignores it — the slot's row is the week of its start date"`
+	Epic     string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under, together with project — pass view=project with them, since a column is that board's. MUST be an EXISTING column — read them from get_board metadata.epics; add_epic creates one when the user explicitly asks. The card's week is its row; start/end dates may span several weeks"`
 	Project  string `json:"project,omitempty" jsonschema:"the project half of the column named by epic (columns are the (project, epic) pair — epic names repeat across projects)"`
 	ReviewOf string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews"`
 	// StartNewSprint controls sprint membership: omit for auto (join the team's
 	// running sprint, else start one today), true to force a new sprint today,
 	// false to force-join the current sprint.
 	StartNewSprint *bool `json:"startNewSprint,omitempty" jsonschema:"force a new sprint (true) or join the current one (false); omit for auto"`
-	// Personal files the card on the caller's personal board — their own
-	// repository, seen by them alone — instead of the team board.
-	Personal bool `json:"personal,omitempty" jsonschema:"true = a card on YOUR personal board (your own linked repository, for you alone): a backlog item with a zone, dates and a body and no team, column or plan band. Requires a linked personal repository (GET /api/v1/me/personal)"`
+	// View is the BOARD the card is typed into, which is what makes it the
+	// kind of card it is; each board refuses the fields it does not own.
+	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid, where PLANNING is done: the card lands in the Unassigned column unless you name an assignee, and any band is allowed — this is the board for work in the plan, whether it is for somebody else or for the person you are acting for, and the only one that takes urgent/planned/niceToHave), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project), personal (your own linked repository, for you alone: no team, no column, no plan band). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
+	Parent string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep). A card cannot be both a subtask and scheduled for a week of its own: naming a parent and a week together is refused, since grouping hands a subtask's week to its parent"`
 }
 
 func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in createCardInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -247,7 +254,26 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if !ok {
 		return nil, apiserver.Card{}, fmt.Errorf("%w: %q (use S, M, L, XL or empty)", boardservice.ErrUnknownSize, in.Size)
 	}
-	card, err := svc.CreateCard(ctx, boardID, boardservice.CreateCardArgs{
+	// WHO the agent is acting for, when the transport has not already said:
+	// the Me board files the card on them, and the activity is theirs. Both
+	// transports stamp the actor themselves (stdio's login middleware, the
+	// HTTP session's UserID); this is the same seam the listing uses to
+	// answer "my board", so the two cannot disagree.
+	if board.ActorFrom(ctx) == "" && h.cfg.ResolveLogin != nil {
+		if login, err := h.cfg.ResolveLogin(ctx); err == nil && login != "" {
+			ctx = boardservice.WithActor(ctx, login)
+		}
+	}
+	// No board named means the caller's OWN: an agent is acting for somebody,
+	// and a card filed for them stands on their board and in their column of
+	// the team's grid. The team's own add-box (an unassigned card in the
+	// Unassigned column) is a different thing and is asked for by name — the
+	// listing defaults the same way, to the caller's Me board.
+	view, err := (boardStand{View: in.View}).view(board.ViewMe)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	card, err := svc.CreateInView(ctx, boardID, view, boardservice.CreateCardArgs{
 		Team:           in.Team,
 		Zone:           zone,
 		Size:           size,
@@ -261,7 +287,7 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 		Project:        in.Project,
 		ReviewOf:       in.ReviewOf,
 		StartNewSprint: in.StartNewSprint,
-		Personal:       in.Personal,
+		Parent:         in.Parent,
 	})
 	if err != nil {
 		return nil, apiserver.Card{}, err
@@ -280,15 +306,15 @@ type updateCardInput struct {
 	Size        *string `json:"size,omitempty" jsonschema:"what the card weighs: S (up to ~2h, one action in one place), M (half a day to a day, one deliverable in one component), L (2–5 days, several parts or people) or XL (a week or more, epic-shaped); empty clears it. The board sums sizes as 1/2/4/8 points against each person's weekly capacity, so size the work the card asks for, consistently — not the topic's importance"`
 	Assignee    *string `json:"assignee,omitempty" jsonschema:"GitHub login; empty unassigns"`
 	Progress    *int    `json:"progress,omitempty" jsonschema:"readiness percentage 0..100"`
-	Stage       *string `json:"stage,omitempty" jsonschema:"locked, review, recurrent, refuse or done; empty clears it. REFUSE is the answer of the person the card is on — 'I am not doing this' — and only they may set it (403 otherwise); it leaves the card on the board for their lead to answer. Clearing it is the answer, and anyone may."`
+	Stage       *string `json:"stage,omitempty" jsonschema:"locked, review, recurrent, refuse or done; empty clears it. REFUSE is the answer of the person the card is on — 'I am not doing this' — and only they may set it (403 otherwise); it leaves the card on the board for their lead to answer. Clearing it is the answer, and anyone may. A REVIEW card itself takes neither review nor recurrent: a review of a review is a chain nothing draws, and the asking is one-off by nature."`
 	Recurrence  *string `json:"recurrence,omitempty" jsonschema:"reseed cycle of a recurrent card: empty = every sprint (default), week or month = reseeded by carry-over only once that interval has elapsed since the card's sprint"`
 	Start       *string `json:"start,omitempty" jsonschema:"scheduled day as yyyy-mm-dd: the card joins the sprint active on that day. A FUTURE day parks it off the board until that day arrives (this is how you schedule work ahead, and how the +1 day / +1 week buttons work). Sprints are daily and created as they start, so no sprint covers a future day yet: the card is left with NO sprint while it waits and the carry-over that reaches its day adopts it — expected, not a mis-scheduled card, and setting sprint by hand would only drag it back onto today's board. Empty clears the dates"`
 	End         *string `json:"end,omitempty" jsonschema:"end/due day as yyyy-mm-dd; empty clears it"`
 	Sprint      *string `json:"sprint,omitempty" jsonschema:"sprint start day the card belongs to; empty clears it"`
 	Epic        *string `json:"epic,omitempty" jsonschema:"Project-board column to file the card under; empty clears it. MUST be an EXISTING column from get_board metadata.epics — and columns are identified by the (project, epic) pair, so pass project too unless the card is already in the right project"`
 	Project     *string `json:"project,omitempty" jsonschema:"the project half of the card's column (see epic). Epic names repeat across projects, so filing a card into another project's column needs both"`
-	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an epic) refuses it — its week IS its start date's week, so move the dates instead and the row follows"`
-	Parked      *bool   `json:"parked,omitempty" jsonschema:"put the card on its TEAM's backlog, or take it off with false. Every team has a backlog and nothing declares it. It is the third place a card can be: not a week and not the triage strip, but work somebody has read and put aside — 'not now'. Parking clears the week, the person, the sprint and the dates, takes the card's subtasks off the board with it and withdraws any review of it; giving a parked card a week takes it off the shelf. A Project-board slot and a process turn are refused: their week is another board's to say"`
+	Week        *string `json:"week,omitempty" jsonschema:"the week the card is scheduled for, its Monday as yyyy-mm-dd; empty takes it off the Triage board's weeks. A Project-board slot (a card with an epic) refuses it — its week IS its start date's week, so move the dates instead and the row follows. A process TURN keeps to its own OCCURRENCE: the weeks from the one its task came due in through the week before the next due date, since a turn carried past that stands where the next turn belongs and the two read as one process running twice. Outside it is refused — unless the task accumulates (its turns are meant to pile up), and a turn whose occurrence is already past may still come forward into the CURRENT week, which is the only way back for one whose days ran out"`
+	Parked      *bool   `json:"parked,omitempty" jsonschema:"put the card on its TEAM's backlog, or take it off with false. Every team has a backlog and nothing declares it. It is the third place a card can be: not a week and not the triage strip, but work somebody has read and put aside — 'not now'. Parking clears the week, the person, the sprint and the dates, takes the card's subtasks off the board with it and withdraws any review of it; giving a parked card a week takes it off the shelf. A Project-board slot and a process turn are refused: their week is another board's to say. A REVIEW card and a SUBTASK are refused too — neither has a place of its own to be parked out of, one follows the card it reviews and the other stands inside its parent, so the shelf would take it out of the only place it is drawn"`
 	ReviewOf    *string `json:"reviewOf,omitempty" jsonschema:"uid of the card this one reviews; empty breaks the link"`
 	Parent      *string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep; empty ungroups it back to a standalone card); a subtask keeps its own description/notes/log, feeds the parent's derived progress and rides with it through carry-over"`
 	Process     *string `json:"process,omitempty" jsonschema:"tie the card to an EXISTING process — the recurring shelf's counterpart of a column (a typo is not a new process); empty clears"`
@@ -627,7 +653,7 @@ type addTaskInput struct {
 	Description string `json:"description,omitempty" jsonschema:"the body every iteration will be created with"`
 	Recurrence  string `json:"recurrence" jsonschema:"the cycle: week, 2weeks, month or quarter (required). Counted on the calendar from start, not from when the last iteration closed"`
 	Start       string `json:"start,omitempty" jsonschema:"the calendar anchor the cycle is counted from, yyyy-mm-dd; defaults to today"`
-	Team        string `json:"team,omitempty" jsonschema:"the team the iterations land in — MUST be an existing team key from get_board metadata.teams"`
+	Team        string `json:"team,omitempty" jsonschema:"the team the iterations land in — use a team key from get_board metadata.teams: a name no team carries DECLARES A NEW TEAM rather than failing, so a typo leaves a ghost team on the board"`
 	Assignee    string `json:"assignee,omitempty" jsonschema:"the standing owner (GitHub login); every iteration is assigned to them, the team lead may reassign"`
 	Accumulate  bool   `json:"accumulate,omitempty" jsonschema:"spawn the next iteration even while the previous one is still open, so unpaid months pile up as separate cards. Default false: an open iteration simply goes overdue and the next one waits"`
 }
@@ -840,6 +866,7 @@ func (h *server) deleteCard(ctx context.Context, _ *mcp.CallToolRequest, in card
 // person gave its dialog.
 type removeCardInput struct {
 	cardRef
+	boardStand
 	Intent string `json:"intent,omitempty" jsonschema:"what the x is to do: unassign (empty the working area and leave the card in its week or its column) or off-board (take it away, with the subtasks that were pieces of it). Omit to let the gesture decide, which is what it did before there was a choice. off-board is refused for a Project-board slot and a process turn — those belong to another board's plan; unassign is refused for a card with no week and no column, which would leave it nowhere at all"`
 }
 
@@ -854,7 +881,17 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 	default:
 		return nil, statusOutput{}, fmt.Errorf("unknown intent %q (use unassign, off-board, or leave it out)", in.Intent)
 	}
-	if err := svc.Remove(ctx, boardID, in.UID, intent); err != nil {
+	// The × is a BOARD's gesture: which one it was made from decides whether
+	// this card is yours to remove at all (views.go), and the service is told
+	// the same board — the Me board's × is the narrow one.
+	view, err := (boardStand{View: in.View}).view(board.ViewAll)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := h.gestureOn(ctx, svc, boardID, in.boardStand, boardservice.GestureRemove, in.UID); err != nil {
+		return nil, statusOutput{}, err
+	}
+	if err := svc.Remove(ctx, boardID, in.UID, view, intent); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
@@ -962,6 +999,7 @@ type sendToReviewInput struct {
 	cardRef
 	Reviewer string `json:"reviewer" jsonschema:"GitHub login of the reviewer (required)"`
 	Day      string `json:"day,omitempty" jsonschema:"day as yyyy-mm-dd; defaults to today"`
+	Zone     string `json:"zone,omitempty" jsonschema:"the band the review card lands in for the reviewer: urgent, unplanned (the default), planned or niceToHave. Unplanned is right for nearly everything — for the reviewer it is work that turned up during their day; the original's band says where the WORK stands, not where the asking belongs"`
 }
 
 func (h *server) sendToReview(ctx context.Context, _ *mcp.CallToolRequest, in sendToReviewInput) (*mcp.CallToolResult, apiserver.Card, error) {
@@ -969,7 +1007,11 @@ func (h *server) sendToReview(ctx context.Context, _ *mcp.CallToolRequest, in se
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}
-	review, err := svc.SendToReview(ctx, boardID, in.UID, in.Reviewer, in.Day, "")
+	zone, err := domainZone(in.Zone)
+	if err != nil {
+		return nil, apiserver.Card{}, err
+	}
+	review, err := svc.SendToReview(ctx, boardID, in.UID, in.Reviewer, in.Day, zone)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}

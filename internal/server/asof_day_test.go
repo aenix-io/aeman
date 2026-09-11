@@ -83,7 +83,7 @@ func TestAPastDayHoldsWhatStoodOnItThatDay(t *testing.T) {
 	}
 	srv := gitModeServer(t, remote)
 
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?view=team&team=portal&day="+day+"&snapshot=1", "")
+	rec := do(t, srv, http.MethodGet, "/api/v1/views/team/cards?team=portal&day="+day+"&snapshot=1", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}

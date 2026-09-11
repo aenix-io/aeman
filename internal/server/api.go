@@ -25,12 +25,17 @@ import (
 //
 //	GET    /api/v1                                    public route catalog (no auth)
 //	GET    /api/v1/board                              board identity + team roster
-//	GET    /api/v1/cards                              LIST cards (selectors: view/team/day/user/stage/zone/assignee)
-//	POST   /api/v1/cards                              create a card
+//	GET    /api/v1/views                              the boards a caller may open, and what each draws
+//	GET    /api/v1/views/{view}/cards                 LIST what that board draws (team/day/user/stage/zone/assignee narrow it)
+//	POST   /api/v1/views/{view}/cards                 create the card that board makes
+//	GET    /api/v1/views/{view}/watch                 WebSocket stream of that board (Card/Sprint/Ordering/Board/Load)
+//	POST   /api/v1/views/{view}/cards/{uid}/actions/remove            the board's ×
+//	POST   /api/v1/views/{view}/cards/{uid}/actions/place             the Triage board's drop into a week
+//	POST   /api/v1/views/{view}/cards/{uid}/actions/untriage          back to the strip
+//	POST   /api/v1/views/{view}/cards/{uid}/actions/finished-earlier  a day board's "done in the sprint before"
 //	GET    /api/v1/cards/{uid}                        one card
 //	PATCH  /api/v1/cards/{uid}                        edit spec fields (admission applies the rules)
 //	DELETE /api/v1/cards/{uid}                        hard delete (cascades to the review card)
-//	POST   /api/v1/cards/{uid}/actions/remove         the smart ×
 //	POST   /api/v1/cards/{uid}/actions/move           reorder after another card
 //	POST   /api/v1/cards/{uid}/actions/defer          push the scheduled day N days ahead
 //	POST   /api/v1/cards/{uid}/actions/in-progress    move to the implicit In Progress
@@ -39,6 +44,7 @@ import (
 //	POST   /api/v1/cards/{uid}/actions/remove-reviewer delete the linked review card
 //	GET    /api/v1/cards/{uid}/links                  links from the description (GitHub refs resolved)
 //	GET    /api/v1/cards/{uid}/log                    unified activity feed (events + notes)
+//	GET    /api/v1/logs                               one day's feed for many cards at once
 //	GET    /api/v1/cards/{uid}/notes                  the card's work notes
 //	POST   /api/v1/cards/{uid}/notes                  append a note
 //	PATCH  /api/v1/cards/{uid}/notes/{noteId}         edit a note
@@ -46,17 +52,27 @@ import (
 //	GET    /api/v1/sprints                            per-team sprint pointers
 //	PATCH  /api/v1/sprints                            set a team's pointer directly
 //	POST   /api/v1/sprints/actions/carry-over         advance a sprint, carry unfinished (dryRun)
-//	GET    /api/v1/ordering                           the board-level manual order
-//	GET    /api/v1/watch                              WebSocket stream (Card/Sprint/Ordering/Board/Load events)
+//
+// The BOARD a caller is standing on is a path segment; the card keeps its own
+// address (docs/design/view-scoped-api.md).
 func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1", s.handleAPIIndex)
 	mux.HandleFunc("GET /api/v1/board", s.handleGetBoard)
-	mux.HandleFunc("GET /api/v1/cards", s.handleListCards)
-	mux.HandleFunc("POST /api/v1/cards", s.handleCreateCard)
+	// The BOARD a caller is standing on is a path segment: it scopes a
+	// listing, says what a create means, and says which gestures are on offer
+	// (docs/design/view-scoped-api.md). The card ITSELF is still addressed as
+	// itself below — one uid, one address, whatever board it was found on.
+	mux.HandleFunc("GET /api/v1/views", s.handleListViews)
+	mux.HandleFunc("GET /api/v1/views/{view}/cards", s.handleListCards)
+	mux.HandleFunc("POST /api/v1/views/{view}/cards", s.handleCreateCard)
+	mux.HandleFunc("GET /api/v1/views/{view}/watch", s.handleWatch)
+	mux.HandleFunc("POST /api/v1/views/{view}/cards/{uid}/actions/remove", s.handleRemoveCard)
+	mux.HandleFunc("POST /api/v1/views/{view}/cards/{uid}/actions/place", s.handlePlaceCard)
+	mux.HandleFunc("POST /api/v1/views/{view}/cards/{uid}/actions/untriage", s.handleUntriageCard)
+	mux.HandleFunc("POST /api/v1/views/{view}/cards/{uid}/actions/finished-earlier", s.handleFinishedEarlier)
 	mux.HandleFunc("GET /api/v1/cards/{uid}", s.handleGetCard)
 	mux.HandleFunc("PATCH /api/v1/cards/{uid}", s.handlePatchCard)
 	mux.HandleFunc("DELETE /api/v1/cards/{uid}", s.handleDeleteCard)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove", s.handleRemoveCard)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/move", s.handleMoveCard)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/defer", s.handleDeferCard)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/in-progress", s.handleInProgress)
@@ -66,9 +82,6 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/unmirror", s.handleUnmirror)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-from-project", s.handleRemoveFromProject)
 	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/remove-reviewer", s.handleRemoveReviewer)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/place", s.handlePlaceCard)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/untriage", s.handleUntriageCard)
-	mux.HandleFunc("POST /api/v1/cards/{uid}/actions/finished-earlier", s.handleFinishedEarlier)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/links", s.handleListLinks)
 	mux.HandleFunc("GET /api/v1/cards/{uid}/log", s.handleCardLog)
 	mux.HandleFunc("GET /api/v1/logs", s.handleDayLogs)
@@ -110,9 +123,7 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/me/personal", s.handleGetPersonal)
 	mux.HandleFunc("PUT /api/v1/me/personal", s.handleLinkPersonal)
 	mux.HandleFunc("DELETE /api/v1/me/personal", s.handleUnlinkPersonal)
-	mux.HandleFunc("GET /api/v1/ordering", s.handleGetOrdering)
 	mux.HandleFunc("POST /api/v1/presence", s.handleSetPresence)
-	mux.HandleFunc("GET /api/v1/watch", s.handleWatch)
 }
 
 // apiEndpoint describes one route in the GET /api/v1 catalog.
@@ -140,12 +151,17 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 		MCP:     "/mcp",
 		Endpoints: []apiEndpoint{
 			{"GET", "/api/v1/board", "Board identity, team roster, deadlines, and the Project board's projects and epic columns. The board is the one the server was started with — no addressing parameter; \"project\" is aeman's planning entity"},
-			{"GET", "/api/v1/cards", "List cards as board rows (no descriptions; status.links carries extracted refs); selectors: view=team|me|triage|project, team, day, user, project, stage, zone, assignee, fields=full for complete cards"},
-			{"POST", "/api/v1/cards", "Create a card (joins or starts a sprint; a card scheduled for a week via week)"},
+			{"GET", "/api/v1/views", "The boards a caller may open — me, team, triage, backlog, project, personal, all — and the gestures each draws"},
+			{"GET", "/api/v1/views/{view}/cards", "List the cards that board draws (no descriptions; status.links carries extracted refs); narrowed by team, day, user, project, stage, zone, assignee, fields=full for complete cards"},
+			{"POST", "/api/v1/views/{view}/cards", "Create a card the way that board makes them: me files it on you today, triage schedules it for a week, backlog parks it, personal puts it in your own repository"},
+			{"GET", "/api/v1/views/{view}/watch", "Watch that board over a WebSocket: a card entering the selection arrives as ADDED and one leaving as DELETED (view=all with no selectors is the raw board stream)"},
+			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/remove", "The board's ×: hand the card back to a home it still has, or delete it by that board's rules ({intent})"},
+			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/place", "The Triage board's drop: put the card in a week ({week}, a Monday) — which is what triaging it means"},
+			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/untriage", "The Triage board's opposite: take the card's week away, back to the strip"},
+			{"POST", "/api/v1/views/{view}/cards/{uid}/actions/finished-earlier", "A day board's answer for work done in the sprint before this one and marked done now"},
 			{"GET", "/api/v1/cards/{uid}", "One card in full (the body lives here, not in listings)"},
 			{"PATCH", "/api/v1/cards/{uid}", "Edit spec fields; the server applies clamps, links and date rules"},
 			{"DELETE", "/api/v1/cards/{uid}", "Hard delete (cascades to the linked review card)"},
-			{"POST", "/api/v1/cards/{uid}/actions/remove", "The smart remove: hand the card back to a home it still has, or delete it by the board rules"},
 			{"POST", "/api/v1/cards/{uid}/actions/move", "Reorder after ({after}) or before ({before}) another card; empty = top"},
 			{"POST", "/api/v1/cards/{uid}/actions/defer", "Push the scheduled day {days} ahead of today"},
 			{"POST", "/api/v1/cards/{uid}/actions/reopen", "Undo a done mark: the stage clears and the progress returns to what the card had when done was set (its log records the jump); no history falls back to In Progress"},
@@ -155,9 +171,6 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/cards/{uid}/actions/mirror", "Show the card in a second Project-board column ({project, epic}) — one card, one file, standing in both plans"},
 			{"POST", "/api/v1/cards/{uid}/actions/unmirror", "Take one mirror column away ({project, epic}); the home and everything else stay"},
 			{"POST", "/api/v1/cards/{uid}/actions/remove-from-project", "The Project board's × ({project, epic}): a mirror goes, a home hands its role to the first mirror, the last column takes the card off the plan"},
-			{"POST", "/api/v1/cards/{uid}/actions/place", "Put the card in a week of the Triage board ({week}, a Monday) — which is what triaging it means"},
-			{"POST", "/api/v1/cards/{uid}/actions/untriage", "Take the card's week away: it goes back to the triage strip, waiting for somebody to say when"},
-			{"POST", "/api/v1/cards/{uid}/actions/finished-earlier", "Move a card finished late into the sprint it was actually done in"},
 			{"GET", "/api/v1/cards/{uid}/links", "URLs from the card's description; GitHub issue/PR refs resolved with titles, listed first"},
 			{"GET", "/api/v1/cards/{uid}/log", "The card's activity feed: recorded events (stage/progress/review/week changes) and work notes, one chronological list"},
 			{"GET", "/api/v1/logs", "One day's feed for many cards at once ({day, uids}, at most 200) — what a day board shows, at a fraction of a log per card"},
@@ -197,11 +210,9 @@ func (s *Server) handleAPIIndex(w http.ResponseWriter, _ *http.Request) {
 			{"POST", "/api/v1/teams/actions/capacity", "Set the points a week a team gets through ({team, points}); 0 takes the number back, and the board derives none"},
 			{"PATCH", "/api/v1/people/{login}", "Set the points a week a PERSON gets through ({capacity}); 0 takes the number back. Answers the whole Board resource, whose members carry load and capacity"},
 			{"GET", "/api/v1/me/personal", "The caller's personal board: the repository linked as their own domain ({domain, url}), 404 when none"},
-			{"PUT", "/api/v1/me/personal", "Link a repository the caller can push to as their personal board ({url}); an empty repository is given a board. Personal cards: POST /cards with personal=true, GET /cards?view=personal"},
+			{"PUT", "/api/v1/me/personal", "Link a repository the caller can push to as their personal board ({url}); an empty repository is given a board. Personal cards: POST /api/v1/views/personal/cards, GET /api/v1/views/personal/cards"},
 			{"DELETE", "/api/v1/me/personal", "Unlink the caller's personal board; the repository is left as it is"},
-			{"GET", "/api/v1/ordering", "The board-level manual card order"},
 			{"POST", "/api/v1/presence", "Share the caller's live card selection ({login, card}; empty card clears)"},
-			{"GET", "/api/v1/watch", "WebSocket stream of Card/Sprint/Ordering events; selector-scoped with view params"},
 		},
 	})
 }
@@ -391,27 +402,20 @@ func (s *Server) domainsFor(ctx context.Context, members []string, login string)
 }
 
 func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
-	sel, err := apiserver.ParseSelector(r.URL.Query())
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
+	view, ok := s.viewOf(w, r)
+	if !ok {
+		return
+	}
+	// The board is the path segment, and "who am I" is resolved inside
+	// selectorOf: a Me request needs no user (an explicit ?user= still wins,
+	// for a lead looking at somebody else's day).
+	sel, ok := s.selectorOf(w, r, view)
+	if !ok {
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
-	}
-	// An unspecified view defaults to the caller's personal Me board — their own
-	// cards in the active sprint — since that is where everyone works day to day;
-	// Team is the lead view, requested explicitly with ?view=team, and ?view=all
-	// lists the whole board. "Who am I" is resolved here, server-side, so a Me
-	// request needs no user (an explicit ?user= still wins, e.g. for "view as").
-	if sel.View == "" {
-		sel.View = "me"
-	}
-	if (sel.View == "me" || sel.View == "personal") && sel.User == "" {
-		if _, login, err := s.apiTokens(r); err == nil {
-			sel.User = login
-		}
 	}
 	// The owner reading their personal board is what turns its day over: a
 	// personal board has no carry-over, so the finished recurrent cards that
@@ -456,9 +460,16 @@ func (s *Server) boardOfRequest(r *http.Request, svc *boardservice.Service, boar
 	asked := q.Get("snapshot") == "1" || q.Get("snapshot") == "true"
 	// Only a DAY board has a day to be a record of (G60). The flag is
 	// ignored elsewhere rather than refused: /board and /sprints carry no
-	// view at all, and every reader of them is a day board asking for its
-	// own moment.
-	if !asked || (q.Get("view") != "" && !board.HasRecords(q.Get("view"))) {
+	// board segment at all, and every reader of them is a day board asking
+	// for its own moment.
+	// The board a read belongs to: the path segment where there is one, else
+	// the query — /board and /sprints have no segment and are asked for a
+	// day by the board that is open, which says which view it is.
+	view := r.PathValue("view")
+	if view == "" {
+		view = q.Get("view")
+	}
+	if !asked || (view != "" && !board.HasRecords(view)) {
 		day = ""
 	}
 	bd, records, at, err := svc.BoardOfDay(r.Context(), boardID, day)
@@ -493,19 +504,6 @@ func (s *Server) handleListSprints(w http.ResponseWriter, r *http.Request) {
 		"kind":  "SprintList",
 		"items": apiserver.SprintResources(b),
 	})
-}
-
-func (s *Server) handleGetOrdering(w http.ResponseWriter, r *http.Request) {
-	svc, boardID, ok := s.service(w, r)
-	if !ok {
-		return
-	}
-	b, err := svc.Board(r.Context(), boardID)
-	if err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, apiserver.OrderingResource(b))
 }
 
 // --- Create / patch ------------------------------------------------------------
@@ -545,12 +543,12 @@ type createCardRequest struct {
 }
 
 func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
-	var in createCardRequest
-	if !decodeJSON(w, r, &in) {
+	view, viewOK := s.viewOf(w, r)
+	if !viewOK {
 		return
 	}
-	if in.Title == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "title is required")
+	var in createCardRequest
+	if !decodeJSON(w, r, &in) {
 		return
 	}
 	zone, ok := parseZone(w, in.Zone)
@@ -561,7 +559,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	// attach is refused deeper down as "no write access to the card's
 	// domain" — about a repository its owner plainly owns, with the real
 	// reason left in the server's log. Say it here instead.
-	if in.Personal {
+	if view == board.ViewPersonal || in.Personal {
 		if _, login, err := s.apiTokens(r); err == nil && login != "" {
 			if why, action := s.personalUnavailable(r.Context(), login); why != "" {
 				writeJSONErrorAction(w, http.StatusForbidden, why, action)
@@ -616,7 +614,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if in.Week != "" {
 		args.Week = in.Week
 	}
-	card, err := svc.CreateCard(r.Context(), boardID, args)
+	card, err := svc.CreateInView(r.Context(), boardID, view, args)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -845,15 +843,24 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 	switch intent {
 	case boardservice.RemoveAuto, boardservice.Unassign, boardservice.OffBoard:
 	default:
+		// Before the gate: an intent the × does not have is answered by
+		// reading the body, not by building the board's listing first.
 		writeJSONError(w, http.StatusBadRequest,
 			"unknown intent (use unassign, off-board, or leave it out)")
+		return
+	}
+	view, ok := s.viewOf(w, r)
+	if !ok {
+		return
+	}
+	if !s.gestureOn(w, r, view, boardservice.GestureRemove) {
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
 	}
-	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid"), intent); err != nil {
+	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid"), view, intent); err != nil {
 		s.apiError(w, r, err)
 		return
 	}
@@ -890,10 +897,6 @@ func (s *Server) handleDeferCard(w http.ResponseWriter, r *http.Request) {
 		Days int `json:"days"`
 	}
 	if !decodeJSON(w, r, &in) {
-		return
-	}
-	if in.Days <= 0 {
-		writeJSONError(w, http.StatusBadRequest, "days must be positive")
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
@@ -1013,10 +1016,6 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	if in.Reviewer == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "reviewer is required")
-		return
-	}
 	zone, ok := parseZone(w, in.Zone)
 	if !ok {
 		return
@@ -1027,27 +1026,15 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	uid := r.PathValue("uid")
-	b, err := svc.Board(ctx, boardID)
-	if err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	for _, c := range b.Cards {
-		if c.ReviewOf == uid {
-			if err := svc.ReassignReviewer(ctx, boardID, uid, in.Reviewer, in.Day, zone); err != nil {
-				s.apiError(w, r, err)
-				return
-			}
-			s.cardResponse(w, r, svc, boardID, c.ItemID)
-			return
-		}
-	}
+	// Reassignment is the SERVICE's rule now: sending a card that is already
+	// on review changes who reviews it. It lived here, so the other door grew
+	// a second review card on the same original instead.
 	review, err := svc.SendToReview(ctx, boardID, uid, in.Reviewer, in.Day, zone)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	b, err = svc.Board(ctx, boardID)
+	b, err := svc.Board(ctx, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1071,6 +1058,13 @@ func (s *Server) handleRemoveReviewer(w http.ResponseWriter, r *http.Request) {
 // handlePlaceCard puts a card in a week of the Triage board, which is what
 // triaging it means (docs/design/triage.md).
 func (s *Server) handlePlaceCard(w http.ResponseWriter, r *http.Request) {
+	view, ok := s.viewOf(w, r)
+	if !ok {
+		return
+	}
+	if !s.gestureOn(w, r, view, boardservice.GesturePlace) {
+		return
+	}
 	var in struct {
 		Week string `json:"week"`
 	}
@@ -1094,6 +1088,13 @@ func (s *Server) handlePlaceCard(w http.ResponseWriter, r *http.Request) {
 // not a removal, so it has a door of its own: Remove's law is about emptying
 // the working area, and this fills a different one.
 func (s *Server) handleFinishedEarlier(w http.ResponseWriter, r *http.Request) {
+	view, ok := s.viewOf(w, r)
+	if !ok {
+		return
+	}
+	if !s.gestureOn(w, r, view, boardservice.GestureFinishedEarlier) {
+		return
+	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
@@ -1108,6 +1109,13 @@ func (s *Server) handleFinishedEarlier(w http.ResponseWriter, r *http.Request) {
 
 // handleUntriageCard takes a card out of every week — back to the strip.
 func (s *Server) handleUntriageCard(w http.ResponseWriter, r *http.Request) {
+	view, ok := s.viewOf(w, r)
+	if !ok {
+		return
+	}
+	if !s.gestureOn(w, r, view, boardservice.GestureUntriage) {
+		return
+	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
@@ -1168,10 +1176,6 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 		Text string `json:"text"`
 	}
 	if !decodeJSON(w, r, &in) {
-		return
-	}
-	if in.Text == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "text is required")
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
@@ -2116,7 +2120,10 @@ func (s *Server) applyPlacementPatch(w http.ResponseWriter, r *http.Request,
 // apiError maps service errors onto HTTP statuses.
 func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 	switch {
-	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound):
+	case errors.Is(err, boardservice.ErrCardNotFound), errors.Is(err, boardservice.ErrNoteNotFound),
+		// A board nobody has is a route that is not there — the same answer
+		// the door itself gives before the service is reached at all.
+		errors.Is(err, boardservice.ErrNoSuchView):
 		writeJSONError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, boardservice.ErrForbidden),
 		// The Me board's narrower seat: another caller is not wrong about
@@ -2152,6 +2159,15 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		// A list the team does not have, and work another board owns: both
 		// are rules refusing a change, not the forge failing.
 		errors.Is(err, boardservice.ErrNotYoursToPark),
+		// A shelf for a card that has no place of its own, and a process turn
+		// carried out of the occurrence it is a turn of: the board's own
+		// rules, answered as such.
+		errors.Is(err, boardservice.ErrNoPlaceOfItsOwn),
+		// A create carrying a field the board it was made on does not own,
+		// or missing the one that board is: the view refused the change.
+		errors.Is(err, boardservice.ErrNotOnThisBoard),
+		errors.Is(err, boardservice.ErrViewNeedsField),
+		errors.Is(err, boardservice.ErrOutsideCycle),
 		// Work sent back to the sprint it was done in, where there is nothing
 		// to send or nowhere to send it: rules refusing a change, not a forge
 		// failure.
@@ -2170,6 +2186,14 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrNotAMonday),
 		errors.Is(err, boardservice.ErrUnknownSize),
 		errors.Is(err, boardservice.ErrBadCapacity),
+		// Written in this handler until they were found missing from the
+		// other door — the service holds them now, and the answer a caller
+		// gets must not change with the move.
+		errors.Is(err, boardservice.ErrEmptyTitle),
+		errors.Is(err, boardservice.ErrBackwardsDefer),
+		errors.Is(err, boardservice.ErrNoReviewer),
+		errors.Is(err, boardservice.ErrEmptyNote),
+		errors.Is(err, boardservice.ErrEndBeforeStart),
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrTurnProcess),

@@ -16,7 +16,7 @@ func TestAPISizeIsALetterOnTheWayInAndOut(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards",
 		`{"title":"Реализация envoy-gateway","team":"alpha","zone":"planned","size":"l"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())

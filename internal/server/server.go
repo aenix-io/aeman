@@ -683,6 +683,13 @@ func spaHandler(root fs.FS) http.Handler {
 }
 
 // logRequests logs each request with method, path and duration.
+// isWatch reports the board-watch socket, which is SUPPOSED to stay open for
+// hours and is exempt from the slow-request log. It is addressed through the
+// board it watches (/api/v1/views/{view}/watch).
+func isWatch(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/views/") && strings.HasSuffix(path, "/watch")
+}
+
 func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -692,9 +699,9 @@ func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 		// A slow request is the fact that explains every "aeman is down"
 		// report; at Debug they were invisible on production. The watch
 		// socket is exempt — it is SUPPOSED to stay open for hours.
-		case dur > 5*time.Second && !strings.HasPrefix(r.URL.Path, "/api/v1/watch"):
+		case dur > 5*time.Second && !isWatch(r.URL.Path):
 			log.Warn("slow request", "method", r.Method, "path", r.URL.Path, "dur", dur)
-		case dur > time.Second && !strings.HasPrefix(r.URL.Path, "/api/v1/watch"):
+		case dur > time.Second && !isWatch(r.URL.Path):
 			log.Info("slow request", "method", r.Method, "path", r.URL.Path, "dur", dur)
 		default:
 			log.Debug("request", "method", r.Method, "path", r.URL.Path, "dur", dur)
@@ -709,18 +716,13 @@ func clientIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id := r.Header.Get("X-Aeman-Client"); id != "" {
 			r = r.WithContext(withClientID(r.Context(), id))
-			// The card the request ADDRESSES (the {uid} of /cards/{uid}/...)
-			// scopes the echo suppression: only that card's change is the
-			// author's own optimistic state; everything else a request
-			// touches — batch fan-outs, cascades — echoes even to them.
-			if rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/cards/"); ok && rest != "" {
-				uid := rest
-				if i := strings.IndexByte(uid, '/'); i >= 0 {
-					uid = uid[:i]
-				}
-				if uid != "" {
-					r = r.WithContext(withTargetItem(r.Context(), uid))
-				}
+			// The card the request ADDRESSES — by its own address or through
+			// the board a gesture was made from (cardOfPath) — scopes the
+			// echo suppression: only that card's change is the author's own
+			// optimistic state; everything else a request touches (batch
+			// fan-outs, cascades) echoes even to them.
+			if uid := cardOfPath(r.URL.Path); uid != "" {
+				r = r.WithContext(withTargetItem(r.Context(), uid))
 			}
 		}
 		next.ServeHTTP(w, r)

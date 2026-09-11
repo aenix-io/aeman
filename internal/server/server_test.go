@@ -77,7 +77,7 @@ func TestCSRFGuard(t *testing.T) {
 	oauth := &Server{auth: &authManager{}} // OAuth mode
 
 	req := func(method, origin, host string) *http.Request {
-		r := httptest.NewRequest(method, "/api/v1/cards", nil)
+		r := httptest.NewRequest(method, "/api/v1/views/team/cards", nil)
 		r.Host = host
 		if origin != "" {
 			r.Header.Set("Origin", origin)

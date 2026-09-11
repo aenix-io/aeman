@@ -565,6 +565,50 @@ func findTask(b board.Board, id string) (board.Card, bool) {
 	return board.Card{}, false
 }
 
+// guardTurnWeek holds a process TURN inside the occurrence it belongs to.
+//
+// A turn is that occurrence's work wherever inside it somebody has moved the
+// card, and one carried past the next due date stands where the next turn
+// belongs: the two then read as one process running twice, and the projection
+// that asks whether an occurrence has a turn (board.occurrenceHasTurn)
+// answers wrongly for both. The Triage board draws the same bound as the
+// card's grip (triage.gripOf) — the rule lives here because the grip is what
+// a hand can do, not what is true about the board.
+//
+// Two things it does not refuse. A task that ACCUMULATES is meant to pile its
+// turns up, so one standing in another's week is the point. And a turn whose
+// occurrence is already PAST may come forward into the week being worked:
+// its days ran out, it is drawn on no day board at all, and this is the only
+// gesture that brings it back — the Triage board leaves it open by clipping
+// the grip to the weeks on screen, and nine turns on the production board
+// needed exactly that.
+func guardTurnWeek(b board.Board, card board.Card, week string) error {
+	if card.Task == "" || week == "" || week == card.Week {
+		return nil
+	}
+	task, ok := findTask(b, card.Task)
+	if !ok || task.Accumulate {
+		return nil
+	}
+	// Reckoned from where the turn STANDS: that is the occurrence it is a
+	// turn of. A turn with no week yet is in none, so nothing bounds it.
+	anchor := card.Week
+	if anchor == "" {
+		return nil
+	}
+	from, to := board.CycleWindow(task, anchor)
+	if from == "" {
+		return fmt.Errorf("%w: %q has no calendar, so its turn does not move in time", ErrOutsideCycle, task.Title)
+	}
+	if week >= from && week <= to {
+		return nil
+	}
+	if to < board.MondayOf(board.TodayIso()) && week == board.MondayOf(board.TodayIso()) {
+		return nil
+	}
+	return fmt.Errorf("%w: %q is owed in %s..%s", ErrOutsideCycle, task.Title, from, to)
+}
+
 // SpawnIterations files, into `week`, one iteration for every task whose
 // cycle puts a due date inside that week. It is what makes a process run
 // without anyone pressing anything per template: the server's sweep calls

@@ -488,7 +488,7 @@ func TestStaleHeaderOnAPIRead(t *testing.T) {
 
 	get := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/cards?view=all", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/views/all/cards", nil)
 		srv.handler.ServeHTTP(rec, req)
 		return rec
 	}
@@ -565,7 +565,7 @@ func TestCarryOverServedFromSnapshot(t *testing.T) {
 	// Seed the cache (the one allowed upstream load), then age it past the
 	// fresh TTL into the stale window.
 	rec := httptest.NewRecorder()
-	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/cards?view=all", nil))
+	srv.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/views/all/cards", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed read: status = %d (%s)", rec.Code, rec.Body.String())
 	}

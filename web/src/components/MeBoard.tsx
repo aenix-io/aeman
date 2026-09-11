@@ -1949,7 +1949,13 @@ export function MeBoard({
       // Their answer to it is the refused stage, which leaves the card
       // standing where the lead can see it. A card of their own PERSONAL
       // board is all theirs, and a subtask is a piece of its parent.
-      deletable={personal || mayRemove(card, viewMe ?? undefined)}
+      //
+      // Judged by the REAL reader, never by the person they are looking AS
+      // (meboard.mayRemove): the server judges an × by who is making it, and
+      // impersonation never reaches the wire, so a lead viewing as somebody
+      // was offered an × that answered 403. Same seat rule as the refuse
+      // stage one line up.
+      deletable={personal || mayRemove(card, me ?? undefined, !!viewAs)}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}

@@ -27,10 +27,13 @@ import (
 // card could be made in the unplanned zone and moved with a zone patch a
 // moment later, which is two steps and no refusal.
 //
-// What remains is the Me board's own offer: its add form appears in the
-// unplanned zone only (web/src/meboard.ts, acceptsNewCard). That is a
-// statement about what that board is for, and it belongs where the board is
-// drawn rather than in a rule every caller meets.
+// What remains HERE is the raw create, which takes any zone from anyone. The
+// Me board's own offer — its add form appears in the unplanned zone only
+// (web/src/meboard.ts, acceptsNewCard) — is a statement about what that board
+// is for, and it is held one layer up, where the board asking is known:
+// CreateInView, `view=me` (TestEachBoardCreatesItsOwnKindOfCard). That is the
+// difference the old refusal did not have: it could not tell the Me board's
+// add form from the lead's grid, so it refused both.
 func TestAPersonMayPlanTheirOwnWork(t *testing.T) {
 	f := newFake([]board.Card{
 		{ItemID: "pr", Title: board.ProjectStateTitle, Project: "core"},
@@ -76,7 +79,7 @@ func TestAPersonRemovesOnlyTheirOwnCard(t *testing.T) {
 	me := WithActor(ctx, "kvaps")
 
 	f := newBoard()
-	if err := f2svc(f).Remove(me, "acme", "theirs", RemoveAuto); !errors.Is(err, ErrNotYoursToRemove) {
+	if err := f2svc(f).Remove(me, "acme", "theirs", board.ViewAll, RemoveAuto); !errors.Is(err, ErrNotYoursToRemove) {
 		t.Fatalf("removing work planned for me = %v, want ErrNotYoursToRemove", err)
 	}
 	if f.get("theirs") == nil {
@@ -85,21 +88,21 @@ func TestAPersonRemovesOnlyTheirOwnCard(t *testing.T) {
 
 	// My own card, which I made, is mine to take off again.
 	f = newBoard()
-	if err := f2svc(f).Remove(me, "acme", "mine", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(me, "acme", "mine", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatalf("removing my own card: %v", err)
 	}
 
 	// A card on SOMEBODY ELSE is the lead's to remove: the rule speaks about
 	// the person carrying the work, and that is not me here.
 	f = newBoard()
-	if err := f2svc(f).Remove(me, "acme", "somebody-elses", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(me, "acme", "somebody-elses", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatalf("the lead's x on another person's card: %v", err)
 	}
 
 	// A SUBTASK is a piece of the card it hangs under, not work assigned to
 	// anyone: whoever sees the parent may take it away.
 	f = newBoard()
-	if err := f2svc(f).Remove(me, "acme", "kid", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(me, "acme", "kid", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatalf("a subtask of somebody else's card: %v", err)
 	}
 

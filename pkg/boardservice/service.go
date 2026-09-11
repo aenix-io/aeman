@@ -95,6 +95,31 @@ const MaxNoteLen = 4096
 // ErrNoteTooLong is returned when a note exceeds MaxNoteLen.
 var ErrNoteTooLong = fmt.Errorf("note is too long (max %d characters)", MaxNoteLen)
 
+// The four below were written in the HTTP handler, where only one of the two
+// doors passes. MCP walked past every one of them (ADR 0002: every rule lives
+// in the service, where every door arrives), so an agent could do what no
+// person can: file a nameless card, defer work BACKWARDS, ask for a review
+// with nobody to give it, and leave a note with no words in it.
+
+// ErrEmptyTitle is a card, or a rename, with nothing to call it by.
+var ErrEmptyTitle = errors.New("a card needs a title")
+
+// ErrBackwardsDefer is a defer of zero or fewer days. Deferring is the act of
+// putting work OFF; a negative one pulled it back into days already gone.
+var ErrBackwardsDefer = errors.New("defer moves a card forward: days must be positive")
+
+// ErrNoReviewer is a send-to-review naming nobody. A review card exists only
+// because somebody was asked, so there is nothing to create without them.
+var ErrNoReviewer = errors.New("a review needs a reviewer")
+
+// ErrEmptyNote is a note with no words in it.
+var ErrEmptyNote = errors.New("a note needs text")
+
+// ErrEndBeforeStart is a range that finishes before it begins. The calendar
+// cannot draw one and Defer refuses it; SetDates wrote whatever it was given,
+// and a card due before it starts is overdue for ever.
+var ErrEndBeforeStart = errors.New("a card cannot be due before it starts")
+
 // Service performs aeman's board actions. It is stateless: every method loads
 // the board through the backend, computes the change with internal/board logic,
 // then applies it through the backend setters.
@@ -262,6 +287,17 @@ type CreateCardArgs struct {
 // TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
 	// A week is a Monday wherever one is given, this door included.
+	if strings.TrimSpace(args.Title) == "" {
+		return board.Card{}, ErrEmptyTitle
+	}
+	// A size the scale does not know weighs nothing at all on every board
+	// that sums points. SetSize has always refused one; the create door
+	// waved it through, so the same value arrived by the other door.
+	if args.Size != board.SizeNone {
+		if parsed, ok := board.ParseSize(string(args.Size)); !ok || parsed != args.Size {
+			return board.Card{}, fmt.Errorf("%w: %q", ErrUnknownSize, args.Size)
+		}
+	}
 	if err := guardWeek(args.Week); err != nil {
 		return board.Card{}, err
 	}
@@ -916,6 +952,9 @@ func (s *Service) setSprintStartRetry(ctx context.Context, b board.Board, c boar
 // week it had just been sent out of, which is what "+1 week" is meant to get
 // it out of. It mirrors moveStart in Card.tsx + handleDefer in TeamBoard.tsx.
 func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days int) error {
+	if days <= 0 {
+		return fmt.Errorf("%w (got %d)", ErrBackwardsDefer, days)
+	}
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -958,6 +997,9 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 // day itself when no tracked sprint covers it); empty values clear the dates.
 // It mirrors handleSetDates in TeamBoard.tsx.
 func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, end string) error {
+	if start != "" && end != "" && end < start {
+		return fmt.Errorf("%w: %s..%s", ErrEndBeforeStart, start, end)
+	}
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -1077,12 +1119,15 @@ const (
 // (cascading its review card; subtasks are freed into standalone cards). What
 // it carries changes nothing here — the UI asks first when there is work to
 // lose.
-func (s *Service) Remove(ctx context.Context, boardID string, itemID string, intent RemoveIntent) error {
+func (s *Service) Remove(ctx context.Context, boardID string, itemID string, view board.View, intent RemoveIntent) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
 	}
 	if err := removingSomebodyElsesCard(ctx, c); err != nil {
+		return err
+	}
+	if err := removingFromOnesOwnBoard(ctx, c, view); err != nil {
 		return err
 	}
 	if board.IsPersonalDomain(c.Domain) {
@@ -1554,9 +1599,11 @@ func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, s
 	if _, known := board.Stages[stage]; !known && stage != board.StageNone {
 		return fmt.Errorf("%w: no such stage %q", ErrInvalidStage, stage)
 	}
-	// A review card is auxiliary and one-off: it cannot be made recurrent.
-	if stage == board.StageRecurrent && card.ReviewOf != "" {
-		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)
+	// A review card is auxiliary and one-off: it cannot be made recurrent,
+	// and it cannot be sent to review either — a review of a review is a
+	// chain nothing draws and the stage menu never offered (Card.tsx).
+	if card.ReviewOf != "" && (stage == board.StageRecurrent || stage == board.StageReview) {
+		return fmt.Errorf("%w: a review card cannot be %s", ErrInvalidStage, stage)
 	}
 	// REFUSE is the answer of the person carrying the work, and of nobody
 	// else. The Me board is where the stage is offered, but an agent reaches
@@ -2069,6 +2116,14 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 	if parked && (card.Epic != "" || card.Task != "") {
 		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
 	}
+	// And a REVIEW card or a SUBTASK has no place of its own to be parked
+	// out of: one follows the card it reviews, the other stands inside its
+	// parent. Parking either takes it out of the only place it is drawn and
+	// leaves it where nothing looks — which is why no × ever offered the
+	// shelf for them (removal.ts).
+	if parked && (card.ReviewOf != "" || card.Parent != "") {
+		return fmt.Errorf("%w: %q", ErrNoPlaceOfItsOwn, card.Title)
+	}
 	if err := s.backend.SetBacklog(ctx, b, card, parked); err != nil {
 		return err
 	}
@@ -2172,6 +2227,9 @@ func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week stri
 		}
 		return fmt.Errorf("%w: a slot's week follows its start date — move the dates instead", ErrWeekDerived)
 	}
+	if err := guardTurnWeek(b, card, week); err != nil {
+		return err
+	}
 	// A card is a subtask or a card of its own week, never both (G58) — and a
 	// WEEK given to a standing subtask is how a person says "take it out of
 	// the group and schedule it". A refusal here would leave them with no
@@ -2268,9 +2326,38 @@ func (s *Service) syncReviewLink(ctx context.Context, b board.Board, card board.
 // original's zone (the Team board's and MCP's behaviour). It mirrors
 // handleSendToReview in TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) SendToReview(ctx context.Context, boardID string, itemID, reviewer, day string, zone board.ZoneKey) (board.Card, error) {
+	if strings.TrimSpace(reviewer) == "" {
+		return board.Card{}, ErrNoReviewer
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return board.Card{}, err
+	}
+	// Sending a card that is ALREADY on review changes who reviews it — the
+	// second reviewer replaces the first rather than standing beside them.
+	// Two review cards on one original is a state no board can draw: the
+	// original names one reviewer, and the second card would sit on somebody
+	// with nothing pointing at it. The HTTP handler folded this in by hand,
+	// so the other door grew the second card instead.
+	if _, ok := findReviewCard(b, card.ItemID); ok {
+		if err := s.ReassignReviewer(ctx, boardID, itemID, reviewer, day, zone); err != nil {
+			return board.Card{}, err
+		}
+		// Read the board AGAIN: the reassign does not edit the old review
+		// card in place. A reviewer who had already worked on it keeps their
+		// card — it is unlinked and a fresh one is made for the new reviewer
+		// — and a finished one is reactivated with its progress reset. The
+		// board loaded before the write still holds the old card, so
+		// answering from it hands the caller the reviewer they just replaced.
+		after, err := s.backend.LoadBoard(ctx, boardID)
+		if err != nil {
+			return board.Card{}, err
+		}
+		review, ok := findReviewCard(after, card.ItemID)
+		if !ok {
+			return board.Card{}, ErrCardNotFound
+		}
+		return review, nil
 	}
 	return s.sendToReview(ctx, b, card, reviewer, day, zone)
 }
@@ -2573,6 +2660,12 @@ func (s *Service) setTeamOne(ctx context.Context, b board.Board, card board.Card
 
 // Rename changes a card's title. It mirrors handleRename in TeamBoard.tsx.
 func (s *Service) Rename(ctx context.Context, boardID string, itemID, title string) error {
+	// Nothing on a board can be called nothing — the create has always said
+	// so, and a rename is the same statement made later. A card renamed to
+	// nothing is a blank row on every board that draws it.
+	if strings.TrimSpace(title) == "" {
+		return ErrEmptyTitle
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -2635,6 +2728,12 @@ func (s *Service) EditNote(ctx context.Context, boardID string, itemID, noteID, 
 	if utf8.RuneCountInString(text) > MaxNoteLen {
 		return ErrNoteTooLong
 	}
+	// A note emptied by an edit is a DELETE wearing another gesture's name:
+	// the thread keeps an entry with an author, a time and nothing said. The
+	// delete is the door for that, and it says what it does.
+	if strings.TrimSpace(text) == "" {
+		return ErrEmptyNote
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -2662,6 +2761,9 @@ func (s *Service) DeleteNote(ctx context.Context, boardID string, itemID, noteID
 
 // AddNote appends a work note to a card.
 func (s *Service) AddNote(ctx context.Context, boardID string, itemID, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return ErrEmptyNote
+	}
 	if utf8.RuneCountInString(text) > MaxNoteLen {
 		return ErrNoteTooLong
 	}
@@ -2730,6 +2832,40 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // reviewer could not remove the card, could not refuse it, and clearing the
 // original's stage left it standing: a card on their board with nothing they
 // could do about it at all.
+// removingFromOnesOwnBoard is the narrower × of the ME board: a person takes
+// off their own board what they PUT there and what the plan has not taken up
+// — their own card, still standing in the band that board adds in. Anything
+// else is somebody's plan: work another person scheduled for them, or work
+// they scheduled on the Team or Triage board, where planning is done and where
+// that × lives. Their answer to work they will not do is the REFUSED stage,
+// which leaves the card standing for their lead to see and decide.
+//
+// Authorship alone is not enough and reads as the × coming back: a lead writes
+// most of what they are assigned, so most of their own board would carry one.
+// The band is what says whether the card is still only theirs.
+//
+// A SUBTASK is out of reach of the rule — it is a piece of the card it hangs
+// under rather than work assigned to anyone — as is a card nobody authored
+// (an older write, a direct commit), which no rule about its author can judge.
+// Mirrors web/src/meboard.ts (mayRemove); every other board's × is the wide
+// one and is not touched here.
+func removingFromOnesOwnBoard(ctx context.Context, card board.Card, view board.View) error {
+	actor := board.ActorFrom(ctx)
+	if view != board.ViewMe || actor == "" || card.Parent != "" || card.Author == "" {
+		return nil
+	}
+	// A card of somebody's own PERSONAL board is all theirs, whatever band it
+	// stands in: there is no lead's plan there to be unmade. The column is
+	// drawn beside the Me day and its × is always offered (MeBoard.tsx).
+	if board.IsPersonalDomain(card.Domain) {
+		return nil
+	}
+	if card.Author == actor && board.ZoneOf(card) == board.ZoneYellow {
+		return nil
+	}
+	return fmt.Errorf("%w: it is planned work, and the plan is not this board's to unmake — refuse it instead, or use the board it was planned on", ErrNotYoursToRemove)
+}
+
 func removingSomebodyElsesCard(ctx context.Context, card board.Card) error {
 	actor := board.ActorFrom(ctx)
 	if actor == "" || card.Parent != "" || card.ReviewOf != "" ||

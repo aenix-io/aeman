@@ -199,7 +199,8 @@ export interface PresenceResource {
   card?: string;
 }
 
-/** WatchFrame is one event on the /api/v1/watch WebSocket. */
+/** WatchFrame is one event on a board's watch WebSocket
+ *  (/api/v1/views/{view}/watch). */
 export interface WatchFrame {
   type?: "ADDED" | "MODIFIED" | "DELETED";
   kind?: string;

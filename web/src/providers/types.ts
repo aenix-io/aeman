@@ -316,8 +316,6 @@ export interface CardPatch {
   reviewOf?: string;
   /** Group under another card as a subtask ("" ungroups back to standalone). */
   parent?: string;
-  /** On a review card, its review-round counter (>=2 shown; round 1 implicit). */
-  reviewRound?: number;
   /** Recurrent card's reseed cycle: "" = every sprint, "week" | "month". */
   recurrence?: string;
 }
@@ -365,7 +363,7 @@ export interface Provider {
    *  the pointers and the roster are of the same moment as that day's cards —
    *  the view rules compare a card's sprint against them. */
   loadBoard(query?: Record<string, string>): Promise<Board>;
-  /** The cards of one view (GET /cards with a selector), so the UI loads only
+  /** The cards of one view (GET /views/{view}/cards), so the UI loads only
    *  the active board — Me by default, a team's grid on demand. */
   listCards(query: Record<string, string>): Promise<CardListing>;
 

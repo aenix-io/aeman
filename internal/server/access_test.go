@@ -105,7 +105,7 @@ func doAs(t *testing.T, srv *Server, login, method, target, body string) *httpte
 // see it.
 func cardUID(t *testing.T, srv *Server, login, title string) string {
 	t.Helper()
-	rec := doAs(t, srv, login, http.MethodGet, "/api/v1/cards?view=all", "")
+	rec := doAs(t, srv, login, http.MethodGet, "/api/v1/views/all/cards", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /cards as %s: %d %s", login, rec.Code, rec.Body.String())
 	}
@@ -148,7 +148,7 @@ func TestUnreadableDomainAbsent(t *testing.T) {
 	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"secret"`) || !strings.Contains(rec.Body.String(), `"portal"`) {
 		t.Fatalf("alice's board: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doAs(t, srv, "alice", http.MethodGet, "/api/v1/cards?view=all", "")
+	rec = doAs(t, srv, "alice", http.MethodGet, "/api/v1/views/all/cards", "")
 	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "three-closed") || !strings.Contains(rec.Body.String(), `"one"`) {
 		t.Fatalf("alice's cards: %d %s", rec.Code, rec.Body.String())
 	}
@@ -166,7 +166,7 @@ func TestUnreadableDomainAbsent(t *testing.T) {
 // G17 — no primary, no board.
 func TestUnreadablePrimaryIs403(t *testing.T) {
 	srv := twoDomainServer(t)
-	for _, path := range []string{"/api/v1/board", "/api/v1/cards?view=all"} {
+	for _, path := range []string{"/api/v1/board", "/api/v1/views/all/cards"} {
 		if rec := doAs(t, srv, "carol", http.MethodGet, path, ""); rec.Code != http.StatusForbidden {
 			t.Fatalf("carol GET %s: %d %s, want 403", path, rec.Code, rec.Body.String())
 		}

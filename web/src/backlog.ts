@@ -26,9 +26,19 @@ export function parked(c: Pick<Card, "parked">): boolean {
  *  board's to say — a slot's follows its start date, a turn's is its process's
  *  record of what that week was owed — so parking one here would edit a plan
  *  this board does not own. The server refuses it too (ErrNotYoursToPark);
- *  this is so the board never offers what would come back as an error. */
-export function parkable(c: Pick<Card, "epic" | "task">): boolean {
-  return !c.epic && !c.task;
+ *  this is so the board never offers what would come back as an error.
+ *
+ *  A REVIEW card and a SUBTASK are refused for the other reason: neither has
+ *  a place of its own to be parked out of. One follows the card it reviews,
+ *  the other stands inside its parent, so a shelf takes it out of the only
+ *  place it is drawn. The × already withheld the answer for both
+ *  (removal.ts) while the drawer went on accepting the drop, which made the
+ *  same card parkable or not depending on which gesture was used;
+ *  ErrNoPlaceOfItsOwn is the server's side of it. */
+export function parkable(
+  c: Pick<Card, "epic" | "task" | "reviewOf" | "parent">,
+): boolean {
+  return !c.epic && !c.task && !c.reviewOf && !c.parent;
 }
 
 /** ShelfDrop is what a drop on a team's shelf writes.
