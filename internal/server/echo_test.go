@@ -116,3 +116,41 @@ func TestAddressedCardStaysSuppressed(t *testing.T) {
 		t.Fatalf("the other tab saw %v, want the patch", got)
 	}
 }
+
+// ECHO SUPPRESSION THROUGH A BOARD'S GESTURE, as behaviour rather than as a
+// path table. A tab's own change is not streamed back to it, scoped to the
+// card the request addresses — and a gesture addresses its card through the
+// board it was made from, which is the shape that broke once already.
+func TestATabsOwnGestureIsNotEchoedBackToIt(t *testing.T) {
+	store := newBoardStore()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Title: "one", Progress: 10},
+	}, nil)
+	be := &storeBackend{inner: fake, store: store}
+	svc := boardservice.New(be)
+	ctx := context.Background()
+	if _, err := be.LoadBoard(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	author, cancelA := store.subscribe(storeKey("acme"), "tab-A", nil, map[string]bool{"cards": true})
+	defer cancelA()
+	other, cancelB := store.subscribe(storeKey("acme"), "tab-B", nil, map[string]bool{"cards": true})
+	defer cancelB()
+
+	// The card the gesture addresses, read the way the middleware reads it
+	// from the route a board's × goes through (cardOfPath).
+	uid := cardOfPath("/api/v1/views/team/cards/c1/actions/remove")
+	if uid != "c1" {
+		t.Fatalf("the route addresses %q", uid)
+	}
+	rctx := withTargetItem(withClientID(ctx, "tab-A"), uid)
+	if err := svc.SetProgress(rctx, "acme", "c1", 40); err != nil {
+		t.Fatal(err)
+	}
+	if got := cardTitles(drainFrames(t, author), "MODIFIED"); len(got) != 0 {
+		t.Fatalf("the tab that made the gesture was echoed its own change: %v", got)
+	}
+	if got := cardTitles(drainFrames(t, other), "MODIFIED"); len(got) != 1 {
+		t.Fatalf("the other tab saw %v, want the change", got)
+	}
+}

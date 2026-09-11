@@ -223,3 +223,54 @@ func TestTheCardARouteAddressesIsFoundThroughItsBoardToo(t *testing.T) {
 		}
 	}
 }
+
+// THE DOOR HANDS THE SERVICE THE BOARD. The narrow × of the Me board is a
+// service rule with its own tests, and the plumbing that carries the board to
+// it had none: hardcoding board.ViewAll in either handler left every suite
+// green. This is the wire, tested as a wire — the same card, refused from the
+// board whose × is narrow and taken from the one whose × is wide.
+func TestTheDoorHandsTheServiceTheBoardItWasPressedOn(t *testing.T) {
+	today := board.TodayIso()
+	seed := func() *boardservicetest.Backend {
+		return boardservicetest.New([]board.Card{
+			// Mine, and the plan has taken it up: the Me board draws no × on
+			// it (it is no longer only mine), the team's grid does.
+			{ItemID: "planned", Title: "in the plan", Team: "alpha", Author: "bob",
+				Assignees: []string{"bob"}, Zone: board.ZoneGray, Week: board.MondayOf(today),
+				StartDate: today, Day: today, SprintStart: today},
+		}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	}
+	srv := func(fake *boardservicetest.Backend) *Server {
+		s := apiServer(t, Options{}, fake)
+		s.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+		return s
+	}
+
+	if rec := do(t, srv(seed()), http.MethodPost, "/api/v1/views/me/cards/planned/actions/remove",
+		`{"intent":"unassign"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("the Me board's × on planned work answered %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, srv(seed()), http.MethodPost, "/api/v1/views/team/cards/planned/actions/remove?team=alpha",
+		`{"intent":"unassign"}`); rec.Code != http.StatusOK {
+		t.Fatalf("the team grid's × on the same card answered %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A board can be drawn from more than one listing (board.Panes), and the ×
+// in the Triage board's DRAWER is the Triage board's ×. Collapsing Panes to
+// the view itself left every suite green while every parked card lost its ×.
+func TestTheDrawersCrossIsTheTriageBoards(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "shelved", Title: "someday", Team: "alpha", Parked: true},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	// A parked card is in no week, so the grid's own listing does not hold it
+	// — the drawer beside the grid does, and the board is one screen.
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/triage/cards/shelved/actions/remove?team=alpha",
+		`{"intent":"off-board"}`); rec.Code != http.StatusOK {
+		t.Fatalf("the drawer's × answered %d: %s", rec.Code, rec.Body.String())
+	}
+}
