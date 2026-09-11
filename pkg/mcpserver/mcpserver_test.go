@@ -211,7 +211,9 @@ func TestMCPGetCard(t *testing.T) {
 func TestMCPCreateCard(t *testing.T) {
 	fake := boardservicetest.New(nil, nil)
 	cs := connect(t, Config{Board: "acme"}, fake)
-	res := call(t, cs, "create_card", map[string]any{"team": "alpha", "title": "Hello", "zone": "urgent"})
+	// Typed into the team's grid: urgent is the plan speaking, and the Me
+	// board adds as unplanned and nothing else (boardservice.addsUnplanned).
+	res := call(t, cs, "create_card", map[string]any{"view": "team", "team": "alpha", "title": "Hello", "zone": "urgent"})
 	if len(fake.Creates()) != 1 || fake.Creates()[0].Title != "Hello" {
 		t.Fatalf("creates = %+v", fake.Creates())
 	}
@@ -621,7 +623,7 @@ func TestAnAgentCreatesIntoABoard(t *testing.T) {
 	// Naming no board files the card on the person the agent is acting for,
 	// not in the team's Unassigned column: an engineer who asks for a card
 	// means one of their own, and the listing defaults the same way.
-	call(t, cs, "create_card", map[string]any{"title": "mine", "team": "alpha", "zone": "planned"})
+	call(t, cs, "create_card", map[string]any{"title": "mine", "team": "alpha"})
 	b, err = fake.LoadBoard(context.Background(), "acme")
 	if err != nil {
 		t.Fatal(err)

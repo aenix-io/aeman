@@ -75,6 +75,11 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		if view == board.ViewMe && args.Assignee == "" {
 			args.Assignee = board.ActorFrom(ctx)
 		}
+		if view == board.ViewMe {
+			if err := addsUnplanned(view, &args); err != nil {
+				return args, err
+			}
+		}
 	case board.ViewTriage:
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Personal, "personal"},
@@ -101,6 +106,11 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 		refusals = []viewRefusal{
 			{args.Team != "", "team"}, {args.Epic != "", "epic"},
 			{args.Week != "", "week"}, {args.Parked, "parked"},
+		}
+		// The personal column stands beside the Me day and shares its add
+		// form, so it shares the band it adds in.
+		if err := addsUnplanned(view, &args); err != nil {
+			return args, err
 		}
 		args.Personal = true
 	}
@@ -178,4 +188,31 @@ func Gestures(view board.View) []Gesture {
 		}
 	}
 	return out
+}
+
+// addsUnplanned holds a create on the Me board (and the personal column beside
+// it) to the UNPLANNED band.
+//
+// Something that came up today is unplanned by definition. The other three
+// zones are the PLAN — critical means "today, before anything else", planned
+// means somebody weighed it into the week, "if time left" is a day's spare
+// capacity — and the plan is the lead's to make on the Team board. A person
+// filing their own work under Urgent or Planned is planning, on a board with
+// no room to argue with it: the Me board has no lead's seat and no week to
+// weigh it against.
+//
+// The browser has drawn its add form in that one band all along
+// (web/src/meboard.ts, ADD_ZONE) and nothing else knew. The band a card ends
+// up in is still anybody's to change afterwards — the card's own zone picker
+// is a card-level gesture, made from any board — so this is about where work
+// is FILED, not about where it may stand.
+func addsUnplanned(view board.View, args *CreateCardArgs) error {
+	if args.Zone == board.ZoneNone {
+		args.Zone = board.ZoneYellow
+		return nil
+	}
+	if args.Zone == board.ZoneYellow {
+		return nil
+	}
+	return fmt.Errorf("%w: the %s board adds work as unplanned — the other bands are the plan, and the plan is made on the team's grid", ErrNotOnThisBoard, view)
 }

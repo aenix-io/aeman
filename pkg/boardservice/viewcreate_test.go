@@ -98,6 +98,61 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
+	// THE ME BOARD ADDS WORK AS UNPLANNED and in no other band. Something that
+	// came up today is unplanned by definition; the other three zones are the
+	// PLAN, and the plan is the lead's to make on the Team board — a person
+	// filing their own work under Urgent or Planned is planning, on a board
+	// with no room to argue with it. The browser has drawn its add form in
+	// that one band all along (web/src/meboard.ts, ADD_ZONE); an agent could
+	// type into any of them.
+	t.Run("the Me board adds work as unplanned", func(t *testing.T) {
+		f := seed()
+		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewMe, CreateCardArgs{Title: "came up", Team: "alpha"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Zone != board.ZoneYellow {
+			t.Fatalf("zone = %q, want the unplanned band", c.Zone)
+		}
+	})
+
+	t.Run("and refuses the bands the plan owns", func(t *testing.T) {
+		for _, zone := range []board.ZoneKey{board.ZoneRed, board.ZoneGray, board.ZoneGreen} {
+			f := seed()
+			_, err := f2svc(f).CreateInView(ctx, "acme", board.ViewMe,
+				CreateCardArgs{Title: "planning", Team: "alpha", Zone: zone})
+			if !errors.Is(err, ErrNotOnThisBoard) {
+				t.Fatalf("%s typed into the Me board = %v, want ErrNotOnThisBoard", zone, err)
+			}
+		}
+		// Asking for the band it adds in anyway is not a refusal.
+		f := seed()
+		if _, err := f2svc(f).CreateInView(ctx, "acme", board.ViewMe,
+			CreateCardArgs{Title: "came up", Team: "alpha", Zone: board.ZoneYellow}); err != nil {
+			t.Fatalf("the unplanned band = %v, want it taken", err)
+		}
+	})
+
+	// The personal column stands beside the Me day and shares its add form, so
+	// it shares the band. The LEAD's grid is where the other three are typed:
+	// planning is what that board is for.
+	t.Run("the personal column follows it, the team's grid does not", func(t *testing.T) {
+		f := seed()
+		if _, err := f2svc(f).CreateInView(ctx, "acme", board.ViewPersonal,
+			CreateCardArgs{Title: "mine", Zone: board.ZoneGray}); !errors.Is(err, ErrNotOnThisBoard) {
+			t.Fatalf("a planned personal card = %v, want ErrNotOnThisBoard", err)
+		}
+		f = seed()
+		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTeam,
+			CreateCardArgs{Title: "planned work", Team: "alpha", Zone: board.ZoneGray})
+		if err != nil {
+			t.Fatalf("the lead planning on their own grid = %v, want it taken", err)
+		}
+		if c.Zone != board.ZoneGray {
+			t.Fatalf("zone = %q, want the planned band", c.Zone)
+		}
+	})
+
 	// Every board refuses what it does not own, and says which field it was:
 	// a create that quietly dropped the field would answer with a card that
 	// is not the one the caller described.

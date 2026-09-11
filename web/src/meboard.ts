@@ -13,7 +13,14 @@ import type { ZoneKey } from "./providers/types";
  *  came up today is unplanned by definition; the other three zones are the
  *  plan, and the plan is the lead's to make on the Team board. A person
  *  filing their own work under Urgent or Planned is planning, on a board
- *  with no room to argue with it. */
+ *  with no room to argue with it.
+ *
+ *  The server holds the same band on a create made INTO this board
+ *  (boardservice.addsUnplanned, `view=me` and the personal column beside it):
+ *  it was drawn here and nowhere else, so an agent could type into any of the
+ *  four. Which band a card ends up in is still anybody's to change afterwards
+ *  — the card's own zone picker is a card-level gesture — so the rule is about
+ *  where work is FILED, not where it may stand. */
 export const ADD_ZONE: ZoneKey = "yellow";
 
 /** acceptsNewCard reports whether the Me board offers its "add" form in a

@@ -51,7 +51,7 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+personalRemote.URL+`"}`); rec.Code != http.StatusOK {
 		t.Fatalf("link personal: %d %s", rec.Code, rec.Body.String())
 	}
-	hidden := create("kvaps", "personal", `{"title":"mine alone","zone":"urgent"}`)
+	hidden := create("kvaps", "personal", `{"title":"mine alone","zone":"unplanned"}`)
 	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+mine+"/notes", `{"text":"a note today"}`); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 		t.Fatalf("note: %d %s", rec.Code, rec.Body.String())
 	}

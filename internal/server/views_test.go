@@ -77,6 +77,7 @@ func TestAGestureIsRefusedForACardTheBoardDoesNotDraw(t *testing.T) {
 type createdCard struct {
 	Spec struct {
 		Assignees []string `json:"assignees"`
+		Zone      string   `json:"zone"`
 		Week      string   `json:"week"`
 		Parked    bool     `json:"parked"`
 		Dates     struct {
@@ -108,9 +109,18 @@ func TestACreateMeansWhatTheBoardMeansByIt(t *testing.T) {
 	}
 
 	mine := created(t, do(t, newSrv(), http.MethodPost, "/api/v1/views/me/cards",
-		`{"title":"mine","team":"alpha","zone":"planned"}`))
+		`{"title":"mine","team":"alpha"}`))
 	if len(mine.Spec.Assignees) != 1 || mine.Spec.Assignees[0] != "bob" {
 		t.Fatalf("the Me board filed it on %v, want the caller", mine.Spec.Assignees)
+	}
+	// And in the band it adds in: work that came up today is unplanned, and
+	// the Me board files it nowhere else.
+	if mine.Spec.Zone != "unplanned" {
+		t.Fatalf("the Me board filed it as %q, want unplanned", mine.Spec.Zone)
+	}
+	if rec := do(t, newSrv(), http.MethodPost, "/api/v1/views/me/cards",
+		`{"title":"planning","team":"alpha","zone":"planned"}`); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("planning on the Me board answered %d", rec.Code)
 	}
 	theirs := created(t, do(t, newSrv(), http.MethodPost, "/api/v1/views/team/cards",
 		`{"title":"theirs","team":"alpha","zone":"planned"}`))
