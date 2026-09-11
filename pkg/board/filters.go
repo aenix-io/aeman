@@ -73,7 +73,7 @@ func TeamGrid(b Board, team, day string) []Card {
 		// of the sprint in progress — sent to tomorrow it leaves today's
 		// sprint and arrives tomorrow; sent three days out, the sprint that
 		// opens tomorrow starts without it.
-		if c.SprintStart == day && !deferredPast(c, today) {
+		if inSprintOn(b, c, day, today) && !deferredPast(c, today) {
 			out = append(out, c)
 			continue
 		}
@@ -94,6 +94,25 @@ func TeamGrid(b Board, team, day string) []Card {
 		out = append(out, c)
 	}
 	return out
+}
+
+// inSprintOn reports that a day answers for the card's SPRINT — which is what
+// makes that day hold the sprint's work whatever has become of it, finished
+// included.
+//
+// ONE day does: the day the sprint BEGAN. It is the sprint's own page, the
+// one the "current sprint" jump lands on and the one a lead reads the sprint
+// from, so it holds everything the sprint has been — the work it opened with,
+// the work typed into it since, and the work already closed.
+//
+// Deliberately not every day of a running sprint. That would put the sprint's
+// closed work on today as well, and today is what is in HAND: a card finished
+// on Tuesday would stand on Wednesday, Thursday and Friday of the same sprint,
+// which is the "work nobody is doing appeared on the day" this rule set out to
+// end. The sprint's own day is where that work is read, and the jump goes
+// straight to it.
+func inSprintOn(_ Board, c Card, day, _ string) bool {
+	return c.SprintStart != "" && c.SprintStart == day
 }
 
 // deferredPast reports a card put off to a day later than the one given: it

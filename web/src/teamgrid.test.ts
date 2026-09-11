@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { inHandOn } from "./teamgrid";
+import { inHandOn, inSprintOn } from "./teamgrid";
 import type { Card } from "./providers/types";
 
 const card = (over: Partial<Card>): Card =>
@@ -130,5 +130,31 @@ describe("inHandOn, looking ahead", () => {
     expect(inHandOn(ahead, "2026-09-21", TODAY)).toBe(false);
     // And this week's card does not reach into next week.
     expect(inHandOn(card({ week: "2026-09-07" }), NEXT_MONDAY, TODAY)).toBe(false);
+  });
+});
+
+// The sprint's own day keeps the work it finished — and only that day does.
+// Every other day of the sprint answers "what is in hand". Mirrors
+// board.inSprintOn.
+describe("the sprint's own day keeps the work it finished", () => {
+  const TODAY = "2026-09-11";
+  const OPENED = "2026-09-09";
+
+  it("holds the sprint's finished work on the day it began", () => {
+    const done = card({ sprintStart: OPENED, progress: 100, doneAt: "2026-09-10" });
+    expect(inHandOn(done, OPENED, TODAY)).toBe(true);
+  });
+
+  it("does not drag it onto the other days of the sprint", () => {
+    const done = card({ sprintStart: OPENED, progress: 100, doneAt: "2026-09-10" });
+    expect(inHandOn(done, TODAY, TODAY)).toBe(false);
+    // The day it was finished on still keeps it, as every finished card.
+    expect(inHandOn(done, "2026-09-10", TODAY)).toBe(true);
+  });
+
+  it("answers for one sprint only", () => {
+    expect(inSprintOn(card({ sprintStart: OPENED }), OPENED)).toBe(true);
+    expect(inSprintOn(card({ sprintStart: OPENED }), TODAY)).toBe(false);
+    expect(inSprintOn(card({}), OPENED)).toBe(false);
   });
 });
