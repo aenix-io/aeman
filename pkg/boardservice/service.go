@@ -2844,14 +2844,18 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // most of what they are assigned, so most of their own board would carry one.
 // The band is what says whether the card is still only theirs.
 //
-// A SUBTASK is out of reach of the rule — it is a piece of the card it hangs
-// under rather than work assigned to anyone — as is a card nobody authored
-// (an older write, a direct commit), which no rule about its author can judge.
-// Mirrors web/src/meboard.ts (mayRemove); every other board's × is the wide
-// one and is not touched here.
+// A SUBTASK is out of reach of the rule: it is a piece of the card it hangs
+// under rather than work assigned to anyone. A card nobody authored — an
+// older write, a direct commit — is NOT out of reach: unattributed work is
+// not this person's to take off their own board, which is the answer the
+// board itself gives (web/src/meboard.ts, mayRemove, "leaves a card whose
+// author nothing records"). The two mirrors said opposite things here for a
+// while, the browser drawing no × and the service allowing one.
+//
+// Every other board's × is the wide one and is not touched here.
 func removingFromOnesOwnBoard(ctx context.Context, card board.Card, view board.View) error {
 	actor := board.ActorFrom(ctx)
-	if view != board.ViewMe || actor == "" || card.Parent != "" || card.Author == "" {
+	if view != board.ViewMe || actor == "" || card.Parent != "" {
 		return nil
 	}
 	// A card of somebody's own PERSONAL board is all theirs, whatever band it

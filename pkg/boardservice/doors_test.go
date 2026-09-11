@@ -42,6 +42,11 @@ func TestTheServiceHoldsTheRulesTheHandlerHeld(t *testing.T) {
 		if got := f.get("c1").StartDate; got != before {
 			t.Fatalf("a refused defer still moved the card: %s → %s", before, got)
 		}
+		// Zero is the same request with nothing in it: the rule is days <= 0,
+		// and a defer that moves a card nowhere is a press that did nothing.
+		if err := f2svc(f).Defer(ctx, "acme", "c1", 0); !errors.Is(err, ErrBackwardsDefer) {
+			t.Fatalf("defer 0 = %v, want ErrBackwardsDefer", err)
+		}
 	})
 
 	t.Run("a review needs somebody to review it", func(t *testing.T) {

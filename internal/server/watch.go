@@ -18,9 +18,20 @@ import (
 // stream. Every named board is scoped by the board itself.
 var scopedQueryKeys = []string{"team", "day", "user", "stage", "zone", "assignee"}
 
-// anyOf reports whether the query carries any of the keys.
-func anyOf(q url.Values, keys []string) bool {
-	for _, k := range keys {
+// scopedWatch reports whether a watch is a SCOPED subscription — one that
+// tracks a selection, so a card entering it arrives as ADDED and one leaving
+// as DELETED — rather than the raw board stream, which reports every change
+// and judges membership of nothing.
+//
+// A named BOARD is always scoped: naming one is asking for what it draws. The
+// escape hatch is the raw stream, because "no board" is exactly what an
+// unscoped watch used to say — unless the query narrows it anyway, which is a
+// caller asking for a selection without a board to call it by.
+func scopedWatch(view board.View, q url.Values) bool {
+	if view != board.ViewAll {
+		return true
+	}
+	for _, k := range scopedQueryKeys {
 		if q.Has(k) {
 			return true
 		}
@@ -51,12 +62,8 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// A watch on the escape hatch with nothing narrowing it is the RAW board
-	// stream — every change, no membership deltas — which is what an
-	// unscoped watch used to be. Every other board is a scoped subscription:
-	// a card entering the selection arrives as ADDED, one leaving as DELETED.
 	var sel *apiserver.Selector
-	if view != board.ViewAll || anyOf(q, scopedQueryKeys) {
+	if scopedWatch(view, q) {
 		parsed, parsedOK := s.selectorOf(w, r, view)
 		if !parsedOK {
 			return

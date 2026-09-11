@@ -101,6 +101,16 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
+	// The Project board's own half of the same rule: a card of that board
+	// stands in a COLUMN, and one without is on no row at all.
+	t.Run("and a Project create without a column is refused", func(t *testing.T) {
+		f := seed()
+		_, err := f2svc(f).CreateInView(ctx, "acme", board.ViewProject, CreateCardArgs{Title: "a slot", Team: "alpha"})
+		if !errors.Is(err, ErrViewNeedsField) {
+			t.Fatalf("a slot with no column = %v, want ErrViewNeedsField", err)
+		}
+	})
+
 	t.Run("the drawer parks it", func(t *testing.T) {
 		f := seed()
 		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewBacklog, CreateCardArgs{Title: "someday", Team: "alpha"})
@@ -337,6 +347,27 @@ func TestTheMeBoardsRemovalIsTheNarrowOne(t *testing.T) {
 			Domain: board.PersonalDomain("kvaps"), StartDate: today, Day: today})
 		if err := f2svc(f).Remove(me, "acme", "own", board.ViewMe, RemoveAuto); err != nil {
 			t.Fatalf("removing my own personal card = %v, want it taken", err)
+		}
+	})
+
+	// A card nobody authored is NOT out of reach: unattributed work — an
+	// older write, a direct commit — is not this person's to take off their
+	// own board, which is what the board itself answers (meboard.ts).
+	t.Run("and a card nothing attributes is nobody's to take off it", func(t *testing.T) {
+		f := seed()
+		f.b.Cards = append(f.b.Cards, board.Card{ItemID: "stray", Title: "from nowhere", Team: "alpha",
+			Assignees: []string{"kvaps"}, Zone: board.ZoneYellow, Week: board.MondayOf(today),
+			StartDate: today, Day: today, SprintStart: today})
+		if err := f2svc(f).Remove(me, "acme", "stray", board.ViewMe, Unassign); !errors.Is(err, ErrNotYoursToRemove) {
+			t.Fatalf("removing an unattributed card from my own board = %v, want ErrNotYoursToRemove", err)
+		}
+		// The team's grid still takes it: that × is the wide one.
+		f2 := seed()
+		f2.b.Cards = append(f2.b.Cards, board.Card{ItemID: "stray", Title: "from nowhere", Team: "alpha",
+			Assignees: []string{"kvaps"}, Zone: board.ZoneYellow, Week: board.MondayOf(today),
+			StartDate: today, Day: today, SprintStart: today})
+		if err := f2svc(f2).Remove(me, "acme", "stray", board.ViewTeam, Unassign); err != nil {
+			t.Fatalf("the team grid's × on the same card = %v, want it taken", err)
 		}
 	})
 
