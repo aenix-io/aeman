@@ -43,3 +43,20 @@ func TestTheEscapeHatchIsNamed(t *testing.T) {
 	}
 	t.Fatal("Views() must list the escape hatch too — it is a value the API takes")
 }
+
+// Which boards a listing narrows by TEAM. A gesture is judged against the
+// listing its board answered, so a gate that pinned a team where the board
+// asked for none would refuse work the board is drawing.
+func TestOnlySomeBoardsAreScopedByTeam(t *testing.T) {
+	t.Parallel()
+	for _, v := range []View{ViewTeam, ViewTriage, ViewBacklog} {
+		if !ScopedByTeam(v) {
+			t.Errorf("%s lists one team's work and says it does not", v)
+		}
+	}
+	for _, v := range []View{ViewMe, ViewPersonal, ViewProject, ViewAll} {
+		if ScopedByTeam(v) {
+			t.Errorf("%s lists every team and says it is narrowed by one", v)
+		}
+	}
+}

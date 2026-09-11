@@ -79,10 +79,11 @@ func (s *Server) gestureOn(w http.ResponseWriter, r *http.Request, view board.Vi
 		return false
 	}
 	uid := r.PathValue("uid")
-	if sel.Team == "" && namesATeam(view) {
+	if sel.Team == "" && board.ScopedByTeam(view) {
 		// The card's own team, so a caller that named no team is judged on
 		// the grid the card is actually drawn on rather than on the no-team
-		// group's. Only where the LISTING names one: the Me, personal and
+		// group's. Only where the LISTING names one (board.ScopedByTeam):
+		// the Me, personal and
 		// Project boards list every team, so filling it there would ask a
 		// stricter question than the board answered — a subtask whose team
 		// differs from its parent's drops the parent out of the Me listing,
@@ -112,13 +113,6 @@ func (s *Server) gestureOn(w http.ResponseWriter, r *http.Request, view board.Vi
 		return false
 	}
 	return true
-}
-
-// namesATeam reports the boards whose LISTING is scoped by a team — the ones
-// a gesture may be judged on the card's own team for. The others list every
-// team, and "" is already the answer they gave.
-func namesATeam(view board.View) bool {
-	return view == board.ViewTeam || view == board.ViewTriage || view == board.ViewBacklog
 }
 
 // viewResource is one board in the catalog.

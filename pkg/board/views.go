@@ -71,3 +71,17 @@ func Panes(v View) []View {
 		return []View{v}
 	}
 }
+
+// ScopedByTeam reports the boards whose LISTING is narrowed by a team: the
+// lead's grid, the weeks and the drawer all ask for one. The Me board, the
+// personal column and the Project grid list every team, and "" is the answer
+// they give.
+//
+// It is a fact about a BOARD, which is why it lives here rather than in either
+// door: a gesture is judged against the listing its board answered, and a gate
+// that pinned a team the listing never asked for would refuse work the board
+// is drawing (a subtask of another team rides into the Me view on its parent).
+// The two doors asked it separately once, held together by a comment.
+func ScopedByTeam(v View) bool {
+	return v == ViewTeam || v == ViewTriage || v == ViewBacklog
+}
