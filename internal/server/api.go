@@ -844,7 +844,7 @@ func (s *Server) handleRemoveCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid"), intent); err != nil {
+	if err := svc.Remove(r.Context(), boardID, r.PathValue("uid"), view, intent); err != nil {
 		s.apiError(w, r, err)
 		return
 	}

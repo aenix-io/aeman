@@ -84,7 +84,9 @@ ctx = board.WithActor(ctx, "octocat") // commits are authored by the actor
 // by its primary repository:
 b, _ := svc.Board(ctx, "aeman-db")           // load
 _ = svc.Defer(ctx, "aeman-db", uid, 1)       // the +1d rule, incl. same-day relocation
-_ = svc.Remove(ctx, "aeman-db", uid, boardservice.Unassign) // or OffBoard, or "" to let the gesture decide
+// The × is a BOARD's gesture: the view says which board it was made from, and
+// the Me board's × is narrower than the team grid's (board.ViewAll = no board).
+_ = svc.Remove(ctx, "aeman-db", uid, board.ViewAll, boardservice.Unassign) // or OffBoard, or "" to let the gesture decide
 rep, _ := svc.CarryOver(ctx, "aeman-db", "team", false)
 _ = repo.Push(ctx, remote)                   // one push for what accumulated
 ```

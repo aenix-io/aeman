@@ -1314,7 +1314,7 @@ func TestRemoveGridDeletesFromCurrentSprint(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: "2026-01-10",
 		SprintStart: "2026-01-10", Day: "2026-01-12"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if c := f.get("c1"); c != nil {
@@ -1333,7 +1333,7 @@ func TestRemoveGridDeletesFromCurrentSprint(t *testing.T) {
 func TestRemoveGridDeletesACardOutsideTheCurrentSprintWithNowhereElseToBe(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-03"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c1") != nil {
@@ -1348,7 +1348,7 @@ func TestRemoveGridLeavesACardThatIsScheduledForAWeek(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-03",
 		StartDate: "2026-01-03", Day: "2026-01-03", Week: "2026-01-05"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("c1")
@@ -1366,7 +1366,7 @@ func TestRemoveGridLeavesACardThatIsScheduledForAWeek(t *testing.T) {
 func TestRemoveGridDeletesWhenNoPreviousSprintAndNowhereElse(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", SprintStart: "2026-01-10"}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c1") != nil {
@@ -1384,7 +1384,7 @@ func TestRemoveGridReleasesProjectCardInsteadOfDeleting(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", Epic: "Journal", Project: "Portal",
 		StartDate: board.TodayIso(), SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("c1")
@@ -1407,7 +1407,7 @@ func TestRemoveGridDeletesAnAssignedButUntouchedCard(t *testing.T) {
 	f := newFake([]board.Card{{ItemID: "c1", Team: "alpha", StartDate: board.TodayIso(),
 		SprintStart: "2026-01-10", Assignees: []string{"bob"}}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("c1") != nil {
@@ -1424,7 +1424,7 @@ func TestRemoveGridHandsBackAWorkedCardIntoItsWeek(t *testing.T) {
 		SprintStart: "2026-01-10", Assignees: []string{"bob"}, Progress: 40,
 		Week: board.MondayOf(board.TodayIso())}},
 		map[string]board.SprintState{"alpha": {Current: "2026-01-10", Previous: "2026-01-03"}})
-	if err := f2svc(f).Remove(ctx, "acme", "c1", RemoveAuto); err != nil {
+	if err := f2svc(f).Remove(ctx, "acme", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("c1")
@@ -1996,7 +1996,7 @@ func TestGridRemoveOnACardTakenOutOfItsWeek(t *testing.T) {
 	}, nil)
 	svc := f2svc(f)
 	for _, id := range []string{"fresh", "worked"} {
-		if err := svc.Remove(ctx, "acme", id, RemoveAuto); err != nil {
+		if err := svc.Remove(ctx, "acme", id, board.ViewAll, RemoveAuto); err != nil {
 			t.Fatal(err)
 		}
 		c := f.get(id)
@@ -2852,7 +2852,7 @@ func TestTheSmartCrossDeletesAWorkedCard(t *testing.T) {
 		{ItemID: "st", Title: board.SprintStateTitle, Team: "t"},
 	}, map[string]board.SprintState{"t": {Current: today, Previous: prev, ItemID: "st"}})
 	svc := New(fake)
-	if err := svc.Remove(t.Context(), "o", "c1", RemoveAuto); err != nil {
+	if err := svc.Remove(t.Context(), "o", "c1", board.ViewAll, RemoveAuto); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := fake.LoadBoard(t.Context(), "o")

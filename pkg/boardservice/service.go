@@ -1119,12 +1119,15 @@ const (
 // (cascading its review card; subtasks are freed into standalone cards). What
 // it carries changes nothing here — the UI asks first when there is work to
 // lose.
-func (s *Service) Remove(ctx context.Context, boardID string, itemID string, intent RemoveIntent) error {
+func (s *Service) Remove(ctx context.Context, boardID string, itemID string, view board.View, intent RemoveIntent) error {
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
 	}
 	if err := removingSomebodyElsesCard(ctx, c); err != nil {
+		return err
+	}
+	if err := removingFromOnesOwnBoard(ctx, c, view); err != nil {
 		return err
 	}
 	if board.IsPersonalDomain(c.Domain) {
@@ -2807,6 +2810,40 @@ func (s *Service) DeleteCard(ctx context.Context, boardID string, itemID string)
 // reviewer could not remove the card, could not refuse it, and clearing the
 // original's stage left it standing: a card on their board with nothing they
 // could do about it at all.
+// removingFromOnesOwnBoard is the narrower × of the ME board: a person takes
+// off their own board what they PUT there and what the plan has not taken up
+// — their own card, still standing in the band that board adds in. Anything
+// else is somebody's plan: work another person scheduled for them, or work
+// they scheduled on the Team or Triage board, where planning is done and where
+// that × lives. Their answer to work they will not do is the REFUSED stage,
+// which leaves the card standing for their lead to see and decide.
+//
+// Authorship alone is not enough and reads as the × coming back: a lead writes
+// most of what they are assigned, so most of their own board would carry one.
+// The band is what says whether the card is still only theirs.
+//
+// A SUBTASK is out of reach of the rule — it is a piece of the card it hangs
+// under rather than work assigned to anyone — as is a card nobody authored
+// (an older write, a direct commit), which no rule about its author can judge.
+// Mirrors web/src/meboard.ts (mayRemove); every other board's × is the wide
+// one and is not touched here.
+func removingFromOnesOwnBoard(ctx context.Context, card board.Card, view board.View) error {
+	actor := board.ActorFrom(ctx)
+	if view != board.ViewMe || actor == "" || card.Parent != "" || card.Author == "" {
+		return nil
+	}
+	// A card of somebody's own PERSONAL board is all theirs, whatever band it
+	// stands in: there is no lead's plan there to be unmade. The column is
+	// drawn beside the Me day and its × is always offered (MeBoard.tsx).
+	if board.IsPersonalDomain(card.Domain) {
+		return nil
+	}
+	if card.Author == actor && board.ZoneOf(card) == board.ZoneYellow {
+		return nil
+	}
+	return fmt.Errorf("%w: it is planned work, and the plan is not this board's to unmake — refuse it instead, or use the board it was planned on", ErrNotYoursToRemove)
+}
+
 func removingSomebodyElsesCard(ctx context.Context, card board.Card) error {
 	actor := board.ActorFrom(ctx)
 	if actor == "" || card.Parent != "" || card.ReviewOf != "" ||

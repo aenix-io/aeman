@@ -135,7 +135,7 @@ func TestHeadlessServesTwoSessions(t *testing.T) {
 	}
 
 	if _, err := a.CallTool(t.Context(), &mcp.CallToolParams{
-		Name:      "create_card",
+		Name: "create_card",
 		// Typed into the team's grid, where planned work is planned: the Me
 		// board adds as unplanned and nothing else (boardservice.addsUnplanned).
 		Arguments: map[string]any{"view": "team", "team": "alpha", "title": "shared", "zone": "planned"},

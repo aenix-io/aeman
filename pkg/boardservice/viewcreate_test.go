@@ -238,3 +238,75 @@ func TestAGestureIsOfferedByTheBoardThatDrawsIt(t *testing.T) {
 		t.Fatalf("the Triage board draws %v", Gestures(board.ViewTriage))
 	}
 }
+
+// THE × ON THE ME BOARD IS NARROWER THAN THE ONE ON THE TEAM'S GRID, and only
+// the browser knew (web/src/meboard.ts, mayRemove). A person removes from
+// their own board what they put there themselves and what the plan has not
+// taken up: their own card, still standing in the band this board adds in.
+// Anything else is somebody's plan — work another person scheduled for them,
+// or work they scheduled on the Team or Triage board, where that × lives —
+// and their answer to work they will not do is the refused stage, which
+// leaves the card standing for their lead.
+func TestTheMeBoardsRemovalIsTheNarrowOne(t *testing.T) {
+	me := WithActor(ctx, "kvaps")
+	today := board.TodayIso()
+	seed := func() *fakeBackend {
+		return newFake([]board.Card{
+			{ItemID: "mine", Title: "came up today", Team: "alpha", Author: "kvaps",
+				Assignees: []string{"kvaps"}, Zone: board.ZoneYellow, Week: board.MondayOf(today),
+				StartDate: today, Day: today, SprintStart: today},
+			{ItemID: "planned", Title: "in the plan", Team: "alpha", Author: "kvaps",
+				Assignees: []string{"kvaps"}, Zone: board.ZoneGray, Week: board.MondayOf(today),
+				StartDate: today, Day: today, SprintStart: today},
+		}, map[string]board.SprintState{"alpha": {Current: today}})
+	}
+
+	t.Run("takes a card this person added here", func(t *testing.T) {
+		f := seed()
+		if err := f2svc(f).Remove(me, "acme", "mine", board.ViewMe, Unassign); err != nil {
+			t.Fatalf("removing my own unplanned card = %v, want it taken", err)
+		}
+	})
+
+	// The lead moved it into the plan: it is the plan's now, and the answer to
+	// "I am not doing this" is the refused stage.
+	t.Run("leaves a card the plan has taken up", func(t *testing.T) {
+		f := seed()
+		if err := f2svc(f).Remove(me, "acme", "planned", board.ViewMe, Unassign); !errors.Is(err, ErrNotYoursToRemove) {
+			t.Fatalf("removing planned work from my own board = %v, want ErrNotYoursToRemove", err)
+		}
+	})
+
+	// The same card, from the board where planning is done, is the lead's to
+	// take off — that × is the wide one and always was.
+	t.Run("and the team's grid takes it", func(t *testing.T) {
+		f := seed()
+		if err := f2svc(f).Remove(me, "acme", "planned", board.ViewTeam, Unassign); err != nil {
+			t.Fatalf("the team board's × on planned work = %v, want it taken", err)
+		}
+	})
+
+	// A card of the person's OWN personal board is all theirs, whatever band
+	// it stands in: there is no lead's plan there to be unmade, and the
+	// column beside the Me day draws its × on every card.
+	t.Run("a personal card is all its owner's", func(t *testing.T) {
+		f := seed()
+		f.b.Cards = append(f.b.Cards, board.Card{ItemID: "own", Title: "read the paper",
+			Author: "kvaps", Assignees: []string{"kvaps"}, Zone: board.ZoneGray,
+			Domain: board.PersonalDomain("kvaps"), StartDate: today, Day: today})
+		if err := f2svc(f).Remove(me, "acme", "own", board.ViewMe, RemoveAuto); err != nil {
+			t.Fatalf("removing my own personal card = %v, want it taken", err)
+		}
+	})
+
+	// A SUBTASK is out of the rule's reach: it is a piece of the card it hangs
+	// under rather than work assigned to anyone.
+	t.Run("a subtask is a piece of its parent, not somebody's plan", func(t *testing.T) {
+		f := seed()
+		f.b.Cards = append(f.b.Cards, board.Card{ItemID: "step", Title: "a step", Team: "alpha",
+			Parent: "planned", Author: "carol", Zone: board.ZoneGray, StartDate: today, Day: today, SprintStart: today})
+		if err := f2svc(f).Remove(me, "acme", "step", board.ViewMe, RemoveAuto); err != nil {
+			t.Fatalf("removing a subtask from my own board = %v, want it taken", err)
+		}
+	})
+}

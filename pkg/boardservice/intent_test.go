@@ -35,7 +35,7 @@ func intentBoard() *fakeBackend {
 // belongs — its week, or its column. It never destroys anything.
 func TestUnassignLeavesTheCardInItsWeek(t *testing.T) {
 	f := intentBoard()
-	if err := New(f).Remove(ctx, "acme", "plain", Unassign); err != nil {
+	if err := New(f).Remove(ctx, "acme", "plain", board.ViewAll, Unassign); err != nil {
 		t.Fatal(err)
 	}
 	c := f.get("plain")
@@ -55,7 +55,7 @@ func TestUnassignLeavesTheCardInItsWeek(t *testing.T) {
 // pieces of it go along — which is what the dialog says will happen.
 func TestOffTheBoardTakesTheCardAndItsPieces(t *testing.T) {
 	f := intentBoard()
-	if err := New(f).Remove(ctx, "acme", "plain", OffBoard); err != nil {
+	if err := New(f).Remove(ctx, "acme", "plain", board.ViewAll, OffBoard); err != nil {
 		t.Fatal(err)
 	}
 	if f.get("plain") != nil {
@@ -74,14 +74,14 @@ func TestOffTheBoardTakesTheCardAndItsPieces(t *testing.T) {
 func TestOffTheBoardIsRefusedForWorkThatIsNotThisBoardsToDestroy(t *testing.T) {
 	for _, id := range []string{"slot", "turn"} {
 		f := intentBoard()
-		if err := New(f).Remove(ctx, "acme", id, OffBoard); !errors.Is(err, ErrNotYoursToDestroy) {
+		if err := New(f).Remove(ctx, "acme", id, board.ViewAll, OffBoard); !errors.Is(err, ErrNotYoursToDestroy) {
 			t.Fatalf("%s off the board = %v, want ErrNotYoursToDestroy", id, err)
 		}
 		if f.get(id) == nil {
 			t.Fatalf("%s: the refusal fires before the write", id)
 		}
 		// Unassign is the answer they do take.
-		if err := New(f).Remove(ctx, "acme", id, Unassign); err != nil {
+		if err := New(f).Remove(ctx, "acme", id, board.ViewAll, Unassign); err != nil {
 			t.Fatalf("%s unassign: %v", id, err)
 		}
 		if got := f.get(id); got == nil || len(got.Assignees) != 0 {
@@ -99,7 +99,7 @@ func TestUnassignNeedsSomewhereToLeaveTheCard(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", Assignees: []string{"kvaps"},
 			SprintStart: today, StartDate: today, Day: today},
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
-	if err := New(f).Remove(ctx, "acme", "c1", Unassign); !errors.Is(err, ErrNowhereToLeaveIt) {
+	if err := New(f).Remove(ctx, "acme", "c1", board.ViewAll, Unassign); !errors.Is(err, ErrNowhereToLeaveIt) {
 		t.Fatalf("unassign with nowhere to land = %v, want ErrNowhereToLeaveIt", err)
 	}
 	if f.get("c1") == nil {
@@ -134,7 +134,7 @@ func TestUnassignNeverDeletes(t *testing.T) {
 			{ItemID: "ahead", Team: "alpha", Week: board.MondayOf(today)},
 			c,
 		}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
-		if err := New(f).Remove(ctx, "acme", c.ItemID, Unassign); err != nil {
+		if err := New(f).Remove(ctx, "acme", c.ItemID, board.ViewAll, Unassign); err != nil {
 			t.Fatalf("%s: unassign = %v", c.ItemID, err)
 		}
 		got := f.get(c.ItemID)

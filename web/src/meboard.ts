@@ -43,7 +43,13 @@ export function acceptsNewCard(zone: ZoneKey): boolean {
  *
  *  A SUBTASK is out of the rule's reach: it is a piece of the card it hangs
  *  under rather than work assigned to anyone, so whoever can see the parent
- *  can add one and take it away again. */
+ *  can add one and take it away again. A card of the person's own PERSONAL
+ *  board is all theirs too (the column beside the day draws its × on every
+ *  card): there is no lead's plan there to be unmade.
+ *
+ *  The server holds the same rule for an × made FROM this board
+ *  (boardservice.removingFromOnesOwnBoard, `view=me`): it lived here and
+ *  nowhere else, so every other caller got the wide × of the team's grid. */
 export function mayRemove(
   c: { author?: string; parent?: string; zone?: ZoneKey },
   me: string | undefined,

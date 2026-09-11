@@ -884,11 +884,16 @@ func (h *server) removeCard(ctx context.Context, _ *mcp.CallToolRequest, in remo
 		return nil, statusOutput{}, fmt.Errorf("unknown intent %q (use unassign, off-board, or leave it out)", in.Intent)
 	}
 	// The × is a BOARD's gesture: which one it was made from decides whether
-	// this card is yours to remove at all (views.go).
+	// this card is yours to remove at all (views.go), and the service is told
+	// the same board — the Me board's × is the narrow one.
+	view, err := (boardStand{View: in.View}).view(board.ViewAll)
+	if err != nil {
+		return nil, statusOutput{}, err
+	}
 	if err := h.gestureOn(ctx, svc, boardID, in.boardStand, boardservice.GestureRemove, in.UID); err != nil {
 		return nil, statusOutput{}, err
 	}
-	if err := svc.Remove(ctx, boardID, in.UID, intent); err != nil {
+	if err := svc.Remove(ctx, boardID, in.UID, view, intent); err != nil {
 		return nil, statusOutput{}, err
 	}
 	return nil, statusOutput{Status: "removed", UID: in.UID}, nil
