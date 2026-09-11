@@ -285,8 +285,14 @@ func TestAGestureIsOfferedByTheBoardThatDrawsIt(t *testing.T) {
 			t.Fatalf("view=all refused %s", g)
 		}
 	}
-	if len(Gestures(board.ViewTriage)) != 3 {
-		t.Fatalf("the Triage board draws %v", Gestures(board.ViewTriage))
+	// In a stable order, because a client reads this instead of being told
+	// the surface: the × first, then the board's own presses.
+	if got := Gestures(board.ViewTriage); len(got) != 3 ||
+		got[0] != GestureRemove || got[1] != GesturePlace || got[2] != GestureUntriage {
+		t.Fatalf("the Triage board draws %v, want remove, place, untriage in that order", got)
+	}
+	if got := Gestures(board.ViewProject); len(got) != 1 || got[0] != GestureRemove {
+		t.Fatalf("the Project board draws %v, want the × alone", got)
 	}
 }
 

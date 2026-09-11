@@ -628,12 +628,17 @@ func TestAnAgentCreatesIntoABoard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mine := false
 	for _, c := range b.Cards {
 		if c.Title == "mine" {
+			mine = true
 			if len(c.Assignees) != 1 || c.Assignees[0] != "kvaps" {
 				t.Fatalf("a card created with no board named = %v, want the caller", c.Assignees)
 			}
 		}
+	}
+	if !mine {
+		t.Fatal("the card was never created, so the assignee was never checked")
 	}
 
 	// And a board refuses the fields it does not own, by name. A card filed

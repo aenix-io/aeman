@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -188,15 +189,29 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 	if out.Kind != "ViewList" || len(out.Items) != len(board.Views()) {
 		t.Fatalf("catalog = %+v", out)
 	}
+	// Every row, not the first one that matches: a client reads this in place
+	// of being told the surface, so the whole map is the contract.
+	got := map[string][]string{}
 	for _, v := range out.Items {
-		if v.Name == string(board.ViewTriage) {
-			if len(v.Gestures) != 3 {
-				t.Fatalf("the Triage board draws %v", v.Gestures)
-			}
-			return
+		got[v.Name] = v.Gestures
+	}
+	want := map[string][]string{
+		"me":       {"remove", "finished-earlier"},
+		"team":     {"remove", "finished-earlier"},
+		"triage":   {"remove", "place", "untriage"},
+		"backlog":  {"remove"},
+		"project":  {"remove"},
+		"personal": {"remove"},
+		"all":      {"remove", "place", "untriage", "finished-earlier"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("the catalog lists %v", got)
+	}
+	for name, gestures := range want {
+		if strings.Join(got[name], ",") != strings.Join(gestures, ",") {
+			t.Errorf("the %s board draws %v, want %v", name, got[name], gestures)
 		}
 	}
-	t.Fatal("the Triage board is missing from the catalog")
 }
 
 // WHICH CARD A ROUTE ADDRESSES is read in two places that both changed under
@@ -272,5 +287,29 @@ func TestTheDrawersCrossIsTheTriageBoards(t *testing.T) {
 	if rec := do(t, srv, http.MethodPost, "/api/v1/views/triage/cards/shelved/actions/remove?team=alpha",
 		`{"intent":"off-board"}`); rec.Code != http.StatusOK {
 		t.Fatalf("the drawer's × answered %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The other half of the same rule at the door: the PERSONAL column stands
+// beside the Me day, so its × is the Me board's ×.
+//
+// The card here carries NOBODY, which is the case the second listing exists
+// for: the Me day is a view of a person's work and finds a card by its
+// assignee, while the personal column is a view of a REPOSITORY and draws
+// everything in it. A card written straight into that repository with no
+// assignee is on the screen and in only one of the two listings.
+func TestThePersonalColumnsCrossIsTheMeBoards(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "own", Title: "read the paper", Author: "bob",
+			Zone: board.ZoneGray, Domain: board.PersonalDomain("bob"),
+			StartDate: today, Day: today},
+	}, nil)
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+
+	if rec := do(t, srv, http.MethodPost, "/api/v1/views/me/cards/own/actions/remove",
+		`{"intent":"off-board"}`); rec.Code != http.StatusOK {
+		t.Fatalf("the personal column's × answered %d: %s", rec.Code, rec.Body.String())
 	}
 }
