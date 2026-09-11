@@ -44,12 +44,15 @@ func staleControlFrom(ctx context.Context) *staleControl {
 // stale state: their internal reads must be current (a carry-over picks cards
 // by the live sprint pointer, a move resolves its anchor from the live order),
 // so only GETs opt in. The watch endpoint hijacks the connection and opts in
-// on its own instead of going through the wrapped writer.
+// on its own instead of going through the wrapped writer — the wrapper is not
+// an http.Hijacker, so a watch that reached it could not be upgraded at all
+// (isWatch names the route; when the board moved into the path and this still
+// compared against the old one, every watch answered 501).
 func staleMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet ||
 			!strings.HasPrefix(r.URL.Path, "/api/v1") ||
-			r.URL.Path == "/api/v1/watch" {
+			isWatch(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

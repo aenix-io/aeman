@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/aenix-io/aeman/pkg/board"
+	"github.com/aenix-io/aeman/pkg/boardservice/boardservicetest"
 )
 
 // wsAcceptOptions is strict same-origin in OAuth mode and additionally allows
@@ -60,5 +63,46 @@ func TestWatchOriginEnforced(t *testing.T) {
 	}
 	if err := dial("http://localhost:5173"); err != nil {
 		t.Fatalf("localhost dev origin was rejected: %v", err)
+	}
+}
+
+// THE WATCH IS DIALLED THROUGH THE WHOLE SERVER, not through the handler
+// alone, because what breaks it lives in the middleware: the stale-read
+// wrapper is not an http.Hijacker, so a watch that goes through it cannot be
+// upgraded at all and answers 501. It skipped the watch by comparing the path
+// against a literal — and when the BOARD moved into that path, every watch in
+// the app broke, with nothing but a silent reconnect loop to say so. No test
+// dialled the real route, so the whole suite stayed green.
+func TestTheWatchUpgradesThroughTheMiddleware(t *testing.T) {
+	today := board.TodayIso()
+	fake := boardservicetest.New([]board.Card{
+		{ItemID: "c1", Title: "the work", Team: "alpha", Assignees: []string{"bob"},
+			StartDate: today, Day: today, SprintStart: today},
+	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
+	srv := apiServer(t, Options{}, fake)
+	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
+	ts := httptest.NewServer(srv.handler)
+	defer ts.Close()
+
+	for _, path := range []string{
+		"/api/v1/views/me/watch?day=" + today,
+		"/api/v1/views/all/watch",
+		"/api/v1/views/triage/watch?team=alpha",
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		c, resp, err := websocket.Dial(ctx, "ws"+ts.URL[len("http"):]+path, nil)
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil {
+			code := 0
+			if resp != nil {
+				code = resp.StatusCode
+			}
+			cancel()
+			t.Fatalf("%s did not upgrade (%d): %v", path, code, err)
+		}
+		_ = c.Close(websocket.StatusNormalClosure, "")
+		cancel()
 	}
 }
