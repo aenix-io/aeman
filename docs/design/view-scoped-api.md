@@ -70,7 +70,7 @@ Three things, in the order they bite.
 | --- | --- | --- |
 | `me` | on the caller, `day` (today by default), the team's current sprint | `epic`, `parked`, `personal` |
 | `team` | on `team=`, `day`, that team's current sprint; `assignee` optional (the Unassigned column) | `epic`, `parked`, `personal` |
-| `triage` | scheduled for `week` — no dates, no sprint | `day`, `parked`, `personal` |
+| `triage` | scheduled for `week`; no dates and no sprint, unless the week is the one being WORKED — a card started in the current row belongs to today too | `parked`, `personal`, `epic`, and a `day` in any other week |
 | `backlog` | on `team=`'s shelf: parked, no week, no dates, no sprint | `week`, `day`, `epic` |
 | `project` | a slot under `epic` (+`project`): its row is the week of `dates.start`, no sprint | `parked`, `personal`, `team`-only fields |
 | `personal` | in the caller's own repository: no team, no column, no band | `team`, `epic`, `week`, `parked` |

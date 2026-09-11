@@ -18,12 +18,13 @@ describe("which board a create belongs to", () => {
     expect(createView({ parked: true })).toBe("backlog");
   });
 
-  // A week and no dates is the Triage cell; a week WITH dates is a day card
-  // that also carries its week, which is the day boards' create.
-  it("is a Triage cell when the card is a week's and no day's", () => {
+  // The week is that board's whole gesture, days or no days: a card started
+  // in the row that IS NOW carries today's dates as well and is still a card
+  // of the Triage board (the server takes them for the current week alone).
+  it("is a Triage cell whenever the card is a week's", () => {
     expect(createView({ week: "2026-09-07" })).toBe("triage");
-    expect(createView({ week: "2026-09-07", start: "2026-09-08" })).toBe(
-      "team",
+    expect(createView({ week: "2026-09-07", start: "2026-09-08", day: "2026-09-08" })).toBe(
+      "triage",
     );
   });
 

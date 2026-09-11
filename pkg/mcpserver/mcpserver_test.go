@@ -636,10 +636,13 @@ func TestAnAgentCreatesIntoABoard(t *testing.T) {
 		}
 	}
 
-	// And a board refuses the fields it does not own, by name.
+	// And a board refuses the fields it does not own, by name. A card filed
+	// into a week AHEAD stands on no day: it waits for its Monday (B1). (The
+	// row that is NOW is the exception — that card carries today's days.)
 	if msg := callErr(t, cs, "create_card", map[string]any{
-		"view": "triage", "title": "later", "team": "alpha", "zone": "planned", "week": board.MondayOf(today), "start": today,
+		"view": "triage", "title": "later", "team": "alpha", "zone": "planned",
+		"week": board.AddDays(board.MondayOf(today), 7), "start": today,
 	}); !strings.Contains(msg, "does not take") {
-		t.Fatalf("a dated card typed into a Triage week = %q", msg)
+		t.Fatalf("a dated card typed into a week ahead = %q", msg)
 	}
 }

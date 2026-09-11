@@ -66,6 +66,31 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 		}
 	})
 
+	// The row that IS NOW is the exception, and the board's own add form
+	// relies on it: a card started in the current week belongs to today as
+	// well, so it carries the week AND the days. One started in a week ahead
+	// waits for its Monday and stands on no day at all (B1).
+	t.Run("a card started in the week being worked carries its days", func(t *testing.T) {
+		f := seed()
+		c, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTriage,
+			CreateCardArgs{Title: "now", Team: "alpha", Week: board.MondayOf(today), Start: today, Day: today})
+		if err != nil {
+			t.Fatalf("a card started in the current week = %v, want it taken", err)
+		}
+		if c.Day != today || c.Week != board.MondayOf(today) {
+			t.Fatalf("day/week = %q/%q, want today inside the current week", c.Day, c.Week)
+		}
+	})
+
+	t.Run("and one started in a week ahead does not", func(t *testing.T) {
+		f := seed()
+		ahead := board.AddDays(board.MondayOf(today), 7)
+		if _, err := f2svc(f).CreateInView(ctx, "acme", board.ViewTriage,
+			CreateCardArgs{Title: "later", Team: "alpha", Week: ahead, Start: today, Day: today}); !errors.Is(err, ErrNotOnThisBoard) {
+			t.Fatalf("a dated card filed into a week ahead = %v, want ErrNotOnThisBoard", err)
+		}
+	})
+
 	// The week is the whole gesture there: a column with no week is not a
 	// column, so the board cannot mean anything by it.
 	t.Run("and a Triage create without one is refused", func(t *testing.T) {
@@ -165,7 +190,7 @@ func TestEachBoardCreatesItsOwnKindOfCard(t *testing.T) {
 			{board.ViewMe, CreateCardArgs{Title: "x", Parked: true}, "parked"},
 			{board.ViewMe, CreateCardArgs{Title: "x", Epic: "Auth"}, "epic"},
 			{board.ViewTeam, CreateCardArgs{Title: "x", Personal: true}, "personal"},
-			{board.ViewTriage, CreateCardArgs{Title: "x", Week: "2026-09-07", Day: "2026-09-08"}, "day"},
+			{board.ViewTriage, CreateCardArgs{Title: "x", Week: board.AddDays(board.MondayOf(today), 7), Day: today}, "day"},
 			{board.ViewBacklog, CreateCardArgs{Title: "x", Week: "2026-09-07"}, "week"},
 			{board.ViewPersonal, CreateCardArgs{Title: "x", Team: "alpha"}, "team"},
 			{board.ViewProject, CreateCardArgs{Title: "x", Epic: "Auth", Parked: true}, "parked"},

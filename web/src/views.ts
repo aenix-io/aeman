@@ -40,7 +40,12 @@ export function createView(input: {
   if (input.parked) {
     return "backlog";
   }
-  if (input.week && !input.start && !input.day) {
+  // A WEEK is the Triage board's whole gesture, and it says so even when the
+  // card carries days too: a card started in the row that IS NOW belongs to
+  // today as well (TriageBoard's add form), and it is still a card of that
+  // board. Reading "week and no dates" as the test sent that create to the
+  // team's grid, which refuses a week.
+  if (input.week) {
     return "triage";
   }
   return "team";

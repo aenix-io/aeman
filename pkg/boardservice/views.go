@@ -83,7 +83,13 @@ func createArgsFor(ctx context.Context, view board.View, args CreateCardArgs) (C
 	case board.ViewTriage:
 		refusals = []viewRefusal{
 			{args.Parked, "parked"}, {args.Personal, "personal"},
-			{args.Epic != "", "epic"}, {dated, "a day"},
+			{args.Epic != "", "epic"},
+			// A card of a week AHEAD stands on no day: it waits for its
+			// Monday, and dates on it would say two things at once (B1). The
+			// row that IS NOW is the exception the board's own add form
+			// relies on — a card started in the week being worked belongs to
+			// today as well, and carries the week and the days together.
+			{dated && args.Week != board.MondayOf(board.TodayIso()), "a day"},
 		}
 		if args.Week == "" {
 			return args, fmt.Errorf("%w: a card of the Triage board is a card of a week", ErrViewNeedsField)
