@@ -598,7 +598,9 @@ func TestAnAgentSaysWhichBoardItIsStandingOn(t *testing.T) {
 func TestAnAgentCreatesIntoABoard(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
-	cs := connect(t, Config{Board: "acme"}, fake)
+	cs := connect(t, Config{Board: "acme", ResolveLogin: func(context.Context) (string, error) {
+		return "kvaps", nil
+	}}, fake)
 
 	call(t, cs, "create_card", map[string]any{
 		"view": "backlog", "title": "someday", "team": "alpha", "zone": "planned",
@@ -616,6 +618,22 @@ func TestAnAgentCreatesIntoABoard(t *testing.T) {
 	if !found || !parked {
 		t.Fatalf("a card typed into the drawer: found=%v parked=%v", found, parked)
 	}
+	// Naming no board files the card on the person the agent is acting for,
+	// not in the team's Unassigned column: an engineer who asks for a card
+	// means one of their own, and the listing defaults the same way.
+	call(t, cs, "create_card", map[string]any{"title": "mine", "team": "alpha", "zone": "planned"})
+	b, err = fake.LoadBoard(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range b.Cards {
+		if c.Title == "mine" {
+			if len(c.Assignees) != 1 || c.Assignees[0] != "kvaps" {
+				t.Fatalf("a card created with no board named = %v, want the caller", c.Assignees)
+			}
+		}
+	}
+
 	// And a board refuses the fields it does not own, by name.
 	if msg := callErr(t, cs, "create_card", map[string]any{
 		"view": "triage", "title": "later", "team": "alpha", "zone": "planned", "week": board.MondayOf(today), "start": today,

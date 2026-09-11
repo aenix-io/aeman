@@ -239,7 +239,7 @@ type createCardInput struct {
 	// repository, seen by them alone — instead of the team board.
 	// View is the BOARD the card is typed into, which is what makes it the
 	// kind of card it is; each board refuses the fields it does not own.
-	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: team (the lead's grid — the default: a card on the team, scheduled for a day, in that team's sprint), me (the same but on yourself), triage (scheduled for a WEEK, standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project), personal (your own linked repository, for you alone: no team, no column, no plan band). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
+	View   string `json:"view,omitempty" jsonschema:"the BOARD you are typing the card into, which is what it MEANS: me (the DEFAULT — the card is yours, scheduled for the day, in your team's sprint; it stands on your own board and in your column of the team's grid), team (the lead's grid: the same card for the team, landing in the UNASSIGNED column unless you name an assignee — say this when you are filing work for somebody other than the person you are acting for), triage (scheduled for a WEEK and standing on no day — pass week), backlog (parked on the team's shelf: read and put aside, on no day and in no week), project (a slot under a column — pass epic and project), personal (your own linked repository, for you alone: no team, no column, no plan band). A board refuses what it does not own — a parked card typed into a day, a column named on the Me board — and says which field it was"`
 	Parent string `json:"parent,omitempty" jsonschema:"uid of the card to group this one under as a subtask (one level deep). A card cannot be both a subtask and scheduled for a week of its own: naming a parent and a week together is refused, since grouping hands a subtask's week to its parent"`
 }
 
@@ -256,7 +256,22 @@ func (h *server) createCard(ctx context.Context, _ *mcp.CallToolRequest, in crea
 	if !ok {
 		return nil, apiserver.Card{}, fmt.Errorf("%w: %q (use S, M, L, XL or empty)", boardservice.ErrUnknownSize, in.Size)
 	}
-	view, err := (boardStand{View: in.View}).view(board.ViewTeam)
+	// WHO the agent is acting for, when the transport has not already said:
+	// the Me board files the card on them, and the activity is theirs. Both
+	// transports stamp the actor themselves (stdio's login middleware, the
+	// HTTP session's UserID); this is the same seam the listing uses to
+	// answer "my board", so the two cannot disagree.
+	if board.ActorFrom(ctx) == "" && h.cfg.ResolveLogin != nil {
+		if login, err := h.cfg.ResolveLogin(ctx); err == nil && login != "" {
+			ctx = boardservice.WithActor(ctx, login)
+		}
+	}
+	// No board named means the caller's OWN: an agent is acting for somebody,
+	// and a card filed for them stands on their board and in their column of
+	// the team's grid. The team's own add-box (an unassigned card in the
+	// Unassigned column) is a different thing and is asked for by name — the
+	// listing defaults the same way, to the caller's Me board.
+	view, err := (boardStand{View: in.View}).view(board.ViewMe)
 	if err != nil {
 		return nil, apiserver.Card{}, err
 	}

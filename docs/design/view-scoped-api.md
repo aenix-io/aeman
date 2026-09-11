@@ -110,7 +110,7 @@ These are the cluster-scoped half of the analogy, and it holds better here than 
 
 ## MCP
 
-`create_card` takes `view` and means by it what the HTTP door means (default `team` — the tool's own behaviour before this, a card on the team for a day). `list_cards` keeps `view` as the selector it already was, defaulting to the caller's Me board.
+`create_card` takes `view` and means by it what the HTTP door means. Its default is `me`, the same board the listing defaults to: an agent is acting for somebody, and a card filed for them stands on their own board and in their column of the team's grid. The team's add-box — an unassigned card in the Unassigned column, which its author never sees on their own board — is a different gesture and is asked for by name.
 
 The GESTURES take one too, and here the default is the escape hatch, deliberately: an agent is not standing anywhere. It reaches a card by uid — from a listing, from a title search — and making it work out which board draws that card would be friction with no safety in it, since the rules that matter (whose card it is, what the × may do to it) live in the service and answer every caller alike. Naming a board is how an agent ASKS to be held to one, and then it is refused exactly as the SPA would be.
 
