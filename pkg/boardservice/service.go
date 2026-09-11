@@ -95,6 +95,31 @@ const MaxNoteLen = 4096
 // ErrNoteTooLong is returned when a note exceeds MaxNoteLen.
 var ErrNoteTooLong = fmt.Errorf("note is too long (max %d characters)", MaxNoteLen)
 
+// The four below were written in the HTTP handler, where only one of the two
+// doors passes. MCP walked past every one of them (ADR 0002: every rule lives
+// in the service, where every door arrives), so an agent could do what no
+// person can: file a nameless card, defer work BACKWARDS, ask for a review
+// with nobody to give it, and leave a note with no words in it.
+
+// ErrEmptyTitle is a card, or a rename, with nothing to call it by.
+var ErrEmptyTitle = errors.New("a card needs a title")
+
+// ErrBackwardsDefer is a defer of zero or fewer days. Deferring is the act of
+// putting work OFF; a negative one pulled it back into days already gone.
+var ErrBackwardsDefer = errors.New("defer moves a card forward: days must be positive")
+
+// ErrNoReviewer is a send-to-review naming nobody. A review card exists only
+// because somebody was asked, so there is nothing to create without them.
+var ErrNoReviewer = errors.New("a review needs a reviewer")
+
+// ErrEmptyNote is a note with no words in it.
+var ErrEmptyNote = errors.New("a note needs text")
+
+// ErrEndBeforeStart is a range that finishes before it begins. The calendar
+// cannot draw one and Defer refuses it; SetDates wrote whatever it was given,
+// and a card due before it starts is overdue for ever.
+var ErrEndBeforeStart = errors.New("a card cannot be due before it starts")
+
 // Service performs aeman's board actions. It is stateless: every method loads
 // the board through the backend, computes the change with internal/board logic,
 // then applies it through the backend setters.
@@ -262,6 +287,17 @@ type CreateCardArgs struct {
 // TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) CreateCard(ctx context.Context, boardID string, args CreateCardArgs) (board.Card, error) {
 	// A week is a Monday wherever one is given, this door included.
+	if strings.TrimSpace(args.Title) == "" {
+		return board.Card{}, ErrEmptyTitle
+	}
+	// A size the scale does not know weighs nothing at all on every board
+	// that sums points. SetSize has always refused one; the create door
+	// waved it through, so the same value arrived by the other door.
+	if args.Size != board.SizeNone {
+		if parsed, ok := board.ParseSize(string(args.Size)); !ok || parsed != args.Size {
+			return board.Card{}, fmt.Errorf("%w: %q", ErrUnknownSize, args.Size)
+		}
+	}
 	if err := guardWeek(args.Week); err != nil {
 		return board.Card{}, err
 	}
@@ -916,6 +952,9 @@ func (s *Service) setSprintStartRetry(ctx context.Context, b board.Board, c boar
 // week it had just been sent out of, which is what "+1 week" is meant to get
 // it out of. It mirrors moveStart in Card.tsx + handleDefer in TeamBoard.tsx.
 func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days int) error {
+	if days <= 0 {
+		return fmt.Errorf("%w (got %d)", ErrBackwardsDefer, days)
+	}
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -958,6 +997,9 @@ func (s *Service) Defer(ctx context.Context, boardID string, itemID string, days
 // day itself when no tracked sprint covers it); empty values clear the dates.
 // It mirrors handleSetDates in TeamBoard.tsx.
 func (s *Service) SetDates(ctx context.Context, boardID string, itemID, start, end string) error {
+	if start != "" && end != "" && end < start {
+		return fmt.Errorf("%w: %s..%s", ErrEndBeforeStart, start, end)
+	}
 	b, c, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return err
@@ -2268,9 +2310,28 @@ func (s *Service) syncReviewLink(ctx context.Context, b board.Board, card board.
 // original's zone (the Team board's and MCP's behaviour). It mirrors
 // handleSendToReview in TeamBoard.tsx / MeBoard.tsx.
 func (s *Service) SendToReview(ctx context.Context, boardID string, itemID, reviewer, day string, zone board.ZoneKey) (board.Card, error) {
+	if strings.TrimSpace(reviewer) == "" {
+		return board.Card{}, ErrNoReviewer
+	}
 	b, card, err := s.loadCard(ctx, boardID, itemID)
 	if err != nil {
 		return board.Card{}, err
+	}
+	// Sending a card that is ALREADY on review changes who reviews it — the
+	// second reviewer replaces the first rather than standing beside them.
+	// Two review cards on one original is a state no board can draw: the
+	// original names one reviewer, and the second card would sit on somebody
+	// with nothing pointing at it. The HTTP handler folded this in by hand,
+	// so the other door grew the second card instead.
+	if _, ok := findReviewCard(b, card.ItemID); ok {
+		if err := s.ReassignReviewer(ctx, boardID, itemID, reviewer, day, zone); err != nil {
+			return board.Card{}, err
+		}
+		review, ok := findReviewCard(b, card.ItemID)
+		if !ok {
+			return board.Card{}, ErrCardNotFound
+		}
+		return review, nil
 	}
 	return s.sendToReview(ctx, b, card, reviewer, day, zone)
 }
@@ -2662,6 +2723,9 @@ func (s *Service) DeleteNote(ctx context.Context, boardID string, itemID, noteID
 
 // AddNote appends a work note to a card.
 func (s *Service) AddNote(ctx context.Context, boardID string, itemID, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return ErrEmptyNote
+	}
 	if utf8.RuneCountInString(text) > MaxNoteLen {
 		return ErrNoteTooLong
 	}

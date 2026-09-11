@@ -549,10 +549,6 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	if in.Title == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "title is required")
-		return
-	}
 	zone, ok := parseZone(w, in.Zone)
 	if !ok {
 		return
@@ -892,10 +888,6 @@ func (s *Server) handleDeferCard(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	if in.Days <= 0 {
-		writeJSONError(w, http.StatusBadRequest, "days must be positive")
-		return
-	}
 	svc, boardID, ok := s.service(w, r)
 	if !ok {
 		return
@@ -1013,10 +1005,6 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	if in.Reviewer == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "reviewer is required")
-		return
-	}
 	zone, ok := parseZone(w, in.Zone)
 	if !ok {
 		return
@@ -1027,27 +1015,15 @@ func (s *Server) handleSendToReview(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	uid := r.PathValue("uid")
-	b, err := svc.Board(ctx, boardID)
-	if err != nil {
-		s.apiError(w, r, err)
-		return
-	}
-	for _, c := range b.Cards {
-		if c.ReviewOf == uid {
-			if err := svc.ReassignReviewer(ctx, boardID, uid, in.Reviewer, in.Day, zone); err != nil {
-				s.apiError(w, r, err)
-				return
-			}
-			s.cardResponse(w, r, svc, boardID, c.ItemID)
-			return
-		}
-	}
+	// Reassignment is the SERVICE's rule now: sending a card that is already
+	// on review changes who reviews it. It lived here, so the other door grew
+	// a second review card on the same original instead.
 	review, err := svc.SendToReview(ctx, boardID, uid, in.Reviewer, in.Day, zone)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
 	}
-	b, err = svc.Board(ctx, boardID)
+	b, err := svc.Board(ctx, boardID)
 	if err != nil {
 		s.apiError(w, r, err)
 		return
@@ -1168,10 +1144,6 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 		Text string `json:"text"`
 	}
 	if !decodeJSON(w, r, &in) {
-		return
-	}
-	if in.Text == "" {
-		writeJSONError(w, http.StatusUnprocessableEntity, "text is required")
 		return
 	}
 	svc, boardID, ok := s.service(w, r)
@@ -2170,6 +2142,14 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrNotAMonday),
 		errors.Is(err, boardservice.ErrUnknownSize),
 		errors.Is(err, boardservice.ErrBadCapacity),
+		// Written in this handler until they were found missing from the
+		// other door — the service holds them now, and the answer a caller
+		// gets must not change with the move.
+		errors.Is(err, boardservice.ErrEmptyTitle),
+		errors.Is(err, boardservice.ErrBackwardsDefer),
+		errors.Is(err, boardservice.ErrNoReviewer),
+		errors.Is(err, boardservice.ErrEmptyNote),
+		errors.Is(err, boardservice.ErrEndBeforeStart),
 		errors.Is(err, boardservice.ErrProcessExists),
 		errors.Is(err, boardservice.ErrProcessNotFound),
 		errors.Is(err, boardservice.ErrTurnProcess),
