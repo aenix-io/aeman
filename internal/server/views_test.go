@@ -163,3 +163,28 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 	}
 	t.Fatal("the Triage board is missing from the catalog")
 }
+
+// WHICH CARD A ROUTE ADDRESSES is read in two places that both changed under
+// the boards: the as-of guard judges the write by that card, and the echo
+// suppression scopes a tab's own change to it. Both used to cut the path at a
+// literal prefix, so a gesture made through a board named neither — the guard
+// let a write to a settled day through, and the ×'s own change echoed back at
+// the tab that made it, undoing the optimistic state on screen.
+func TestTheCardARouteAddressesIsFoundThroughItsBoardToo(t *testing.T) {
+	t.Parallel()
+	for path, want := range map[string]string{
+		"/api/v1/cards/c1":                                    "c1",
+		"/api/v1/cards/c1/notes":                              "c1",
+		"/api/v1/views/team/cards/c1/actions/remove":          "c1",
+		"/api/v1/views/triage/cards/c2/actions/place":         "c2",
+		"/api/v1/views/all/cards/c3/actions/finished-earlier": "c3",
+		// A collection addresses no card, and neither does anything else.
+		"/api/v1/views/team/cards": "",
+		"/api/v1/sprints":          "",
+		"/api/v1/board":            "",
+	} {
+		if got := cardOfPath(path); got != want {
+			t.Errorf("cardOfPath(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
