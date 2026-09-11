@@ -47,6 +47,9 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 		}
 		return s.SetDates(ctx, boardID, itemID, board.AddDays(card.StartDate, delta), board.AddDays(card.Day, delta))
 	}
+	if err := guardTurnWeek(b, card, week); err != nil {
+		return err
+	}
 	if card.Parent != "" {
 		if err := s.ungroup(ctx, b, card); err != nil {
 			return err

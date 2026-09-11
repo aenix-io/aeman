@@ -117,3 +117,132 @@ func TestTheServiceHoldsTheRulesTheHandlerHeld(t *testing.T) {
 		}
 	})
 }
+
+// THE SAME ADR, THE OTHER WAY ROUND. These rules were written in the browser
+// — in triage.gripOf, in the stage menu, in removal.ts — so the mouse obeyed
+// them and every other caller did as it pleased. A rule a client draws is
+// still a rule about the board: a turn carried out of its own occurrence
+// stands where the NEXT turn belongs, and the two read as one process running
+// twice, whoever moved it.
+func TestTheServiceHoldsTheRulesOnlyTheBrowserHeld(t *testing.T) {
+	// Monthly, anchored on the 2nd: September's occurrence runs 08-31..09-21
+	// (board.CycleWindow), and October's begins on the 28th.
+	monthly := board.Card{ItemID: "t1", Title: board.ProcessTaskTitle, Process: "ops", Team: "alpha",
+		Description: "backups", Recurrence: board.RecurrenceMonth, StartDate: "2026-09-02"}
+	turns := func(task board.Card) *fakeBackend {
+		return newFake([]board.Card{
+			{ItemID: "pr1", Title: board.ProcessStateTitle, Process: "ops", Team: "alpha"},
+			task,
+			{ItemID: "i1", Title: "backups", Team: "alpha", Task: task.ItemID, Week: "2026-09-07"},
+		}, map[string]board.SprintState{"alpha": {Current: "2026-09-07"}})
+	}
+
+	t.Run("a turn moves inside its own occurrence", func(t *testing.T) {
+		f := turns(monthly)
+		if err := f2svc(f).SetWeek(ctx, "acme", "i1", "2026-09-14"); err != nil {
+			t.Fatalf("a week inside the occurrence = %v, want it taken", err)
+		}
+		if got := f.get("i1").Week; got != "2026-09-14" {
+			t.Fatalf("week = %q, want 2026-09-14", got)
+		}
+	})
+
+	t.Run("and not out of it", func(t *testing.T) {
+		f := turns(monthly)
+		err := f2svc(f).SetWeek(ctx, "acme", "i1", "2026-09-28")
+		if !errors.Is(err, ErrOutsideCycle) {
+			t.Fatalf("October's week for September's turn = %v, want ErrOutsideCycle", err)
+		}
+		if got := f.get("i1").Week; got != "2026-09-07" {
+			t.Fatalf("a refused move still wrote the week: %q", got)
+		}
+	})
+
+	// The Triage board's own door — where the drag actually lands — reaches
+	// the same rule by a different path.
+	t.Run("the Triage board's drop asks the same", func(t *testing.T) {
+		f := turns(monthly)
+		if err := f2svc(f).Place(ctx, "acme", "i1", "2026-09-28"); !errors.Is(err, ErrOutsideCycle) {
+			t.Fatalf("placing September's turn in October = %v, want ErrOutsideCycle", err)
+		}
+	})
+
+	// A task that ACCUMULATES is the one exception the board draws: its turns
+	// are meant to pile up, so one standing in another's week is the point.
+	t.Run("a turn of a task that piles up goes where it is wanted", func(t *testing.T) {
+		task := monthly
+		task.Accumulate = true
+		f := turns(task)
+		if err := f2svc(f).SetWeek(ctx, "acme", "i1", "2026-09-28"); err != nil {
+			t.Fatalf("moving an accumulating turn = %v, want it taken", err)
+		}
+	})
+
+	// No calendar, no occurrence to stay inside — and nothing to reckon a
+	// move against either. A per-sprint task's turn does not move in time.
+	t.Run("a turn with no calendar does not move in time", func(t *testing.T) {
+		perSprint := monthly
+		perSprint.Description, perSprint.Recurrence, perSprint.StartDate = "retro", board.RecurrenceSprint, ""
+		f := turns(perSprint)
+		if err := f2svc(f).SetWeek(ctx, "acme", "i1", "2026-09-14"); !errors.Is(err, ErrOutsideCycle) {
+			t.Fatalf("moving a per-sprint turn = %v, want ErrOutsideCycle", err)
+		}
+	})
+
+	// The one way back. A turn whose occurrence is already past stands on no
+	// day board at all — its days ran out — and the Triage grid is the only
+	// place it is still drawn. Dragging it into the week being worked is what
+	// brings it back, and the board leaves that open by clipping the grip to
+	// the weeks on screen. A refusal here would strand it for good.
+	t.Run("an overdue turn comes back into the week being worked", func(t *testing.T) {
+		thisWeek := board.MondayOf(board.TodayIso())
+		weekly := monthly
+		weekly.Description, weekly.Recurrence = "standup", board.RecurrenceWeek
+		weekly.StartDate = board.AddDays(thisWeek, -70)
+		f := turns(weekly)
+		// Three weeks behind, where its own occurrence ended.
+		f.get("i1").Week = board.AddDays(thisWeek, -21)
+		if err := f2svc(f).Place(ctx, "acme", "i1", thisWeek); err != nil {
+			t.Fatalf("bringing a turn three weeks overdue into this week = %v, want it taken", err)
+		}
+		// Forward past this week is still another occurrence's place.
+		f2 := turns(weekly)
+		f2.get("i1").Week = board.AddDays(thisWeek, -21)
+		if err := f2svc(f2).Place(ctx, "acme", "i1", board.AddDays(thisWeek, 7)); !errors.Is(err, ErrOutsideCycle) {
+			t.Fatalf("sending an overdue turn into NEXT week = %v, want ErrOutsideCycle", err)
+		}
+	})
+
+	// A review card is auxiliary: it is the artefact of asking somebody to
+	// look at the card it reviews. Putting it on the review stage would make
+	// a review of a review, which nothing can draw and nobody asked for.
+	t.Run("a review card cannot be put on the review stage", func(t *testing.T) {
+		f := newFake([]board.Card{
+			{ItemID: "c1", Title: "the work", Team: "alpha", Assignees: []string{"kvaps"}},
+			{ItemID: "r1", Title: "Review: the work", Team: "alpha", ReviewOf: "c1", Assignees: []string{"carol"}},
+		}, nil)
+		if err := f2svc(f).SetStage(ctx, "acme", "r1", board.StageReview); !errors.Is(err, ErrInvalidStage) {
+			t.Fatalf("a review of a review = %v, want ErrInvalidStage", err)
+		}
+	})
+
+	// The shelf holds work with a week of its own to give up. A review card
+	// follows the card it reviews and a subtask stands inside its parent:
+	// neither has a place of its own, so parking one strands it where no
+	// board draws it — which is exactly what the × on both never offered.
+	t.Run("the shelf refuses a card with no place of its own", func(t *testing.T) {
+		f := newFake([]board.Card{
+			{ItemID: "c1", Title: "the work", Team: "alpha"},
+			{ItemID: "r1", Title: "Review: the work", Team: "alpha", ReviewOf: "c1"},
+			{ItemID: "s1", Title: "a step", Team: "alpha", Parent: "c1"},
+		}, nil)
+		for _, id := range []string{"r1", "s1"} {
+			if err := f2svc(f).SetBacklog(ctx, "acme", id, true); !errors.Is(err, ErrNoPlaceOfItsOwn) {
+				t.Fatalf("parking %s = %v, want ErrNoPlaceOfItsOwn", id, err)
+			}
+			if f.get(id).Parked {
+				t.Fatalf("%s was parked anyway", id)
+			}
+		}
+	})
+}

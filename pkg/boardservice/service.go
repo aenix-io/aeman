@@ -1596,9 +1596,11 @@ func (s *Service) SetStage(ctx context.Context, boardID string, itemID string, s
 	if _, known := board.Stages[stage]; !known && stage != board.StageNone {
 		return fmt.Errorf("%w: no such stage %q", ErrInvalidStage, stage)
 	}
-	// A review card is auxiliary and one-off: it cannot be made recurrent.
-	if stage == board.StageRecurrent && card.ReviewOf != "" {
-		return fmt.Errorf("%w: a review card cannot be recurrent", ErrInvalidStage)
+	// A review card is auxiliary and one-off: it cannot be made recurrent,
+	// and it cannot be sent to review either — a review of a review is a
+	// chain nothing draws and the stage menu never offered (Card.tsx).
+	if card.ReviewOf != "" && (stage == board.StageRecurrent || stage == board.StageReview) {
+		return fmt.Errorf("%w: a review card cannot be %s", ErrInvalidStage, stage)
 	}
 	// REFUSE is the answer of the person carrying the work, and of nobody
 	// else. The Me board is where the stage is offered, but an agent reaches
@@ -2111,6 +2113,14 @@ func (s *Service) SetBacklog(ctx context.Context, boardID string, itemID string,
 	if parked && (card.Epic != "" || card.Task != "") {
 		return fmt.Errorf("%w: %q", ErrNotYoursToPark, card.Title)
 	}
+	// And a REVIEW card or a SUBTASK has no place of its own to be parked
+	// out of: one follows the card it reviews, the other stands inside its
+	// parent. Parking either takes it out of the only place it is drawn and
+	// leaves it where nothing looks — which is why no × ever offered the
+	// shelf for them (removal.ts).
+	if parked && (card.ReviewOf != "" || card.Parent != "") {
+		return fmt.Errorf("%w: %q", ErrNoPlaceOfItsOwn, card.Title)
+	}
 	if err := s.backend.SetBacklog(ctx, b, card, parked); err != nil {
 		return err
 	}
@@ -2213,6 +2223,9 @@ func (s *Service) SetWeek(ctx context.Context, boardID string, itemID, week stri
 			return nil
 		}
 		return fmt.Errorf("%w: a slot's week follows its start date — move the dates instead", ErrWeekDerived)
+	}
+	if err := guardTurnWeek(b, card, week); err != nil {
+		return err
 	}
 	// A card is a subtask or a card of its own week, never both (G58) — and a
 	// WEEK given to a standing subtask is how a person says "take it out of

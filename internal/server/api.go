@@ -2124,6 +2124,11 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		// A list the team does not have, and work another board owns: both
 		// are rules refusing a change, not the forge failing.
 		errors.Is(err, boardservice.ErrNotYoursToPark),
+		// A shelf for a card that has no place of its own, and a process turn
+		// carried out of the occurrence it is a turn of: the board's own
+		// rules, answered as such.
+		errors.Is(err, boardservice.ErrNoPlaceOfItsOwn),
+		errors.Is(err, boardservice.ErrOutsideCycle),
 		// Work sent back to the sprint it was done in, where there is nothing
 		// to send or nowhere to send it: rules refusing a change, not a forge
 		// failure.

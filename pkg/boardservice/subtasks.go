@@ -39,6 +39,24 @@ var ErrNotYoursToRefuse = errors.New("only the person a card is on can refuse it
 // edit a plan this board does not own.
 var ErrNotYoursToPark = errors.New("this work is not this board's to park")
 
+// ErrNoPlaceOfItsOwn is a review card or a subtask sent to a shelf. The
+// backlog holds work with a WEEK of its own to give up; a review follows the
+// card it reviews and a subtask stands inside its parent, so parking one
+// takes it out of the only place it was ever drawn and puts it somewhere
+// nothing looks. Every × on both already withheld the answer (removal.ts);
+// the rule is here so the gesture is refused wherever it is made.
+var ErrNoPlaceOfItsOwn = errors.New("this card has no place of its own to park")
+
+// ErrOutsideCycle is a process turn given a week outside the occurrence it
+// belongs to. A turn IS that occurrence's work, wherever inside it somebody
+// moved the card, and one carried past the next due date stands where the
+// NEXT turn belongs: the two then read as one process running twice, and the
+// projection that asks whether an occurrence has a turn answers wrongly for
+// both. A task that ACCUMULATES is the exception — its turns are meant to
+// pile up — and a task with no calendar at all has no occurrence to move
+// inside, so its turn does not move in time.
+var ErrOutsideCycle = errors.New("a process turn belongs to its own occurrence")
+
 // ErrNotYoursToRemove is a person taking off the board a card SOMEBODY ELSE
 // put on it for them. Their answer to work they will not do is the refused
 // stage (ErrNotYoursToRefuse names the other side of the same seat), which
