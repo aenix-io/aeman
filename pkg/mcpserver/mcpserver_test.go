@@ -439,3 +439,51 @@ func TestCreateCardDescribesNoRefusalTheServerDoesNotMake(t *testing.T) {
 		t.Error("remove_card stopped naming the refusal the service still makes")
 	}
 }
+
+// Four more descriptions that told an agent something the service does not do.
+// An agent cannot try a gesture to see what happens — the description IS the
+// rule for it — so each of these sent it into a wrong move, and the worst of
+// them destroys a card.
+func TestDescriptionsMatchWhatTheServiceDoes(t *testing.T) {
+	// update_process_task said the running iteration is "left exactly as it
+	// is". Content is; ROUTING is not: a team or assignee change deletes an
+	// untouched turn and spawns a fresh one for the new owner
+	// (routeOpenIterations, pinned by TestReassigningATurnReplacesTheUntouchedCard).
+	task := toolDescription(t, "update_process_task")
+	if strings.Contains(task, "left exactly as it is") {
+		t.Error("update_process_task still promises the running turn is untouched; reassigning deletes it")
+	}
+	for _, want := range []string{"ROUTING", "deleted"} {
+		if !strings.Contains(task, want) {
+			t.Errorf("update_process_task should say what reassigning does to the live turn (%q)", want)
+		}
+	}
+
+	// A deadline belongs to a PROJECT: one line per project per week, so two
+	// projects due the same week are two lines (board.FindDeadline matches on
+	// both fields; TestDeadlines pins it).
+	for _, tool := range []string{"add_deadline", "move_deadline"} {
+		d := toolDescription(t, tool)
+		if strings.Contains(d, "A week holds at most one line") ||
+			strings.Contains(d, "two deadlines on one date are one deadline") {
+			t.Errorf("%s still describes deadlines as one-per-week; they are one per (project, week)", tool)
+		}
+		if !strings.Contains(d, "project") {
+			t.Errorf("%s must say a deadline belongs to a project", tool)
+		}
+	}
+
+	// The three kinds of roster name do NOT share a namespace: nameFree
+	// switches into three separate maps, so a team may carry a project's name.
+	// What is shared is the repositories.
+	if team := toolDescription(t, "rename_team"); strings.Contains(team, "are one namespace") {
+		t.Error("rename_team still claims teams, projects and processes share a namespace; they do not")
+	}
+
+	// And a team name nothing declares does not fail: it declares a team (G39),
+	// so a typo leaves a ghost on the board. The description has to say so,
+	// because an agent types the name rather than picking it from a list.
+	if task := toolDescription(t, "add_process_task"); strings.Contains(task, "MUST be an existing team key") {
+		t.Error("add_process_task still promises a validation nothing performs")
+	}
+}

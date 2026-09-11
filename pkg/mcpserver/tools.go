@@ -627,7 +627,7 @@ type addTaskInput struct {
 	Description string `json:"description,omitempty" jsonschema:"the body every iteration will be created with"`
 	Recurrence  string `json:"recurrence" jsonschema:"the cycle: week, 2weeks, month or quarter (required). Counted on the calendar from start, not from when the last iteration closed"`
 	Start       string `json:"start,omitempty" jsonschema:"the calendar anchor the cycle is counted from, yyyy-mm-dd; defaults to today"`
-	Team        string `json:"team,omitempty" jsonschema:"the team the iterations land in — MUST be an existing team key from get_board metadata.teams"`
+	Team        string `json:"team,omitempty" jsonschema:"the team the iterations land in — use a team key from get_board metadata.teams: a name no team carries DECLARES A NEW TEAM rather than failing, so a typo leaves a ghost team on the board"`
 	Assignee    string `json:"assignee,omitempty" jsonschema:"the standing owner (GitHub login); every iteration is assigned to them, the team lead may reassign"`
 	Accumulate  bool   `json:"accumulate,omitempty" jsonschema:"spawn the next iteration even while the previous one is still open, so unpaid months pile up as separate cards. Default false: an open iteration simply goes overdue and the next one waits"`
 }
