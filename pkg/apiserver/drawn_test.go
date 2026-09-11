@@ -1,6 +1,8 @@
 package apiserver
 
 import (
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/aenix-io/aeman/pkg/board"
@@ -71,5 +73,31 @@ func TestDrawnAsksTheSameQuestionTheListingAnswers(t *testing.T) {
 	// And a card nobody has is on no board.
 	if Drawn(b, Selector{View: "all"}, "nothing") {
 		t.Fatal("a card that does not exist was drawn")
+	}
+}
+
+// The parse of a selector whose BOARD came from the path: both its guards are
+// this package's, and pkg/apiserver is a public contract — an embedder calling
+// it directly has nothing else standing in front of them.
+func TestAViewSelectorTakesItsBoardFromThePath(t *testing.T) {
+	t.Parallel()
+	// A `view=` in the query asks for a board the answer would not come from,
+	// so it is refused rather than ignored, and the message says where the
+	// board goes now.
+	_, err := ParseViewSelector("me", url.Values{"view": {"team"}})
+	if err == nil || !strings.Contains(err.Error(), "path segment") {
+		t.Fatalf("a view in the query = %v, want a refusal naming the path", err)
+	}
+	// And a board nobody has is not a board.
+	if _, err := ParseViewSelector("process", nil); err == nil {
+		t.Fatal("an unknown board was parsed as one")
+	}
+	// The ordinary case still parses, with the segment as the view.
+	sel, err := ParseViewSelector("triage", url.Values{"team": {"portal"}, "weeks": {"9"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.View != "triage" || sel.Team != "portal" || sel.Weeks != 9 {
+		t.Fatalf("selector = %+v", sel)
 	}
 }

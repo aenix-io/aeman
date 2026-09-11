@@ -122,11 +122,15 @@ describe("what a drag may do on the Me board", () => {
 
 // The Me board's add form stands in the unplanned zone alone — that is what
 // this board is FOR: something came up today, and the week's plan is made
-// elsewhere. It is the board's own offer and nothing more: the Team and
-// Triage grids are where planning is done, and they offer every zone in every
-// column, one's own included. The server holds no rule about it — it did
-// once, and because all three boards send the same create it refused a lead
-// putting a card in their own column.
+// elsewhere. The Team and Triage grids are where planning is done, and they
+// offer every zone in every column, one's own included.
+//
+// The SERVER holds the same rule now, and only for this board's create
+// (boardservice.addsUnplanned, `view=me` and the personal column beside it):
+// it could not before, because all three boards sent the same create and the
+// refusal reached a lead putting a card in their own column. The board is a
+// path segment now, so the rule reaches the add form it was written for. A
+// subtask is exempt on both sides — it takes its parent's band.
 describe("what the Me board offers, and how far that reaches", () => {
   it("adds in the unplanned zone and no other", () => {
     const zones: ZoneKey[] = ["red", "yellow", "gray", "green"];

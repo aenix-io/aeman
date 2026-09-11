@@ -29,6 +29,12 @@ func TestTheServiceHoldsTheRulesTheHandlerHeld(t *testing.T) {
 		if _, err := f2svc(f).CreateCard(ctx, "acme", CreateCardArgs{Team: "alpha"}); err == nil {
 			t.Fatal("a card with no title was created; nothing on a board can be named nothing")
 		}
+		// Spaces are nothing too — a card called "   " is a blank row on
+		// every board, and the guard reads the title trimmed for exactly
+		// that reason.
+		if _, err := f2svc(f).CreateCard(ctx, "acme", CreateCardArgs{Team: "alpha", Title: "   "}); !errors.Is(err, ErrEmptyTitle) {
+			t.Fatalf("a card named in spaces = %v, want ErrEmptyTitle", err)
+		}
 	})
 
 	t.Run("defer moves a card forward, never back", func(t *testing.T) {
@@ -53,6 +59,9 @@ func TestTheServiceHoldsTheRulesTheHandlerHeld(t *testing.T) {
 		f := seed()
 		if _, err := f2svc(f).SendToReview(ctx, "acme", "c1", "", "2026-09-11", ""); err == nil {
 			t.Fatal("a review card was created with no reviewer; it is the artefact of asking somebody")
+		}
+		if _, err := f2svc(f).SendToReview(ctx, "acme", "c1", "  ", "2026-09-11", ""); !errors.Is(err, ErrNoReviewer) {
+			t.Fatalf("a reviewer named in spaces = %v, want ErrNoReviewer", err)
 		}
 	})
 
@@ -279,6 +288,18 @@ func TestTheServiceHoldsTheRulesOnlyTheBrowserHeld(t *testing.T) {
 		f2.get("i1").Week = board.AddDays(thisWeek, -21)
 		if err := f2svc(f2).Place(ctx, "acme", "i1", board.AddDays(thisWeek, 7)); !errors.Is(err, ErrOutsideCycle) {
 			t.Fatalf("sending an overdue turn into NEXT week = %v, want ErrOutsideCycle", err)
+		}
+	})
+
+	// The degenerate case beside the two exceptions: a turn that stands in NO
+	// week is in no occurrence, so nothing bounds it — it is being given its
+	// first week rather than carried out of one.
+	t.Run("a turn with no week yet is in no occurrence", func(t *testing.T) {
+		f := turns(monthly)
+		f.get("i1").Week = ""
+		far := board.AddDays(board.MondayOf(board.TodayIso()), 7*20)
+		if err := f2svc(f).SetWeek(ctx, "acme", "i1", far); err != nil {
+			t.Fatalf("giving a weekless turn a week = %v, want it taken", err)
 		}
 	})
 
