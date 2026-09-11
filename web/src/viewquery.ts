@@ -145,3 +145,28 @@ export function queryString(q: Record<string, string>): string {
     .map((k) => `${k}=${encodeURIComponent(q[k])}`)
     .join("&");
 }
+
+/** viewPath is where a selector is fetched or watched: the BOARD it names is a
+ *  path segment (`/views/{view}/cards`) and everything that narrows it stays a
+ *  query. It takes the serialised selector, so the fetch and the watch — which
+ *  both key off queryString — address the same board the same way.
+ *
+ *  Mirrors the server's routes (docs/design/view-scoped-api.md). A selector
+ *  that names no board is the escape hatch: nothing here sends one, and
+ *  answering "all" is what the bare collection used to do minus the guessing.
+ */
+export function viewPath(query: string, kind: "cards" | "watch"): string {
+  let view = "all";
+  const rest: string[] = [];
+  for (const part of query.split("&")) {
+    if (!part) {
+      continue;
+    }
+    if (part.startsWith("view=")) {
+      view = decodeURIComponent(part.slice("view=".length));
+    } else {
+      rest.push(part);
+    }
+  }
+  return `/views/${view}/${kind}${rest.length > 0 ? `?${rest.join("&")}` : ""}`;
+}

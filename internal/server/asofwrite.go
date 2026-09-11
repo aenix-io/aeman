@@ -87,11 +87,18 @@ func writes(method string) bool {
 	return true
 }
 
-// cardOfPath is the uid a /api/v1/cards/{uid}... route addresses, or "".
+// cardOfPath is the uid a route addresses, or "": a card by its canonical
+// address (/api/v1/cards/{uid}…) or through the board a gesture was made from
+// (/api/v1/views/{view}/cards/{uid}/actions/…), which names the same card.
 func cardOfPath(path string) string {
 	rest, ok := strings.CutPrefix(path, "/api/v1/cards/")
 	if !ok {
-		return ""
+		if rest, ok = strings.CutPrefix(path, "/api/v1/views/"); !ok {
+			return ""
+		}
+		if _, rest, ok = strings.Cut(rest, "/cards/"); !ok {
+			return ""
+		}
 	}
 	uid, _, _ := strings.Cut(rest, "/")
 	return uid
@@ -112,9 +119,13 @@ func findCardByID(b board.Board, uid string) (board.Card, bool) {
 	return board.Card{}, false
 }
 
-// isCreate reports the one card-less write that names a team: POST /cards.
+// isCreate reports the one card-less write that names a team: a create, made
+// from whichever board it was typed into.
 func isCreate(r *http.Request) bool {
-	return r.Method == http.MethodPost && r.URL.Path == "/api/v1/cards"
+	if r.Method != http.MethodPost || !strings.HasPrefix(r.URL.Path, "/api/v1/views/") {
+		return false
+	}
+	return strings.HasSuffix(r.URL.Path, "/cards")
 }
 
 // asOfCtxKey carries the day a create was made from to the handler that knows

@@ -6,6 +6,7 @@ import {
   queryString,
   snapshotDay,
   TRIAGE_WEEKS,
+  viewPath,
   viewQueries,
   watchQueries,
   watchQuery,
@@ -214,5 +215,28 @@ describe("the Triage window", () => {
     expect(parked?.team).toBe("alpha,beta");
     // And it asks for every list the teams have, not one of them.
     expect(parked?.backlog).toBeUndefined();
+  });
+});
+
+// The board is a path segment, and what narrows it stays a query — the fetch
+// and the watch address the same board the same way, off the same string.
+describe("where a selector is fetched", () => {
+  it("puts the board in the path and leaves the rest", () => {
+    expect(viewPath(queryString({ view: "triage", team: "portal", weeks: "9" }), "cards")).toBe(
+      "/views/triage/cards?team=portal&weeks=9",
+    );
+    expect(viewPath(queryString({ view: "me", day: "2026-09-11" }), "watch")).toBe(
+      "/views/me/watch?day=2026-09-11",
+    );
+  });
+
+  it("needs no query at all", () => {
+    expect(viewPath(queryString({ view: "project" }), "cards")).toBe("/views/project/cards");
+  });
+
+  // Nothing in the app sends a selector with no board; answering "all" is what
+  // the bare collection used to do, minus the guessing.
+  it("falls back to the escape hatch", () => {
+    expect(viewPath("", "cards")).toBe("/views/all/cards");
   });
 });

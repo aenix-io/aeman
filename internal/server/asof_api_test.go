@@ -85,7 +85,7 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 		} `json:"spec"`
 	}, asOf string, truncated bool) {
 		t.Helper()
-		rec := do(t, srv, http.MethodGet, "/api/v1/cards?"+query, "")
+		rec := do(t, srv, http.MethodGet, cardsPath(query), "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: %d %s", query, rec.Code, rec.Body.String())
 		}
@@ -201,7 +201,7 @@ func TestAPastDayIsServedAsThatDaysOwnBoard(t *testing.T) {
 	if err := repo.Storer().SetShallow([]plumbing.Hash{tip.Hash}); err != nil {
 		t.Fatal(err)
 	}
-	rec = do(t, srv, http.MethodGet, "/api/v1/cards?view=team&team=portal&day=2026-08-21&snapshot=1", "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/team/cards?team=portal&day=2026-08-21&snapshot=1", "")
 	if rec.Code != http.StatusGone {
 		t.Fatalf("a day behind the horizon answered %d: %s", rec.Code, rec.Body.String())
 	}

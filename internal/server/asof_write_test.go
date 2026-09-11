@@ -138,7 +138,7 @@ func TestAWriteFromAPastDayIsRefused(t *testing.T) {
 	// boxes off the whole screen.
 	create := func(team, asOf string) int {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/cards",
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/views/team/cards",
 			strings.NewReader(`{"title":"typed on the sprint's day","team":"`+team+`","zone":"planned","dates":{"start":"2026-08-20","end":"2026-08-20"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		if asOf != "" {

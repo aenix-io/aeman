@@ -78,7 +78,7 @@ func TestADeletedCardStandsOnTheDayItWasWorked(t *testing.T) {
 	srv := gitModeServer(t, remote)
 
 	// Today's board is without it: taking it off is what the × is for.
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?view=team&team=portal", "")
+	rec := do(t, srv, http.MethodGet, "/api/v1/views/team/cards?team=portal", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
@@ -87,7 +87,7 @@ func TestADeletedCardStandsOnTheDayItWasWorked(t *testing.T) {
 	}
 
 	// The day it was worked on holds it, done, as a record.
-	rec = do(t, srv, http.MethodGet, "/api/v1/cards?view=team&team=portal&day="+day+"&snapshot=1", "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/team/cards?team=portal&day="+day+"&snapshot=1", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}

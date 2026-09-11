@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -12,9 +13,20 @@ import (
 	"github.com/aenix-io/aeman/pkg/board"
 )
 
-// scopedQueryKeys are the query parameters that turn a watch into a scoped
-// subscription (membership deltas for one view) instead of a raw board stream.
-var scopedQueryKeys = []string{"view", "team", "day", "user", "week", "stage", "zone", "assignee"}
+// scopedQueryKeys are the query parameters that narrow a watch on the escape
+// hatch into a scoped subscription (membership deltas) instead of a raw board
+// stream. Every named board is scoped by the board itself.
+var scopedQueryKeys = []string{"team", "day", "user", "week", "stage", "zone", "assignee"}
+
+// anyOf reports whether the query carries any of the keys.
+func anyOf(q url.Values, keys []string) bool {
+	for _, k := range keys {
+		if q.Has(k) {
+			return true
+		}
+	}
+	return false
+}
 
 // handleWatch streams board change events over a WebSocket, Kubernetes-watch
 // style: the client LISTs (GET /cards), then applies the ADDED / MODIFIED /
@@ -35,23 +47,21 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	var sel *apiserver.Selector
-	for _, key := range scopedQueryKeys {
-		if q.Has(key) {
-			parsed, err := apiserver.ParseSelector(q)
-			if err != nil {
-				writeJSONError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			sel = &parsed
-			break
-		}
+	view, ok := s.viewOf(w, r)
+	if !ok {
+		return
 	}
-	// The me and personal views are the caller's own unless they say whose.
-	if sel != nil && (sel.View == "me" || sel.View == "personal") && sel.User == "" {
-		if _, login, err := s.apiTokens(r); err == nil {
-			sel.User = login
+	// A watch on the escape hatch with nothing narrowing it is the RAW board
+	// stream — every change, no membership deltas — which is what an
+	// unscoped watch used to be. Every other board is a scoped subscription:
+	// a card entering the selection arrives as ADDED, one leaving as DELETED.
+	var sel *apiserver.Selector
+	if view != board.ViewAll || anyOf(q, scopedQueryKeys) {
+		parsed, parsedOK := s.selectorOf(w, r, view)
+		if !parsedOK {
+			return
 		}
+		sel = &parsed
 	}
 	resources := map[string]bool{"cards": true, "sprints": true, "ordering": true, "presence": true}
 	if raw := q.Get("resources"); raw != "" {

@@ -93,13 +93,13 @@ func TestGitModeServesTheConfiguredBoard(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"portal"`) {
 		t.Fatalf("board body lacks the seeded team: %s", rec.Body.String())
 	}
-	rec = do(t, srv, http.MethodGet, "/api/v1/cards?view=all", "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/all/cards", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"one"`) || !strings.Contains(rec.Body.String(), `"two"`) {
 		t.Fatalf("GET /cards: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// A create answers at once with the final id, and its commit follows.
-	rec = do(t, srv, http.MethodPost, "/api/v1/cards", `{"title":"three","team":"portal","zone":"planned","dates":{"start":"2026-08-27"}}`)
+	rec = do(t, srv, http.MethodPost, "/api/v1/views/team/cards", `{"title":"three","team":"portal","zone":"planned","dates":{"start":"2026-08-27"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST /cards: %d %s", rec.Code, rec.Body.String())
 	}
@@ -192,7 +192,7 @@ func TestGitModeReopensTheClone(t *testing.T) {
 		return srv
 	}
 	first := mk()
-	rec := do(t, first, http.MethodPost, "/api/v1/cards", `{"title":"offline","team":"portal","zone":"planned","dates":{"start":"2026-08-27"}}`)
+	rec := do(t, first, http.MethodPost, "/api/v1/views/team/cards", `{"title":"offline","team":"portal","zone":"planned","dates":{"start":"2026-08-27"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST: %d %s", rec.Code, rec.Body.String())
 	}
@@ -205,7 +205,7 @@ func TestGitModeReopensTheClone(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	second := mk()
-	rec = do(t, second, http.MethodGet, "/api/v1/cards?view=all", "")
+	rec = do(t, second, http.MethodGet, "/api/v1/views/all/cards", "")
 	if !strings.Contains(rec.Body.String(), `"offline"`) {
 		t.Fatalf("the unpushed card did not survive the restart: %s", rec.Body.String())
 	}
@@ -383,7 +383,7 @@ func TestServeAndMCPCannotShareOneDataDir(t *testing.T) {
 // The request's action name comes from its route.
 func TestActionNameFromRoute(t *testing.T) {
 	cases := map[[2]string]string{
-		{http.MethodPost, "/api/v1/cards"}:                            "create",
+		{http.MethodPost, "/api/v1/views/team/cards"}:                 "create",
 		{http.MethodPatch, "/api/v1/cards/01J"}:                       "update",
 		{http.MethodDelete, "/api/v1/cards/01J"}:                      "delete",
 		{http.MethodPost, "/api/v1/cards/01J/actions/send-to-review"}: "send-to-review",

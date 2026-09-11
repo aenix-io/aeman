@@ -21,7 +21,13 @@ import { ProjectBoard } from "./components/ProjectBoard";
 import { ProcessBoard } from "./components/ProcessBoard";
 import { TeamsModal } from "./components/TeamsModal";
 import { readProjectFilter, writeProjectFilter } from "./projectFilter";
-import { boardMetadata, membersFrom, processesFrom, showingDay } from "./providers/api/apiProvider";
+import {
+  boardMetadata,
+  membersFrom,
+  processesFrom,
+  showingDay,
+  standingOn,
+} from "./providers/api/apiProvider";
 import type { ProcessInfo } from "./providers/types";
 import { CardDetail } from "./components/CardDetail";
 import { Logo } from "./components/Logo";
@@ -32,7 +38,7 @@ import { unpushedNotice, type HealthStatus } from "./health";
 import { migrateBoardScopedKeys } from "./storage";
 import { pruneTeamFilter, settlePendingTeams, teamRoster } from "./teams";
 import { forgetMade } from "./justmade";
-import { queryString, snapshotDay, viewQueries, watchQueries } from "./viewquery";
+import { queryString, snapshotDay, viewPath, viewQueries, watchQueries } from "./viewquery";
 import { frozenProvider } from "./providers/frozen";
 import { PersonalDialog } from "./components/PersonalDialog";
 import { todayIso, setBoardTimezone } from "./date";
@@ -631,6 +637,17 @@ export function App() {
     [view, selectedDate, teamFilter, roster, viewAs, hasPersonal],
   );
   const activeKey = activeQueries.map(queryString).join("|");
+  // Which BOARD the reader is standing on, for the gestures made on it: the ×,
+  // the drop into a week, the pull back into the strip. It is the listing's own
+  // selector minus what only a listing needs, so the server judges a press
+  // against exactly the board the person is looking at.
+  const standingKey = useMemo(() => {
+    const { reviews: _reviews, snapshot: _snapshot, ...scope } = activeQueries[0] ?? {};
+    return queryString(scope);
+  }, [activeQueries]);
+  useEffect(() => {
+    standingOn(standingKey);
+  }, [standingKey]);
   // The board (roster + sprint pointers) is fetched for the SAME moment as
   // the cards: the view rules compare a card's sprint against the pointers,
   // so a past day's cards under today's pointers are nearly all dropped —
@@ -1196,7 +1213,11 @@ export function App() {
       // mutations from echoing back. Re-subscribes when watchKey changes (a
       // dep below).
       for (const key of watchKey.split("|")) {
-        const url = `${proto}//${window.location.host}/api/v1/watch?client=${clientId}&${key}`;
+        // The board is a path segment here too (viewquery.viewPath), so a
+        // socket and the listing beside it address the same board.
+        const path = viewPath(key, "watch");
+        const sep = path.includes("?") ? "&" : "?";
+        const url = `${proto}//${window.location.host}/api/v1${path}${sep}client=${clientId}`;
         const socket = new WebSocket(url);
         sockets.push(socket);
         socket.addEventListener("message", (e) => {

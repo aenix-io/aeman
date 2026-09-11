@@ -117,6 +117,25 @@ func ParseSelector(q url.Values) (Selector, error) {
 	return sel, nil
 }
 
+// ParseViewSelector is the same parse for a door that takes the board from the
+// PATH (`/api/v1/views/{view}/cards`): the view is the segment, and a `view=`
+// in the query is refused rather than ignored, since a client sending one is
+// asking for a board and would be answered from another.
+func ParseViewSelector(view string, q url.Values) (Selector, error) {
+	if q.Has("view") {
+		return Selector{}, fmt.Errorf("view is a path segment now: /api/v1/views/%s/cards", q.Get("view"))
+	}
+	if !board.KnownView(view) {
+		return Selector{}, fmt.Errorf("unknown view %q", view)
+	}
+	sel, err := ParseSelector(q)
+	if err != nil {
+		return Selector{}, err
+	}
+	sel.View = view
+	return sel, nil
+}
+
 // normalized fills the selector's day/week defaults against the wall clock.
 func (s Selector) normalized() Selector {
 	if s.View == "team" || s.View == "me" || s.View == "personal" {
@@ -545,4 +564,27 @@ func backlogCards(b board.Board, sel Selector) []board.Card {
 		out = append(out, c)
 	}
 	return board.BacklogOrder(out)
+}
+
+// Drawn reports whether a card is on the board the selector describes — the
+// question a view-scoped GESTURE asks before it acts.
+//
+// A person cannot press × on a card they cannot see, and an agent standing on
+// the Me board should not be able to either: it has to say `view=team&team=X`
+// (or `view=all`), and then it has said which board it is acting from. The
+// answer comes from the LISTING itself rather than from a second set of rules
+// beside it, because a gate that drifted from the listing would be a card the
+// board draws and refuses to act on — or, worse, one it acts on and never
+// shows.
+//
+// It is asked of the card as it stands BEFORE the write, never after: sending
+// work off today's board is the point of half these gestures, and a gate on
+// the result would forbid exactly the ones that move it.
+func Drawn(b board.Board, sel Selector, uid string) bool {
+	for _, c := range FilterCards(b, sel) {
+		if c.ItemID == uid {
+			return true
+		}
+	}
+	return false
 }

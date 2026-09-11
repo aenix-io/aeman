@@ -30,9 +30,9 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 		"bob":   rightsOn([]string{"shared"}, []string{"shared"}),
 	}}, shared, closed)
 
-	create := func(login, body string) string {
+	create := func(login, view, body string) string {
 		t.Helper()
-		rec := doAs(t, srv, login, "POST", "/api/v1/cards", body)
+		rec := doAs(t, srv, login, "POST", "/api/v1/views/"+view+"/cards", body)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 		}
@@ -44,14 +44,14 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 		}
 		return out.Metadata.UID
 	}
-	mine := create("kvaps", `{"title":"in shared","zone":"planned"}`)
+	mine := create("kvaps", "team", `{"title":"in shared","zone":"planned"}`)
 	// A personal card is the sharpest case of "not yours to read": its
 	// domain is served to its owner alone, whatever the forge says.
 	personalRemote := gitRemoteN(t, "personal")
 	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+personalRemote.URL+`"}`); rec.Code != http.StatusOK {
 		t.Fatalf("link personal: %d %s", rec.Code, rec.Body.String())
 	}
-	hidden := create("kvaps", `{"title":"mine alone","zone":"urgent","personal":true}`)
+	hidden := create("kvaps", "personal", `{"title":"mine alone","zone":"urgent"}`)
 	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+mine+"/notes", `{"text":"a note today"}`); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 		t.Fatalf("note: %d %s", rec.Code, rec.Body.String())
 	}

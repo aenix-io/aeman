@@ -19,6 +19,8 @@ import {
   type SprintListResource,
 } from "../../api/resources";
 import { splitDayLogs, type DayLogEntry } from "../../daylog";
+import { viewPath } from "../../viewquery";
+import { createView } from "../../views";
 import type { Member } from "../../users";
 import type {
   Board,
@@ -147,6 +149,26 @@ let viewedDay = "";
  *  today). It rides every request as X-Aeman-As-Of. */
 export function showingDay(day: string): void {
   viewedDay = day;
+}
+
+// The BOARD the reader is standing on, as the serialised selector its listing
+// used (viewquery.queryString). Every board GESTURE is made through it — the ×,
+// the drop into a week, the pull back into the strip, "finished earlier" — so
+// the server can answer "that card is not on this board" instead of acting on
+// a card the person cannot see. Set by the App as the view changes.
+let standing = "view=all";
+
+/** standingOn tells the provider which board is open, with the scope its own
+ *  listing used. */
+export function standingOn(selector: string): void {
+  standing = selector;
+}
+
+// gesturePath is one of that board's presses on a card: the board's address,
+// the card, the gesture.
+function gesturePath(uid: string, gesture: string): string {
+  const [base, query] = viewPath(standing, "cards").split("?");
+  return `${base}/${uid}/actions/${gesture}${query ? `?${query}` : ""}`;
 }
 
 // api issues a request against /api/v1. The server serves exactly one board,
@@ -313,7 +335,8 @@ export const apiProvider: Provider = {
       .join("&");
     // LIST responses are served in board order; the Ordering watch events keep
     // the local copy sorted between re-lists.
-    const list = await api<CardListResource>("GET", `/cards?${qs}`);
+    // The board the query names is a path segment; the rest narrows it.
+    const list = await api<CardListResource>("GET", viewPath(qs, "cards"));
     return {
       cards: (list.items ?? []).map(resourceToCard),
       // Set when the server answered with a past day's board rather than
@@ -327,14 +350,16 @@ export const apiProvider: Provider = {
   },
 
   async createCard(input: NewCardInput): Promise<Card> {
+    // The board the card was typed into says what it means — the server fills
+    // in the rest and refuses the fields that board does not own (views.ts).
+    const into = `/views/${createView(input)}/cards`;
     if (input.personal) {
       // A personal card carries nothing of the day board — no team, dates,
       // column or week (the server refuses them beside `personal`); it files
       // the card in the visitor's own repository and assigns it to them.
-      return cardFrom("POST", "/cards", {
+      return cardFrom("POST", into, {
         title: input.title,
         zone: semanticZone(input.zone),
-        personal: true,
       });
     }
     const body: Record<string, unknown> = {
@@ -356,10 +381,9 @@ export const apiProvider: Provider = {
       body.week = input.week;
     }
     // Born ON the shelf: like a week, it carries no dates and joins no sprint,
-    // and the card never passes through the strip on its way there.
-    if (input.parked) {
-      body.parked = true;
-    }
+    // and the card never passes through the strip on its way there. The
+    // drawer's create says so by being made THERE (views.createView), so
+    // nothing in the body has to.
     if (input.epic) {
       body.epic = input.epic;
       body.project = input.project ?? "";
@@ -371,7 +395,7 @@ export const apiProvider: Provider = {
     if (input.noSprint) {
       body.noSprint = true;
     }
-    return cardFrom("POST", "/cards", body);
+    return cardFrom("POST", into, body);
   },
 
   async patchCard(
@@ -393,7 +417,7 @@ export const apiProvider: Provider = {
 
   async removeCard(uid: string, intent?: "unassign" | "off-board"): Promise<void> {
     uid = await resolveCardId(uid);
-    await api("POST", `/cards/${uid}/actions/remove`, intent ? { intent } : {});
+    await api("POST", gesturePath(uid, "remove"), intent ? { intent } : {});
   },
 
   async moveCard(
@@ -450,12 +474,12 @@ export const apiProvider: Provider = {
 
   async placeCard(uid: string, week: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/place`, { week });
+    return cardFrom("POST", gesturePath(uid, "place"), { week });
   },
 
   async finishedEarlier(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/finished-earlier`, {});
+    return cardFrom("POST", gesturePath(uid, "finished-earlier"), {});
   },
 
   async setCapacity(login: string, points: number): Promise<void> {
@@ -468,7 +492,7 @@ export const apiProvider: Provider = {
 
   async untriageCard(uid: string): Promise<Card> {
     uid = await resolveCardId(uid);
-    return cardFrom("POST", `/cards/${uid}/actions/untriage`, {});
+    return cardFrom("POST", gesturePath(uid, "untriage"), {});
   },
 
   async carryOver(

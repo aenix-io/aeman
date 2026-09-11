@@ -33,6 +33,29 @@ func apiServer(t *testing.T, opts Options, fake *boardservicetest.Backend) *Serv
 	return srv
 }
 
+// cardsPath is a listing query as the path it is made against now: the BOARD
+// is a path segment (/api/v1/views/{view}/cards) and everything that narrows
+// it stays a query. Tests that read a view keep writing the selector they
+// always did.
+func cardsPath(query string) string {
+	view := "all"
+	var rest []string
+	for _, p := range strings.Split(query, "&") {
+		switch {
+		case p == "":
+		case strings.HasPrefix(p, "view="):
+			view = strings.TrimPrefix(p, "view=")
+		default:
+			rest = append(rest, p)
+		}
+	}
+	path := "/api/v1/views/" + view + "/cards"
+	if len(rest) > 0 {
+		path += "?" + strings.Join(rest, "&")
+	}
+	return path
+}
+
 func do(t *testing.T, srv *Server, method, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *http.Request
@@ -88,7 +111,7 @@ func TestAPIListCardsTeamView(t *testing.T) {
 		{ItemID: "c2", Team: "beta", StartDate: today, SprintStart: today},
 	}, nil)
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?view=team&team=alpha", "")
+	rec := do(t, srv, http.MethodGet, "/api/v1/views/team/cards?team=alpha", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -106,7 +129,7 @@ func TestAPIListCardsMeView(t *testing.T) {
 		{ItemID: "c1", Assignees: []string{"bob"}, StartDate: today, SprintStart: today},
 	}, map[string]board.SprintState{"": {Current: today}})
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?view=me&user=bob", "")
+	rec := do(t, srv, http.MethodGet, "/api/v1/views/me/cards?user=bob", "")
 	list := decodeList(t, rec)
 	if len(list.Items) != 1 || list.Items[0].Metadata.UID != "c1" {
 		t.Fatalf("me view = %+v", list.Items)
@@ -116,7 +139,7 @@ func TestAPIListCardsMeView(t *testing.T) {
 func TestAPICreateCard(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards",
 		`{"title":"New task","team":"alpha","zone":"urgent","assignees":["bob"],"dates":{"start":"2026-06-21"}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
@@ -143,8 +166,8 @@ func TestAPICreateCard(t *testing.T) {
 func TestAPICreateCanPutTheCardStraightOnTheBacklog(t *testing.T) {
 	fake := boardservicetest.New(nil, map[string]board.SprintState{"alpha": {Current: "2026-06-20", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
-		`{"title":"Some day","team":"alpha","zone":"planned","parked":true}`)
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/backlog/cards",
+		`{"title":"Some day","team":"alpha","zone":"planned"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -178,7 +201,7 @@ func TestAPICreateAcceptsWorkPlannedForOneself(t *testing.T) {
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "gho_kvaps", "kvaps", nil }
 	for _, zone := range []string{"urgent", "planned", "niceToHave", "unplanned"} {
-		rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+		rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards",
 			`{"title":"Mine","team":"alpha","zone":"`+zone+`","assignees":["kvaps"]}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("zone %s for oneself: status = %d, body = %s", zone, rec.Code, rec.Body.String())
@@ -188,7 +211,7 @@ func TestAPICreateAcceptsWorkPlannedForOneself(t *testing.T) {
 
 func TestAPICreateRequiresTitle(t *testing.T) {
 	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards", `{"team":"alpha"}`)
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards", `{"team":"alpha"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -267,7 +290,7 @@ func TestAPIRemoveActionDeletes(t *testing.T) {
 		{ItemID: "c1", Team: "alpha", StartDate: "2026-06-20", SprintStart: "2026-06-20"},
 	}, map[string]board.SprintState{"alpha": {Current: "2026-06-20", Previous: "2026-06-13", ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards/c1/actions/remove", `{"from":"grid"}`)
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards/c1/actions/remove", `{"from":"grid"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -358,16 +381,18 @@ func TestAPISprints(t *testing.T) {
 	}
 }
 
-func TestAPIOrdering(t *testing.T) {
+// The board's manual order rides the cards themselves, and nothing ever read
+// the endpoint that served it on its own — so it is gone. The watch still
+// announces an Ordering frame, which is where the order is actually needed.
+func TestTheOrderingEndpointIsGone(t *testing.T) {
 	fake := boardservicetest.New([]board.Card{{ItemID: "c1"}, {ItemID: "c2"}}, nil)
 	srv := apiServer(t, Options{}, fake)
+	// The SPA's catch-all serves index.html for anything it does not route,
+	// so "gone" is "no longer answers as the API": the resource, not the code.
 	rec := do(t, srv, http.MethodGet, "/api/v1/ordering", "")
 	var o apiserver.Ordering
-	if err := json.Unmarshal(rec.Body.Bytes(), &o); err != nil {
-		t.Fatal(err)
-	}
-	if o.Kind != "Ordering" || len(o.Spec.UIDs) != 2 {
-		t.Fatalf("ordering = %+v", o)
+	if err := json.Unmarshal(rec.Body.Bytes(), &o); err == nil && o.Kind == "Ordering" {
+		t.Fatal("GET /api/v1/ordering still serves the resource")
 	}
 }
 
@@ -458,7 +483,7 @@ func TestAPIIndex(t *testing.T) {
 
 func TestAPIInvalidJSON(t *testing.T) {
 	srv := apiServer(t, Options{}, boardservicetest.New(nil, nil))
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards", `{not json}`)
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards", `{not json}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -502,7 +527,7 @@ func TestAPICreateCardFromGitHubURL(t *testing.T) {
 			Owner: "acme", Repo: "repo", Number: 7, Title: "feat: warp drive", State: "open"},
 	})
 	srv := apiServer(t, Options{}, fake)
-	rec := do(t, srv, http.MethodPost, "/api/v1/cards",
+	rec := do(t, srv, http.MethodPost, "/api/v1/views/team/cards",
 		`{"title":"https://github.com/acme/repo/pull/7","team":"alpha"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
@@ -548,7 +573,7 @@ func TestAPIListCardsFocusQuery(t *testing.T) {
 	}, nil)
 	srv := apiServer(t, Options{}, fake)
 	// focus=true drops review/done, keeps workable (over the whole board).
-	rec := do(t, srv, http.MethodGet, "/api/v1/cards?view=all&focus=true", "")
+	rec := do(t, srv, http.MethodGet, "/api/v1/views/all/cards?focus=true", "")
 	got := map[string]bool{}
 	for _, c := range decodeList(t, rec).Items {
 		got[c.Metadata.UID] = true
@@ -557,7 +582,7 @@ func TestAPIListCardsFocusQuery(t *testing.T) {
 		t.Fatalf("focus list = %v", got)
 	}
 	// comma-separated team set filters the view=all list too.
-	rec = do(t, srv, http.MethodGet, "/api/v1/cards?view=all&team=alpha&focus=true", "")
+	rec = do(t, srv, http.MethodGet, "/api/v1/views/all/cards?team=alpha&focus=true", "")
 	only := decodeList(t, rec).Items
 	if len(only) != 1 || only[0].Metadata.UID != "wip" {
 		t.Fatalf("team+focus = %v", only)
@@ -586,7 +611,11 @@ func TestAPIReReviewReactivatesWithRound(t *testing.T) {
 	}
 }
 
-func TestAPIListDefaultsToMe(t *testing.T) {
+// A listing NAMES the board it is of. The bare collection defaulted to the
+// caller's Me board — a default that had to be remembered, and that answered
+// a different board to a caller who thought it meant "everything". The board
+// is a path segment now, so the question cannot be left unasked.
+func TestAListingNamesItsBoard(t *testing.T) {
 	today := board.TodayIso()
 	fake := boardservicetest.New([]board.Card{
 		{ItemID: "mine", Team: "alpha", Assignees: []string{"bob"}, Progress: 40, SprintStart: today},
@@ -594,17 +623,22 @@ func TestAPIListDefaultsToMe(t *testing.T) {
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
-	// Bare list → the caller's own Me board (who-am-I resolved server-side).
+	// The Me board is still the caller's own — who-am-I is resolved
+	// server-side, so it needs no user.
 	got := map[string]bool{}
-	for _, c := range decodeList(t, do(t, srv, http.MethodGet, "/api/v1/cards", "")).Items {
+	for _, c := range decodeList(t, do(t, srv, http.MethodGet, "/api/v1/views/me/cards", "")).Items {
 		got[c.Metadata.UID] = true
 	}
 	if !got["mine"] || got["theirs"] {
-		t.Fatalf("bare list must be the caller's Me board: %v", got)
+		t.Fatalf("the me board must be the caller's own: %v", got)
+	}
+	// And a board nobody has is a route that is not there.
+	if rec := do(t, srv, http.MethodGet, "/api/v1/views/everything/cards", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("an unknown board answered %d", rec.Code)
 	}
 	// view=all still lists the whole board.
 	all := map[string]bool{}
-	for _, c := range decodeList(t, do(t, srv, http.MethodGet, "/api/v1/cards?view=all", "")).Items {
+	for _, c := range decodeList(t, do(t, srv, http.MethodGet, "/api/v1/views/all/cards", "")).Items {
 		all[c.Metadata.UID] = true
 	}
 	if !all["mine"] || !all["theirs"] {
@@ -769,7 +803,7 @@ func TestAPIRemoveReadsAStreamedIntent(t *testing.T) {
 	}, map[string]board.SprintState{"alpha": {Current: today, ItemID: "s1"}})
 	srv := apiServer(t, Options{}, fake)
 
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/cards/c1/actions/remove",
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/views/team/cards/c1/actions/remove",
 		strings.NewReader(`{"intent":"off-board"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r.ContentLength = -1 // what a streamed body looks like to the handler

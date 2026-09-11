@@ -270,7 +270,7 @@ func TestHealthzDegradesPastUnpushedWarn(t *testing.T) {
 	if rec := do(t, srv, "GET", "/api/healthz", ""); !strings.Contains(rec.Body.String(), `"status":"ok"`) {
 		t.Fatalf("health before any write: %s", rec.Body.String())
 	}
-	if rec := do(t, srv, "POST", "/api/v1/cards", `{"title":"late","team":"portal","zone":"planned","dates":{"start":"2026-08-27"}}`); rec.Code != 201 {
+	if rec := do(t, srv, "POST", "/api/v1/views/team/cards", `{"title":"late","team":"portal","zone":"planned","dates":{"start":"2026-08-27"}}`); rec.Code != 201 {
 		t.Fatalf("POST /cards: %d %s", rec.Code, rec.Body.String())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
