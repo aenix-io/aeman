@@ -1,11 +1,12 @@
 package design
 
-// The behaviour matrix's third column names the test that pins each rule.
-// A name that no longer resolves is worse than no name: it reads as
+// The behaviour matrix's Test column names the tests that pin each rule.
+// A reference that no longer resolves is worse than no name: it reads as
 // coverage that is not there, and this branch shipped one after a rule was
 // reversed and its test renamed. Cheap to check, so checked.
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,18 +25,95 @@ func TestEveryTestTheMatrixNamesExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Every `TestSomething` in backticks. The web cases the matrix cites are
-	// prose, not identifiers, so only the Go shape is checked here.
-	named := regexp.MustCompile("`(Test[A-Za-z0-9_]+)`").FindAllStringSubmatch(string(matrix), -1)
+	named := matrixReferences(string(matrix))
 	if len(named) == 0 {
 		t.Fatal("the matrix names no tests at all — has the format changed?")
 	}
+	have, err := collectMatrixTests(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range named {
+		if problem := matrixReferenceProblem(ref, have); problem != "" {
+			t.Error(problem)
+		}
+	}
+}
+
+type testRef struct {
+	Group string
+	Name  string
+}
+
+// The directory basename is the matrix's package label, except that the
+// command package is filed under cmd rather than the executable name aeman.
+func matrixGroup(dir string) string {
+	if filepath.ToSlash(dir) == "cmd/aeman" {
+		return "cmd"
+	}
+	return filepath.Base(dir)
+}
+
+// These are abbreviations used alongside the full package names in the matrix.
+func matrixGroupAlias(group string) string {
+	switch group {
+	case "service":
+		return "boardservice"
+	case "mcp":
+		return "mcpserver"
+	case "fake":
+		return "boardservicetest"
+	default:
+		return group
+	}
+}
+
+func matrixReferences(matrix string) []testRef {
+	code := regexp.MustCompile("`([^`]+)`")
+	testName := regexp.MustCompile(`^Test[A-Za-z0-9_]+$`)
+	groupName := regexp.MustCompile(`^[a-z][a-z0-9_/]*$`)
+	var refs []testRef
+	for _, line := range strings.Split(matrix, "\n") {
+		// Reset at cell boundaries: the Lives in column and rule prose do
+		// not label the tests. Ungrouped legacy citations stay ungrouped.
+		for _, cell := range strings.Split(line, "|") {
+			group, end := "", 0
+			for _, m := range code.FindAllStringSubmatchIndex(cell, -1) {
+				prefix := cell[end:m[0]]
+				name := cell[m[2]:m[3]]
+				end = m[1]
+				// Only test references (including wildcard families) can
+				// introduce a group; unrelated code spans are annotations.
+				if !testName.MatchString(strings.TrimSuffix(name, "*")) {
+					continue
+				}
+				prefix = prefix[strings.LastIndexAny(prefix, ",;")+1:]
+				fields := strings.Fields(prefix)
+				if len(fields) > 0 && (fields[0] == "✅" || fields[0] == "🆕") {
+					fields = fields[1:]
+				}
+				// A label starts a group; commas and semicolons without
+				// one continue it. Old file citations like service_test
+				// are not package labels. Keep unknown labels so typos fail.
+				if len(fields) == 1 && groupName.MatchString(fields[0]) && !strings.HasSuffix(fields[0], "_test") {
+					group = matrixGroupAlias(fields[0])
+				}
+				if testName.MatchString(name) {
+					refs = append(refs, testRef{Group: group, Name: name})
+				}
+			}
+		}
+	}
+	return refs
+}
+
+func collectMatrixTests(root string) (map[testRef]bool, error) {
 	// The tree's own _test.go files, and only those: a walk rather than a
 	// grep, so the check does not depend on an external binary and cannot
 	// be satisfied by a stray match in node_modules or a build directory.
 	decl := regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]+)\(`)
-	have := map[string]bool{}
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	have := map[testRef]bool{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -57,23 +135,38 @@ func TestEveryTestTheMatrixNamesExists(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		dir, err := filepath.Rel(root, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
 		for _, m := range decl.FindAllStringSubmatch(string(src), -1) {
-			have[m[1]] = true
+			have[testRef{Group: matrixGroup(dir), Name: m[1]}] = true
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
+	return have, err
+}
+
+func matrixReferenceProblem(ref testRef, have map[testRef]bool) string {
+	if have[ref] {
+		return ""
 	}
-	var missing []string
-	for _, m := range named {
-		if !have[m[1]] {
-			missing = append(missing, m[1])
+	var groups []string
+	for candidate := range have {
+		if candidate.Name == ref.Name {
+			// Older citations name no package. Preserve their existence
+			// check without guessing a group from the test's location.
+			if ref.Group == "" {
+				return ""
+			}
+			groups = append(groups, candidate.Group)
 		}
 	}
-	if len(missing) > 0 {
-		t.Fatalf("the matrix names tests that do not exist: %s", strings.Join(missing, ", "))
+	if len(groups) > 0 {
+		sort.Strings(groups)
+		return fmt.Sprintf("behavior matrix cites %s under %s, but the test exists under %s", ref.Name, ref.Group, strings.Join(groups, ", "))
 	}
+	return fmt.Sprintf("behavior matrix cites %s, but no such test exists", strings.TrimSpace(ref.Group+" "+ref.Name))
 }
 
 // A rule's ID is how every other document cites it, so two rows sharing
