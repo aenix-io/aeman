@@ -116,6 +116,15 @@ cp .env.example .env   # fill in the repositories, the token, one OAuth pair and
 docker compose up -d --build
 ```
 
+## Project website
+
+The GitHub Pages landing page lives in [`site/`](site/), independently of the
+product UI. Build it with `node site/build.mjs`, then preview with
+`python3 -m http.server 8080 --directory site/dist`. The Pages workflow validates
+pull requests and deploys relevant changes on `main` using GitHub Actions.
+The upstream URL is https://aenix-io.github.io/aeman/ (forks use their own owner).
+See [`site/README.md`](site/README.md) for theme reuse and screenshot updates.
+
 ## License
 
 [Apache License 2.0](LICENSE).
