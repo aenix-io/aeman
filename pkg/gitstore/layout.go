@@ -266,10 +266,47 @@ func decodeFront(f *CardFile, front []byte) error {
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		key, val := m.Content[i].Value, m.Content[i+1]
 		if !setKnown(&f.Card, key, val) {
-			f.Extra = append(f.Extra, ExtraField{Key: key, Value: val})
+			// An unknown key is kept verbatim so a newer server does not lose
+			// it — but its value node is marshalled ALONE on re-encode, so an
+			// alias (`*t`) whose anchor (`&t`) sits on another key would be
+			// written dangling and every later parse of the card would fail:
+			// the card drops into Broken for good, on every replica, the next
+			// time anyone edits it. Resolve aliases to their target and strip
+			// anchors so the kept fragment stands on its own. The board's own
+			// writer never emits either.
+			f.Extra = append(f.Extra, ExtraField{Key: key, Value: plainNode(val)})
 		}
 	}
 	return nil
+}
+
+// plainNode returns a copy of n with every alias resolved to its target and
+// every anchor removed, so the node can be marshalled as a self-contained
+// fragment. It follows the alias chain and recurses into mappings and
+// sequences; a cyclic anchor (which yaml.v3 already refuses to unmarshal) is
+// guarded against all the same.
+func plainNode(n *yaml.Node) *yaml.Node {
+	return resolveNode(n, map[*yaml.Node]bool{})
+}
+
+func resolveNode(n *yaml.Node, seen map[*yaml.Node]bool) *yaml.Node {
+	if n == nil || seen[n] {
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}
+	}
+	seen[n] = true
+	defer delete(seen, n)
+	if n.Kind == yaml.AliasNode {
+		return resolveNode(n.Alias, seen)
+	}
+	out := *n
+	out.Anchor = ""
+	if len(n.Content) > 0 {
+		out.Content = make([]*yaml.Node, len(n.Content))
+		for i, c := range n.Content {
+			out.Content[i] = resolveNode(c, seen)
+		}
+	}
+	return &out
 }
 
 // setKnown stores one front-matter key on the card; false means the key is
