@@ -189,13 +189,35 @@ func MeView(b Board, user, day string) []Card {
 		if user != "" && !slices.Contains(c.Assignees, user) && !childAssigned(b, c.ItemID, user) {
 			continue
 		}
-		// A card placed in a week ahead waits in the backlog (B1).
-		if PlacedAhead(c, today) {
+		// A card placed in a week AHEAD of the day being looked at is on no
+		// day board until its Monday (B1). Judged against that DAY, as the
+		// Team board judges it: flipping forward to next week is looking at
+		// next week's plan, and a card planned for it belongs there.
+		if c.Week != "" && c.Week > MondayOf(day) {
 			continue
 		}
 		// And one parked on a list is not this person's day either: it is
 		// waiting to be planned, not being worked on.
 		if InBacklog(c) {
+			continue
+		}
+		// A card PLANNED FOR A WEEK and never dated is on its owner's board
+		// once the week has come. Dropping a card into a week ahead takes its
+		// dates and its sprint away (B1), so when that Monday arrives it has a
+		// week and nothing else — and no carry-over adopts a card with no
+		// sprint. The Team board drew it in its owner's column from that
+		// Monday on; this board, which is the one that keeps everything of
+		// theirs that is not closed, drew nothing, and the work a lead planned
+		// for somebody's week was on the lead's screen and not on theirs.
+		//
+		// Finished, it belongs to the day it was finished on and no other,
+		// as on the Team board: nothing sweeps a card with no sprint, and a
+		// done one would otherwise stand on every day for ever.
+		if c.Week != "" && c.StartDate == "" && c.Day == "" && c.SprintStart == "" {
+			if Complete(c.Stage, c.Progress) && c.DoneAt != day {
+				continue
+			}
+			out = append(out, c)
 			continue
 		}
 		// A deferred / future-scheduled card (startDate past today) is hidden
