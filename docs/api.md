@@ -42,7 +42,7 @@ A **column** of the Project board is the pair `(project, epic)`. Epic names are 
 
 ## HTTP API
 
-Base path: `/api/v1`. All requests and responses are JSON. Errors are returned as `{"error": "..."}` with an appropriate status code (400 bad request — including an unknown `domain`; 401 not authenticated; 403 no read access to the board or no write access to the card's domain; 404 card/note not found; 422 missing field or a rule refused the change; 502 the forge could not be reached while resolving a link).
+Base path: `/api/v1`. All requests and responses are JSON. Errors are returned as `{"error": "..."}` with an appropriate status code (400 bad request — including an unknown `domain`; 401 not authenticated; 403 no read access to the board or no write access to the card's domain; 404 card/note not found; 413 the request body is larger than the server accepts; 422 missing field or a rule refused the change — a title past its length cap or a date that is not a real board day included; 502 the forge could not be reached while resolving a link).
 
 `GET /api/v1` itself is a public, machine-readable catalog of every endpoint below.
 
