@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aenix-io/aeman/pkg/boardservice"
+	"github.com/aenix-io/aeman/pkg/gitstore"
 	"github.com/aenix-io/aeman/pkg/mcpserver"
 )
 
@@ -49,8 +51,34 @@ func (s *Server) mcpServerForRequest(*http.Request) *mcp.Server {
 		// rights ride the context, the push credential is the server's.
 		Backend: s.visibleBE,
 	})
-	srv.AddReceivingMiddleware(injectGitHubToken, s.injectRights)
+	srv.AddReceivingMiddleware(injectGitHubToken, s.injectRights, stampMCPAction(s.gitBE))
 	return srv
+}
+
+// stampMCPAction groups the writes of one MCP tool call into a single commit,
+// the way actionMiddleware does for an /api/v1 request. Without it a fan-out
+// tool (rename_epic across N cards, carry_over) ran one backend setter per
+// card, and each became its own commit with its own full-board re-read: an
+// agent loop wrote tens of thousands of commits into the history in minutes
+// (finding: MCP commit flooding). A read-only call holds an id with no writes
+// behind it, which is released as a no-op.
+func stampMCPAction(be *storeBackend) func(mcp.MethodHandler) mcp.MethodHandler {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if be == nil || method != "tools/call" {
+				return next(ctx, method, req)
+			}
+			id := gitstore.NewID(time.Now())
+			name := "mcp"
+			if c, ok := req.(*mcp.CallToolRequest); ok && c.Params != nil {
+				name = "mcp:" + c.Params.Name
+			}
+			ctx = withAction(ctx, id, name)
+			be.holdAction(id)
+			defer be.releaseAction(id)
+			return next(ctx, method, req)
+		}
+	}
 }
 
 // injectRights resolves the MCP caller's domain rights from the token and
