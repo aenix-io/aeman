@@ -746,12 +746,12 @@ func TestTheTokenAndTheLoginStayTogetherUnderConcurrency(t *testing.T) {
 	}
 }
 
-// `aeman mcp` only ever asks for a login — its personal-board attach, its
-// ResolveLogin and its middleware all call Login and never Token. So the
-// refusal fall-through has to live there too, or a stored token that has
-// expired leaves that process with no identity for its whole life: no
-// personal board, the default list not scoped to the person, and every
-// commit unattributed, with a working gh sitting right underneath.
+// `aeman mcp` only ever asks for a login — its ResolveLogin and its
+// middleware call Login and never Token. So the refusal fall-through has to
+// live there too, or a stored token that has expired leaves that process
+// with no identity for its whole life: the default list not scoped to the
+// person, and every commit unattributed, with a working gh sitting right
+// underneath.
 func TestLoginAloneAlsoFallsThroughARefusedToken(t *testing.T) {
 	ctx := context.Background()
 	f, client := fakeForge(t, map[string]string{"cli-token": "machine-user"})

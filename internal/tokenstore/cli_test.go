@@ -156,8 +156,8 @@ func TestKeychainCLIForgetsTheLoginWhenTheTokenChanges(t *testing.T) {
 }
 
 // The same replacement seen by a caller that only ever asks for a login.
-// `aeman mcp` is that caller — its middleware and its personal-board
-// lookup call Login and nothing else — so a cached login that is only
+// `aeman mcp` is that caller — its middleware and its ResolveLogin call
+// Login and nothing else — so a cached login that is only
 // invalidated as a side effect of someone asking for a token would stay
 // frozen for the whole process on the very path this feature is for.
 func TestKeychainCLIForgetsTheLoginWhenOnlyLoginIsEverAsked(t *testing.T) {
