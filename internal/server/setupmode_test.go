@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,4 +233,45 @@ func testServerAppPEM(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+}
+
+// A burst of /auth/setup hits must not run several clones into one data
+// directory at once: the retry is single-flight, so a caller that arrives
+// while one is running leaves it to finish rather than starting its own.
+// cloneOrOpen's fallback removes the directory under any other clone in
+// flight, so a race here corrupts the clone (finding: setup-retry race).
+func TestConcurrentSetupRetriesRunTheCloneOnce(t *testing.T) {
+	s := &Server{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	s.setup = &setupState{problem: "app not installed", forge: nil}
+
+	var running, entered atomic.Int32
+	release := make(chan struct{})
+	s.initGitFn = func(Options, forgepkg.Forge) error {
+		entered.Add(1)
+		if running.Add(1) != 1 {
+			t.Errorf("a second clone ran while the first held the directory")
+		}
+		<-release
+		running.Add(-1)
+		return nil // the install has landed
+	}
+
+	const callers = 8
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for range callers {
+		go func() { defer wg.Done(); s.retrySetup() }()
+	}
+	// Give the losers time to bounce off the busy retry, then let the winner
+	// finish.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+
+	if got := entered.Load(); got != 1 {
+		t.Fatalf("initGit ran %d times, want exactly one under the single-flight", got)
+	}
+	if _, waiting := s.inSetup(); waiting {
+		t.Fatal("the successful retry must clear the setup state")
+	}
 }
