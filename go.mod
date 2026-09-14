@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/go-git/go-billy/v5 v5.9.0
+	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/lexfrei/keychain v1.2.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
