@@ -267,6 +267,8 @@ func runMCP(args []string) error {
 			return next(ctx, method, req)
 		}
 	})
+	// One commit per tool call, not one per card a fan-out tool touches.
+	srv.AddReceivingMiddleware(gb.MCPActionMiddleware())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

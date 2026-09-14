@@ -368,7 +368,10 @@ func each(data []byte, fn func(key string, val *yaml.Node) bool) ([]ExtraField, 
 	var extra []ExtraField
 	for i := 0; i+1 < len(pairs); i += 2 {
 		if !fn(pairs[i].Value, pairs[i+1]) {
-			extra = append(extra, ExtraField{Key: pairs[i].Value, Value: pairs[i+1]})
+			// Resolved and anchor-stripped so a kept unknown key holding an
+			// alias is not rewritten dangling — see plainNode (the card codec
+			// carried the same landmine).
+			extra = append(extra, ExtraField{Key: pairs[i].Value, Value: plainNode(pairs[i+1])})
 		}
 	}
 	return extra, nil
@@ -401,7 +404,7 @@ func DecodeTeam(data []byte) (TeamFile, error) {
 					continue
 				}
 				f.CapacityExtra = append(f.CapacityExtra,
-					ExtraField{Key: val.Content[i].Value, Value: val.Content[i+1]})
+					ExtraField{Key: val.Content[i].Value, Value: plainNode(val.Content[i+1])})
 			}
 		default:
 			return false

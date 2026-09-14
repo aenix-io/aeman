@@ -35,7 +35,12 @@ type people struct {
 type knownPerson struct {
 	person forge.Person
 	found  bool
-	at     time.Time
+	// transient marks an answer remembered only because the forge could not be
+	// reached (a rate limit, a timeout) rather than because it said "no such
+	// login". It expires fast, but keeps a flood of unresolvable logins from
+	// being re-asked on every roster fan-out.
+	transient bool
+	at        time.Time
 }
 
 const (
@@ -44,6 +49,11 @@ const (
 	// peopleMissTTL is how long a login the forge does not know stays
 	// unknown before it is asked about again.
 	peopleMissTTL = 10 * time.Minute
+	// transientMissTTL is how long a login the forge could not answer for (a
+	// rate limit, a timeout) is left alone. Short, because the login may be a
+	// real person the forge was merely too busy to describe; long enough that a
+	// flood of unresolvable logins is not re-asked on every fan-out.
+	transientMissTTL = time.Minute
 	// peopleLookupTimeout bounds a lookup made on a request's path: a slow
 	// forge costs a missing avatar, never a hanging board.
 	peopleLookupTimeout = 3 * time.Second
@@ -91,7 +101,10 @@ func (p *people) person(login string) forge.Person {
 	p.mu.Unlock()
 	if ok {
 		ttl := peopleTTL
-		if !k.found {
+		switch {
+		case k.transient:
+			ttl = transientMissTTL
+		case !k.found:
 			ttl = peopleMissTTL
 		}
 		if p.now().Sub(k.at) < ttl {
@@ -114,11 +127,17 @@ func (p *people) person(login string) forge.Person {
 		p.mu.Unlock()
 		return forge.Person{Login: login}
 	default:
-		// The forge is unreachable: the last answer stands, else nothing —
-		// and nothing is not remembered, so the next request asks again.
-		if ok {
+		// The forge is unreachable (a rate limit, a timeout): a prior good
+		// answer stands. With none, remember the miss briefly so a flood of
+		// unresolvable logins is not re-asked on every fan-out — a board
+		// committer controls the logins on the cards, and thousands of them
+		// re-asked each time was the DoS.
+		if ok && k.found {
 			return k.person
 		}
+		p.mu.Lock()
+		p.known[login] = knownPerson{person: forge.Person{Login: login}, found: false, transient: true, at: p.now()}
+		p.mu.Unlock()
 		return forge.Person{Login: login}
 	}
 }

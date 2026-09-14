@@ -15,6 +15,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/aenix-io/aeman/internal/forge"
 	"github.com/aenix-io/aeman/pkg/boardservice"
@@ -134,6 +135,14 @@ func OpenGitBackend(cfg *GitConfig, log *slog.Logger) (*GitBackend, error) {
 
 // Backend is the boardservice.Backend to build a service on.
 func (g *GitBackend) Backend() boardservice.Backend { return g.be }
+
+// MCPActionMiddleware groups the writes of one MCP tool call into a single
+// commit, so a fan-out tool over the loopback daemon does not write one commit
+// per touched card (finding: MCP commit flooding). The HTTP MCP transport wires
+// the same middleware itself.
+func (g *GitBackend) MCPActionMiddleware() func(mcp.MethodHandler) mcp.MethodHandler {
+	return stampMCPAction(g.be)
+}
 
 // Drain waits for the write queue and pushes — what a stdio MCP process
 // does before it exits, so a client that closes the pipe right after a
