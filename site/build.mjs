@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const source = resolve(root, 'site');
 const output = resolve(source, 'dist');
-const url = new URL(process.env.SITE_URL || 'https://aenix-io.github.io/aeman/');
+const url = new URL(process.env.SITE_URL || 'https://aeman.aenix.io/');
 if (!['http:', 'https:'].includes(url.protocol) || url.search || url.hash || url.username || url.password) {
   throw new Error('SITE_URL must be an HTTP(S) site URL without credentials, query or fragment');
 }
