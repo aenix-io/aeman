@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aenix-io/aeman/pkg/board"
 	"github.com/aenix-io/aeman/pkg/gitstore"
@@ -21,9 +23,17 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 	// The second domain declares nothing the first does — two repositories
 	// naming the same team refuse to be one board (G38).
 	closed := gitRemoteN(t, "closed")
+	// A card of the closed repository is the sharpest case of "not yours to
+	// read": bob's rights do not reach it, whatever else he reads.
+	const hidden = "01JB4K2E7QZMX3R8V0N5T9WYP2"
+	hiddenPath, err := gitstore.CardPath(hidden)
+	if err != nil {
+		t.Fatal(err)
+	}
 	seedRemoteFiles(t, closed, map[string]string{
 		gitstore.BoardPath:                      "schema: 1\ntitle: closed\n",
 		gitstore.ProjectPath("01JB4PROJSECRET"): "name: secret\nrank: a\ncreated: 2026-06-01T08:00:00Z\n",
+		hiddenPath:                              "---\ntitle: in closed\nrank: a\ncreated: 2026-06-01T08:00:00Z\n---\n",
 	})
 	srv := gitModeServerOver(t, fakeAccess{byLogin: map[string]*domainRights{
 		"kvaps": rightsOn([]string{"shared", "closed"}, []string{"shared", "closed"}),
@@ -45,16 +55,15 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 		return out.Metadata.UID
 	}
 	mine := create("kvaps", "team", `{"title":"in shared","zone":"planned"}`)
-	// A personal card is the sharpest case of "not yours to read": its
-	// domain is served to its owner alone, whatever the forge says.
-	personalRemote := gitRemoteN(t, "personal")
-	if rec := doAs(t, srv, "kvaps", "PUT", "/api/v1/me/personal", `{"url":"`+personalRemote.URL+`"}`); rec.Code != http.StatusOK {
-		t.Fatalf("link personal: %d %s", rec.Code, rec.Body.String())
-	}
-	hidden := create("kvaps", "personal", `{"title":"mine alone","zone":"unplanned"}`)
 	if rec := doAs(t, srv, "kvaps", "POST", "/api/v1/cards/"+mine+"/notes", `{"text":"a note today"}`); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 		t.Fatalf("note: %d %s", rec.Code, rec.Body.String())
 	}
+
+	// The feed reads a card's log from its repository, so it is asked once
+	// the writes above have landed there.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.store.waitDrained(ctx)
 
 	day := board.TodayIso()
 	var got struct {
@@ -97,10 +106,10 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 		t.Fatal("an unknown card must be absent from the answer")
 	}
 	if _, ok := got.Cards[hidden]; !ok {
-		t.Fatal("the owner must be answered for their own personal card")
+		t.Fatal("a visitor who reads the closed repository must be answered for its card")
 	}
-	// bob cannot read another person's personal board: that card is absent
-	// for them, and asking about it is not an error.
+	// bob cannot read the closed repository: that card is absent for them,
+	// and asking about it is not an error.
 	rec = doAs(t, srv, "bob", "GET", "/api/v1/logs?uids="+mine+","+hidden, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("bob: %d %s", rec.Code, rec.Body.String())
@@ -112,7 +121,7 @@ func TestDayLogsAnswersForTheVisibleCardsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := bobs.Cards[hidden]; ok {
-		t.Fatalf("bob must not read another person's personal card: %v", bobs.Cards)
+		t.Fatalf("bob must not read a card of a repository he cannot read: %v", bobs.Cards)
 	}
 	if _, ok := bobs.Cards[mine]; !ok {
 		t.Fatal("bob reads shared and must be answered for its card")

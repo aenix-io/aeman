@@ -122,7 +122,7 @@ func TestTokenFormsFollowEachForgesDialect(t *testing.T) {
 	if gl.AuthorizeURL() != "https://gitlab.com/oauth/authorize" || gl.TokenURL() != "https://gitlab.com/oauth/token" {
 		t.Fatalf("gitlab oauth endpoints = %s %s", gl.AuthorizeURL(), gl.TokenURL())
 	}
-	if !strings.Contains(gl.DefaultScopes(), "read_user") || !strings.Contains(gl.DefaultScopes(), "write_repository") {
+	if gl.DefaultScopes() != "read_user read_api" {
 		t.Fatalf("gitlab scopes = %q", gl.DefaultScopes())
 	}
 }

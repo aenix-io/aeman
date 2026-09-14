@@ -433,15 +433,6 @@ func (g *gitFlags) githubApp(f forge.Forge) (*forge.GitHubApp, error) {
 // a test need not wait it out.
 var tokenLookupTimeout = 5 * time.Second
 
-// boundedLogin asks who the elected credential belongs to under that same
-// bound. Every start-up caller wants the name and can start without it, so
-// none of them may wait on the forge for the source's own ceiling.
-func boundedLogin(ctx context.Context, cli forge.CLI) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, tokenLookupTimeout)
-	defer cancel()
-	return cli.Login(ctx)
-}
-
 // fillGitToken supplies the push/fetch credential when AEMAN_GIT_TOKEN is
 // unset: the forge's token variables, then cli — the OS keychain and the
 // forge's own tool, the same value the identity is read from, so the push

@@ -169,7 +169,7 @@ func (s *Service) setParentOf(ctx context.Context, b board.Board, card board.Car
 		return err
 	}
 	// A subtask always belongs to its parent's PERSON: grouping hands the
-	// child over, so a family is never split across two personal boards.
+	// child over, so a family is never split across two people's Me boards.
 	pLogin := ""
 	if len(p.Assignees) > 0 {
 		pLogin = p.Assignees[0]
@@ -338,7 +338,7 @@ func (s *Service) ungroupWith(ctx context.Context, b board.Board, card board.Car
 	}
 	// A subtask usually has no assignee of its own — it rides the
 	// parent's — so a pull-out left it ownerless: gone from every
-	// personal board and sitting in Unassigned, which from the person
+	// Me board and sitting in Unassigned, which from the person
 	// who pulled it looks exactly like the card vanishing.
 	// deleteWithCascade hands a released child the parent's person for
 	// this same reason.

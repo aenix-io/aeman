@@ -141,7 +141,7 @@ func stamp(s *Snapshot, domain string) {
 
 // merge folds the parts into one snapshot.
 func merge(parts []Snapshot) Snapshot {
-	out := Snapshot{Board: parts[0].Board, Users: parts[0].Users} // links to personal repositories live in the primary
+	out := Snapshot{Board: parts[0].Board, Users: parts[0].Users} // people are declared in the primary
 	for _, p := range parts {
 		out.Unknown = append(out.Unknown, p.Unknown...)
 		out.Broken = append(out.Broken, p.Broken...)

@@ -329,8 +329,7 @@ func boardFromSnapshotIn(primary string, s Snapshot) board.Board {
 	cards = append(cards, s.Cards...)
 	bd := board.NewBoardIn(primary, cards)
 	// The people the roster knows: users/<login>.yaml in the primary — a
-	// capacity a lead set travels here; the link to a personal repository
-	// is the server's business and stays in the snapshot.
+	// capacity a lead set travels here.
 	for _, u := range s.Users {
 		if u.Capacity == 0 {
 			continue
@@ -881,8 +880,8 @@ func (b *Backend) editTeam(ctx context.Context, op, p string, fn func(*TeamFile)
 }
 
 // editUser rewrites users/<login>.yaml, creating it when the person has no
-// file yet: a capacity is set for anyone on the board, personal repository
-// or not, and most people have none.
+// file yet: a capacity is set for anyone on the board, and most people have
+// no file.
 func (b *Backend) editUser(ctx context.Context, op, login string, fn func(*UserFile)) error {
 	p := UserPath(login)
 	data, ok, err := b.read(ctx, p)
@@ -1153,12 +1152,6 @@ func (b *Backend) SetZone(ctx context.Context, _ board.Board, card board.Card, z
 // SetSize sets or clears the size.
 func (b *Backend) SetSize(ctx context.Context, _ board.Board, card board.Card, size board.SizeKey) error {
 	return b.editCard(ctx, "size", card, func(f *CardFile) { f.Card.Size = size })
-}
-
-// SetLeftAt sets or clears the day a personal card was left behind on.
-func (b *Backend) SetLeftAt(ctx context.Context, _ board.Board, card board.Card, day string) error {
-	err := b.editCard(ctx, "left", card, func(f *CardFile) { f.Card.LeftAt = day })
-	return err
 }
 
 // SetDay sets or clears the end day.

@@ -242,13 +242,6 @@ func runMCP(args []string) error {
 		return err
 	}
 	defer gb.Close()
-	// The local person's personal board, if the primary links one: attached
-	// with the same credential the pushes use.
-	if login, err := boundedLogin(context.Background(), cli); err == nil {
-		if err := gb.AttachPersonal(context.Background(), login, gitCfg.Token); err != nil {
-			logger.Warn("personal board", "login", login, "err", err)
-		}
-	}
 	cfg := mcpserver.Config{
 		Board:   gitCfg.Repos[0].Name,
 		Lock:    true,

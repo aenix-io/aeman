@@ -2,7 +2,6 @@ package gitstore
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -18,73 +17,29 @@ import (
 
 // MultiBackend implements boardservice.Backend.
 type MultiBackend struct {
-	// dmu guards the domain list: the configured domains are there from the
-	// start, a personal domain is attached when its owner first shows up and
-	// detached when they unlink it.
-	dmu      sync.RWMutex
 	domains  []Domain
 	backends map[string]*Backend
 	now      func() time.Time
 
 	// issues is what the last merge had to resolve — duplicate roster names
 	// and torn-move ghosts — for health to report; users are the primary's
-	// links to personal repositories, for the server to attach.
+	// roster entries for people.
 	mu      sync.Mutex
 	aliases []Alias
 	ghosts  []Ghost
 	users   []User
 }
 
-// domainList is a copy of the domains, primary first, safe to range over
-// while another goroutine attaches or detaches one.
+// domainList is a copy of the domains, primary first.
 func (mb *MultiBackend) domainList() []Domain {
-	mb.dmu.RLock()
-	defer mb.dmu.RUnlock()
 	return append([]Domain(nil), mb.domains...)
 }
 
 // Domains lists the board's domains, primary first.
 func (mb *MultiBackend) Domains() []Domain { return mb.domainList() }
 
-// AddDomain attaches a domain at run time — a personal repository, attached
-// when its owner first arrives. A name the board already has is refused.
-func (mb *MultiBackend) AddDomain(d Domain) error {
-	if d.Name == "" || d.Repo == nil {
-		return fmt.Errorf("%w: a domain needs a name and a repository", ErrUnknownDomain)
-	}
-	mb.dmu.Lock()
-	defer mb.dmu.Unlock()
-	if _, taken := mb.backends[d.Name]; taken {
-		return fmt.Errorf("domain %q is already attached", d.Name)
-	}
-	mb.domains = append(mb.domains, d)
-	mb.backends[d.Name] = NewBackend(d.Repo, BackendOptions{Now: mb.now})
-	return nil
-}
-
-// RemoveDomain detaches a domain; its cards are no longer served. The
-// primary stays.
-func (mb *MultiBackend) RemoveDomain(name string) error {
-	mb.dmu.Lock()
-	defer mb.dmu.Unlock()
-	if name == "" || name == mb.domains[0].Name {
-		return errors.New("the primary domain cannot be removed")
-	}
-	if _, ok := mb.backends[name]; !ok {
-		return fmt.Errorf("%w: %q", ErrUnknownDomain, name)
-	}
-	delete(mb.backends, name)
-	for i, d := range mb.domains {
-		if d.Name == name {
-			mb.domains = append(mb.domains[:i:i], mb.domains[i+1:]...)
-			break
-		}
-	}
-	return nil
-}
-
-// Users are the primary's links to personal repositories as of the last
-// load — nil before any.
+// Users are the primary's users/<login>.yaml entries as of the last load —
+// nil before any.
 func (mb *MultiBackend) Users() []User {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
@@ -93,22 +48,6 @@ func (mb *MultiBackend) Users() []User {
 
 // ErrUnknownDomain names a domain that is not part of the board.
 var ErrUnknownDomain = fmt.Errorf("gitstore: unknown domain")
-
-// ErrPersonalRoster refuses a team, project or process in a personal
-// domain: a personal board holds cards and nothing else — a roster entry
-// there would sit in a repository nobody else can read, on a board with no
-// place to show it.
-var ErrPersonalRoster = fmt.Errorf("gitstore: a personal board holds no teams, projects or processes")
-
-// rosterDomain is where a roster entry is declared: the caller's pick, and
-// never a personal domain — the primary is not silently substituted, since
-// a request that named a personal board asked for something that cannot be.
-func rosterDomain(domain string) (string, error) {
-	if board.IsPersonalDomain(domain) {
-		return "", fmt.Errorf("%w: %q", ErrPersonalRoster, domain)
-	}
-	return domain, nil
-}
 
 // NewMultiBackend builds the backend; domains[0] is the primary.
 func NewMultiBackend(domains []Domain, opts BackendOptions) *MultiBackend {
@@ -129,9 +68,7 @@ func (mb *MultiBackend) backend(domain string) (*Backend, error) {
 	if domain == "" {
 		domain = mb.primary()
 	}
-	mb.dmu.RLock()
 	b, ok := mb.backends[domain]
-	mb.dmu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownDomain, domain)
 	}
@@ -168,8 +105,7 @@ func (mb *MultiBackend) LoadBoard(_ context.Context, boardID string) (board.Boar
 	// included, and the assembly's own domain rules (declaredMirrors) ask
 	// "the same repository?" while they run — setting the name on the
 	// finished board would answer them in the wrong namespace and drop the
-	// mirrors the service had just written. Through primary(), which takes
-	// the lock AddDomain writes under.
+	// mirrors the service had just written.
 	bd := boardFromSnapshotIn(mb.primary(), s)
 	bd.Board = boardID
 	return bd, nil
@@ -370,9 +306,7 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 			// in X" read off the roster: one column unbound in a closed
 			// repository then took every later bucket column with it, out
 			// of reach of the teamless card the bucket exists for.
-			if target, err = rosterDomain(choice); err != nil {
-				return board.Card{}, err
-			}
+			target = choice
 			break
 		}
 		if d, ok := r.projects[in.Project]; ok {
@@ -387,23 +321,12 @@ func (mb *MultiBackend) CreateCard(ctx context.Context, bd board.Board, in board
 			if d, ok := r.projects[in.Project]; ok {
 				target = d
 			}
-		} else if target, err = rosterDomain(choice); err != nil {
-			return board.Card{}, err
+		} else {
+			target = choice
 		}
 	case board.ProjectStateTitle, board.SprintStateTitle:
-		if target, err = rosterDomain(choice); err != nil {
-			return board.Card{}, err
-		}
+		target = choice
 	default:
-		if in.Personal {
-			// A personal card goes where the caller says — their own domain —
-			// and nowhere else; the home rule does not apply to it.
-			if in.Domain == "" {
-				return board.Card{}, fmt.Errorf("%w: a personal card needs its domain", ErrUnknownDomain)
-			}
-			target = in.Domain
-			break
-		}
 		probe := cardFromInput(in, in.ItemID, "", "")
 		target = mb.homeOf(r, probe)
 	}
@@ -472,9 +395,6 @@ func (mb *MultiBackend) refile(ctx context.Context, op string, c board.Card, cha
 	after := f.Card
 	change(&after)
 	to := mb.homeOf(r, after)
-	if board.IsPersonalDomain(from) {
-		to = from // a personal card stays home whatever team or project it is given
-	}
 	if to == from {
 		return apply(src)
 	}
@@ -812,9 +732,7 @@ func (mb *MultiBackend) SetTeamPoints(ctx context.Context, bd board.Board, team 
 	}
 	d, ok := newResolver(s).teams[team]
 	if !ok {
-		if d, err = rosterDomain(board.DomainFrom(ctx)); err != nil {
-			return err
-		}
+		d = board.DomainFrom(ctx)
 	}
 	be, err := mb.backend(d)
 	if err != nil {
@@ -841,7 +759,6 @@ func (mb *MultiBackend) SetDay(ctx context.Context, bd board.Board, card board.C
 	return be.SetDay(ctx, bd, card, day)
 }
 
-// SetLeftAt writes in the card's domain.
 // SetDoneAt writes in the card's domain.
 func (mb *MultiBackend) SetDoneAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
 	be, err := mb.route(ctx, card)
@@ -849,14 +766,6 @@ func (mb *MultiBackend) SetDoneAt(ctx context.Context, bd board.Board, card boar
 		return err
 	}
 	return be.SetDoneAt(ctx, bd, card, day)
-}
-
-func (mb *MultiBackend) SetLeftAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
-	be, err := mb.route(ctx, card)
-	if err != nil {
-		return err
-	}
-	return be.SetLeftAt(ctx, bd, card, day)
 }
 
 // SetStart writes in the card's domain.
@@ -1047,9 +956,7 @@ func (mb *MultiBackend) SetSprintState(ctx context.Context, bd board.Board, team
 	// the primary.
 	d, ok := newResolver(s).teams[team]
 	if !ok {
-		if d, err = rosterDomain(board.DomainFrom(ctx)); err != nil {
-			return err
-		}
+		d = board.DomainFrom(ctx)
 	}
 	be, err := mb.backend(d)
 	if err != nil {

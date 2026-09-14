@@ -50,10 +50,8 @@ func (s *Server) recordWriteGuard(next http.Handler) http.Handler {
 			return
 		}
 		// A write that names a card is judged by THAT card — through the same
-		// question the day's board is built with (board.IsRecord), or the two
-		// answer differently: a personal card, which belongs to no team and
-		// no sprint, would be live on screen and refused here the moment the
-		// no-team GROUP carried over.
+		// question the day's board is built with (board.IsRecord), so a card
+		// that is live on screen is never refused here.
 		if uid := cardOfPath(r.URL.Path); uid != "" {
 			card, ok := findCardByID(bd, uid)
 			if !ok || !board.IsRecord(card, past) {

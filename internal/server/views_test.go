@@ -196,13 +196,12 @@ func TestTheCatalogNamesTheBoardsAndTheirGestures(t *testing.T) {
 		got[v.Name] = v.Gestures
 	}
 	want := map[string][]string{
-		"me":       {"remove", "finished-earlier"},
-		"team":     {"remove", "finished-earlier"},
-		"triage":   {"remove", "place", "untriage"},
-		"backlog":  {"remove"},
-		"project":  {"remove"},
-		"personal": {"remove"},
-		"all":      {"remove", "place", "untriage", "finished-earlier"},
+		"me":      {"remove", "finished-earlier"},
+		"team":    {"remove", "finished-earlier"},
+		"triage":  {"remove", "place", "untriage"},
+		"backlog": {"remove"},
+		"project": {"remove"},
+		"all":     {"remove", "place", "untriage", "finished-earlier"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("the catalog lists %v", got)
@@ -287,29 +286,5 @@ func TestTheDrawersCrossIsTheTriageBoards(t *testing.T) {
 	if rec := do(t, srv, http.MethodPost, "/api/v1/views/triage/cards/shelved/actions/remove?team=alpha",
 		`{"intent":"off-board"}`); rec.Code != http.StatusOK {
 		t.Fatalf("the drawer's × answered %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-// The other half of the same rule at the door: the PERSONAL column stands
-// beside the Me day, so its × is the Me board's ×.
-//
-// The card here carries NOBODY, which is the case the second listing exists
-// for: the Me day is a view of a person's work and finds a card by its
-// assignee, while the personal column is a view of a REPOSITORY and draws
-// everything in it. A card written straight into that repository with no
-// assignee is on the screen and in only one of the two listings.
-func TestThePersonalColumnsCrossIsTheMeBoards(t *testing.T) {
-	today := board.TodayIso()
-	fake := boardservicetest.New([]board.Card{
-		{ItemID: "own", Title: "read the paper", Author: "bob",
-			Zone: board.ZoneGray, Domain: board.PersonalDomain("bob"),
-			StartDate: today, Day: today},
-	}, nil)
-	srv := apiServer(t, Options{}, fake)
-	srv.apiTokens = func(*http.Request) (string, string, error) { return "tok", "bob", nil }
-
-	if rec := do(t, srv, http.MethodPost, "/api/v1/views/me/cards/own/actions/remove",
-		`{"intent":"off-board"}`); rec.Code != http.StatusOK {
-		t.Fatalf("the personal column's × answered %d: %s", rec.Code, rec.Body.String())
 	}
 }

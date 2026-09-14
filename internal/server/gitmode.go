@@ -135,13 +135,6 @@ func OpenGitBackend(cfg *GitConfig, log *slog.Logger) (*GitBackend, error) {
 // Backend is the boardservice.Backend to build a service on.
 func (g *GitBackend) Backend() boardservice.Backend { return g.be }
 
-// AttachPersonal attaches the login's personal repository, if the primary
-// links one, using token to clone and push — what `aeman mcp` does for the
-// local user at start, the way the HTTP server does for each visitor.
-func (g *GitBackend) AttachPersonal(ctx context.Context, login, token string) error {
-	return g.be.attachPersonal(ctx, login, token)
-}
-
 // Drain waits for the write queue and pushes — what a stdio MCP process
 // does before it exits, so a client that closes the pipe right after a
 // mutation loses nothing.
@@ -285,7 +278,6 @@ func openGitStore(store *boardStore, cfg *GitConfig, log *slog.Logger) (*storeBa
 	}
 	return newGitBackend(store, domains, gitOptions{PushDelay: 300 * time.Millisecond, SyncInterval: cfg.SyncInterval,
 		MaintainEvery: 24 * time.Hour, HistoryMax: cfg.HistoryMax, Logger: log,
-		DataDir: cfg.DataDir, RepoOpts: opts, Forge: f,
 		// Issue/PR titles in card descriptions are read with the push
 		// credential — the store has no per-visitor token any more.
 		Links: links}), nil
@@ -326,8 +318,7 @@ func rosterCollision(s gitstore.Snapshot) error {
 }
 
 // errUnbornRemote is a repository with no commits at all: the server refuses
-// to invent a board in it (initHint names the command that does), while a
-// personal repository a person just created is given one on the spot.
+// to invent a board in it (initHint names the command that does).
 var errUnbornRemote = errors.New("repository has no board yet")
 
 func initHint(url string) error {

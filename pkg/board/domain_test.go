@@ -204,7 +204,6 @@ func TestEveryDomainReaderAnswersInThePrimarysNamespace(t *testing.T) {
 	for _, tc := range []struct{ what, got, want string }{
 		{"an unstamped card", FileDomain(b, Card{}), "aeman-db"},
 		{"a stamped card", FileDomain(b, Card{Domain: "founders"}), "founders"},
-		{"a personal card", FileDomain(b, Card{Domain: PersonalDomain("kvaps")}), PersonalDomain("kvaps")},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s answers %q, want %q", tc.what, tc.got, tc.want)

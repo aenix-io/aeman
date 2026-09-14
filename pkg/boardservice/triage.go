@@ -105,8 +105,7 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 	// sprint began would join the PREVIOUS one — through the end of the week.
 	// Only the week being WORKED does this; placing into an earlier one is
 	// filing a record, not saying "this is being done now".
-	if week == board.MondayOf(today) && card.Epic == "" &&
-		!board.IsPersonalDomain(card.Domain) && daysRanOut(card, week) {
+	if week == board.MondayOf(today) && card.Epic == "" && daysRanOut(card, week) {
 		return s.SetDates(ctx, boardID, itemID, today, board.AddDays(week, 6))
 	}
 	// Brought back into the week the team is working, a card that stands on
@@ -117,8 +116,7 @@ func (s *Service) Place(ctx context.Context, boardID, itemID, week string) error
 	// day, not on anyone's Me, findable by its id alone. A card that already
 	// has a day keeps it: placing it in the week it is already in says
 	// nothing new about when it is being done.
-	if card.StartDate == "" && card.Day == "" && card.SprintStart == "" &&
-		card.Epic == "" && !board.IsPersonalDomain(card.Domain) {
+	if card.StartDate == "" && card.Day == "" && card.SprintStart == "" && card.Epic == "" {
 		sprint := board.ActiveSprint(b, card.Team, today)
 		if sprint == "" {
 			sprint = board.CurrentSprint(b, card.Team)

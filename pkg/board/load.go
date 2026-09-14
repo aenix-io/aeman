@@ -12,8 +12,7 @@ package board
 // What counts is work that is theirs, open, and not put off to a week that
 // has not arrived: a card placed ahead is on no day board until its Monday
 // (B1) and is not what they are carrying today. A subtask rides its parent
-// and is not a card of its own; a state card is the board's own bookkeeping;
-// a personal board's card is nobody else's business.
+// and is not a card of its own; a state card is the board's own bookkeeping.
 func CarryingNow(b Board, today string) map[string]int {
 	out := map[string]int{}
 	for _, c := range b.Cards {
@@ -32,7 +31,7 @@ func carriedNow(c Card, today string) bool {
 	if len(c.Assignees) == 0 || c.Assignees[0] == "" {
 		return false
 	}
-	if c.Parent != "" || IsStateTitle(c.Title) || IsPersonalDomain(c.Domain) {
+	if c.Parent != "" || IsStateTitle(c.Title) {
 		return false
 	}
 	return !Complete(c.Stage, c.Progress) && !PlacedAhead(c, today)

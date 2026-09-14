@@ -25,16 +25,16 @@ func (s *Server) viewOf(w http.ResponseWriter, r *http.Request) (board.View, boo
 }
 
 // selectorOf is the view's scope: the segment plus the selectors that narrow
-// it (team, day, user, the triage window). The me and personal boards are the
-// caller's own unless they say whose — "who am I" is resolved here, server
-// side, so a client never has to send it.
+// it (team, day, user, the triage window). The me board is the caller's own
+// unless they say whose — "who am I" is resolved here, server side, so a
+// client never has to send it.
 func (s *Server) selectorOf(w http.ResponseWriter, r *http.Request, view board.View) (apiserver.Selector, bool) {
 	sel, err := apiserver.ParseViewSelector(string(view), r.URL.Query())
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return apiserver.Selector{}, false
 	}
-	if (sel.View == string(board.ViewMe) || sel.View == string(board.ViewPersonal)) && sel.User == "" {
+	if sel.View == string(board.ViewMe) && sel.User == "" {
 		if _, login, err := s.apiTokens(r); err == nil {
 			sel.User = login
 		}
@@ -83,11 +83,10 @@ func (s *Server) gestureOn(w http.ResponseWriter, r *http.Request, view board.Vi
 		// The card's own team, so a caller that named no team is judged on
 		// the grid the card is actually drawn on rather than on the no-team
 		// group's. Only where the LISTING names one (board.ScopedByTeam):
-		// the Me, personal and
-		// Project boards list every team, so filling it there would ask a
-		// stricter question than the board answered — a subtask whose team
-		// differs from its parent's drops the parent out of the Me listing,
-		// and the child rides in on the parent.
+		// the Me and Project boards list every team, so filling it there
+		// would ask a stricter question than the board answered — a subtask
+		// whose team differs from its parent's drops the parent out of the
+		// Me listing, and the child rides in on the parent.
 		for _, c := range b.Cards {
 			if c.ItemID == uid {
 				sel.Team = c.Team
@@ -96,8 +95,8 @@ func (s *Server) gestureOn(w http.ResponseWriter, r *http.Request, view board.Vi
 		}
 	}
 	// A board can be drawn from more than one listing — the Triage grid
-	// beside its drawer, the Me day beside the personal column — and the ×
-	// in the drawer is the Triage board's × (board.Panes).
+	// beside its drawer — and the × in the drawer is the Triage board's ×
+	// (board.Panes).
 	drawn := false
 	for _, pane := range board.Panes(view) {
 		paneSel := sel

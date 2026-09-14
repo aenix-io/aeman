@@ -34,15 +34,15 @@ type Snapshot struct {
 	// copy that is NOT current. Both are for health, not for the board.
 	Aliases []Alias
 	Ghosts  []Ghost
-	// Users are the primary's users/<login>.yaml files: each person's link
-	// to their personal repository. Only the primary's count.
+	// Users are the primary's users/<login>.yaml files: each person's roster
+	// entry. Only the primary's count.
 	Users []User
 }
 
-// User is one users/<login>.yaml: a person and their personal repository.
+// User is one users/<login>.yaml: a person and what the roster records about
+// them.
 type User struct {
-	Login    string
-	Personal string
+	Login string
 	// Capacity is the points a week somebody set for this person; 0 = none.
 	Capacity int
 	Created  string
@@ -260,7 +260,7 @@ func (l *loader) file(p string, data []byte) error {
 	case PathUser:
 		var f UserFile
 		if f, err = DecodeUser(data); err == nil {
-			l.s.Users = append(l.s.Users, User{Login: ids[0], Personal: f.Personal, Capacity: f.Capacity, Created: f.Created})
+			l.s.Users = append(l.s.Users, User{Login: ids[0], Capacity: f.Capacity, Created: f.Created})
 		}
 	default:
 		l.s.Unknown = append(l.s.Unknown, p)

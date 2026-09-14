@@ -427,7 +427,7 @@ func TestGroupACardOfAWeekUnderASlot(t *testing.T) {
 
 // Pulling a subtask out of its parent must not make it ownerless. A subtask
 // usually has no assignee of its own — it rides the parent's — so ungrouping
-// dropped it into Unassigned and off every personal board: from the person
+// dropped it into Unassigned and off every Me board: from the person
 // who pulled it, the card simply vanished. deleteWithCascade already hands a
 // released child the parent's person for exactly this reason; the plain
 // ungroup now does the same.
@@ -471,7 +471,7 @@ func TestUngroupKeepsItsOwnPerson(t *testing.T) {
 
 // A subtask always belongs to its parent's PERSON, the way it always belongs
 // to the parent's team. Three doors lead in, and all three must agree, or a
-// family drifts apart and someone else's card lands on your personal board:
+// family drifts apart and someone else's card lands on your Me board:
 // the Me view admits a card when you own one of its subtasks, so a single
 // stray child drags the parent and all its siblings onto a board they are not
 // part of.

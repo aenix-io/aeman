@@ -76,9 +76,6 @@ func (b Board) inPrimary(domain string) string {
 // against. Comparing one against a raw stamp is how a named primary and an
 // unstamped entry became two repositories.
 func FileDomain(b Board, c Card) string {
-	if IsPersonalDomain(c.Domain) {
-		return c.Domain
-	}
 	return b.inPrimary(c.Domain)
 }
 
@@ -87,13 +84,7 @@ func FileDomain(b Board, c Card) string {
 // places this card" read as the primary — which is where such a card's
 // file goes.
 func HomeDomain(b Board, c Card) string {
-	// A PERSONAL card is placed by nothing — no team, no project, no link
-	// — so the placement rule says "" for it and only its file knows whose
-	// board it is. Every other card is answered by the rule, because the
-	// question is always where the card will BE after a change, not where
-	// its file happens to sit now.
-	if IsPersonalDomain(c.Domain) {
-		return c.Domain
-	}
+	// Answered by the rule, because the question is always where the card
+	// will BE after a change, not where its file happens to sit now.
 	return b.inPrimary(DomainOf(c, Resolver(b, b.Primary)))
 }

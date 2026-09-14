@@ -2,8 +2,8 @@ package board
 
 // Reachable is every card some board still shows: the day boards for the days
 // a person opens (today, and each team's current and previous sprint day), the
-// Project board's columns, the weekly plan, the Process tab, and a personal
-// board, plus the cards that ride one of those — a subtask under its parent, a
+// Project board's columns, the weekly plan and the Process tab, plus the
+// cards that ride one of those — a subtask under its parent, a
 // review card beside its original.
 //
 // What it does NOT name is a card on no board at all: open, in no column, no
@@ -36,8 +36,6 @@ func Reachable(b Board, today string) map[string]bool {
 	}
 	for _, c := range b.Cards {
 		switch {
-		// Its own owner's board, which has no team and no sprint to judge it by.
-		case IsPersonalDomain(c.Domain):
 		// The Process tab: a task is what turns are copied from, and a state
 		// card is the roster.
 		case c.Title == ProcessTaskTitle || IsStateTitle(c.Title):

@@ -416,29 +416,6 @@ func TestReFilingACardCannotStrandAFollowersProcessTie(t *testing.T) {
 	}
 }
 
-// A personal board is a repository like any other for this rule. A card
-// linked to a personal card FOLLOWS it in (personal-board.md), so a team
-// card grouped under a personal parent would take its column along — a
-// column of the shared repository, named on a file that now lives on one
-// person's board, which no reader of that column holds. Refused, like
-// every other grouping that would strand a column.
-func TestGroupingUnderAPersonalParentCannotCarryAColumnIn(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "mine", Title: "my own card", Domain: board.PersonalDomain("kvaps")},
-		{ItemID: "c1", Title: "team card", Team: "platform",
-			Project: "engineering", Epic: "Cozystack"},
-	})
-	err := New(f).SetParent(ctx, "acme", "c1", "mine")
-	if !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("the column cannot follow the card onto a personal board: %v", err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	c, _ := findCard(b, "c1")
-	if c.Parent != "" || c.Epic != "Cozystack" {
-		t.Fatalf("and the refusal writes nothing: %+v", c)
-	}
-}
-
 // Grouping hands a card's WEEK to its parent, which stands for it from then
 // on — but not the week of a card that stands in a COLUMN: there the week is
 // the row the Project board draws it in, and clearing it took the card's row
@@ -1796,58 +1773,6 @@ func TestFreeingASubtaskDropsAColumnItsRepositoryNoLongerHolds(t *testing.T) {
 		cd, _ := board.ColumnDomain(b, c.Project, c.Epic)
 		t.Fatalf("the column names %q, the card lives in %q: %+v",
 			cd, board.DomainOf(c, board.Resolver(b, "")), c)
-	}
-}
-
-// The personal door is a create door like the others: a parent it names
-// must exist, must not be a subtask itself, and must live in the
-// repository the new card will — a personal card's file is in the
-// actor's own repository, so a team parent elsewhere would put the two
-// apart, which is the state the whole rule refuses. And it must actually
-// GROUP: writing the field straight through left a card that was a
-// subtask in name and in nothing else — no sprint or person synced, no
-// plan slot handed over, no riders cleared.
-func TestThePersonalDoorValidatesAndGroupsLikeTheOthers(t *testing.T) {
-	f := mirrorBoard([]board.Card{
-		{ItemID: "mine", Title: "my own", Domain: board.PersonalDomain("kvaps"),
-			Assignees: []string{"kvaps"}},
-		{ItemID: "kid", Title: "already a subtask", Parent: "mine",
-			Domain: board.PersonalDomain("kvaps")},
-		{ItemID: "team", Title: "a team card", Team: "platform"},
-	})
-	svc := New(f)
-	actor := board.WithActor(ctx, "kvaps")
-
-	if _, err := svc.CreateCard(actor, "acme", CreateCardArgs{
-		Title: "child", Personal: true, Parent: "ghost",
-	}); !errors.Is(err, ErrParentNotFound) {
-		t.Fatalf("a parent that does not exist: %v", err)
-	}
-	if _, err := svc.CreateCard(actor, "acme", CreateCardArgs{
-		Title: "child", Personal: true, Parent: "kid",
-	}); !errors.Is(err, ErrSubtaskDepth) {
-		t.Fatalf("subtasks are one level deep: %v", err)
-	}
-	if _, err := svc.CreateCard(actor, "acme", CreateCardArgs{
-		Title: "child", Personal: true, Parent: "team",
-	}); !errors.Is(err, ErrCrossDomain) {
-		t.Fatalf("a personal card's file is the actor's own: %v", err)
-	}
-	// And the lawful one is really grouped: the parent's person is on it,
-	// which only SetParent does.
-	c, err := svc.CreateCard(actor, "acme", CreateCardArgs{
-		Title: "child", Personal: true, Parent: "mine",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := f.LoadBoard(ctx, "acme")
-	got, _ := findCard(b, c.ItemID)
-	if got.Parent != "mine" {
-		t.Fatalf("grouped: %+v", got)
-	}
-	if !f.saw("SetParent " + c.ItemID + " mine") {
-		t.Fatalf("the grouping must go through SetParent, not the field: %v", f.log)
 	}
 }
 
