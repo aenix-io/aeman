@@ -195,16 +195,12 @@ export function asksFirst(
 }
 
 /** RemoveChoice is one of the things an × can mean, and the dialog offers the
- *  card's own list of them (removeChoices). "keep" is the personal board's
- *  alone: it has no day's record to fall back on, so its × offers to leave
- *  the card on yesterday instead of destroying it. "backlog" is the answer
- *  that destroys nothing: the work is kept, off the plan, on its team's
- *  shelf. */
+ *  card's own list of them (removeChoices). "backlog" is the answer that
+ *  destroys nothing: the work is kept, off the plan, on its team's shelf. */
 export type RemoveChoice =
   | "off-board"
   | "unassign"
   | "ungroup"
-  | "keep"
   | "backlog"
   | "finished-earlier";
 

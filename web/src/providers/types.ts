@@ -5,7 +5,6 @@
 
 import type { DomainInfo } from "../domains";
 import type { CardLink } from "../links";
-import type { PersonalBoard } from "../personal";
 import type { Member } from "../users";
 
 /** ZoneKey is the colour zone a card belongs to, in the Ford sense. */
@@ -103,11 +102,8 @@ export interface Card {
    *  board shows it as it was and refuses to change it (G60). */
   asOf?: string;
   /** The board day (yyyy-mm-dd) the card reached done; cleared when it
-   *  reopens. The personal column shows a done card that day, not the next. */
+   *  reopens. */
   doneAt?: string;
-  /** The board day a personal card was left behind on by the × — on the
-   *  column that day and before, off it from the next; cleared by re-dating. */
-  leftAt?: string;
   /** Nobody placed the card in a week and it is not being worked (B3). */
   triage?: boolean;
   /** The Monday of the Triage column the card stands in (B5). */
@@ -162,9 +158,6 @@ export interface NewCardInput {
   /** Schedule the card for its day without joining any sprint (a "next
    * sprint" create); the next carry-over to reach its day adopts it. */
   noSprint?: boolean;
-  /** Create on the visitor's personal board: their own repository, assigned
-   * to them, with no team and no column. */
-  personal?: boolean;
 }
 
 /** SprintState is a team's explicit sprint pointer: its current and previous
@@ -280,8 +273,6 @@ export interface Board {
   /** The repository each process was declared in — a card is only tied to a
    *  process of its own repository, so the picker narrows itself by this. */
   processDomains?: Record<string, string>;
-  /** The visitor's personal board, when they linked one. */
-  personal?: PersonalBoard;
   /** Per-team sprint pointers, keyed by team name ("" = the no-team group). */
   sprintStates: Record<string, SprintState>;
 }
@@ -533,11 +524,4 @@ export interface Provider {
     text: string,
   ): Promise<Note[]>;
   deleteNote(uid: string, noteId: string): Promise<Note[]>;
-  /** The visitor's personal board, or null when none is linked. */
-  getPersonal(): Promise<PersonalBoard | null>;
-  /** Link a repository of the visitor's own as their personal board (they
-   *  need push access to it; the server clones it with their credential). */
-  linkPersonal(url: string): Promise<PersonalBoard>;
-  /** Drop the link; the repository itself is left untouched. */
-  unlinkPersonal(): Promise<void>;
 }

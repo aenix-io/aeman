@@ -84,7 +84,6 @@ export interface CardResource {
     domain?: string;
     /** The board day the card reached done (yyyy-mm-dd); cleared on reopen. */
     doneAt?: string;
-    leftAt?: string;
     /** Nobody placed the card in a week and it is not being worked. */
     triage?: boolean;
     /** The Monday of the Triage column the card stands in. */
@@ -156,7 +155,6 @@ export interface BoardResource {
       name: string;
       writable?: boolean;
       members?: string[];
-      personal?: boolean;
     }[];
     /** The repository a team or a project was declared in, for the entries
      *  outside the primary (which is never named). A board of one repository
@@ -164,11 +162,6 @@ export interface BoardResource {
     teamDomains?: Record<string, string>;
     projectDomains?: Record<string, string>;
     processDomains?: Record<string, string>;
-    /** The visitor's personal board, when they linked one. `problem` says
-     *  why the repository is not attached (the server cannot reach it) and
-     *  `actionUrl` is the page that fixes it — installing the board's
-     *  GitHub App on the repository. */
-    personal?: { domain: string; url: string; problem?: string; actionUrl?: string };
   };
 }
 
@@ -244,7 +237,6 @@ export function resourceToCard(res: CardResource): Card {
     overdue: res.status?.overdue ?? false,
     asOf: res.status?.asOf,
     doneAt: res.status?.doneAt || undefined,
-    leftAt: res.status?.leftAt || undefined,
     triage: res.status?.triage || undefined,
     triageWeek: res.status?.triageWeek || undefined,
     due: res.status?.due,

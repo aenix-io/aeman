@@ -19,48 +19,26 @@ const TODAY = "2026-07-04";
 
 describe("viewQueries", () => {
   it("scopes the Me board to the day, with reviews and no user or team", () => {
-    const qs = viewQueries("me", TODAY, ["alpha", "beta"], undefined, false, TODAY);
+    const qs = viewQueries("me", TODAY, ["alpha", "beta"], undefined, TODAY);
     expect(qs).toEqual([{ view: "me", day: TODAY, reviews: "true" }]);
   });
 
   it("sends the impersonated user explicitly on the Me board (view-as)", () => {
-    const qs = viewQueries("me", TODAY, [], "lllamnyp", false, TODAY);
+    const qs = viewQueries("me", TODAY, [], "lllamnyp", TODAY);
     expect(qs).toEqual([
       { view: "me", day: TODAY, reviews: "true", user: "lllamnyp" },
     ]);
   });
 
   it("fetches the Team board as the day grid of the shown teams", () => {
-    const qs = viewQueries("team", TODAY, ["alpha", "beta"], undefined, false, TODAY);
+    const qs = viewQueries("team", TODAY, ["alpha", "beta"], undefined, TODAY);
     expect(qs).toEqual([
       { view: "team", team: "alpha,beta", day: TODAY, reviews: "true" },
     ]);
   });
 
   it("sends an empty team set when the Team board shows no teams", () => {
-    expect(viewQueries("team", TODAY, [], undefined, false, TODAY)[0].team).toBe("");
-  });
-
-  it("fetches the personal board beside the Me view when one is linked, on the same day", () => {
-    // The personal column follows the day being looked at: a card sent to
-    // tomorrow shows up when the board is flipped to tomorrow.
-    expect(viewQueries("me", TODAY, [], undefined, true, TODAY)).toEqual([
-      { view: "me", day: TODAY, reviews: "true" },
-      { view: "personal", day: TODAY },
-    ]);
-  });
-
-  it("leaves the personal board out while impersonating — it is the viewer's own, not theirs", () => {
-    expect(viewQueries("me", TODAY, [], "lllamnyp", true, TODAY)).toEqual([
-      { view: "me", day: TODAY, reviews: "true", user: "lllamnyp" },
-    ]);
-  });
-
-  it("fetches nothing personal without a personal board, or off the Me board", () => {
-    expect(viewQueries("me", TODAY, [], undefined, false, TODAY)).toHaveLength(1);
-    expect(
-      viewQueries("team", TODAY, ["alpha"], undefined, true, TODAY),
-    ).toEqual(viewQueries("team", TODAY, ["alpha"], undefined, false, TODAY));
+    expect(viewQueries("team", TODAY, [], undefined, TODAY)[0].team).toBe("");
   });
 });
 
@@ -70,24 +48,18 @@ describe("snapshot selectors", () => {
   const PAST = "2026-07-01";
 
   it("asks for a past day as it was", () => {
-    const qs = viewQueries("team", PAST, ["portal"], undefined, false, TODAY);
+    const qs = viewQueries("team", PAST, ["portal"], undefined, TODAY);
     expect(qs).toEqual([
       { view: "team", team: "portal", day: PAST, reviews: "true", snapshot: "1" },
     ]);
   });
 
-  it("asks for the Me board of a past day, personal column included", () => {
-    const qs = viewQueries("me", PAST, [], undefined, true, TODAY);
-    expect(qs[0]).toMatchObject({ view: "me", day: PAST, snapshot: "1" });
-    expect(qs[1]).toMatchObject({ view: "personal", day: PAST, snapshot: "1" });
-  });
-
   it("leaves today and tomorrow live — one is happening, the other has not", () => {
     for (const day of [TODAY, "2026-07-05"]) {
-      for (const q of viewQueries("team", day, ["portal"], undefined, false, TODAY)) {
+      for (const q of viewQueries("team", day, ["portal"], undefined, TODAY)) {
         expect(q.snapshot).toBeUndefined();
       }
-      for (const q of viewQueries("me", day, [], undefined, true, TODAY)) {
+      for (const q of viewQueries("me", day, [], undefined, TODAY)) {
         expect(q.snapshot).toBeUndefined();
       }
     }
@@ -113,37 +85,21 @@ describe("snapshot selectors", () => {
     expect(snapshotDay("me", yesterday)).toBe(true);
     expect(snapshotDay("me", todayIso())).toBe(false);
     expect(viewQueries("team", yesterday, ["portal"])[0].snapshot).toBe("1");
-    expect(viewQueries("me", yesterday, [], undefined, true)[1].snapshot).toBe("1");
+    expect(viewQueries("me", yesterday, [])[0].snapshot).toBe("1");
   });
 
   // The watch is a live stream; a snapshot is not watched at all (the day is
   // over), so its selectors stay as they were.
   it("does not put the flag on a watch selector", () => {
-    for (const q of watchQueries("team", PAST, ["portal"], undefined, true)) {
+    for (const q of watchQueries("team", PAST, ["portal"], undefined)) {
       expect(q.snapshot).toBeUndefined();
     }
   });
 });
 
 describe("watchQueries", () => {
-  it("watches the Me selection alone without a personal board", () => {
-    expect(watchQueries("me", TODAY, [], undefined, false)).toEqual([
-      watchQuery("me", TODAY, []),
-    ]);
-  });
-
-  it("adds the personal selection on the Me board when one is linked, on the same day", () => {
-    expect(watchQueries("me", TODAY, [], undefined, true)).toEqual([
-      watchQuery("me", TODAY, []),
-      { view: "personal", day: TODAY },
-    ]);
-  });
-
-  it("does not watch it while impersonating or on the other boards", () => {
-    expect(watchQueries("me", TODAY, [], "lllamnyp", true)).toHaveLength(1);
-    expect(watchQueries("team", TODAY, ["alpha"], undefined, true)).toEqual([
-      watchQuery("team", TODAY, ["alpha"]),
-    ]);
+  it("watches the view's own selection", () => {
+    expect(watchQueries("me", TODAY, [])).toEqual([watchQuery("me", TODAY, [])]);
   });
 });
 
@@ -155,7 +111,7 @@ describe("watchQuery", () => {
     });
   });
 
-  it("watches the personal day selection in Me mode, honouring view-as", () => {
+  it("watches the Me day selection, honouring view-as", () => {
     expect(watchQuery("me", TODAY, [], "lllamnyp")).toEqual({
       view: "me",
       day: TODAY,
@@ -192,7 +148,7 @@ describe("the Triage window", () => {
   });
 
   it("asks the server for that window, starting at this Monday", () => {
-    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, false, TODAY);
+    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, TODAY);
     expect(q.view).toBe("triage");
     expect(q.weeks).toBe(String(TRIAGE_WEEKS));
   });
@@ -201,7 +157,7 @@ describe("the Triage window", () => {
     // The board offers to draw reviews. Fetching them once and hiding them
     // client-side is what makes the toggle instant — and keeps the watch
     // scope from changing under a board that is being read.
-    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, false, TODAY);
+    const [q] = viewQueries("triage", TODAY, ["alpha"], undefined, TODAY);
     expect(q.reviews).toBe("true");
   });
 
@@ -209,7 +165,7 @@ describe("the Triage window", () => {
     // A parked card has no week at all, so the weeks query cannot reach it
     // however wide the window is. The drawer is fetched beside the grid
     // rather than when it opens, so its counts are right before it does.
-    const qs = viewQueries("triage", TODAY, ["alpha", "beta"], undefined, false, TODAY);
+    const qs = viewQueries("triage", TODAY, ["alpha", "beta"], undefined, TODAY);
     const parked = qs.find((q) => q.view === "backlog");
     expect(parked).toBeDefined();
     expect(parked?.team).toBe("alpha,beta");

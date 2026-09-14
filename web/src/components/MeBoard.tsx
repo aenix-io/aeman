@@ -29,11 +29,10 @@ import type {
   ZoneKey,
 } from "../providers/types";
 import { ZONES, ZONE_ORDER } from "../zones";
-import { todayIso, localDateIso, addDays } from "../date";
+import { todayIso, localDateIso } from "../date";
 import { subtaskShows } from "../subtasks";
 import { currentSprint, previousSprint } from "../sprint";
 import { onMyDay } from "../meview";
-import { slotWeekPatch } from "../slots";
 import {
   asksFirst,
   deleteWarning,
@@ -52,7 +51,6 @@ import {
 import { displayName, type Avatars, type Names } from "../users";
 import { Avatar } from "./Avatar";
 import { cardDomainBadge, reviewerCandidates } from "../domains";
-import { isPersonalCard, personalRepoName, personalShows, splitPersonal } from "../personal";
 import { Card } from "./Card";
 import { AddCard } from "./AddCard";
 import { acceptsNewCard, mayRefuse, mayRemove, sortableWithin } from "../meboard";
@@ -146,7 +144,7 @@ const isComplete = (c: CardModel) =>
   c.stage === "done" ||
   ((!c.stage || c.stage === "recurrent") && (c.progress ?? 0) >= 100);
 
-/** MeBoard is the personal day view: my cards stacked in zone bands + notes. */
+/** MeBoard is a person's own day: their cards stacked in zone bands + notes. */
 export function MeBoard({
   board,
   provider,
@@ -176,8 +174,7 @@ export function MeBoard({
   onPresence,
 }: MeBoardProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  // The card whose × is waiting on a two-way answer: delete, or keep it —
-  // in the previous sprint (a team card), on yesterday's board (a personal one).
+  // The card whose × is waiting on an answer the person gives in a dialog.
   const [removeChoice, setRemoveChoice] = useState<CardModel | null>(null);
   // Broadcast the selection as shared presence: teammates' Team boards
   // highlight this card with our avatar. Cleared on deselect and unmount.
@@ -231,29 +228,13 @@ export function MeBoard({
   const impRef = useRef<HTMLDivElement | null>(null);
   const viewMe = impersonated ?? me;
 
-  // The personal board's cards come out of the shared list first, so the day
-  // zones never pick them up. The column is the viewer's own (the server
-  // resolves who), so it shows only while the board is viewed as oneself; a
-  // card done before today has left it (mirrors view=personal).
   // A day that ENDED offers nothing to add: a card created there would land
   // on TODAY's board, which is not what the person looking at that day
   // means. The server refuses such a create outright — it cannot tell which
   // team the box belonged to — so the boxes go whenever the board is being
   // read as a record at all, not only where a record card happens to sit.
   const holdsRecords = !!asOf;
-  const split = useMemo(
-    () => splitPersonal(board.cards, board.personal),
-    [board.cards, board.personal],
-  );
-  const teamCards = split.team;
-  const personalOn = board.personal !== undefined && !impersonated;
-  // The column follows the day being looked at, like the day board beside
-  // it: flipped to tomorrow, it shows what is planned for tomorrow.
-  const personalCards = useMemo(
-    () =>
-      personalOn ? split.personal.filter((c) => personalShows(c, selectedDate)) : [],
-    [split.personal, personalOn, selectedDate],
-  );
+  const teamCards = board.cards;
   // Other people with cards — offered in the "View as" impersonate picker.
   const others = useMemo(
     () =>
@@ -329,20 +310,6 @@ export function MeBoard({
     }
     return buckets;
   }, [myCards]);
-
-  // The personal column's bands: the same four zones, the viewer's own cards.
-  const personalByZone = useMemo(() => {
-    const buckets: Record<ZoneKey, CardModel[]> = {
-      gray: [],
-      green: [],
-      yellow: [],
-      red: [],
-    };
-    for (const card of personalCards) {
-      buckets[card.zone ?? "gray"].push(card);
-    }
-    return buckets;
-  }, [personalCards]);
 
   // Overall completion across the day's cards (a done card counts as 100%) — the
   // thin bar under the zones.
@@ -444,7 +411,6 @@ export function MeBoard({
   // to the full board state so the notes composer works on them.
   const selectedCard =
     myCards.find((c) => c.itemId === selectedCardId) ??
-    personalCards.find((c) => c.itemId === selectedCardId) ??
     board.cards.find((c) => c.itemId === selectedCardId && c.parent) ??
     null;
 
@@ -493,9 +459,8 @@ export function MeBoard({
     for (const c of myCards) {
       out.push(c, ...(childrenOf.get(c.itemId) ?? []));
     }
-    out.push(...personalCards);
     return out;
-  }, [myCards, childrenOf, personalCards]);
+  }, [myCards, childrenOf]);
 
   // Card item ids in board (display) order, for grouping notes by card;
   // subtasks group right after their parent.
@@ -507,9 +472,8 @@ export function MeBoard({
           ...(childrenOf.get(c.itemId) ?? []).map((s) => s.itemId),
         ]),
       ),
-      ...ZONE_ORDER.flatMap((z) => personalByZone[z].map((c) => c.itemId)),
     ],
-    [byZone, childrenOf, personalByZone],
+    [byZone, childrenOf],
   );
 
   // The day feed reads from the batch state; the date filter stays as a guard
@@ -1106,32 +1070,8 @@ export function MeBoard({
       });
   };
 
-  // Leave a personal card behind on yesterday's board (mirrors
-  // boardservice.removePersonal): leftAt set on it and its subtasks, so the
-  // column drops them at once; stepping back a day finds them.
-  const leaveBehind = (card: CardModel) => {
-    const yesterday = addDays(todayIso(), -1);
-    const prev = { leftAt: card.leftAt };
-    patchCard(card.itemId, { leftAt: yesterday });
-    for (const c of childrenOf.get(card.itemId) ?? []) {
-      patchCard(c.itemId, { leftAt: yesterday });
-    }
-    void provider
-      .removeCard(card.itemId)
-      .then(() => reload())
-      .catch((err: unknown) => {
-        if (isGone(err)) {
-          return;
-        }
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
-
   // The ×. As on the Team board, a worked-on card is not taken off the board
-  // silently: a Me card still in its team's current sprint can be kept in the
-  // previous one, a personal card on yesterday's board — the person is asked
-  // which they mean. What the × then DOES is decided in one place for every
+  // silently: the person is asked which answer they mean. What the × then DOES is decided in one place for every
   // board (gridRemoval): the card goes back to the home it still has, or,
   // with none left, it is deleted. removalOf answers only the narrower
   // question of who asks: "ask" puts the two-way question to the person (the
@@ -1141,11 +1081,6 @@ export function MeBoard({
   // placementsFor: the assign menu's attach/mirror section — one shared
   // factory (makeCardPlacements), so the boards cannot drift apart.
   const placementsFor = (card: CardModel): CardPlacements | undefined => {
-    if (isPersonalCard(card, board.personal)) {
-      // The personal board has no projects to place a card in. A subtask
-      // needs no check here: placementTargets refuses one for every board.
-      return undefined;
-    }
     return makeCardPlacements(card, board, {
       provider,
       patchCard,
@@ -1192,29 +1127,12 @@ export function MeBoard({
   const choicesFor = (card: CardModel): RemoveChoice[] =>
     removeChoices(card, gridCtx(card));
 
-  /** Whether a card can be LEFT BEHIND on yesterday instead of destroyed:
-   *  only a personal one, and only one that stood on an earlier day — there
-   *  is no yesterday to leave a card made today on. */
-  const leavableOn = (card: CardModel): boolean =>
-    isPersonalCard(card, board.personal) &&
-    (!card.startDate || card.startDate < todayIso());
-
   const handleDelete = (card: CardModel, chosen?: RemoveChoice) => {
     // A just-created optimistic card has no server twin yet: drop it locally
     // (deleting it via the API would 404 and resurrect a phantom copy).
     if (card.itemId.startsWith("tmp-")) {
       cancelPendingCard(card.itemId);
       removeCard(card.itemId);
-      return;
-    }
-    const personal = isPersonalCard(card, board.personal);
-    // "keep" is the personal board's own answer: leave the card on
-    // yesterday. A team card has no such offer — the day it stood on keeps
-    // it — so the dialog never sends one.
-    if (chosen === "keep") {
-      if (personal) {
-        leaveBehind(card);
-      }
       return;
     }
     // Work finished in the sprint before this one, and only marked done
@@ -1247,17 +1165,14 @@ export function MeBoard({
       return;
     }
     // Unasked (a card made today that nobody touched), the card's own first
-    // answer stands — the same one the dialog would have put at the top. A
-    // personal card has no list of its own: its board is all its owner's, so
-    // the × there is the delete the dialog offers beside "keep it".
-    const choice =
-      chosen ?? (personal ? "off-board" : choicesFor(card)[0]);
+    // answer stands — the same one the dialog would have put at the top.
+    const choice = chosen ?? choicesFor(card)[0];
     if (!choice) {
       return;
     }
     // Anything but destroying it is the release: a card handed back to its
     // week or its column, a subtask taken out of its group.
-    if (!personal && choice !== "off-board") {
+    if (choice !== "off-board") {
       releaseCard(card);
       return;
     }
@@ -1440,17 +1355,6 @@ export function MeBoard({
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [byZone, childrenOf, expandedSubs],
-  );
-
-  // The personal column's groups: flat rows (no subtasks) in the same bands.
-  const personalGroups = useMemo<BoardGroup<MeMeta>[]>(
-    () =>
-      ZONE_ORDER.map((zone) => ({
-        key: `personal:${zone}`,
-        meta: { zone },
-        cards: personalByZone[zone],
-      })),
-    [personalByZone],
   );
 
   // Keyboard navigation over the visible day list (zone bands top to bottom):
@@ -1651,53 +1555,6 @@ export function MeBoard({
       });
   };
 
-  // A personal card: filed in the viewer's own repository and assigned to
-  // them, with nothing of the day board (no team or dates) — the server
-  // takes `personal: true` and does the rest.
-  const handleCreatePersonal = (zone: ZoneKey, title: string) => {
-    const tempId = `tmp-${new Date().toISOString()}`;
-    addCard({
-      itemId: tempId,
-      title: optimisticTitle(title),
-      assignees: me ? [me] : [],
-      zone,
-      domain: board.personal?.domain,
-      startDate: selectedDate,
-      day: selectedDate,
-      createdAt: new Date().toISOString(),
-      description: "",
-      notes: [],
-    });
-    // Created on the day being looked at, like a day-board card: a card
-    // added while planning tomorrow belongs to tomorrow.
-    const creating = provider.createCard({
-      title,
-      zone,
-      start: selectedDate,
-      day: selectedDate,
-      personal: true,
-    });
-    registerPendingCard(
-      tempId,
-      creating.then((c) => c.itemId),
-    );
-    void creating
-      .then((card) => {
-        if (consumePendingCancel(tempId)) {
-          removeCard(tempId);
-          void provider.deleteCard(card.itemId).catch(() => undefined);
-          return;
-        }
-        replaceCard(tempId, card);
-        migrateCardId(tempId, card.itemId);
-      })
-      .catch((err: unknown) => {
-        consumePendingCancel(tempId);
-        removeCard(tempId);
-        onError(errMessage(err));
-      });
-  };
-
   const handleAddNote = (text: string) => {
     if (!selectedCard) {
       return;
@@ -1829,59 +1686,8 @@ export function MeBoard({
   };
 
   // renderMeCard is the zone-band card used both for top-level rows and for
-  // subtask rows (a subtask works exactly like any card). A personal card is
-  // the same card without the day board's affordances: no team, no subtasks.
-  // Planning on the personal column is dates alone — there is no sprint to
-  // join or leave (mirrors boardservice.SetDates / Defer on a personal card):
-  // the calendar sets the start and end, the defer pushes the start N days
-  // ahead of today or of the already-deferred slot. The column hides a card
-  // until its start day (personalShows), so a card sent ahead leaves at once.
-  const handleSetPersonalDates = (
-    card: CardModel,
-    start: string | null,
-    end: string | null,
-  ) => {
-    const prev = { startDate: card.startDate, day: card.day, week: card.week };
-    patchCard(card.itemId, {
-      startDate: start ?? undefined,
-      day: end ?? undefined,
-      // A slot's WEEK follows its start date, or the card keeps standing
-      // in the week it left until the next full load.
-      ...slotWeekPatch(card, start),
-    });
-    void provider
-      .patchCard(card.itemId, {
-        dates: { start: start ?? "", end: end ?? "" },
-      })
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
-
-  const handleDeferPersonal = (card: CardModel, days: number) => {
-    const today = todayIso();
-    const base =
-      card.startDate && card.startDate > today ? card.startDate : today;
-    const newStart = addDays(base, days);
-    // A card created today relocates fully: a stale end date follows.
-    const full = !!card.createdAt && localDateIso(card.createdAt) === today;
-    const prev = { startDate: card.startDate, day: card.day };
-    patchCard(card.itemId, {
-      startDate: newStart,
-      ...(full && card.day && card.day < newStart ? { day: newStart } : {}),
-    });
-    void provider
-      .deferCard(card.itemId, days)
-      .then(addCard)
-      .catch((err: unknown) => {
-        patchCard(card.itemId, prev);
-        onError(errMessage(err));
-      });
-  };
-
-  const renderMeCard = (card: CardModel, personal = false): ReactNode => (
+  // subtask rows (a subtask works exactly like any card).
+  const renderMeCard = (card: CardModel): ReactNode => (
     <Card
       card={card}
       record={!!card.asOf}
@@ -1902,44 +1708,37 @@ export function MeBoard({
       // The × removes only what this person created themselves: work
       // somebody else planned for them is not theirs to take off the board.
       // Their answer to it is the refused stage, which leaves the card
-      // standing where the lead can see it. A card of their own PERSONAL
-      // board is all theirs, and a subtask is a piece of its parent.
+      // standing where the lead can see it. A subtask is a piece of its
+      // parent.
       //
       // Judged by the REAL reader, never by the person they are looking AS
       // (meboard.mayRemove): the server judges an × by who is making it, and
       // impersonation never reaches the wire, so a lead viewing as somebody
       // was offered an × that answered 403. Same seat rule as the refuse
       // stage one line up.
-      deletable={personal || mayRemove(card, me ?? undefined, !!viewAs)}
+      deletable={mayRemove(card, me ?? undefined, !!viewAs)}
       onStage={handleStage}
       onInProgress={handleInProgress}
       onOpen={onOpen}
-      teams={personal ? undefined : teams}
+      teams={teams}
       people={people}
       reviewers={reviewerCandidates(people, board.domains, card.domain)}
       avatars={avatars}
       names={names}
       domainBadge={cardDomainBadge(board.domains, card.domain)}
-      onSetTeam={personal ? undefined : handleSetTeam}
+      onSetTeam={handleSetTeam}
       hasLinkedReview={reviewedItemIds.has(card.itemId)}
       counterpartAssignees={counterpartAssigneesFor(card)}
       onSetReviewAssignee={handleSetReviewAssignee}
       asOf={selectedDate}
-      personal={personal}
-      onSetDates={personal ? handleSetPersonalDates : undefined}
-      onDefer={personal ? handleDeferPersonal : undefined}
-      dimAvatar={!personal && (teamFilter === null || !teamFilter.includes(card.team ?? ""))}
+      dimAvatar={teamFilter === null || !teamFilter.includes(card.team ?? "")}
       subCount={(childrenOf.get(card.itemId) ?? []).length}
       expanded={subsOpen(card.itemId)}
       onToggleExpand={(c) => toggleSubs(c.itemId)}
-      onAddSubtask={
-        personal
-          ? undefined
-          : (c) => {
-              setExpandedSubs((cur) => new Set(cur).add(c.itemId));
-              setAddingSub(c.itemId);
-            }
-      }
+      onAddSubtask={(c) => {
+        setExpandedSubs((cur) => new Set(cur).add(c.itemId));
+        setAddingSub(c.itemId);
+      }}
       groupTarget={groupHover === card.itemId}
     />
   );
@@ -2147,85 +1946,6 @@ export function MeBoard({
               }}
             />
           </div>
-          {personalOn && board.personal && (
-            <aside className="me-personal" aria-label="Personal board">
-              <div className="me-personal-head">
-                <span className="me-personal-title">Personal</span>
-                <span className="me-personal-repo" title={board.personal.url}>
-                  {personalRepoName(board.personal.url)}
-                </span>
-              </div>
-              {board.personal.problem && (
-                <div className="me-personal-trouble" role="alert">
-                  <p>{board.personal.problem}</p>
-                  {board.personal.actionUrl && (
-                    <a
-                      className="btn btn-primary"
-                      href={board.personal.actionUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Install the GitHub App
-                    </a>
-                  )}
-                </div>
-              )}
-              <div className="me-personal-zones">
-                <SortableBoard<MeMeta>
-                  groups={personalGroups}
-                  isRecord={(c) => !!c.asOf}
-                  onDrop={handleDrop}
-                  renderCard={(card) => renderMeCard(card, true)}
-                  renderOverlay={(card) => (
-                    <Card
-                      card={card}
-                      record={!!card.asOf}
-                      onLoadLinks={loadCardLinks}
-                      selected={false}
-                      onSelect={() => {}}
-                      onProgress={() => {}}
-                      onDelete={() => {}}
-                      onStage={() => {}}
-                      onInProgress={() => {}}
-                      onOpen={() => {}}
-                    />
-                  )}
-                  renderGroup={(group, body, { isOver, dropRef }) => {
-                    const def = ZONES[group.meta.zone];
-                    return (
-                      <section
-                        key={group.key}
-                        ref={dropRef as Ref<HTMLElement>}
-                        className={`zone-area${isOver ? " zone-area-dragover" : ""}`}
-                        style={
-                          {
-                            background: def.background,
-                            borderLeftColor: def.accent,
-                            "--zone-accent": def.accent,
-                          } as CSSProperties
-                        }
-                      >
-                        <span className="zone-spine">{def.spine}</span>
-                        <div className="zone-cards">
-                          {body}
-                          {acceptsNewCard(group.meta.zone) && (
-                            <AddCard
-                              hidden={holdsRecords}
-                              forcedTeam={null}
-                              placeholder="Add a personal card…"
-                              onCreate={(title) =>
-                                handleCreatePersonal(group.meta.zone, title)
-                              }
-                            />
-                          )}
-                        </div>
-                      </section>
-                    );
-                  }}
-                />
-              </div>
-            </aside>
-          )}
           </div>
         </div>
 
@@ -2281,17 +2001,7 @@ export function MeBoard({
         <RemoveChoiceDialog
           title={removeChoice.title}
           progress={removeChoice.progress ?? 0}
-          // A PERSONAL card's board is all its owner's: it offers the delete
-          // and, for one that stood on an earlier day, the day to leave it on
-          // instead — a personal board keeps no record to find it in later.
-          choices={
-            isPersonalCard(removeChoice, board.personal)
-              ? leavableOn(removeChoice)
-                ? ["off-board", "keep"]
-                : ["off-board"]
-              : choicesFor(removeChoice)
-          }
-          keepOn={leavableOn(removeChoice) ? addDays(todayIso(), -1) : null}
+          choices={choicesFor(removeChoice)}
           subtasks={(childrenOf.get(removeChoice.itemId) ?? []).length}
           onClose={() => setRemoveChoice(null)}
           onSubmit={(choice) => handleDelete(removeChoice, choice)}

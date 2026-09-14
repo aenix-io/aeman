@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Dropdown } from "./Dropdown";
-import { personalRepoName, type PersonalBoard } from "../personal";
 import {
   type Appearance,
   type Palette,
@@ -15,13 +14,6 @@ interface AppearanceMenuProps {
   onChange: (next: Appearance) => void;
   /** Sign-out link target (OAuth mode); when set the menu offers it. */
   logoutUrl?: string | null;
-  /** The visitor's personal board: null when none is linked, undefined while
-   *  the board is not loaded (the entry is hidden then). */
-  personal?: PersonalBoard | null;
-  /** Open the link dialog. */
-  onLinkPersonal?: () => void;
-  /** Unlink the personal board (the caller confirms first). */
-  onUnlinkPersonal?: () => void;
 }
 
 // On-screen labels are intentionally plain "appearance" wording. The palette
@@ -49,9 +41,6 @@ export function AppearanceMenu({
   appearance,
   onChange,
   logoutUrl,
-  personal,
-  onLinkPersonal,
-  onUnlinkPersonal,
 }: AppearanceMenuProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement | null>(null);
@@ -129,46 +118,6 @@ export function AppearanceMenu({
             </button>
           ))}
         </div>
-        {personal !== undefined && onLinkPersonal && onUnlinkPersonal && (
-          <div className="appearance-group" role="group" aria-label="Personal board">
-            <div className="appearance-label">Personal board</div>
-            {personal ? (
-              <>
-                <div className="appearance-item appearance-static" title={personal.url}>
-                  <span className="appearance-check" aria-hidden="true">
-                    ✓
-                  </span>
-                  <span className="appearance-repo">{personalRepoName(personal.url)}</span>
-                </div>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="appearance-item"
-                  onClick={() => {
-                    setOpen(false);
-                    onUnlinkPersonal();
-                  }}
-                >
-                  <span className="appearance-check" aria-hidden="true" />
-                  Unlink
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                role="menuitem"
-                className="appearance-item"
-                onClick={() => {
-                  setOpen(false);
-                  onLinkPersonal();
-                }}
-              >
-                <span className="appearance-check" aria-hidden="true" />
-                Link a repository…
-              </button>
-            )}
-          </div>
-        )}
         {logoutUrl && (
           <div className="appearance-group" role="group" aria-label="Account">
             <a role="menuitem" className="appearance-item" href={logoutUrl}>

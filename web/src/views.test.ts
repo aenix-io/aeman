@@ -6,10 +6,6 @@ import { createView } from "./views";
 // fills in what that board means, so a create made from the wrong board is
 // answered with a card that is not the one the person typed.
 describe("which board a create belongs to", () => {
-  it("is the personal column when the card is the reader's own", () => {
-    expect(createView({ personal: true })).toBe("personal");
-  });
-
   it("is the Project grid when it names a column", () => {
     expect(createView({ epic: "Auth", week: "2026-09-07" })).toBe("project");
   });
@@ -38,10 +34,9 @@ describe("which board a create belongs to", () => {
     expect(createView({})).toBe("team");
   });
 
-  // The shape still wins where it names a board of its own: the personal
-  // column and the backlog drawer stand on OTHER boards' screens.
+  // The shape still wins where it names a board of its own: the backlog
+  // drawer stands on another board's screen.
   it("lets the shape win over the open board", () => {
-    expect(createView({ personal: true }, "me")).toBe("personal");
     expect(createView({ parked: true }, "triage")).toBe("backlog");
     expect(createView({ week: "2026-09-07" }, "triage")).toBe("triage");
     expect(createView({ epic: "Auth" }, "project")).toBe("project");

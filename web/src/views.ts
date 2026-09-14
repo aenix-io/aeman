@@ -13,13 +13,12 @@ export type ViewName =
   | "triage"
   | "backlog"
   | "project"
-  | "personal"
   | "all";
 
 /** createView is the board a create belongs to: the one the reader is STANDING
- *  on, unless what the add-box filled in names another. A personal card comes
- *  from the personal column, a parked one from the drawer, a week card from a
- *  Triage cell, a column card from the Project grid — those say their own
+ *  on, unless what the add-box filled in names another. A parked card comes
+ *  from the drawer, a week card from a Triage cell, a column card from the
+ *  Project grid — those say their own
  *  board whatever is open behind them. Everything else is a day card, and
  *  which day board it was typed into is the thing only the open view knows:
  *  the Me board and the Team grid send the same shape, and they do not mean
@@ -30,16 +29,12 @@ export type ViewName =
  *  grid, where the server cannot tell the two apart — so the one rule that
  *  separates them held for agents and not for the board it was written on. */
 export function createView(input: {
-  personal?: boolean | null;
   parked?: boolean | null;
   week?: string | null;
   epic?: string | null;
   start?: string | null;
   day?: string | null;
 }, standing?: ViewName): ViewName {
-  if (input.personal) {
-    return "personal";
-  }
   if (input.epic) {
     return "project";
   }

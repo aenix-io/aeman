@@ -16,7 +16,7 @@ import type { ZoneKey } from "./providers/types";
  *  with no room to argue with it.
  *
  *  The server holds the same band on a create made INTO this board
- *  (boardservice.addsUnplanned, `view=me` and the personal column beside it):
+ *  (boardservice.addsUnplanned, `view=me`):
  *  it was drawn here and nowhere else, so an agent could type into any of the
  *  four. Which band a card ends up in is still anybody's to change afterwards
  *  — the card's own zone picker is a card-level gesture — so the rule is about
@@ -43,9 +43,7 @@ export function acceptsNewCard(zone: ZoneKey): boolean {
  *
  *  A SUBTASK is out of the rule's reach: it is a piece of the card it hangs
  *  under rather than work assigned to anyone, so whoever can see the parent
- *  can add one and take it away again. A card of the person's own PERSONAL
- *  board is all theirs too (the column beside the day draws its × on every
- *  card): there is no lead's plan there to be unmade.
+ *  can add one and take it away again.
  *
  *  The server holds the same rule for an × made FROM this board
  *  (boardservice.removingFromOnesOwnBoard, `view=me`): it lived here and

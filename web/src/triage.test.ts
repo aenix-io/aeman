@@ -38,10 +38,6 @@ describe("needsTriage", () => {
     expect(needsTriage(card({ parent: "c9" }))).toBe(false);
   });
 
-  it("asks nothing of a card on a personal board", () => {
-    expect(needsTriage(card({ domain: "~kvaps" }))).toBe(false);
-  });
-
   it("asks nothing of a card sent to review — it waits on a reviewer", () => {
     // Its work is done; a week is not what it is missing, and asking for one
     // asks the reader to decide something nobody is waiting on them for.

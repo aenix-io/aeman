@@ -53,16 +53,6 @@ describe("cardDomainBadge", () => {
     expect(cardDomainBadge(multi, "acme/secret")).toBe("acme/secret");
     expect(cardDomainBadge(multi, "acme/archive")).toBe("acme/archive");
   });
-
-  it("never badges a personal domain (~login): its column is where it shows", () => {
-    const withPersonal: DomainInfo[] = [
-      ...multi,
-      { name: "~kvaps", writable: true, members: ["kvaps"], personal: true },
-    ];
-    expect(cardDomainBadge(withPersonal, "~kvaps")).toBeNull();
-    // Even when the server does not flag it, the name says what it is.
-    expect(cardDomainBadge([...multi, { name: "~kvaps", writable: true, members: [] }], "~kvaps")).toBeNull();
-  });
 });
 
 describe("writableDomains", () => {
@@ -77,22 +67,6 @@ describe("writableDomains", () => {
     expect(writableDomains([])).toEqual([]);
     expect(
       writableDomains([{ name: "ro", writable: false, members: [] }]),
-    ).toEqual([]);
-  });
-
-  // A personal board holds no teams, projects or processes — the server
-  // refuses them there — so it is no place to declare one and must not be
-  // offered as one, however writable it is.
-  it("leaves the visitor's personal board out: nothing is declared there", () => {
-    expect(
-      writableDomains([
-        { name: "acme/board", writable: true, members: [] },
-        { name: "~kvaps", writable: true, members: ["kvaps"], personal: true },
-      ]).map((d) => d.name),
-    ).toEqual(["acme/board"]);
-    // Even without the server's flag, the ~ names it.
-    expect(
-      writableDomains([{ name: "~kvaps", writable: true, members: [] }]),
     ).toEqual([]);
   });
 });
