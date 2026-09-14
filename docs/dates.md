@@ -94,7 +94,7 @@ Beside the days, a card may carry a **week** — the Monday it is scheduled for,
 - A card placed in a week **AHEAD** of this one is on **no day board at all** until its Monday comes — not the Team grid, not the Me board, not the carry-over's reckoning of what is being carried now. Scheduling work for a later week is precisely the act of taking it off today.
 - A card whose week has **arrived** stands on the **Team grid**: in its person's column, or in **Unassigned** when nobody has taken it. It puts on the day grid what the weekly plan panel used to hold beside it, so a card scheduled for a week is not invisible until somebody gives it a day. It keeps standing there after its week passes, for as long as it is open — the week gate holds back the weeks AHEAD, never the ones behind — so a debt does not fall off the board when the week it was owed in ends.
 - On the **Triage board** a card stands in the row of its own week — with one deliberate exception: a **debt** (owed in a week gone by, still open) is drawn in the CURRENT week's row, because that is where it is owed now. It keeps the week it was given: only the row moves, so the week stays the record of what was missed and a failed write rolls back to the truth.
-- The **Me view does not** draw a card by its week at all. A person's board is the day's work, and a week is not a day: a card reaches it when it is dated, which is the moment somebody decided when it is actually being done.
+- A card whose week has **arrived** stands on its **owner's Me board** too, from that Monday on, for as long as it is open — the same week gate the Team grid uses, judged against the day being looked at. It used not to: the Me view drew a card only by its dates or its sprint, and a card dropped into a week ahead on the Triage board loses both (the rule above), so when its Monday came it had a week and nothing else. No carry-over adopts a card with no sprint, so the work a lead planned for somebody's week stood in their column on the Team grid and nowhere on their own board until somebody happened to date it. The Me board is the one that keeps everything of the person's that is not closed; this was the one kind of open work it lost. Finished, such a card belongs to the day it was finished on and no other, as on the Team grid — nothing sweeps a card with no sprint, and a done one would otherwise stand on every day for ever.
 - A **deferred** card is not part of the week's set either. Deferring is the act of taking a card off the board until a later day, and its week says when the work is due, not that it should still be drawn today.
 
 A week is a **Monday** everywhere it is written — the board's own drag, the patch that sets one, the create that files a card straight into one. Any other day is refused (422): a Triage column is a Monday, so a card whose week is a Thursday would stand in no column, appear in no strip, and be findable only by its uid.
@@ -123,6 +123,11 @@ The rules above place TODAY's cards on a day. That is what a day-lens is: dates 
 - A **deferred / future-scheduled** card (`startDate > today`) is hidden until
   that day, then shows from it on (the next Carry Over re-syncs its sprint like
   any unfinished card).
+- A card **planned for a week** and never dated (a week, no dates, no sprint —
+  what a card dropped into a week ahead on the Triage board becomes when that
+  week arrives) shows from its week's Monday on while it is open, and on the
+  day it was finished once it is done. A week ahead of the viewed day holds it
+  back, as on the Team grid.
 - A **sprint-less** day card (a "next sprint" create) shows from its
   `startDate` on — the sprint gate above would otherwise hide it right when its
   day arrives — until a Carry Over adopts it into a sprint. Only cards
