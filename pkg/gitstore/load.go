@@ -189,13 +189,28 @@ func LoadAt(r *Repo, h plumbing.Hash) (Snapshot, error) {
 	return l.s, nil
 }
 
+// maxBlobBytes caps a card or roster file. These are small YAML/Markdown
+// documents (a description is capped at 16k runes upstream), so the ceiling is
+// generous; it is what stops one oversized committed blob from being pulled
+// whole into memory by every replica's load, as-of read and rebase. A file over
+// it is refused rather than read, and the caller records it as broken.
+const maxBlobBytes = 4 << 20
+
+// ErrBlobTooLarge is a repository file larger than maxBlobBytes.
+var ErrBlobTooLarge = fmt.Errorf("gitstore: file is larger than %d bytes", maxBlobBytes)
+
 func readAll(f *object.File) ([]byte, error) {
+	if f.Size > maxBlobBytes {
+		return nil, fmt.Errorf("%w (%d)", ErrBlobTooLarge, f.Size)
+	}
 	rd, err := f.Reader()
 	if err != nil {
 		return nil, err
 	}
 	defer rd.Close()
-	return io.ReadAll(rd)
+	// The size was checked above, but a lying tree entry would still stream
+	// past it; the cap here is the real bound.
+	return io.ReadAll(io.LimitReader(rd, maxBlobBytes+1))
 }
 
 type loader struct {
