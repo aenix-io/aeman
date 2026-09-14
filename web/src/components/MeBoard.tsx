@@ -31,7 +31,8 @@ import type {
 import { ZONES, ZONE_ORDER } from "../zones";
 import { todayIso, localDateIso, addDays } from "../date";
 import { subtaskShows } from "../subtasks";
-import { activeSprint, currentSprint, previousSprint } from "../sprint";
+import { currentSprint, previousSprint } from "../sprint";
+import { onMyDay } from "../meview";
 import { slotWeekPatch } from "../slots";
 import {
   asksFirst,
@@ -299,65 +300,19 @@ export function MeBoard({
     return teamCards.filter((c) => owned.has(c.parent ?? c.itemId));
   }, [teamCards, viewMe]);
 
-  // In Me a card shows when it belongs to the sprint that was active on the viewed
-  // day (activeSprint) and its scheduled day has arrived (startDate empty or on or
-  // before the viewed day). Today shows the current sprint; rolling back into the
-  // previous sprint's days shows that sprint's cards. A team with no active sprint
-  // on the day, or a card deferred to the future, never shows.
+  // In Me a card shows by the day rule of board.MeView, mirrored card by card
+  // in meview.onMyDay (with its own tests). What stays here is the board's
+  // own: whose cards these are (mine, above) and the two toggles.
   const myCards = useMemo(
     () =>
       mine.filter((c) => {
-        // Subtasks render nested under their parent, never as zone rows.
-        if (c.parent) {
-          return false;
-        }
         if (focus && !isWorkable(c)) {
           return false;
         }
         if (teamFocus && teamFilter && !teamFilter.includes(c.team ?? "")) {
           return false;
         }
-        const today = todayIso();
-        // A deferred / future-scheduled card (startDate past today) is hidden
-        // until that day, then shows from it on (Carry Over re-syncs its sprint).
-        if (c.startDate && c.startDate > today) {
-          return selectedDate >= c.startDate;
-        }
-        // A card with an end date spans a range: it shows on every day from its
-        // start through its end regardless of sprint boundaries.
-        if (
-          c.startDate &&
-          c.day &&
-          c.day >= c.startDate &&
-          selectedDate >= c.startDate &&
-          selectedDate <= c.day
-        ) {
-          return true;
-        }
-        const as = activeSprint(board, c.team ?? null, selectedDate);
-        // A sprint-less day card (a "next sprint" create) stays visible from
-        // its scheduled day on — the sprint gate below would otherwise hide it
-        // right when its day arrives, until a carry-over adopts it. Only cards
-        // scheduled into the sprint active on the viewed day (or later)
-        // qualify: an old sprint-less stray stays on its own past days.
-        if (
-          !c.sprintStart &&
-          c.startDate &&
-          c.startDate <= selectedDate &&
-          c.startDate >= as
-        ) {
-          return true;
-        }
-        const ss = c.sprintStart;
-        // A card shows on every day of the sprints it spans — from the one it
-        // started in up to the sprint it now belongs to — so a carried-over card
-        // still appears on the previous sprint's days it came from.
-        return (
-          as !== "" &&
-          ss !== undefined &&
-          as <= ss &&
-          (!c.startDate || c.startDate <= selectedDate)
-        );
+        return onMyDay(c, board, selectedDate, todayIso());
       }),
     [mine, board, selectedDate, teamFocus, teamFilter, focus],
   );
