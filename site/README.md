@@ -22,10 +22,12 @@ artifact and OIDC deployment actions. No deployment runs on pull requests.
 After merging, select **Settings → Pages → Build and deployment → Source:
 GitHub Actions** once.
 
-The upstream URL is `https://aenix-io.github.io/aeman/`. The workflow sets
-`SITE_URL` from the repository owner/name, so a fork publishes its own canonical
-and social URLs. A local build defaults to the upstream URL. For a custom domain,
-set `SITE_URL` in the workflow to that domain's full URL, including a trailing slash.
+The upstream URL is `https://aeman.aenix.io/`, a custom domain set in the
+repository's Pages settings. The workflow sets `SITE_URL` to it for
+`aenix-io/aeman` and to `https://<owner>.github.io/<repo>/` anywhere else, so a
+fork publishes its own canonical and social URLs. A local build defaults to the
+upstream URL. For another custom domain, set `SITE_URL` in the workflow to that
+domain's full URL, including a trailing slash.
 
 ## Product reuse
 

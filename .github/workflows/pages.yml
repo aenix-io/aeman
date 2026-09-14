@@ -39,7 +39,9 @@ jobs:
       - run: node --test site/appearance.test.mjs
       - name: Build landing page
         env:
-          SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          # Upstream is served on its own domain; a fork publishes under its
+          # owner's github.io path.
+          SITE_URL: ${{ github.repository == 'aenix-io/aeman' && 'https://aeman.aenix.io/' || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}
         run: node site/build.mjs
       - run: node --test site/build.test.mjs
       - uses: actions/upload-pages-artifact@v3
