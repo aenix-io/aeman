@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # The workflow actions are pinned to commit SHAs; dependabot is what keeps
+  # them moving, opening a PR (with the new SHA and its version) when an action
+  # publishes a release.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
