@@ -1062,37 +1062,33 @@ func (e *boardEntry) fanoutDelay() time.Duration {
 // most visitors of a one-repository board share it with everyone), marshalled
 // once and handed to every subscription it fits.
 func (e *boardEntry) flushRoster() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if !e.rosterDue {
+	groups, member, ok := e.claimFanout(&e.rosterDue)
+	if !ok {
 		return
 	}
-	e.rosterDue = false
 	started := time.Now()
-	defer func() { e.noteFanout(time.Since(started)) }()
 	// The frame CARRIES the board, the way a Card frame carries its card: a
 	// client applies it and needs no round trip. A bare "something changed"
 	// signal sent every open tab back to GET /board — a full snapshot each,
 	// which is the opposite of what a cache is for. Processes ride along as
 	// their full structure, since the Process tab is drawn from it.
-	built := map[string][]byte{}
-	for sub := range e.watchers {
-		key := rightsKey(sub.rights)
-		data, ok := built[key]
-		if !ok {
-			view := sub.view(e.board)
-			raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
-				BoardInfo: apiserver.BoardResourceWithPeople(view, e.member),
-				Processes: apiserver.ProcessesResource(view, "").Items,
-			}})
-			if err != nil {
-				continue
-			}
-			data = raw
-			built[key] = raw
+	//
+	// Built off e.mu for the same reason flushLoad is: BoardResourceWithPeople
+	// resolves members against the forge, and those lookups must not freeze the
+	// board.
+	for _, g := range groups {
+		raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Board", Object: boardFrame{
+			BoardInfo: apiserver.BoardResourceWithPeople(g.board, member),
+			Processes: apiserver.ProcessesResource(g.board, "").Items,
+		}})
+		if err != nil {
+			continue
 		}
-		sub.sendRaw(data)
+		for _, sub := range g.subs {
+			sub.sendRaw(raw)
+		}
 	}
+	e.noteFanout(time.Since(started))
 }
 
 // noteFanout records what a fan-out cost, smoothed so one slow run does not
@@ -1153,29 +1149,59 @@ type loadFrame struct {
 // distinct set of rights, since what a visitor may read decides which cards
 // count towards a person's numbers.
 func (e *boardEntry) flushLoad() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if !e.loadDue {
+	groups, member, ok := e.claimFanout(&e.loadDue)
+	if !ok {
 		return
 	}
-	e.loadDue = false
 	started := time.Now()
-	defer func() { e.noteFanout(time.Since(started)) }()
-	built := map[string][]byte{}
+	// Built and sent OFF e.mu: MembersOf resolves each login against the
+	// forge, and on GitLab that is a real HTTP call. A board committer
+	// controls the logins on the cards, so resolving thousands of them under
+	// the lock froze every read, write and watch of the board for as long as
+	// the lookups took (finding: repo-controlled logins stall the board).
+	for _, g := range groups {
+		raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Load",
+			Object: loadFrame{Members: apiserver.MembersOf(g.board, member)}})
+		if err != nil {
+			continue
+		}
+		for _, sub := range g.subs {
+			sub.sendRaw(raw)
+		}
+	}
+	e.noteFanout(time.Since(started))
+}
+
+// watcherGroup is the subscribers that see one board, grouped so a frame is
+// built once per distinct set of rights and sent to each.
+type watcherGroup struct {
+	board board.Board
+	subs  []*subscription
+}
+
+// claimFanout consumes the due flag and snapshots the watchers by their rights
+// under e.mu, so the caller can build and send the frames — which make the
+// forge lookups — with the lock released. ok is false when nothing is due.
+func (e *boardEntry) claimFanout(due *bool) ([]*watcherGroup, func(login string) apiserver.Member, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !*due {
+		return nil, nil, false
+	}
+	*due = false
+	byKey := map[string]*watcherGroup{}
+	var order []*watcherGroup
 	for sub := range e.watchers {
 		key := rightsKey(sub.rights)
-		data, ok := built[key]
+		g, ok := byKey[key]
 		if !ok {
-			raw, err := json.Marshal(watchFrame{Type: "MODIFIED", Kind: "Load",
-				Object: loadFrame{Members: apiserver.MembersOf(sub.view(e.board), e.member)}})
-			if err != nil {
-				continue
-			}
-			data = raw
-			built[key] = raw
+			g = &watcherGroup{board: sub.view(e.board)}
+			byKey[key] = g
+			order = append(order, g)
 		}
-		sub.sendRaw(data)
+		g.subs = append(g.subs, sub)
 	}
+	return order, e.member, true
 }
 
 func (e *boardEntry) syncBroadcast() {
