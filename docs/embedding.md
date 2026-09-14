@@ -105,15 +105,14 @@ A tool that edits the repository directly (a plugin driving `git` itself) must r
 (`/api/v1/views/{view}/cards/{uid}/actions/remove` over HTTP). It is a compile
 break with a rule behind it: `board.ViewMe` gets the NARROW × the Me board
 draws (only a card this person authored and still standing in the unplanned
-band; a subtask and a personal card are exempt), and every other value keeps
+band; a subtask is exempt), and every other value keeps
 the wide one. An embedder with no board to stand on passes `board.ViewAll`,
 which is the escape hatch and refuses nothing.
 
 **`Service.CreateInView(ctx, boardID, view, args)`** is the create beside it:
 the board says what the card MEANS (the Me board files it on the caller, in
 the unplanned band; a Triage week gives it a week and no day; the drawer parks
-it; a Project column makes it a slot; the personal board files it in the
-caller's own repository) and refuses the fields it does not own
+it; a Project column makes it a slot) and refuses the fields it does not own
 (`ErrNotOnThisBoard`, `ErrViewNeedsField`). `CreateCard` is unchanged and
 takes anything, which is what an embedder with no board keeps using.
 
