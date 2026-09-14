@@ -481,6 +481,26 @@ func (v *visibleBackend) SetSize(ctx context.Context, bd board.Board, card board
 	return v.Backend.SetSize(ctx, bd, card, size)
 }
 
+// SetBacklog and SetDoneAt are wrapped like every other write door. Left
+// served straight from the embedded backend they were a hole: a read-only
+// visitor could park a card in a domain they cannot write (hiding its work
+// from the day boards), and SetDoneAt was a latent one shielded only by a
+// caller's order. Both write the card's own domain, so both take the card's
+// write check.
+func (v *visibleBackend) SetBacklog(ctx context.Context, bd board.Board, card board.Card, parked bool) error {
+	if err := v.write(ctx, bd, card); err != nil {
+		return err
+	}
+	return v.Backend.SetBacklog(ctx, bd, card, parked)
+}
+
+func (v *visibleBackend) SetDoneAt(ctx context.Context, bd board.Board, card board.Card, day string) error {
+	if err := v.write(ctx, bd, card); err != nil {
+		return err
+	}
+	return v.Backend.SetDoneAt(ctx, bd, card, day)
+}
+
 // SetPersonCapacity writes users/<login>.yaml, which lives in the PRIMARY
 // domain: people are the board's, not a domain's. So the right it needs is
 // the right to write the primary, whatever else the visitor can read.

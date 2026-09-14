@@ -98,9 +98,15 @@ type Server struct {
 	access    domainAccess
 	// setup, when non-nil, is the server waiting for its GitHub App to be
 	// installed on a board repository — serving the page that says so
-	// instead of the board. setupMu guards it and serialises retries.
+	// instead of the board. setupMu guards the field; retryMu single-flights
+	// the retry, so its clone runs alone and a burst of /auth/setup hits
+	// does not race several re-clones into one data directory.
 	setupMu sync.Mutex
 	setup   *setupState
+	retryMu sync.Mutex
+	// initGitFn opens the board — s.initGit in production, overridden in
+	// tests to observe the retry's single-flight without a real clone.
+	initGitFn func(Options, forge.Forge) error
 
 	// apiTokens resolves the token (and login) for an /api/v1 request. It
 	// defaults to tokenForRequest and is overridden in tests.
@@ -155,13 +161,22 @@ func (s *Server) inSetup() (*setupState, bool) {
 // retrySetup tries to open the board again — the person says they have
 // installed the app. One retry at a time; success ends the setup state.
 func (s *Server) retrySetup() {
+	// Single-flight: /auth/setup needs no session and has no rate limit, so a
+	// burst of hits would otherwise run several clones into one data directory
+	// at once — and cloneOrOpen's fallback removes the directory under any
+	// other clone in flight. A caller that finds a retry already running just
+	// leaves it to finish; it will re-render the setup page and see the result.
+	if !s.retryMu.TryLock() {
+		return
+	}
+	defer s.retryMu.Unlock()
 	s.setupMu.Lock()
 	st := s.setup
 	s.setupMu.Unlock()
 	if st == nil {
 		return
 	}
-	if err := s.initGit(s.opts, st.forge); err != nil {
+	if err := s.initGitFn(s.opts, st.forge); err != nil {
 		s.log.Warn("still waiting for the app installation", "err", err)
 		var notInstalled *forge.AppNotInstalledError
 		if errors.As(err, &notInstalled) {
@@ -246,6 +261,7 @@ func New(opts Options) (*Server, error) {
 	}
 	s.apiTokens = s.tokenForRequest
 	s.newService = s.defaultService
+	s.initGitFn = s.initGit
 	// The directory of people is read with the server's own credential in
 	// OAuth mode and with the CLI's on a single-user server.
 	var peopleToken func(context.Context) string
@@ -326,8 +342,25 @@ func New(opts Options) (*Server, error) {
 	}
 	s.registerAPI(mux)
 	mux.Handle("/", spaHandler(dist))
-	s.handler = logRequests(s.log, s.setupGate(clientIDMiddleware(s.csrfGuard(s.actorMiddleware(s.accessMiddleware(s.actionMiddleware(staleMiddleware(s.recordWriteGuard(mux)))))))))
+	s.handler = logRequests(s.log, limitBody(s.setupGate(clientIDMiddleware(s.csrfGuard(s.actorMiddleware(s.accessMiddleware(s.actionMiddleware(staleMiddleware(s.recordWriteGuard(mux))))))))))
 	return s, nil
+}
+
+// maxBodyBytes caps a request body. Every legitimate payload is far under it —
+// a description at 16k runes, a note at 4k — so the cap is what stops a caller
+// from streaming gigabytes into memory before any validation runs: the
+// service's own length caps run only after the whole body is already parsed and
+// allocated, and each open connection holds a goroutine.
+const maxBodyBytes = 8 << 20
+
+// limitBody caps every request body so no handler decodes an unbounded one.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // setupGate serves the waiting-for-installation state: the page with the

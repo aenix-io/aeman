@@ -2031,10 +2031,25 @@ func parseStage(w http.ResponseWriter, name string) (board.StageKey, bool) {
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(dst); err != nil {
+		if tooBig(w, err) {
+			return false
+		}
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return false
 	}
 	return true
+}
+
+// tooBig answers a body that ran past maxBodyBytes with 413 rather than a
+// confusing "invalid JSON". The cap is limitBody's; a legitimate payload never
+// reaches it.
+func tooBig(w http.ResponseWriter, err error) bool {
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return true
+	}
+	return false
 }
 
 // decodeJSONAllowingEmpty reads a body that the caller may legitimately have
@@ -2045,6 +2060,9 @@ func decodeJSONAllowingEmpty(w http.ResponseWriter, r *http.Request, dst any) bo
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		if errors.Is(err, io.EOF) {
 			return true
+		}
+		if tooBig(w, err) {
+			return false
 		}
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return false
@@ -2106,6 +2124,8 @@ func (s *Server) apiError(w http.ResponseWriter, _ *http.Request, err error) {
 		errors.Is(err, boardservice.ErrInvalidStage),
 		errors.Is(err, boardservice.ErrDescriptionTooLong),
 		errors.Is(err, boardservice.ErrNoteTooLong),
+		errors.Is(err, boardservice.ErrTitleTooLong),
+		errors.Is(err, boardservice.ErrBadDay),
 		errors.Is(err, boardservice.ErrSubtaskDepth),
 		errors.Is(err, boardservice.ErrSubtaskWeek),
 		// The × was told to do something the card does not allow: a slot or a

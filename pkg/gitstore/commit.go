@@ -322,21 +322,34 @@ func (r *Repo) commitLocked(msg string, author, committer object.Signature, writ
 }
 
 // message renders the summary and the trailer block.
+//
+// Every interpolated value passes through oneLine first. The trailer block IS
+// the activity log (it is what ParseTrailers reads back), so a value a caller
+// controls — a date, a title, a login, an id — must not be able to carry a
+// newline and open a forged `Aeman-` line of its own. Without this a date
+// like "2026-01-01\nAeman-Change: <victim> done - -\nAeman-Actor: lead" wrote
+// a done event on another card, attributed to someone else. Field validation
+// (dates, ids) is the first line; this is the one at the sink, past which
+// nothing reaches the message unescaped.
 func (a Action) message() string {
 	var b strings.Builder
-	b.WriteString(a.Summary)
-	b.WriteString("\n\nAeman-Action: " + a.Name + "\n")
+	b.WriteString(oneLine(a.Summary))
+	b.WriteString("\n\nAeman-Action: " + oneLine(a.Name) + "\n")
 	if a.ID != "" {
-		b.WriteString("Aeman-Action-Id: " + a.ID + "\n")
+		b.WriteString("Aeman-Action-Id: " + oneLine(a.ID) + "\n")
 	}
 	if a.Actor != "" {
-		b.WriteString("Aeman-Actor: " + a.Actor + "\n")
+		b.WriteString("Aeman-Actor: " + oneLine(a.Actor) + "\n")
 	}
 	if len(a.Cards) > 0 {
-		b.WriteString("Aeman-Cards: " + strings.Join(a.Cards, " ") + "\n")
+		cards := make([]string, len(a.Cards))
+		for i, c := range a.Cards {
+			cards[i] = oneLine(c)
+		}
+		b.WriteString("Aeman-Cards: " + strings.Join(cards, " ") + "\n")
 	}
 	for _, ch := range a.Changes {
-		b.WriteString("Aeman-Change: " + ch.Card + " " + ch.Kind + " " + dash(ch.From) + " " + dash(ch.To) + "\n")
+		b.WriteString("Aeman-Change: " + oneLine(ch.Card) + " " + oneLine(ch.Kind) + " " + oneLine(dash(ch.From)) + " " + oneLine(dash(ch.To)) + "\n")
 	}
 	keys := make([]string, 0, len(a.Trailers))
 	for k := range a.Trailers {
@@ -344,10 +357,18 @@ func (a Action) message() string {
 	}
 	sort.Strings(keys) // a stable order keeps identical actions byte-identical
 	for _, k := range keys {
-		b.WriteString(k + ": " + a.Trailers[k] + "\n")
+		b.WriteString(oneLine(k) + ": " + oneLine(a.Trailers[k]) + "\n")
 	}
 	return b.String()
 }
+
+// oneLine flattens CR and LF to a space so a trailer value cannot break out of
+// its line. A trailer is one line by construction; a legitimate value never
+// carries a newline, so collapsing one is lossless for real data and closes
+// the injection for hostile data.
+var trailerNewlines = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+
+func oneLine(s string) string { return trailerNewlines.Replace(s) }
 
 func dash(s string) string {
 	if s == "" {
